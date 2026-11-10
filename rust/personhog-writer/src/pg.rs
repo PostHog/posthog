@@ -20,7 +20,7 @@ const ALLOWED_TABLES: &[&str] = &["personhog_person_tmp", "posthog_person"];
 pub struct PgStore {
     pool: PgPool,
     upsert_sql: String,
-    /// Without it, new rows get empty properties and updates leave the properties columns alone.
+    /// Without it, the properties column is `{}` on insert and update, and the meta columns are left alone.
     properties: bool,
 }
 
@@ -71,7 +71,9 @@ impl PgStore {
                 table = table_name
             )
         } else {
-            String::new()
+            // The column is dead once properties live in SlateDB, and a row that predates the
+            // size constraint cannot be updated while it still holds them.
+            "properties = '{}'::jsonb,".to_string()
         };
         let upsert_sql = format!(
             "INSERT INTO {table} (

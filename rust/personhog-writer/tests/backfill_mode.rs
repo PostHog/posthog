@@ -373,6 +373,7 @@ async fn a_dual_writer_replays_the_changelog_the_backfill_group_never_committed(
                 .clone(),
             backfill_group: format!("backfill-{case}"),
             own_group: format!("dual-{case}"),
+            permits: Arc::new(tokio::sync::Semaphore::new(4)),
         };
         if let Some(offset) = backfill_commit {
             commit(&bootstrap, &catch_up.backfill_group, &[(TOPIC, 0, offset)]);
@@ -421,4 +422,113 @@ async fn a_dual_writer_replays_the_changelog_the_backfill_group_never_committed(
         }
         reader.close().await;
     }
+}
+
+#[tokio::test]
+async fn a_backfill_group_resumes_where_it_joined_after_a_restart_before_its_first_commit() {
+    let (cluster, producer) = common::create_mock_kafka_with_partitions(1).await;
+    cluster.create_topic(BACKFILL_TOPIC, 1, 1).unwrap();
+    let bootstrap = cluster.bootstrap_servers();
+    let team_id = i64::from(unique_team_id());
+    let group = "test-backfill-restart";
+    produce(&producer, TOPIC, 0, team_id, 1).await;
+    let probe: BaseConsumer = ClientConfig::new()
+        .set("bootstrap.servers", &bootstrap)
+        .set("group.id", group)
+        .set("enable.auto.commit", "false")
+        .create()
+        .unwrap();
+
+    // The backfill group's settings with a short session, so the restarted member joins without
+    // waiting out the first member's session. Polling is what lets a member join.
+    let member = || {
+        PersonConsumer::with_topics(
+            ClientConfig::new()
+                .set("bootstrap.servers", &bootstrap)
+                .set("group.id", group)
+                .set("enable.auto.commit", "false")
+                .set("enable.auto.offset.store", "false")
+                .set("auto.offset.reset", "latest")
+                .set("partition.assignment.strategy", "range")
+                .set("enable.partition.eof", "true")
+                .set("session.timeout.ms", "6000")
+                .set("heartbeat.interval.ms", "1000"),
+            TOPIC.to_string(),
+            Some(BACKFILL_TOPIC.to_string()),
+        )
+        .unwrap()
+    };
+    let first = member();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while committed(&probe, TOPIC, 0).is_none() || committed(&probe, BACKFILL_TOPIC, 0).is_none() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the group never committed where it joined"
+        );
+        drop(tokio::time::timeout(Duration::from_millis(200), first.recv()).await);
+    }
+    assert_eq!(committed(&probe, TOPIC, 0), Some(1));
+    // Records arrive while the first member is up, and it dies before any flush commits them.
+    for id in 2..=4 {
+        produce(&producer, TOPIC, 0, team_id, id).await;
+    }
+    drop(first);
+
+    let second = member();
+    let mut received = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while received.len() < 3 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the restarted member saw only {received:?}"
+        );
+        match tokio::time::timeout(Duration::from_millis(500), second.recv()).await {
+            Ok(Ok(message)) if message.topic() == TOPIC => received.push(message.offset()),
+            Ok(Ok(_)) | Ok(Err(rdkafka::error::KafkaError::PartitionEOF(_))) | Err(_) => {}
+            Ok(Err(e)) => panic!("{e}"),
+        }
+    }
+    assert_eq!(received, vec![1, 2, 3]);
+}
+
+#[tokio::test]
+async fn replays_wait_for_a_permit() {
+    let (cluster, producer) = common::create_mock_kafka_with_partitions(1).await;
+    let bootstrap = cluster.bootstrap_servers();
+    let team_id = i64::from(unique_team_id());
+    produce(&producer, TOPIC, 0, team_id, 1).await;
+    let catch_up = CatchUp {
+        base: ClientConfig::new()
+            .set("bootstrap.servers", &bootstrap)
+            .clone(),
+        backfill_group: "backfill-permit".to_string(),
+        own_group: "dual-permit".to_string(),
+        permits: Arc::new(tokio::sync::Semaphore::new(1)),
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let object_store: Arc<dyn ObjectStore> =
+        Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+    let config = PropertyStoreConfig::local("props", 1);
+    let writer = PropertyWriter::new(&config, Arc::clone(&object_store));
+    let key = PartitionKey {
+        topic: Arc::from(TOPIC),
+        partition: 0,
+    };
+    writer.assign(&key, 1, 1, || true).await.unwrap();
+    let mut manager = Manager::builder("test").with_trap_signals(false).build();
+    let handle = manager.register("property-ownership", ComponentOptions::new());
+    let _monitor = manager.monitor_background();
+    let range = Range { from: 0, to: 1 };
+
+    let held = catch_up.permits.clone().try_acquire_owned().unwrap();
+    let replay = catch_up::replay(&catch_up, &writer, &key, 1, range, &handle, || true);
+    let waiting = tokio::time::timeout(Duration::from_secs(2), replay).await;
+    assert!(waiting.is_err(), "a replay ran without a permit");
+    drop(held);
+
+    let outcome = catch_up::replay(&catch_up, &writer, &key, 1, range, &handle, || true)
+        .await
+        .unwrap();
+    assert_eq!(outcome, catch_up::Outcome::Finished { rows: 1 });
+    writer.close().await;
 }

@@ -31,6 +31,7 @@ pub fn property_record(person: &Person) -> PropertyRecord {
         person_id: person.id,
         version: person.version,
         deleted: person.is_deleted,
+        created_at: person.created_at,
         properties: Bytes::copy_from_slice(&person.properties),
     }
 }

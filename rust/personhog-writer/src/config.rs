@@ -72,6 +72,18 @@ pub struct Config {
     #[envconfig(default = "")]
     pub property_backfill_group: String,
 
+    /// How many of those replays run at once; each holds a consumer with its own prefetch.
+    #[envconfig(default = "4")]
+    pub property_catch_up_concurrency: usize,
+
+    /// Where `backfill` runs keep their plan and progress, an object store URL outside the property store.
+    #[envconfig(default = "")]
+    pub property_backfill_state_url: String,
+
+    /// A scanned document over the backfill topic's message limit is trimmed to this size, the leader's rule.
+    #[envconfig(default = "524288")]
+    pub properties_trim_target: usize,
+
     // ── Postgres ─────────────────────────────────────────────────
     pub database_url: String,
 

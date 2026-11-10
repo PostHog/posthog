@@ -9,7 +9,9 @@ use common_kafka::kafka_producer::KafkaContext;
 use futures::future::try_join_all;
 use metrics::{counter, histogram};
 use personhog_common::partitioning::partition_for_person;
-use personhog_common::properties::parse_stored_properties;
+use personhog_common::properties::{
+    parse_stored_properties, trim_properties_to_fit_size, TrimResult,
+};
 use personhog_property_store::object_store::path::Path as ObjectPath;
 use personhog_property_store::object_store::{
     ObjectStore, ObjectStoreExt, PutMode, PutOptions, PutPayload,
@@ -43,6 +45,8 @@ pub enum BackfillError {
 #[derive(Debug, Clone)]
 pub enum Scanned {
     Record(PropertyRecord),
+    /// A record whose document was over the backfill topic's limit and was trimmed to fit.
+    Trimmed(PropertyRecord),
     Reject {
         team_id: i64,
         person_id: i64,
@@ -53,7 +57,7 @@ pub enum Scanned {
 impl Scanned {
     pub(crate) fn cursor(&self) -> Cursor {
         match self {
-            Scanned::Record(record) => Cursor {
+            Scanned::Record(record) | Scanned::Trimmed(record) => Cursor {
                 team_id: record.team_id,
                 person_id: record.person_id,
             },
@@ -230,10 +234,16 @@ pub struct Scan {
     query: String,
     range: KeyRange,
     page_size: i64,
+    limits: SizeLimits,
 }
 
 impl Scan {
-    pub fn new(pool: PgPool, range: KeyRange, page_size: i64) -> Result<Self, BackfillError> {
+    pub fn new(
+        pool: PgPool,
+        range: KeyRange,
+        page_size: i64,
+        limits: SizeLimits,
+    ) -> Result<Self, BackfillError> {
         validate_name(&range.table, false)?;
         let upper = if range.through.is_some() {
             " AND (team_id, id) <= ($4, $5)"
@@ -243,13 +253,14 @@ impl Scan {
         Ok(Self {
             pool,
             query: format!(
-                "SELECT team_id, id, version, is_deleted, \
+                "SELECT team_id, id, version, is_deleted, created_at, \
                  CASE WHEN is_deleted THEN NULL ELSE properties::text END AS properties \
                  FROM {} WHERE (team_id, id) > ($1, $2){upper} ORDER BY team_id, id LIMIT $3",
                 range.table
             ),
             range,
             page_size: page_size.max(1),
+            limits,
         })
     }
 
@@ -280,13 +291,16 @@ impl Scan {
                 let person_id: i64 = row.get("id");
                 let version: Option<i64> = row.get("version");
                 let deleted: bool = row.get("is_deleted");
+                let created_at: chrono::DateTime<chrono::Utc> = row.get("created_at");
                 let text: Option<&str> = row.get("properties");
                 to_scanned(
                     i64::from(team_id),
                     person_id,
                     version.unwrap_or(0),
                     deleted,
+                    created_at.timestamp_millis(),
                     text,
+                    &self.limits,
                 )
             })
             .collect())
@@ -317,6 +331,7 @@ impl TopicSink {
                     id: record.person_id,
                     version: record.version,
                     is_deleted: record.deleted,
+                    created_at: record.created_at,
                     properties: record.properties.to_vec(),
                     ..Default::default()
                 };
@@ -349,37 +364,83 @@ impl TopicSink {
     }
 }
 
-/// Matches the leader's Postgres load, so the store serves the bytes the leader would have.
+/// The backfill topic's message limit, and the size the leader trims a document to when it is
+/// over its own threshold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SizeLimits {
+    pub message_bytes: usize,
+    pub trim_target: usize,
+}
+
+/// Matches the leader's Postgres load, so the store serves the bytes the leader would have. A
+/// document the backfill topic would refuse is trimmed the way the leader trims one over its
+/// threshold, since the leader would do that on the person's next write anyway.
 pub(crate) fn to_scanned(
     team_id: i64,
     person_id: i64,
     version: i64,
     deleted: bool,
+    created_at: i64,
     text: Option<&str>,
+    limits: &SizeLimits,
 ) -> Scanned {
-    let properties = match (deleted, text) {
-        (true, _) | (false, None) => Bytes::new(),
-        (false, Some(text)) => match parse_stored_properties(text)
-            .map_err(|e| e.to_string())
-            .and_then(|parsed| serde_json::to_vec(&parsed.value).map_err(|e| e.to_string()))
-        {
-            Ok(bytes) => Bytes::from(bytes),
-            Err(reason) => {
-                return Scanned::Reject {
-                    team_id,
-                    person_id,
-                    reason,
-                }
-            }
-        },
+    let reject = |reason: String| Scanned::Reject {
+        team_id,
+        person_id,
+        reason,
     };
-    Scanned::Record(PropertyRecord {
+    let (properties, trimmed) = match (deleted, text) {
+        (true, _) | (false, None) => (Bytes::new(), false),
+        (false, Some(text)) => {
+            let parsed = match parse_stored_properties(text) {
+                Ok(parsed) => parsed,
+                Err(e) => return reject(e.to_string()),
+            };
+            match fit(&parsed.value, limits) {
+                Ok((bytes, trimmed)) => (Bytes::from(bytes), trimmed),
+                Err(reason) => return reject(reason),
+            }
+        }
+    };
+    let record = PropertyRecord {
         team_id,
         person_id,
         version,
         deleted,
+        created_at,
         properties,
-    })
+    };
+    if trimmed {
+        Scanned::Trimmed(record)
+    } else {
+        Scanned::Record(record)
+    }
+}
+
+fn fit(value: &serde_json::Value, limits: &SizeLimits) -> Result<(Vec<u8>, bool), String> {
+    let bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
+    if bytes.len() <= limits.message_bytes {
+        return Ok((bytes, false));
+    }
+    let trimmed = match trim_properties_to_fit_size(value, limits.trim_target) {
+        TrimResult::Trimmed(trimmed) => trimmed,
+        TrimResult::Fits | TrimResult::CannotFit => {
+            return Err(format!(
+                "{} bytes exceed the backfill message limit and nothing can be trimmed",
+                bytes.len()
+            ))
+        }
+    };
+    let bytes = serde_json::to_vec(&trimmed).map_err(|e| e.to_string())?;
+    if bytes.len() <= limits.message_bytes {
+        Ok((bytes, true))
+    } else {
+        Err(format!(
+            "{} bytes still exceed the backfill message limit after trimming to {}",
+            bytes.len(),
+            limits.trim_target
+        ))
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -387,6 +448,7 @@ pub struct Counts {
     pub read: u64,
     pub written: u64,
     pub deleted: u64,
+    pub trimmed: u64,
     pub rejected: u64,
 }
 
@@ -398,6 +460,7 @@ impl Counts {
             "read": self.read,
             "written": self.written,
             "deleted": self.deleted,
+            "trimmed": self.trimmed,
             "rejected": self.rejected,
         })
         .to_string()
@@ -426,6 +489,7 @@ impl Counts {
                 read: field("read")?,
                 written: field("written")?,
                 deleted: field("deleted")?,
+                trimmed: field("trimmed")?,
                 rejected: field("rejected")?,
             },
         ))
@@ -438,15 +502,12 @@ pub struct Run {
 }
 
 impl Run {
-    pub fn new(
-        store: Arc<dyn ObjectStore>,
-        prefix: &str,
-        run_id: &str,
-    ) -> Result<Self, BackfillError> {
+    /// A run's plan and progress live under `backfill/<run>` in the backfill state store.
+    pub fn new(store: Arc<dyn ObjectStore>, run_id: &str) -> Result<Self, BackfillError> {
         validate_name(run_id, true)?;
         Ok(Self {
             store,
-            root: format!("{}/maintenance/backfill/{run_id}", prefix.trim_matches('/')),
+            root: format!("backfill/{run_id}"),
         })
     }
 
@@ -532,19 +593,6 @@ impl Progress {
             None => Ok((start, Counts::default())),
         }
     }
-
-    async fn reject(
-        &self,
-        team_id: i64,
-        person_id: i64,
-        reason: &str,
-    ) -> Result<(), BackfillError> {
-        self.write(
-            &format!("rejects/{team_id}-{person_id}"),
-            reason.as_bytes().to_vec(),
-        )
-        .await
-    }
 }
 
 pub enum Outcome {
@@ -577,8 +625,16 @@ pub async fn run_range(
         let mut records = Vec::with_capacity(page.len());
         for scanned in page {
             counts.read += 1;
+            if let Scanned::Trimmed(record) = &scanned {
+                tracing::warn!(
+                    team_id = record.team_id,
+                    person_id = record.person_id,
+                    "document trimmed to fit the backfill topic"
+                );
+                counts.trimmed += 1;
+            }
             match scanned {
-                Scanned::Record(record) => {
+                Scanned::Record(record) | Scanned::Trimmed(record) => {
                     if record.deleted {
                         counts.deleted += 1;
                     }
@@ -591,7 +647,6 @@ pub async fn run_range(
                     reason,
                 } => {
                     tracing::warn!(team_id, person_id, reason, "row rejected");
-                    progress.reject(team_id, person_id, &reason).await?;
                     counts.rejected += 1;
                 }
             }
@@ -600,6 +655,7 @@ pub async fn run_range(
             ("read", counts.read - before.read),
             ("written", counts.written - before.written),
             ("deleted", counts.deleted - before.deleted),
+            ("trimmed", counts.trimmed - before.trimmed),
             ("rejected", counts.rejected - before.rejected),
         ] {
             counter!("personhog_backfill_rows_total", "outcome" => outcome).increment(rows);
@@ -620,6 +676,7 @@ pub async fn run_worker(
     index: usize,
     workers: usize,
     page_size: i64,
+    limits: SizeLimits,
 ) -> Result<Counts, BackfillError> {
     if workers == 0 || index >= workers {
         return Err(BackfillError::Config(format!(
@@ -636,7 +693,7 @@ pub async fn run_worker(
         .step_by(workers)
     {
         tracing::info!(number, ?range, "scanning range");
-        let scan = Scan::new(pool.clone(), range, page_size)?;
+        let scan = Scan::new(pool.clone(), range, page_size, limits)?;
         let (outcome, counts) = match run_range(&scan, sink, &run.range(number)).await? {
             Outcome::Finished(counts) => ("finished", counts),
             Outcome::AlreadyDone(counts) => ("already_done", counts),
@@ -646,6 +703,7 @@ pub async fn run_worker(
         total.read += counts.read;
         total.written += counts.written;
         total.deleted += counts.deleted;
+        total.trimmed += counts.trimmed;
         total.rejected += counts.rejected;
     }
     Ok(total)
@@ -673,20 +731,35 @@ pub(crate) fn validate_name(value: &str, allow_dash: bool) -> Result<(), Backfil
 mod tests {
     use super::*;
 
+    const UNBOUNDED: SizeLimits = SizeLimits {
+        message_bytes: usize::MAX,
+        trim_target: usize::MAX,
+    };
+
     fn record(scanned: Scanned) -> PropertyRecord {
         match scanned {
             Scanned::Record(record) => record,
+            Scanned::Trimmed(record) => panic!("trimmed: {record:?}"),
             Scanned::Reject { reason, .. } => panic!("rejected: {reason}"),
         }
     }
 
     #[test]
     fn rows_are_stored_as_the_leader_would_load_them() {
-        let live = record(to_scanned(7, 1, 3, false, Some(r#"{"a": 1, "b": "x"}"#)));
+        let live = record(to_scanned(
+            7,
+            1,
+            3,
+            false,
+            1_700_000_000_000,
+            Some(r#"{"a": 1, "b": "x"}"#),
+            &UNBOUNDED,
+        ));
         assert_eq!(&live.properties[..], br#"{"a":1,"b":"x"}"#);
+        assert_eq!(live.created_at, 1_700_000_000_000);
 
         let huge = format!(r#"{{"n": 1{}}}"#, "0".repeat(400));
-        let rewritten = record(to_scanned(7, 2, 3, false, Some(&huge)));
+        let rewritten = record(to_scanned(7, 2, 3, false, 0, Some(&huge), &UNBOUNDED));
         let expected = parse_stored_properties(&huge).unwrap();
         assert!(
             expected.rewritten,
@@ -697,17 +770,53 @@ mod tests {
             Bytes::from(serde_json::to_vec(&expected.value).unwrap())
         );
 
-        let deleted = record(to_scanned(7, 3, 5, true, None));
+        let deleted = record(to_scanned(7, 3, 5, true, 0, None, &UNBOUNDED));
         assert!(deleted.deleted && deleted.properties.is_empty());
     }
 
     #[test]
     fn a_row_no_parse_can_read_is_rejected_with_its_person() {
         let nested = format!("{}1{}", "[".repeat(200), "]".repeat(200));
-        match to_scanned(7, 9, 1, false, Some(&nested)) {
+        match to_scanned(7, 9, 1, false, 0, Some(&nested), &UNBOUNDED) {
             Scanned::Reject { person_id, .. } => assert_eq!(person_id, 9),
-            Scanned::Record(_) => panic!("a document serde cannot parse was accepted"),
+            Scanned::Record(_) | Scanned::Trimmed(_) => {
+                panic!("a document serde cannot parse was accepted")
+            }
         }
+    }
+
+    #[test]
+    fn a_document_over_the_message_limit_is_trimmed_like_the_leader_would() {
+        let big = "x".repeat(600);
+        let text = format!(r#"{{"email": "keep", "note": "{big}", "tag": "{big}"}}"#);
+        let limits = SizeLimits {
+            message_bytes: 700,
+            trim_target: 300,
+        };
+
+        let trimmed = match to_scanned(7, 4, 2, false, 0, Some(&text), &limits) {
+            Scanned::Trimmed(record) => record,
+            other => panic!("expected a trimmed record, got {other:?}"),
+        };
+        let document: serde_json::Value = serde_json::from_slice(&trimmed.properties).unwrap();
+
+        assert!(trimmed.properties.len() <= limits.message_bytes);
+        assert_eq!(document["email"], "keep");
+        assert!(matches!(
+            to_scanned(
+                7,
+                5,
+                2,
+                false,
+                0,
+                Some(&text),
+                &SizeLimits {
+                    message_bytes: 10,
+                    trim_target: 300
+                }
+            ),
+            Scanned::Reject { person_id: 5, .. }
+        ));
     }
 
     #[test]

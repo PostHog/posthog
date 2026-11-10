@@ -28,6 +28,7 @@ use personhog_writer::config::{Config, PropertyStorageMode};
 use personhog_writer::consumer::ConsumerTask;
 use personhog_writer::kafka::{base_client_config, changelog_kafka, PersonConsumer};
 use personhog_writer::pg::PgStore;
+use personhog_writer::properties_cli;
 use personhog_writer::store::PersonWriteStore;
 use personhog_writer::writer::WriterTask;
 
@@ -48,6 +49,8 @@ struct Cli {
 enum Command {
     /// Loads the person properties already in Postgres into SlateDB through the backfill topic.
     Backfill(backfill::cli::Backfill),
+    /// Reads one person's properties from SlateDB next to its Postgres row.
+    Properties(properties_cli::Properties),
     /// Copies missing SSTs into each directory bucket and removes copies Standard no longer has.
     ExpressRepair(ExpressRepairArgs),
 }
@@ -85,6 +88,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Command::Backfill(backfill)) => {
             let config = Config::init_from_env().expect("Invalid configuration");
             return backfill::cli::run(backfill, &config).await;
+        }
+        Some(Command::Properties(properties)) => {
+            let config = Config::init_from_env().expect("Invalid configuration");
+            return properties_cli::run(properties, &config).await;
         }
         Some(Command::ExpressRepair(args)) => return express_repair(args).await,
         None => {}
@@ -130,11 +137,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if config.property_backfill_topic.is_empty() {
             return Err("backfill mode needs PROPERTY_BACKFILL_TOPIC".into());
         }
+        if config.property_backfill_topic == loaded.topic {
+            return Err("PROPERTY_BACKFILL_TOPIC is the changelog itself".into());
+        }
         if !loaded.draining.is_empty() {
             return Err("a changelog migration is draining; backfill after it finishes".into());
         }
     } else if !config.property_backfill_group.is_empty() && mode != PropertyStorageMode::Dual {
         return Err("PROPERTY_BACKFILL_GROUP is read in dual mode only".into());
+    } else if config.property_backfill_group == config.kafka_consumer_group {
+        return Err(
+            "PROPERTY_BACKFILL_GROUP is this writer's own group, so the catch-up would replay nothing"
+                .into(),
+        );
     } else if loaded.writer_group != config.kafka_consumer_group {
         return Err(format!(
             "config/changelog names writer group {} but KAFKA_CONSUMER_GROUP is {}",
@@ -351,6 +366,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 base: base_client_config(&changelog),
                 backfill_group: config.property_backfill_group.clone(),
                 own_group: config.kafka_consumer_group.clone(),
+                permits: Arc::new(tokio::sync::Semaphore::new(
+                    config.property_catch_up_concurrency.max(1),
+                )),
             }),
             ownership_handle.expect("registered when the property store is enabled"),
         ));

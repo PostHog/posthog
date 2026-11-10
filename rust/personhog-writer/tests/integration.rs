@@ -198,8 +198,8 @@ async fn a_writer_without_properties_keeps_only_the_identity_columns_current() {
 
     assert_eq!(
         fetch(1).await,
-        (2, true, serde_json::json!({"email": "test@example.com"})),
-        "an update leaves the properties it found"
+        (2, true, serde_json::json!({})),
+        "an update empties the properties column"
     );
     assert_eq!(
         fetch(2).await,

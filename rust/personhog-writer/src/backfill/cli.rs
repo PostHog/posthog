@@ -1,5 +1,6 @@
-//! The one-time load of existing person properties into SlateDB: `plan` splits the person table
-//! into key ranges, and `scan` workers publish their ranges onto the backfill topic.
+//! The one-time load of existing person properties into SlateDB: `ready` checks the writer has
+//! caught up to the backfill group, `plan` splits the person table into key ranges, `scan`
+//! workers publish their ranges onto the backfill topic, and `verify` compares the two stores.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,15 +11,21 @@ use common_database::{get_pool_with_config, PoolConfig};
 use common_metrics::setup_metrics_routes;
 use personhog_coordination::changelog::{load_changelog_config, CHANGELOG_BOOT_POLL_INTERVAL};
 use personhog_coordination::store::PersonhogStore;
+use personhog_coordination::types::ChangelogConfig;
+use personhog_property_store::object_store::ObjectStore;
 use rdkafka::producer::Producer;
 use tokio_util::sync::CancellationToken;
 
-use crate::backfill::scanner::{self, Run, TopicSink};
+use crate::backfill::ready;
+use crate::backfill::scanner::{self, Run, SizeLimits, TopicSink};
 use crate::backfill::verify::{self, Live, Verification};
 use crate::config::Config;
-use crate::kafka::changelog_kafka;
+use crate::kafka::{base_client_config, changelog_kafka};
 
 const METADATA_TIMEOUT: Duration = Duration::from_secs(10);
+/// Room for the message key and the record's other fields inside the producer's message limit.
+const MESSAGE_OVERHEAD: usize = 4096;
+const DEFAULT_MESSAGE_MAX_BYTES: usize = 1_000_000;
 
 #[derive(clap::Args)]
 pub struct Backfill {
@@ -28,6 +35,8 @@ pub struct Backfill {
 
 #[derive(clap::Subcommand)]
 enum Command {
+    /// Checks that the writer group's commits have passed the backfill group's start everywhere.
+    Ready,
     /// Splits the source table into the key ranges a run scans.
     Plan(PlanArgs),
     /// Scans this worker's share of a planned run onto the backfill topic.
@@ -60,7 +69,7 @@ struct ScanArgs {
 
 #[derive(clap::Args)]
 struct VerifyArgs {
-    /// The run whose plan supplies the key ranges; the findings go under the same id.
+    /// The run whose plan supplies the key ranges; the progress goes under the same id.
     #[arg(long)]
     run_id: String,
     #[arg(long)]
@@ -79,15 +88,104 @@ struct VerifyArgs {
 
 pub async fn run(backfill: Backfill, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     match backfill.command {
+        Command::Ready => ready(config).await,
         Command::Plan(args) => plan(config, args).await,
         Command::Scan(args) => scan(config, args).await,
         Command::Verify(args) => verify(config, args).await,
     }
 }
 
+/// The scanner's size limits: the producer's message limit less the record's overhead, and the
+/// leader's trim target.
+pub(crate) fn limits(config: &Config) -> SizeLimits {
+    SizeLimits {
+        message_bytes: config
+            .kafka
+            .kafka_producer_message_max_bytes
+            .map_or(DEFAULT_MESSAGE_MAX_BYTES, |bytes| bytes as usize)
+            .saturating_sub(MESSAGE_OVERHEAD),
+        trim_target: config.properties_trim_target,
+    }
+}
+
+/// The object store a run's plan and progress live in, never the property store itself.
+fn state_store(config: &Config) -> Result<Arc<dyn ObjectStore>, Box<dyn std::error::Error>> {
+    let url = config.property_backfill_state_url.trim_end_matches('/');
+    if url.is_empty() {
+        return Err("backfill runs need PROPERTY_BACKFILL_STATE_URL".into());
+    }
+    if config
+        .property_store
+        .url()
+        .is_ok_and(|store| store.trim_end_matches('/') == url)
+    {
+        return Err("PROPERTY_BACKFILL_STATE_URL must not be the property store".into());
+    }
+    let mut state = config.property_store.clone();
+    state.url = Some(url.to_string());
+    Ok(personhog_property_store::object_store(&state)?)
+}
+
+async fn changelog(config: &Config) -> Result<Option<ChangelogConfig>, Box<dyn std::error::Error>> {
+    let store = EtcdStore::connect_with_member_failover(StoreConfig {
+        endpoints: config.etcd_endpoint_list(),
+        prefix: config.etcd_prefix.clone(),
+    })
+    .await?;
+    let store = PersonhogStore::new(store);
+    Ok(load_changelog_config(
+        &store,
+        CHANGELOG_BOOT_POLL_INTERVAL,
+        &CancellationToken::new(),
+    )
+    .await?)
+}
+
+async fn ready(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+    if config.property_backfill_group.is_empty() {
+        return Err("the readiness check needs PROPERTY_BACKFILL_GROUP".into());
+    }
+    let Some(loaded) = changelog(config).await? else {
+        return Err("no changelog config is registered".into());
+    };
+    let base = base_client_config(&changelog_kafka(&config.kafka, loaded.cluster.as_ref()));
+    let topic = loaded.topic.clone();
+    let partitions = loaded.partitions;
+    let (writer, backfill) = {
+        let (base, writer_group, backfill_group) = (
+            base.clone(),
+            loaded.writer_group.clone(),
+            config.property_backfill_group.clone(),
+        );
+        tokio::task::spawn_blocking(move || {
+            Ok::<_, rdkafka::error::KafkaError>((
+                ready::committed_offsets(&base, &writer_group, &topic, partitions)?,
+                ready::committed_offsets(&base, &backfill_group, &topic, partitions)?,
+            ))
+        })
+        .await??
+    };
+    let lagging = ready::not_ready(&writer, &backfill, partitions);
+    for partition in &lagging {
+        println!(
+            "partition {} not ready: writer group at {:?}, backfill group started at {:?}",
+            partition.partition, partition.writer, partition.backfill
+        );
+    }
+    if lagging.is_empty() {
+        println!(
+            "ready: the writer group has passed the backfill group's start on all {partitions} partitions"
+        );
+        Ok(())
+    } else {
+        Err(format!("{} of {partitions} partitions are not ready", lagging.len()).into())
+    }
+}
+
 async fn verify(config: &Config, args: VerifyArgs) -> Result<(), Box<dyn std::error::Error>> {
     serve_metrics(config.metrics_port);
     let pool = pool(config)?;
+    let limits = limits(config);
     let live = match &args.live_database_url {
         Some(url) => Some(Live::new(
             get_pool_with_config(
@@ -100,17 +198,13 @@ async fn verify(config: &Config, args: VerifyArgs) -> Result<(), Box<dyn std::er
                 },
             )?,
             &config.pg_target_table,
+            limits,
         )?),
         None => None,
     };
-    let object_store = personhog_property_store::object_store(&config.property_store)?;
-    let run = Run::new(
-        Arc::clone(&object_store),
-        &config.property_store.prefix,
-        &args.run_id,
-    )?;
-    let verification =
-        Verification::new(object_store, &config.property_store.prefix, &args.run_id)?;
+    let state = state_store(config)?;
+    let run = Run::new(Arc::clone(&state), &args.run_id)?;
+    let verification = Verification::new(state, &args.run_id)?;
     let reader = personhog_property_store::PropertyReader::new(
         &config.property_store,
         personhog_property_store::reader_object_store(&config.property_store)?,
@@ -128,6 +222,7 @@ async fn verify(config: &Config, args: VerifyArgs) -> Result<(), Box<dyn std::er
         reader: &reader,
         live: live.as_ref(),
         verification: &verification,
+        limits,
     }
     .run_worker(
         &run,
@@ -149,8 +244,7 @@ async fn verify(config: &Config, args: VerifyArgs) -> Result<(), Box<dyn std::er
 
 async fn plan(config: &Config, args: PlanArgs) -> Result<(), Box<dyn std::error::Error>> {
     let pool = pool(config)?;
-    let object_store = personhog_property_store::object_store(&config.property_store)?;
-    let run = Run::new(object_store, &config.property_store.prefix, &args.run_id)?;
+    let run = Run::new(state_store(config)?, &args.run_id)?;
     let plan = scanner::plan(&pool, &config.pg_target_table, args.rows_per_range).await?;
     run.save_plan(&plan).await?;
     tracing::info!(
@@ -167,23 +261,14 @@ async fn scan(config: &Config, args: ScanArgs) -> Result<(), Box<dyn std::error:
         return Err("the backfill needs PROPERTY_BACKFILL_TOPIC".into());
     }
     serve_metrics(config.metrics_port);
-    let store = EtcdStore::connect_with_member_failover(StoreConfig {
-        endpoints: config.etcd_endpoint_list(),
-        prefix: config.etcd_prefix.clone(),
-    })
-    .await?;
-    let store = PersonhogStore::new(store);
-    let Some(loaded) = load_changelog_config(
-        &store,
-        CHANGELOG_BOOT_POLL_INTERVAL,
-        &CancellationToken::new(),
-    )
-    .await?
-    else {
+    let Some(loaded) = changelog(config).await? else {
         return Ok(());
     };
     if !loaded.draining.is_empty() {
         return Err("a changelog migration is draining; backfill after it finishes".into());
+    }
+    if config.property_backfill_topic == loaded.topic {
+        return Err("PROPERTY_BACKFILL_TOPIC is the changelog itself".into());
     }
 
     let producer = common_kafka::kafka_producer::create_kafka_producer(
@@ -218,8 +303,7 @@ async fn scan(config: &Config, args: ScanArgs) -> Result<(), Box<dyn std::error:
     }
 
     let pool = pool(config)?;
-    let object_store = personhog_property_store::object_store(&config.property_store)?;
-    let run = Run::new(object_store, &config.property_store.prefix, &args.run_id)?;
+    let run = Run::new(state_store(config)?, &args.run_id)?;
     let sink = TopicSink::new(
         producer,
         config.property_backfill_topic.clone(),
@@ -232,8 +316,16 @@ async fn scan(config: &Config, args: ScanArgs) -> Result<(), Box<dyn std::error:
         topic = %config.property_backfill_topic,
         "starting backfill worker"
     );
-    let counts =
-        scanner::run_worker(&pool, &sink, &run, args.index, args.workers, args.page_size).await?;
+    let counts = scanner::run_worker(
+        &pool,
+        &sink,
+        &run,
+        args.index,
+        args.workers,
+        args.page_size,
+        limits(config),
+    )
+    .await?;
     tracing::info!(?counts, "backfill worker finished");
     Ok(())
 }

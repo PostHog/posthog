@@ -86,6 +86,8 @@ struct RebalanceContext {
     revoked: Arc<Mutex<Vec<Source>>>,
     joined: Arc<AtomicBool>,
     ownership: Arc<Ownership>,
+    /// A group that starts at the end of its topics commits that start on assignment.
+    starts_at_latest: bool,
 }
 
 impl ClientContext for RebalanceContext {
@@ -130,6 +132,61 @@ impl ConsumerContext for RebalanceContext {
                 self.revoked.lock().unwrap().extend(revoked_sources);
             }
             Rebalance::Error(_) => {}
+        }
+    }
+
+    fn post_rebalance(&self, base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
+        if let (true, Rebalance::Assign(partitions)) = (self.starts_at_latest, rebalance) {
+            commit_starting_offsets(base_consumer, partitions);
+        }
+    }
+}
+
+/// `latest` is resolved at the first fetch and nothing commits it before a flush, so a pod that
+/// restarted in between would resolve it again, past the records produced meanwhile. The high
+/// watermark at assignment is at or before that start, so a restart resumes without a gap.
+fn commit_starting_offsets(
+    consumer: &BaseConsumer<RebalanceContext>,
+    partitions: &TopicPartitionList,
+) {
+    let timeout = std::time::Duration::from_secs(10);
+    let committed = match consumer.committed_offsets(partitions.clone(), timeout) {
+        Ok(committed) => committed,
+        Err(e) => {
+            tracing::warn!(error = %e, "committed offsets unavailable; the start is committed at the first flush");
+            return;
+        }
+    };
+    let mut starts = TopicPartitionList::new();
+    for e in committed.elements() {
+        if matches!(e.offset(), rdkafka::Offset::Offset(_)) {
+            continue;
+        }
+        match consumer.fetch_watermarks(e.topic(), e.partition(), timeout) {
+            Ok((_, high)) => {
+                starts
+                    .add_partition_offset(e.topic(), e.partition(), rdkafka::Offset::Offset(high))
+                    .ok();
+            }
+            Err(error) => {
+                tracing::warn!(topic = e.topic(), partition = e.partition(), %error, "watermarks unavailable; the start is committed at the first flush");
+            }
+        }
+    }
+    if starts.count() == 0 {
+        return;
+    }
+    match consumer.commit(&starts, CommitMode::Sync) {
+        Ok(()) => {
+            counter!("personhog_writer_start_offsets_committed_total")
+                .increment(starts.count() as u64);
+            tracing::info!(
+                partitions = starts.count(),
+                "committed the group's starting offsets"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "committing starting offsets failed; the start is committed at the first flush");
         }
     }
 }
@@ -255,6 +312,7 @@ impl PersonConsumer {
                 revoked: Arc::clone(&revoked),
                 joined: Arc::clone(&joined),
                 ownership: Arc::clone(&ownership),
+                starts_at_latest: backfill_topic.is_some(),
             })?;
         consumer.subscribe(&subscription(&topic, backfill_topic.as_deref()))?;
         Ok(Self {

@@ -2,6 +2,7 @@
 //! group's. The backfill writers stop before `dual` starts, so that offset no longer moves, and a
 //! replay a crash interrupts repeats in full on the next owner.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use lifecycle::Handle;
@@ -13,7 +14,7 @@ use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::error::KafkaError;
 use rdkafka::message::Message as KafkaMessage;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 
 use crate::property_ownership::property_record;
 
@@ -27,6 +28,8 @@ pub struct CatchUp {
     pub base: ClientConfig,
     pub backfill_group: String,
     pub own_group: String,
+    /// Bounds the replays in flight; each holds a consumer and its prefetch.
+    pub permits: Arc<Semaphore>,
 }
 
 /// The changelog offsets `[from, to)` the backfill writer may not have written.
@@ -94,6 +97,8 @@ impl CatchUp {
             // Retention may have deleted the range's start; the rest of it is still there.
             .set("auto.offset.reset", "earliest")
             .set("isolation.level", "read_committed")
+            // 8 MiB of prefetch per replay rather than librdkafka's 64 MiB.
+            .set("queued.max.messages.kbytes", "8192")
             .create()?;
         let mut tpl = TopicPartitionList::new();
         tpl.add_partition_offset(topic, partition, Offset::Offset(range.from))?;
@@ -155,6 +160,7 @@ pub async fn replay(
     handle: &Handle,
     still_assigned: impl Fn() -> bool,
 ) -> Result<Outcome, KafkaError> {
+    let _permit = catch_up.permits.acquire().await;
     let (tx, mut chunks) = mpsc::channel(2);
     let reader = {
         let catch_up = catch_up.clone();

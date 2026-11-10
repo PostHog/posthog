@@ -14,7 +14,7 @@ use personhog_property_store::{
 };
 use personhog_proto::personhog::types::v1::Person;
 use personhog_writer::backfill::scanner::{
-    self as backfill, Counts, Cursor, KeyRange, Outcome, Run, Scan, TopicSink,
+    self as backfill, Counts, Cursor, KeyRange, Outcome, Run, Scan, SizeLimits, TopicSink,
 };
 use personhog_writer::backfill::verify::{Live, Verification, Verifier};
 use prost::Message;
@@ -129,6 +129,13 @@ fn team_range(team_id: i64) -> KeyRange {
     }
 }
 
+fn limits() -> SizeLimits {
+    SizeLimits {
+        message_bytes: 1_000_000,
+        trim_target: 524_288,
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn rows_reach_the_changelog_partition_at_their_postgres_versions() {
     let pool = pool().await;
@@ -163,8 +170,8 @@ async fn rows_reach_the_changelog_partition_at_their_postgres_versions() {
     )
     .await;
     insert(&pool, common::TARGET_TABLE, next, Some(1), false, "{}").await;
-    let scan = Scan::new(pool.clone(), team_range(team), 2).unwrap();
-    let run = Run::new(Arc::clone(&store), "props", "encoded").unwrap();
+    let scan = Scan::new(pool.clone(), team_range(team), 2, limits()).unwrap();
+    let run = Run::new(Arc::clone(&store), "encoded").unwrap();
 
     let outcome = backfill::run_range(&scan, &sink, &run.range(0))
         .await
@@ -179,6 +186,7 @@ async fn rows_reach_the_changelog_partition_at_their_postgres_versions() {
             read: 3,
             written: 3,
             deleted: 1,
+            trimmed: 0,
             rejected: 0
         }
     );
@@ -233,10 +241,10 @@ async fn a_range_resumes_after_its_last_published_page_and_a_finished_range_does
     }
     store
         .put(
-            &ObjectPath::from("props/maintenance/backfill/resumed/ranges/00000/cursor"),
+            &ObjectPath::from("backfill/resumed/ranges/00000/cursor"),
             PutPayload::from(
                 format!(
-                    r#"{{"after_team_id":{team},"after_person_id":{},"read":1,"written":1,"deleted":0,"rejected":0}}"#,
+                    r#"{{"after_team_id":{team},"after_person_id":{},"read":1,"written":1,"deleted":0,"trimmed":0,"rejected":0}}"#,
                     ids[0]
                 )
                 .into_bytes(),
@@ -244,8 +252,8 @@ async fn a_range_resumes_after_its_last_published_page_and_a_finished_range_does
         )
         .await
         .unwrap();
-    let scan = Scan::new(pool.clone(), team_range(team), 1).unwrap();
-    let run = Run::new(Arc::clone(&store), "props", "resumed").unwrap();
+    let scan = Scan::new(pool.clone(), team_range(team), 1, limits()).unwrap();
+    let run = Run::new(Arc::clone(&store), "resumed").unwrap();
 
     let resumed = backfill::run_range(&scan, &sink, &run.range(0))
         .await
@@ -303,13 +311,13 @@ async fn planned_ranges_publish_every_row_of_a_partitioned_table_once() {
         .execute(&pool)
         .await
         .unwrap();
-    let run = Run::new(Arc::clone(&store), "props", "planned").unwrap();
+    let run = Run::new(Arc::clone(&store), "planned").unwrap();
 
     let plan = backfill::plan(&pool, &table, 60).await.unwrap();
     run.save_plan(&plan).await.unwrap();
     let workers = 3;
     for index in 0..workers {
-        backfill::run_worker(&pool, &sink, &run, index, workers, 25)
+        backfill::run_worker(&pool, &sink, &run, index, workers, 25, limits())
             .await
             .unwrap();
     }
@@ -371,6 +379,7 @@ async fn verification_judges_each_person_by_version_and_rechecks_newer_ones_live
         person_id: id,
         version,
         deleted: false,
+        created_at: 0,
         properties: Bytes::copy_from_slice(properties.as_bytes()),
     };
     writer
@@ -392,19 +401,20 @@ async fn verification_judges_each_person_by_version_and_rechecks_newer_ones_live
         assert!(Instant::now() < deadline, "the reader never caught up");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    let run = Run::new(Arc::clone(&store), "props", "verify-test").unwrap();
+    let run = Run::new(Arc::clone(&store), "verify-test").unwrap();
     run.save_plan(&backfill::Plan {
         ranges: vec![team_range(team)],
     })
     .await
     .unwrap();
 
-    let verification = Verification::new(Arc::clone(&store), "props", "verify-test").unwrap();
+    let verification = Verification::new(Arc::clone(&store), "verify-test").unwrap();
     let verifier = Verifier {
         pool: &pool,
         reader: &reader,
         live: None,
         verification: &verification,
+        limits: limits(),
     };
     let counts = verifier.run_worker(&run, 0, 1, 1000, 1).await.unwrap();
     assert_eq!(
@@ -425,30 +435,117 @@ async fn verification_judges_each_person_by_version_and_rechecks_newer_ones_live
     );
 
     // The live table is the snapshot here, so the newer record stays newer: in flux, not a mismatch.
-    let live = Live::new(pool.clone(), table).unwrap();
-    let rechecked = Verification::new(Arc::clone(&store), "props", "verify-test-live").unwrap();
+    let live = Live::new(pool.clone(), table, limits()).unwrap();
+    let rechecked = Verification::new(Arc::clone(&store), "verify-test-live").unwrap();
     let verifier = Verifier {
         pool: &pool,
         reader: &reader,
         live: Some(&live),
         verification: &rechecked,
+        limits: limits(),
     };
     let counts = verifier.run_worker(&run, 0, 1, 1000, 1).await.unwrap();
     assert_eq!((counts.newer_in_slatedb, counts.in_flux), (0, 1));
 
-    let recorded = store
-        .get(&ObjectPath::from(format!(
-            "props/maintenance/verify/verify-test/divergences/{team}-{differs}"
-        )))
-        .await
-        .unwrap()
-        .bytes()
+    reader.close().await;
+    writer.close().await;
+    cleanup(&pool, &[team]).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_live_recheck_reads_past_the_cached_readers_poll() {
+    let pool = pool().await;
+    let team = unique_team();
+    let snapshot = format!("backfill_snapshot_{}", common::unique_team_id());
+    sqlx::query(&format!(
+        "CREATE TABLE {snapshot} (LIKE personhog_person_tmp INCLUDING ALL)"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let person = insert(&pool, &snapshot, team, Some(4), false, "{}").await;
+    sqlx::query(&format!(
+        "INSERT INTO {} (id, created_at, properties, team_id, uuid, version, is_deleted) \
+         VALUES ($1, now(), '{{}}'::jsonb, $2, $3, 6, false)",
+        common::TARGET_TABLE
+    ))
+    .bind(person)
+    .bind(team as i32)
+    .bind(uuid::Uuid::new_v4())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (_dir, store) = local_store();
+    let config = PropertyStoreConfig {
+        reader_poll_ms: 60_000,
+        ..PropertyStoreConfig::local("props", 1)
+    };
+    let writer = PropertyWriter::new(&config, Arc::clone(&store));
+    let key = PartitionKey {
+        topic: Arc::from("changelog"),
+        partition: 0,
+    };
+    writer.assign(&key, 1, 1, || true).await.unwrap();
+    let record = |version| PropertyRecord {
+        team_id: team,
+        person_id: person,
+        version,
+        deleted: false,
+        created_at: 0,
+        properties: Bytes::from_static(b"{}"),
+    };
+    writer.put(&key, 1, &[record(5)]).await.unwrap();
+    let reader = PropertyReader::new(&config, Arc::clone(&store));
+    assert_eq!(
+        reader.get(team, person).await.unwrap().map(|s| s.version),
+        Some(5)
+    );
+    // The reader's first poll is immediate and its next a minute away; once the first has passed,
+    // only a fresh read can see this write.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    writer.put(&key, 1, &[record(6)]).await.unwrap();
+    assert_eq!(
+        reader.get(team, person).await.unwrap().map(|s| s.version),
+        Some(5),
+        "the cached reader must still be behind for this test to prove anything"
+    );
+    let run = Run::new(Arc::clone(&store), "fresh").unwrap();
+    run.save_plan(&backfill::Plan {
+        ranges: vec![KeyRange {
+            table: snapshot.clone(),
+            after: None,
+            through: None,
+        }],
+    })
+    .await
+    .unwrap();
+    let live = Live::new(pool.clone(), common::TARGET_TABLE, limits()).unwrap();
+    let verification = Verification::new(Arc::clone(&store), "fresh").unwrap();
+
+    let counts = Verifier {
+        pool: &pool,
+        reader: &reader,
+        live: Some(&live),
+        verification: &verification,
+        limits: limits(),
+    }
+    .run_worker(&run, 0, 1, 1000, 1)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        (
+            counts.checked,
+            counts.matched,
+            counts.behind,
+            counts.in_flux
+        ),
+        (1, 1, 0, 0)
+    );
+    sqlx::query(&format!("DROP TABLE {snapshot}"))
+        .execute(&pool)
         .await
         .unwrap();
-    let body: serde_json::Value = serde_json::from_slice(&recorded).unwrap();
-    assert_eq!(body["outcome"], "differs");
-    assert_eq!(body["slatedb"]["properties"]["plan"], "free");
-
     reader.close().await;
     writer.close().await;
     cleanup(&pool, &[team]).await;
