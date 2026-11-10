@@ -366,7 +366,7 @@ function isIndexed(entry: FileSystemEntry): boolean {
     return entry.type === 'folder' || WORKFLOW_FILE_TYPES.includes(entry.type ?? '')
 }
 
-/** The last copy of each file the shared tree held, other products' files included, so a prune cannot turn their folders into empty workflow folders. Moves and deletes update it, a full load replaces its folders and workflow files, and a file also leaves when its folder, still held and fully loaded, no longer lists it. */
+/** The last copy of each file the shared tree held, other products' files included, so a prune cannot turn their folders into empty workflow folders. Moves and deletes update it, the folder scan replaces its folders and workflow files, the other products' scan replaces the rest, and a file also leaves when its folder, still held and fully loaded, no longer lists it. */
 function fileIndex(cache: Record<string, any>): Map<string, FileSystemEntry> {
     cache.fileIndex ??= new Map<string, FileSystemEntry>()
     return cache.fileIndex
@@ -606,9 +606,13 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         if (changeCount(cache) !== changesBefore) {
                             continue
                         }
-                        const index = fileIndex(cache)
-                        for (const entry of entries.filter((file) => !file.shortcut)) {
-                            index.set(entry.id, entry)
+                        const files = entries.filter((file) => !file.shortcut)
+                        // This scan is the truth for other products' files, so a file deleted or moved elsewhere stops hiding its old folder.
+                        const freshPaths = new Map(files.map((entry) => [entry.id, entry.path]))
+                        for (const cached of Object.values(projectTreeDataLogic.values.folders).flat()) {
+                            if (!isIndexed(cached) && !cached.shortcut && freshPaths.get(cached.id) !== cached.path) {
+                                projectTreeDataLogic.actions.deleteSavedItem(cached)
+                            }
                         }
                         projectTreeDataLogic.actions.addLoadedResults({
                             searchTerm: '',
@@ -616,6 +620,10 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                             hasMore: false,
                             lastCount: entries.length,
                         })
+                        cache.fileIndex = new Map([
+                            ...[...fileIndex(cache)].filter(([, entry]) => isIndexed(entry)),
+                            ...files.map((entry): [string, FileSystemEntry] => [entry.id, entry]),
+                        ])
                         return true
                     }
                     throw new Error('Project files kept changing while the folders loaded')
