@@ -59,7 +59,7 @@ export function decodeEscapes(text: string): string | null {
     }
 }
 
-function isCredentialName(name: string, rule: CredentialNameRule): boolean {
+export function isCredentialName(name: string, rule: CredentialNameRule): boolean {
     const decoded = decodeEscapes(name)
     return decoded === null || rule(decoded.toLowerCase().replace(/[^a-z0-9]/g, ''))
 }
