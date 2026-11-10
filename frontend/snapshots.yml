@@ -1101,9 +1101,9 @@ snapshots:
     components-hogcharts-barchart--stacked-default--light:
         hash: v1.k794b7964.7217e48315046d9496f55e837bfa48f8f0bfdc1845d6f0b337bdec2462d4b280.z2kIDnsyKG4GHJyVVKTw_QGt58SsbGXQYV5x7b9QagE
     components-hogcharts-barchart--stacked-mixed-sign--dark:
-        hash: v1.k794b7964.aca0e23182aa9cfcf86b96c9479fe33835d963ae14ac301da12c439ba167d0a2.TNIlgUoVByKRJF5Im7SfDOFPrIOGXMKuPIXh0j_g9Po
+        hash: v1.k794b7964.b159128b12289f23ebae27c6a6595909d148fecc07118c51bcc99b6d47abd8d1.Z1srLmzUZF9YVRpPm2Wib6qk_vxN10onepSNTqP2npo
     components-hogcharts-barchart--stacked-mixed-sign--light:
-        hash: v1.k794b7964.23909cbf4b9ce7cc88b598b5ffa1bf31cead27933b015ca278760f27bac545a6.WOYIlIwRQCKeqE0wQCeklzHD6kAmY7r9dfgYW27cbNs
+        hash: v1.k794b7964.e9ac3a395eb196f28ac6516b0a14a31a238533816fab0dbd1867216e4bb87921.tJSq7A1dyY1ksJsq8QM4CAsN6sRIUo1b9BERt6CNBKE
     components-hogcharts-barchart--stacked-with-track-ceiling--dark:
         hash: v1.k794b7964.448e99bfaa8c842324e17c7d6e22eee35cfdf0bf77f965ad098659de146d8263.v06_TPsWUE9dovdP7jzo4ZmYnVFL1ySlQRwJWV8MkY0
     components-hogcharts-barchart--stacked-with-track-ceiling--light:
@@ -1400,6 +1400,10 @@ snapshots:
         hash: v1.k794b7964.97f334a3fc014fd369a637380f1153670d4d322f07354f8efa8fd2f7d65f58f7.jCo_cDeo6ux668mBVSQCCEDMCD-Iz2q8iEX0crBWA_k
     components-hogcharts-linechart--stacked-area--light:
         hash: v1.k794b7964.5a0eba738430b9fb855d462426eefbfb23f2d367be42dcf0ad15126288fc4eba.wb6FcBkHysbLnPi0dyfor5gIcm_AgBo0lNzvt7Yfkjk
+    components-hogcharts-linechart--stacked-area-with-gap--dark:
+        hash: v1.k794b7964.e874b6eb8e90b205050cecc31d35492b9017507b4150cfe6701671c3d786c7dc.m7EFrWJFd8YR_XD1K0mJ35i1CbaWYUip8EHtkF0fr_Q
+    components-hogcharts-linechart--stacked-area-with-gap--light:
+        hash: v1.k794b7964.03d7c69e06cb0e5272e558e1533950e5a27266818bcb3ae0cfaecda6599c85d0.YJLQ2SFAgQZ9p4yKqBOqC_RZUUuLhonOgTmqzdPbgfM
     components-hogcharts-linechart--stroke-width--dark:
         hash: v1.k794b7964.3eb02e8738b3a78ccf934aabe2577bcac87040cb7e7e8bcfe6b5f53314f21a2b.LPXAdaC8tgos-hhcV2JfMs9xBv8-CjqR3DZNvQ7ySME
     components-hogcharts-linechart--stroke-width--light:
