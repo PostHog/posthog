@@ -131,21 +131,26 @@ class TestPagerDutyTransport(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("bad routing key", {}, b'{"errors": ["Invalid routing key"]}', True),
+            ("bad routing key", {}, b'{"errors": ["Invalid routing key"]}', None, True),
             # PagerDuty rejected the event PostHog built, which the owner cannot fix.
-            ("malformed event", {}, b'{"errors": ["\'payload.summary\' is missing"]}', False),
+            ("malformed event", {}, b'{"errors": ["\'payload.summary\' is missing"]}', None, False),
             # A compressed body would decode past the read cap, so it is not read.
-            ("compressed", {"Content-Encoding": "gzip"}, b'{"errors": ["Invalid routing key"]}', False),
-            ("unreadable body", {}, None, False),
+            ("compressed", {"Content-Encoding": "gzip"}, b'{"errors": ["Invalid routing key"]}', None, False),
+            ("unreadable body", {}, b"", ProtocolError("Connection broken"), False),
+            ("split across reads", {}, b"", [b'{"errors": ["Invalid rou', b'ting key"]}', b""], True),
         ]
     )
     def test_only_a_bad_routing_key_is_the_owners_refusal(
-        self, _name: str, headers: dict[str, str], body: bytes | None, refused: bool
+        self,
+        _name: str,
+        headers: dict[str, str],
+        body: bytes,
+        reads: Exception | list[bytes] | None,
+        refused: bool,
     ) -> None:
-        with pinned_post(400, headers=headers, body=body or b"") as adapter:
-            stalled = ProtocolError("Connection broken")
+        with pinned_post(400, headers=headers, body=body) as adapter:
             with (
-                patch.object(adapter.body, "read1", side_effect=stalled) if body is None else nullcontext(),
+                patch.object(adapter.body, "read1", side_effect=reads) if reads is not None else nullcontext(),
                 # `read(n)` waits for n bytes, so a slowly sent body would hold the send.
                 patch.object(adapter.body, "read", side_effect=AssertionError("read waits for the whole cap")),
                 pytest.raises(DeliveryError) as raised,

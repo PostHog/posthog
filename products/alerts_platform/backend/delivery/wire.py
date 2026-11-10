@@ -5,6 +5,7 @@ message, a log line or a metric label, so the errors here name a status or an ex
 """
 
 import json
+import time
 import hashlib
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -21,7 +22,7 @@ _RETRYABLE_CLIENT_ERRORS: Final = frozenset({408, 429})
 
 # Enough for a provider's error JSON, and small enough that no answer can fill the worker's memory.
 _MAX_REFUSAL_BODY_BYTES: Final = 4096
-# The refusal body is read in one receive within this time, so a destination that sends it slowly
+# The whole refusal body read finishes within this time, so a destination that sends it slowly
 # cannot hold the send past the deliver activity's 10-second start_to_close.
 _REFUSAL_BODY_TIMEOUT_SECONDS: Final = 1.0
 
@@ -121,19 +122,33 @@ def _is_owner_refusal(
     if response.headers.get("Content-Encoding", "identity") != "identity":
         return False
     try:
-        head = _read_once(response.raw)
+        return _body_carries(response.raw, marker)
     except Exception:
         # urllib3 raises its own errors here, which `requests` does not wrap. A body that cannot
         # be read leaves whose fix it is unknown, and an unknown refusal is not the owner's.
         return False
-    return marker in head.lower()
 
 
-def _read_once(raw: Any) -> bytes:
-    """At most one receive, where `read(n)` keeps receiving until it has n bytes or the body ends."""
+def _body_carries(raw: Any, marker: bytes) -> bool:
+    """Reads fragments until the marker shows, the body ends, the cap fills or the deadline passes.
+
+    Each receive waits only for what is left of the deadline. `read(n)` would instead keep
+    receiving until it had n bytes, however slowly they arrived.
+    """
     sock = getattr(getattr(raw, "connection", None), "sock", None)
-    if sock is not None:
-        sock.settimeout(_REFUSAL_BODY_TIMEOUT_SECONDS)
     # urllib3 1.26 has no `read1`, so the call goes to the `http.client` response it wraps, which
     # returns the raw bytes, still undecoded.
-    return getattr(raw, "_fp", raw).read1(_MAX_REFUSAL_BODY_BYTES)
+    reader = getattr(raw, "_fp", raw)
+    deadline = time.monotonic() + _REFUSAL_BODY_TIMEOUT_SECONDS
+    head = b""
+    while marker not in head.lower() and len(head) < _MAX_REFUSAL_BODY_BYTES:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        if sock is not None:
+            sock.settimeout(remaining)
+        fragment = reader.read1(_MAX_REFUSAL_BODY_BYTES - len(head))
+        if not fragment:
+            break
+        head += fragment
+    return marker in head.lower()
