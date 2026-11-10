@@ -700,7 +700,7 @@ describe('Cyclotron V2', () => {
                 let entered = createPromise()
                 let held: Promise<unknown>[] = []
                 pool.query = ((text: unknown, ...rest: unknown[]) => {
-                    if (text !== QUEUE_DEPTH_SQL) {
+                    if (typeof text !== 'string' || !text.endsWith(QUEUE_DEPTH_SQL)) {
                         return passThrough(text, ...rest)
                     }
                     entered.resolve()
@@ -780,6 +780,53 @@ describe('Cyclotron V2', () => {
                         expect(await storedJobs()).toBe(2)
                     }
                 )
+            })
+
+            it('with the background depth check, a depth query stalled past its interval stops pinning a stale full result', async () => {
+                const intervalMs = 300
+                const m = createManager({ backgroundDepthCheck: true, depthLimit: 1, depthCheckIntervalMs: intervalMs })
+                await m.connect()
+                cleanups.push(() => m.disconnect())
+                await m.createJob({ teamId: 1, queueName: QUEUE })
+
+                await sleep(intervalMs + 50)
+                await m.createJob({ teamId: 1, queueName: QUEUE })
+                let refusedAsFull = false
+                for (let attempt = 0; attempt < 50 && !refusedAsFull; attempt++) {
+                    refusedAsFull = await m.createJob({ teamId: 1, queueName: QUEUE }).then(
+                        () => false,
+                        (error: Error) => /queue is full/i.test(error.message)
+                    )
+                    if (!refusedAsFull) {
+                        await sleep(20)
+                    }
+                }
+                expect(refusedAsFull).toBe(true)
+
+                await assertPool.query('DELETE FROM cyclotron_jobs WHERE queue_name = $1', [QUEUE])
+                const locker = await assertPool.connect()
+                await locker.query('BEGIN')
+                await locker.query('LOCK TABLE cyclotron_jobs IN ACCESS EXCLUSIVE MODE')
+                let lockHeld = true
+                const releaseLock = async (): Promise<void> => {
+                    if (lockHeld) {
+                        lockHeld = false
+                        await locker.query('ROLLBACK')
+                        locker.release()
+                    }
+                }
+                cleanups.push(releaseLock)
+
+                await sleep(intervalMs + 50)
+                await expect(m.createJob({ teamId: 1, queueName: QUEUE })).rejects.toThrow(/queue is full/i)
+
+                await sleep(intervalMs * 2)
+                const afterStall = m.createJob({ teamId: 1, queueName: QUEUE })
+                expect(await stillPendingAfter(afterStall, 200)).toBe(true)
+
+                await releaseLock()
+                await afterStall
+                expect(await storedJobs()).toBe(1)
             })
 
             it('without the background depth check, holds an enqueue until its expired depth check returns', async () => {

@@ -1,4 +1,4 @@
-import { Pool } from 'pg'
+import { Pool, QueryResult } from 'pg'
 import { Counter, Histogram } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -174,6 +174,7 @@ export class CyclotronV2Manager {
     private depthCheckExpiresAt = 0
     private lastDepthFull: boolean | null = null
     private depthRefresh: Promise<boolean> | null = null
+    private readonly depthRefreshSql: string
     private readonly reschedule: {
         floorSeconds: number
         wakeRatePerSecond: number
@@ -193,6 +194,7 @@ export class CyclotronV2Manager {
         this.depthLimit = config.depthLimit ?? 1_000_000
         this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? 10_000
         this.backgroundDepthCheck = config.backgroundDepthCheck ?? false
+        this.depthRefreshSql = `SET LOCAL statement_timeout = ${Math.max(1, Math.floor(this.depthCheckIntervalMs))}; ${QUEUE_DEPTH_SQL}`
         this.reschedule = {
             floorSeconds: config.rescheduleFloorSeconds ?? 600,
             wakeRatePerSecond: config.rescheduleWakeRatePerSecond ?? 200,
@@ -843,7 +845,7 @@ export class CyclotronV2Manager {
     private refreshDepth(): Promise<boolean> {
         if (!this.depthRefresh) {
             this.depthCheckExpiresAt = Date.now() + this.depthCheckIntervalMs
-            this.depthRefresh = this.queryDepth()
+            this.depthRefresh = this.queryDepth(this.depthRefreshSql)
                 .then((full) => {
                     this.lastDepthFull = full
                     return full
@@ -855,10 +857,11 @@ export class CyclotronV2Manager {
         return this.depthRefresh
     }
 
-    private async queryDepth(): Promise<boolean> {
+    private async queryDepth(sql: string = QUEUE_DEPTH_SQL): Promise<boolean> {
         try {
-            const result = await this.pool.query(QUEUE_DEPTH_SQL)
-            const count = parseInt(result.rows[0].count, 10)
+            const result: QueryResult | QueryResult[] = await this.pool.query(sql)
+            const depth = Array.isArray(result) ? result[result.length - 1] : result
+            const count = parseInt(depth.rows[0].count, 10)
             const full = count >= this.depthLimit
 
             if (full) {
