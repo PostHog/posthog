@@ -102,7 +102,7 @@ describe('server', () => {
             SES_RATE_LIMITER_VALKEY_PASSWORD: defaultConfig.CDP_REDIS_PASSWORD,
         })
         const started = pluginsServer.start()
-        let reference: Redis | undefined
+        let reference: Redis.Redis | undefined
         try {
             await waitForExpect(() => expect(sesValkey.refusedConnections).toBeGreaterThan(0), 15_000)
 
