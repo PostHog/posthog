@@ -4,6 +4,7 @@ import * as path from 'node:path'
 
 import { fetchContextMillResources, filterValidEntries, loadManifestFromArchive } from '@/resources/internals'
 import type { ContextMillResource } from '@/resources/manifest-types'
+import { withinExtractionLimits } from '@/skills/skill-catalog'
 
 import { assertResolvesInside, assertSafeDestination, errorCode } from './utils'
 
@@ -76,6 +77,10 @@ export async function installSkill(
         throw new Error(`Skill archive "${entry.file}" was not found.`)
     }
 
+    // Unzipped before anything on disk changes, so an archive past the limits leaves an installed copy as it is.
+    const skillArchive = unzipSync(skillBytes, {
+        filter: withinExtractionLimits(`Skill archive "${entry.file}" exceeds the extraction limit`),
+    })
     const destinationRoot = targetSkillDirectory(cwd, skillId)
     await assertResolvesInside(cwd, destinationRoot)
     try {
@@ -91,7 +96,6 @@ export async function installSkill(
     }
 
     await fs.mkdir(destinationRoot, { recursive: true })
-    const skillArchive = unzipSync(skillBytes)
     let fileCount = 0
 
     for (const [fileName, bytes] of Object.entries(skillArchive)) {
