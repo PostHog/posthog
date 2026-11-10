@@ -549,7 +549,9 @@ def evaluate_insight_check(
         # The firing still goes out, uninvestigated, rather than the check being lost as errored.
         logger.exception("Failed to decide a platform insight firing's investigation", check_id=configuration_id)
     try:
-        return with_firing_signal(checks[0], evaluation)
+        return with_firing_signal(
+            checks[0], evaluation, query_slot=ClickHouseQuerySlot(f"{evaluation_id}:{attempt}:firing-history")
+        )
     except Exception:
         # The signal is best effort, so the firing goes out without one.
         logger.exception("Failed to decide a platform insight firing's signal", check_id=configuration_id)

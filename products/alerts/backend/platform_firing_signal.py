@@ -6,6 +6,8 @@ emits the signal after the record (`prepare_platform_firing_signals`), through t
 own gates, cap and payload.
 """
 
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import replace
 from datetime import timedelta
 from typing import Final
@@ -31,6 +33,7 @@ from products.alerts_platform.backend.facade import api as platform
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     PlatformAlertCheckInput,
+    PlatformAlertConfigurationView,
     SourceBatchEvaluation,
     SourceKind,
 )
@@ -44,9 +47,17 @@ _INTERRUPTION_LOOKBACK: Final = timedelta(days=30)
 _INTERRUPTION_PAGE: Final = 50
 
 
-def with_firing_signal(check: PlatformAlertCheckInput, evaluation: SourceBatchEvaluation) -> SourceBatchEvaluation:
+def with_firing_signal(
+    check: PlatformAlertCheckInput,
+    evaluation: SourceBatchEvaluation,
+    *,
+    query_slot: Callable[[], AbstractContextManager[None]],
+) -> SourceBatchEvaluation:
     """The evaluation, with a firing that starts an episode the agent never investigates marked for
-    its inbox signal. Only an owned check, because the insight stack signals for the rest."""
+    its inbox signal. Only an owned check, because the insight stack signals for the rest.
+
+    `query_slot` holds a slot of the shared ClickHouse cap around the history read.
+    """
     if not check.owned_by_platform or len(evaluation.outcomes) != 1:
         return evaluation
     outcome = evaluation.outcomes[0]
@@ -68,7 +79,9 @@ def with_firing_signal(check: PlatformAlertCheckInput, evaluation: SourceBatchEv
     if not signals_every_firing(check.team_id):
         return evaluation
     public_id = check.destination_alert_id
-    if previous_state == PlatformAlertState.ERRORED.value and _resumes_interrupted_firing(check.team_id, public_id):
+    if previous_state == PlatformAlertState.ERRORED.value and _resumes_interrupted_firing(
+        check.team_id, public_id, query_slot
+    ):
         return evaluation
     group = replace(group, source_detail={**group.source_detail, FIRING_SIGNAL_REQUESTED_KEY: str(public_id)})
     return replace(evaluation, outcomes=(replace(outcome, groups=(group,)),))
@@ -87,20 +100,24 @@ def _investigated(team_id: int, legacy_configuration_id: UUID | None) -> bool:
     return alert is not None and investigates(alert, firing=True)
 
 
-def _resumes_interrupted_firing(team_id: int, public_id: UUID) -> bool:
+def _resumes_interrupted_firing(
+    team_id: int, public_id: UUID, query_slot: Callable[[], AbstractContextManager[None]]
+) -> bool:
     """Whether the errors before this check interrupted a firing, as the insight stack decides it.
 
     An insight alert's failed check ends its platform firing, so without this a transient query
     error during an incident would file a second signal. An unreadable history counts as resumed,
-    because a missed signal costs less than a duplicate report.
+    because a missed signal costs less than a duplicate report. So is a history with no move into
+    the errors, because those errors began before the window it reads.
     """
     try:
-        page = platform.notable_checks_by_public_id(
-            team_id=team_id,
-            public_id=public_id,
-            since=timezone.now() - _INTERRUPTION_LOOKBACK,
-            limit=_INTERRUPTION_PAGE,
-        )
+        with query_slot():
+            page = platform.notable_checks_by_public_id(
+                team_id=team_id,
+                public_id=public_id,
+                since=timezone.now() - _INTERRUPTION_LOOKBACK,
+                limit=_INTERRUPTION_PAGE,
+            )
     except Exception:
         logger.exception("Failed to read a platform insight alert's history", alert_id=str(public_id))
         return True
@@ -109,8 +126,7 @@ def _resumes_interrupted_firing(team_id: int, public_id: UUID) -> bool:
     for event in page.events:
         if event.state == PlatformAlertState.ERRORED and event.previous_state != PlatformAlertState.ERRORED:
             return event.previous_state == PlatformAlertState.FIRING
-    # No move into ERRORED in the page: the history is too long or missing, so it cannot be ruled out.
-    return page.total > len(page.events)
+    return True
 
 
 def prepare_platform_firing_signals(requests: tuple[FiringSignalRequest, ...]) -> list[AlertFiringSignal]:
@@ -157,8 +173,13 @@ def _firing_alert(request: FiringSignalRequest) -> tuple[FiringAlert, UUID | Non
     )
     if configuration is None or not configuration.enabled or configuration.owner != PlatformAlertOwner.PLATFORM.value:
         return None
+    if not _records_firing(configuration, request):
+        return None
+    insight_id = configuration.source_config.get("insight_id")
+    if insight_id is None:
+        return None
     insight = (
-        Insight.objects.filter(team_id=request.team_id, id=configuration.source_config.get("insight_id"), deleted=False)
+        Insight.objects.filter(team_id=request.team_id, id=insight_id, deleted=False)
         .only("id", "name", "derived_name", "short_id")
         .first()
     )
@@ -173,3 +194,17 @@ def _firing_alert(request: FiringSignalRequest) -> tuple[FiringAlert, UUID | Non
         detector_config=condition.get("detector"),
     )
     return alert, configuration.legacy_configuration_id
+
+
+def _records_firing(configuration: PlatformAlertConfigurationView, request: FiringSignalRequest) -> bool:
+    """Whether the alert holds the firing the request names, unmuted. A record skips a check whose
+    alert was snoozed or edited while it ran, and its request must then file nothing."""
+    now = timezone.now()
+    if configuration.snooze_until is not None and configuration.snooze_until > now:
+        return False
+    return any(
+        instance.state == PlatformAlertState.FIRING.value
+        and instance.firing_started_at == request.episode_started_at
+        and (instance.snooze_until is None or instance.snooze_until <= now)
+        for instance in configuration.alerts
+    )

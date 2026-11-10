@@ -185,7 +185,11 @@ def prepare_platform_firing_signal(
     """The same as `prepare_alert_firing_signal`, for a firing the alerts platform recorded.
 
     The platform's insight cycle already decided that the firing starts an episode. Never raises.
+    A retried emission skips a firing that an earlier attempt already sent or dropped, so it spends
+    no second token of the cap.
     """
+    if _outcome_settled(_source_id(str(alert.id), firing.check_id)):
+        return None
     return _prepare_logged(
         alert,
         firing,
@@ -313,6 +317,14 @@ def _claims_outcome(source_id: str) -> bool:
     except RedisError:
         # Without Redis the cap fails closed as `cap_unavailable`. Counting that drop twice beats losing it.
         return True
+
+
+def _outcome_settled(source_id: str) -> bool:
+    """Whether an earlier attempt already recorded this episode's outcome. Without Redis it is not."""
+    try:
+        return bool(get_client().exists(_outcome_key(source_id)))
+    except RedisError:
+        return False
 
 
 def _resumes_interrupted_episode(alert: AlertConfiguration, alert_check: AlertCheck) -> bool:

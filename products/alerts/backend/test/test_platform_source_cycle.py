@@ -1231,6 +1231,13 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 "errored after not_firing",
                 True,
             ),
+            (
+                "errors that began before the history window resume a firing",
+                {},
+                PlatformAlertOwner.PLATFORM,
+                "errored before the window",
+                False,
+            ),
             ("a team without the all-firing scope", {}, PlatformAlertOwner.PLATFORM, None, False, "investigated_only"),
         ]
     )
@@ -1249,14 +1256,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 platform_testing.start_firing(configuration.id, team_id=self.team.id, at=CUTOFF - timedelta(hours=1))
             elif before is not None:
                 platform_testing.set_check_status(configuration.id, "errored")
-        interrupted = (before or "").removeprefix("errored after ") or "not_firing"
-        history = PlatformCheckEventPage(
-            events=(
-                _check_event(previous_state="errored", state="errored"),
-                _check_event(previous_state=interrupted, state="errored"),
-            ),
-            total=2,
-        )
+        events = (_check_event(previous_state="errored", state="errored"),)
+        if before != "errored before the window":
+            interrupted = (before or "").removeprefix("errored after ") or "not_firing"
+            events = (*events, _check_event(previous_state=interrupted, state="errored"))
+        history = PlatformCheckEventPage(events=events, total=len(events))
 
         with (
             patch(f"{_EMITTER_MODULE}.get_analytics_alert_scope", return_value=scope),
@@ -1270,6 +1274,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         [
             ("an owned alert files its signal", None, 1),
             ("an alert disabled since files none", "disabled", 0),
+            ("a firing the record skipped files none", "unrecorded", 0),
         ]
     )
     def test_a_recorded_firing_files_its_signal_while_the_platform_owns_the_alert(
@@ -1282,6 +1287,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
         with patch(f"{_EMITTER_MODULE}.get_analytics_alert_scope", return_value="all_firing_alerts"):
             outcome = self._fire(configuration)
+        if change != "unrecorded":
+            record_outcomes(self.team.id, (outcome,), CUTOFF)
         if change == "disabled":
             with team_scope(self.team.id):
                 platform_testing.set_enabled(configuration.id, False)
@@ -1325,6 +1332,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             episode_started_at=CUTOFF,
             breaches=("above 100",),
         )
+        with team_scope(self.team.id):
+            platform_testing.start_firing(configuration.id, team_id=self.team.id, at=CUTOFF)
 
         with (
             patch(
