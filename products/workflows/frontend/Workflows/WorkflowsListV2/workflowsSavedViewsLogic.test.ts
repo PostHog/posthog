@@ -87,10 +87,7 @@ describe('workflowsSavedViewsLogic', () => {
                 hog_flow: AccessControlLevel.Editor,
             },
         }
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
-            [FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS]: true,
-        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
     })
 
     afterEach(() => logic?.unmount())
@@ -322,11 +319,6 @@ describe('workflowsSavedViewsLogic', () => {
     })
 
     it('treats an open folder as navigation, so it changes no view and picking a view leaves the folder', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
-            [FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS]: true,
-            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: true,
-        })
         router.actions.push(urls.workflows())
         logic = workflowsSavedViewsLogic()
         logic.mount()
@@ -396,13 +388,8 @@ describe('workflowsSavedViewsLogic', () => {
     })
 
     it.each([
-        ['both flags off', {}],
-        ['saved views off', { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true }],
-        ['list prerequisite off', { [FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS]: true }],
-        [
-            'unexpected saved-view variant',
-            { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true, [FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS]: 'unexpected' },
-        ],
+        ['the flag is off', {}],
+        ['the flag has an unexpected variant', { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: 'unexpected' }],
     ])('preserves the baseline list without saved-view requests when %s', async (_, flags) => {
         featureFlagLogic.actions.setFeatureFlags([], flags)
         router.actions.push(urls.workflows(), { q: 'status:draft' })
@@ -415,17 +402,14 @@ describe('workflowsSavedViewsLogic', () => {
     })
 
     it('loads views when the flag becomes available after the list mounted', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        featureFlagLogic.actions.setFeatureFlags([], {})
         router.actions.push(urls.workflows(), { view: VIEW_ID })
         logic = workflowsSavedViewsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
 
         await expectLogic(logic, () =>
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
-                [FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS]: true,
-            })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         ).toDispatchActions(['loadSavedViewsSuccess'])
         expect(logic.values.available).toBe(true)
         expect(logic.values.activeView.id).toEqual(VIEW_ID)
@@ -907,17 +891,14 @@ describe('workflowsSavedViewsLogic', () => {
         expect(logic.values.saving).toBe(true)
         await logic.asyncActions.updateActiveView()
         expect(writes).toHaveLength(1)
-        await expectLogic(logic, () =>
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
-        ).toDispatchActions(['loadSavedViewsSuccess'])
+        await expectLogic(logic, () => featureFlagLogic.actions.setFeatureFlags([], {})).toDispatchActions([
+            'loadSavedViewsSuccess',
+        ])
         expect(logic.values.available).toBe(false)
         await logic.asyncActions.saveViewAs('Disabled')
         expect(writes).toHaveLength(1)
         await expectLogic(logic, () =>
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
-                [FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS]: true,
-            })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         ).toDispatchActions(['loadSavedViewsSuccess'])
         release!()
         await save
@@ -1327,10 +1308,7 @@ describe('workflowsSavedViewsLogic', () => {
     })
 
     it('waits for a completed flag evaluation before exposing persisted saved-view flags', async () => {
-        window.POSTHOG_APP_CONTEXT!.persisted_feature_flags = [
-            FEATURE_FLAGS.WORKFLOWS_LIST_V2,
-            FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS,
-        ]
+        window.POSTHOG_APP_CONTEXT!.persisted_feature_flags = [FEATURE_FLAGS.WORKFLOWS_LIST_V2]
         initKeaTests()
         router.actions.push(urls.workflows(), { q: 'status:draft' })
         logic = workflowsSavedViewsLogic()

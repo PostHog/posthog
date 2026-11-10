@@ -61,7 +61,7 @@ export function WorkflowSavedViewTabsRow({
             }}
             data-attr="workflows-combined-views"
             className="[&_[role=tab]]:min-w-0 [&_[role=tab]_div]:min-w-0"
-            barClassName="!justify-start gap-x-2 @min-[42rem]/saved-views:gap-x-8 [&>div:first-child]:min-w-0 [&>div:first-child]:!pr-0"
+            barClassName="!justify-start gap-x-2 @min-[42rem]/view-tabs:gap-x-8 [&>div:first-child]:min-w-0 [&>div:first-child]:!pr-0"
             tabs={visible.map((view) => ({ key: view.id, label: label(view) }))}
             rightSlotClassName="[&&]:mb-0 [&&]:bg-transparent [&&]:pr-0"
             rightSlot={

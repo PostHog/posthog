@@ -38,8 +38,8 @@ export function WorkflowSavedViewTabs(): JSX.Element | null {
     const saveRoom = isModified ? 2 : hasAdditions || activeViewConflicted ? 1 : 0
     const rowProps = { views, activeViewId, viewCounts, isModified, activeViewChanges, onApplyView: applyView }
     return (
-        <div className="@container/saved-views">
-            <div className="flex flex-col @min-[42rem]/saved-views:flex-row @min-[42rem]/saved-views:items-end gap-2">
+        <div className="@container/view-tabs">
+            <div className="flex flex-col @min-[42rem]/view-tabs:flex-row @min-[42rem]/view-tabs:items-end gap-2">
                 <div className="flex-1 min-w-0">
                     <div className="@4xl:hidden">
                         <WorkflowSavedViewTabsRow {...rowProps} max={3} />

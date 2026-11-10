@@ -52,7 +52,9 @@ describe('WorkflowsScene', () => {
                 },
                 '/api/projects/:team_id/file_system/unfiled/': () => [200, { count: 0 }],
                 '/api/projects/:team_id/file_system/': () => [200, paginated([])],
+                '/api/projects/:team_id/workflow_views/': () => [200, paginated([])],
             },
+            post: { '/api/projects/:team_id/workflow_views/initialize/': () => [403, {}] },
         })
         initKeaTests()
         router.actions.push(urls.workflows())
@@ -61,16 +63,14 @@ describe('WorkflowsScene', () => {
     afterEach(() => cleanup())
 
     it('distinguishes view filters from additions and explains why a built-in view cannot be updated', async () => {
-        useMocks({
-            get: { '/api/projects/:team_id/workflow_views/': () => [200, paginated([])] },
-            post: { '/api/projects/:team_id/workflow_views/initialize/': () => [403, {}] },
-        })
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         router.actions.push(urls.workflows(), { view: 'drafts', q: 'status:draft trigger:event' })
         const user = userEvent.setup()
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() =>
@@ -149,7 +149,9 @@ describe('WorkflowsScene', () => {
             const user = userEvent.setup()
             render(
                 <Provider>
-                    <WorkflowsScene />
+                    <DndContext>
+                        <WorkflowsScene />
+                    </DndContext>
                 </Provider>
             )
             const update = (await screen.findByText('Update view')).closest('button')!
@@ -230,7 +232,9 @@ describe('WorkflowsScene', () => {
             const user = userEvent.setup()
             render(
                 <Provider>
-                    <WorkflowsScene />
+                    <DndContext>
+                        <WorkflowsScene />
+                    </DndContext>
                 </Provider>
             )
             await waitFor(() =>
@@ -430,22 +434,19 @@ describe('WorkflowsScene', () => {
     })
 
     it.each([
-        ['shows Owner when no columns are saved', null, ['', 'Name', 'Status', 'Owner', 'Updated', '', '']],
+        ['shows Owner when the link names no columns', null, ['', 'Name', 'Status', 'Owner', 'Updated', '', '']],
         [
-            'ignores a saved column the list no longer has',
+            'ignores a linked column the list no longer has',
             ['health', 'tags'],
             ['', 'Name', 'Status', 'Health', 'Updated', '', ''],
         ],
         ['shows Kind beside the name', ['type', 'owner'], ['', 'Name', 'Kind', 'Status', 'Owner', 'Updated', '', '']],
     ])('%s', async (_, savedColumns, expectedHeaders) => {
-        if (savedColumns) {
-            localStorage.setItem(
-                'products.workflows.frontend.workflowsListV2Logic.visibleColumns',
-                JSON.stringify(savedColumns)
-            )
-        }
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
-        router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
+        router.actions.push(urls.workflows(), {
+            q: 'in:Unfiled',
+            ...(savedColumns ? { columns: savedColumns.join(',') } : {}),
+        })
         render(
             <Provider>
                 <DndContext>

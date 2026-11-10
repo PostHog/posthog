@@ -442,9 +442,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         enabled: [
             (s) => [s.featureFlags, s.receivedFeatureFlags],
             (featureFlags: FeatureFlagsSet, receivedFeatureFlags: boolean): boolean =>
-                receivedFeatureFlags &&
-                featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2] === true &&
-                featureFlags[FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS] === true,
+                receivedFeatureFlags && featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2] === true,
         ],
         available: [
             (s) => [s.enabled, s.savedViews],

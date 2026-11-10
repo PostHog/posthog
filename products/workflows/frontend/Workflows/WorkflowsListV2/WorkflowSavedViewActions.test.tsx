@@ -54,10 +54,7 @@ describe('saved workflow view actions', () => {
                 hog_flow: AccessControlLevel.Editor,
             },
         }
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
-            [FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS]: true,
-        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         router.actions.push(urls.workflows(), { view: VIEW_ID })
         logic = workflowsSavedViewsLogic()
         logic.mount()

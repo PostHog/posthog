@@ -64,6 +64,10 @@ const meta: Meta = {
                 '/api/projects/:team_id/hog_flow_templates/': paginated([]),
                 '/api/projects/:team_id/file_system/unfiled/': { count: 0 },
                 '/api/projects/:team_id/file_system/': paginated([]),
+                '/api/projects/:team_id/workflow_views/': paginated([]),
+            },
+            post: {
+                '/api/projects/:team_id/workflow_views/initialize/': () => [403, {}],
             },
         }),
     ],
@@ -264,14 +268,14 @@ function SavedViewsStoryApp(): JSX.Element {
 
 export const SavedViews: Story = {
     render: () => <SavedViewsStoryApp />,
-    parameters: { featureFlags: [FEATURE_FLAGS.WORKFLOWS_LIST_V2, FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS] },
+    parameters: { featureFlags: [FEATURE_FLAGS.WORKFLOWS_LIST_V2] },
     decorators: [withSavedViews],
 }
 
 export const SavedViewsNarrow: Story = {
     render: () => <SavedViewsStoryApp />,
     parameters: {
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_LIST_V2, FEATURE_FLAGS.WORKFLOWS_SAVED_VIEWS],
+        featureFlags: [FEATURE_FLAGS.WORKFLOWS_LIST_V2],
         pageUrl: workflowsUrl({
             view: '00000000-0000-4000-8000-000000000002',
             q: 'kind:messaging',
