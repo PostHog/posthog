@@ -44,7 +44,8 @@ pub(crate) enum CommitError {
 }
 
 impl CommitError {
-    /// Group membership, the coordinator and the network recover on their own.
+    /// Group membership, the coordinator, partition metadata and the network
+    /// recover on their own.
     /// Any other error fails again for the same offsets.
     fn is_retriable(&self) -> bool {
         let Self::Kafka(KafkaError::ConsumerCommit(code)) = self else {
@@ -57,6 +58,7 @@ impl CommitError {
                 | RDKafkaErrorCode::UnknownMemberId
                 | RDKafkaErrorCode::IllegalGeneration
                 | RDKafkaErrorCode::RebalanceInProgress
+                | RDKafkaErrorCode::UnknownTopicOrPartition
                 | RDKafkaErrorCode::NotCoordinator
                 | RDKafkaErrorCode::CoordinatorNotAvailable
                 | RDKafkaErrorCode::CoordinatorLoadInProgress
@@ -76,6 +78,7 @@ impl CommitError {
                 RDKafkaErrorCode::UnknownMemberId => "unknown_member_id",
                 RDKafkaErrorCode::IllegalGeneration => "illegal_generation",
                 RDKafkaErrorCode::RebalanceInProgress => "rebalance_in_progress",
+                RDKafkaErrorCode::UnknownTopicOrPartition => "unknown_topic_or_partition",
                 RDKafkaErrorCode::NotCoordinator
                 | RDKafkaErrorCode::CoordinatorNotAvailable
                 | RDKafkaErrorCode::CoordinatorLoadInProgress
@@ -200,11 +203,11 @@ impl Committer {
             round_done.as_mut().enable();
             {
                 let state = self.shared.state();
-                if done(&state) {
-                    return true;
-                }
                 if state.stopped {
                     return false;
+                }
+                if done(&state) {
+                    return true;
                 }
             }
             if tokio::time::timeout_at(deadline, round_done).await.is_err() {
@@ -436,14 +439,21 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
+    #[case::stale_member_epoch(RDKafkaErrorCode::StaleMemberEpoch)]
+    #[case::unknown_topic_or_partition(RDKafkaErrorCode::UnknownTopicOrPartition)]
     #[tokio::test]
-    async fn a_rejected_offset_goes_out_again_unless_a_newer_one_replaced_it() {
+    async fn a_rejected_offset_goes_out_again_unless_a_newer_one_replaced_it(
+        #[case] code: RDKafkaErrorCode,
+    ) {
         let (mut fixture, release) = Fixture::holding_the_first_commit(vec![]);
         fixture.committer.submit(&offsets(&[(0, 1), (1, 1)]));
         fixture.wait_for_a_commit_to_start().await;
 
         fixture.committer.submit(&offsets(&[(0, 2)]));
-        release.send(stale_member_epoch()).unwrap();
+        release
+            .send(Reply::Fail(KafkaError::ConsumerCommit(code)))
+            .unwrap();
 
         assert!(fixture.committer.flush_all(FLUSH).await);
         assert_eq!(
@@ -494,6 +504,8 @@ mod tests {
             .await
             .expect("the committer stops");
         assert!(matches!(stop_reason, CommitError::Kafka(err) if err == error));
+        assert!(!fixture.committer.flush(&[p(0)], FLUSH).await);
+        assert!(!fixture.committer.flush_all(FLUSH).await);
         fixture.committer.submit(&offsets(&[(0, 2)]));
         assert!(!fixture.committer.flush_all(FLUSH).await);
         assert_eq!(fixture.calls(), vec![offsets(&[(0, 1)])]);
