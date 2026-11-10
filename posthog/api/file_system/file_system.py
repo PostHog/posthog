@@ -530,6 +530,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ]
         )
 
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        data = serializer.validated_data
+        if data.get("type") in WORKFLOW_FILE_SYSTEM_TYPES and data.get("ref") and not data.get("shortcut"):
+            self._ensure_can_delete_objects([(data["type"], data["ref"], self.team.id)])
+        super().perform_create(serializer)
+
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         self._ensure_can_change_workflow_files(FileSystem.objects.filter(pk=cast(FileSystem, serializer.instance).pk))
         super().perform_update(serializer)
@@ -1128,6 +1134,14 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if not entries_to_check:
             return {}
+
+        self._ensure_can_delete_objects(
+            [
+                (entry.type, entry.ref, entry.team_id)
+                for entry in entries_to_check
+                if entry.type in WORKFLOW_FILE_SYSTEM_TYPES and entry.ref
+            ]
+        )
 
         ids_to_remove = {entry.id for entry in entries_to_check}
 
