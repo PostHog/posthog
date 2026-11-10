@@ -17,6 +17,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import { getNextPageHint } from '@/lib/next-page-hint'
 import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
@@ -2364,6 +2365,13 @@ export function createExecTool(
                         // and crowd it out — buildToolResultPayload makes the same choice for
                         // the non-exec path, this keeps exec consistent.
                         outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
+                        // `formatResponse` keeps only the rows of a paginated envelope, so `next`
+                        // and `count` are gone from the text. Without this footer a partial page
+                        // reads as the whole list.
+                        const nextPageHint = getNextPageHint(tool.name, result)
+                        if (nextPageHint) {
+                            outputText = `${outputText}\n\n${nextPageHint}`
+                        }
                     }
                     trackInnerCall?.(tool.name, {
                         duration_ms: durationMs,

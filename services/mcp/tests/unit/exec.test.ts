@@ -368,6 +368,25 @@ describe('exec tool', () => {
             }
         )
 
+        it('tells the agent how to read the next page of a partial list', async () => {
+            const handlerResult = {
+                count: 230,
+                next: 'https://example.com/api/projects/1/things/?limit=100&offset=100',
+                previous: null,
+                results: [{ id: 1 }, { id: 2 }, { id: 3 }],
+            }
+            const exec = createExec([makeMockTool({ handler: async () => handlerResult })])
+
+            const text = await exec.handler(mockContext, { command: 'call mock-tool' })
+            const json = await exec.handler(mockContext, { command: 'call --json mock-tool' })
+
+            expect(text).toBe(
+                `${formatResponse(handlerResult.results)}\n\nShowing 3 of 230 results. More results exist: call mock-tool again with the same arguments and set offset=100 and limit=100 to get the next page.`
+            )
+            // JSON output keeps `next` and `count`, so it needs no footer.
+            expect(json).toBe(JSON.stringify(handlerResult))
+        })
+
         it('returns raw JSON when --json flag is passed in command', async () => {
             const exec = createExec()
             const result = await exec.handler(mockContext, { command: 'call --json mock-tool' })
