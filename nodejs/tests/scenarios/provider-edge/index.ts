@@ -81,7 +81,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         const { message } = request
         const recipients = addressesOf(message.to)
         const correlation = { unitId: unitIdOf(recipients), actionId: actionIdOf(trackingCodeOf(message)) }
-        const fault = faults.take(recipients)
+        const fault = faults.take(addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])]))
         if (fault?.answer.kind === 'drop-connection') {
             truth.append({ kind: 'ses.send', status: 0, fault: fault.name, ...correlation, detail: {} })
             req.socket.destroy()
