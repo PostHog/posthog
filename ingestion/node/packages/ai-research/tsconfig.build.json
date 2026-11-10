@@ -1,7 +1,12 @@
 {
     "extends": "./tsconfig.json",
     "compilerOptions": {
-        "rootDir": "src"
+        "rootDir": "src",
+        // Only the source alias: a path with `..` makes tsc-alias look for the package's folder
+        // name inside dist, find dist/pipelines/ai-research, and rebase every rewrite on it.
+        "paths": {
+            "~/*": ["./src/*"]
+        }
     },
     "include": ["src"],
     "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/pipelines/ml-mirror-image-scrub-sidecar"]
