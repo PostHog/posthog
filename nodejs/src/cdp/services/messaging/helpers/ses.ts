@@ -586,6 +586,7 @@ const canonicalSnsCertUrl = (url: string): string | undefined => {
 export class SesWebhookHandler {
     private certCache = new LRUCache<string, string>({
         max: SNS_SIGNING_CERT_CACHE_SIZE,
+        ignoreFetchAbort: true,
         fetchMethod: (url) => this.fetchText(url),
     })
     private allowedTopicArns: Set<string>

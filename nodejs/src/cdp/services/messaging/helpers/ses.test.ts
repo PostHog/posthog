@@ -32,20 +32,23 @@ describe('SesWebhookHandler', () => {
     let handler: SesWebhookHandler
     let snsRequests: string[]
     let snsAvailable: boolean
+    let snsHeldResponses: Map<string, Promise<void>>
     beforeEach(() => {
         handler = new SesWebhookHandler(signer)
         snsRequests = []
         snsAvailable = true
-        jest.mocked(fetch).mockImplementation((url: string): Promise<FetchResponse> => {
+        snsHeldResponses = new Map()
+        jest.mocked(fetch).mockImplementation(async (url: string): Promise<FetchResponse> => {
             snsRequests.push(url)
+            await snsHeldResponses.get(url)
             const body = new URL(url).pathname.endsWith('.pem') ? snsSigningCertPem : ''
-            return Promise.resolve({
+            return {
                 status: snsAvailable ? 200 : 503,
                 headers: {},
                 text: () => Promise.resolve(body),
                 json: () => Promise.resolve(parseJSON(body)),
                 dump: () => Promise.resolve(),
-            })
+            }
         })
     })
 
@@ -900,6 +903,19 @@ describe('SesWebhookHandler', () => {
                 await deliverSigned(url)
             }
             expect(snsRequests).toEqual([...urls, urls[0]])
+        })
+
+        it('verifies an envelope whose download was still pending when the cache evicted it', async () => {
+            let releaseDownload = (): void => {}
+            snsHeldResponses.set(certUrl, new Promise((resolve) => (releaseDownload = resolve)))
+            const pending = deliverSigned()
+
+            for (let i = 0; i < SNS_SIGNING_CERT_CACHE_SIZE; i++) {
+                await deliverSigned(`https://sns.us-east-1.amazonaws.com/cert-${i}.pem`)
+            }
+            releaseDownload()
+
+            expect((await pending).status).toBe(200)
         })
 
         it('is downloaded again after a failed download', async () => {
