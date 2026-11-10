@@ -13,7 +13,7 @@ from enum import Enum
 from typing import Protocol
 
 from posthog.dataclasses import frozen
-from posthog.integrations.contracts import ConfigValue, IntegrationPatch, IntegrationRecord
+from posthog.integrations.contracts import ConfigValue, CrossTeamFilter, IntegrationPatch, IntegrationRecord
 from posthog.integrations.enums import AuthType
 from posthog.integrations.observability import TokenRefreshResult
 
@@ -111,6 +111,12 @@ class StorageBackend(Protocol):
         """The row of any team with this id and this external id."""
         ...
 
+    def list_across_teams(
+        self, scope: RowScope, cross_team_filter: CrossTeamFilter
+    ) -> builtins.list[IntegrationRecord]:
+        """The rows of every team that match the filter, ordered by id and not by `created_at`, so `after_id` can page."""
+        ...
+
     def create(self, new: NewIntegration) -> IntegrationRecord:
         """Raises `IntegrationConflict` when the team has a row of the kind with this external id, in any scope."""
         ...
@@ -142,7 +148,7 @@ class StorageBackend(Protocol):
     ) -> TokenRefresh:
         """Lock the row, refresh its OAuth tokens when they expire soon or match `stale_access_token`, and store them.
 
-        A failed refresh stores `errors` and does not raise. The lock stops two workers from spending
-        the same refresh token.
+        An empty `stale_access_token` matches a row without an access token. A failed refresh stores
+        `errors` and does not raise. The lock stops two workers from spending the same refresh token.
         """
         ...
