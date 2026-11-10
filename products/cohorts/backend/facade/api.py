@@ -99,6 +99,8 @@ def _resync_skip_reason(cohort: Cohort) -> StaticCohortResyncSkipReason | None:
 
 def get_static_cohort_resync_candidates(*, cohort_ids: list[int]) -> list[StaticCohortResyncCandidate]:
     """Looks up cohorts across all teams for a staff re-sync, in the order of `cohort_ids`, and says which it skips."""
+    # Staff re-sync cohorts of any team from the admin console, which checks staff access before this runs.
+    # nosemgrep: idor-lookup-without-team
     cohorts = Cohort.objects.filter(id__in=cohort_ids).select_related("team").in_bulk()
     candidates: list[StaticCohortResyncCandidate] = []
     for cohort_id in cohort_ids:
