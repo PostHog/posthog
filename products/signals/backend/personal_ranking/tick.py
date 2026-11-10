@@ -139,7 +139,6 @@ class TickSelection:
     pairs: list[TickPair]
     due_pairs: int = 0
     due_without_list: int = 0
-    # Due pairs with no list or a list older than `overdue_after_minutes`, and the picked pairs among them.
     due_overdue: int = 0
     picked_overdue: int = 0
     # Hours since the oldest list of a due pair was built or checked. Null when no due pair has a list.
@@ -391,8 +390,7 @@ def select_pairs(
     eligible = _eligible_pairs(tick, now, team_ids)
     due = eligible.filter(Q(list_at__isnull=True) | Q(list_at__lt=stale_before))
     order = (
-        # Overdue pairs sort by list age, with no list first. Every other pair ties at `overdue_before`.
-        # One key, because each reference to `list_at` runs its subquery again.
+        # Overdue pairs first by list age, and the rest tie. One key, because each `list_at` reference reruns its subquery.
         Least(
             Coalesce("list_at", Value(datetime.datetime.min.replace(tzinfo=datetime.UTC))), Value(overdue_before)
         ).asc(),

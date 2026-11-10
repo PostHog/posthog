@@ -76,8 +76,7 @@ class PersonalRankingTickConfig:
     skip_team_ids: tuple[int, ...] = ()
     # A pair is due when its latest list was built or checked longer ago than this.
     target_interval_minutes: int = 60
-    # A due pair is overdue when it has no list, or its list is older than this. The tick picks overdue pairs first.
-    # The payload default is twice `target_interval_minutes`.
+    # A due pair with no list, or a list older than this, goes first. The payload default is twice the target interval.
     overdue_after_minutes: int = 120
     # Only pairs with activity in this many days are due.
     active_days: int = 7

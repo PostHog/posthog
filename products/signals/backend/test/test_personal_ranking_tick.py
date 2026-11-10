@@ -445,7 +445,6 @@ async def test_the_tick_bounds_concurrency_and_stops_at_each_limit(
         stop_reason,
     )
     assert (result.due_pairs, result.enrolled_teams) == (plan.due_pairs, plan.enrolled_teams)
-    # The plan's overdue pairs come first, so a tick that starts fewer pairs reports fewer overdue pairs.
     assert (result.due_overdue, result.picked_overdue) == (plan.due_overdue, min(picked, 2))
     backlog = result.remaining
     # The tick takes a few milliseconds, which adds to the age of the oldest remaining list.
