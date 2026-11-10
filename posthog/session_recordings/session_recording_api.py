@@ -234,15 +234,15 @@ def _replay_proxy_token_for_player(request, team_id: int) -> str | None:
 
 
 def _replay_blocks_viewer(request) -> str | None:
-    """Who the player is watching as, for the block URLs and the per-viewer rate limit. An export gets its own viewer, so
-    a long export cannot use up the rate limit of the person who created it. None for any caller that is not the player,
-    which keeps reading blocks through Django. Share links also stay on Django, because a block token cannot see a share
-    being disabled or its password revoked."""
+    """Who the player is watching as, for the block URLs and the per-viewer rate limit. A team's exports share one viewer,
+    so an export cannot use up its creator's rate limit, and creating many exports does not add budget. None for any
+    caller that is not the player, which keeps reading blocks through Django. Share links also stay on Django, because a
+    block token cannot see a share being disabled or its password revoked."""
     authenticator = getattr(request, "successful_authenticator", None)
     if not isinstance(request.user, User):
         return None
     if isinstance(authenticator, ExportRendererAuthentication):
-        return f"e{authenticator.exported_asset_id}"
+        return f"e{authenticator.team_id}"
     if isinstance(authenticator, SessionAuthentication):
         return f"u{request.user.pk}"
     return None

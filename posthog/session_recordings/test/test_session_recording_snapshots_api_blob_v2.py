@@ -211,7 +211,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
                 user_id=self.user.id, team_id=self.team.id, exported_asset_id=asset.id, scope="session_recording:read"
             )
             headers = {"authorization": f"Bearer {renderer_token}"}
-            viewer = f"e{asset.id}"
+            viewer = f"e{self.team.pk}"
         if auth == "share_link":
             recording = SessionRecording.objects.create(session_id=session_id, team=self.team)
             sharing = SharingConfiguration.objects.create(team=self.team, recording=recording, enabled=True)
