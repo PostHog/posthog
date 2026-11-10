@@ -1,5 +1,6 @@
 import re
-from typing import Literal, cast
+from collections.abc import Iterable, Mapping
+from typing import Any, Literal, cast
 
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db.models.expressions import CombinedExpression
@@ -54,3 +55,30 @@ def build_rank(
         return None
     query = SearchQuery(search, config=config, search_type="raw")
     return SearchRank(vector, query)
+
+
+def to_search_results(
+    rows: Iterable[Mapping[str, Any]],
+    *,
+    entity_type: str,
+    ranked: bool,
+    access_levels: Mapping[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """
+    Shapes rows that carry `id`, `name` and `description`, plus `rank` when `ranked`, into the
+    result dicts core search returns. `access_levels`, keyed by the id as a string, adds
+    `user_access_level` to each result; `None` leaves the key out.
+    """
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        result: dict[str, Any] = {
+            "type": entity_type,
+            "result_id": str(row["id"]),
+            "extra_fields": {"name": row["name"], "description": row["description"]},
+        }
+        if ranked:
+            result["rank"] = row["rank"]
+        if access_levels is not None:
+            result["user_access_level"] = access_levels.get(str(row["id"]))
+        results.append(result)
+    return results

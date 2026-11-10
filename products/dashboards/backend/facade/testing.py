@@ -73,9 +73,6 @@ class _Unset(Enum):
 UNSET = _Unset.UNSET
 
 
-# Dashboards
-
-
 def create_dashboard(
     *,
     team_id: int,
@@ -182,9 +179,6 @@ def dashboard_extras(*, dashboard_id: int) -> DashboardExtras:
 def home_tab_config_exists(*, team_id: int) -> bool:
     """Whether the team has a Home tab config row, whatever dashboard it points at."""
     return TeamHomeTabDashboardConfig.objects.for_team(team_id).exists()
-
-
-# Tiles
 
 
 def create_insight_tile(
@@ -359,9 +353,6 @@ def widget_tile_creation_fails(error: Exception) -> Iterator[None]:
         yield
 
 
-# Templates
-
-
 def create_dashboard_template(
     *,
     template_name: str,
@@ -395,9 +386,6 @@ def global_dashboard_template_exists(*, template_name: str) -> bool:
 
 def delete_global_dashboard_templates(*, template_name: str) -> None:
     DashboardTemplate.objects_including_soft_deleted.filter(template_name=template_name, team__isnull=True).delete()
-
-
-# Metrics
 
 
 def dashboard_access_count(access_method: DashboardAccessMethod) -> float:

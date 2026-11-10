@@ -258,8 +258,7 @@ class DashboardTemplateDefinition:
     availability_contexts: list[str] | None = None
 
 
-# Returned by facade/testing.py only. They live here because data types that cross the boundary
-# belong in this module.
+# Returned only by facade/testing.py; boundary-crossing data types live in this module.
 
 
 @dataclass(frozen=True)

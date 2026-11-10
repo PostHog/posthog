@@ -27,6 +27,7 @@ from django.utils.timezone import now
 
 from rest_framework import serializers
 
+from posthog.helpers.full_text_search import to_search_results
 from posthog.models.user import User
 from posthog.models.user_home_settings import UserHomeSettings
 from posthog.resource_limits import LimitKey, check_count_limit
@@ -815,8 +816,7 @@ def update_insight_dashboard_membership(
     )
 
 
-# Capabilities for the code outside this product that still runs its own queries and writes on the
-# dashboard models. Each one carries over the query it replaces, and the parity tests pin that.
+# For callers outside this product that still query the dashboard models; parity tests pin each query.
 
 
 def search_dashboards(
@@ -847,21 +847,11 @@ def search_dashboards(
     access_levels = (
         access_control.bulk_object_access_levels("dashboard", [(str(row["id"]), row["created_by_id"]) for row in rows])
         if with_access_levels
-        else {}
+        else None
     )
-    results: list[dict[str, Any]] = []
-    for row in rows:
-        result: dict[str, Any] = {
-            "type": "dashboard",
-            "result_id": str(row["id"]),
-            "extra_fields": {"name": row["name"], "description": row["description"]},
-        }
-        if query:
-            result["rank"] = row["rank"]
-        if with_access_levels:
-            result["user_access_level"] = access_levels.get(str(row["id"]))
-        results.append(result)
-    return results, total_count
+    return to_search_results(
+        rows, entity_type="dashboard", ranked=bool(query), access_levels=access_levels
+    ), total_count
 
 
 def dashboards_by_last_access(
@@ -1051,7 +1041,6 @@ __all__ = [
     "viewable_dashboard_id",
     "viewable_dashboard_ids",
     "viewable_dashboard_ref",
-    # Capabilities for the caller sweep, kept together.
     "AppliedDashboard",
     "DashboardTemplateDefinition",
     "DashboardUsageCount",
