@@ -517,4 +517,7 @@ class InsightAgentRead(TeamScopedRootMixin):
                 fields=["team", "user", "insight", "day"], name="product_analytics_unique_agent_read_day"
             )
         ]
-        indexes = [models.Index(fields=["team", "user", "-day"], name="product_analytics_agent_recent")]
+        indexes = [
+            models.Index(fields=["team", "user", "-day"], name="product_analytics_agent_recent"),
+            models.Index(fields=["day"], name="product_analytics_agent_day"),
+        ]

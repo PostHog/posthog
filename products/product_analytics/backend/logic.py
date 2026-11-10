@@ -78,9 +78,9 @@ def record_agent_insight_read(*, team: "Team", user_id: int, insight_id: int) ->
 
 def _save_agent_read(*, team: "Team", user_id: int, insight_id: int, day: date) -> None:
     team_id = team.parent_team_id or team.id
-    reads = InsightAgentRead.objects.for_team(team_id, canonical=True)
-    reads.get_or_create(team_id=team_id, user_id=user_id, insight_id=insight_id, day=day)
-    reads.filter(user_id=user_id, insight_id=insight_id, day__lt=day - timedelta(days=AGENT_READ_DAYS_KEPT)).delete()
+    InsightAgentRead.objects.for_team(team_id, canonical=True).get_or_create(
+        team_id=team_id, user_id=user_id, insight_id=insight_id, day=day
+    )
 
 
 def insight_reads_by_agents(
@@ -98,7 +98,15 @@ def insight_reads_by_agents(
 
 
 def delete_agent_insight_reads_for_teams(team_ids: Collection[int]) -> None:
-    reads = InsightAgentRead.objects.unscoped().filter(team_id__in=team_ids)
+    _delete_in_batches(InsightAgentRead.objects.unscoped().filter(team_id__in=team_ids))
+
+
+def expire_agent_insight_reads() -> None:
+    oldest = now().date() - timedelta(days=AGENT_READ_DAYS_KEPT)
+    _delete_in_batches(InsightAgentRead.objects.unscoped().filter(day__lt=oldest))
+
+
+def _delete_in_batches(reads: QuerySet[InsightAgentRead]) -> None:
     while batch := list(reads.values_list("id", flat=True)[:AGENT_READ_DELETE_BATCH]):
         reads.filter(id__in=batch).delete()
 

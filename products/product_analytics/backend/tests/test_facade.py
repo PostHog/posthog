@@ -34,6 +34,7 @@ from products.product_analytics.backend.facade.api import (
 )
 from products.product_analytics.backend.facade.contracts import AgentInsightRead
 from products.product_analytics.backend.facade.queries import run_cached_trends_query
+from products.product_analytics.backend.facade.tasks import expire_agent_insight_reads
 from products.product_analytics.backend.models.insight import Insight, InsightAgentRead, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -88,7 +89,7 @@ class TestAgentInsightReads(BaseTest):
         super().setUp()
         cache.clear()
 
-    def test_a_read_counts_once_a_day_and_days_past_the_window_drop_off(self) -> None:
+    def test_a_read_counts_once_a_day_and_deleted_insights_are_left_out(self) -> None:
         asked = Insight.objects.create(team=self.team, saved=True, short_id="asked")
         deleted = Insight.objects.create(team=self.team, saved=True, short_id="deleted", deleted=True)
         for moment, insight in (
@@ -105,7 +106,7 @@ class TestAgentInsightReads(BaseTest):
             team_id=self.team.id, user_id=self.user.id, since=date(2026, 10, 1), min_days=2, limit=5
         )
 
-        self.assertEqual(reads, [AgentInsightRead("asked", (date(2026, 11, 6), date(2026, 11, 7)))])
+        self.assertEqual(reads, [AgentInsightRead("asked", (date(2026, 10, 1), date(2026, 11, 6), date(2026, 11, 7)))])
 
     def test_the_limit_counts_only_insights_read_on_enough_days_in_the_window(self) -> None:
         def read(short_id: str, days: list[date]) -> None:
@@ -136,6 +137,21 @@ class TestAgentInsightReads(BaseTest):
         self.assertEqual(
             [InsightAgentRead.objects.for_team(team.id).count() for team in (self.team, other)],
             [0, 1],
+        )
+
+    @time_machine.travel("2026-11-10T12:00:00Z", tick=False)
+    def test_the_daily_task_expires_days_past_the_window_for_every_reader(self) -> None:
+        insight = Insight.objects.create(team=self.team, saved=True, short_id="dormant")
+        for day in (date(2026, 10, 5), date(2026, 10, 6), date(2026, 11, 9)):
+            InsightAgentRead.objects.for_team(self.team.id).create(
+                team=self.team, user=self.user, insight=insight, day=day
+            )
+
+        expire_agent_insight_reads()
+
+        self.assertEqual(
+            sorted(InsightAgentRead.objects.for_team(self.team.id).values_list("day", flat=True)),
+            [date(2026, 10, 6), date(2026, 11, 9)],
         )
 
     def test_a_failed_write_lets_a_later_read_that_day_retry(self) -> None:
