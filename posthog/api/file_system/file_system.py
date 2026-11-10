@@ -3,6 +3,7 @@ import json
 import shlex
 import logging
 import builtins
+from collections.abc import Iterable
 from functools import cached_property
 from typing import Any, Optional, cast
 from uuid import UUID
@@ -550,6 +551,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 if ref
             ]
         )
+
+    def _ensure_token_can_write_workflow_objects(self, file_types: Iterable[str]) -> None:
+        if any(file_type in WORKFLOW_FILE_SYSTEM_TYPES for file_type in file_types):
+            if missing_scopes := scopes_caller_lacks(self.request, ["hog_flow:write"]):
+                raise InsufficientScope(missing_scopes)
 
     def _ensure_can_place_workflow_file(
         self, entry_type: Optional[str], ref: Optional[str], shortcut: Optional[bool], team_id: int
@@ -1253,9 +1259,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if remaining == 0 and ref:
                 objects_to_delete.append((file_type, ref, team_id))
 
-        if any(file_type in WORKFLOW_FILE_SYSTEM_TYPES for file_type, _ref, _team_id in objects_to_delete):
-            if missing_scopes := scopes_caller_lacks(self.request, ["hog_flow:write"]):
-                raise InsufficientScope(missing_scopes)
+        self._ensure_token_can_write_workflow_objects([file_type for file_type, _ref, _team_id in objects_to_delete])
         self._ensure_can_delete_objects(objects_to_delete)
 
         return reaches_backing_object
@@ -1372,6 +1376,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # other. Sorting means every request takes those locks in the same order instead.
         items = sorted(serializer.validated_data["items"], key=lambda item: (item["type"], item["ref"]))
         undo_results: list[dict[str, str]] = []
+        self._ensure_token_can_write_workflow_objects([item["type"] for item in items])
 
         with transaction.atomic():
             for item in items:
