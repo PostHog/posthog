@@ -5,8 +5,6 @@ import { CSS } from '@dnd-kit/utilities'
 
 import { cn } from '@posthog/quill'
 
-import type { SidebarNavigationItem } from './CustomizedSidebar'
-
 // A drop ends with a click on the dragged row. dnd-kit stops that click before React sees it, so without this the
 // row's link would follow its href and reload the page.
 function preventClick(event: MouseEvent): void {
@@ -36,13 +34,13 @@ function SortableSidebarRow({ value, children }: { value: string; children: JSX.
     )
 }
 
-export function SortableSidebarList({
+export function SortableSidebarList<T extends { value: string }>({
     rows,
     renderRow,
     onReorder,
 }: {
-    rows: SidebarNavigationItem[]
-    renderRow: (row: SidebarNavigationItem) => JSX.Element
+    rows: T[]
+    renderRow: (row: T) => JSX.Element
     onReorder: (fromIndex: number, toIndex: number) => void
 }): JSX.Element {
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))

@@ -10,6 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
+import { SortableSidebarList } from '~/layout/today/sidebar/SortableSidebarList'
 
 import type {
     AnalyticsFragmentButtonApi,
@@ -23,7 +24,6 @@ import { SidebarCustomizationControls } from './SidebarCustomizationControls'
 import { sidebarCustomizationLogic } from './sidebarCustomizationLogic'
 import { SIDEBAR_ICONS } from './sidebarIcons'
 import { SidebarLayoutSections } from './SidebarLayoutSections'
-import { SortableSidebarList } from './SortableSidebarList'
 
 const SidebarAgentListener = lazyWithRetry(() =>
     import('./SidebarAgentListener').then((m) => ({ default: m.SidebarAgentListener }))
