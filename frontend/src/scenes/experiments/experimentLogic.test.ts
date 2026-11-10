@@ -2725,13 +2725,13 @@ describe('experimentLogic', () => {
                     findings: [
                         {
                             ...healthFinding('split_changed_mid_run', 'not_checked'),
-                            reason: 'exposure_action',
+                            reason: 'exposure_filters',
                             severity: 'info',
                         },
                     ],
                     checks: [],
                 },
-                expected: { health_findings: ['split_changed_mid_run:not_checked:info:exposure_action'] },
+                expected: { health_findings: ['split_changed_mid_run:not_checked:info:exposure_filters'] },
             },
             {
                 desc: 'a server subcode the page does not know',

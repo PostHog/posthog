@@ -17,6 +17,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.test.persons import create_person
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind, ExperimentHealthReaderAccess
 from products.experiments.backend.health.context import (
     MIN_EXPOSED_UNITS_TO_WARN,
@@ -54,6 +55,13 @@ _BY_PERSON_PROPERTY: dict[str, Any] = {
         "kind": "ExperimentEventExposureConfig",
         "event": "$feature_flag_called",
         "properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "person"}],
+    }
+}
+_BY_HOGQL: dict[str, Any] = {
+    "exposure_config": {
+        "kind": "ExperimentEventExposureConfig",
+        "event": "$feature_flag_called",
+        "properties": [{"key": "properties.plan = 'pro'", "type": "hogql"}],
     }
 }
 _BY_ACTION: dict[str, Any] = {"exposure_config": {"kind": "ActionsNode", "id": 1}}
@@ -435,6 +443,7 @@ class TestLoadFlagHistory(BaseTest):
 
     @parameterized.expand(
         [
+            ("exposure_filters", _BY_HOGQL, True, True, FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
             ("exposure_action", _BY_ACTION, True, True, FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
             ("exposure_criteria", _UNREADABLE, True, True, FlagHistoryNotCheckedReason.EXPOSURE_CRITERIA),
             ("no_query_access", {}, True, False, FlagHistoryNotCheckedReason.NO_QUERY_ACCESS),
@@ -592,6 +601,24 @@ class TestLoadFlagHistory(BaseTest):
         self.assertIsNone(history.exposed_before_first)
         self.assertEqual(history.exposed_units_before_last, {ExperimentHealthFlagChangeKind.SPLIT: None})
         self.assertEqual(self.units_query.call_count, 0)
+
+    @parameterized.expand([("team_timezone",), ("property_type",)])
+    def test_a_setting_that_the_filters_compile_with_asks_again(self, setting: str) -> None:
+        self.experiment.exposure_criteria = _BY_EVENT_PROPERTY
+        self.experiment.save()
+        self._log_split_changes([_split(50, 50), _split(60, 40)])
+        self._load([False])
+
+        if setting == "team_timezone":
+            self.experiment.team.timezone = "Europe/Berlin"
+            self.experiment.team.save()
+        else:
+            PropertyDefinition.objects.create(
+                team=self.team, name="plan", property_type="Numeric", type=PropertyDefinition.Type.EVENT
+            )
+        _, query = self._load([False])
+
+        self.assertEqual(query.call_count, 1)
 
     def test_cached_walk_reads_the_cache_once(self) -> None:
         self._log_split_changes([_split(50, 50), _split(60, 40)] * 5)

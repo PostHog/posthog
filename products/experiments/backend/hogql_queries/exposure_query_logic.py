@@ -9,23 +9,25 @@ import posthoganalytics
 
 from posthog.schema import (
     ActionsNode,
+    BehavioralPropertyFilter,
+    CohortPropertyFilter,
     ElementPropertyFilter,
     EventPropertyFilter,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
     ExperimentWarehouseNativeExposureConfig,
-    HogQLPropertyFilter,
+    GroupPropertyFilter,
     MultipleVariantHandling,
+    PersonMetadataPropertyFilter,
+    PersonPropertyFilter,
     PropertyOperator,
+    SessionPropertyFilter,
 )
 
 from posthog.hogql import ast
-from posthog.hogql.database.schema.util.where_clause_extractor import is_nondeterministic_function
-from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError
-from posthog.hogql.functions.mapping import find_hogql_function
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.property import action_to_expr, is_relative_date, operator_is_negative, property_to_expr
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.utils import map_virtual_properties
 
 from posthog.models.team.team import Team
 
@@ -428,95 +430,102 @@ def exposure_criteria_on_the_event(
     exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
 ) -> Optional[ExperimentExposureCriteria]:
     """
-    The exposure criteria with only the property filters that read the exposure event itself, such as its properties
-    or its timestamp, and match the same events on every run. The other filters read persons, cohorts, sessions or
-    groups, or the clock. Their match can change after the event, and a reader can be denied a property that those
-    filters read.
+    The exposure criteria with only the filters that compare a property of the exposure event or of its elements.
+    HogQL compiles each of them to a read of that one value, so the filter reads nothing but the event. Its match can
+    still depend on the type of the property and the timezone of the team.
     """
     criteria = normalize_to_exposure_criteria(exposure_criteria)
     config = criteria.exposure_config if criteria else None
     if criteria is None or not isinstance(config, ExperimentEventExposureConfig) or not config.properties:
         return criteria
-    kept = [prop for prop in config.properties if _reads_only_the_event(prop)]
+    kept = [prop for prop in config.properties if _compares_an_event_value(prop)]
     return criteria.model_copy(update={"exposure_config": config.model_copy(update={"properties": kept})})
 
 
-# The fields of the events table that hold the event's own values, with no join.
-_EVENT_FIELDS = frozenset({"event", "timestamp", "distinct_id", "properties", "elements_chain", "uuid", "$session_id"})
+def exposure_filters_off_the_event_narrow_who(exposure_criteria: Union[ExperimentExposureCriteria, dict, None]) -> bool:
+    """
+    Whether every filter that `exposure_criteria_on_the_event` leaves out narrows down which persons, groups or
+    sessions count. Without such a filter a query counts more exposures than the results do, never fewer. Any other
+    filter, such as a HogQL expression or a virtual property, can read more than the event, or change its match with
+    the clock or a team setting.
+    """
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
+    config = criteria.exposure_config if criteria else None
+    if not isinstance(config, ExperimentEventExposureConfig):
+        return True
+    return all(_compares_an_event_value(prop) or isinstance(prop, _FILTERS_ON_WHO) for prop in config.properties or [])
 
-# The expressions that compute a value only from the nodes under them. Any other node, such as a subquery or a
-# HogQLX tag that expands into one, can read more than the event.
-_EVENT_EXPRESSION_NODES = frozenset(
+
+_FILTERS_ON_WHO = (
+    PersonPropertyFilter,
+    PersonMetadataPropertyFilter,
+    CohortPropertyFilter,
+    BehavioralPropertyFilter,
+    GroupPropertyFilter,
+    SessionPropertyFilter,
+)
+
+# The operators that compare the value with the filter's own value. The others read team settings, such as the
+# path cleaning rules, or other models, such as cohorts and flags.
+_VALUE_OPERATORS = frozenset(
     {
-        ast.Field,
-        ast.Constant,
-        ast.Call,
-        ast.CompareOperation,
-        ast.And,
-        ast.Or,
-        ast.Not,
-        ast.ArithmeticOperation,
-        ast.BetweenExpr,
-        ast.Array,
-        ast.Tuple,
-        ast.ArrayAccess,
-        ast.TupleAccess,
+        PropertyOperator.EXACT,
+        PropertyOperator.IS_NOT,
+        PropertyOperator.ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.STARTS_WITH,
+        PropertyOperator.NOT_STARTS_WITH,
+        PropertyOperator.ENDS_WITH,
+        PropertyOperator.NOT_ENDS_WITH,
+        PropertyOperator.REGEX,
+        PropertyOperator.NOT_REGEX,
+        PropertyOperator.GT,
+        PropertyOperator.GTE,
+        PropertyOperator.LT,
+        PropertyOperator.LTE,
+        PropertyOperator.IS_SET,
+        PropertyOperator.IS_NOT_SET,
+        PropertyOperator.IS_DATE_EXACT,
+        PropertyOperator.IS_DATE_BEFORE,
+        PropertyOperator.IS_DATE_AFTER,
+        PropertyOperator.BETWEEN,
+        PropertyOperator.NOT_BETWEEN,
+        PropertyOperator.MIN,
+        PropertyOperator.MAX,
+        PropertyOperator.SEMVER_EQ,
+        PropertyOperator.SEMVER_NEQ,
+        PropertyOperator.SEMVER_GT,
+        PropertyOperator.SEMVER_GTE,
+        PropertyOperator.SEMVER_LT,
+        PropertyOperator.SEMVER_LTE,
+        PropertyOperator.SEMVER_TILDE,
+        PropertyOperator.SEMVER_CARET,
+        PropertyOperator.SEMVER_WILDCARD,
+        PropertyOperator.ICONTAINS_MULTI,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
     }
 )
 
-_CLOCK_FUNCTIONS = frozenset({"now", "today", "yesterday", "current_date", "current_timestamp"})
 
 _DATE_OPERATORS = frozenset(
     {PropertyOperator.IS_DATE_EXACT, PropertyOperator.IS_DATE_BEFORE, PropertyOperator.IS_DATE_AFTER}
 )
 
 
-def _reads_only_the_event(prop: object) -> bool:
-    if isinstance(prop, EventPropertyFilter):
-        return not (prop.operator in _DATE_OPERATORS and is_relative_date(prop.value))
+def _compares_an_event_value(prop: object) -> bool:
     if isinstance(prop, ElementPropertyFilter):
         return True
-    if isinstance(prop, HogQLPropertyFilter):
-        try:
-            expr = parse_expr(prop.key)
-        except BaseHogQLError:
-            return False
-        reader = _EventFieldsReader()
-        reader.visit(expr)
-        return reader.only_event_fields
-    return False
-
-
-class _EventFieldsReader(TraversingVisitor):
-    def __init__(self) -> None:
-        super().__init__()
-        self.only_event_fields = True
-
-    def visit(self, node: ast.AST | None) -> None:
-        if node is not None and type(node) not in _EVENT_EXPRESSION_NODES:
-            self.only_event_fields = False
-            return
-        super().visit(node)
-
-    def visit_field(self, node: ast.Field) -> None:
-        if str(node.chain[0]) not in _EVENT_FIELDS:
-            self.only_event_fields = False
-
-    def visit_call(self, node: ast.Call) -> None:
-        # An aggregation or a PostHog function, such as `matchesAction`, reads more than the event.
-        if (
-            find_hogql_function(node.name) is None
-            or node.name.lower() in _CLOCK_FUNCTIONS
-            or is_nondeterministic_function(node.name)
-        ):
-            self.only_event_fields = False
-        super().visit_call(node)
-
-    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
-        # `IN COHORT` reads the cohort's members, whatever field it compares.
-        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
-            self.only_event_fields = False
-        super().visit_compare_operation(node)
+    if not isinstance(prop, EventPropertyFilter):
+        return False
+    field = ast.Field(chain=["properties", prop.key])
+    operator = prop.operator or PropertyOperator.EXACT
+    # A virtual property compiles to an expression that can read persons and team settings. A relative date, such as
+    # `-7d`, compiles to a date counted back from the time of the query.
+    return (
+        map_virtual_properties(field) is field
+        and operator in _VALUE_OPERATORS
+        and not (operator in _DATE_OPERATORS and is_relative_date(prop.value))
+    )
 
 
 def aggregates_by_group(group_type_index: object) -> bool:

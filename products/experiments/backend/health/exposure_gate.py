@@ -8,11 +8,13 @@ The answer for a past window does not change, so it is cached per window and sha
 answer is then paid once per change, not on every load of the experiment page. A failed query is cached as
 unknown too, so a scan that is too large for a request runs at most once a day.
 
-The questions keep only the property filters of the exposure criteria that read the exposure event itself, because
-the answer for a filter on persons, cohorts, sessions or groups can depend on what each reader may read, and can change
-as people match it over time. Without those filters the questions cover more exposures than the results count, so
-"nobody" still holds, and "somebody" can count a change that moved none of the counted users. An action can match
-other events, so the changes of an experiment whose exposures come from an action are reported as not checked.
+The questions keep only the exposure filters that compare a property of the exposure event or of its elements, and
+leave out the filters on persons, cohorts, groups or sessions. The answer for those can depend on what each reader may
+read, and can change as people match them over time. Without them the questions cover more exposures than the results
+count, so "nobody" still holds, and "somebody" can count a change that moved none of the counted users. Any other
+filter, such as a HogQL expression or a virtual property, can read more than the event, or match other events as time
+passes or a team setting changes. The changes of an experiment with such a filter are reported as not checked, as are
+those of an experiment whose exposures come from an action, which can match other events too.
 
 The answers run without the reader and are shared, so a reader denied any event property gets none. Every change
 then counts for that reader, as if every answer were unknown.
@@ -32,11 +34,13 @@ from django.utils import timezone
 
 import pydantic
 
-from posthog.schema import ActionsNode
+from posthog.schema import ActionsNode, EventPropertyFilter, ExperimentEventExposureConfig
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -73,6 +77,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     aggregates_by_group,
     build_exposure_event_conditions,
     exposure_criteria_on_the_event,
+    exposure_filters_off_the_event_narrow_who,
     get_entity_key,
     get_exposure_event_and_property,
     normalize_to_exposure_criteria,
@@ -327,6 +332,7 @@ class _ExposureGate:
         self._group_type_index = group_type_index
         self._denied_event_properties = denied_event_properties
         self._default_exposure_event = resolve_default_exposure_event(experiment.team, start_date)
+        self._filter_settings = _settings_the_filters_compile_with(experiment)
         # One cache read for all windows of the walk and the counts, so a flag with many changes costs one round trip.
         self._prefetched_keys = (
             set()
@@ -445,12 +451,38 @@ class _ExposureGate:
         # Every input of the query. The resolved exposure event is one, because the exposure event rollout
         # can move an experiment to another event.
         inputs = json.dumps(
-            [self._start_date.isoformat(), *window_inputs, experiment.exposure_criteria, self._default_exposure_event],
+            [
+                self._start_date.isoformat(),
+                *window_inputs,
+                experiment.exposure_criteria,
+                self._default_exposure_event,
+                self._filter_settings,
+            ],
             sort_keys=True,
             default=str,
         )
         digest = hashlib.sha256(inputs.encode()).hexdigest()
         return f"{prefix}:{experiment.team_id}:{experiment.id}:{digest}"
+
+
+def _settings_the_filters_compile_with(experiment: Experiment) -> list[object]:
+    """
+    The team settings that the kept exposure filters compile with: the timezone, and the type of each filtered
+    property. A change to one of them can change which events a filter matches, so it asks the questions again.
+    """
+    criteria = exposure_criteria_on_the_event(experiment.exposure_criteria)
+    config = criteria.exposure_config if criteria else None
+    if not isinstance(config, ExperimentEventExposureConfig) or not config.properties:
+        return []
+    team = experiment.team
+    names = {prop.key for prop in config.properties if isinstance(prop, EventPropertyFilter)}
+    metadata = load_property_metadata(
+        HogQLContext(team_id=team.pk, team=team),
+        event_property_names=names,
+        person_property_names=set(),
+        group_property_names={},
+    )
+    return [team.timezone, sorted((name, metadata.event_properties.get(name, {}).get("type")) for name in names)]
 
 
 class _ConditionAggregationMismatch(Exception):
@@ -595,6 +627,8 @@ def _not_checked_reason(
     config = criteria.exposure_config if criteria else None
     if isinstance(config, ActionsNode):
         return FlagHistoryNotCheckedReason.EXPOSURE_ACTION
+    if not exposure_filters_off_the_event_narrow_who(criteria):
+        return FlagHistoryNotCheckedReason.EXPOSURE_FILTERS
     if not reader_access.can_query_events:
         return FlagHistoryNotCheckedReason.NO_QUERY_ACCESS
     return None

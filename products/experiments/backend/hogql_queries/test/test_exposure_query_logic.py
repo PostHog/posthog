@@ -18,6 +18,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
     exposure_criteria_on_the_event,
+    exposure_filters_off_the_event_narrow_who,
     get_exposure_event_and_property,
     get_multiple_variant_handling_from_experiment,
     get_test_accounts_filter,
@@ -152,42 +153,54 @@ class TestNormalizeToExposureCriteria:
 class TestExposureCriteriaOnTheEvent:
     @parameterized.expand(
         [
-            ("event_property", {"key": "plan", "value": "pro", "operator": "exact", "type": "event"}, True),
+            # (name, filter, kept, can be left out)
+            ("event_property", {"key": "plan", "value": "pro", "operator": "exact", "type": "event"}, True, True),
             (
                 "event_absolute_date",
                 {"key": "signup", "value": "2026-01-01", "operator": "is_date_after", "type": "event"},
                 True,
+                True,
             ),
+            ("element", {"key": "text", "value": "Buy", "operator": "exact", "type": "element"}, True, True),
+            ("person_property", {"key": "plan", "value": "pro", "operator": "exact", "type": "person"}, False, True),
+            ("cohort", {"key": "id", "value": 1, "type": "cohort"}, False, True),
+            ("session", {"key": "$entry_pathname", "value": "/", "operator": "exact", "type": "session"}, False, True),
             (
                 "event_relative_date",
                 {"key": "signup", "value": "-7d", "operator": "is_date_after", "type": "event"},
                 False,
-            ),
-            ("element", {"key": "text", "value": "Buy", "operator": "exact", "type": "element"}, True),
-            ("hogql_on_the_timestamp", {"key": "timestamp >= toDateTime('2026-01-01', 'UTC')", "type": "hogql"}, True),
-            ("person_property", {"key": "plan", "value": "pro", "operator": "exact", "type": "person"}, False),
-            ("cohort", {"key": "id", "value": 1, "type": "cohort"}, False),
-            ("hogql_on_the_person", {"key": "person.properties.plan = 'pro'", "type": "hogql"}, False),
-            ("hogql_subquery", {"key": "distinct_id IN (SELECT distinct_id FROM events)", "type": "hogql"}, False),
-            ("hogql_in_cohort", {"key": "distinct_id IN COHORT 5", "type": "hogql"}, False),
-            ("hogql_posthog_function", {"key": "matchesAction(1)", "type": "hogql"}, False),
-            (
-                "hogql_query_tag",
-                {"key": "(<HogQLQuery query='SELECT count() FROM persons' />) > 0", "type": "hogql"},
                 False,
             ),
-            ("hogql_clock", {"key": "timestamp < now() - interval 7 day", "type": "hogql"}, False),
-            ("hogql_random", {"key": "rand() % 2 = 0", "type": "hogql"}, False),
-            ("hogql_that_does_not_parse", {"key": "plan = (", "type": "hogql"}, False),
+            (
+                "event_virtual_property",
+                {"key": "$virt_is_bot", "value": "false", "operator": "exact", "type": "event"},
+                False,
+                False,
+            ),
+            (
+                "event_cleaned_path",
+                {"key": "$pathname", "value": "/a", "operator": "is_cleaned_path_exact", "type": "event"},
+                False,
+                False,
+            ),
+            ("hogql", {"key": "timestamp >= toDateTime('2026-01-01', 'UTC')", "type": "hogql"}, False, False),
+            (
+                "event_metadata",
+                {"key": "distinct_id", "value": "a", "operator": "exact", "type": "event_metadata"},
+                False,
+                False,
+            ),
         ]
     )
-    def test_keeps_only_the_filters_on_the_exposure_event(self, _name, prop, kept):
-        criteria = exposure_criteria_on_the_event(
-            {"exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "checkout", "properties": [prop]}}
-        )
+    def test_keeps_only_the_filters_on_the_exposure_event(self, _name, prop, kept, can_be_left_out):
+        exposure_criteria = {
+            "exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "checkout", "properties": [prop]}
+        }
+        criteria = exposure_criteria_on_the_event(exposure_criteria)
 
         assert criteria is not None and isinstance(criteria.exposure_config, ExperimentEventExposureConfig)
         assert len(criteria.exposure_config.properties or []) == int(kept)
+        assert exposure_filters_off_the_event_narrow_who(exposure_criteria) is (kept or can_be_left_out)
 
 
 class TestGetExposureConfigParamsForBuilder:
