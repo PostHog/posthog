@@ -747,18 +747,17 @@ def _auto_promote(
     try:
         result, promotion = _auto_promotion_choice(client, bucket, prefix, partition_key, overrides)
         if promotion is not None:
-            pointer, metadata, reason, now = promotion
             write_served_pointer(
                 context,
                 client,
                 bucket,
                 prefix,
-                metadata,
-                reason=reason,
-                previous=pointer,
+                promotion.metadata,
+                reason=promotion.reason,
+                previous=promotion.previous,
                 partition_key=partition_key,
                 run_id=run_id,
-                promoted_at=now,
+                promoted_at=promotion.promoted_at,
                 auto=True,
             )
     except (BotoCoreError, ClientError, ValueError, KeyError) as error:
@@ -768,11 +767,19 @@ def _auto_promote(
     return result
 
 
+@frozen
+class _AutoPromotionWrite:
+    # The `served.json` record the write replaces.
+    previous: dict[str, Any]
+    metadata: dict[str, Any]
+    reason: str
+    promoted_at: datetime.datetime
+
+
 def _auto_promotion_choice(
     client, bucket: str, prefix: str, partition_key: str, overrides: RankingOverrides
-) -> tuple[str, tuple[dict[str, Any], dict[str, Any], str, datetime.datetime] | None]:
-    """What the step does, and when it promotes, the pointer it replaces, the model's metadata, the
-    reason and the promotion time."""
+) -> tuple[str, _AutoPromotionWrite | None]:
+    """What the step does, and the pointer write when it promotes."""
     pointer = read_served_pointer(client, bucket, prefix)
     if pointer is None:
         return f"no {SERVED_FILE}; the first promotion is inbox_ranking_promote_job", None
@@ -802,7 +809,9 @@ def _auto_promotion_choice(
     # reads the pointer again and skips when it changed.
     if read_served_pointer(client, bucket, prefix) != pointer:
         return f"not promoted: {SERVED_FILE} changed while the step ran", None
-    return f"promoted {key}", (pointer, metadata, choice.reason, now)
+    return f"promoted {key}", _AutoPromotionWrite(
+        previous=pointer, metadata=metadata, reason=choice.reason, promoted_at=now
+    )
 
 
 def _promotion_decisions(
