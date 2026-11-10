@@ -12,6 +12,7 @@ import {
     serializeResolverState,
 } from '../hogflows/batch-resolver.types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
+import { QUEUE_DEPTH_SQL } from './due-rows-sql'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager, assignEmailDequeueSeq } from './manager'
 import { createCyclotronPool } from './pg-pool'
@@ -678,8 +679,6 @@ describe('Cyclotron V2', () => {
         })
 
         describe('depth check under a slow depth query', () => {
-            const DEPTH_QUERY = /SELECT COUNT\(\*\) AS count FROM cyclotron_jobs\s+WHERE status = 'available'/
-
             const storedJobs = async (): Promise<number> =>
                 (
                     await assertPool.query<{ count: number }>(
@@ -701,7 +700,7 @@ describe('Cyclotron V2', () => {
                 let entered = createPromise()
                 let held: Promise<unknown>[] = []
                 pool.query = ((text: unknown, ...rest: unknown[]) => {
-                    if (typeof text !== 'string' || !DEPTH_QUERY.test(text)) {
+                    if (text !== QUEUE_DEPTH_SQL) {
                         return passThrough(text, ...rest)
                     }
                     entered.resolve()
