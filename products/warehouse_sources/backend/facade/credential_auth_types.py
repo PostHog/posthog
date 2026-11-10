@@ -1089,7 +1089,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "salesforce": "oauth",
     "salesforce-marketing-cloud": "credentials",
     "salestrics": "credentials",
-    "sam-cart": "credentials",
+    "sam-cart": "token",
     "sanity": "credentials",
     "sap-concur": "credentials",
     "sap-erp": "credentials",
