@@ -13,7 +13,7 @@ import { withLoginLock } from '@/posthog/oauth'
 import {
     itemOf,
     loginFor,
-    readSettingsFile,
+    readSettings,
     withLogin,
     writeSettings,
     type HogSettings,
@@ -47,46 +47,30 @@ function errorMessage(error: unknown): string {
 // Moving a secret can open a keychain dialog, so each hog process tries once.
 const moveTried = new WeakSet<Runtime>()
 
-// settings.json as every caller outside LOGINS_LOCK reads it. The first read of a login filed under its
-// host alone moves its secret to the login's own item.
-export async function readSettings(runtime: Runtime): Promise<HogSettings> {
-    const settings = await readSettingsFile(runtime)
-    if (moveTried.has(runtime) || !settings.logins.some((record) => record.storedUnderHost)) {
-        return settings
+// Moves the secret of a login filed under its host alone to the login's own item. The caller holds
+// LOGINS_LOCK. A secret that fails to move stays where it is and keeps working, and the next hog
+// process tries again.
+async function moveToOwnItem(runtime: Runtime, target: LoginTarget): Promise<LoginRecord | undefined> {
+    const settings = await readSettings(runtime)
+    const record = loginFor(settings, target)
+    // Another hog process can have moved it while this one waited for the lock.
+    if (!record?.storedUnderHost) {
+        return record
     }
 
-    moveTried.add(runtime)
-    // A home folder hog can't write to, such as a read-only mount, keeps the logins readable where they are.
-    return withFileLock(runtime, LOGINS_LOCK, () => moveHostSecrets(runtime)).catch(() => settings)
-}
-
-// A secret that fails to move stays where it is and keeps working, and the next hog process tries again.
-async function moveHostSecrets(runtime: Runtime): Promise<HogSettings> {
-    const settings = await readSettingsFile(runtime)
-    // Another hog process can have moved them while this one waited for the lock.
-    if (!settings.logins.some((record) => record.storedUnderHost)) {
-        return settings
-    }
-
-    const logins: LoginRecord[] = []
-    const movedFrom: StoredItem[] = []
-    for (const record of settings.logins) {
-        const moved = record.storedUnderHost ? await moveHostSecret(runtime, record) : record
-        if (moved !== record) {
-            movedFrom.push(itemOf(record))
-        }
-        logins.push(moved)
+    const moved = await moveHostSecret(runtime, record)
+    if (moved === record) {
+        return record
     }
 
     const written = await writeSettings(runtime, {
-        ...settings,
-        logins,
-        pendingRemovals: [...settings.pendingRemovals, ...movedFrom],
+        ...withLogin(settings, target, moved),
+        pendingRemovals: [...settings.pendingRemovals, itemOf(record)],
     })
+    // Removing a file entry never waits, and the keychain was just used if the secret was there.
+    await removePending(runtime, written, ['file', record.store])
 
-    // Removing a file entry never waits, and a keychain item only goes when a keychain secret just moved.
-    const stores = new Set<StoreChoice>(['file', ...movedFrom.map((item) => item.store)])
-    return (await removePending(runtime, written, [...stores])).settings
+    return moved
 }
 
 async function moveHostSecret(runtime: Runtime, record: LoginRecord): Promise<LoginRecord> {
@@ -138,7 +122,13 @@ export async function readLogin(
     settings: HogSettings,
     target: LoginTarget
 ): Promise<StoredLogin | undefined> {
-    const record = loginFor(settings, target)
+    let record = loginFor(settings, target)
+    if (record?.storedUnderHost && !moveTried.has(runtime)) {
+        moveTried.add(runtime)
+        const unmoved = record
+        // A home folder hog can't write to, such as a read-only mount, keeps the login readable where it is.
+        record = await withFileLock(runtime, LOGINS_LOCK, () => moveToOwnItem(runtime, target)).catch(() => unmoved)
+    }
     if (!record) {
         return undefined
     }
@@ -180,7 +170,7 @@ export async function writeLogin(
     await withFileLock(runtime, LOGINS_LOCK, async () => {
         await store.write(itemName(key.host, key.projectId), key.secret(), { removeIfLate: newLogin !== undefined })
 
-        const current = await readSettingsFile(runtime)
+        const current = await readSettings(runtime)
         const previous = loginFor(current, key)
         const loggedInAt = newLogin ? runtime.now() : previous?.loggedInAt
         const record: LoginRecord = { ...key.record(store.kind), ...(loggedInAt === undefined ? {} : { loggedInAt }) }
@@ -220,14 +210,16 @@ async function removeLogin(runtime: Runtime, target: LoginTarget): Promise<Remov
         }
 
         const login = await readLogin(runtime, settings, target)
-        const { host, projectId } = itemOf(record)
-        const removed = await withFileLock(runtime, LOGINS_LOCK, async () => {
-            const removed = await openStore(runtime, record.store).remove(itemName(host, projectId))
-            await writeSettings(runtime, withLogin(await readSettingsFile(runtime), record, undefined))
-            return removed
-        })
+        // Reading the login can have moved its secret, so the record comes from settings.json again.
+        return withFileLock(runtime, LOGINS_LOCK, async () => {
+            const current = await readSettings(runtime)
+            const stored = loginFor(current, target) ?? record
+            const { host, projectId } = itemOf(stored)
+            const removed = await openStore(runtime, stored.store).remove(itemName(host, projectId))
+            await writeSettings(runtime, withLogin(current, target, undefined))
 
-        return { record, key: login?.key, removed }
+            return { record: stored, key: login?.key, removed }
+        })
     })
 }
 
@@ -259,7 +251,7 @@ export async function logout(runtime: Runtime, target: LoginTarget): Promise<Log
     const revoked = revoke(runtime, removed)
     const { hadPending, failures } = await afterRevokes([revoked], () =>
         withFileLock(runtime, LOGINS_LOCK, async () => {
-            const settings = await readSettingsFile(runtime)
+            const settings = await readSettings(runtime)
             const hadPending = settings.pendingRemovals.some((item) => sameHost(item.host, target.host))
             return { hadPending, ...(await removePending(runtime, settings, STORES)) }
         })
@@ -344,7 +336,7 @@ export async function logoutAll(runtime: Runtime): Promise<LoggedOutLogin[]> {
             const removed = await file.removeWhere((name) => names.has(name) || parseItemName(name) === undefined)
             const failed = new Set<string>(steps.flatMap((step) => (step.swept.error ? [step.name] : [])))
 
-            const current = await readSettingsFile(runtime)
+            const current = await readSettings(runtime)
             await writeSettings(runtime, {
                 ...current,
                 pendingRemovals: current.pendingRemovals.filter(

@@ -22,7 +22,7 @@ const LoginRecordBaseSchema = z.object({
     // posthog.json or HOG_PROJECT_ID, commands use the host's login with the latest one.
     loggedInAt: z.number().optional(),
     // Set while the secret is still filed under the host alone, as hog filed it when it kept one login
-    // per host. `readSettings` in `login/stored.ts` moves it to the login's own item.
+    // per host. `readLogin` in `login/stored.ts` moves it to the login's own item.
     storedUnderHost: z.literal(true).optional(),
 })
 
@@ -128,11 +128,9 @@ function parseOrigin(origin: string, value: unknown): Pick<HogSettings, 'logins'
     return { logins, pendingRemovals: [] }
 }
 
-// Reads settings.json as it is, for callers that hold LOGINS_LOCK. Every other caller uses
-// `readSettings` in `login/stored.ts`, which also moves the secrets filed under their host alone.
 // A missing or broken file means hog has no settings yet. Any other read failure stops the command,
 // because a later write would replace every login with an empty file.
-export async function readSettingsFile(runtime: Runtime): Promise<HogSettings> {
+export async function readSettings(runtime: Runtime): Promise<HogSettings> {
     let text: string
     try {
         text = await runtime.readFile(settingsPath(runtime))

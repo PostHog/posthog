@@ -11,8 +11,9 @@ import type { Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 import { withLoginLock, type OAuthLogin } from '@/posthog/oauth'
 import { stepUpCommand } from '@/posthog/scope-challenge'
+import { readSettings } from '@/posthog/settings'
 
-import { readLogin, readSettings, writeLogin } from './stored'
+import { readLogin, writeLogin } from './stored'
 
 export const LOGIN_COMMAND = 'hog auth login'
 export const ADD_COMMAND = 'hog auth add'

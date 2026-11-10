@@ -838,6 +838,38 @@ describe('hog auth login', () => {
         ],
     ] as const
 
+    test('a command moves only the old-shape login it uses, so a keychain login to another host stays untouched', async () => {
+        const keychainCalls: string[] = []
+        const result = await runHog(['query', 'run', 'select 1'], {
+            env: { CLAUDECODE: '1' },
+            files: {
+                [SETTINGS_FILE]: JSON.stringify({
+                    logins: { [EU]: keyRecord(EU), [US]: keyRecord(US, 'file') },
+                    host: US,
+                }),
+                [HOG_CREDENTIALS_FILE]: JSON.stringify({ [US]: { apiKey: 'phx_us' } }),
+            },
+            secrets: () => ({
+                get: async (name) => {
+                    keychainCalls.push(name)
+                    return null
+                },
+                set: async (name) => {
+                    keychainCalls.push(name)
+                },
+                delete: async (name) => {
+                    keychainCalls.push(name)
+                    return false
+                },
+            }),
+            respond: () => ({ status: 200, body: ROWS }),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(keychainCalls).toEqual([])
+        expect(readJson(result.files[HOG_CREDENTIALS_FILE] ?? '{}')).toEqual({ [`${US}#42`]: { apiKey: 'phx_us' } })
+    })
+
     test('a login in the old shape stays usable when its secret cannot move, and moves on a later run', async () => {
         const items = new Map([[EU, JSON.stringify({ apiKey: 'phx_secret' })]])
         const writes = { refused: true }

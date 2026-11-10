@@ -6,10 +6,11 @@ import { FileStore } from '@/posthog/credential-store/file'
 import { KeychainStore } from '@/posthog/credential-store/keychain'
 import { parseHost, type Host } from '@/posthog/host'
 import { parseProjectId } from '@/posthog/ids'
+import { readSettings } from '@/posthog/settings'
 import { parsePersonalApiKey } from '@/posthog/tokens'
 import { fakeRuntime, readJson } from '@/testing'
 
-import { loginStorage, readLogin, readSettings, writeLogin } from './stored'
+import { loginStorage, readLogin, writeLogin } from './stored'
 
 const EU = parseHost('https://eu.posthog.com')
 const US = parseHost('https://us.posthog.com')

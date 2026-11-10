@@ -3,7 +3,8 @@ import { escapeControls } from '@/core/output'
 import { PERSONAL_API_KEY_ENV_VAR } from '@/posthog/credentials'
 import { chooseLogin } from '@/posthog/login/choose'
 import { clearPendingLogins } from '@/posthog/login/flow'
-import { logout, logoutAll, readSettings, type LoggedOutLogin } from '@/posthog/login/stored'
+import { logout, logoutAll, type LoggedOutLogin } from '@/posthog/login/stored'
+import { readSettings } from '@/posthog/settings'
 
 interface LogoutResult {
     status: 'logged_out' | 'not_logged_in'
