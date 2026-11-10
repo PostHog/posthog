@@ -80,4 +80,5 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     admit=admit_platform_write,
     mirror=mirror_platform_edit,
     incident_event_ids=INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,
+    kept_source_config_keys=frozenset({"config", "skip_weekend", "evaluation_delay_intervals"}),
 )
