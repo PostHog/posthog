@@ -74,8 +74,8 @@ class WorkflowViewFilterSerializer(serializers.Serializer):
     negated = serializers.BooleanField(default=False, help_text="Exclude workflows matching this facet value.")
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # An open folder is navigation, so a view keeps only the folders it hides.
-        if attrs["facet"] == WorkflowViewFacet.IN and not attrs.get("negated", False):
+        opens_a_folder = attrs["facet"] == WorkflowViewFacet.IN and not attrs.get("negated", False)
+        if opens_a_folder:
             raise serializers.ValidationError("A view can hide a folder with -in:, but it can't open one.")
         if attrs["facet"] != WorkflowViewFacet.IN and len(attrs["value"]) > FACET_VALUE_MAX_LENGTH:
             raise serializers.ValidationError(
