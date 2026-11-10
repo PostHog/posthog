@@ -68,6 +68,9 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "value": data["value"],
             "mask_value": data["mask_value"],
             "local_dev_value": None,
+            "user_distinct_id": self.user.distinct_id,
+            "current_organization_id": str(self.user.current_organization_id),
+            "current_team_id": self.user.current_team_id,
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
 
@@ -322,6 +325,9 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "value": None,
             "mask_value": my_key.mask_value,
             "local_dev_value": None,
+            "user_distinct_id": self.user.distinct_id,
+            "current_organization_id": str(self.user.current_organization_id),
+            "current_team_id": self.user.current_team_id,
         }
 
     def test_get_own_personal_api_key(self):

@@ -6,6 +6,14 @@ const { mockMe, mockApiClientCtor, mockCapture } = vi.hoisted(() => {
         return {
             config,
             users: () => ({ me: mockMe }),
+            // A key response without the owner fields, as an older backend returns, so these
+            // tests resolve the distinct ID through `users/@me`.
+            apiKeys: () => ({
+                current: async () => ({
+                    success: true,
+                    data: { scopes: ['*'], scoped_teams: [], scoped_organizations: [] },
+                }),
+            }),
         }
     })
     return { mockMe, mockApiClientCtor, mockCapture: vi.fn() }
