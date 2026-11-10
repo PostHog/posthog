@@ -36,7 +36,6 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 # Explicit high LIMIT: without it HogQL caps at DEFAULT_RETURNED_ROWS (100), and since the rows are ordered
 # by start, a run with >100 jobs (matrix builds, re-run attempts) would silently drop its latest-starting
 # jobs — the breakdown would then miss jobs and not add up to the run's cost.
-# The read is scoped to the run instead of to a date floor (see CuratedGitHubSource.scoped_to_run).
 # A date floor could hide an earlier attempt's failure or make a re-listed job look billable.
 _SELECT = """
     SELECT id, run_id, run_attempt, name, status, conclusion, labels, runner_name, started_at, completed_at, duration_seconds, provisioning_seconds, is_rerun_copy,

@@ -408,7 +408,6 @@ class CuratedGitHubSource:
     def scoped_to_run(self, sql: str) -> str:
         """Bound the ``scoped`` sources of ``sql`` to the run {run_id}, which the caller registers."""
         run_head_sha = f"SELECT head_sha FROM {self._tables.workflow_runs} WHERE id = {{run_id}}"
-        # A GitHub run reads Depot only for the hand-off of its own commit.
         ctes = self._run_scope_ctes(
             "SELECT [{run_id}]",
             f"{depot_ci.github_run_id_expr()} = {{run_id}} OR {depot_ci.head_sha_expr()} IN ({run_head_sha})",
