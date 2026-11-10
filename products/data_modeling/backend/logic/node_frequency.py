@@ -675,11 +675,20 @@ def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:
 def seed_targets(dag: DAG) -> dict[str, timedelta]:
     """Derive a starting target per schedulable node from what the DAG already carries.
 
-    Every node inherits the DAG's `sync_frequency_interval`; a DAG without one seeds nothing.
-    Read-only; the preview overlays these in memory, and a backfill can persist them.
+    A node inherits its saved query's legacy `sync_frequency_interval` column if set, else the DAG's
+    `sync_frequency_interval`; nodes with neither are omitted. The column is no longer written, but
+    teams still on v1 have it populated: their DAG runs several schedules at different cadences, and
+    reading it keeps those distinct per-query frequencies through the conversion instead of
+    flattening everything to a single DAG cadence. Read-only; the preview overlays these in memory,
+    and a backfill can persist them.
     """
-    if dag.sync_frequency_interval is None:
-        return {}
-    return {
-        str(node_id): dag.sync_frequency_interval for node_id in schedulable_nodes(dag).values_list("id", flat=True)
-    }
+    seeds: dict[str, timedelta] = {}
+    for node in schedulable_nodes(dag).select_related("saved_query"):
+        interval = None
+        if node.saved_query is not None and node.saved_query.sync_frequency_interval is not None:
+            interval = node.saved_query.sync_frequency_interval
+        elif dag.sync_frequency_interval is not None:
+            interval = dag.sync_frequency_interval
+        if interval is not None:
+            seeds[str(node.id)] = interval
+    return seeds

@@ -21,6 +21,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import transaction
 from django.db.models import Exists, OuterRef
 
+from products.data_modeling.backend.logic.node_frequency import get_declared_target
 from products.data_modeling.backend.logic.saved_query_dag_sync import promote_view_nodes_to_matview
 from products.data_modeling.backend.logic.schedule_reconcile import reconcile_dag_schedules
 from products.data_modeling.backend.logic.tier_run_report import MATERIALIZING_TYPES
@@ -29,6 +30,10 @@ from products.data_modeling.backend.models.node import Node
 
 
 class SwitchedOffAgainError(Exception):
+    pass
+
+
+class NoCadenceError(Exception):
     pass
 
 
@@ -79,8 +84,8 @@ class Command(BaseCommand):
         # leaves the query off for the next run, and no row lock waits on Temporal. Until then the flag
         # is on in memory only, where the failure paths of schedule_materialization switch it off.
         saved_query.is_materialized = True
-        # A failed first enable leaves the cadence in the column, not on the node, so carry it over.
-        # The default reconcile logs a failure and does not raise it, so a query that no tier runs
+        # Only a legacy row still carries a cadence in the column; enabling no longer writes it. The
+        # default reconcile logs a failure and does not raise it, so a query that no tier runs
         # counts as re-enabled. Reconcile below instead, where a failure raises.
         saved_query.schedule_materialization(frequency_target=saved_query.sync_frequency_interval, reconcile=False)
         if not saved_query.is_materialized:
@@ -88,6 +93,10 @@ class Command(BaseCommand):
         nodes = Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query).select_related(
             "dag", "dag__team"
         )
+        # A first enable that failed before its target landed leaves the node with no cadence, and
+        # no column to recover one from. Report that instead of switching on a query no tier runs.
+        if any(get_declared_target(node) is None for node in nodes):
+            raise NoCadenceError("no frequency target to schedule it at, set one on the node first")
         for dag in {node.dag for node in nodes}:
             reconcile_dag_schedules(dag)
         with transaction.atomic():

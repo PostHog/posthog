@@ -2771,10 +2771,12 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Pausing keeps `is_materialized` and the table but clears the node target, so it can't retry.
+        # The legacy column can still hold a cadence, and the digest must not read it as scheduled.
         paused = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="paused_orders_rollup",
             query={"query": "SELECT 1"},
+            sync_frequency_interval=dt.timedelta(hours=1),
             is_materialized=True,
             table=DataWarehouseTable.objects.create(team=self.team, name="paused_orders_rollup", format="Delta"),
         )
