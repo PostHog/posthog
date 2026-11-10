@@ -1900,7 +1900,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Label the companies behind the sites AI answers cite. The competitors you confirm are the ones AI visibility ranks you against.',
                 component: <AiVisibilityBrandsSetting />,
-                flag: 'WEB_ANALYTICS_CONTENT_AUTOPILOT',
+                // The brands API answers only with the AEO flag on, so the setting needs it as well as the page flag.
+                flag: ['AEO_CITATION_TRACKING', 'WEB_ANALYTICS_CONTENT_AUTOPILOT'],
                 keywords: ['competitors', 'brands', 'aeo', 'ai visibility', 'rankings'],
             },
         ],
