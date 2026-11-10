@@ -184,6 +184,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
             './plugins/withAndroidAdaptiveIconInsets',
             './plugins/withAndroidNotificationIntents',
             '@bacons/apple-targets',
+            './plugins/withIosArchiveScheme',
         ],
         updates: {
             url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
