@@ -943,7 +943,11 @@ class TestSandboxRotation:
         wf._sandbox_ttl_expires_at = expires_at
         monkeypatch.setattr(process_task_workflow_module.workflow, "now", lambda: clock[0])
         if slow_step == "in_flight_persist":
-            wf._agent_memory_persist_task = asyncio.create_task(asyncio.sleep(3600))
+
+            async def never_finishes() -> None:
+                await asyncio.Future[None]()
+
+            wf._agent_memory_persist_task = asyncio.create_task(never_finishes())
 
         async def wait_until_timeout(condition, *, timeout):
             clock[0] += timeout
@@ -4019,6 +4023,25 @@ class TestProcessTaskWorkflowUnit:
 
         assert workflow._pending_followups == []
         assert [persist_input.actor_user_id for persist_input in persist_inputs] == [42]
+
+    async def test_after_a_teammate_turn_the_creator_turn_schedules_no_persist(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        workflow._context.task_created_by_id = 42
+        workflow._agent_memory_persist_enabled = True
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", AsyncMock(return_value="delivered"))
+        persist = AsyncMock()
+        monkeypatch.setattr(workflow, "_persist_agent_memory", persist)
+
+        await workflow._dispatch_followup(PendingFollowup(message="teammate turn", artifact_ids=[], actor_user_id=99))
+        await workflow._dispatch_followup(PendingFollowup(message="creator turn", artifact_ids=[], actor_user_id=42))
+        workflow._turn_completion_signal_count = 2
+        workflow._schedule_agent_memory_persist("sandbox-123")
+
+        assert workflow._agent_memory_persist_task is None
+        persist.assert_not_called()
 
     async def test_turns_ending_during_a_persist_coalesce_into_one_trailing_persist(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
