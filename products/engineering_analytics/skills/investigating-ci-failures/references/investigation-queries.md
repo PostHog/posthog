@@ -97,9 +97,10 @@ A stale job history names the wrong commit.
 ```sql
 SELECT max(created_at) AS newest_job_row, now() - max(created_at) AS lag_seconds
 FROM engineering_analytics_ci_job_history
-WHERE created_at_raw >= '<yesterday, YYYY-MM-DD>'
+WHERE created_at_raw >= '<7 days ago, YYYY-MM-DD>'
 ```
 
+No rows means the job history is more than a week stale.
 If the lag exceeds about 15 minutes, classify the failure from `engineering_analytics_ci_failures` now.
 Name the culprit after the job history catches up, or confirm the boundary commit against `git log` first.
 

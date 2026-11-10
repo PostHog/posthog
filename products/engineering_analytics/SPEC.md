@@ -20,7 +20,7 @@ Signal detection is defined once in `logic/` over the read layer, so the emitter
 
 Three properties outrank any single feature. Reject a change that weakens one of them.
 
-- The product never compares engineers. It measures what the delivery pipeline costs people, and it has no leaderboard of output or speed (§2, §6).
+- The product never ranks engineers. It measures what the delivery pipeline costs people, and it has no leaderboard of output or speed (§2, §6).
 - The code follows "A Philosophy of Software Design".
   - A module hides a decision behind a small interface. `logic/` holds each domain rule once, and callers never repeat it.
   - Complexity moves down into the builders. An endpoint, a tool or a component stays thin.
@@ -43,7 +43,8 @@ Three properties outrank any single feature. Reject a change that weakens one of
   - `logic/friction.py` defines the friction inputs once.
 - The author page is allowed. It shows one author's figures next to the same figures for the repository and for the author's team.
   - A team figure is always an aggregate and never a member's figure.
-  - A team figure appears only when at least two other authors contribute a value to it. This is a noise floor and not a privacy floor.- The product does not send real-time alerts about individual pull requests.
+  - A team figure appears only when at least two other authors contribute a value to it. This is a noise floor and not a privacy floor.
+- The product does not send real-time alerts about individual pull requests.
 - The product does not replace GitHub's own UI.
 - The product does not do static analysis of code quality.
 
@@ -161,6 +162,7 @@ These rules hold for the stored CI rows (`logic/views/ci_rows.py`, `logic/views/
 - `is_handoff_shell` is a flag on both stored grains, and the read that uses the stored rows filters on it (§6).
 - Historical aggregates and cost reads use the stored rows only when both views are ready. Each view's newest build must be at most 30 minutes old and must match the current definition.
 - The reader checks permission on the raw sources and on both views, then filters on source and repository. A failed check sends the read back to the raw tables.
+- The stored rows serve a read only when its window starts at least nine days after the coverage start of the newest full build. An unbounded read uses the raw tables.
 - Current CI status, single-run detail, single-PR detail and raw job steps always read the raw tables.
 
 ## 6. Locked decisions
@@ -199,7 +201,9 @@ Change a decision only in a separate PR with a written reason.
   - Such a read first resolves the run ids it needs, then bounds every raw scan to them (`_curated.scoped_to_run`, `_curated.scoped_to_pr_history`, `pr_rollup_query`).
 - A successful CI hand-off shell is suppressed in the read layer, unlike a re-run copy. A shell ran no tests, so it would read as a false green run.
   - `logic/views/depot_ci.py` defines the detection rule once. Failed and unsettled relays stay visible.
-- The warehouse views are managed data and not code registration. A per-team saved query adds nothing to the global HogQL database.
+  - A Depot workflow is a shell when it succeeded and its `wait-for-handoff` job ran alone.
+  - A GitHub run is a shell when the run, its hand-off job and its latest `Django Tests Pass` job all succeeded, and no synced job attempt failed.
+  - The GitHub rule also needs a successful Depot workflow that accepted the hand-off for the same PR number and `head_sha`. Missing data leaves the run visible.
 - Workflow pass rate uses verdicts. `success` passes, and `failure`, `timed_out`, `startup_failure` and `stale` fail.
   - Every other outcome stays in run volume and out of the rate. `_workflow_filters.py` owns the classification.
 - A push is one authored head commit that reached CI. All of a pull request's runs for one head SHA form one push, even when every workflow was skipped.
@@ -211,11 +215,12 @@ Change a decision only in a separate PR with a written reason.
   - Each condition has a week-stable `source_id`, so the hourly sweep emits a standing condition once per week.
 - Analytics reads use HogQL only, with no raw ClickHouse queries.
 - The product has no Postgres database. A product config model would go on the main database as a team-scoped model.
-- The product has no developer performance rankings, and it allows individual comparison. The risk is a scorecard that orders people by output or speed.
-  - No read ranks, sorts, scores or lists authors by throughput, lead time or time to merge.
+- The product has no developer performance rankings (§2), and it allows a deliberate individual comparison under these rules.
   - Friction is the exception (§2). `author_friction` scores and orders the friction that authors meet.
   - A delivery read takes exactly one scope, defined in `logic/delivery_scope.py`: one author, one GitHub team or one pull request.
   - `delivery_comparison` sets one author's ready-to-merge medians next to each relevant team and the repository.
+  - `logic/comparison_teams.py` picks those teams by one fixed rule: the teams the pull request in focus asked to review, else the team the author's pull requests asked most, else every team of the author.
+  - The rule reads immutable `review_requested` events and never the PR snapshot, which drops a request once the team reviews. Teams are never pooled.
   - The author, friction and delivery reads have no MCP tool.
 - A pull request timeline is replayed from immutable timestamps. `logic/pr_timeline.py` defines the replay and its state precedence once.
   - Every merge-queue state collapses into one span, because the warehouse keeps no queue history.
@@ -223,6 +228,7 @@ Change a decision only in a separate PR with a written reason.
 - Throughput and delivery reads exclude bots and drafts by default. The builders never strip them, because bot-impact analysis needs them.
 - Time to merge is `open_to_merge_seconds`, which is `merged_at - created_at`. The name says that it combines draft and ready time.
   - `ready_to_merge_seconds` is `merged_at` minus the last observed `ready_for_review` event.
+  - It falls back to `created_at` for a merged pull request that the issue events show was never a draft.
   - NULL means "not observed" and never zero.
 - Flake ownership is stamped when CI emits the span, and the server never recomputes it. A test belongs to whoever owned it when it flaked.
   - The emitter stamps `test.owner_team` through `owners_yaml`. Unstamped spans aggregate as the team `unowned`.
@@ -247,8 +253,6 @@ The GitHub source lands these warehouse tables.
   - It is optional, and it covers a bounded recent window that grows forward from the first sync.
 - `github_deployments` and `github_deployment_statuses` hold deploy requests and their status history. The DORA reads use them, and both are optional.
 
-Every read that touches an optional table must degrade when the table is not synced.
-
 The Depot source lands `depot_job_attempts`, one row per Depot CI job attempt.
 
 - Depot CI is its own engine, so its runs never reach the GitHub tables.
@@ -270,9 +274,6 @@ The product reads two other products.
 
 A run's `conclusion` settles through the `workflow_run` webhook, which can lag or miss a delivery.
 The read layer reports `status` as it is and never implies a settled conclusion.
-
-Lifecycle transitions that no synced table records need immutable events.
-The product does not ingest them (see README, "The data boundary").
 
 ## 8. Reference reading
 

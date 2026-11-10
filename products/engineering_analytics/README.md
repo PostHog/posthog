@@ -74,7 +74,6 @@ The product decisions are these:
 - The goal is CI Signals that PostHog Desktop can act on. Ready-for-review to merge time is the headline metric.
 - The unit of value is the open pull request. Draft and ready-for-review are separate phases.
 - The UI and the MCP tools call one endpoint set.
-- A field name states what the figure measures. `open_to_merge_seconds` is never called cycle time.
 - The product has no saved views and no stored filters.
 - The product never ranks developers by delivery performance, and it has no leaderboard. SPEC §2 and §6 define what author pages, team pages and friction scores may show.
 - The product is a model for other products in this repository. SPEC §1 states the design rules it must keep.

@@ -10,7 +10,7 @@ the duplicated groups and never from a window function, which sorts its whole in
 ``created_at_raw`` is the unparsed ``created_at`` string. The parquet scan can prune on a predicate
 over it and cannot prune on one over the parsed ``created_at``. An outer ``created_at_raw`` predicate
 does not reach the duplicate scan, so a windowed caller passes ``created_floor=True`` and registers
-the ``{job_created_floor}`` placeholder (see ``run_started_floor_constant``).
+the ``{job_created_floor}`` placeholder (see ``job_created_floor_constant``).
 """
 
 from posthog.dataclasses import frozen

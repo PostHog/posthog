@@ -220,7 +220,7 @@ def _runs(attempts: str, extra_columns: str = "") -> str:
 
 
 def _jobs(attempts: str, run_attempts: str | None = None) -> str:
-    """``run_attempts`` holds every attempt of the runs in ``attempts``. It defaults to ``attempts``."""
+    """``run_attempts`` holds every attempt of the runs in ``attempts``."""
     run_attempts = run_attempts or attempts
     # Depot numbers attempts per job, and GitHub lists every job under each run attempt. To match, a
     # job's last attempt is listed again under every later attempt of its run, and the jobs builder

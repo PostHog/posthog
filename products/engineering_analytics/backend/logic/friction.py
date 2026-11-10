@@ -59,7 +59,7 @@ COUNT_CAP = 3
 APPROVAL_WAIT_REFERENCE_HOURS = 8
 APPROVAL_SLOW_HOURS = 24
 BOOTSTRAP_ROUNDS = 20
-# A team list shows a team's median only above this many scored members. Next to one author, the team
+# A team list shows a team's median only with at least this many scored members. Next to one author, the team
 # baseline needs this many others besides the author (SPEC §2 noise floor).
 MIN_TEAM_AUTHORS = 3
 MIN_OTHER_TEAM_AUTHORS = 2

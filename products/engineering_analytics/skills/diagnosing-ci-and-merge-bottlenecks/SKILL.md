@@ -65,6 +65,7 @@ Passing only `source_id` reads the source's default repo, not the one you picked
 
 - The tool reads per-test CI spans from the main Backend pytest and Frontend Jest suites only. The window defaults to `-7d` and allows at most 30 days.
 - `classification` is `confirmed_flake` only when `same_commit_recovery_run_count > 0`. That means one commit both failed and passed the test in the same matrix job.
+- `quarantined` wins over `confirmed_flake`. It means a failure was recorded while the test was masked.
 - `suspected_regression` means the data holds failures and no recovery. That does not prove a real break.
 - Counts are absolute and never rates, because CI does not emit fast passing runs.
 - The tool does not list every flaky test. Recovery proof exists only when someone re-ran failed jobs or the test retried inside its job.
