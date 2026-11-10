@@ -2324,6 +2324,9 @@ class TestUpdateJobStatusToFailed:
         # DoesNotExist raised on top of the batch's original failure.
         with (
             patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.close_old_connections"
+            ),
+            patch(
                 "products.warehouse_sources.backend.models.external_data_job.ExternalDataJob.objects.filter",
             ) as mock_filter,
             patch(
