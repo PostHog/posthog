@@ -35,7 +35,6 @@ from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.types import ExportError
 from posthog.test.insight_queries import default_pageview_query
 
-from products.aeo.backend.facade.testing import create_citation_check
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -72,7 +71,6 @@ from products.subscriptions.backend.temporal.ai_subscription.activities import (
     generate_ai_subscription_report,
 )
 from products.subscriptions.backend.temporal.ai_subscription.report_pipeline import AiReportResult, QueryStepDiagnostic
-from products.subscriptions.backend.temporal.ai_visibility_report import NO_ANSWERS_SKIP_MESSAGE
 from products.subscriptions.backend.temporal.delivery_common import deliver_email
 from products.subscriptions.backend.temporal.types import (
     CreateDeliveryRecordInputs,
@@ -3097,112 +3095,3 @@ async def test_fetch_due_subscriptions_includes_ai_with_resource_type(team, user
     match = next((s for s in fetched if s.subscription_id == sub.id), None)
     assert match is not None, "due AI subscription must be picked up by the shared scheduler fetch"
     assert match.resource_type == Subscription.ResourceType.AI_PROMPT
-
-
-@pytest.mark.parametrize(
-    ("target_type", "target_value", "has_answers"),
-    [
-        ("slack", "C123|#visibility", True),
-        ("email", "visibility@example.com", True),
-        ("slack", "C123|#visibility", False),
-    ],
-)
-@patch("products.subscriptions.backend.logic.get_metric_meter")
-@patch("posthog.slo.events.posthoganalytics")
-async def test_ai_visibility_report_test_delivery_sends_the_report_or_records_the_skip(
-    mock_analytics: MagicMock,
-    mock_metric_meter: MagicMock,
-    team,
-    user,
-    target_type: str,
-    target_value: str,
-    has_answers: bool,
-):
-    integration = await sync_to_async(Integration.objects.create)(
-        team=team, kind="slack", config={"team": {"id": "T123", "name": "Test"}}
-    )
-    sub = await sync_to_async(create_subscription)(
-        team=team,
-        created_by=user,
-        report_type=Subscription.ResourceType.AI_VISIBILITY_REPORT,
-        title="Visibility",
-        target_type=target_type,
-        target_value=target_value,
-        integration_id=integration.id if target_type == "slack" else None,
-    )
-    if has_answers:
-        await sync_to_async(create_citation_check)(team, "replay", created_at=timezone.now() - timedelta(days=2))
-
-    with (
-        patch(
-            "products.subscriptions.backend.temporal.ai_visibility_report.deliver_slack_message_data",
-            new_callable=AsyncMock,
-            return_value=SlackDeliveryResult(
-                main_message_sent=True, total_thread_messages=0, failed_thread_message_indices=[]
-            ),
-        ) as mock_slack,
-        patch("products.subscriptions.backend.temporal.ai_visibility_report.EmailMessage") as mock_email,
-        patch("products.subscriptions.backend.temporal.ai_visibility_report.raise_if_delivery_rejected"),
-    ):
-        async with await WorkflowEnvironment.start_time_skipping() as env:
-            async with Worker(
-                env.client,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-                workflows=[HandleSubscriptionValueChangeWorkflow, ProcessAISubscriptionWorkflow],
-                activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
-                interceptors=[SloInterceptor()],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-                activity_executor=ThreadPoolExecutor(max_workers=10),
-                debug_mode=True,
-            ):
-                await env.client.execute_workflow(
-                    HandleSubscriptionValueChangeWorkflow.run,
-                    ProcessSubscriptionWorkflowInputs(
-                        subscription_id=sub.id,
-                        team_id=team.id,
-                        distinct_id=str(user.distinct_id),
-                        trigger_type=SubscriptionTriggerType.MANUAL,
-                        resource_type=Subscription.ResourceType.AI_VISIBILITY_REPORT,
-                    ),
-                    id=str(uuid.uuid4()),
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
-                )
-
-    delivery = await sync_to_async(SubscriptionDelivery.objects.filter(subscription=sub).latest)("created_at")
-    if not has_answers:
-        assert (delivery.status, delivery.error) == (
-            SubscriptionDelivery.Status.SKIPPED,
-            {"message": NO_ANSWERS_SKIP_MESSAGE, "type": "NoAIVisibilityAnswers"},
-        )
-        assert (mock_slack.await_count, mock_email.call_count) == (0, 0)
-        return
-    assert delivery.status == SubscriptionDelivery.Status.COMPLETED
-    assert delivery.content_snapshot["ai_visibility_report"]["scorecard"]["answers"] == 1
-    if target_type == "slack":
-        assert mock_slack.await_args is not None
-        message = mock_slack.await_args.args[2]
-        assert message.unfurl is False
-        assert message.blocks[0]["text"]["text"] == "Visibility"
-        assert message.blocks[1]["text"]["text"].endswith("Based on 1 answer.")
-        assert mock_email.call_count == 0
-    else:
-        assert mock_email.call_args.kwargs["template_name"] == "ai_visibility_report"
-        assert mock_email.call_args.kwargs["template_context"]["answers"] == "1 answer"
-        mock_email.return_value.add_recipient.assert_called_once_with(email="visibility@example.com")
-        assert mock_slack.await_count == 0
-
-
-async def test_fetch_due_subscriptions_includes_ai_visibility_report(team, user):
-    sub = await sync_to_async(create_subscription)(
-        team=team, created_by=user, report_type=Subscription.ResourceType.AI_VISIBILITY_REPORT
-    )
-    await sync_to_async(Subscription.objects.filter(pk=sub.id).update)(
-        next_delivery_date=datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
-    )
-
-    fetched = await ActivityEnvironment().run(
-        fetch_due_subscriptions_activity, FetchDueSubscriptionsActivityInputs(buffer_minutes=15)
-    )
-
-    match = next((s for s in fetched if s.subscription_id == sub.id), None)
-    assert match is not None and match.resource_type == Subscription.ResourceType.AI_VISIBILITY_REPORT

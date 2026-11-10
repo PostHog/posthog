@@ -57,7 +57,6 @@ from products.subscriptions.backend.temporal.retry_policy import (
 from products.subscriptions.backend.temporal.snapshot_activities import snapshot_subscription_insights
 from products.subscriptions.backend.temporal.types import (
     AI_PROMPT_RESOURCE_TYPE,
-    PRODUCT_REPORT_RESOURCE_TYPES,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
@@ -74,16 +73,6 @@ from products.subscriptions.backend.temporal.types import (
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
 )
-
-# Gates sending a product report, such as the weekly AI visibility report, to ProcessAISubscriptionWorkflow.
-# Histories recorded before it routed every non-prompt subscription to ProcessSubscriptionWorkflow.
-PRODUCT_REPORT_ROUTING_PATCH = "subscription-product-report-routing-2026-11"
-
-
-def _runs_report_workflow(resource_type: str, *, routes_product_reports: bool) -> bool:
-    return resource_type == AI_PROMPT_RESOURCE_TYPE or (
-        routes_product_reports and resource_type in PRODUCT_REPORT_RESOURCE_TYPES
-    )
 
 
 class SubscriptionFailureStage(StrEnum):
@@ -222,8 +211,6 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             ),
         )
 
-        routes_product_reports = temporalio.workflow.patched(PRODUCT_REPORT_ROUTING_PATCH)
-
         # Fan-out child workflows — one per subscription, fully isolated.
         # Deterministic ID (no run_id suffix) prevents duplicate deliveries when
         # schedule runs overlap: Temporal guarantees no two open workflows can
@@ -256,7 +243,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             # AI-prompt subs run a dedicated workflow; distinct child-ID prefixes keep the
             # overlapping-duplicate guarantee per type.
             workflow: Callable[..., Coroutine[Any, Any, None]]
-            if _runs_report_workflow(sub.resource_type, routes_product_reports=routes_product_reports):
+            if sub.resource_type == AI_PROMPT_RESOURCE_TYPE:
                 workflow = ProcessAISubscriptionWorkflow.run
                 child_id = f"process-ai-subscription-{sub.subscription_id}"
             else:
@@ -734,9 +721,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 # Over AI-credit budget — generation rescheduled the sub past the credit reset and
                 # notified the owner. SKIPPED (not FAILED): the sub isn't broken, it resumes when
                 # credits reset; advance_next_delivery_date (finally) recomputes from the reschedule.
-                # A product report with nothing to show skips too, and records why.
                 final_status = DeliveryStatus.SKIPPED
-                generation_error = generate_result.skip_error
                 return
 
             # Phase 2: ship the persisted report.
@@ -907,8 +892,7 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
         # Route AI-prompt subs (test delivery / target change) to the AI workflow, same
         # as the scheduler fan-out.
         child_workflow: Callable[..., Coroutine[Any, Any, None]]
-        routes_product_reports = temporalio.workflow.patched(PRODUCT_REPORT_ROUTING_PATCH)
-        if _runs_report_workflow(inputs.resource_type, routes_product_reports=routes_product_reports):
+        if inputs.resource_type == AI_PROMPT_RESOURCE_TYPE:
             child_workflow = ProcessAISubscriptionWorkflow.run
             child_id = f"process-ai-subscription-{inputs.trigger_type}-{inputs.subscription_id}"
         else:

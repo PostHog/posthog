@@ -1,1 +1,1 @@
-0002_subscription_report_type
+0001_move_subscription_models

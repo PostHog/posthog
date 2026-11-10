@@ -1,7 +1,7 @@
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Optional
 from uuid import uuid4
 
 import pytest
@@ -791,79 +791,6 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == field
         assert response.json()["detail"] == detail
-
-    @parameterized.expand(
-        [
-            ("created", {}, True, status.HTTP_201_CREATED, None),
-            (
-                "rollout_flag_off",
-                {},
-                False,
-                status.HTTP_400_BAD_REQUEST,
-                "AI visibility reports are not enabled for your account.",
-            ),
-            (
-                "teams_target",
-                {"target_type": "teams", "target_value": VALID_TEAMS_WEBHOOK_URL},
-                True,
-                status.HTTP_400_BAD_REQUEST,
-                "AI visibility reports only support email or slack delivery.",
-            ),
-            (
-                "with_a_prompt",
-                {"prompt": "Top events"},
-                True,
-                status.HTTP_400_BAD_REQUEST,
-                "AI visibility report subscriptions cannot also set insight, dashboard, or prompt.",
-            ),
-            (
-                "with_an_ai_summary",
-                {"summary_enabled": True},
-                True,
-                status.HTTP_400_BAD_REQUEST,
-                "AI summaries only apply to insight and dashboard subscriptions.",
-            ),
-        ]
-    )
-    def test_create_ai_visibility_report_subscription(
-        self, _name: str, overrides: dict[str, Any], flag_on: bool, expected_status: int, detail: str | None
-    ) -> None:
-        with patch("products.aeo.backend.facade.api.posthog_feature_flag_enabled", return_value=flag_on):
-            response = self._create_subscription(
-                **{"insight": None, "resource_type": "ai_visibility_report", "title": "", **overrides}
-            )
-
-        assert response.status_code == expected_status, response.json()
-        if detail is not None:
-            assert response.json()["detail"] == detail
-            self.mock_temporal_client.start_workflow.assert_not_called()
-            return
-        data = response.json()
-        assert (data["resource_type"], data["resource_name"], data["insight"], data["prompt"]) == (
-            "ai_visibility_report",
-            "Weekly AI visibility report",
-            None,
-            None,
-        )
-        workflow_inputs = self.mock_temporal_client.start_workflow.call_args.args[1]
-        assert workflow_inputs.resource_type == "ai_visibility_report"
-        listed = self.client.get(
-            f"/api/projects/{self.team.id}/subscriptions/", {"resource_type": "ai_visibility_report"}
-        ).json()
-        assert [row["id"] for row in listed["results"]] == [data["id"]]
-        # Sending the type back on an edit keeps it, and an insight subscription can't become a report.
-        edit = self.client.patch(
-            f"/api/projects/{self.team.id}/subscriptions/{data['id']}",
-            {"resource_type": "ai_visibility_report", "title": "Weekly"},
-        )
-        assert edit.status_code == status.HTTP_200_OK, edit.json()
-        insight_subscription = self._create_subscription().json()
-        change = self.client.patch(
-            f"/api/projects/{self.team.id}/subscriptions/{insight_subscription['id']}",
-            {"resource_type": "ai_visibility_report"},
-        )
-        assert change.status_code == status.HTTP_400_BAD_REQUEST
-        assert change.json()["detail"] == "A subscription's resource type can't change."
 
     def test_can_create_slack_subscription_with_delivery_config(self):
         integration = Integration.objects.create(

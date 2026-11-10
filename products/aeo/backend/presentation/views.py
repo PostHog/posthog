@@ -30,7 +30,6 @@ from products.aeo.backend.facade.api import (
     get_prompt_set_rankings,
     get_prompt_stats,
     get_prompt_suggestions,
-    get_weekly_report,
     import_prompts,
     list_brands,
     list_prompt_checks,
@@ -49,8 +48,6 @@ from products.aeo.backend.facade.contracts import (
     MAX_RANKED_PAGES,
     PROMPT_TOPIC_MAX_LENGTH,
     PROMPT_VERSION_DESCRIPTION_MAX_LENGTH,
-    WEEKLY_REPORT_ACTION_MIN_CHANGE,
-    WEEKLY_REPORT_MAX_ACTIONS,
     Brand,
     BrandedSegment,
     BrandKind,
@@ -91,11 +88,6 @@ from products.aeo.backend.facade.contracts import (
     RankedBrandDay,
     RankedDomain,
     RankedPage,
-    WeeklyReport,
-    WeeklyReportAction,
-    WeeklyReportPage,
-    WeeklyReportScorecard,
-    WeeklyReportTopic,
 )
 
 MAX_PROMPTS_PER_IMPORT = 2000
@@ -660,124 +652,6 @@ class AEOPromptSetOverviewQuerySerializer(serializers.Serializer):
     )
 
 
-class AEOWeeklyReportScorecardSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = WeeklyReportScorecard
-        ref_name = "AEOWeeklyReportScorecard"
-        extra_kwargs = {
-            "answers": {"help_text": "Answered non-branded checks in the report week: the sample size of every rate."},
-            "previous_answers": {"help_text": "Answered non-branded checks in the week before."},
-            "visibility": {
-                "help_text": "Share (0-1) of the week's answers that named the brand or cited the site. Null without answers."
-            },
-            "previous_visibility": {"help_text": "The same share for the week before. Null without answers."},
-            "visibility_change": {
-                "help_text": "visibility minus previous_visibility, as a share (0.05 is 5 percentage points). Null when either is null."
-            },
-            "citation_rate": {
-                "help_text": "Share (0-1) of the week's answers that cited a page on the site. Null without answers."
-            },
-            "previous_citation_rate": {"help_text": "The same share for the week before. Null without answers."},
-            "citation_rate_change": {
-                "help_text": "citation_rate minus previous_citation_rate, as a share. Null when either is null."
-            },
-        }
-
-
-class AEOWeeklyReportTopicSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = WeeklyReportTopic
-        ref_name = "AEOWeeklyReportTopic"
-        extra_kwargs = {
-            "topic": {"help_text": "The topic the prompts ran with. Empty for prompts without a topic."},
-            "answers": {"help_text": "Answered non-branded checks in the topic in the report week."},
-            "previous_answers": {"help_text": "The same count for the week before."},
-            "visibility": {"help_text": "Share (0-1) of the topic's answers that named the brand or cited the site."},
-            "previous_visibility": {"help_text": "The same share for the week before. Null without answers."},
-            "visibility_change": {
-                "help_text": "visibility minus previous_visibility, as a share. Null when the topic had no answers the week before."
-            },
-        }
-
-
-class AEOWeeklyReportPageSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = WeeklyReportPage
-        ref_name = "AEOWeeklyReportPage"
-        extra_kwargs = {
-            "role": {
-                "help_text": "Why the page is listed: 'owned_gained' (the site's page whose citation rate rose most), 'owned_lost' (the site's page that fell most) or 'competitor_gained' (a competitor's page that rose most). Ownership comes from the brand catalog's own and competitor kinds."
-            },
-            "url": {"help_text": "The cited URL, as the engine returned it."},
-            "domain": {"help_text": "Registrable domain of the URL."},
-            "topic": {"help_text": "The topic the rates are measured in. Empty for prompts without a topic."},
-            "citation_rate": {
-                "help_text": "Share (0-1) of the topic's answers in the report week that cited the page."
-            },
-            "previous_citation_rate": {"help_text": "The same share for the week before."},
-            "change": {"help_text": "citation_rate minus previous_citation_rate, as a share."},
-        }
-
-
-class AEOWeeklyReportActionSerializer(DataclassSerializer):
-    class Meta:
-        dataclass = WeeklyReportAction
-        ref_name = "AEOWeeklyReportAction"
-        extra_kwargs = {
-            "kind": {
-                "help_text": "The rule that produced the action: 'update_owned_page', 'review_competitor_page' or 'check_topic'."
-            },
-            "text": {"help_text": "The action as one sentence, ready to show."},
-            "url": {"help_text": "Link to the AI visibility page in PostHog."},
-            "topic": {"help_text": "The topic the action is about. Empty for prompts without a topic."},
-            "page_url": {"help_text": "The page the action is about. Null for a topic action."},
-            "compare_url": {
-                "help_text": "For a competitor page, the site's page in the same topic whose URL path is closest to it. Null otherwise."
-            },
-        }
-
-
-class AEOWeeklyReportSerializer(DataclassSerializer):
-    scorecard = AEOWeeklyReportScorecardSerializer(help_text="Brand visibility and citation rate for the week.")
-    topics = AEOWeeklyReportTopicSerializer(
-        many=True,
-        help_text="Every topic with answers in the report week, biggest visibility change first, topics without a previous week last.",
-    )
-    pages = AEOWeeklyReportPageSerializer(
-        many=True,
-        help_text="Up to three pages to watch, one per role. A role is left out when no page moved that way.",
-    )
-    actions = AEOWeeklyReportActionSerializer(
-        many=True,
-        help_text=(
-            f"Up to {WEEKLY_REPORT_MAX_ACTIONS} actions derived by fixed rules from the pages and topics, without a "
-            f"language model: the site's page that lost most, the competitor page that gained most, then the topics "
-            f"that fell most. Moves under {round(WEEKLY_REPORT_ACTION_MIN_CHANGE * 100)} points are left out."
-        ),
-    )
-
-    class Meta:
-        dataclass = WeeklyReport
-        ref_name = "AEOWeeklyReport"
-        extra_kwargs = {
-            "window_from": {"help_text": "First day of the report week, in the project's timezone."},
-            "window_to": {"help_text": "Last day of the report week, in the project's timezone."},
-            "previous_from": {"help_text": "First day of the week before."},
-            "previous_to": {"help_text": "Last day of the week before."},
-            "brand_names": {"help_text": "The words an answer must contain to count as naming the brand."},
-            "app_url": {"help_text": "Link to the AI visibility page in PostHog."},
-        }
-
-
-class AEOWeeklyReportQuerySerializer(serializers.Serializer):
-    end_date = serializers.DateField(
-        required=False,
-        default=None,
-        allow_null=True,
-        help_text="Last day of the report week (YYYY-MM-DD) in the project's timezone. Defaults to yesterday, the last complete day.",
-    )
-
-
 class AEOPromptUpdateRequestSerializer(serializers.Serializer):
     # Every field defaults to None so "not sent" stays distinct from false or an empty topic.
     active = serializers.BooleanField(
@@ -1068,7 +942,6 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         "versions",
         "overview",
         "rankings",
-        "weekly_report",
         "suggestion",
     ]
     # suggest saves nothing, but it spends model credits, so it needs write access.
@@ -1260,27 +1133,6 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             branded=BrandedSegment(request.validated_query_data["branded"]),
         )
         return Response(AEOPromptSetRankingsSerializer(rankings).data)
-
-    @validated_request(
-        query_serializer=AEOWeeklyReportQuerySerializer,
-        operation_id="aeo_prompts_weekly_report",
-        summary="Get the weekly AI visibility report",
-        description=(
-            "Gets the weekly AI visibility report over non-branded prompts: the 7 days ending on 'end_date' (default "
-            "yesterday) against the 7 days before. It has a scorecard (brand visibility and the site's citation rate, "
-            "with their change and the number of answers), every topic's visibility change, the pages to watch (the "
-            "site's page that gained most, the one that lost most and the competitor page that gained most, each "
-            "within one topic) and up to three actions derived from them by fixed rules."
-        ),
-        responses={200: OpenApiResponse(response=AEOWeeklyReportSerializer)},
-        tags=["web_analytics"],
-    )
-    @action(detail=False, methods=["get"], pagination_class=None)
-    def weekly_report(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        report = get_weekly_report(
-            self.team_id, timezone_name=self.team.timezone, end_date=request.validated_query_data["end_date"]
-        )
-        return Response(AEOWeeklyReportSerializer(report).data)
 
     @validated_request(
         operation_id="aeo_prompts_topics",

@@ -1,14 +1,13 @@
 import json
 import uuid
 import datetime as dt
-from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -25,7 +24,6 @@ from products.aeo.backend.engines import top_domains
 from products.aeo.backend.facade.api import get_prompt_set_overview
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.test.factories import create_citation_check
-from products.aeo.backend.weekly_report import closest_owned_page
 
 
 class TestAEOPromptAPI(APIBaseTest):
@@ -95,7 +93,6 @@ class TestAEOPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert not AEOPrompt.objects.for_team(self.team.id).exists()
         assert self.client.get(f"/api/projects/{self.team.id}/aeo_brands/").status_code == status.HTTP_403_FORBIDDEN
-        assert self.client.get(f"{self.url}weekly_report/").status_code == status.HTTP_403_FORBIDDEN
 
     def test_bulk_import_then_deactivate_survives_a_reimport(self) -> None:
         payload = {
@@ -1029,191 +1026,6 @@ class TestAEOPromptAPI(APIBaseTest):
         assert [row["query"] for row in overview["top_searches"]] == expected_searches
         assert (rankings["answers"], sorted(row["url"] for row in rankings["top_pages"])) == expected_rankings
 
-    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
-    def test_weekly_report_compares_the_last_complete_week_with_the_one_before(self) -> None:
-        ids = self._import_prompts(
-            [
-                {"prompt": "best replay tool?", "topic": "Replay"},
-                {"prompt": "replay for mobile?", "topic": "Replay"},
-                {"prompt": "funnel tools?", "topic": "Funnels"},
-                {"prompt": "new question?"},
-                {"prompt": "is example good for replay?", "topic": "Replay"},
-            ]
-        )
-        self._brand(self.team, "rival.io", kind="competitor")
-        self._brand(self.team, "examplecdn.net", kind="own")
-        ignored = self._brand(self.team, "ignored.io", kind="competitor")
-        AEOBrand.objects.for_team(self.team.id).filter(id=ignored).update(status="ignored")
-        day = 24 * 60
-        previous_week, report_week = 9 * day, 2 * day
-        checks: list[dict[str, Any]] = [
-            # The week before: Replay is cited everywhere, Funnels nowhere.
-            {
-                "prompt": "best replay tool?",
-                "engine": "exa-answer",
-                "minutes_ago": previous_week,
-                "cited": True,
-                "answer_text": "Example.",
-                "cited_urls": ["https://example.com/replay", "https://rival.io/replay"],
-            },
-            {
-                "prompt": "replay for mobile?",
-                "engine": "exa-answer",
-                "minutes_ago": previous_week,
-                "cited": True,
-                "cited_urls": ["https://example.com/replay"],
-            },
-            {
-                "prompt": "funnel tools?",
-                "engine": "exa-answer",
-                "minutes_ago": previous_week,
-                "answer_text": "Nothing.",
-                "cited_urls": ["https://ignored.io/x"],
-            },
-            # The report week.
-            {
-                "prompt": "best replay tool?",
-                "engine": "exa-answer",
-                "minutes_ago": report_week,
-                "answer_text": "Rival.",
-                "cited_urls": ["https://rival.io/replay", "https://rival.io/pricing"],
-            },
-            {
-                "prompt": "replay for mobile?",
-                "engine": "exa-answer",
-                "minutes_ago": report_week,
-                "cited": True,
-                "cited_urls": ["https://example.com/replay-mobile"],
-            },
-            {
-                "prompt": "best replay tool?",
-                "engine": "claude-web-search",
-                "minutes_ago": report_week,
-                "answer_text": "None.",
-                "cited_urls": ["https://rival.io/replay"],
-            },
-            {
-                "prompt": "replay for mobile?",
-                "engine": "claude-web-search",
-                "minutes_ago": report_week,
-                "check_failed": True,
-            },
-            {
-                "prompt": "funnel tools?",
-                "engine": "exa-answer",
-                "minutes_ago": report_week,
-                "answer_text": "Example has funnels.",
-                "cited_urls": ["https://examplecdn.net/funnels"],
-            },
-            {
-                "prompt": "funnel tools?",
-                "engine": "claude-web-search",
-                "minutes_ago": report_week,
-                "answer_text": "Example.",
-            },
-            {"prompt": "new question?", "engine": "exa-answer", "minutes_ago": report_week, "answer_text": "Nothing."},
-            # Left out: a branded prompt, today (not a complete day) and a check older than both weeks.
-            {
-                "prompt": "is example good for replay?",
-                "engine": "exa-answer",
-                "minutes_ago": report_week,
-                "cited": True,
-                "cited_urls": ["https://example.com/replay"],
-            },
-            {
-                "prompt": "funnel tools?",
-                "engine": "exa-answer",
-                "minutes_ago": 10,
-                "cited": True,
-                "cited_urls": ["https://example.com/funnels"],
-            },
-            {
-                "prompt": "funnel tools?",
-                "engine": "exa-answer",
-                "minutes_ago": 20 * day,
-                "cited": True,
-                "cited_urls": ["https://example.com/funnels"],
-            },
-        ]
-        for check in checks:
-            prompt = check.pop("prompt")
-            engine = check.pop("engine")
-            self._record_check(ids[prompt], engine, **check)
-
-        with override_settings(AEO_TARGET_DOMAINS=["example.com"], SITE_URL="https://app.example.net"):
-            response = self.client.get(f"{self.url}weekly_report/")
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        report = response.json()
-        app_url = f"https://app.example.net/project/{self.team.id}/web/content-autopilot"
-        assert (report["window_from"], report["window_to"], report["previous_from"], report["previous_to"]) == (
-            "2026-10-13",
-            "2026-10-19",
-            "2026-10-06",
-            "2026-10-12",
-        )
-        scorecard = report["scorecard"]
-        assert {key: round(value, 3) if isinstance(value, float) else value for key, value in scorecard.items()} == {
-            "answers": 6,
-            "previous_answers": 3,
-            "visibility": 0.5,
-            "previous_visibility": 0.667,
-            "visibility_change": -0.167,
-            "citation_rate": 0.167,
-            "previous_citation_rate": 0.667,
-            "citation_rate_change": -0.5,
-        }
-        assert [
-            (
-                row["topic"],
-                row["answers"],
-                row["previous_answers"],
-                row["visibility_change"] and round(row["visibility_change"], 3),
-            )
-            for row in report["topics"]
-        ] == [("Funnels", 2, 1, 1.0), ("Replay", 3, 2, -0.667), ("", 1, 0, None)]
-        assert [(row["role"], row["topic"], row["url"], round(row["change"], 3)) for row in report["pages"]] == [
-            ("owned_gained", "Funnels", "https://examplecdn.net/funnels", 0.5),
-            ("owned_lost", "Replay", "https://example.com/replay", -1.0),
-            ("competitor_gained", "Replay", "https://rival.io/pricing", 0.333),
-        ]
-        assert [(row["kind"], row["text"], row["url"], row["compare_url"]) for row in report["actions"]] == [
-            ("update_owned_page", "Update example.com/replay: its citations in Replay fell 100 pts.", app_url, None),
-            (
-                "review_competitor_page",
-                "Review rival.io/pricing against your example.com/replay-mobile: it gained 33.3 pts in Replay.",
-                app_url,
-                "https://example.com/replay-mobile",
-            ),
-            ("check_topic", "Replay fell 66.7 pts: check its prompts in AI visibility.", app_url, None),
-        ]
-
-    @parameterized.expand(
-        [
-            ("no_checks", None, False),
-            ("moves_under_the_minimum", "2026-10-19", True),
-        ]
-    )
-    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
-    def test_weekly_report_without_moves_to_act_on(self, _name: str, end_date: str | None, record: bool) -> None:
-        ids = self._import_prompts([{"prompt": "replay tools?", "topic": "Replay"}])
-        if record:
-            for minutes_ago in (2 * 24 * 60, 9 * 24 * 60):
-                self._record_check(
-                    ids["replay tools?"], "exa-answer", minutes_ago=minutes_ago, cited_urls=["https://example.com/a"]
-                )
-
-        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
-            report = self.client.get(f"{self.url}weekly_report/", {"end_date": end_date} if end_date else {}).json()
-
-        assert report["scorecard"]["answers"] == (1 if record else 0)
-        assert [row["visibility_change"] for row in report["topics"]] == ([0.0] if record else [])
-        assert (report["pages"], report["actions"]) == ([], [])
-
-    def test_weekly_report_rejects_an_invalid_end_date(self) -> None:
-        response = self.client.get(f"{self.url}weekly_report/?end_date=yesterday")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-
     def test_overview_rejects_an_unknown_branded_value(self) -> None:
         assert self.client.get(f"{self.url}overview/?branded=yes").status_code == status.HTTP_400_BAD_REQUEST
 
@@ -1397,27 +1209,3 @@ class TestAEOPromptAPI(APIBaseTest):
     def test_suggestion_get_returns_404_for_an_unknown_job(self) -> None:
         response = self.client.get(f"{self.url}suggest/{uuid.uuid4()}/")
         assert response.status_code == status.HTTP_404_NOT_FOUND
-
-
-class TestClosestOwnedPage(SimpleTestCase):
-    @parameterized.expand(
-        [
-            (
-                "most_shared_path_words",
-                ["https://example.com/pricing", "https://example.com/replay/pricing"],
-                "https://example.com/replay/pricing",
-            ),
-            (
-                "no_overlap_falls_back_to_most_cited",
-                ["https://example.com/a", "https://example.com/b"],
-                "https://example.com/b",
-            ),
-            ("no_owned_page", [], None),
-        ]
-    )
-    def test_picks_the_owned_page_closest_to_a_competitor_page(
-        self, _name: str, owned: list[str], expected: str | None
-    ) -> None:
-        rates = {"https://example.com/b": 0.5}
-        owned_urls = [(url, rates.get(url, 0.25)) for url in owned]
-        assert closest_owned_page("https://rival.io/replay/pricing", owned_urls) == expected

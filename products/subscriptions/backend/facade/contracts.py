@@ -316,8 +316,6 @@ class SubscriptionWrite:
     insight_id: int | None | Unset = UNSET
     dashboard_export_insight_ids: list[int] | Unset = UNSET
     prompt: str | None | Unset = UNSET
-    # Set from a product-computed resource_type, such as "ai_visibility_report".
-    report_type: str | None | Unset = UNSET
     ai_prompt_config: dict[str, JsonValue] | Unset = UNSET
     contexts: tuple[SubscriptionContextTarget, ...] | Unset = UNSET
     target_type: str | Unset = UNSET

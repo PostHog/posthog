@@ -33,7 +33,6 @@ from products.subscriptions.backend.temporal.ai_subscription.delivery import (
     send_slack_ai_subscription_report,
 )
 from products.subscriptions.backend.temporal.ai_subscription.report_pipeline import AiReportResult
-from products.subscriptions.backend.temporal.ai_visibility_report import generate_ai_visibility_report
 from products.subscriptions.backend.temporal.delivery_common import (
     auto_disable_and_return,
     deliver_email,
@@ -262,11 +261,6 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         Subscription.objects.select_related("created_by", "team", "team__organization").get,
         thread_sensitive=False,
     )(pk=inputs.subscription_id)
-
-    # A product report is computed by its product without a language model, so the AI consent and
-    # credit gates below do not apply to it.
-    if subscription.resource_type in Subscription.REPORT_TYPES:
-        return await generate_ai_visibility_report(subscription, inputs.delivery_id)
 
     # Idempotency on Temporal redispatch: if a prior attempt already produced the report,
     # don't re-bill the LLM — the point of the generate -> deliver split is one LLM run.

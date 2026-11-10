@@ -5585,14 +5585,13 @@ export enum ValueOptionType {
 
 export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
 
-export type SubscriptionResourceType = 'insight' | 'dashboard' | 'ai_prompt' | 'ai_visibility_report'
+export type SubscriptionResourceType = 'insight' | 'dashboard' | 'ai_prompt'
 // Value map for the above — kept a distinct name from the type so kea-typegen still imports
 // the type correctly (a const+type sharing a name drops it from generated `import type` lines).
 export const SubscriptionResourceTypes = {
     Insight: 'insight',
     Dashboard: 'dashboard',
     AiPrompt: 'ai_prompt',
-    AiVisibilityReport: 'ai_visibility_report',
 } as const satisfies Record<string, SubscriptionResourceType>
 
 // TODO: migrate to SubscriptionApi from @posthog/products-subscriptions/frontend/generated/api.schemas.

@@ -100,11 +100,6 @@ class NoExportableInsightsErrorDetails(NoExportableInsightsContext):
 # Mirrors Subscription.ResourceType.AI_PROMPT — a plain constant so the Temporal
 # workflow sandbox can route by resource type without importing the Django model.
 AI_PROMPT_RESOURCE_TYPE = "ai_prompt"
-# Mirrors Subscription.REPORT_TYPES: reports another product computes, which run in ProcessAISubscriptionWorkflow.
-AI_VISIBILITY_REPORT_RESOURCE_TYPE = "ai_visibility_report"
-PRODUCT_REPORT_RESOURCE_TYPES = frozenset({AI_VISIBILITY_REPORT_RESOURCE_TYPE})
-# The weekly AI visibility report as it was computed for a delivery, read back by the delivery step.
-AI_VISIBILITY_REPORT_SNAPSHOT_KEY = "ai_visibility_report"
 
 # `SubscriptionDelivery.content_snapshot` keys for the AI report. The markdown and prompt can
 # exceed Temporal's ~2 MiB payload cap, so they travel through Postgres by reference rather than
@@ -271,9 +266,6 @@ class GenerateAIReportResult:
     query_error_types: list[str] = dataclasses.field(default_factory=list)
     target_type: str = ""
     query_errors: list[QueryErrorDetails] = dataclasses.field(default_factory=list)
-    # Why a skipped delivery sent nothing, recorded on the delivery. None for the AI credit skip,
-    # whose owner is told by email.
-    skip_error: dict[str, typing.Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.query_error_types and self.query_errors:

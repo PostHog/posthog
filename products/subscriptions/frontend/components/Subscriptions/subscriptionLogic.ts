@@ -829,13 +829,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     router.actions.replace(urlForSubscription(updatedSub.id, props))
                     posthog.capture('subscription created', {
                         creation_source: props.creationSource ?? 'editor',
-                        resource_type: isAi
-                            ? 'ai'
-                            : subscription.resource_type === SubscriptionResourceTypes.AiVisibilityReport
-                              ? SubscriptionResourceTypes.AiVisibilityReport
-                              : props.dashboardId
-                                ? 'dashboard'
-                                : 'insight',
+                        resource_type: isAi ? 'ai' : props.dashboardId ? 'dashboard' : 'insight',
                         dashboard_id: props.dashboardId,
                         insight_short_id: props.insightShortId,
                         subscription_id: updatedSub.id,
@@ -1272,14 +1266,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             // arrives as props. Without one there is nothing to snapshot, so the only thing
             // this route can create is a report from a prompt.
             const isParentless = !props.insightShortId && !props.dashboardId
-            // A product report links here with its resource_type; any other parentless link is a prompt report.
-            const parentlessResourceType =
-                searchParams.resource_type === SubscriptionResourceTypes.AiVisibilityReport
-                    ? SubscriptionResourceTypes.AiVisibilityReport
-                    : SubscriptionResourceTypes.AiPrompt
             actions.loadSubscriptionSuccess({
                 ...NEW_SUBSCRIPTION,
-                ...(isParentless ? { resource_type: parentlessResourceType } : {}),
+                ...(isParentless ? { resource_type: SubscriptionResourceTypes.AiPrompt } : {}),
             })
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)

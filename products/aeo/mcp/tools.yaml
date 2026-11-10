@@ -254,20 +254,3 @@ tools:
             id:
                 description: The prompt id (a UUID), from `aeo-prompts-list`.
         feature_flag: aeo-citation-tracking
-    aeo-prompts-weekly-report-get:
-        operation: aeo_prompts_weekly_report
-        enabled: false
-        disabled_reason: Enable after the aeo_prompts/weekly_report route is deployed, so MCP never serves a tool whose route 404s.
-        title: Get the weekly AI visibility report
-        description: >
-            Get the weekly AI visibility report over non-branded prompts: the 7 days ending on `end_date` (default
-            yesterday, the last complete day in the project's timezone) against the 7 days before. `scorecard` has
-            `visibility` (share of answers that name the brand or cite the site) and `citation_rate`, each with the
-            previous week and the change (a share: 0.05 is 5 percentage points), and `answers`, the sample size.
-            `topics` lists every topic's visibility change, biggest move first. `pages` lists up to three pages to
-            watch, each within one topic: the site's page whose citation rate gained most (`owned_gained`), the one that
-            lost most (`owned_lost`) and the competitor page that gained most (`competitor_gained`); ownership comes
-            from the brand catalog. `actions` holds up to three actions derived from them by fixed rules. Use it to
-            answer "how did we do this week" and "what should we work on next". Report the sample size with every rate.
-            The same report can be sent weekly to Slack or email as a subscription.
-        feature_flag: aeo-citation-tracking

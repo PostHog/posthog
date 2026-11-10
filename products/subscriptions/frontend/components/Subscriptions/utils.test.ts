@@ -16,7 +16,6 @@ import {
     selectedDaysToDayPickerLabel,
     shouldShowDayPicker,
     targetTypeOptions,
-    targetTypeOptionsFor,
     toggleSelectedDay,
     updateAiSubscriptionDisplayOption,
 } from './utils'
@@ -25,14 +24,6 @@ describe('targetTypeOptions', () => {
     it('offers every destination the API accepts', () => {
         // A destination the backend accepts but the select never offers is unreachable in the UI.
         expect(targetTypeOptions.map(({ value }) => value)).toEqual(Object.values(SubscriptionTargetEnumApi))
-    })
-
-    it.each([
-        ['insight', ['email', 'slack', 'teams']],
-        ['ai_prompt', ['email', 'slack', 'teams']],
-        ['ai_visibility_report', ['email', 'slack']],
-    ] as const)('offers %s subscriptions only the destinations the API accepts for them', (resourceType, expected) => {
-        expect(targetTypeOptionsFor(resourceType).map(({ value }) => value)).toEqual(expected)
     })
 })
 

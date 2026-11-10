@@ -37,7 +37,6 @@ import { membersLogic } from '~/models/membersLogic'
 import { DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from './AiPromptFields'
-import { AiVisibilityReportIntroduction } from './AiVisibilityReportIntroduction'
 import { InsightSelector } from './InsightSelector'
 import { getNextDeliveryDate } from './nextDeliveryDate'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
@@ -56,7 +55,7 @@ import {
     formatSubscriptionSchedule,
     shouldShowDayPicker,
     requestSubscriptionWizardCancellation,
-    targetTypeOptionsFor,
+    targetTypeOptions,
     WEEKDAYS,
     weekdayOptions,
 } from './utils'
@@ -367,7 +366,7 @@ function SubscriptionDeliveryStep({
     return (
         <div className="flex flex-col gap-4">
             <LemonField name="target_type" label="Send to">
-                <LemonSelect options={targetTypeOptionsFor(subscription.resource_type)} />
+                <LemonSelect options={targetTypeOptions} />
             </LemonField>
             {subscription.target_type === 'email' && !preflight?.email_service_available ? (
                 <LemonBanner type="error">
@@ -500,9 +499,6 @@ function SubscriptionContentStep({
     return (
         <div className="flex flex-col gap-4">
             {isAiPrompt ? <AiPromptSubscriptionIntroduction /> : null}
-            {subscription.resource_type === SubscriptionResourceTypes.AiVisibilityReport ? (
-                <AiVisibilityReportIntroduction />
-            ) : null}
             {isAiPrompt && aiSubscriptionBlocked ? (
                 <LemonBanner type="info">
                     Enable AI data processing in your Organization settings to create an AI prompt subscription.{' '}
@@ -652,9 +648,7 @@ function SubscriptionSettingsStep({
     return (
         <div className="mt-6 flex flex-col gap-2">
             <LemonLabel>Advanced settings</LemonLabel>
-            {dataProcessingAccepted &&
-            subscription.resource_type !== SubscriptionResourceTypes.AiPrompt &&
-            subscription.resource_type !== SubscriptionResourceTypes.AiVisibilityReport ? (
+            {dataProcessingAccepted && subscription.resource_type !== SubscriptionResourceTypes.AiPrompt ? (
                 <LemonField name="summary_enabled">
                     {({ value, onChange }) => (
                         <LemonSwitch

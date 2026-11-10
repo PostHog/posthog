@@ -71,18 +71,6 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
   `GET overview/` and `GET rankings/` take `?branded=all|branded|non_branded` (default `all`), which keeps the checks whose prompt, as it ran, names the brand or does not.
   Every count uses the same checks, the window before included. The overview also returns `branded_answers` and `non_branded_answers`, the answered checks on each side in the current window.
 
-### Weekly report
-
-`GET aeo_prompts/weekly_report/` (MCP tool `aeo-prompts-weekly-report-get`, off until the route is deployed) returns the weekly AI visibility report over non-branded prompts: the 7 days ending on `end_date` (default yesterday, the last complete day in the project's timezone) against the 7 days before.
-It is built in `weekly_report.py` from the citation checks, with fixed rules and no model call.
-
-- `scorecard` has brand visibility and the citation rate, each with the week before, the change and the number of answers.
-- `topics` lists every topic's visibility change, biggest move first.
-- `pages` lists the project's page whose citation rate within a topic rose most, the one that fell most, and the competitor page that rose most. Ownership comes from the brand catalog's `own` and `competitor` kinds, and the target domains always count as own.
-- `actions` holds up to three actions derived from them. Moves under 5 points are left out.
-
-The Overview tab previews the report and opens the subscription flow with it. A subscription of `resource_type: ai_visibility_report` sends it to Slack or email, reads it through `get_weekly_report` in the facade, and skips a week without answers, recording why in its delivery history.
-
 ### Editing, versions and archiving
 
 A prompt keeps its id, so its checks, stats and detail view stay in one place. Its text lives in numbered versions (`posthog_aeo_prompt_version`), and `current_version` points at the one the runner sends. Version rows never change.

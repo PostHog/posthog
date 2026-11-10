@@ -35,8 +35,8 @@
             "type": "string"
         },
         "resource_type": {
-            "description": "Filter by subscription resource: insight, dashboard export, AI report, or the weekly AI visibility report.",
-            "enum": ["ai_prompt", "ai_visibility_report", "dashboard", "insight"],
+            "description": "Filter by subscription resource: insight, dashboard export, or AI report.",
+            "enum": ["ai_prompt", "dashboard", "insight"],
             "type": "string"
         },
         "search": {

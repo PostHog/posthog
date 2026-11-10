@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall, IconSend } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { percentage } from 'lib/utils/numbers'
@@ -17,7 +17,6 @@ import { OVERVIEW_DAYS, contentAutopilotPromptsOverviewLogic } from './contentAu
 import { ContentAutopilotPromptsSearchTable } from './ContentAutopilotPromptsSearchTable'
 import { ContentAutopilotPromptsTopicTable } from './ContentAutopilotPromptsTopicTable'
 import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
-import { contentAutopilotWeeklyReportLogic } from './contentAutopilotWeeklyReportLogic'
 import { POSITION_DESCRIPTION } from './promptReport'
 import { promptSourcesContext } from './promptReportColumns'
 import { brandedAnswersNote, engineLabel, segmentPrompts } from './utils'
@@ -30,7 +29,6 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     )
     const { promptsTopic } = useValues(contentAutopilotPromptsLogic)
     const { openAddPrompts } = useActions(contentAutopilotPromptsLogic)
-    const { openWeeklyReportPreview, sendWeeklyReport } = useActions(contentAutopilotWeeklyReportLogic)
 
     if (overviewError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -57,26 +55,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     number is compared with the {OVERVIEW_DAYS} days before.
                 </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-                <ContentAutopilotBrandedSegmentControl tab="overview" />
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={openWeeklyReportPreview}
-                    data-attr="content-autopilot-weekly-report-preview"
-                >
-                    Preview weekly report
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<IconSend />}
-                    onClick={() => sendWeeklyReport('overview')}
-                    data-attr="content-autopilot-weekly-report-send"
-                >
-                    Send weekly report
-                </LemonButton>
-            </div>
+            <ContentAutopilotBrandedSegmentControl tab="overview" />
         </div>
     )
     if (!hasChecks && overview.branded_answers + overview.non_branded_answers > 0) {

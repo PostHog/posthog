@@ -95,15 +95,6 @@ def _free_tier_subscription_limit() -> int:
     return sys.modules[__name__].SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER
 
 
-AI_VISIBILITY_REPORT_DEFAULT_TITLE = "Weekly AI visibility report"
-
-
-def report_type_choices() -> list[tuple[str, str]]:
-    return [
-        (value, str(label)) for value, label in Subscription.ResourceType.choices if value in Subscription.REPORT_TYPES
-    ]
-
-
 # Max length of the prompt snippet used as an AI subscription's display name when it has no title.
 AI_PROMPT_DISPLAY_MAX_LEN = 60
 
@@ -167,10 +158,6 @@ class Subscription(ModelActivityMixin, models.Model):
         INSIGHT = "insight"
         DASHBOARD = "dashboard"
         AI_PROMPT = "ai_prompt", "AI prompt"
-        AI_VISIBILITY_REPORT = "ai_visibility_report", "AI visibility report"
-
-    # Resource types a product computes itself, which have no insight, dashboard or prompt to derive from.
-    REPORT_TYPES: frozenset[str] = frozenset({ResourceType.AI_VISIBILITY_REPORT})
 
     class AIWindowMode(models.TextChoices):
         SINCE_LAST_SENT = "since_last_sent", "Since last report"
@@ -210,8 +197,6 @@ class Subscription(ModelActivityMixin, models.Model):
     )
 
     prompt = models.TextField(null=True, blank=True)
-    # Set for a report another product computes, such as the weekly AI visibility report; null otherwise.
-    report_type = models.CharField(max_length=40, null=True, blank=True, choices=report_type_choices)
 
     # Frozen by the first successful delivery so later runs reuse the same HogQL deterministically
     # instead of re-running the planner LLM. Edits that require a fresh plan clear it in save().
@@ -318,13 +303,9 @@ class Subscription(ModelActivityMixin, models.Model):
         return should_log or subscription_context_activity_change.get() is not None, before_update
 
     @classmethod
-    def derive_resource_type(
-        cls, insight_id: int | None, dashboard_id: int | None, prompt: str | None, report_type: str | None = None
-    ) -> str:
+    def derive_resource_type(cls, insight_id: int | None, dashboard_id: int | None, prompt: str | None) -> str:
         # Shared by the `resource_type` property and the scheduler's `.values()` fan-out
         # (which has field dicts, not model instances) so the derivation stays single-source.
-        if report_type in cls.REPORT_TYPES:
-            return report_type
         if insight_id:
             return cls.ResourceType.INSIGHT
         if dashboard_id:
@@ -335,12 +316,12 @@ class Subscription(ModelActivityMixin, models.Model):
 
     @property
     def resource_type(self) -> str:
-        return self.derive_resource_type(self.insight_id, self.dashboard_id, self.prompt, self.report_type)
+        return self.derive_resource_type(self.insight_id, self.dashboard_id, self.prompt)
 
     @property
     def _has_resource(self) -> bool:
         # Guards url/resource_info from resource_type's raise on a relationless sub.
-        return bool(self.insight_id or self.dashboard_id or self.prompt or self.report_type in self.REPORT_TYPES)
+        return bool(self.insight_id or self.dashboard_id or self.prompt)
 
     @staticmethod
     def _build_rrule(
@@ -488,7 +469,7 @@ class Subscription(ModelActivityMixin, models.Model):
                 return absolute_uri(f"/insights/{self.insight.short_id}/subscriptions/{self.id}")
             case self.ResourceType.DASHBOARD if self.dashboard:
                 return absolute_uri(f"/dashboard/{self.dashboard_id}/subscriptions/{self.id}")
-            case self.ResourceType.AI_PROMPT | self.ResourceType.AI_VISIBILITY_REPORT:
+            case self.ResourceType.AI_PROMPT:
                 return absolute_uri(f"/project/{self.team_id}/subscriptions/{self.id}")
         return None
 
@@ -508,10 +489,6 @@ class Subscription(ModelActivityMixin, models.Model):
             case self.ResourceType.AI_PROMPT:
                 ai_name = self.title or (self.prompt or "").strip()[:AI_PROMPT_DISPLAY_MAX_LEN] or "AI report"
                 return SubscriptionResource("AI", ai_name, self.url or "")
-            case self.ResourceType.AI_VISIBILITY_REPORT:
-                return SubscriptionResource(
-                    "AI visibility", self.title or AI_VISIBILITY_REPORT_DEFAULT_TITLE, self.url or ""
-                )
         return None
 
     @property

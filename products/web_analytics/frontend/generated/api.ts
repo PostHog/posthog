@@ -20,7 +20,6 @@ import type {
     AEOPromptSuggestionJobApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
-    AEOWeeklyReportApi,
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
@@ -29,7 +28,6 @@ import type {
     AeoPromptsListParams,
     AeoPromptsOverviewParams,
     AeoPromptsRankingsParams,
-    AeoPromptsWeeklyReportParams,
     ApplyPathCleaningSuggestionResponseApi,
     ContentAutopilotExportResponseApi,
     ContentAutopilotOpportunityApi,
@@ -473,37 +471,6 @@ export const getAeoPromptsTopicsUrl = (projectId: string) => {
  */
 export const aeoPromptsTopics = async (projectId: string, options?: RequestInit): Promise<AEOPromptTopicApi[]> => {
     return apiMutator<AEOPromptTopicApi[]>(getAeoPromptsTopicsUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getAeoPromptsWeeklyReportUrl = (projectId: string, params?: AeoPromptsWeeklyReportParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/aeo_prompts/weekly_report/?${stringifiedParams}`
-        : `/api/projects/${projectId}/aeo_prompts/weekly_report/`
-}
-
-/**
- * Gets the weekly AI visibility report over non-branded prompts: the 7 days ending on 'end_date' (default yesterday) against the 7 days before. It has a scorecard (brand visibility and the site's citation rate, with their change and the number of answers), every topic's visibility change, the pages to watch (the site's page that gained most, the one that lost most and the competitor page that gained most, each within one topic) and up to three actions derived from them by fixed rules.
- * @summary Get the weekly AI visibility report
- */
-export const aeoPromptsWeeklyReport = async (
-    projectId: string,
-    params?: AeoPromptsWeeklyReportParams,
-    options?: RequestInit
-): Promise<AEOWeeklyReportApi> => {
-    return apiMutator<AEOWeeklyReportApi>(getAeoPromptsWeeklyReportUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

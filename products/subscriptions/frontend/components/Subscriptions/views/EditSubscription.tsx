@@ -41,7 +41,6 @@ import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTy
 import type { SubscriptionDeliveryApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from '../AiPromptFields'
-import { AiVisibilityReportIntroduction } from '../AiVisibilityReportIntroduction'
 import { InsightSelector } from '../InsightSelector'
 import { getNextDeliveryDate } from '../nextDeliveryDate'
 import { subscriptionCountLogic } from '../subscriptionCountLogic'
@@ -58,7 +57,7 @@ import {
     intervalOptions,
     monthlyWeekdayOptions,
     shouldShowDayPicker,
-    targetTypeOptionsFor,
+    targetTypeOptions,
     WEEKDAYS,
     weekdayOptions,
     isFreeTierCreateAtLimit,
@@ -277,7 +276,6 @@ export function EditSubscription({
 
     const emailDisabled = !preflight?.email_service_available
     const isAiPrompt = subscription?.resource_type === SubscriptionResourceTypes.AiPrompt
-    const isAiVisibilityReport = subscription?.resource_type === SubscriptionResourceTypes.AiVisibilityReport
     // Parent-less = reached from the top-level /subscriptions page, not the kebab
     // modal on an insight/dashboard. There's nothing to snapshot here, so AI report
     // is the only valid content type — hide the snapshot/AI toggle entirely.
@@ -465,10 +463,8 @@ export function EditSubscription({
                             </>
                         ) : null}
 
-                        {isAiVisibilityReport ? <AiVisibilityReportIntroduction /> : null}
-
                         <LemonField name="target_type" label="Destination">
-                            <LemonSelect options={targetTypeOptionsFor(subscription.resource_type)} />
+                            <LemonSelect options={targetTypeOptions} />
                         </LemonField>
 
                         {subscription.target_type === 'email' ? (
@@ -819,7 +815,7 @@ export function EditSubscription({
                          */}
                         <div className="flex flex-col gap-2">
                             <LemonLabel className="mb-2">Settings</LemonLabel>
-                            {!isAiPrompt && !isAiVisibilityReport && (
+                            {!isAiPrompt && (
                                 <>
                                     <LemonField name="summary_enabled">
                                         {({ value, onChange }) => (
