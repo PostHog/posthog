@@ -526,7 +526,6 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         ],
         visibleColumns: [
             DEFAULT_COLUMNS as OptionalColumn[],
-            { persist: true },
             {
                 toggleColumn: (state, { column }) =>
                     state.includes(column)

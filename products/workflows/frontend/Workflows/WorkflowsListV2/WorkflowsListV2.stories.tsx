@@ -12,19 +12,12 @@ import type { WorkflowViewApi, WorkflowViewCreateApi, WorkflowViewUpdateApi } fr
 import { OPTIONAL_COLUMNS } from './workflowListLabels'
 import { FIXTURE_METRICS, FIXTURE_WORKFLOWS, paginated } from './workflowsListV2Fixtures'
 
-const COLUMNS_STORAGE_KEY = 'products.workflows.frontend.workflowsListV2Logic.visibleColumns'
-
 const workflowsUrl = (params: Record<string, string> = {}): string => {
     const search = new URLSearchParams(params).toString()
     return search ? `${urls.workflows()}?${search}` : urls.workflows()
 }
 
-const withAllColumns: NonNullable<Meta['decorators']> = [
-    (Story) => {
-        localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(OPTIONAL_COLUMNS))
-        return <Story />
-    },
-]
+const allColumnsUrl = (): string => workflowsUrl({ columns: OPTIONAL_COLUMNS.join(',') })
 
 const meta: Meta = {
     component: App,
@@ -38,11 +31,6 @@ const meta: Meta = {
         testOptions: { viewport: { width: 1440, height: 900 }, snapshotBrowsers: [] },
     },
     decorators: [
-        // Story decorators run inside this one, so only the stories that set columns show them.
-        (Story) => {
-            localStorage.removeItem(COLUMNS_STORAGE_KEY)
-            return <Story />
-        },
         mswDecorator({
             get: {
                 // The empty-state gate counts workflows before the scene renders, and the flag-off list
@@ -79,13 +67,12 @@ type Story = StoryObj<{}>
 export const Default: Story = {}
 
 export const AllColumns: Story = {
-    decorators: withAllColumns,
+    parameters: { pageUrl: allColumnsUrl() },
 }
 
 export const MetricsLoading: Story = {
-    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+    parameters: { pageUrl: allColumnsUrl(), testOptions: { waitForLoadersToDisappear: false } },
     decorators: [
-        ...withAllColumns,
         mswDecorator({
             get: {
                 '/api/projects/:team_id/hog_flows/metrics/global/': () => new Promise(() => {}),
@@ -95,8 +82,8 @@ export const MetricsLoading: Story = {
 }
 
 export const MetricsUnavailable: Story = {
+    parameters: { pageUrl: allColumnsUrl() },
     decorators: [
-        ...withAllColumns,
         mswDecorator({
             get: {
                 '/api/projects/:team_id/hog_flows/metrics/global/': () => [500, { detail: 'Server error' }],
