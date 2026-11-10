@@ -7,13 +7,23 @@ import pytest
 
 import httpx
 import requests
-from anthropic import Anthropic
+from anthropic import Anthropic, APITimeoutError
 
 from products.knowledge_writer.backend.facade.contracts import MergeCheckReport
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind
 from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START
 from products.knowledge_writer.backend.settings import DocsSource
 from products.knowledge_writer.merge_check.check import MergeNotConfirmed, MergeNotOnDefaultBranch, run_merge_check
+from products.knowledge_writer.merge_check.facts import (
+    Audience,
+    AudienceFact,
+    DocImpact,
+    DocImpactFact,
+    MergeFacts,
+    ReleaseState,
+    ReleaseStateFact,
+    YesNoFact,
+)
 from products.knowledge_writer.merge_check.judge import JudgeVerdict
 from products.knowledge_writer.merge_check.sources import LandedChange
 
@@ -145,8 +155,28 @@ def judge_with_parse(parse: Callable[..., object]) -> Anthropic:
     return cast(Anthropic, client)
 
 
-def judge_recording(verdict: JudgeVerdict, judge_requests: list[dict]) -> Anthropic:
+def merge_facts(
+    release_state: ReleaseState = ReleaseState.GA,
+    release_quote: str = "",
+    *,
+    rests_only_on_release_marker: bool = False,
+) -> MergeFacts:
+    return MergeFacts(
+        release_state=ReleaseStateFact(
+            value=release_state, quote=release_quote, rests_only_on_release_marker=rests_only_on_release_marker
+        ),
+        audience=AudienceFact(value=Audience.CUSTOMER, quote=""),
+        doc_impact=DocImpactFact(value=DocImpact.CHANGED_BEHAVIOR, quote="drop legacy rollout"),
+        generated_only=YesNoFact(value=False, quote=""),
+        no_public_page_fits=YesNoFact(value=False, quote=""),
+        changed_pages=[],
+    )
+
+
+def judge_recording(verdict: JudgeVerdict, judge_requests: list[dict], facts: MergeFacts | None = None) -> Anthropic:
     def parse(**request: object) -> object:
+        if request["output_format"] is MergeFacts:
+            return SimpleNamespace(stop_reason="end_turn", parsed_output=facts or merge_facts())
         judge_requests.append(request)
         return SimpleNamespace(stop_reason="end_turn", parsed_output=verdict)
 
@@ -184,6 +214,11 @@ def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_onc
         ("other_docs_pr", "false"),
         ("not_editable_here", "0"),
         ("docs_version", "documented"),
+        ("release_state", "ga"),
+        ("audience", "customer"),
+        ("doc_impact", "changed_behavior"),
+        ("generated_only", "false"),
+        ("no_public_page_fits", "false"),
         ("judge", "update"),
     ]
 
@@ -255,6 +290,69 @@ def test_a_blocking_gate_records_no_docs_without_a_judge_call(
     report = check_merge(commit_sha, github_for(commit_sha), judge_recording(verdict, judge_requests))
 
     assert (report.needs_docs, report.reason, judge_requests) == (False, blocking_reason, [])
+
+
+@pytest.mark.parametrize(
+    "facts, expected_reason, is_judged, low_confidence",
+    [
+        pytest.param(
+            merge_facts(ReleaseState.FLAGGED_OR_UNRELEASED, "drop legacy rollout"),
+            "release_state",
+            False,
+            False,
+            id="quoted_flag_blocks",
+        ),
+        pytest.param(
+            merge_facts(ReleaseState.FLAGGED_OR_UNRELEASED, "behind the beta flag"),
+            "judge",
+            True,
+            True,
+            id="unquoted_flag_falls_back_to_ga",
+        ),
+        pytest.param(
+            merge_facts(ReleaseState.FLAGGED_OR_UNRELEASED, "e"),
+            "judge",
+            True,
+            True,
+            id="token_quote_falls_back_to_ga",
+        ),
+        pytest.param(
+            merge_facts(ReleaseState.FLAGGED_OR_UNRELEASED, "drop legacy rollout", rests_only_on_release_marker=True),
+            "judge",
+            True,
+            True,
+            id="release_marker_alone_only_lowers_confidence",
+        ),
+    ],
+)
+def test_release_facts_gate_only_on_quoted_evidence(
+    facts: MergeFacts, expected_reason: str, is_judged: bool, low_confidence: bool
+) -> None:
+    commit_sha = "7" * 40
+    judge_requests: list[dict] = []
+    verdict = JudgeVerdict(needs_docs=True, change_kind=DocsChangeKind.CREATE, page_urls=[], reason="new option")
+
+    report = check_merge(commit_sha, FakePostHogGitHub(commit_sha), judge_recording(verdict, judge_requests, facts))
+
+    assert (report.reason, bool(judge_requests), report.low_confidence) == (expected_reason, is_judged, low_confidence)
+
+
+def test_a_failed_fact_call_retries_then_judges_with_low_confidence_on_the_final_attempt() -> None:
+    commit_sha = "6" * 40
+    judge_requests: list[dict] = []
+    verdict = JudgeVerdict(needs_docs=True, change_kind=DocsChangeKind.CREATE, page_urls=[], reason="new option")
+
+    def parse(**request: object) -> object:
+        if request["output_format"] is MergeFacts:
+            raise APITimeoutError(request=httpx.Request("POST", "https://gateway.example.com"))
+        judge_requests.append(request)
+        return SimpleNamespace(stop_reason="end_turn", parsed_output=verdict)
+
+    with pytest.raises(APITimeoutError):
+        check_merge(commit_sha, FakePostHogGitHub(commit_sha), judge_with_parse(parse))
+    report = check_merge(commit_sha, FakePostHogGitHub(commit_sha), judge_with_parse(parse), is_final_attempt=True)
+
+    assert (report.needs_docs, report.low_confidence, len(judge_requests)) == (True, True, 1)
 
 
 @pytest.mark.parametrize(

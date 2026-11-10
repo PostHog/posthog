@@ -1,10 +1,11 @@
 import httpx
-from anthropic import Anthropic
+from anthropic import Anthropic, APIError
 
 from ..backend.facade.contracts import CriterionResult, MergeCheckReport
 from ..backend.facade.enums import CriterionEffect, DocsChangeKind
 from ..backend.settings import DocsSource
-from .gates import rule_gates, with_existing_docs_pull_requests
+from .facts import extract_facts, verify_quotes
+from .gates import fact_gates, release_line_text, rule_gates, with_existing_docs_pull_requests
 from .gather import gather_merge
 from .judge import JUDGE_MODEL, judge_merge
 from .sources import GitHubReader, LandedChange, merged_pull_request, reached_default_branch, read_numbered_pull_request
@@ -54,11 +55,39 @@ def run_merge_check(
     page_url_by_key = {
         page.url.removeprefix(source.docs_url_prefix).strip("/"): page.url for page in evidence.editable_pages
     }
+    docs_page_paths = list(page_url_by_key)
+    release_text = release_line_text(evidence)
+    try:
+        extracted_facts = extract_facts(
+            anthropic_client, evidence, release_text=release_text, docs_page_paths=docs_page_paths
+        )
+    except APIError:
+        if not is_final_attempt:
+            raise
+        extracted_facts = None
+    are_quotes_verified = True
+    facts = extracted_facts
+    if extracted_facts is not None:
+        facts, has_dropped_quotes = verify_quotes(
+            extracted_facts, evidence, release_text=release_text, docs_page_paths=docs_page_paths
+        )
+        are_quotes_verified = not has_dropped_quotes
+    fact_gate = fact_gates(facts, are_quotes_verified=are_quotes_verified)
+    gate_rows = (*gates.rows, *fact_gate.rows)
+    low_confidence = gates.low_confidence or fact_gate.low_confidence
+    if fact_gate.blocking_reason is not None:
+        return no_docs_report(
+            change,
+            title=pull_request.title,
+            reason=fact_gate.blocking_reason,
+            criteria=gate_rows,
+            low_confidence=low_confidence,
+        )
     verdict = judge_merge(
         anthropic_client,
         title=pull_request.title,
         judged_diff=evidence.judged_diff,
-        docs_page_paths=list(page_url_by_key),
+        docs_page_paths=docs_page_paths,
     )
     is_flagged_by_judge = verdict.needs_docs and verdict.change_kind is not None
     judge_row = CriterionResult(
@@ -68,14 +97,14 @@ def run_merge_check(
         evidence=verdict.reason,
         effect=CriterionEffect.SUPPORTS if is_flagged_by_judge else CriterionEffect.BLOCKS,
     )
-    criteria = (*gates.rows, judge_row)
+    criteria = (*gate_rows, judge_row)
     if not is_flagged_by_judge:
         return no_docs_report(
             change,
             title=pull_request.title,
             reason=verdict.reason or "judge",
             criteria=criteria,
-            low_confidence=gates.low_confidence,
+            low_confidence=low_confidence,
         )
     named_page_keys = tuple(dict.fromkeys(path.strip("/") for path in verdict.page_urls))
     listed_page_urls = tuple(page_url_by_key[key] for key in named_page_keys if key in page_url_by_key)
@@ -88,7 +117,7 @@ def run_merge_check(
         reason="judge",
         repository=change.repository,
         pull_request_number=change.pull_request_number,
-        low_confidence=gates.low_confidence,
+        low_confidence=low_confidence,
         criteria=criteria,
         change_kind=DocsChangeKind.CREATE if has_nothing_to_update else verdict.change_kind,
         page_urls=listed_page_urls,

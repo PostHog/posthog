@@ -138,7 +138,7 @@ class MergeCheckWorkflow:
         await workflow.execute_activity(
             run_merge_check_activity,
             inputs,
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(minutes=10),
             heartbeat_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(
                 initial_interval=MERGE_CHECK_RETRY_INTERVAL, maximum_attempts=MERGE_CHECK_ATTEMPTS
