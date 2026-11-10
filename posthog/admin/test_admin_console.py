@@ -17,6 +17,7 @@ from django.contrib.auth.models import Group
 from django.contrib.messages import get_messages
 from django.core.management.base import CommandError
 from django.db.models import PROTECT, Model
+from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
@@ -1463,7 +1464,15 @@ class TestAdminConsoleApiKeys(BaseTest):
             self._personal_key(label="Scoped elsewhere key", scoped_organizations=[str(other.pk)]),
             self._personal_key(label="Outsider key", user=outsider),
         ]
+        # The oldest key comes last in the run, so the owner narrows it while the run changes the others.
+        narrowed = self._personal_key(
+            label="Narrowed during the run key", created_at=timezone.now() - timedelta(days=1)
+        )
         url = f"/admin/console/organizations/{self.organization.pk}/personal-api-keys/{operation}/"
+
+        def narrow(instance: PersonalAPIKey, **kwargs: object) -> None:
+            if instance.pk != narrowed.pk:
+                PersonalAPIKey.objects.filter(pk=narrowed.pk).update(scoped_organizations=[str(other.pk)])
 
         tool = self.client.get(
             f"/admin/console/tools/organization-personal-api-keys/?organization={self.organization.pk}"
@@ -1471,7 +1480,13 @@ class TestAdminConsoleApiKeys(BaseTest):
         preview = self.client.post(url, {"exposed_at": "https://example.com/leak", "reason": "Keys leaked"})
         assert preview.status_code == 200
         untouched.append(self._personal_key(label="Created after the preview key"))
-        confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+        post_save.connect(narrow, sender=PersonalAPIKey)
+        post_delete.connect(narrow, sender=PersonalAPIKey)
+        try:
+            confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+        finally:
+            post_save.disconnect(narrow, sender=PersonalAPIKey)
+            post_delete.disconnect(narrow, sender=PersonalAPIKey)
         replayed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
 
         assert confirmed.status_code == 302 and replayed.status_code == 302
@@ -1480,7 +1495,10 @@ class TestAdminConsoleApiKeys(BaseTest):
         assert {(row.cells[0].text, row.cells[3].text) for row in table.rows if isinstance(row, Row)} == {
             ("Unscoped key", "Other organizations too"),
             ("Scoped here key", "This organization only"),
+            ("Narrowed during the run key", "Other organizations too"),
         }
+        assert PersonalAPIKey.objects.get(pk=narrowed.pk).scoped_organizations == [str(other.pk)]
+        untouched.append(narrowed)
         assert set(
             PersonalAPIKey.objects.filter(pk__in=[key.pk for key in untouched]).values_list("secure_value", flat=True)
         ) == {key.secure_value for key in untouched}

@@ -6,6 +6,7 @@ from django import forms
 from django.contrib import messages
 from django.contrib.admin.models import CHANGE, LogEntry
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import Model, QuerySet
 from django.http import HttpRequest, HttpResponse, QueryDict
 from django.urls import reverse
@@ -223,6 +224,15 @@ class OrganizationPersonalApiKeys:
         """The keys the preview listed that still reach the organization."""
         return get_organization_personal_api_keys(self.organization).filter(pk__in=key_ids)
 
+    def lock_previewed(self, key_id: str, rolled_before: datetime | None) -> PersonalAPIKey | None:
+        # Postgres refuses FOR UPDATE with the DISTINCT of the reach query, so the lock is taken by primary key and
+        # the reach is checked once the row is locked.
+        key = PersonalAPIKey.objects.select_for_update(of=("self",)).select_related("user").filter(pk=key_id).first()
+        qualifying = self.previewed([key_id])
+        if rolled_before is not None:
+            qualifying = qualifying.exclude(last_rolled_at__gte=rolled_before)
+        return key if key is not None and qualifying.exists() else None
+
     def blocks(self) -> list[Notice | Table]:
         keys = self.keys(KEYS_LIST_LIMIT + 1)
         shown = keys[:KEYS_LIST_LIMIT]
@@ -341,16 +351,21 @@ def roll_organization_personal_api_keys(
 ) -> HttpResponse | None:
     assert isinstance(obj, Organization) and isinstance(form, OrganizationKeysForm)
     more_info = _more_info(form)
-    previewed = OrganizationPersonalApiKeys(obj).previewed(form.cleaned_data["previewed_key_ids"])
-    if previewed_at := form.cleaned_data["previewed_at"]:
-        previewed = previewed.exclude(last_rolled_at__gte=previewed_at)
-    keys = list(previewed)
+    organization_keys = OrganizationPersonalApiKeys(obj)
+    keys: list[PersonalAPIKey] = []
     not_notified: set[str] = set()
     # Each key is saved on its own, because the auth cache invalidation and the activity log run on per-row signals.
-    for key in keys:
-        old_mask_value = key.mask_value
-        PersonalAPIKeySerializer(instance=key).roll(key)
-        _log_change(request, key, "Rolled key.")
+    for key_id in form.cleaned_data["previewed_key_ids"]:
+        # The roll saves every field of the row, so the lock keeps an owner's edit or delete from landing between
+        # the check and the save and being undone.
+        with transaction.atomic():
+            key = organization_keys.lock_previewed(key_id, rolled_before=form.cleaned_data["previewed_at"])
+            if key is None:
+                continue
+            old_mask_value = key.mask_value
+            PersonalAPIKeySerializer(instance=key).roll(key)
+            _log_change(request, key, "Rolled key.")
+        keys.append(key)
         try:
             send_personal_api_key_exposed.delay(key.user_id, key.id, old_mask_value, more_info)
         except OperationalError as error:
@@ -373,13 +388,19 @@ def revoke_organization_personal_api_keys(
     request: HttpRequest, obj: Model, form: forms.Form | None
 ) -> HttpResponse | None:
     assert isinstance(obj, Organization) and isinstance(form, OrganizationKeysForm)
-    keys = list(OrganizationPersonalApiKeys(obj).previewed(form.cleaned_data["previewed_key_ids"]))
+    organization_keys = OrganizationPersonalApiKeys(obj)
+    deleted = 0
     # Each key is deleted on its own, because the auth cache invalidation and the activity log run on per-row signals.
-    for key in keys:
-        key.delete()
-    if keys:
-        messages.success(request, f"Deleted {pluralize(len(keys), 'personal API key')}.")
-    _report_skipped(request, form, len(keys))
+    for key_id in form.cleaned_data["previewed_key_ids"]:
+        with transaction.atomic():
+            key = organization_keys.lock_previewed(key_id, rolled_before=None)
+            if key is None:
+                continue
+            key.delete()
+        deleted += 1
+    if deleted:
+        messages.success(request, f"Deleted {pluralize(deleted, 'personal API key')}.")
+    _report_skipped(request, form, deleted)
     return None
 
 
