@@ -499,8 +499,9 @@ impl RawProxyInner {
 
         for attempt in 0..=self.retry_config.max_retries {
             let last = attempt >= self.retry_config.max_retries;
-            // A retry leaves the pinned pod, which may be the one failing.
-            let pinned = if attempt == 0 {
+            // Only a read is pinned: a write bounded and re-sent could land twice. A retry
+            // leaves the pinned pod, which may be the one failing.
+            let pinned = if attempt == 0 && is_replica_read(&method) {
                 affinity_key.and_then(|key| backend.pinned_channel(key))
             } else {
                 None
@@ -819,7 +820,7 @@ fn grpc_status(response: &http::Response<BoxBody>) -> Option<i32> {
         .ok()
 }
 
-/// The replica RPCs a router may repeat elsewhere after a pinned pod answered UNAVAILABLE.
+/// The replica RPCs a router pins to a pod and may repeat elsewhere: reads only.
 fn is_replica_read(method: &str) -> bool {
     ["Get", "List", "Count", "Check"]
         .iter()

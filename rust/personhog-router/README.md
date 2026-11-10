@@ -160,4 +160,4 @@ silently dropping writes.
 
 #### Replica read affinity
 
-A replica read that carries `x-team-id` and `x-distinct-id-bin` is pinned to one replica pod by hashing the pair, so one person's reads keep hitting the pod whose SlateDB reader already holds its shard. The first attempt goes to that pod and is bounded as a whole, connection wait included, by `AFFINITY_ATTEMPT_TIMEOUT_MS` (default 1000); past that, or when the pinned pod answers `UNAVAILABLE` to a read, the request goes to the balanced channel within the usual retry budget. Writes keep the ordinary retry rules.
+A replica read that carries `x-team-id` and `x-distinct-id-bin` is pinned to one replica pod by hashing the pair, so one person's reads keep hitting the pod whose SlateDB reader already holds its shard. The first attempt goes to that pod and is bounded as a whole, connection wait included, by `AFFINITY_ATTEMPT_TIMEOUT_MS` (default 1000); past that, or when the pinned pod answers `UNAVAILABLE`, the request goes to the balanced channel within the usual retry budget. A write is never pinned, whatever headers it carries, so none is cut off and sent again; writes keep the ordinary retry rules.

@@ -1320,3 +1320,40 @@ async fn raw_proxy_bounds_a_read_pinned_to_a_pod_that_never_answers() {
         );
     }
 }
+
+#[tokio::test]
+async fn raw_proxy_never_pins_a_replica_write() {
+    let first = TestReplicaService::with_person(create_test_person()).unavailable(usize::MAX);
+    let second = TestReplicaService::with_person(create_test_person());
+    let first_calls = first.calls.clone();
+    let first_addr = start_test_replica(first).await;
+    let second_addr = start_test_replica(second).await;
+    let router_addr =
+        start_test_router_raw_with_replica_pods(second_addr, &[first_addr, second_addr]).await;
+    let mut client = create_client(router_addr).await;
+
+    for n in 0..20 {
+        let mut request = Request::new(DeletePersonsRequest {
+            team_id: 1,
+            person_uuids: vec!["00000000-0000-0000-0000-000000000042".to_string()],
+            mode: 0,
+        });
+        request
+            .metadata_mut()
+            .insert("x-team-id", "1".parse().unwrap());
+        request.metadata_mut().insert_bin(
+            "x-distinct-id-bin",
+            tonic::metadata::MetadataValue::from_bytes(format!("user-{n}").as_bytes()),
+        );
+        client
+            .delete_persons(request)
+            .await
+            .unwrap_or_else(|e| panic!("user-{n}: {e}"));
+    }
+
+    assert_eq!(
+        first_calls.load(Ordering::SeqCst),
+        0,
+        "a write carrying affinity headers was pinned"
+    );
+}

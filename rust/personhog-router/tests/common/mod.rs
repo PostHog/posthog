@@ -493,6 +493,14 @@ impl PersonHogReplica for TestReplicaService {
         &self,
         _request: Request<DeletePersonsRequest>,
     ) -> Result<Response<DeletePersonsResponse>, Status> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if self
+            .unavailable_remaining
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            return Err(Status::unavailable("replica unavailable"));
+        }
         Ok(Response::new(DeletePersonsResponse {
             deleted_count: 0,
             tombstoned: false,
