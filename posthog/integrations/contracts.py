@@ -19,15 +19,20 @@ SOURCE_MARKER_CONFIG_KEY = "warehouse_source_type"
 class IntegrationRecord(Protocol):
     """One integration row, as the SDK returns it. Read-only.
 
-    At runtime the SDK returns the Django model, but callers see only these reads. So mypy rejects
-    `.save()`, `.delete()`, managers and writes to `config`. Write through the SDK, for example with
-    `update` or `upsert`. Later the SDK returns a frozen record with the same reads, so callers do not
-    change. Add a read here only when callers need it, and never a related row: use `team_id` and
-    `created_by_id`, and load the team or the user from their own models.
+    With the Django backend the SDK returns the Django model, but callers see only these reads. So
+    mypy rejects `.save()`, `.delete()`, managers and writes to `config`. Write through the SDK, for
+    example with `update` or `upsert`. Other backends return a `FrozenIntegrationRecord` with the same
+    reads, so callers do not change. Add a read here only when callers need it, and never a related
+    row: use `team_id` and `created_by_id`, and load the team or the user from their own models.
     """
 
     @property
     def id(self) -> int: ...
+
+    # The stored string form of a reference to the row. See `references.py`. Store this, not `id`:
+    # rows in the credentials service have no int id.
+    @property
+    def reference(self) -> str: ...
 
     @property
     def team_id(self) -> int: ...
@@ -71,6 +76,48 @@ class IntegrationRecord(Protocol):
     def refresh_token(self) -> str | None: ...
 
     def can_be_managed_by_creator(self, user_id: int | None) -> bool: ...
+
+
+def creator_can_manage(kind: str, created_by_id: int | None, user_id: int | None) -> bool:
+    """True when the user who created the row can manage it without admin access."""
+    return user_id is not None and kind == "google-calendar" and created_by_id == user_id
+
+
+@frozen
+class FrozenIntegrationRecord:
+    """An `IntegrationRecord` that holds its values. The backends that do not use the Django model return it.
+
+    The backend computes `auth_type` and `display_name` when it builds the record, so a record never
+    reads the catalogue or another row.
+    """
+
+    id: int
+    reference: str
+    team_id: int
+    kind: str
+    integration_id: str | None
+    config: Mapping[str, Any]
+    sensitive_config: Mapping[str, Any] = dataclasses.field(repr=False)
+    errors: str
+    created_at: datetime
+    created_by_id: int | None
+    auth_type: str
+    display_name: str
+
+    # A dict field cannot hash, and callers put rows in sets and dict keys, like model instances.
+    def __hash__(self) -> int:
+        return hash((type(self), self.reference))
+
+    @property
+    def access_token(self) -> str | None:
+        return self.sensitive_config.get("access_token")
+
+    @property
+    def refresh_token(self) -> str | None:
+        return self.sensitive_config.get("refresh_token")
+
+    def can_be_managed_by_creator(self, user_id: int | None) -> bool:
+        return creator_can_manage(self.kind, self.created_by_id, user_id)
 
 
 @frozen
