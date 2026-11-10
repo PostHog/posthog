@@ -284,7 +284,9 @@ describe('hog setup', () => {
         const instructions = (reviewed.json() as any).next.instructions
         expect(instructions).toContain("PostHog hasn't received any events yet.")
         expect(instructions).toContain('At the end of your turn, tell the user')
-        expect(reviewed.requests.filter((request) => request.url.endsWith('/query')).length).toBeGreaterThan(1)
+        const polls = reviewed.requests.filter((request) => request.url.endsWith('/query'))
+        expect(polls.length).toBeGreaterThan(1)
+        expect(polls.every((request) => (request.body as { refresh: string }).refresh === 'force_blocking')).toBe(true)
         expect((reviewed.json() as any).context.products.slice(0, 2)).toMatchObject([
             { id: 'session-replay', chosen: true, command: 'hog learn -s "session replay"' },
             { id: 'feature-flags', chosen: true, command: 'hog learn posthog:instrument-feature-flags' },
