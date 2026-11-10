@@ -349,7 +349,12 @@ class TransactionalEmailActivityEvent:
     event: str
     timestamp: datetime
     current_url: str | None
+    pathname: str | None
     session_id: str | None
+    # Set on autocaptured events, such as `click` or `submit`.
+    event_type: str | None
+    # The clicked element and its parents, empty unless the event is autocaptured.
+    elements_chain: str
 
 
 @frozen

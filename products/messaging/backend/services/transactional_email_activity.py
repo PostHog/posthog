@@ -135,7 +135,8 @@ def _events(
     # One row past the limit tells the caller there is more.
     response = execute_hogql_query(
         f"""
-        SELECT uuid, event, timestamp, properties.$current_url, properties.$session_id
+        SELECT uuid, event, timestamp, properties.$current_url, properties.$pathname, properties.$session_id,
+               properties.$event_type, elements_chain
         FROM events
         WHERE {{recipient}}
           AND timestamp >= {{start}} AND timestamp < {{end}}
@@ -161,9 +162,13 @@ def _events(
             event=event,
             timestamp=timestamp.astimezone(UTC),
             current_url=current_url or None,
+            pathname=pathname or None,
             session_id=session_id or None,
+            event_type=event_type or None,
+            elements_chain=elements_chain or "",
         )
-        for uuid, event, timestamp, current_url, session_id in response.results or []
+        for uuid, event, timestamp, current_url, pathname, session_id, event_type, elements_chain in response.results
+        or []
     ]
 
 
