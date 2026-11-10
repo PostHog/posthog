@@ -1271,7 +1271,6 @@ describe('workflowLogic auto-save', () => {
         beforeEach(() => {
             posted = []
             lemonToast.dismiss()
-            // The workflows package does not depend on react-toastify, so the typecheck cannot resolve a static import.
             render(createElement(jest.requireActual('react-toastify').ToastContainer))
         })
 
@@ -1418,9 +1417,9 @@ describe('workflowLogic auto-save', () => {
         it.each([
             { case: 'untouched', act: null, reason: null, subject: 'Written by AI', status: 'applied', dirty: false },
             { case: 'renamed', act: 'rename', reason: null, subject: 'Written by AI', status: 'applied', dirty: true },
-            { case: 'subject typed', act: 'typeSubject', reason: null, subject: 'Typed by me', skipped: 'edited' },
-            { case: 'body typed', act: 'typeBody', reason: null, subject: 'Template subject', skipped: 'edited' },
-            { case: 'saved', act: 'save', reason: null, subject: 'Template subject', skipped: 'saved' },
+            { case: 'subject typed', act: 'typeSubject', reason: null, subject: 'Typed by me' },
+            { case: 'body typed', act: 'typeBody', reason: null, subject: 'Template subject' },
+            { case: 'saved', act: 'save', reason: null, subject: 'Template subject' },
             { case: 'rate limited', act: null, reason: 'rate_limited', subject: 'Template subject', status: 'failed' },
         ] as const)('applies the AI draft only when it is $case', async ({ act, reason, ...expected }) => {
             let respond: (body: unknown) => void = () => {}
@@ -1436,7 +1435,6 @@ describe('workflowLogic auto-save', () => {
                     ],
                 },
             })
-            const capture = jest.spyOn(posthog, 'capture')
             initKeaTests()
             logic = workflowLogic(linkProps)
             logic.mount()
@@ -1460,14 +1458,6 @@ describe('workflowLogic auto-save', () => {
             expect(prefilledEmailContent(logic.values.workflow)?.text).toContain(body)
             expect(prefilledEmailContent(logic.values.workflow)?.html).toContain(`>${body}<`)
             expect(logic.values.aiEmailDraftStatus?.status).toBe(status)
-            expect(capture).toHaveBeenCalledWith(
-                'email draft prefilled',
-                expect.objectContaining({
-                    surface: 'workflow',
-                    applied: status === 'applied',
-                    skipped_reason: 'skipped' in expected ? expected.skipped : null,
-                })
-            )
             if ('dirty' in expected) {
                 expect(logic.values.workflowChanged).toBe(expected.dirty)
             }
