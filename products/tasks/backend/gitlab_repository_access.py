@@ -29,6 +29,7 @@ def gitlab_repository_error(integration: IntegrationRecord, repository: str) -> 
                 f"The GitLab token is missing the {scopes} scope. Create a token with that scope and connect it again."
             )
         project = gitlab.get_pushable_project(repository)
+        bound = project is not None and gitlab.token_reaches_only_connected_project()
     except (GitLabIntegrationError, requests.RequestException):
         logger.warning(
             "gitlab_repository_access_check_unavailable",
@@ -40,5 +41,11 @@ def gitlab_repository_error(integration: IntegrationRecord, repository: str) -> 
         return (
             f"The GitLab token can't push to {repository}. "
             "Give the token the Developer role or higher on this project, then try again."
+        )
+    if not bound:
+        return (
+            "Coding tasks need a project access token, because the agent holds the token while it works. "
+            f"This connection's token can reach projects other than {gitlab.project_path}. "
+            "Connect GitLab again with a project access token for this project."
         )
     return None
