@@ -34889,6 +34889,8 @@ export namespace Schemas {
 
     export interface DatabaseSchemaField {
       chain?: (string | number)[] | null;
+      /** Short description of the column, when the HogQL schema defines one. */
+      description?: string | null;
       fields?: string[] | null;
       hogql_value: string;
       id?: string | null;
@@ -34919,6 +34921,8 @@ export namespace Schemas {
     export interface DatabaseSchemaBatchExportTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaBatchExportTableFields;
       id: string;
       name: string;
@@ -34949,6 +34953,8 @@ export namespace Schemas {
     export interface DatabaseSchemaDataWarehouseTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaDataWarehouseTableFields;
       /** Absent for a dual-mode source's virtual tables, which have no synced S3 backing. */
       format?: string | null;
@@ -34969,6 +34975,8 @@ export namespace Schemas {
     export interface DatabaseSchemaEndpointTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaEndpointTableFields;
       id: string;
       name: string;
@@ -34995,6 +35003,8 @@ export namespace Schemas {
     export interface DatabaseSchemaManagedViewTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaManagedViewTableFields;
       id: string;
       kind: DatabaseSchemaManagedViewTableKind;
@@ -35010,6 +35020,8 @@ export namespace Schemas {
     export interface DatabaseSchemaMaterializedViewTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaMaterializedViewTableFields;
       id: string;
       last_run_at?: string | null;
@@ -35025,6 +35037,8 @@ export namespace Schemas {
     export interface DatabaseSchemaPostHogTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaPostHogTableFields;
       id: string;
       name: string;
@@ -35037,6 +35051,8 @@ export namespace Schemas {
     export interface DatabaseSchemaSystemTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaSystemTableFields;
       id: string;
       name: string;
@@ -35049,6 +35065,8 @@ export namespace Schemas {
     export interface DatabaseSchemaViewTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaViewTableFields;
       id: string;
       name: string;
