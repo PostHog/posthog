@@ -289,6 +289,7 @@ def _own_candidates(context: Context, excluded: Collection[str]) -> list[ViewedI
             team_id=context.team.id,
             user_id=context.user.id,
             since=timezone.now() - timedelta(days=REPEAT_WINDOW_DAYS),
+            min_days=AGENT_REPEAT_DAYS,
             limit=limit,
         ),
         no_reads,

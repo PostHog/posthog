@@ -168,11 +168,13 @@ def record_agent_insight_read(*, team: Team, user_id: int, insight_id: int) -> N
         capture_exception(error, {"team_id": team.id, "insight_id": insight_id})
 
 
-def insight_reads_by_agents(*, team_id: int, user_id: int, since: datetime, limit: int) -> list[AgentInsightRead]:
+def insight_reads_by_agents(
+    *, team_id: int, user_id: int, since: datetime, min_days: int, limit: int
+) -> list[AgentInsightRead]:
     return [
         AgentInsightRead(short_id=short_id, read_days=tuple(read_days))
         for short_id, read_days in logic.insight_reads_by_agents(
-            team_id=team_id, user_id=user_id, since=since, limit=limit
+            team_id=team_id, user_id=user_id, since=since, min_days=min_days, limit=limit
         )
     ]
 

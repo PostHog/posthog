@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.db import DatabaseError
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -17,6 +18,7 @@ from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.product_analytics.backend import logic
 from products.product_analytics.backend.facade.api import (
     create_insight_explanation,
     get_insight_explanation,
@@ -31,7 +33,7 @@ from products.product_analytics.backend.facade.api import (
 )
 from products.product_analytics.backend.facade.contracts import AgentInsightRead
 from products.product_analytics.backend.facade.queries import run_cached_trends_query
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.models.insight import Insight, InsightAgentRead, InsightViewed
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 
@@ -99,10 +101,40 @@ class TestAgentInsightReads(BaseTest):
                 record_agent_insight_read(team=self.team, user_id=self.user.id, insight_id=insight.pk)
 
         reads = insight_reads_by_agents(
-            team_id=self.team.id, user_id=self.user.id, since=datetime(2026, 10, 1, tzinfo=UTC), limit=5
+            team_id=self.team.id, user_id=self.user.id, since=datetime(2026, 10, 1, tzinfo=UTC), min_days=2, limit=5
         )
 
         self.assertEqual(reads, [AgentInsightRead("asked", (date(2026, 11, 6), date(2026, 11, 7)))])
+
+    def test_the_limit_counts_only_insights_read_on_enough_days_in_the_window(self) -> None:
+        def read(short_id: str, days: list[date]) -> None:
+            insight = Insight.objects.create(team=self.team, saved=True, short_id=short_id)
+            InsightAgentRead.objects.create(
+                team=self.team,
+                user=self.user,
+                insight=insight,
+                read_days=days,
+                last_read_at=datetime.combine(max(days), datetime.min.time(), tzinfo=UTC),
+            )
+
+        read("once", [date(2026, 11, 9)])
+        read("early", [date(2026, 10, 1), date(2026, 11, 8)])
+        read("twice", [date(2026, 11, 2), date(2026, 11, 5)])
+
+        reads = insight_reads_by_agents(
+            team_id=self.team.id, user_id=self.user.id, since=datetime(2026, 10, 13, tzinfo=UTC), min_days=2, limit=1
+        )
+
+        self.assertEqual([r.short_id for r in reads], ["twice"])
+
+    def test_a_failed_write_lets_a_later_read_that_day_retry(self) -> None:
+        insight = Insight.objects.create(team=self.team, saved=True, short_id="asked")
+        with patch.object(logic, "_save_agent_read", side_effect=DatabaseError("unavailable")):
+            record_agent_insight_read(team=self.team, user_id=self.user.id, insight_id=insight.pk)
+
+        record_agent_insight_read(team=self.team, user_id=self.user.id, insight_id=insight.pk)
+
+        self.assertEqual(InsightAgentRead.objects.filter(insight=insight).count(), 1)
 
 
 class TestInsightReads(BaseTest):
