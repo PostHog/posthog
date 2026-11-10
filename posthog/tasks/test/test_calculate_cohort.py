@@ -1,11 +1,11 @@
 from collections.abc import Callable
 from contextlib import nullcontext, suppress
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 from uuid import uuid4
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -21,6 +21,7 @@ from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
 
+from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.tasks.calculate_cohort import (
@@ -58,6 +59,7 @@ from products.cohorts.backend.models.util import (
     CohortErrorCode,
     StaticCohortReadBackIncomplete,
     count_cohort_members,
+    delete_cohort_members_by_person_ids,
     get_friendly_error_message,
     insert_static_cohort,
     list_cohort_member_ids,
@@ -1885,6 +1887,89 @@ class TestCohortCalculationTasks(APIBaseTest):
             "The replace was stopped because the query matched no persons, so the cohort kept its existing members. "
             "Check the query for a typo, such as a misspelled property name.",
         )
+
+    def test_replace_retry_after_partial_postgres_prune_converges(self) -> None:
+        # Gate 1 item 28: a retry after a partial Postgres prune converges both stores exact.
+        kept, new, stale1, stale2 = (
+            create_person(team=self.team, distinct_ids=[name], properties={"tag": tag}, uuid=uuid4())
+            for name, tag in (("kept", "in"), ("new", "in"), ("stale1", "out"), ("stale2", "out"))
+        )
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static replace retry",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag = 'in'"},
+        )
+        cohort.insert_users_list_by_uuid([str(kept.uuid), str(stale1.uuid), str(stale2.uuid)], team_id=self.team.pk)
+        Cohort.objects.filter(pk=cohort.pk).update(
+            is_calculating=True, pending_population_mode=CohortPopulationMode.REPLACE
+        )
+
+        real_delete = delete_cohort_members_by_person_ids
+        delete_calls: list[list[int]] = []
+        failed = False
+
+        def delete_and_fail_on_first(team_id: int, cohort_id: int, person_ids: list[int]) -> int:
+            nonlocal failed
+            deleted = real_delete(team_id, cohort_id, person_ids)
+            delete_calls.append(person_ids)
+            if not failed:
+                failed = True
+                raise ClickHouseAtCapacity("transient failure after first page delete")
+            return deleted
+
+        insert_cohort_from_query.push_request(retries=0, called_directly=False, is_eager=True)
+        try:
+            with (
+                time_machine.travel(timezone.now() + timedelta(seconds=10), tick=False),
+                patch("products.cohorts.backend.models.util.PRUNE_PAGE_SIZE", 1),
+                patch(
+                    "products.cohorts.backend.models.util.delete_cohort_members_by_person_ids",
+                    side_effect=delete_and_fail_on_first,
+                ),
+            ):
+                with self.assertRaises(Retry) as scheduled:
+                    insert_cohort_from_query.run(cohort.id, self.team.pk)
+
+                self.assertEqual(len(delete_calls), 1)
+                first_deleted = delete_calls[0]
+                self.assertEqual(len(first_deleted), 1)
+                remaining_stale = stale2.id if first_deleted[0] == stale1.id else stale1.id
+
+                # The first attempt deleted only its first page from Postgres before failing, and ClickHouse
+                # has not been pruned yet.
+                pg_members_mid_run = set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk))
+                self.assertEqual(pg_members_mid_run, {kept.id, new.id, remaining_stale})
+
+                marker_iso = scheduled.exception.sig.kwargs["replace_marker"]
+                marker = datetime.fromisoformat(marker_iso)
+                self.assertEqual(scheduled.exception.sig.kwargs["rows_written"], 2)
+                self.assertTrue(scheduled.exception.sig.kwargs["ch_insert_done"])
+
+                # Retry with the scheduled retry's own kwargs, carrying rows_written and replace_marker.
+                insert_cohort_from_query.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
+        finally:
+            insert_cohort_from_query.pop_request()
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertIsNone(cohort.pending_population_mode)
+        self.assertIsNone(cohort.population_marker)
+        self.assertEqual(cohort.errors_calculating, 0)
+
+        # Both stores end exact:
+        self.assertEqual(set(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk)), {kept.id, new.id})
+        self.assertEqual(count_cohort_members(self.team.pk, cohort.pk), 2)
+
+        ch_rows = sync_execute(
+            "SELECT person_id, count(), max(_timestamp) FROM person_static_cohort WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s GROUP BY person_id",
+            {"team_id": self.team.id, "cohort_id": cohort.pk},
+        )
+        ch_stamps = {
+            str(person_id): (count, _timestamp.replace(tzinfo=UTC)) for person_id, count, _timestamp in ch_rows
+        }
+        self.assertEqual(ch_stamps, {str(kept.uuid): (1, marker), str(new.uuid): (1, marker)})
 
     @parameterized.expand(
         [
