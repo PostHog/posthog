@@ -445,14 +445,23 @@ class TestExperimentFlagOwnershipTransitions(APIBaseTest):
 
         assert "need approval" in str(caught.exception)
 
-    def test_restore_and_launch_in_one_step_is_refused(self, _mock_enabled) -> None:
-        experiment = self._create("restore-and-launch")
+    @parameterized.expand(
+        [
+            ("launch", {"start_date": datetime(2026, 1, 1, tzinfo=UTC)}, None),
+            ("flag_config", {}, {"filters": {"groups": [{"rollout_percentage": 50}]}}),
+        ]
+    )
+    def test_a_restore_that_also_writes_the_flag_is_refused(
+        self, _mock_enabled, _name: str, extra: dict, feature_flag_config: dict | None
+    ) -> None:
+        experiment = self._create("restore-and-write")
         self._service().update_experiment(experiment, {"deleted": True})
         experiment.refresh_from_db()
+        before = experiment.feature_flag.filters
 
         with self.assertRaises(ValidationError) as caught:
             self._service().update_experiment(
-                experiment, {"deleted": False, "start_date": datetime(2026, 1, 1, tzinfo=UTC)}
+                experiment, {"deleted": False, **extra}, feature_flag_config=feature_flag_config
             )
 
         assert "Restore the experiment first" in str(caught.exception)
@@ -460,6 +469,7 @@ class TestExperimentFlagOwnershipTransitions(APIBaseTest):
         assert experiment.deleted is True
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.active is False
+        assert experiment.feature_flag.filters == before
 
     @parameterized.expand([("delete", True), ("restore", False)])
     def test_the_file_system_path_runs_the_same_guards(self, _mock_enabled, _name: str, deleting: bool) -> None:

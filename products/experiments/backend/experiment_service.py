@@ -4151,13 +4151,14 @@ class ExperimentService:
         restoring = experiment.deleted and "deleted" in update_data and not update_data["deleted"]
         if restoring:
             assert_experiment_restorable(experiment)
-            # The launch below writes the flag before the restore reaches the database, so the
-            # flag still reads as owned by nothing and the experiment approval policies do not
-            # match it. Ordering the two writes the other way would put the flag change outside
-            # the approval gate it has to pass, so the combination is refused instead.
-            if update_data.get("start_date") is not None:
+            # Every flag write in this method runs before the restore reaches the database, so
+            # the flag would still read as owned by nothing and the experiment approval policies
+            # would not match it. Ordering the writes the other way would put the flag change
+            # outside the approval gate it has to pass, so a restore carries nothing else.
+            if feature_flag_config or any(update_data.get(field) is not None for field in ("start_date", "holdout")):
                 raise ValidationError(
-                    "Cannot restore and launch an experiment in one step. Restore the experiment first, then launch it."
+                    "Cannot restore an experiment and change its feature flag in one step. "
+                    "Restore the experiment first, then make the other change."
                 )
 
         if not experiment.deleted and update_data.get("deleted") is True:
