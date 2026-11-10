@@ -4,6 +4,7 @@ import {
     actions,
     afterMount,
     connect,
+    getContext,
     kea,
     key,
     listeners,
@@ -46,7 +47,6 @@ import {
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,
-    FilterType,
     LegacyRecordingFilters,
     LogEntryPropertyFilter,
     MatchedRecordingEvent,
@@ -186,26 +186,41 @@ export const LIST_MEMO_WINDOW_MS = 3000
  * holds it, so most repeats arrive on a fresh logic instance and a per-instance memo would miss
  * them. The team id is part of the key because the request parameters do not carry it, and a team
  * switch must never answer from another team's rows.
+ *
+ * It does not outlive the kea context. Tests and stories reset the context between cases, and a
+ * response that one case mocked must not answer the next case.
  */
-const landedListResponses = new Map<string, { response: RecordingsQueryResponse; completedAt: number }>()
+type LandedListResponses = Map<string, { response: RecordingsQueryResponse; completedAt: number }>
+
+const landedListResponsesByContext = new WeakMap<object, LandedListResponses>()
+
+const landedListResponses = (): LandedListResponses => {
+    const context = getContext()
+    let landed = landedListResponsesByContext.get(context)
+    if (!landed) {
+        landed = new Map()
+        landedListResponsesByContext.set(context, landed)
+    }
+    return landed
+}
 
 const memoizedListResponse = (memoKey: string): RecordingsQueryResponse | undefined => {
-    const landed = landedListResponses.get(memoKey)
+    const landed = landedListResponses().get(memoKey)
     return landed && performance.now() - landed.completedAt < LIST_MEMO_WINDOW_MS ? landed.response : undefined
 }
 
 const memoizeListResponse = (memoKey: string, response: RecordingsQueryResponse, completedAt: number): void => {
     // Drop what the window no longer covers, so a long session cannot grow the map.
-    for (const [key, landed] of landedListResponses) {
+    const landedResponses = landedListResponses()
+    for (const [key, landed] of landedResponses) {
         if (completedAt - landed.completedAt >= LIST_MEMO_WINDOW_MS) {
-            landedListResponses.delete(key)
+            landedResponses.delete(key)
         }
     }
-    landedListResponses.set(memoKey, { response, completedAt })
+    landedResponses.set(memoKey, { response, completedAt })
 }
 
-/** The memo outlives a kea context, so a test has to start from an empty one. */
-export const clearMemoizedListResponses = (): void => landedListResponses.clear()
+export const clearMemoizedListResponses = (): void => landedListResponses().clear()
 
 const getDefaultFilterTestAccounts = (): boolean => {
     const stored = localStorage.getItem('default_filter_test_accounts')
@@ -632,6 +647,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     canSortByRelevance: boolean
     collectionsForBulkAdd: SavedSessionRecordingPlaylistsResult
     collectionsForBulkAddLoading: boolean
+    defaultFilters: RecordingUniversalFilters
     deleteConfirmationText: string
     eventsHaveSessionId: Record<string, boolean>
     eventsHaveSessionIdLoading: boolean
@@ -953,6 +969,7 @@ export interface sessionRecordingsPlaylistLogicActions {
 export interface sessionRecordingsPlaylistLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        defaultFilters: (filters: RecordingUniversalFilters) => RecordingUniversalFilters
         logicProps: (arg: any) => SessionRecordingPlaylistLogicProps
         allowEventPropertyExpansion: (featureFlags: FeatureFlagsSet) => boolean
         exposureSkipExperimentId: (filters: RecordingUniversalFilters) => number | undefined
@@ -1151,7 +1168,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 loadEventsHaveSessionId: async () => {
                     const filters = filtersFromUniversalFilterGroups(values.filters)
                     // "All events" (id == null) matches any event, so it can always filter recordings
-                    const events: FilterType['events'] = filters
+                    const events: Record<string, any>[] = filters
                         .filter(isEventFilter)
                         .filter((event) => event.id != null)
 
@@ -2143,6 +2160,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         }
     }),
+    selectors(({ props }) => ({
+        defaultFilters: [(s) => [s.filters], (): RecordingUniversalFilters => getResetFilters(props)],
+    })),
+
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
 

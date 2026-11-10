@@ -561,7 +561,7 @@ async fn unmap(
     // acquisition on both sides (the writer sorts its flush batches the
     // same way) makes a cycle impossible.
     let lock_persons_sql = format!(
-        "SELECT id FROM {person_table} WHERE team_id = $1 AND id = ANY($2) ORDER BY id FOR UPDATE",
+        "SELECT id FROM {person_table} WHERE team_id = $1 AND id = ANY($2) ORDER BY id FOR NO KEY UPDATE",
         person_table = tables.person,
     );
     sqlx::query(&query_tag!("delete_unmap_lock_persons", lock_persons_sql))

@@ -1,6 +1,11 @@
 import api from 'lib/api'
 
-import { canvasesActionsInvoke, canvasesActionsRetrieve, canvasesToolsInvoke } from '../generated/api'
+import {
+    canvasesActionsInvoke,
+    canvasesActionsRetrieve,
+    canvasesConnectorsCall,
+    canvasesToolsInvoke,
+} from '../generated/api'
 import { CanvasDataBridge } from './canvasDataBridge'
 
 jest.mock('../generated/api')
@@ -167,5 +172,68 @@ describe('CanvasDataBridge action confirmation', () => {
             expect(canvasesToolsInvoke).toHaveBeenCalledWith('1', 'canvas-1', { tool: tool.name, arguments: { id: 7 } })
         }
         expect(confirmAction).toHaveBeenCalledTimes(method === 'toolCall' && !tool.read_only ? 1 : 0)
+    })
+})
+
+describe('CanvasDataBridge connector consent', () => {
+    test.each([
+        {
+            allowed: true,
+            outcome: { status: 'fulfilled', value: expect.objectContaining({ status: 'ok' }) },
+            apiCalls: 4,
+        },
+        {
+            allowed: false,
+            outcome: {
+                status: 'rejected',
+                reason: expect.objectContaining({ message: expect.stringContaining('not granted') }),
+            },
+            apiCalls: 0,
+        },
+    ])('parallel calls for one tool share one prompt, allowed: $allowed', async ({ allowed, outcome, apiCalls }) => {
+        jest.mocked(canvasesConnectorsCall)
+            .mockReset()
+            .mockResolvedValue({
+                status: 'ok',
+                result: { items: [] },
+                detail: '',
+                truncated: false,
+                connect_path: null,
+                approval_token: null,
+            })
+        let answer!: (allowed: boolean) => void
+        const requestConnectorPermission = jest.fn(
+            () =>
+                new Promise<boolean>((resolve) => {
+                    answer = resolve
+                })
+        )
+        const bridge = new CanvasDataBridge(
+            () => ({
+                projectId: '1',
+                canvasId: 'canvas-1',
+                sourceVersionId: 'v1',
+                captureToken: null,
+                distinctId: null,
+            }),
+            {
+                confirmAction: jest.fn(),
+                confirmAgentRequest: jest.fn(),
+                requestConnectorPermission,
+                hasUserActivation: () => false,
+            }
+        )
+        const call = (page: number): Promise<unknown> =>
+            bridge.handle('connectorCall', { provider: 'github', tool: 'list_pull_requests', arguments: { page } })
+
+        const parallel = Promise.allSettled([1, 2, 3].map(call))
+        answer(allowed)
+        // The fourth call starts after the answer, so it reads the stored answer and neither
+        // asks again nor reopens a denied prompt without a click.
+        const outcomes = [...(await parallel), ...(await Promise.allSettled([call(4)]))]
+
+        expect(outcomes).toEqual(Array(4).fill(outcome))
+        expect(requestConnectorPermission).toHaveBeenCalledTimes(1)
+        expect(canvasesConnectorsCall).toHaveBeenCalledTimes(apiCalls)
     })
 })

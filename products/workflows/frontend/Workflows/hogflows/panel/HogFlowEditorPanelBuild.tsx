@@ -12,9 +12,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { HogFunctionTemplateType } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
-import { setHogFlowDragImage } from '../dragPreview'
+import { NODE_HEIGHT, NODE_WIDTH, setHogFlowDragImage } from '../dragPreview'
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { StepView } from '../steps/components/StepView'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { HogFlowAction } from '../types'
 import { destinationStep, isBetaStep, isPickableDestination, workflowStepSections } from '../workflowStepCatalog'
@@ -69,9 +68,15 @@ function HogFlowEditorToolbarNode({
             {!onActionSelect && (
                 <div ref={dragPreviewRef} className="pointer-events-none absolute invisible" aria-hidden="true">
                     <div className="origin-top-left scale-150">
-                        <StepView
-                            action={{ ...action, id: `drag-preview-${action.type}-${action.name}` } as HogFlowAction}
-                        />
+                        <div
+                            className="flex items-center gap-1 rounded border bg-surface-primary p-1 text-xxs font-medium"
+                            style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
+                        >
+                            <span className="shrink-0" style={{ color: step.color }}>
+                                {step.icon}
+                            </span>
+                            <span className="truncate">{action.name}</span>
+                        </div>
                     </div>
                 </div>
             )}

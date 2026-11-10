@@ -693,6 +693,7 @@ def _pin_metadata(client, bucket: str, prefix: str, key: str) -> tuple[dict[str,
 
     The promote job, the served pointer, the pins and the recent and challenger reads all pass this
     check, so an experiment family is refused here once for every path."""
+    # nosemgrep: email-domain-after-last-at -- a model@version key, not an email address
     model_name, model_version = key.split("@", 1)
     if model_name in experiment_names(MODEL_FAMILIES):
         return None, (
@@ -740,8 +741,13 @@ class _MirrorProjectVectors:
     refusal: str | None
 
 
+# The mirror region deploys apart from this one, so its day can carry the version before the
+# current one. The scorer skips a model that reads a kind the day has no rows for.
+_NAMEABLE_PROJECT_VECTORS_SCHEMA_VERSIONS = frozenset({"1", str(PROJECT_VECTORS_SCHEMA_VERSION)})
+
+
 def _project_vectors_refusal(metadata: Mapping[str, str], oldest: datetime.date) -> str | None:
-    if metadata.get(PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY) != str(PROJECT_VECTORS_SCHEMA_VERSION):
+    if metadata.get(PROJECT_VECTORS_SCHEMA_VERSION_METADATA_KEY) not in _NAMEABLE_PROJECT_VECTORS_SCHEMA_VERSIONS:
         return UNKNOWN_SCHEMA_VERSION
     try:
         engagement_date = datetime.date.fromisoformat(metadata.get(PROJECT_VECTORS_ENGAGEMENT_DATE_METADATA_KEY, ""))

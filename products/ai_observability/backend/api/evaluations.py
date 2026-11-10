@@ -821,17 +821,18 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         config's active-key fallback, is already handled by `_validate_can_run`; this covers what
         is left: a null config resolves via the team's active key, and anything else must add a
         provider key of its own."""
-        add_key_message = "Add a provider API key to enable this evaluation."
         team = self.context["get_team"]()
         config = EvaluationConfig.objects.filter(team=team).first()
 
         explicit_config = self._effective_model_configuration(data)
         if explicit_config is not None:
-            raise serializers.ValidationError({"enabled": add_key_message})
+            raise serializers.ValidationError(
+                {"enabled": self._missing_key_message(team, explicit_config.get("provider"))}
+            )
 
         active_key = config.active_provider_key if config else None
         if active_key is None:
-            raise serializers.ValidationError({"enabled": add_key_message})
+            raise serializers.ValidationError({"enabled": self._missing_key_message(team, None)})
 
         if active_key.state != LLMProviderKey.State.OK:
             raise serializers.ValidationError(
@@ -843,6 +844,22 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                     "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before enabling it."
                 }
             )
+
+    def _missing_key_message(self, team: Team, provider: str | None) -> str:
+        """A team with a working key the eval isn't set to use needs to pick it, not add another one."""
+        keys = LLMProviderKey.objects.filter(team=team, state=LLMProviderKey.State.OK)
+        if provider:
+            keys = keys.filter(provider=provider)
+        if keys.exists():
+            return (
+                "This project has a working AI provider API key, but this evaluation isn't set to use it. "
+                "Choose that key for the evaluation's model, or make it the project's active key, then enable the evaluation."
+            )
+        return (
+            "LLM judges run on your own AI provider API key, and this project doesn't have a working one yet. "
+            "A project admin can add one in Settings > AI observability > Bring your own key (BYOK), "
+            "then enable this evaluation."
+        )
 
     def _effective_model_configuration(self, data: dict) -> dict[str, Any] | None:
         """The explicit model configuration the evaluation will have after this update, or None
@@ -1397,6 +1414,52 @@ def _test_hog_over_traces(
     return Response({"results": results})
 
 
+def _config_length(instance: Evaluation) -> int:
+    """Get the relevant config content length for tracking."""
+    if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
+        content_key = get_evaluation_config_content_key(instance.evaluation_type)
+        content = instance.evaluation_config.get(content_key, "") if content_key else ""
+        return len(content) if isinstance(content, str) else 0
+    return 0
+
+
+def create_evaluation(
+    serializer: EvaluationSerializer,
+    *,
+    request: Request,
+    team: Team,
+) -> Evaluation:
+    """Save a validated evaluation with its default report and track the creation."""
+    with transaction.atomic():
+        instance = serializer.save()
+
+        if evaluation_supports_reports(instance.output_type, instance.target, instance.output_config):
+            # Auto-create a default report config so reports are generated from the start.
+            # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
+            # and users add email/Slack delivery targets later if they want notifications.
+            EvaluationReport.objects.get_or_create(evaluation=instance, team_id=team.id)
+
+    conditions = instance.conditions or []
+    report_user_action(
+        request.user,
+        "llma evaluation created",
+        {
+            "evaluation_id": str(instance.id),
+            "evaluation_name": instance.name,
+            "evaluation_type": instance.evaluation_type,
+            "output_type": instance.output_type,
+            "has_description": bool(instance.description),
+            "enabled": instance.enabled,
+            "condition_count": len(conditions),
+            "has_rollout_percentage": any(condition.get("rollout_percentage", 100) < 100 for condition in conditions),
+            "config_length": _config_length(instance),
+        },
+        team=team,
+        request=request,
+    )
+    return instance
+
+
 class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated, AccessControlPermission]
@@ -1439,50 +1502,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "List the project's evaluations to look one up by name."
             )
 
-    @staticmethod
-    def _get_config_length(instance) -> int:
-        """Get the relevant config content length for tracking."""
-        if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
-            content_key = get_evaluation_config_content_key(instance.evaluation_type)
-            content = instance.evaluation_config.get(content_key, "") if content_key else ""
-            return len(content) if isinstance(content, str) else 0
-        return 0
-
     def perform_create(self, serializer):
-        with transaction.atomic():
-            instance = serializer.save()
-
-            if evaluation_supports_reports(instance.output_type, instance.target, instance.output_config):
-                # Auto-create a default report config so reports are generated from the start.
-                # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
-                # and users add email/Slack delivery targets later if they want notifications.
-                EvaluationReport.objects.get_or_create(evaluation=instance, team_id=self.team_id)
-
-        # Calculate properties for tracking
-        conditions = instance.conditions or []
-        condition_count = len(conditions)
-        has_rollout_percentage = any(condition.get("rollout_percentage", 100) < 100 for condition in conditions)
-
-        config_length = self._get_config_length(instance)
-
-        # Track evaluation created
-        report_user_action(
-            self.request.user,
-            "llma evaluation created",
-            {
-                "evaluation_id": str(instance.id),
-                "evaluation_name": instance.name,
-                "evaluation_type": instance.evaluation_type,
-                "output_type": instance.output_type,
-                "has_description": bool(instance.description),
-                "enabled": instance.enabled,
-                "condition_count": condition_count,
-                "has_rollout_percentage": has_rollout_percentage,
-                "config_length": config_length,
-            },
-            team=self.team,
-            request=self.request,
-        )
+        create_evaluation(serializer, request=self.request, team=self.team)
 
     def perform_update(self, serializer):
         previously_supported_reports = evaluation_supports_reports(

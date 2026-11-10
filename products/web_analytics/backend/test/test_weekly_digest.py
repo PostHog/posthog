@@ -25,7 +25,7 @@ from posthog.models import Team
 from posthog.models.utils import uuid7
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, filter_through_warehouse_join
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.web_analytics.backend.hogql_queries.web_goals import NoActionsError
 from products.web_analytics.backend.weekly_digest import (
     _default_overview,
@@ -411,7 +411,7 @@ class TestGetGoalsForTeam(ClickhouseTestMixin, APIBaseTest):
 
     def test_returns_goals_with_conversions(self):
         with time_machine.travel(QUERY_TIMESTAMP, tick=False):
-            Action.objects.create(
+            create_action(
                 team=self.team,
                 name="Signed Up",
                 steps_json=[{"event": "signed_up"}],
@@ -437,7 +437,7 @@ class TestGetGoalsForTeam(ClickhouseTestMixin, APIBaseTest):
 
     @patch(WAREHOUSE_ACCESS_CONTROL_FLAG, new=Mock(return_value=True))
     def test_userless_job_reads_an_action_filter_through_a_warehouse_join(self):
-        Action.objects.create(
+        create_action(
             team=self.team,
             name="Signed Up",
             steps_json=[{"event": "signed_up", "properties": [filter_through_warehouse_join(self.team)]}],

@@ -6,8 +6,16 @@ from collections.abc import Sequence
 from typing import Any, Literal
 from uuid import UUID
 
-from posthog.models.person.divergence import lookups
-from posthog.models.person.divergence.flavors import ChMapping, ChPerson, PgMapping, PgPerson
+from posthog.models.person.divergence import cleanup_queue, lookups
+from posthog.models.person.divergence.flavors import (
+    ChMapping,
+    ChPerson,
+    OwnerChState,
+    PgMapping,
+    PgPerson,
+    needs_owner_ch_state,
+    owner_ch_state,
+)
 from posthog.models.person.util import get_distinct_id_rows, get_person_tombstones
 
 PersonPgState = Literal["live", "deleted", "absent"]
@@ -41,7 +49,8 @@ SELECT
     countIf(_row_exists),
     toString(argMaxIf(person_id, version, _row_exists)),
     maxIf(version, _row_exists),
-    argMaxIf(is_deleted, version, _row_exists)
+    argMaxIf(is_deleted, version, _row_exists),
+    groupUniqArrayIf((version, toString(person_id), is_deleted), _row_exists)
 FROM person_distinct_id2
 WHERE team_id = %(team_id)s AND {keys}
 GROUP BY distinct_id
@@ -97,13 +106,17 @@ def ch_person_states_in_range(team_id: int, after: str, last: str, *, first: boo
 
 
 def ch_mapping_from_row(row: Sequence[Any]) -> tuple[str, ChMapping]:
-    distinct_id, max_version, visible_rows, owner, winner_version, winner_deleted = row
+    distinct_id, max_version, visible_rows, owner, winner_version, winner_deleted, visible = row
+    at_max = {
+        (str(person), bool(deleted)) for version, person, deleted in visible if int(version) == int(winner_version)
+    }
     return distinct_id, ChMapping(
         max_version=int(max_version),
         visible_rows=int(visible_rows),
         winner_person_uuid=str(owner),
         winner_version=int(winner_version),
         winner_deleted=bool(winner_deleted),
+        winner_tied=len(at_max) > 1,
     )
 
 
@@ -113,6 +126,35 @@ def ch_mapping_states(team_id: int, distinct_ids: Sequence[str]) -> dict[str, Ch
         rows = lookups._ch(_CH_MAPPINGS_SQL, {"team_id": team_id, "distinct_ids": list(chunk)}, _READ_SETTINGS)
         states.update(ch_mapping_from_row(row) for row in rows)
     return states
+
+
+def owner_ch_states(team_id: int, pg: dict[str, PgMapping], ch: dict[str, ChMapping]) -> dict[str, OwnerChState]:
+    """The ClickHouse state of each mapping's Postgres owner, read only for the mappings whose classification needs it."""
+    owners = {
+        distinct_id: str(UUID(pg_row.person_uuid))
+        for distinct_id, ch_row in ch.items()
+        if needs_owner_ch_state(pg_row := pg.get(distinct_id), ch_row) and pg_row is not None and pg_row.person_uuid
+    }
+    if not owners:
+        return {}
+    uuids = sorted(set(owners.values()))
+    persons = ch_person_states(team_id, uuids)
+    queued = cleanup_queue.queue_entries(team_id, uuids)
+    return {
+        distinct_id: "absent"
+        if _swept(persons.get(person_uuid), queued.get(person_uuid))
+        else owner_ch_state(persons.get(person_uuid))
+        for distinct_id, person_uuid in owners.items()
+    }
+
+
+def _swept(state: ChPerson | None, queued: dict[str, Any] | None) -> bool:
+    """The sweep queues a person after it removed the person's ClickHouse rows up to the queued bound, so rows at or
+    below that bound that show up again (a replayed Kafka batch) do not make the person pending. Rows above the bound
+    are a later tombstone the next sweep takes, and a row without a bound is never drained."""
+    if queued is None or queued["max_version"] is None:
+        return False
+    return state is None or state.max_version <= queued["max_version"]
 
 
 def ch_mapping_states_in_range(team_id: int, after: str, last: str, *, first: bool) -> dict[str, ChMapping]:

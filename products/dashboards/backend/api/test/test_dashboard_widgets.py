@@ -4,6 +4,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
+from django.core.cache import cache
 from django.db import connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
@@ -13,10 +14,13 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.dashboards.backend.api.dashboard import DashboardsViewSet, DashboardTileSerializer
 from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT, MAX_GROUPS
@@ -1381,6 +1385,16 @@ class TestDashboardWidgets(APIBaseTest):
         assert shared_widget["config"]["limit"] == 10
         assert "search" not in shared_widget["config"]
 
+        assert tile.widget_id is not None
+        DashboardWidget.objects.for_team(self.team.id).filter(id=tile.widget_id).update(
+            widget_type="metrics", config={"query": {"kind": "MetricsQuery", "sql": "select secret"}}
+        )
+        tile.refresh_from_db()
+        retired_widget = DashboardTileSerializer(tile, context=shared_context).data["widget"]
+        assert retired_widget is not None
+        assert retired_widget["widget_type"] == "metrics"
+        assert retired_widget["config"] == {}
+
 
 class TestDashboardWidgetsBatchUpdate(APIBaseTest):
     def setUp(self) -> None:
@@ -1630,12 +1644,25 @@ class TestDashboardWidgetsBatchUpdate(APIBaseTest):
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_denies_without_edit_permission(self) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard.id, config={"limit": 5})
         tile = dashboard_json["tiles"][0]
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        create_access_control(
+            team_id=self.team.id,
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            access_level="viewer",
+            organization_member_id=self.organization_membership.id,
+        )
+        cache.clear()
 
-        with patch.object(UserAccessControl, "check_access_level_for_object", return_value=False):
-            response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 9}}])
+        response = self._batch_update(dashboard.id, [{"tile_id": tile["id"], "config": {"limit": 9}}])
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 

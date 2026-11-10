@@ -50,7 +50,8 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.utils import get_from_dict_or_attr
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -420,9 +421,9 @@ class QueryEventsExtractor:
     @cache_for(timedelta(minutes=1))
     def _get_action_events(action_id: int, project_id: int) -> list[str]:
         try:
-            action = Action.objects.get(pk=action_id, team__project_id=project_id)
+            action = get_action(action_id=action_id, project_id=project_id)
             return [event for event in action.get_step_events() if event is not None]
-        except Action.DoesNotExist:
+        except ActionNotFound:
             return []
 
 
@@ -589,8 +590,8 @@ _action_step_properties_cache: TTLCache[Hashable, list[list[dict]]] = TTLCache(m
 @cached(_action_step_properties_cache, lock=Lock())
 def _get_action_step_properties(action_id: int, project_id: int) -> list[list[dict]]:
     try:
-        action = Action.objects.get(pk=action_id, team__project_id=project_id)
-    except Action.DoesNotExist:
+        action = get_action(action_id=action_id, project_id=project_id)
+    except ActionNotFound:
         return []
     return [step.properties for step in action.steps if step.properties]
 

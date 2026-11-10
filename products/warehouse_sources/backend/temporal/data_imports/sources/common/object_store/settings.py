@@ -27,8 +27,14 @@ MAX_RECORD_BYTES = 32 * 1024 * 1024
 MAX_FIRST_CSV_RECORD_BYTES = 1024 * 1024
 # A gzipped Parquet file is unpacked to local disk to be read, so the unpacked size is capped too.
 MAX_UNPACKED_PARQUET_BYTES = 2 * 1024 * 1024 * 1024
+# An object the store sends without a size is copied to local disk to be read, so the copy is capped too.
+MAX_UNSIZED_OBJECT_BYTES = 2 * 1024 * 1024 * 1024
+# Local copies stay in memory up to this size, then go to disk.
+SPOOL_MEMORY_BYTES = 8 * 1024 * 1024
+COPY_CHUNK_BYTES = 1024 * 1024
 PARQUET_BATCH_ROWS = 10_000
 DELTA_BATCH_ROWS = 16_384
+DELTA_MISSING_RETRY_DELAYS_SECONDS: tuple[float, ...] = (5.0, 10.0, 20.0)
 
 # Arrow batches from wide files can be large, so the pipeline's batcher flushes before this many bytes.
 CHUNK_SIZE_BYTES = 100 * 1024 * 1024

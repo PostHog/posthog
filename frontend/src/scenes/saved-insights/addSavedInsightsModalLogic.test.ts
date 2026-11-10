@@ -7,12 +7,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { dashboardResult } from 'scenes/dashboard/dashboardLogic.testHelpers'
+import { dashboardResult, tileFromInsight } from 'scenes/dashboard/dashboardLogic.testHelpers'
 import { insightsApi } from 'scenes/insights/utils/api'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { InsightModel } from '~/types'
+
+import * as dashboardsApi from 'products/dashboards/frontend/generated/api'
 
 import { addSavedInsightsModalLogic, handleDashboardUpdateFailure } from './addSavedInsightsModalLogic'
 
@@ -272,6 +274,10 @@ describe('addSavedInsightsModalLogic', () => {
     describe('dashboard membership updates', () => {
         const MESSAGES = { timedOut: 'Timed out', failed: 'Failed to add' }
 
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
         const insightOnDashboards = (dashboardIds: number[]): InsightModel =>
             ({
                 ...createInsight(53),
@@ -282,32 +288,33 @@ describe('addSavedInsightsModalLogic', () => {
                 })),
             }) as InsightModel
 
-        it('keeps the other dashboards when adding', async () => {
+        it.each([
+            {
+                name: 'adding places the insight on that dashboard',
+                change: (logic: ReturnType<typeof addSavedInsightsModalLogic.build>) =>
+                    logic.actions.addInsightToDashboard(insightOnDashboards([7, 8]), 9),
+                endpoint: 'dashboardsAddInsightCreate' as const,
+                expectedRequest: [9, { insight_id: 53 }],
+            },
+            {
+                name: 'removing deletes the tile on that dashboard only',
+                change: (logic: ReturnType<typeof addSavedInsightsModalLogic.build>) =>
+                    logic.actions.removeInsightFromDashboard(insightOnDashboards([7, 8]), 8),
+                endpoint: 'dashboardsDeleteTile' as const,
+                expectedRequest: [8, { tile_id: 2 }],
+            },
+        ])('$name', async ({ change, endpoint, expectedRequest }) => {
             initKeaTests()
-            const update = jest.spyOn(insightsApi, 'update').mockResolvedValue(createInsight(53))
+            const update = jest.spyOn(insightsApi, 'update')
+            jest.spyOn(dashboardsApi, 'dashboardsAddInsightCreate').mockResolvedValue({ id: 3, dashboard_id: 9 })
+            jest.spyOn(dashboardsApi, 'dashboardsDeleteTile').mockResolvedValue()
             const logic = addSavedInsightsModalLogic()
             logic.mount()
 
-            await expectLogic(logic, () =>
-                logic.actions.addInsightToDashboard(insightOnDashboards([7, 8]), 9)
-            ).toFinishAllListeners()
+            await expectLogic(logic, () => change(logic)).toFinishAllListeners()
 
-            expect(update).toHaveBeenCalledWith(53, { dashboards: [7, 8, 9] })
-
-            logic.unmount()
-        })
-
-        it('keeps the other dashboards when removing', async () => {
-            initKeaTests()
-            const update = jest.spyOn(insightsApi, 'update').mockResolvedValue(createInsight(53))
-            const logic = addSavedInsightsModalLogic()
-            logic.mount()
-
-            await expectLogic(logic, () =>
-                logic.actions.removeInsightFromDashboard(insightOnDashboards([7, 8]), 8)
-            ).toFinishAllListeners()
-
-            expect(update).toHaveBeenCalledWith(53, { dashboards: [7] })
+            expect(dashboardsApi[endpoint]).toHaveBeenCalledWith(expect.any(String), ...expectedRequest)
+            expect(update).not.toHaveBeenCalled()
 
             logic.unmount()
         })
@@ -318,7 +325,7 @@ describe('addSavedInsightsModalLogic', () => {
         ])('handles a %s instead of filing an unhandled rejection', async (status, detail) => {
             initKeaTests()
             const toastError = jest.spyOn(lemonToast, 'error').mockImplementation()
-            jest.spyOn(insightsApi, 'update').mockRejectedValue(
+            jest.spyOn(insightsApi, 'addToDashboard').mockRejectedValue(
                 new ApiError('Non-OK response', status, undefined, { detail })
             )
             const logic = addSavedInsightsModalLogic()
@@ -363,21 +370,62 @@ describe('addSavedInsightsModalLogic', () => {
         })
     })
 
-    it('refreshes the mounted dashboard after adding an insight', async () => {
+    it.each([
+        {
+            name: 'refreshes the mounted dashboard, and leaves a tile added with no target group out of any group',
+            existingTiles: [],
+            addTarget: null,
+            closeDashboard: false,
+            expectedGroupWrites: [],
+        },
+        {
+            name: 'refreshes the mounted dashboard, and leaves a tile that was already on the dashboard in its own group',
+            existingTiles: [tileFromInsight(createInsight(2), 3)],
+            addTarget: 'target',
+            closeDashboard: false,
+            expectedGroupWrites: [],
+        },
+        {
+            name: 'refreshes the mounted dashboard, and keeps the group the add started from when the modal closes during the request',
+            existingTiles: [],
+            addTarget: 'target',
+            closeDashboard: false,
+            expectedGroupWrites: [[1, { tiles: [{ id: 3, group_key: 'target' }] }]],
+        },
+        {
+            name: 'keeps the group the add started from when the dashboard closes during the request',
+            existingTiles: [],
+            addTarget: 'target',
+            closeDashboard: true,
+            expectedGroupWrites: [[1, { tiles: [{ id: 3, group_key: 'target' }] }]],
+        },
+    ])('after adding an insight, $name', async ({ existingTiles, addTarget, closeDashboard, expectedGroupWrites }) => {
         initKeaTests()
-        const dashboard = dashboardLogic({ id: 1, dashboard: dashboardResult(1, []) })
+        const dashboard = dashboardLogic({ id: 1, dashboard: dashboardResult(1, existingTiles) })
         dashboard.mount()
         const loadDashboard = jest.spyOn(dashboard.actions, 'loadDashboard').mockImplementation()
-        jest.spyOn(insightsApi, 'update').mockResolvedValue(createInsight(1))
+        const groupWrite = jest.spyOn(dashboardsApi, 'dashboardsPartialUpdate').mockResolvedValue({} as any)
+        dashboard.actions.setAddTargetTileGroupKey(addTarget)
+        jest.spyOn(insightsApi, 'addToDashboard').mockImplementation(async () => {
+            dashboard.actions.closeTileModal()
+            if (closeDashboard) {
+                dashboard.unmount()
+            }
+            return { id: 3, dashboard_id: 1 } as any
+        })
 
         const logic = addSavedInsightsModalLogic()
         logic.mount()
 
         await expectLogic(logic, () => logic.actions.addInsightToDashboard(createInsight(1), 1)).toFinishAllListeners()
 
-        expect(loadDashboard).toHaveBeenCalledWith({ action: DashboardLoadAction.Update })
-
+        expect(groupWrite.mock.calls.map(([, dashboardId, body]) => [dashboardId, body])).toEqual(expectedGroupWrites)
+        if (closeDashboard) {
+            expect(loadDashboard).not.toHaveBeenCalled()
+        } else {
+            expect(loadDashboard).toHaveBeenCalledWith({ action: DashboardLoadAction.Update })
+            dashboard.unmount()
+        }
         logic.unmount()
-        dashboard.unmount()
     })
 })

@@ -1,1 +1,1 @@
-0221_signal_filter_catalog
+0247_team_slack_notification_min_priority

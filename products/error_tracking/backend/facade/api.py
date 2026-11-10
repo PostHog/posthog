@@ -13,6 +13,8 @@ from django.db.models import QuerySet
 import posthoganalytics
 
 from posthog.event_usage import AnalyticsProps, groups
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.access_control.backend.facade.api import valid_role_member_user_ids
 
@@ -143,6 +145,18 @@ def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list
     return [_to_issue_preview(issue) for issue in issues]
 
 
+def list_active_issue_impact(team_id: int, days: int, limit: int) -> list[contracts.ErrorTrackingIssueImpact]:
+    """Active issues seen in the last `days` days with their user, session and daily occurrence counts.
+
+    Ordered by first seen, newest first. Runs one ClickHouse query.
+    """
+    from ..logic.issue_impact import (  # noqa: PLC0415 - keeps the HogQL query runners off the django.setup() path
+        list_active_issue_impact as _list_active_issue_impact,
+    )
+
+    return _list_active_issue_impact(team_id=team_id, days=days, limit=limit)
+
+
 def query_new_error_issues(period_start: datetime, period_end: datetime) -> QuerySet:
     # "New this week" = issue first created within the digest window. Only active issues
     # (not archived/resolved/suppressed) are worth surfacing as a new production error.
@@ -165,13 +179,8 @@ def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
     return _to_issue(issue)
 
 
-def list_issues_detailed(
-    team_id: int, *, limit: int | None = None, offset: int = 0
-) -> tuple[list[contracts.ErrorTrackingIssue], int]:
-    qs = logic.get_issue_detail_queryset(team_id).order_by("-id")
-    total = qs.count()
-    rows = qs if limit is None else qs[offset : offset + limit]
-    return [_to_issue(issue) for issue in rows], total
+def list_issues_detailed(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingIssue]:
+    return select_page(logic.get_issue_detail_queryset(team_id).order_by("-id"), page).map(_to_issue)
 
 
 def issue_exists(team_id: int) -> bool:
@@ -203,6 +212,7 @@ def resolve_fingerprints(team_id: int, issue_ids: list[str]) -> list[str]:
 
 def _to_settings(settings, ingestion_enabled: bool) -> contracts.ErrorTrackingSettings:
     return contracts.ErrorTrackingSettings(
+        adaptive_ingestion_enabled=settings.adaptive_ingestion_enabled,
         project_rate_limit_value=settings.project_rate_limit_value,
         project_rate_limit_bucket_size_minutes=settings.project_rate_limit_bucket_size_minutes,
         per_issue_rate_limit_value=settings.per_issue_rate_limit_value,
@@ -258,16 +268,20 @@ def list_spike_events(
     date_from: str | None = None,
     date_to: str | None = None,
     order_by: str | None = None,
-    limit: int | None = None,
-    offset: int = 0,
-    include_total_count: bool = True,
-) -> tuple[list[contracts.ErrorTrackingSpikeEvent], int]:
+    page: PageRequest,
+) -> Page[contracts.ErrorTrackingSpikeEvent]:
     qs = logic.list_spike_events(
         team_id=team_id, issue_ids=issue_ids, date_from=date_from, date_to=date_to, order_by=order_by
     )
-    total = qs.count() if include_total_count else 0
-    rows = qs if limit is None else qs[offset : offset + limit]
-    return [_to_spike_event(event) for event in rows], total
+    return select_page(qs, page).map(_to_spike_event)
+
+
+def list_latest_spike_events(
+    *, team_id: int, date_from: str, date_to: str, limit: int
+) -> list[contracts.ErrorTrackingSpikeEvent]:
+    """Return at most `limit` spike events of a time window, newest first, without a total count."""
+    qs = logic.list_spike_events(team_id=team_id, date_from=date_from, date_to=date_to)
+    return [_to_spike_event(event) for event in qs[:limit]]
 
 
 def _to_release(release) -> contracts.ErrorTrackingRelease:
@@ -297,13 +311,10 @@ def _to_stack_frame(frame) -> contracts.ErrorTrackingStackFrame:
     )
 
 
-def list_stack_frames(
-    team_id: int, *, limit: int | None = None, offset: int = 0
-) -> tuple[list[contracts.ErrorTrackingStackFrame], int]:
-    qs = logic.stack_frame_queryset(team_id)
-    total = qs.count()
-    rows = qs if limit is None else qs[offset : offset + limit]
-    return [_to_stack_frame(frame) for frame in rows], total
+def list_stack_frames(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingStackFrame]:
+    # Order by created_at so et_frame_team_created_at_idx serves the page. No (team_id, id) index exists.
+    queryset = logic.stack_frame_queryset(team_id).order_by("created_at")
+    return select_page(queryset, page).map(_to_stack_frame)
 
 
 def get_stack_frame(team_id: int, frame_id: str) -> contracts.ErrorTrackingStackFrame | None:
@@ -317,13 +328,8 @@ def batch_get_stack_frames(
     return [_to_stack_frame(frame) for frame in logic.batch_get_stack_frames(team_id, raw_ids, symbol_set)]
 
 
-def list_releases(
-    team_id: int, *, limit: int | None = None, offset: int = 0
-) -> tuple[list[contracts.ErrorTrackingRelease], int]:
-    qs = logic.list_releases(team_id)
-    total = qs.count()
-    rows = qs if limit is None else qs[offset : offset + limit]
-    return [_to_release(release) for release in rows], total
+def list_releases(team_id: int, *, page: PageRequest) -> Page[contracts.ErrorTrackingRelease]:
+    return select_page(logic.list_releases(team_id), page).map(_to_release)
 
 
 def list_releases_created_between(
@@ -639,9 +645,10 @@ def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     return logic.get_issue_id_for_fingerprint(team_id=team_id, fingerprint=fingerprint)
 
 
-def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> list[contracts.ErrorTrackingFingerprint]:
-    fingerprints = logic.list_fingerprints(team_id=team_id, issue_id=issue_id)
-    return [_to_fingerprint(fingerprint) for fingerprint in fingerprints]
+def list_fingerprints(
+    team_id: int, *, issue_id: UUID | None = None, page: PageRequest
+) -> Page[contracts.ErrorTrackingFingerprint]:
+    return select_page(logic.list_fingerprints(team_id=team_id, issue_id=issue_id), page).map(_to_fingerprint)
 
 
 def list_first_fingerprints(team_id: int, issue_ids: list[UUID]) -> list[contracts.ErrorTrackingFingerprint]:

@@ -2,18 +2,20 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 
+import { ChartDisplayIcon } from 'lib/components/ChartFilter/ChartDisplayIcon'
+import type { ChartDisplayOption } from 'lib/components/ChartFilter/chartDisplayOptions'
+import { getChartDisplayOptions } from 'lib/components/ChartFilter/chartDisplayOptions'
+import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
 
 import type { TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { ChartDisplayIcon } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartDisplayIcon'
-import type { ChartDisplayOption } from 'products/product_analytics/frontend/insights/chartAlternatives/chartDisplayOptions'
-import { getChartDisplayOptions } from 'products/product_analytics/frontend/insights/chartAlternatives/chartDisplayOptions'
+import { QuillChartFilter } from './QuillChartFilter'
 
 function ChartFilterOptionLabel(props: { label: string; description?: string }): JSX.Element {
     return (
@@ -48,11 +50,12 @@ export function ChartFilter({
     const { display, compareFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const { isTrends, isSingleSeriesOutput, formula, formulaNodes, formulas, breakdownFilter, series } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const options: LemonSelectOptions<ChartDisplayType> = getChartDisplayOptions({
+    const groups = getChartDisplayOptions({
         isTrends,
         hasSingleSeriesOutput: isSingleSeriesOutput,
         hasTrendsFormula: !!formula || !!formulas?.length || !!formulaNodes?.length,
@@ -61,7 +64,25 @@ export function ChartFilter({
         boxPlotMissingProperty: isBoxPlotMissingProperty(series as TrendsQuery['series']),
         hasMetricInsight: !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT],
         isComparing: !!compareFilter?.compare,
-    }).map((group) => ({ title: group.title, options: group.options.map(chartDisplayOptionToSelectOption) }))
+    })
+
+    if (todayRailNav) {
+        return (
+            <QuillChartFilter
+                value={display || ChartDisplayType.ActionsLineGraph}
+                groups={groups}
+                onChange={(value) => updateInsightFilter({ display: value })}
+                onOpen={onOpen}
+                fullWidth={fullWidth}
+                disabledReason={editingDisabledReason ?? disabledReason}
+            />
+        )
+    }
+
+    const options: LemonSelectOptions<ChartDisplayType> = groups.map((group) => ({
+        title: group.title,
+        options: group.options.map(chartDisplayOptionToSelectOption),
+    }))
 
     return (
         <LemonSelect

@@ -4,11 +4,15 @@ import { urls } from 'scenes/urls'
 
 import { DateRange, FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest, UniversalFiltersGroup } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest, UniversalFiltersGroup } from '../../frontend/src/types'
 import { configurationRedirect, resolveSettingSlug } from './frontend/settingsRedirects'
 
 export const manifest: ProductManifest = {
     name: 'Error tracking',
+    activityDescribers: {
+        [ActivityScope.ERROR_TRACKING_ISSUE]: () =>
+            import('./frontend/components/ActivityDescriber').then((module) => module.ActivityDescriber),
+    },
     scenes: {
         ErrorTracking: {
             import: () => import('./frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
@@ -116,7 +120,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-error-tracking-dark)',
             ] as FileSystemIconColor,
             href: urls.errorTracking(),
-            searchKeywords: ['exceptions', 'crashes', 'bugs', 'stack traces'],
+            searchKeywords: ['errors', 'exceptions', 'crashes', 'bugs', 'stack traces'],
             searchTabs: [{ name: 'Insights', href: urls.errorTracking({ activeTab: 'insights' }) }],
             sceneKey: 'ErrorTracking',
         },

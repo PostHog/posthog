@@ -6,12 +6,12 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
+from posthog.api.pagination import BoundedLimitOffsetPagination, page_link_with_params
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import OrganizationMembership
@@ -38,6 +38,7 @@ from products.tasks.backend.presentation.serializers import (
     ChannelFeedMessageWriteSerializer,
     ChannelInstructionsSerializer,
     ChannelInstructionsWriteSerializer,
+    ChannelListResponseSerializer,
     ChannelMembersWriteSerializer,
     ChannelSerializer,
     ChannelSetupResponseSerializer,
@@ -64,10 +65,11 @@ from products.tasks.backend.presentation.serializers import (
 )
 
 
-class ChannelListPagination(LimitOffsetPagination):
+class ChannelListPagination(BoundedLimitOffsetPagination):
     """Opt-in paging for the channel list. ``default_limit = None`` keeps the plain
-    array that clients read today when no ``limit`` is sent; a caller that asks for a
-    page gets the standard ``count``/``next``/``previous`` envelope instead. ``list``
+    array that clients read when no ``limit`` is sent; a caller that asks for a
+    page gets the standard ``count``/``next``/``previous`` envelope instead, with
+    ``limit`` cut to ``max_limit``. ``list``
     instantiates it directly, so the other paged actions on the viewset keep the
     project-wide paginator."""
 
@@ -136,7 +138,12 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return authenticator.access_token.sandbox_task_id
 
     @extend_schema(
-        responses={200: OpenApiResponse(response=ChannelSerializer(many=True), description="List of channels")},
+        responses={
+            200: OpenApiResponse(
+                response=ChannelListResponseSerializer,
+                description="An array of channels without limit, or a page of channels with limit",
+            )
+        },
         summary="List channels",
         description=(
             "List channels the requester can access, sorted by name and ID. "
@@ -738,7 +745,11 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             before=request.validated_query_data.get("before"),
             before_id=request.validated_query_data.get("before_id"),
         )
-        return Response(TaskActivityPageSerializer(activity).data)
+        data = TaskActivityPageSerializer(activity).data
+        if data["next_before"] is not None:
+            next_params = {"before": data["next_before"], "before_id": data["next_before_id"]}
+            data["next"] = page_link_with_params(request, next_params)
+        return Response(data)
 
     # @extend_schema must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any schema
     # annotation applied earlier — including @validated_request's — from the generated OpenAPI.
@@ -874,4 +885,7 @@ class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         if kind == "signal_failed":
             return Response({"detail": "Failed to queue message for the agent"}, status=status.HTTP_502_BAD_GATEWAY)
+        tasks_facade.record_task_client(
+            task_id=self._task_id(), team_id=self.team_id, client=get_task_client_provenance(request)
+        )
         return Response(TaskThreadMessageSerializer(message).data)

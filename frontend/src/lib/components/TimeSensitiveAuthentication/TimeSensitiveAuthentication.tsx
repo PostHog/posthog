@@ -8,6 +8,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { SSOEnforcedLoginButton, SocialLoginButtons } from '../SocialLoginButton/SocialLoginButton'
+import { SetPasswordLinkPrompt } from './SetPasswordLinkPrompt'
 import { timeSensitiveAuthenticationLogic } from './timeSensitiveAuthenticationLogic'
 
 export function TimeSensitiveAuthenticationModal(): JSX.Element {
@@ -27,6 +28,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
 
     const ssoEnforcement = precheckResponse?.sso_enforcement
     const showPassword = !ssoEnforcement && user?.has_password
+    const showSetPasswordLink = !ssoEnforcement && user?.has_password === false
 
     const extraQueryParams = {
         next: location.href.replace(location.origin, ''),
@@ -174,6 +176,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                     ) : null}
                 </div>
             ) : null}
+            {showSetPasswordLink ? <SetPasswordLinkPrompt /> : null}
             {precheckResponseLoading && <SpinnerOverlay />}
         </LemonModal>
     )

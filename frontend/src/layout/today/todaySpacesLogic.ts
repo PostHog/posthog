@@ -6,7 +6,6 @@ import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill'
 
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { writeToClipboard } from 'lib/utils/writeToClipboard'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -76,12 +75,6 @@ export type TodayWorkSectionId = 'pinned' | 'recent'
 
 export type TodayTouchMenu = 'session' | 'space' | 'bulk' | 'filter' | 'chat'
 
-/** The space a path is in, like PostHog Desktop's scoped space. `/spaces/new` is in no space. */
-export function spaceIdForPath(pathname: string): string | null {
-    const match = removeProjectIdIfPresent(pathname).match(/^\/spaces\/([^/]+)/)
-    return match && match[1] !== 'new' ? match[1] : null
-}
-
 export function recentRefreshIsDue(loadedAt: number | undefined, now: number = Date.now()): boolean {
     return loadedAt === undefined || now - loadedAt >= RECENT_REFRESH_COOLDOWN_MS
 }
@@ -119,7 +112,6 @@ export interface todaySpacesLogicValues {
     user: UserType | null // userLogic
     allRecentItems: TodayWorkItem[]
     collapsedSections: TodayWorkSectionId[]
-    lastSpaceId: string | null
     pendingSpaceIds: string[]
     phoneSection: TodayWorkSectionId
     pinnedItems: TodayWorkItem[]
@@ -284,9 +276,6 @@ export interface todaySpacesLogicActions {
     setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => {
         heights: Partial<Record<TodayWorkSectionId, number>>
     }
-    spaceVisited: (spaceId: string) => {
-        spaceId: string
-    }
     starFailed: (spaceId: string) => {
         spaceId: string
     }
@@ -366,7 +355,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         touchMenuOpened: (menu: TodayTouchMenu) => ({ menu }),
         setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => ({ heights }),
         resetSectionPair: (upper: TodayWorkSectionId, lower: TodayWorkSectionId) => ({ upper, lower }),
-        spaceVisited: (spaceId: string) => ({ spaceId }),
         setRecentQuery: (query: string) => ({ query }),
         setRecentFilters: (filters: TodayRecentFilters) => ({ filters }),
         clearRecentFilters: true,
@@ -391,7 +379,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                     }
                     const response = await taskChannelsList(String(values.currentTeamId))
                     // Without `limit` the endpoint answers with a bare array rather than a page.
-                    return Array.isArray(response) ? (response as ChannelDTOApi[]) : response.results
+                    return Array.isArray(response) ? response : response.results
                 },
             },
         ],
@@ -477,8 +465,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 },
             },
         ],
-        // A generic New session files here, like PostHog Desktop's scoped space. A stale id falls back to personal.
-        lastSpaceId: [null as string | null, { persist: true }, { spaceVisited: (_, { spaceId }) => spaceId }],
         recentQuery: ['', { setRecentQuery: (_, { query }) => query, clearRecentSearchAndFilters: () => '' }],
         storedRecentFilters: [
             DEFAULT_RECENT_FILTERS as Partial<TodayRecentFilters>,
@@ -620,13 +606,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             }
         }
         return {
-            locationChanged: ({ pathname }) => {
-                const spaceId = spaceIdForPath(pathname)
-                if (spaceId) {
-                    actions.spaceVisited(spaceId)
-                }
-                markOpenSessionRead()
-            },
+            locationChanged: markOpenSessionRead,
             loadTaskActivitySuccess: markOpenSessionRead,
             loadRecentTasks: () => {
                 cache.recentTasksLoadedAt = Date.now()
@@ -684,10 +664,6 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         },
     })),
     afterMount(({ actions, cache }) => {
-        const spaceId = spaceIdForPath(router.values.location.pathname)
-        if (spaceId) {
-            actions.spaceVisited(spaceId)
-        }
         actions.loadSpaces()
         actions.loadPinnedTasks()
         // A disposable rather than a plain afterMount load, so setup runs again on each return to the tab.

@@ -241,6 +241,7 @@ class SnowflakeDestinationConfigSerializer(serializers.Serializer):
 
 _AWS_CREDENTIALS_SCHEMA = {
     "type": "object",
+    "description": "Legacy AWS access keys. Updates can keep this block unchanged. New or changed keys are rejected.",
     "properties": {
         "aws_access_key_id": {"type": "string"},
         "aws_secret_access_key": {"type": "string"},
@@ -258,7 +259,7 @@ _AWS_CREDENTIALS_SCHEMA = {
     }
 )
 class RedshiftCopyBucketCredentialsField(serializers.JSONField):
-    """Inline AWS credentials or the id of an aws-s3-kind Integration."""
+    """AWS S3 integration ID, or unchanged legacy AWS access keys."""
 
     pass
 
@@ -273,7 +274,7 @@ class RedshiftCopyBucketCredentialsField(serializers.JSONField):
     }
 )
 class RedshiftCopyAuthorizationField(serializers.JSONField):
-    """IAM role ARN, inline AWS credentials, or the id of an aws-s3-kind Integration."""
+    """IAM role ARN, AWS S3 integration ID, or unchanged legacy AWS access keys."""
 
     pass
 
@@ -286,14 +287,14 @@ class RedshiftCopyInputsSerializer(serializers.Serializer):
     s3_key_prefix = serializers.CharField(help_text="Key prefix for staged files in the S3 bucket.")
     authorization = RedshiftCopyAuthorizationField(
         help_text=(
-            "Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached "
-            "to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration."
+            "Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. "
+            "Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected."
         ),
     )
     bucket_credentials = RedshiftCopyBucketCredentialsField(
         help_text=(
-            "Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an "
-            "aws-s3-kind Integration."
+            "AWS S3 integration ID used to stage files in the S3 bucket. "
+            "Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected."
         ),
     )
 

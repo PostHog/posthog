@@ -7,6 +7,7 @@ contract check watches this file to decide whether they must retest.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, field
 from datetime import UTC, datetime
@@ -33,6 +34,7 @@ class SourceKind(StrEnum):
     WAREHOUSE_SOURCE = "warehouse_source"
     WAREHOUSE_DESTINATION = "warehouse_destination"
     METRICS = "metrics"
+    TRACES = "traces"
 
 
 @frozen
@@ -272,6 +274,7 @@ class PlatformAlertCheckInput:
     # The calendar half of the schedule, so a source can tell when its own cadence has moved.
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+    created_by_id: int | None = None
 
     @property
     def destination_alert_id(self) -> UUID:
@@ -372,6 +375,7 @@ class PlatformAlertUpsert:
     # Written only when the upsert creates the copy. An existing copy keeps the grouping its own
     # edits set, because a source row stores none.
     grouping: Grouping = Grouping()
+    created_by_id: int | None = None
 
 
 @frozen
@@ -477,6 +481,8 @@ class PlatformCheckPage:
 
     total: int
     checks: tuple[PlatformCheckEntry, ...]
+    # The platform configuration the checks belong to, so a source can join its own rows on it.
+    configuration_id: UUID
 
 
 @frozen
@@ -544,6 +550,48 @@ class AlertEventKind(StrEnum):
     RESOLVED = "resolved"
     ERRORED = "errored"
     BROKEN = "broken"
+    # A follow-up about a firing that already went out. History readers leave it out of the checks.
+    VERDICT_CHANGED = "verdict_changed"
+
+    @property
+    def delivered_as(self) -> AlertEventKind:
+        """The kind a destination hears this as. No destination can list a follow-up, so a follow-up
+        reaches the destinations of the firing it follows, the way that firing did."""
+        return AlertEventKind.FIRING if self is AlertEventKind.VERDICT_CHANGED else self
+
+
+@frozen
+class VerdictChange:
+    """A source's request to send one follow-up about a firing that already went out.
+
+    `firing_event_id` is the event the firing's destinations listen on, so a destination that heard
+    the firing hears the follow-up. `source_detail` is what the source's describer words the
+    follow-up from. The platform stores it unread, as on a check.
+    """
+
+    team_id: int
+    configuration_id: UUID
+    firing_evaluation_key: str
+    episode_started_at: datetime | None
+    firing_event_id: str
+    source_alert_url: str | None = None
+    grouping_key: str = ""
+    source_detail: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def evaluation_key(self) -> str:
+        # A key of its own gives the follow-up its own delivery, and gets it past the thread store,
+        # which skips a key a thread already carried. Per group, because two groups' follow-ups
+        # under one key share a delivery, which would miss a row written after it read the history.
+        # The group goes in as a digest, because a grouping key alone can fill a thread's key column.
+        key = f"{self.firing_evaluation_key}#verdict"
+        if not self.grouping_key:
+            return key
+        return f"{key}:{hashlib.sha256(self.grouping_key.encode()).hexdigest()[:16]}"
+
+
+class VerdictChangeNotRecorded(Exception):
+    """ClickHouse refused a follow-up's history row, so no delivery could read it back. Retryable."""
 
 
 @frozen
@@ -773,6 +821,8 @@ class AnnouncedTransition:
     # The evaluation this transition came from, so a source can read back what it put in the key.
     evaluation_key: str = ""
     source_detail: dict[str, Any] = field(default_factory=dict)
+    # With `evaluation_key`, names the evaluation, so a source can find what it recorded about it later.
+    configuration_id: str = ""
 
 
 @frozen
@@ -966,6 +1016,8 @@ class PlatformAlertConfigurationView:
     alerts: tuple[PlatformAlertSnapshot, ...]
     labels: dict[str, str] = field(default_factory=dict)
     annotations: dict[str, str] = field(default_factory=dict)
+    created_by_id: int | None = None
+    first_enabled_at: datetime | None = None
 
     @property
     def destination_alert_id(self) -> UUID:
@@ -1063,6 +1115,28 @@ class SourceConfigTeamCheck(Protocol):
     def __call__(self, *, team_id: int, edit: PlatformAlertConfigurationEdit) -> None: ...
 
 
+class SourceAdmission(Protocol):
+    """Decides whether a team may add an alert of the kind, or turn one on. The platform calls it on a
+    create, where `current` is None, and on an edit that turns the alert on, and on no other edit.
+
+    `check_interval_minutes` is the alert's stored cadence on an edit, and the kind's fixed cadence on
+    a native create. It is None on a create through the source, which sets the cadence itself.
+
+    It runs in the write's transaction, after the platform takes a lock for the team and kind, so two
+    concurrent writes cannot both pass a count. It raises `PlatformAlertCreateRefused` to refuse a
+    create and `InvalidPlatformAlertEdit` to refuse an edit.
+    """
+
+    def __call__(
+        self,
+        *,
+        team_id: int,
+        current: PlatformAlertConfigurationEdit | None,
+        edit: PlatformAlertConfigurationEdit,
+        check_interval_minutes: int | None,
+    ) -> None: ...
+
+
 class NativeAlertRemoveDestinations(Protocol):
     """Removes the destinations of an alert that is about to be deleted.
 
@@ -1082,9 +1156,14 @@ class NativeAlertLifecycle:
     """
 
     check_interval_minutes: int
+    # The most alerts of the kind a team can have, or None for no cap.
+    max_per_team: int | None = None
     # Removes the source's HogFunction destinations of a deleted alert. None for a kind whose
     # destinations are `AlertDestination` rows from the start, which go with the configuration.
     remove_destinations: NativeAlertRemoveDestinations | None = None
+    # False for a kind whose alerts without a source row the platform deletes but does not create
+    # yet. The API then neither publishes nor accepts a create of the kind.
+    creates: bool = True
 
     @property
     def platform_destinations(self) -> bool:
@@ -1097,14 +1176,20 @@ class SourceConfigSpec:
 
     `model` validates `source_config`. `validate` raises `InvalidPlatformAlertEdit` for a rule that
     spans fields, such as one that reads `enabled`. `check_in_team` runs when a create or an edit
-    sets `source_config`. `mirror` runs in the edit's transaction. Without
+    sets `source_config`. `admit` runs on every create and every edit that turns an alert on through the
+    platform, and enforces the source's caps and plan entitlements. `mirror` runs in the edit's transaction. Without
     `create` or `delete`, the API cannot create or delete alerts of the kind, unless the kind is
     `native`: then the platform creates and deletes them itself, and the source keeps no row.
+
+    A kind can have both. `mirror` and `delete` then serve the alerts that have a source row, and
+    `native` serves the ones that have none. A create goes through `create`, unless `native_create`
+    says the team's new alerts get no source row.
     """
 
     model: type[BaseModel]
     validate: Callable[[PlatformAlertConfigurationEdit], None]
     check_in_team: SourceConfigTeamCheck | None = None
+    admit: SourceAdmission | None = None
     mirror: SourceEditMirror | None = None
     create: SourceCreate | None = None
     delete: SourceDelete | None = None
@@ -1113,19 +1198,31 @@ class SourceConfigSpec:
     incident_event_ids: Mapping[str, str] | None = None
     alert_url: Callable[[int, UUID], str] | None = None
     native: NativeAlertLifecycle | None = None
+    # For a kind with both `create` and `native`: whether a team's new alert gets no source row.
+    native_create: Callable[[int], bool] | None = None
     # A PostHog feature flag a project needs, beside `platform-alerts`, to create alerts of this kind.
     # A new kind names its own flag, so it opens on its own schedule while the others stay generally
     # available.
     rollout_flag: str | None = None
-
-    def __post_init__(self) -> None:
-        # The source-row hooks write a row a native kind does not have.
-        if self.native is not None and (self.mirror or self.create or self.delete):
-            raise ValueError("A native kind keeps no source row, so it cannot register mirror, create or delete.")
+    # A PostHog feature flag that opens every API action on this kind in place of `platform-alerts`.
+    # The source product can then release its alerts on its own flag, while `platform-alerts` keeps
+    # the other kinds and the platform's own pages closed.
+    access_flag: str | None = None
+    # `source_config` keys an edit keeps the stored value of when it leaves them out. A stored config
+    # without one predates it, so an edit that fills it in does not end the alert's firings.
+    kept_source_config_keys: frozenset[str] = frozenset()
 
     @property
     def creatable(self) -> bool:
-        return self.native is not None or self.create is not None
+        return (self.native is not None and self.native.creates) or self.create is not None
+
+    def creates_natively(self, team_id: int) -> bool:
+        """Whether a create for the team makes only the configuration, with no source row."""
+        if self.native is None:
+            return False
+        if self.native_create is not None:
+            return self.native_create(team_id)
+        return self.create is None
 
 
 SourceConfigLoader = Callable[[], SourceConfigSpec]
@@ -1240,6 +1337,17 @@ DESTINATION_EVENT_KINDS: Final = frozenset(
     {AlertEventKind.FIRING, AlertEventKind.RESOLVED, AlertEventKind.ERRORED, AlertEventKind.BROKEN}
 )
 
+# Turns on team-wide receivers and routes for a team, in delivery and in the API that edits them.
+ROUTING_FLAG: Final = "platform-alerts-routing"
+# The types routed delivery sends to. It skips incident managers, and email and in-app need
+# recipients that belong to one alert.
+ROUTABLE_DESTINATION_TYPES: Final = (
+    DestinationType.SLACK,
+    DestinationType.WEBHOOK,
+    DestinationType.TEAMS,
+    DestinationType.DISCORD,
+)
+
 
 @frozen
 class NewAlertDestination:
@@ -1272,6 +1380,55 @@ class AlertDestinationValidationError(Exception):
         self.message = message
         self.field = field
         super().__init__(message)
+
+
+@frozen
+class AlertReceiverEdit:
+    """A team-wide destination that routes send to. Fields left as None keep what is stored."""
+
+    name: str | None = None
+    data: AlertDestinationData | None = None
+    enabled: bool | None = None
+
+
+@frozen
+class StoredAlertReceiver:
+    id: UUID
+    name: str
+    data: AlertDestinationData
+    enabled: bool
+    route_count: int
+
+
+@frozen
+class RouteMatcher:
+    """One condition a route checks on an alert's labels. Only equality is supported."""
+
+    label: str
+    value: str
+
+
+@frozen
+class AlertRouteEdit:
+    """Which alerts a receiver hears, by their labels. Fields left as None keep what is stored."""
+
+    receiver_id: UUID | None = None
+    matchers: tuple[RouteMatcher, ...] | None = None
+    event_kinds: tuple[AlertEventKind, ...] | None = None
+    enabled: bool | None = None
+
+
+@frozen
+class StoredAlertRoute:
+    id: UUID
+    receiver_id: UUID
+    matchers: tuple[RouteMatcher, ...]
+    event_kinds: tuple[AlertEventKind, ...]
+    enabled: bool
+
+
+class UnknownAlertRouting(Exception):
+    """No receiver or route with this id on the team."""
 
 
 @frozen
@@ -1382,6 +1539,28 @@ class MessageImage:
     alt_text: str
 
 
+# Marks the block where a source's image goes, so an image that renders after the message lands replaces it.
+SLACK_IMAGE_SLOT_BLOCK_ID: Final = "alert_image"
+
+
+@frozen
+class LateImageResult:
+    """What adding a late image to an evaluation's Slack messages did.
+
+    `waiting` counts the Slack destinations with no message for the evaluation yet, because its
+    delivery has not sent it, or because the destination is not delivered natively.
+    """
+
+    edited: int
+    waiting: int
+
+    def __add__(self, other: LateImageResult) -> LateImageResult:
+        return LateImageResult(edited=self.edited + other.edited, waiting=self.waiting + other.waiting)
+
+
+NO_LATE_IMAGE: Final = LateImageResult(edited=0, waiting=0)
+
+
 @frozen
 class SourceDescription:
     """What a source says about one transition, in the words its own product uses.
@@ -1407,7 +1586,8 @@ class SourceDescriber(Protocol):
     """How a source describes its transitions. A source registers one for native delivery.
 
     It runs once per destination on the send path, inside a delivery that a held thread or a
-    failure repeats. So it builds its answer from the transition alone and does no I/O.
+    failure repeats. So it builds its answer from the transition, plus at most a point read of
+    what the source recorded about this evaluation since, such as an investigation's verdict.
     """
 
     def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...

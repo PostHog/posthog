@@ -5,11 +5,11 @@ import * as directorPng from '@posthog/brand/hoggies/png/director'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic, reportFeatureFlagExposure } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -24,7 +24,6 @@ import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalF
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
-import { ReplayFilterBar } from './ReplayFilterBar'
 import { isFeedReplayLayout, isNewReplayLayout } from './replayLayout'
 import { ReplayListColumn } from './ReplayListColumn'
 import { replayListColumnLogic } from './replayListColumnLogic'
@@ -86,15 +85,7 @@ export function SessionRecordingsPlaylist({
     )
     const columnsClassName = cn('w-full flex', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')
 
-    const layout =
-        feedLayout && props.type !== 'collection' ? (
-            <div className="w-full h-full flex flex-col gap-2">
-                <FeedFilterBar />
-                <div className={cn(columnsClassName, 'flex-1 min-h-0')}>{columns}</div>
-            </div>
-        ) : (
-            <div className={cn(columnsClassName, 'h-full')}>{columns}</div>
-        )
+    const layout = <div className={cn(columnsClassName, 'h-full')}>{columns}</div>
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
@@ -138,10 +129,20 @@ function WatchPlaylistColumn({ picksInList, ...props }: LayoutProps): JSX.Elemen
     if (isPlaylistCollapsed) {
         return <Playlist {...props} />
     }
+    const collections = !props.type
     return picksInList ? (
-        <ReplayListColumnWithPicks logicKey={logicKey} recordingsList={<Playlist {...props} />} />
+        <ReplayListColumnWithPicks
+            logicKey={logicKey}
+            recordingsList={<Playlist {...props} />}
+            collections={collections}
+        />
     ) : (
-        <ReplayListColumn logicKey={logicKey} recordingsList={<Playlist {...props} />} picksMode={null} />
+        <ReplayListColumn
+            logicKey={logicKey}
+            recordingsList={<Playlist {...props} />}
+            picksMode={null}
+            collections={collections}
+        />
     )
 }
 
@@ -166,9 +167,12 @@ function HorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
         <>
             <div
                 ref={playlistRef}
-                className={cn('relative flex flex-col shrink-0', {
-                    'w-3': isPlaylistCollapsed,
-                })}
+                className={cn(
+                    'relative flex flex-col shrink-0 motion-safe:transition-[width] motion-safe:duration-200',
+                    {
+                        'w-3': isPlaylistCollapsed,
+                    }
+                )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={
                     isPlaylistCollapsed
@@ -212,9 +216,12 @@ function FeedHorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Eleme
             <PlayerWrapper {...props} className="h-full flex-1 shrink" />
             <div
                 ref={feedRef}
-                className={cn('relative flex flex-col shrink-0', {
-                    'w-3': isPlaylistCollapsed,
-                })}
+                className={cn(
+                    'relative flex flex-col shrink-0 motion-safe:transition-[width] motion-safe:duration-200',
+                    {
+                        'w-3': isPlaylistCollapsed,
+                    }
+                )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={
                     isPlaylistCollapsed
@@ -233,22 +240,6 @@ function FeedHorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Eleme
                 )}
             </div>
         </>
-    )
-}
-
-function FeedFilterBar(): JSX.Element {
-    const { filters, totalFiltersCount, activeSessionRecordingId } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters, maybeLoadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
-
-    return (
-        <ReplayFilterBar
-            filters={filters}
-            setFilters={setFilters}
-            totalFiltersCount={totalFiltersCount}
-            currentSessionRecordingId={activeSessionRecordingId}
-            onReload={() => maybeLoadSessionRecordings()}
-            savedFilterChips
-        />
     )
 }
 

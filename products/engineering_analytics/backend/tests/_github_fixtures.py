@@ -16,6 +16,7 @@ import pandas as pd
 
 from posthog.models.team import Team
 
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.engineering_analytics.backend.logic.sources import (
     ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
@@ -29,7 +30,12 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+
+
+def enroll_team(team: Team) -> None:
+    DataWarehouseManagedViewSet.objects.create(team=team, kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS)
+
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.github_fixtures"
 
