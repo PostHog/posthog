@@ -260,7 +260,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=None,
         # Every value LLMA_SUMMARIZATION_MODEL realistically takes (rollback: gpt-4.1-nano,
         # escalation: gpt-5-mini) must be servable here, or the fallback path 403s.
-        allowed_models=frozenset({"gpt-4.1-nano", "gpt-4.1-mini", "gpt-5-nano", "gpt-5-mini"}),
+        allowed_models=frozenset(
+            {"gpt-4.1-nano", "gpt-4.1-mini", "gpt-5-nano", "gpt-5-mini", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol"}
+        ),
         allow_api_keys=True,
     ),
     "llma_eval_summary": ProductConfig(
