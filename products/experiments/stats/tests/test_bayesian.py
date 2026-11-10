@@ -5,6 +5,7 @@ This module tests all Bayesian classes for correctness of calculations,
 validation, and edge case handling.
 """
 
+import re
 from typing import Any
 
 import pytest
@@ -350,10 +351,8 @@ class TestBayesianMethod(TestCase):
         self.assertAlmostEqual(result.chance_to_win, chance_to_win, places=10)
 
     @parameterized.expand(DEGENERATE_QUANTILE_CASES)
-    def test_rejects_quantile_with_zero_variance(self, _name, treatment, control):
-        with self.assertRaisesRegex(
-            StatisticError, "Treatment statistic validation failed: Quantile has zero variance"
-        ):
+    def test_rejects_quantile_without_usable_variance(self, _name, treatment, control, error):
+        with self.assertRaisesRegex(StatisticError, re.escape(f"Treatment statistic validation failed: {error}")):
             BayesianMethod().run_test(treatment, control)
 
 

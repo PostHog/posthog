@@ -21,6 +21,10 @@ const VIEWPORT_WIDTHS = {
 } as const satisfies Record<ViewportWidthName, { width: number; height: number }>
 
 const RETRY_TIMES = 2
+// A snapshot is kept when two captures in a row match. The cap ends the loop on a page that never stops
+// changing, which then keeps its last capture.
+const MAX_SNAPSHOT_CAPTURES = 4
+const RECAPTURE_SETTLE_MS = 100
 const FRAME_SELECTOR_SEPARATOR = ' >>> '
 const LOADER_SELECTORS = [
     '.Spinner',
@@ -428,11 +432,10 @@ async function expectStoryToMatchSnapshot(
 
     if (waitForLoadersToDisappear) {
         // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
-        // Use 'hidden' instead of 'detached' because some elements (like toasts) may remain in DOM but be invisible
         // Timeout is 5000ms by default, but increased to 10000ms for stories with async data loading (Dashboards, Max)
         // to account for slower CI environments while still catching stuck elements
         const timeout = context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout })
+        await waitForEveryLoaderHidden(page, timeout)
     }
 
     if (typeof waitForSelector === 'string') {
@@ -449,6 +452,35 @@ async function expectStoryToMatchSnapshot(
     }
     if (!skipDarkMode) {
         await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
+    }
+}
+
+/**
+ * Wait until no loader on the page is visible.
+ *
+ * `page.waitForSelector(..., { state: 'hidden' })` checks only the first element that matches, so a
+ * page with two loaders was captured while the second one still showed. Here the locator keeps only
+ * visible matches, so its first match is hidden only when no loader is visible. "Visible" follows
+ * Playwright's definition: a non-empty box and no `visibility: hidden`, because some loaders (like
+ * toasts) stay in the DOM after they hide. A locator also reaches into open shadow roots, where the
+ * toolbar stories render their loaders.
+ */
+async function waitForEveryLoaderHidden(page: Page, timeout: number): Promise<void> {
+    const visibleLoaders = page.locator(LOADER_SELECTORS.join(',')).filter({ visible: true })
+    try {
+        await visibleLoaders.first().waitFor({ state: 'hidden', timeout })
+    } catch (error) {
+        const stillVisible = await visibleLoaders
+            .evaluateAll((elements) => elements.map((element) => element.outerHTML.slice(0, 120)))
+            .catch(() => [])
+        if (stillVisible.length === 0) {
+            throw error
+        }
+        throw new Error(
+            `A loader was still visible after ${timeout}ms. Mock the request it waits for, or set ` +
+                `testOptions.waitForLoadersToDisappear: false if the story shows it on purpose:\n` +
+                stillVisible.join('\n')
+        )
     }
 }
 
@@ -762,7 +794,7 @@ async function expectLocatorToMatchStorySnapshot(
     theme: SnapshotTheme,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await takeSnapshotImage(locator, context, options)
+    const image = await takeSettledSnapshotImage(locator, context, theme, options)
     let customSnapshotIdentifier = `${context.id}--${theme}`
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
@@ -778,6 +810,36 @@ async function expectLocatorToMatchStorySnapshot(
         failureThreshold: 0.01,
         failureThresholdType: 'percent',
     })
+}
+
+/**
+ * Captures until two screenshots in a row match, the way Playwright's `toHaveScreenshot` does.
+ * Between captures the chart paint and animation finish run again, so a page that changed after the
+ * waits is captured again once it settles.
+ */
+async function takeSettledSnapshotImage(
+    locator: Locator | Page,
+    context: TestContext,
+    theme: SnapshotTheme,
+    options?: LocatorScreenshotOptions
+): Promise<Buffer> {
+    const page = 'page' in locator ? locator.page() : locator
+    let previous = await takeSnapshotImage(locator, context, options)
+    for (let capture = 2; capture <= MAX_SNAPSHOT_CAPTURES; capture++) {
+        await page.waitForTimeout(RECAPTURE_SETTLE_MS)
+        await waitForChartCanvasesPainted(page)
+        await finishAnimations(page)
+        const image = await takeSnapshotImage(locator, context, options)
+        if (image.equals(previous)) {
+            return image
+        }
+        previous = image
+    }
+    // eslint-disable-next-line no-console
+    console.warn(
+        `[test-runner] ${context.id} (${theme}): still changed after ${MAX_SNAPSHOT_CAPTURES} captures. Look for an animation, a timer or late content.`
+    )
+    return previous
 }
 
 /**

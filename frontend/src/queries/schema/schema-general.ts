@@ -229,6 +229,7 @@ export enum NodeKind {
     MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
     MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
     MCPMissingCapabilitiesQuery = 'MCPMissingCapabilitiesQuery',
+    MCPDashboardQuery = 'MCPDashboardQuery',
 
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
@@ -321,6 +322,7 @@ export type AnyDataNode =
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
     | MCPMissingCapabilitiesQuery
+    | MCPDashboardQuery
 
 /**
  * @discriminator kind
@@ -460,6 +462,7 @@ export type QuerySchema =
     | MCPToolSampleIntentsQuery
     | MCPToolNeighborsQuery
     | MCPMissingCapabilitiesQuery
+    | MCPDashboardQuery
 
     // Property values
     | PropertyValuesQuery
@@ -3775,6 +3778,59 @@ export interface MCPProtocolVersionBreakdownQuery extends DataNode<MCPProtocolVe
 export type CachedMCPProtocolVersionBreakdownQueryResponse =
     CachedQueryResponse<MCPProtocolVersionBreakdownQueryResponse>
 
+/** A section of the MCP Analytics dashboard. The server owns the query behind each one. */
+export enum MCPDashboardSection {
+    Kpis = 'kpis',
+    PeriodTotals = 'periodTotals',
+    ToolRows = 'toolRows',
+    SessionRows = 'sessionRows',
+    HarnessRows = 'harnessRows',
+    ModelRows = 'modelRows',
+    ProtocolVersionRows = 'protocolVersionRows',
+    ActivityRows = 'activityRows',
+    ToolDailyRows = 'toolDailyRows',
+    Model = 'model',
+    ProtocolVersion = 'protocolVersion',
+    Tool = 'tool',
+    ErrorType = 'errorType',
+    LabUsers = 'labUsers',
+    NamedModelUsers = 'namedModelUsers',
+    Reliability = 'reliability',
+}
+
+/** The doubled window the KPI tiles compare the selected period against. */
+export interface MCPDashboardComparison {
+    /** Start of the preceding period of equal length, as an ISO 8601 instant with an offset. */
+    dateFrom: string
+    /** Bucket the selected period starts in, as a project-timezone wall clock ("YYYY-MM-DD HH:mm:ss"). */
+    currentStartBucket: string
+}
+
+/** A section's rows, or why the section failed. One failed section leaves the others intact. */
+export interface MCPDashboardSectionResult {
+    results?: any
+    error?: string
+}
+
+export interface MCPDashboardQueryResponse extends AnalyticsQueryResponseBase {
+    /** Keyed by MCPDashboardSection, in the order the query asked for them. */
+    results: Record<string, MCPDashboardSectionResult>
+}
+
+/** Every section of the MCP Analytics dashboard in one request. */
+export interface MCPDashboardQuery extends DataNode<MCPDashboardQueryResponse> {
+    kind: NodeKind.MCPDashboardQuery
+    /** @minItems 1 */
+    sections: MCPDashboardSection[]
+    dateRange: DateRange
+    interval: IntervalType
+    properties?: MCPAnalyticsPropertyFilter[]
+    filterTestAccounts?: boolean
+    comparison: MCPDashboardComparison
+}
+
+export type CachedMCPDashboardQueryResponse = CachedQueryResponse<MCPDashboardQueryResponse>
+
 /** One row of the per-tool "Top users" table: a user and their activity on a tool. */
 export interface MCPToolTopUserItem {
     distinct_id: string
@@ -3816,6 +3872,10 @@ export interface MCPToolFailureItem {
     last_seen: string
     /** Resolved harness labels seen for this failure, deduped and sorted. */
     harnesses: string[]
+    /** $mcp_error_message with ids and numbers masked; the grouping key within a type. Empty when no message was captured. */
+    cause: string
+    /** Newest raw error message in this group. */
+    sample_message: string
 }
 
 export interface MCPToolFailuresQueryResponse extends AnalyticsQueryResponseBase {
@@ -3863,6 +3923,8 @@ export interface MCPToolFailureOccurrencesQuery extends DataNode<MCPToolFailureO
     errorType: string
     /** When set, only events with this HTTP status match; when unset, only events without a status match. */
     errorStatus?: string
+    /** When set, only events whose masked message equals this failures-table `cause` match; "" selects events without a message. */
+    cause?: string
     dateRange?: DateRange
     properties?: MCPAnalyticsPropertyFilter[]
     filterTestAccounts?: boolean
@@ -6124,7 +6186,7 @@ export interface ExperimentApiMetric {
     /** Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when
      *  conversion_window is set. */
     conversion_window_unit?: FunnelConversionWindowTimeUnit
-    /** For mean metrics: event source. */
+    /** For mean and quantile metrics: event source. Quantile metrics need `math_property`. */
     source?: ExperimentApiEventSource
     /** For funnel metrics: array of EventsNode/ActionsNode steps. */
     series?: ExperimentApiEventSource[]
@@ -6152,6 +6214,11 @@ export interface ExperimentApiMetric {
     /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value
      *  reaches or exceeds this threshold. Only meaningful for sum/count math types. */
     threshold?: number
+    /** For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this
+     *  quantile of `source.math_property` over all qualifying events of a variant.
+     *  @minimum 0.01
+     *  @maximum 0.99 */
+    quantile?: number
     /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the
      *  denominator and each with its own percentile thresholds. */
     numerator_outlier_handling?: ExperimentMetricOutlierHandling
@@ -6240,6 +6307,7 @@ export const enum ExperimentMetricType {
     MEAN = 'mean',
     RATIO = 'ratio',
     RETENTION = 'retention',
+    QUANTILE = 'quantile',
 }
 
 export interface ExperimentMetricBaseProperties extends Node {
@@ -6392,6 +6460,27 @@ export type ExperimentRatioMetric = ExperimentMetricBaseProperties & {
 export const isExperimentRatioMetric = (metric: ExperimentMetric): metric is ExperimentRatioMetric =>
     metric.metric_type === ExperimentMetricType.RATIO
 
+/**
+ * @discriminator kind
+ */
+export type ExperimentQuantileMetricSourceUnion = EventsNode | ActionsNode
+
+export type ExperimentQuantileMetricSource = ExperimentQuantileMetricSourceUnion
+
+/** Event-level quantile of `source.math_property`, pooled over all qualifying events of a variant. */
+export type ExperimentQuantileMetric = ExperimentMetricBaseProperties & {
+    metric_type: ExperimentMetricType.QUANTILE
+    /** Must set `math_property`, the numeric property to take the quantile of. `math` is ignored. */
+    source: ExperimentQuantileMetricSource
+    /** Quantile level, for example 0.9 for p90.
+     *  @minimum 0.01
+     *  @maximum 0.99 */
+    quantile: number
+}
+
+export const isExperimentQuantileMetric = (metric: ExperimentMetric): metric is ExperimentQuantileMetric =>
+    metric.metric_type === ExperimentMetricType.QUANTILE
+
 export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.RETENTION
     // Event that defines the start of the retention window. An ExperimentExposureNode
@@ -6418,12 +6507,14 @@ export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof Exp
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRatioMetricTypeProps = Omit<ExperimentRatioMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentRetentionMetricTypeProps = Omit<ExperimentRetentionMetric, keyof ExperimentMetricBaseProperties>
+export type ExperimentQuantileMetricTypeProps = Omit<ExperimentQuantileMetric, keyof ExperimentMetricBaseProperties>
 
 export type ExperimentMetricTypeProps =
     | ExperimentMeanMetricTypeProps
     | ExperimentFunnelMetricTypeProps
     | ExperimentRatioMetricTypeProps
     | ExperimentRetentionMetricTypeProps
+    | ExperimentQuantileMetricTypeProps
 
 // Named separately from `ExperimentMetric` so the JSDoc `@discriminator` tag below
 // can attach without colliding with the `NodeKind.ExperimentMetric` enum value
@@ -6437,6 +6528,7 @@ export type ExperimentMetricUnion =
     | ExperimentFunnelMetric
     | ExperimentRatioMetric
     | ExperimentRetentionMetric
+    | ExperimentQuantileMetric
 
 export type ExperimentMetric = ExperimentMetricUnion
 
@@ -6513,6 +6605,8 @@ export interface ExperimentStatsBase {
     denominator_sum?: number
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
+    /** For quantile metrics: the quantile, then the lower and upper bound for each reference sample size. */
+    quantile_grid?: number[]
     step_counts?: integer[]
     step_sessions?: SessionData[][]
 }
@@ -6940,6 +7034,8 @@ export interface DatabaseSchemaField {
     fields?: string[]
     chain?: (string | integer)[]
     id?: string
+    /** Short description of the column, when the HogQL schema defines one. */
+    description?: string
 }
 
 export type DatabaseSchemaTableType =
@@ -6970,6 +7066,8 @@ export interface DatabaseSchemaTableCommon {
     row_count?: number
     /** Present only when the table or view carries a settled data catalog certification. */
     certification?: DatabaseSchemaTableCertification
+    /** Short description of the table, when the HogQL schema defines one. */
+    description?: string
 }
 
 export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
@@ -8759,8 +8857,9 @@ export type MarketingAnalyticsRecommendationRule =
     | 'keyword_gap'
     | 'spend_without_conversions'
     | 'striking_distance'
+    | 'keyword_tracking'
 
-export type MarketingAnalyticsRecommendationLevel = 'campaign' | 'search_term'
+export type MarketingAnalyticsRecommendationLevel = 'account' | 'campaign' | 'search_term'
 
 export type MarketingAnalyticsRecommendationImpactDirection = 'save' | 'gain' | 'invest' | 'keep'
 
@@ -8819,7 +8918,7 @@ export interface MarketingAnalyticsRecommendationsDataGap {
 export interface MarketingAnalyticsRecommendation {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendationLevel
-    /** The campaign name or the search term the recommendation is about. */
+    /** The ad account, campaign or search term the recommendation is about. */
     subject: string
     /** The campaign a search term recommendation applies to, when it applies to one. */
     campaign?: string | null
@@ -9876,6 +9975,7 @@ export enum ProductIntentContext {
     METRICS_DOCS_VIEWED = 'metrics_docs_viewed',
     METRICS_VIEWER_QUERY_RUN = 'metrics_viewer_query_run',
     METRICS_SQL_QUERY_RUN = 'metrics_sql_query_run',
+    METRICS_DERIVED_QUERY_RUN = 'metrics_derived_query_run',
     METRICS_QUERY_SAVED = 'metrics_query_saved',
     METRICS_FIRST_INGESTED = 'metrics_first_ingested',
     METRICS_SCRAPE_AGENT_SNIPPET_COPIED = 'metrics_scrape_agent_snippet_copied',

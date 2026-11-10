@@ -32,6 +32,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.models.subscription import Subscription
+from products.subscriptions.backend.temporal.results_summarizer import is_time_series_query
 from products.subscriptions.backend.temporal.types import MISSING_QUERY_ERROR_TYPE, safe_error_message
 
 logger = structlog.get_logger(__name__)
@@ -286,6 +287,8 @@ def build_insight_delivery_snapshot(
     base["comparison_enabled"] = _has_comparison_enabled(query_json)
     base["value_format"] = _extract_value_format(query_json)
     source = query_json.get("source") or query_json
+    if is_time_series_query(source.get("kind")):
+        base["interval"] = source.get("interval") or "day"
     if source.get("kind") == "EventsQuery":
         # Event lists omit resolved_date_range; weekly delivery must not imply a weekly data window.
         base["query_date_range"] = {

@@ -210,6 +210,18 @@ describe('InternalLogsProducer', () => {
         expect(fetchMock).toHaveBeenCalledTimes(expectedCalls)
     })
 
+    it.each([
+        { name: 'is 30 seconds, like a Kafka request', retryTimeoutMs: 300_000, expectedTimeoutMs: 30_000 },
+        { name: 'ends with the retry window', retryTimeoutMs: 2_000, expectedTimeoutMs: 2_000 },
+    ])('the timeout of one attempt $name', async ({ retryTimeoutMs, expectedTimeoutMs }) => {
+        await send(
+            new InternalLogsProducer(config({ LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: retryTimeoutMs }), teamManager),
+            [entry()]
+        )
+
+        expect(fetchMock).toHaveBeenCalledWith(URL, expect.objectContaining({ timeoutMs: expectedTimeoutMs }))
+    })
+
     it('signs each retry again, so a request that hung past the signature window does not make the retry billed', async () => {
         const retriedAt = new Date(SIGNED_AT.getTime() + 10 * 60 * 1000)
         fetchMock.mockImplementationOnce(() => {

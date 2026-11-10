@@ -1691,18 +1691,13 @@ def _resolve_untagged_followup_mapping(
     pipeline; ``None`` when the thread isn't ours and it should drop.
     """
     candidate_ids = [c.id for c in candidates]
-    # ``task`` is fetched separately inside the classifier activity — the
-    # handler hot path only needs the integration (for the ``mention_target``
-    # override downstream).
-    mapping = (
-        SlackThreadTaskMapping.objects.filter(
-            integration_id__in=candidate_ids,
-            channel=channel,
-            thread_ts=thread_ts,
-        )
-        .select_related("integration", "integration__team")
-        .first()
-    )
+    # ``task`` is fetched separately inside the classifier activity. The caller
+    # reads the mapping's integration from ``candidates``, which are already loaded.
+    mapping = SlackThreadTaskMapping.objects.filter(
+        integration_id__in=candidate_ids,
+        channel=channel,
+        thread_ts=thread_ts,
+    ).first()
     return mapping
 
 
@@ -2999,6 +2994,7 @@ def route_posthog_code_event_to_relevant_region(
         # Threads we don't own are dropped here so the rest of the pipeline
         # only runs for actionable messages.
         untagged_followup_mapping: SlackThreadTaskMapping | None = None
+        thread_integration: WorkspaceIntegration | None = None
         awaited_request_reply = False
         if event_type == "message":
             untagged_followup_mapping = _resolve_untagged_followup_mapping(
@@ -3010,15 +3006,14 @@ def route_posthog_code_event_to_relevant_region(
                 if not _awaits_request_from_author(event, slack_team_id, workspace_result.candidates[0]):
                     return ROUTE_HANDLED_LOCALLY
                 awaited_request_reply = True
+            else:
+                thread_integration = next(
+                    c for c in workspace_result.candidates if c.id == untagged_followup_mapping.integration_id
+                )
             # A tagged reply also arrives as its own ``app_mention`` event, which owns
             # it. Letting this copy through would run the untagged-followup classifier
             # (and the ``ask`` prompt) on a message that explicitly addressed the app.
-            if _message_tags_bot(
-                event,
-                untagged_followup_mapping.integration
-                if untagged_followup_mapping is not None
-                else workspace_result.candidates[0],
-            ):
+            if _message_tags_bot(event, thread_integration or workspace_result.candidates[0]):
                 logger.info(
                     "slack_app_thread_message_ignored",
                     reason="tagged_reply",
@@ -3042,7 +3037,7 @@ def route_posthog_code_event_to_relevant_region(
         )
 
         if resolution.user is None:
-            if untagged_followup_mapping is not None:
+            if untagged_followup_mapping is not None and thread_integration is not None:
                 logger.info(
                     "slack_app_thread_message_unknown_user",
                     slack_team_id=slack_team_id,
@@ -3055,8 +3050,8 @@ def route_posthog_code_event_to_relevant_region(
                     slack_team_id,
                     reason=f"user_unresolved:{resolution.failure_reason or 'unknown'}",
                     replied=False,
-                    integration=untagged_followup_mapping.integration,
-                    **unresolved_user_properties(resolution, untagged_followup_mapping.integration),
+                    integration=thread_integration,
+                    **unresolved_user_properties(resolution, thread_integration),
                 )
                 return ROUTE_HANDLED_LOCALLY
             # Keep the failure reply out of the channel in an unapproved
@@ -3133,7 +3128,7 @@ def route_posthog_code_event_to_relevant_region(
         # closes the gap where the message author belongs to a different org
         # connected to the same workspace than the thread owner did.
         mention_target = target or (candidates[0] if len(candidates) == 1 else None)
-        if untagged_followup_mapping is not None:
+        if untagged_followup_mapping is not None and thread_integration is not None:
             if untagged_followup_mapping.integration_id not in {c.id for c in candidates}:
                 logger.info(
                     "slack_app_thread_message_user_no_access_to_mapping_team",
@@ -3148,11 +3143,11 @@ def route_posthog_code_event_to_relevant_region(
                     slack_team_id,
                     reason="no_access_to_thread_team",
                     replied=False,
-                    integration=untagged_followup_mapping.integration,
+                    integration=thread_integration,
                     posthog_user=posthog_user,
                 )
                 return ROUTE_HANDLED_LOCALLY
-            mention_target = untagged_followup_mapping.integration
+            mention_target = thread_integration
         elif mention_target is None:
             picker_shown = _post_project_picker(
                 candidates,
