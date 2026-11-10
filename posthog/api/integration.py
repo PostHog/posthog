@@ -855,7 +855,7 @@ class IntegrationSerializer(serializers.Serializer):
     config = serializers.JSONField(required=False)
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.SerializerMethodField()
-    errors = serializers.CharField(read_only=True)
+    # `errors` is added in `get_fields`: a class attribute of that name would shadow `Serializer.errors`.
     display_name = serializers.CharField(read_only=True)
     files_write_requestable = serializers.SerializerMethodField(
         help_text="Slack only: whether reconnecting can request the files:write scope."
@@ -879,6 +879,14 @@ class IntegrationSerializer(serializers.Serializer):
             "had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it."
         )
     )
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields: dict[str, serializers.Field] = {}
+        for name, field in super().get_fields().items():
+            fields[name] = field
+            if name == "created_by":
+                fields["errors"] = serializers.CharField(read_only=True)
+        return fields
 
     @extend_schema_field(UserBasicSerializer)
     def get_created_by(self, obj: IntegrationRecord) -> dict[str, Any] | None:
