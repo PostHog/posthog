@@ -3969,6 +3969,15 @@ export namespace Schemas {
         unit: ExperimentWarehouseNativeUnitBinding;
         version?: (number | null) | undefined;
     };
+    export type ExperimentMetricValueFormatType =
+        | "currency"
+        | "duration"
+        | "duration_ms"
+        | "percentage"
+        | "percentage_scaled";
+    export type ExperimentMetricValueFormat = {
+        type: ExperimentMetricValueFormatType;
+    };
     export type ExperimentMeanMetric = {
         breakdownFilter?: (BreakdownFilter | null) | undefined;
         conversion_window?: (number | null) | undefined;
@@ -3993,6 +4002,7 @@ export namespace Schemas {
         threshold?: (number | null) | undefined;
         upper_bound_percentile?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentFunnelMetric = {
@@ -4016,6 +4026,7 @@ export namespace Schemas {
         series: Array<EventsNode | ActionsNode | ExperimentDataWarehouseNode>;
         sharedMetricId?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentMetricOutlierHandling = Partial<{
@@ -4054,6 +4065,7 @@ export namespace Schemas {
         response?: (Record<string, unknown> | null) | undefined;
         sharedMetricId?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentExposureNode = Partial<{
@@ -4090,6 +4102,7 @@ export namespace Schemas {
             | ExperimentExposureNode;
         start_handling: StartHandling;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentQuantileMetric = {
@@ -4115,6 +4128,7 @@ export namespace Schemas {
          */
         source: EventsNode | ActionsNode;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type PrecomputationMode = "precomputed" | "direct";
@@ -10132,6 +10146,7 @@ export namespace Schemas {
         threshold?: (number | null) | undefined;
         upper_bound_percentile?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
     };
     /**
      * List wrapper for OpenAPI schema generation — the field stores an array of metrics.
