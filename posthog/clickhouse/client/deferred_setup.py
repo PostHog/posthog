@@ -1,4 +1,9 @@
-from collections.abc import Callable
+import threading
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from typing import Any
+
+from django.conf import settings
 
 
 class DeferredSetup:
@@ -10,6 +15,11 @@ class DeferredSetup:
 
     def __init__(self) -> None:
         self._setup: Callable[[], None] | None = None
+        self._clickhouse_settings: dict[str, Any] = {}
+        self._lock = threading.Lock()
+        self._finished = threading.Event()
+        self._owner: int | None = None
+        self._worker = threading.local()
         self.has_run = False
 
     @property
@@ -17,23 +27,57 @@ class DeferredSetup:
         return self._setup is not None
 
     def defer(self, setup: Callable[[], None]) -> None:
-        self._setup = setup
-        self.has_run = False
+        with self._lock:
+            self._setup = setup
+            # A test can change ClickHouse settings before its first query, for example to fake
+            # credentials, so the setup runs with the settings the session started with.
+            self._clickhouse_settings = {
+                name: getattr(settings, name) for name in dir(settings) if name.startswith("CLICKHOUSE_")
+            }
+            self.has_run = False
+
+    def in_setup(self) -> bool:
+        """True in the thread that runs the setup and in the DDL workers it starts."""
+        return self._owner is not None and (
+            self._owner == threading.get_ident() or getattr(self._worker, "active", False)
+        )
+
+    @contextmanager
+    def worker(self, joins_setup: bool) -> Iterator[None]:
+        """Let a thread that the setup started query ClickHouse before the setup finishes."""
+        self._worker.active = joins_setup
+        try:
+            yield
+        finally:
+            self._worker.active = False
 
     def run(self) -> None:
-        setup = self._setup
-        if setup is None:
+        if self._setup is None:
             return
-        # The setup queries ClickHouse through the clients that call run(), so clear it first to stop the recursion.
-        # A second thread that queries ClickHouse while the setup runs does not wait for it.
-        self._setup = None
+        if self.in_setup():
+            return
+        with self._lock:
+            setup = self._setup
+            if setup is None:
+                return
+            wait_for_other_thread = self._owner is not None
+            if not wait_for_other_thread:
+                self._owner = threading.get_ident()
+                self._finished.clear()
+        if wait_for_other_thread:
+            self._finished.wait()
+            return
+        from django.test import override_settings  # noqa: PLC0415 (test-only code stays out of production imports)
+
         try:
-            setup()
-        except BaseException:
-            # Keep the setup pending, so that each later test that needs ClickHouse shows the same error.
-            self._setup = setup
-            raise
-        self.has_run = True
+            with override_settings(**self._clickhouse_settings):
+                setup()
+            # A failed setup stays pending, so each later test that needs ClickHouse shows the same error.
+            self._setup = None
+            self.has_run = True
+        finally:
+            self._owner = None
+            self._finished.set()
 
 
 clickhouse_test_setup = DeferredSetup()

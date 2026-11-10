@@ -1848,6 +1848,12 @@ def flush_persons_and_events():
     """
     from posthog.test.persons import flush_persons_to_db_and_clickhouse
 
+    # The first flush of a session can be its first ClickHouse use, so create the tables before writing
+    # into them. The setup's own queries reach this function too, and must not flush before the tables exist.
+    clickhouse_test_setup.run()
+    if clickhouse_test_setup.in_setup():
+        return
+
     person_mapping = flush_persons_to_db_and_clickhouse()
     if len(events_cache_tests) > 0:
         bulk_create_events(events_cache_tests, person_mapping)
@@ -2062,14 +2068,16 @@ def run_clickhouse_statement_in_parallel(statements: list[str]) -> None:
         for stmt in statements
     ]
 
-    # Other threads do not wait while the deferred ClickHouse setup runs, so run it before the workers start.
     clickhouse_test_setup.run()
+    # Other threads wait while the deferred ClickHouse setup runs, except the DDL workers the setup starts here.
+    joins_setup = clickhouse_test_setup.in_setup()
 
     def _execute_with_retry(stmt: str) -> None:
         max_attempts = 5
         for attempt in range(max_attempts):
             try:
-                sync_execute(stmt)
+                with clickhouse_test_setup.worker(joins_setup):
+                    sync_execute(stmt)
                 return
             except TooManyConnections:
                 if attempt + 1 == max_attempts:
