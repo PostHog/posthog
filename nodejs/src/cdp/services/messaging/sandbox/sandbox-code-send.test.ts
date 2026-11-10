@@ -126,7 +126,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             .set({
                 Authorization: `Bearer ${jwt.sign(
                     { team_id: world.team.id, hog_flow_id: hogFlow.id, kind: 'code_send' },
-                    'local-dev-workflows-transactional-email-jwt',
+                    hub.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET,
                     { audience: 'posthog:workflows:send_transactional_email', expiresIn: '2m' }
                 )}`,
             })
