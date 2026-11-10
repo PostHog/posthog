@@ -116,15 +116,24 @@ class TestTrialPolicy(BaseTest):
         assert (decision.enabled, decision.confirmed) == (enabled, True)
 
     @parameterized.expand(
-        [("missing", False, False), ("flag_unavailable", True, False), ("cache_unavailable", False, True)]
+        [
+            ("missing", False, False, False),
+            ("flag_unavailable", True, False, False),
+            ("cache_unavailable", False, True, False),
+            ("cutover_unreadable", False, False, True),
+        ]
     )
     def test_unknown_flag_rejects_new_work_and_preserves_accepted_funding(
-        self, _name: str, flag_unavailable: bool, cache_unavailable: bool
+        self, _name: str, flag_unavailable: bool, cache_unavailable: bool, cutover_unreadable: bool
     ) -> None:
         grant = self.claim()
         funding = self.admit()
         self.exhaust(grant, "cost_limit")
-        self.flag_mock.return_value = None
+        if cutover_unreadable:
+            self.organization.usage = {"signals_spend_credits": {"billing_start_date": "soon"}}
+            self.organization.save(update_fields=["usage"])
+        else:
+            self.flag_mock.return_value = None
         self.flag_mock.side_effect = RuntimeError("flag unavailable") if flag_unavailable else None
         with patch(
             "products.signals.backend.trial.policy.cache.get",

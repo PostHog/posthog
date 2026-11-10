@@ -84,10 +84,7 @@ def spend_billing_starts_later(organization_id: UUID) -> bool:
         .values_list("usage__signals_spend_credits__billing_start_date", flat=True)
         .first()
     )
-    try:
-        return isinstance(cutoff, str) and date.fromisoformat(cutoff) > timezone.now().date()
-    except ValueError:
-        return False
+    return isinstance(cutoff, str) and date.fromisoformat(cutoff) > timezone.now().date()
 
 
 def lock_organization_trial(organization_id: UUID) -> None:
@@ -103,19 +100,21 @@ class TrialPolicy:
 
     def flag_decision(self) -> TrialFlagDecision:
         org_id = str(self.organization_id)
-        # Billing has not moved this organization to usage-based pricing yet, so the trial does not apply.
-        # The flag cannot exclude an organization that is evaluated as the org id, which no cohort matches.
-        if spend_billing_starts_later(self.organization_id):
-            return TrialFlagDecision(enabled=False, confirmed=True)
+        decision: bool | None
         try:
-            # Remote evaluation is required because the SDK cannot evaluate a static cohort locally.
-            decision = posthoganalytics.feature_enabled(
-                TRIAL_FLAG,
-                pricing_flag_distinct_id(self.organization_id),
-                groups={"organization": org_id},
-                group_properties={"organization": {"id": org_id}},
-                send_feature_flag_events=False,
-            )
+            # Billing has not moved this organization to usage-based pricing yet, so the trial does not apply.
+            # The flag cannot exclude an organization that is evaluated as the org id, which no cohort matches.
+            if spend_billing_starts_later(self.organization_id):
+                decision = False
+            else:
+                # Remote evaluation is required because the SDK cannot evaluate a static cohort locally.
+                decision = posthoganalytics.feature_enabled(
+                    TRIAL_FLAG,
+                    pricing_flag_distinct_id(self.organization_id),
+                    groups={"organization": org_id},
+                    group_properties={"organization": {"id": org_id}},
+                    send_feature_flag_events=False,
+                )
         except Exception:
             decision = None
         confirmed = type(decision) is bool
