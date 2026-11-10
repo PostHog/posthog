@@ -57,3 +57,5 @@ x86_64-unknown-linux-gnu = "ubuntu-22.04"
 x86_64-unknown-linux-musl = "ubuntu-22.04"
 global = "ubuntu-22.04"
 x86_64-pc-windows-msvc = "windows-2025"
+# macos-14 (the dist default for Apple Silicon) was retired by github on 2026-11-02
+aarch64-apple-darwin = "macos-15"
