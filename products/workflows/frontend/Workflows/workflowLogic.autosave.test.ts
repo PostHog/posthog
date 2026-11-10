@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { createElement } from 'react'
-import { ToastContainer, toast } from 'react-toastify'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -1271,8 +1270,9 @@ describe('workflowLogic auto-save', () => {
 
         beforeEach(() => {
             posted = []
-            toast.dismiss()
-            render(createElement(ToastContainer))
+            lemonToast.dismiss()
+            // The workflows package does not depend on react-toastify, so the typecheck cannot resolve a static import.
+            render(createElement(jest.requireActual('react-toastify').ToastContainer))
         })
 
         afterEach(() => {
