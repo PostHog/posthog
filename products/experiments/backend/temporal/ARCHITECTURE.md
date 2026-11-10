@@ -169,9 +169,11 @@ Between the edit and that run, it shows no result for a metric whose fingerprint
 
 A recalc row records what caused it, in `trigger` (`Trigger` on the model).
 The set is more than a manual click.
-User and frontend triggers: `MANUAL`, `MANUAL_RETRY`, `COLD_RUN`, `HEAL_LATEST_RUN`, `EXPERIMENT_CONFIG_CHANGE`, `METRIC_CONFIG_CHANGE`.
+User and frontend triggers: `MANUAL`, `MANUAL_RETRY`, `COLD_RUN`, `HEAL_LATEST_RUN`, `STALE_REFRESH`, `EXPERIMENT_CONFIG_CHANGE`, `METRIC_CONFIG_CHANGE`.
+The page sends `STALE_REFRESH` when results stop more than 12 hours before the window end, which is now for a running experiment and the end date for a stopped one.
+`_results_are_stale` in `recalculation.py` checks the same rule with server time, so a final result is never recalculated.
 Server-side triggers: `AGENT_MCP` (set by the view from the client header), `TIMESERIES_SYNC` and `SCHEDULED` (written by their workflows).
-Deprecated values stay for old rows: `STALE_REFRESH`, `AUTO_REFRESH`, `CONFIG_CHANGE`, `EXPERIMENT_LAUNCH`, `EXPERIMENT_STOP`, `EXPERIMENT_UPDATE`.
+Deprecated values stay for old rows: `AUTO_REFRESH`, `CONFIG_CHANGE`, `EXPERIMENT_LAUNCH`, `EXPERIMENT_STOP`, `EXPERIMENT_UPDATE`.
 `RequestTrigger` is the subset a client may send on POST; the request serializer rejects the rest.
 This lets the analytics and the UI tell a user click apart from an automatic heal.
 
