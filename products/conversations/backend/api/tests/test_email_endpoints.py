@@ -1,4 +1,6 @@
 from datetime import timedelta
+from email import message_from_bytes
+from email.policy import default as default_email_policy
 from io import BytesIO
 
 from posthog.test.base import BaseTest
@@ -36,6 +38,7 @@ from products.conversations.backend.models import (
     EmailOutboxMessage,
 )
 from products.conversations.backend.models.ticket import Ticket
+from products.conversations.backend.services.attachments import CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE
 
 
 def _make_png_bytes() -> bytes:
@@ -2093,6 +2096,59 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         mock_send_mime.assert_called_once()
         assert mock_send_mime.call_args[1]["recipients"] == [self.user.email]
         assert outbox.status == EmailOutboxMessage.Status.SENT
+
+    @parameterized.expand(
+        [
+            ("linked_file_is_attached", "application/pdf", False, 1024, [("report.pdf", "application/pdf")]),
+            (
+                "message_type_is_sent_as_bytes",
+                "message/rfc822",
+                False,
+                1024,
+                [("report.pdf", "application/octet-stream")],
+            ),
+            ("other_team_file_stays_a_link", "application/pdf", True, 1024, []),
+            ("file_over_budget_stays_a_link", "application/pdf", False, 4, []),
+        ]
+    )
+    @patch("products.conversations.backend.services.attachments.object_storage.read_bytes", return_value=b"%PDF-1.4")
+    @patch("products.conversations.backend.tasks.email.send_mime")
+    def test_send_email_reply_attaches_linked_files(
+        self,
+        _name: str,
+        content_type: str,
+        from_other_team: bool,
+        budget_bytes: int,
+        expected: list[tuple[str, str]],
+        mock_send_mime: MagicMock,
+        _mock_read_bytes: MagicMock,
+    ):
+        from products.conversations.backend.tasks.email import send_email_reply
+
+        ticket = self._create_ticket(self._create_config("support@example.com", "aaa111"))
+        media = UploadedMedia.objects.create(
+            team=Team.objects.create(organization=self.organization, name="Other") if from_other_team else self.team,
+            file_name="report.pdf",
+            content_type=content_type,
+            media_location="media/report.pdf",
+            purpose=CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE,
+        )
+        link = {"type": "link", "attrs": {"href": f"http://localhost:8010/uploaded_media/{media.id}"}}
+        rich_content = {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "report.pdf", "marks": [link]}]}],
+        }
+        _, outbox = self._create_outbox(ticket, content="report.pdf", rich_content=rich_content)
+
+        with patch("products.conversations.backend.services.attachments.EMAIL_MAX_ATTACHED_BYTES", budget_bytes):
+            send_email_reply(str(outbox.id))
+        outbox.refresh_from_db()
+
+        assert outbox.status == EmailOutboxMessage.Status.SENT
+        message = message_from_bytes(mock_send_mime.call_args.args[1], policy=default_email_policy)
+        attachments = list(message.iter_attachments()) if message.is_multipart() else []
+        assert [(part.get_filename(), part.get_content_type()) for part in attachments] == expected
+        assert all(part.get_payload(decode=True) == b"%PDF-1.4" for part in attachments)
 
     @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_skips_comment_from_inbound_email(self, mock_send_mime: MagicMock):

@@ -1,12 +1,14 @@
 """Shared attachment helpers for conversations channels (email, Slack, etc.)."""
 
 import re
+from collections.abc import Iterator
 from typing import Any
 
 from django.conf import settings
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.uploaded_media import (
     UploadedMedia,
@@ -21,6 +23,9 @@ logger = structlog.get_logger(__name__)
 
 CONVERSATIONS_MAX_IMAGE_BYTES = 20 * 1024 * 1024  # 20 MiB
 MAX_ATTACHMENTS_PER_MESSAGE = 20
+# Mailgun rejects a message over 25 MB, and base64 makes each attached file a third larger.
+# Files past this budget stay links in the email body, so one large file cannot fail the whole reply.
+EMAIL_MAX_ATTACHED_BYTES = 15 * 1024 * 1024
 
 MAX_FILENAME_LENGTH = 255
 # Keep word chars, whitespace and a small punctuation set. Notably drops "[", "]"
@@ -196,6 +201,78 @@ def build_content_with_images(
             }
         )
     return content, rich_content
+
+
+@frozen
+class LinkedAttachment:
+    file_name: str
+    content_type: str
+    content: bytes
+
+
+def _iter_link_hrefs(node: object) -> Iterator[str]:
+    if not isinstance(node, dict):
+        return
+    for mark in node.get("marks") or []:
+        attrs = mark.get("attrs") if isinstance(mark, dict) and mark.get("type") == "link" else None
+        href = attrs.get("href") if isinstance(attrs, dict) else None
+        if isinstance(href, str):
+            yield href
+    children = node.get("content")
+    if isinstance(children, list):
+        for child in children:
+            yield from _iter_link_hrefs(child)
+
+
+def load_linked_attachments(team_id: int, rich_content: dict[str, Any] | None) -> list[LinkedAttachment]:
+    """Read the re-hosted files that a reply links to, in document order, so an email can attach them.
+
+    A file that is missing, cannot be read, or does not fit EMAIL_MAX_ATTACHED_BYTES is skipped,
+    and the reply keeps only its link.
+    """
+    media_ids = list(
+        dict.fromkeys(
+            match.group(1).lower()
+            for href in _iter_link_hrefs(rich_content)
+            if (match := _REHOSTED_MEDIA_URL_RE.search(href))
+        )
+    )[:MAX_ATTACHMENTS_PER_MESSAGE]
+    if not media_ids:
+        return []
+
+    media_by_id = {
+        str(media.id): media
+        for media in UploadedMedia.objects.filter(
+            team_id=team_id, id__in=media_ids, purpose=CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE
+        )
+    }
+    attachments: list[LinkedAttachment] = []
+    remaining_bytes = EMAIL_MAX_ATTACHED_BYTES
+    for media_id in media_ids:
+        media = media_by_id.get(media_id)
+        if media is None or not media.media_location:
+            continue
+        try:
+            content = object_storage.read_bytes(media.media_location)
+        except ObjectStorageError:
+            logger.warning("conversations_linked_attachment_read_failed", team_id=team_id, media_id=media_id)
+            continue
+        if content is None:
+            continue
+        if len(content) > remaining_bytes:
+            logger.info(
+                "conversations_linked_attachment_over_budget", team_id=team_id, media_id=media_id, size=len(content)
+            )
+            continue
+        remaining_bytes -= len(content)
+        attachments.append(
+            LinkedAttachment(
+                file_name=media.file_name or "attachment",
+                content_type=media.content_type or "application/octet-stream",
+                content=content,
+            )
+        )
+    return attachments
 
 
 def discard_rehosted_attachments(team: Team, attachments: list[dict[str, Any]]) -> None:
