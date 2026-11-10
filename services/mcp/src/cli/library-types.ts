@@ -83,7 +83,6 @@ export interface ApiToolLibrary {
 // The skills library (`dist/cli-skills.mjs`): PostHog's agent skills with the `learn` grammar of the
 // MCP server's exec tool, for CLIs that serve them without a login.
 
-/** The two release assets the PostHog skills come from, the same ones the MCP server loads. */
 export type SkillAssetName = 'product-skills' | 'context-mill'
 
 export interface SkillAssetStatus {
@@ -100,7 +99,6 @@ export interface SkillAssetStatus {
     failure?: string
 }
 
-/** A file a `learn` command served. Only successful reads are listed. */
 export interface SkillRead {
     source: 'posthog' | 'project'
     skill: string
@@ -125,16 +123,13 @@ export interface LearnRequest {
 }
 
 export type LearnOutput =
-    /** The overview: the skill commands, in the caller's syntax. */
     | { kind: 'overview'; commands: string[] }
     | { kind: 'list'; skills: string[]; count: number; truncated: boolean }
-    /** Every other request: the text the exec tool returns, with commands in the caller's syntax. */
     | { kind: 'text'; text: string }
 
 export interface LearnResult {
     output: LearnOutput
     reads: SkillRead[]
-    /** Where each asset came from. One with `origin: 'cache'` is older than the latest release. */
     assets: SkillAssetStatus[]
 }
 
@@ -182,9 +177,7 @@ export interface SkillsLibraryOptions {
     /** The command that served text names, such as `hog learn`. Defaults to `learn`. */
     learnCommand?: string
     fetch?: SkillsFetch
-    /** How long to wait for the response headers before the download counts as failed. Defaults to 5 seconds. */
     responseTimeoutMs?: number
-    /** How long to wait for the whole response body. Defaults to 60 seconds. */
     downloadTimeoutMs?: number
     now?: () => number
 }
@@ -193,7 +186,6 @@ export interface SkillsLibrary {
     learn(request: LearnRequest): Promise<SkillsResult<LearnResult>>
     /** The `posthog:instrument-*` skills. Downloads only context-mill, not the product skills. */
     instrumentSkills(): Promise<SkillsResult<{ skills: string[]; assets: SkillAssetStatus[] }>>
-    /** The skills `install` can write into a repository, as `posthog-cli api skill list` lists them. */
     installable(): Promise<SkillsResult<{ skills: InstallableSkill[]; assets: SkillAssetStatus[] }>>
     /** Writes a skill into `.agents/skills/<id>` under `cwd`, as `posthog-cli api skill install` does. */
     install(
