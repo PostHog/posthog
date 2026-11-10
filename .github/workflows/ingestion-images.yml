@@ -182,6 +182,9 @@ jobs:
                     - release: ingestion-node
                       digest_key: ingestion-node
                       values_key: image
+                    - release: ingestion-ai-research-node
+                      digest_key: ingestion-ai-research-node
+                      values_key: image
         steps:
             - name: check if image was built
               id: check

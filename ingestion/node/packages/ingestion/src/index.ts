@@ -13,13 +13,16 @@ import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
 import { IngestionSessionReplayServer } from '~/servers/ingestion-session-replay-server'
 
 function createServer(): NodeServer {
-    const { PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE } = overrideConfigWithEnv(getDefaultIngestionConsumerConfig())
+    const { PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE, INGESTION_PIPELINE } = overrideConfigWithEnv(
+        getDefaultIngestionConsumerConfig()
+    )
     initSuperProperties(PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE)
 
     switch (defaultConfig.PLUGIN_SERVER_MODE) {
         case PluginServerMode.ingestion_v2:
         case PluginServerMode.ingestion_v2_combined:
-            return new IngestionGeneralServer()
+            // The AI deployments still select their consumer by pipeline until charts moves them to the AI mode.
+            return INGESTION_PIPELINE === 'ai' ? new AiEventsServer() : new IngestionGeneralServer()
 
         case PluginServerMode.ingestion_api:
             return new IngestionApiServer()
