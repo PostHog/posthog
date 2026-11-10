@@ -445,11 +445,12 @@ function nextWaitingTileRefresh({
     // This refresh aborts a running group load, and a viewer can cancel this refresh too,
     // so a tile keeps waiting until a load of it succeeds.
     const previouslyWaiting = previous?.tileIds.filter((id) => tileGroupKeys.has(id)) ?? []
+    const keepsPreviousForce = !forceRefresh && previouslyWaiting.length > 0 && !!previous?.forceRefresh
     return {
         tileIds: [...new Set([...previouslyWaiting, ...candidateTileIds.filter((id) => collapsedTileIds.has(id))])],
         // A refresh of only stale tiles must not let a group that a manual refresh skipped show older data.
-        forceRefresh: forceRefresh || (previouslyWaiting.length > 0 && !!previous?.forceRefresh),
-        reason,
+        forceRefresh: forceRefresh || keepsPreviousForce,
+        reason: keepsPreviousForce ? previous?.reason : reason,
         settings,
     }
 }

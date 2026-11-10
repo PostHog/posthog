@@ -8,7 +8,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework.request import Request
 
-from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
 
@@ -20,6 +20,9 @@ def _request(refresh: str | None = None) -> Request:
 
 
 class TestResolveExecutionMode(SimpleTestCase):
+    def setUp(self) -> None:
+        reset_query_tags()
+
     @parameterized.expand([(surface,) for surface in ComputeSurface])
     def test_default_is_cache_only_for_every_surface(self, surface: ComputeSurface) -> None:
         # Parity snapshot: with no client refresh param, every surface is cache-only today.
@@ -28,6 +31,7 @@ class TestResolveExecutionMode(SimpleTestCase):
         mode, cache_age = resolve_execution_mode(_request(), surface=surface)
         assert mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
         assert cache_age is None
+        assert get_query_tags().refresh_requested is None
 
     @parameterized.expand(
         [

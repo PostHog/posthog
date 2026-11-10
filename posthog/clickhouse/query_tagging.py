@@ -621,8 +621,8 @@ class QueryTags(BaseModel):
     timings: Optional[dict[str, float]] = None
     execution_mode: Optional[str] = None
     trigger: Optional[str] = None
-    # The `refresh` value as the client sent it. execution_mode is what it resolved to, which
-    # differs when a shared resource clamps the request or a runner forces a fresh calculation.
+    # The `refresh` value the client asked for, absent when the client sent none. execution_mode is what it
+    # resolved to, which differs when a shared resource clamps the request or a runner forces a fresh calculation.
     refresh_requested: Optional[str] = None
     refresh_reason: Optional[RefreshReason] = None
 
