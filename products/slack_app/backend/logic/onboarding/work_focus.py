@@ -195,7 +195,10 @@ def find_and_send_work_focus(integration: WorkspaceIntegration, slack_user_id: s
     state = resolve_onboarding(slack_workspace_id, slack_user_id)
     if state is not None and state.work_focus_at:
         return "already_done"
-    # Not stored, so the work focus can still run once the organization allows AI data processing or has credits.
+    # Not stored, so the work focus can still run once the person can reach the project, and the organization allows
+    # AI data processing and has credits.
+    if not _has_project_access(integration, slack_user_id):
+        return "no_project_access"
     if not has_ai_approval(integration.team_id):
         return "no_ai_consent"
     if _out_of_ai_credits(integration):
@@ -215,8 +218,7 @@ def find_and_send_daily_focus(integration: WorkspaceIntegration, slack_user_id: 
     daily = resolve_daily_focus(integration.integration_id, slack_user_id)
     if not daily.enabled:
         return "turned_off"
-    # The Slack link outlives an organization membership, and the run spends the project's AI credits.
-    if not OnboardingContext(integration=integration, slack_user_id=slack_user_id).has_project_access:
+    if not _has_project_access(integration, slack_user_id):
         return "no_project_access"
     if not has_ai_approval(integration.team_id):
         return "no_ai_consent"
@@ -245,6 +247,12 @@ def find_and_send_daily_focus(integration: WorkspaceIntegration, slack_user_id: 
     if not cache.add(sent_key, True, timeout=SENT_KEY_TIMEOUT_SECONDS):
         return "already_sent"
     return _post(integration, slack_user_id, found, blocks, mode="daily")
+
+
+def _has_project_access(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
+    """The run spends the project's AI credits. An organization member can link their Slack account without access to
+    this project, and a Slack link outlives an organization membership."""
+    return OnboardingContext(integration=integration, slack_user_id=slack_user_id).has_project_access
 
 
 def _out_of_ai_credits(integration: WorkspaceIntegration) -> bool:

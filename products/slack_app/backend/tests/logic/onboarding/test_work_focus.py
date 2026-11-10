@@ -230,7 +230,9 @@ def test_sends_nothing_without_a_usable_search_or_answer(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("reason", ["rate_limited", "no_ai_consent", "out_of_ai_credits", "model_failed"])
+@pytest.mark.parametrize(
+    "reason", ["rate_limited", "no_project_access", "no_ai_consent", "out_of_ai_credits", "model_failed"]
+)
 def test_runs_that_cannot_finish_yet_store_nothing_so_they_run_later(
     reason: str, org_team_user, link_user, slack: dict[str, MagicMock]
 ) -> None:
@@ -241,6 +243,9 @@ def test_runs_that_cannot_finish_yet_store_nothing_so_they_run_later(
         slack["bucket"].return_value = BucketDecision(allowed=False, remaining=0, limit=10, retry_after=6, reset=60)
         with pytest.raises(WorkFocusRateLimited):
             find_and_send_work_focus(integration, SLACK_USER_ID)
+    elif reason == "no_project_access":
+        OrganizationMembership.objects.filter(user=user).delete()
+        assert find_and_send_work_focus(integration, SLACK_USER_ID) == "no_project_access"
     elif reason == "no_ai_consent":
         Organization.objects.filter(id=org.id).update(is_ai_data_processing_approved=False)
         assert find_and_send_work_focus(integration, SLACK_USER_ID) == "no_ai_consent"
