@@ -224,6 +224,13 @@ class SuggestionStatus:
     window_days: int
     paused_reason: str | None
     refreshed_at: datetime | None
+    waiting: int
+    can_show_more: bool
+
+
+@frozen
+class SurfaceMoreResult:
+    surfaced: int
 
 
 class SuggestionNotFoundError(Exception):

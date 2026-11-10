@@ -23181,6 +23181,10 @@
                     "$ref": "#/definitions/DatabaseSchemaTableCertification",
                     "description": "Present only when the table or view carries a settled data catalog certification."
                 },
+                "description": {
+                    "description": "Short description of the table, when the HogQL schema defines one.",
+                    "type": "string"
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -23210,6 +23214,10 @@
                 "certification": {
                     "$ref": "#/definitions/DatabaseSchemaTableCertification",
                     "description": "Present only when the table or view carries a settled data catalog certification."
+                },
+                "description": {
+                    "description": "Short description of the table, when the HogQL schema defines one.",
+                    "type": "string"
                 },
                 "fields": {
                     "additionalProperties": {
@@ -23262,6 +23270,10 @@
                     "$ref": "#/definitions/DatabaseSchemaTableCertification",
                     "description": "Present only when the table or view carries a settled data catalog certification."
                 },
+                "description": {
+                    "description": "Short description of the table, when the HogQL schema defines one.",
+                    "type": "string"
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -23307,6 +23319,10 @@
                     },
                     "type": "array"
                 },
+                "description": {
+                    "description": "Short description of the column, when the HogQL schema defines one.",
+                    "type": "string"
+                },
                 "fields": {
                     "items": {
                         "type": "string"
@@ -23341,6 +23357,10 @@
                 "certification": {
                     "$ref": "#/definitions/DatabaseSchemaTableCertification",
                     "description": "Present only when the table or view carries a settled data catalog certification."
+                },
+                "description": {
+                    "description": "Short description of the table, when the HogQL schema defines one.",
+                    "type": "string"
                 },
                 "fields": {
                     "additionalProperties": {
@@ -23392,6 +23412,10 @@
                     "$ref": "#/definitions/DatabaseSchemaTableCertification",
                     "description": "Present only when the table or view carries a settled data catalog certification."
                 },
+                "description": {
+                    "description": "Short description of the table, when the HogQL schema defines one.",
+                    "type": "string"
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -23430,6 +23454,10 @@
                 "certification": {
                     "$ref": "#/definitions/DatabaseSchemaTableCertification",
                     "description": "Present only when the table or view carries a settled data catalog certification."
+                },
+                "description": {
+                    "description": "Short description of the table, when the HogQL schema defines one.",
+                    "type": "string"
                 },
                 "fields": {
                     "additionalProperties": {
@@ -23575,6 +23603,10 @@
                     "$ref": "#/definitions/DatabaseSchemaTableCertification",
                     "description": "Present only when the table or view carries a settled data catalog certification."
                 },
+                "description": {
+                    "description": "Short description of the table, when the HogQL schema defines one.",
+                    "type": "string"
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -23657,6 +23689,10 @@
                     "$ref": "#/definitions/DatabaseSchemaTableCertification",
                     "description": "Present only when the table or view carries a settled data catalog certification."
                 },
+                "description": {
+                    "description": "Short description of the table, when the HogQL schema defines one.",
+                    "type": "string"
+                },
                 "fields": {
                     "additionalProperties": {
                         "$ref": "#/definitions/DatabaseSchemaField"
@@ -23698,6 +23734,10 @@
                 "certification": {
                     "$ref": "#/definitions/DatabaseSchemaTableCertification",
                     "description": "Present only when the table or view carries a settled data catalog certification."
+                },
+                "description": {
+                    "description": "Short description of the table, when the HogQL schema defines one.",
+                    "type": "string"
                 },
                 "fields": {
                     "additionalProperties": {
