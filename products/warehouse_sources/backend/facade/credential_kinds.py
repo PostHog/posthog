@@ -576,6 +576,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Gorgias": "gorgias",
     "Grafana": "grafana",
     "GrafanaIRM": "grafana-irm",
+    "Grain": "grain",
     "Granola": "granola",
     "Greenhouse": "greenhouse",
     "GreytHr": "greyt-hr",

@@ -1524,6 +1524,26 @@ class PostgresSource(
             # file-descriptor exhaustion that clears once load on the source drops, so that case
             # must stay retryable. The volatile file path is excluded from the match.
             "Input/output error": _SOURCE_PAGE_CORRUPTION_ERROR,
+            # The server's dynamic loader failed to `dlopen()` a native extension library it needs
+            # to evaluate a column or function — `UndefinedFile` (SQLSTATE 58P01), observed as
+            # PostGIS's library failing to load because the server is missing GEOS, one of its own
+            # OS-level dependencies: `could not load library "...": libgeos_c.so.1: cannot open
+            # shared object file: No such file or directory`. The missing library lives in the
+            # server's own package install, not anything in our query, so every retry dlopens the
+            # same absent file. `dlerror()` reports the same "cannot open shared object file:"
+            # prefix for any errno, including transient `EMFILE`/`ENFILE` ("Too many open files")
+            # when the server has exhausted file descriptors for an otherwise-installed library —
+            # the sibling trap the file-descriptor-exhaustion case above guards against. Match the
+            # specific "No such file or directory" (`ENOENT`) reason so that case stays retryable,
+            # and exclude the volatile library path, which embeds the server's build/version.
+            "cannot open shared object file: No such file or directory": (
+                "Your PostgreSQL server failed to load a native extension library it needs to read "
+                'this data ("could not load library ... cannot open shared object file"). This '
+                "usually means the extension (for example PostGIS) is missing one of its own "
+                "OS-level dependencies on the database server. Reinstall or repair the extension's "
+                "dependencies on your database server, or ask your database provider to, then "
+                "re-enable the sync."
+            ),
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
             # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely
