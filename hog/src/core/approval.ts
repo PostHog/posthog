@@ -40,6 +40,9 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> {
     command: string
     // The command that resumes it instead, for a command that starts and resumes with the same call.
     resume?: string
+    // Names the pending item in place of `command`, for a command that keeps one per folder.
+    // `clearPendingFor(command)` clears all of them.
+    pendingName?: string
     // What the person approves, in copy and in error codes, like `login`.
     noun: string
     // The command to start over after a rejection or expiry, when `command` alone can't ask for the
@@ -66,7 +69,7 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> {
 // What resuming a pending item needs. It can't start a new one.
 export type ApprovalWait<Pending extends PendingApproval, Value> = Pick<
     ApprovalFlow<Pending, Value>,
-    'command' | 'resume' | 'noun' | 'pending' | 'poll' | 'maxWaitMs' | 'checkResumable' | 'restart'
+    'command' | 'resume' | 'pendingName' | 'noun' | 'pending' | 'poll' | 'maxWaitMs' | 'checkResumable' | 'restart'
 >
 
 function resumeCommand(flow: Pick<ApprovalWait<PendingApproval, unknown>, 'command' | 'resume'>): string {
@@ -98,8 +101,19 @@ function errorCode(noun: string): string {
     return noun.replaceAll(' ', '_')
 }
 
-function pendingPath(runtime: Runtime, command: string): string {
-    return hogFile(runtime, `pending-${command.replace(/^hog /, '').replaceAll(' ', '-')}.json`)
+function pendingStem(name: string): string {
+    return `pending-${name.replace(/^hog /, '').replaceAll(' ', '-')}`
+}
+
+function pendingPath(runtime: Runtime, name: string): string {
+    return hogFile(runtime, `${pendingStem(name)}.json`)
+}
+
+function pendingFile(
+    runtime: Runtime,
+    flow: Pick<ApprovalWait<PendingApproval, unknown>, 'command' | 'pendingName'>
+): string {
+    return pendingPath(runtime, flow.pendingName ?? flow.command)
 }
 
 export async function readPending<Pending extends PendingApproval>(
@@ -107,7 +121,7 @@ export async function readPending<Pending extends PendingApproval>(
     flow: ApprovalWait<Pending, unknown>
 ): Promise<Pending | undefined> {
     try {
-        return parseJsonOrUndefined(await runtime.readFile(pendingPath(runtime, flow.command)), flow.pending)
+        return parseJsonOrUndefined(await runtime.readFile(pendingFile(runtime, flow)), flow.pending)
     } catch {
         return undefined
     }
@@ -117,14 +131,25 @@ export async function clearPending(runtime: Runtime, command: string): Promise<v
     await runtime.removeFile(pendingPath(runtime, command))
 }
 
+export async function clearPendingFor(runtime: Runtime, command: string): Promise<void> {
+    const stem = pendingStem(command)
+    const names = await runtime.listFiles(hogFile(runtime, '')).catch(() => [])
+    await Promise.all(
+        names
+            .filter((name) => name === `${stem}.json` || (name.startsWith(`${stem}-`) && name.endsWith('.json')))
+            .map((name) => runtime.removeFile(hogFile(runtime, name)))
+    )
+}
+
+// `marginMs` keeps a link that is about to expire from going to a person. A resume passes 0,
+// because the person can have approved the item already.
 export async function reusablePending<Pending extends PendingApproval, Value>(
     runtime: Runtime,
-    flow: ApprovalFlow<Pending, Value>
+    flow: ApprovalFlow<Pending, Value>,
+    marginMs = REUSE_MARGIN_MS
 ): Promise<Pending | undefined> {
     const existing = await readPending(runtime, flow)
-    return existing && existing.expiresAt - runtime.now() > REUSE_MARGIN_MS && flow.reuse?.(existing)
-        ? existing
-        : undefined
+    return existing && existing.expiresAt - runtime.now() > marginMs && flow.reuse?.(existing) ? existing : undefined
 }
 
 // A new start replaces the command's pending item, unless the flow can reuse it.
@@ -136,13 +161,13 @@ async function startPending<Pending extends PendingApproval, Value>(
     if (existing) {
         const current = flow.refresh ? await flow.refresh(existing) : existing
         if (current) {
-            await runtime.writePrivateFile(pendingPath(runtime, flow.command), JSON.stringify(current))
+            await runtime.writePrivateFile(pendingFile(runtime, flow), JSON.stringify(current))
             return current
         }
     }
     const pending = await flow.start()
     // The pending item can hold a secret, like a device code, so only its owner may read it.
-    await runtime.writePrivateFile(pendingPath(runtime, flow.command), JSON.stringify(pending))
+    await runtime.writePrivateFile(pendingFile(runtime, flow), JSON.stringify(pending))
     return pending
 }
 
@@ -160,7 +185,7 @@ async function waitFor<Pending extends PendingApproval, Value>(
             `Run \`${resumeCommand(flow)}\` to keep waiting. The link stays the same.`
         )
     const fail = async (error: HogError): Promise<never> => {
-        await clearPending(runtime, flow.command)
+        await clearPending(runtime, flow.pendingName ?? flow.command)
         throw error
     }
 
@@ -341,7 +366,7 @@ export async function continueApproval<Pending extends PendingApproval, Value>(
     ctx: Context,
     flow: ApprovalFlow<Pending, Value>
 ): Promise<ApprovalResult<Value>> {
-    const existing = ctx.prompts ? undefined : await reusablePending(ctx.runtime, flow)
+    const existing = ctx.prompts ? undefined : await reusablePending(ctx.runtime, flow, 0)
     if (!existing) {
         return runApproval(ctx, flow)
     }

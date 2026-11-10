@@ -1,6 +1,7 @@
-import { join } from 'node:path'
+import { basename, isAbsolute, join, relative, sep } from 'node:path'
 
 import { HogError } from '@/core/errors'
+import { escapeControls } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 
 import type { Product } from './products'
@@ -124,24 +125,44 @@ function withBlock(path: string, text: string, body: string): string {
     return `${text.replace(/\n*$/, '')}\n\n${block}\n`
 }
 
-async function writeOne(runtime: Runtime, path: string, body: string): Promise<WrittenFile> {
-    const before = await readText(runtime, path)
+// The folder comes from a checkout, which can hold AGENTS.md or CLAUDE.md as a symlink. A link inside
+// the folder, such as CLAUDE.md to AGENTS.md, is followed. hog neither reads nor writes through a link
+// that leaves the folder.
+async function destination(runtime: Runtime, folder: string, path: string): Promise<string> {
+    const [root, target] = await Promise.all([runtime.realPath(folder), runtime.realPath(path)])
+    const inside = relative(root, target)
+    if (inside === '' || inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside)) {
+        throw new HogError(
+            'setup_file_outside_folder',
+            `${escapeControls(path)} links to ${escapeControls(target)}, which is outside ${escapeControls(folder)}, so hog didn't change it.`,
+            `Replace ${basename(path)} with a file, or link it to a file inside the folder. Then run \`hog setup next\` again.`
+        )
+    }
+    return target
+}
+
+async function writeOne(runtime: Runtime, path: string, target: string, body: string): Promise<WrittenFile> {
+    const before = await readText(runtime, target)
     const after = withBlock(path, before ?? '', body)
     if (after === before) {
         return { path, status: 'unchanged' }
     }
-    await runtime.writeFile(path, after)
+    await runtime.replaceFile(target, after)
     return { path, status: before === undefined ? 'created' : 'updated' }
 }
 
 // Everything outside the markers stays as it is. A CLAUDE.md linked to AGENTS.md already has the
 // new block when hog reads it, so it counts as unchanged.
 export async function writeBlock(runtime: Runtime, folder: string, body: string): Promise<WrittenFile[]> {
-    const written = [await writeOne(runtime, join(folder, AGENTS_FILE), body)]
-    const claudePath = join(folder, CLAUDE_FILE)
-    const claude = await readText(runtime, claudePath)
+    const [agentsPath, claudePath] = [join(folder, AGENTS_FILE), join(folder, CLAUDE_FILE)]
+    const [agentsTarget, claudeTarget] = await Promise.all([
+        destination(runtime, folder, agentsPath),
+        destination(runtime, folder, claudePath),
+    ])
+    const written = [await writeOne(runtime, agentsPath, agentsTarget, body)]
+    const claude = await readText(runtime, claudeTarget)
     if (claude !== undefined && (!IMPORTS_AGENTS_MD.test(claude) || findBlock(claude))) {
-        written.push(await writeOne(runtime, claudePath, body))
+        written.push(await writeOne(runtime, claudePath, claudeTarget, body))
     }
     return written
 }

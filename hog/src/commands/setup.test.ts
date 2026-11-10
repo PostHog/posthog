@@ -1,8 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import type { LearnResult, SkillsLibrary, SkillsResult } from '@posthog/mcp/src/cli/library-types'
 
+import { escapeControls } from '@/core/output'
+import { processRuntime } from '@/core/runtime'
 import { LOGIN_SCOPES } from '@/posthog/device-auth'
 import { AGENTS_FILE, writeBlock } from '@/setup/agents-md'
 import { fakeRuntime, readJson, runHog, type HogRun } from '@/testing'
@@ -39,7 +44,14 @@ function fakeSkills(installs: string[]): () => SkillsLibrary {
             const [skill = '', path = 'SKILL.md'] = words
             return ok<LearnResult>({
                 output: { kind: 'text', text: `${skill} ${path}` },
-                reads: [{ source: 'posthog', skill: skill.replace('posthog:', ''), path, readKind: 'file' }],
+                reads: [
+                    {
+                        source: 'posthog',
+                        skill: skill.replace('posthog:', ''),
+                        path,
+                        readKind: words.includes('--lines') ? 'file_lines' : 'file',
+                    },
+                ],
                 assets: [],
             })
         },
@@ -69,6 +81,7 @@ interface World {
     events: number[]
     installs: string[]
     intentStatus: number
+    token: string
 }
 
 // One machine across several hog runs: files and the keychain carry over, and PostHog answers the
@@ -80,6 +93,7 @@ function world(files: Record<string, string> = {}, cwd = '/work'): World {
         events: [],
         installs: [],
         intentStatus: 201,
+        token: TOKEN,
         async run(argv, extra = {}) {
             const respond = (url: string, body: unknown): { status: number; body: unknown } => {
                 const origin = new URL(url).origin
@@ -117,7 +131,10 @@ function world(files: Record<string, string> = {}, cwd = '/work'): World {
                     return { status: state.intentStatus, body: { detail: 'Intent refused.' } }
                 }
                 if (url.endsWith('/api/environments/42/') || url.endsWith('/api/projects/42/')) {
-                    return { status: 200, body: { api_token: TOKEN, uuid: 'project-uuid', organization: 'org-1' } }
+                    return {
+                        status: 200,
+                        body: { api_token: state.token, uuid: 'project-uuid', organization: 'org-1' },
+                    }
                 }
                 if (url.endsWith('/api/users/@me/')) {
                     return { status: 200, body: { distinct_id: 'user-1' } }
@@ -219,6 +236,7 @@ describe('hog setup', () => {
         })
 
         await machine.run(['learn', 'posthog:instrument-integration'])
+        await machine.run(['learn', 'posthog:instrument-integration', 'references/COMMANDMENTS.md', '--lines', '1:5'])
         const halfRead = await machine.run(['setup', 'next'])
         expect(halfRead.json()).toMatchObject({ step: 'install', code: 'setup_skill_not_read' })
 
@@ -270,18 +288,48 @@ describe('hog setup', () => {
             status: 'connected',
             context: { loggedIn: true, events: { count: 1 } },
         })
+
+        const day = 24 * 60 * 60 * 1000
+        const state = readJson(machine.files[statePath('/work')] ?? '{}') as object
+        machine.files[statePath('/work')] = JSON.stringify({ ...state, startedAt: START - 30 * day })
+        machine.events.push(START - 10 * day)
+        const weeksLater = await machine.run(['setup'])
+        expect(weeksLater.json()).toMatchObject({
+            context: { events: { since: new Date(START - day).toISOString(), count: 2 } },
+        })
     })
 
     test('a person answers the questions and approves the login at the terminal', async () => {
         const machine = world()
+        machine.token = 'phc_custom\u001b]52;c;aGk=\u0007'
 
         const result = await machine.run(['setup', 'next'], { person: ['Track signups', 'product-analytics', 'us'] })
 
         expect(result.exitCode).toBe(0)
         expect(result.stdout).toContain('Done  Interested in Product analytics')
         expect(result.stdout).toContain('Done  Logged in to https://us.posthog.com, project 42')
-        expect(result.stdout).toContain(`Project token: ${TOKEN}`)
+        expect(result.stdout).toContain(`Project token: ${escapeControls(machine.token)}`)
+        expect(result.stdout).not.toContain('\u001b')
         expect(result.stdout).toContain('Next: Run both commands')
+    })
+
+    test('a person who names the skills at the terminal gets them without a prompt', async () => {
+        const machine = world()
+        await machine.run(['setup', 'next', ...ANSWERS])
+        await machine.run(['setup', 'next'])
+        await machine.run(['learn', 'posthog:instrument-integration'])
+        await machine.run(['learn', 'posthog:instrument-integration', 'references/COMMANDMENTS.md'])
+        machine.events.push(START + 60_000)
+        await machine.run(['setup', 'next'])
+        const products = await machine.run(['setup', 'next', '--reviewed'])
+        expect(products.json()).toMatchObject({ step: 'products' })
+
+        const finished = await machine.run(['setup', 'next', '--install-skills', 'querying-posthog-data'], {
+            person: [],
+        })
+
+        expect(finished.exitCode).toBe(0)
+        expect(machine.installs).toEqual(['/work:querying-posthog-data'])
     })
 
     test('a clone without the state file starts over at the first step hog can not prove', async () => {
@@ -338,6 +386,40 @@ describe('hog setup', () => {
         expect(web.json()).toMatchObject({ step: 'login', context: { folder: '/repo/apps/web' } })
         expect(api.json()).toMatchObject({ step: 'purpose', context: { folder: '/repo/apps/api' } })
         expect(machine.files[statePath('/repo/apps/web')]).toBeDefined()
+    })
+
+    test('a setup in another folder starts its own login instead of waiting for this one', async () => {
+        const machine = world({
+            '/repo/.git/HEAD': 'ref: refs/heads/main\n',
+            '/repo/apps/web/posthog.json': JSON.stringify({ host: EU }),
+            '/repo/apps/api/posthog.json': JSON.stringify({ host: EU }),
+        })
+
+        const web = await machine.run(['setup', 'next', '--reason', 'Web', '--products', 'none'], {
+            cwd: '/repo/apps/web',
+        })
+        const api = await machine.run(['setup', 'next', '--reason', 'Api', '--products', 'none'], {
+            cwd: '/repo/apps/api',
+        })
+
+        expect(web.json()).toMatchObject({ code: 'setup_login_pending' })
+        expect(api.json()).toMatchObject({ code: 'setup_login_pending' })
+        expect(api.requests.filter((request) => request.url.endsWith('/oauth/device-authorization/'))).toHaveLength(1)
+    })
+
+    test('a login approved in the last seconds before it expires still finishes', async () => {
+        const machine = world()
+        await machine.run(['setup', 'next', ...ANSWERS])
+        const pendingFile = Object.keys(machine.files).find((path) => path.includes('/pending-setup-next')) ?? ''
+        machine.files[pendingFile] = JSON.stringify({
+            ...(readJson(machine.files[pendingFile] ?? '{}') as object),
+            expiresAt: START + 10_000,
+        })
+
+        const resumed = await machine.run(['setup', 'next'])
+
+        expect(resumed.requests.filter((request) => request.url.endsWith('/oauth/device-authorization/'))).toEqual([])
+        expect(resumed.json()).toMatchObject({ step: 'install' })
     })
 
     test('a login started with --host resumes there without --host', async () => {
@@ -425,6 +507,43 @@ describe('the AGENTS.md block', () => {
         await writeBlock(runtime, '/app', 'new')
 
         expect(runtime.files).toEqual(expected)
+    })
+
+    function linkedFolder(): { root: string; folder: string } {
+        const root = mkdtempSync(join(tmpdir(), 'hog-agents-md-'))
+        const folder = join(root, 'app')
+        mkdirSync(folder)
+        writeFileSync(join(root, 'outside.md'), '# Outside\n')
+        return { root, folder }
+    }
+
+    test.each([
+        ['an AGENTS.md that links outside the folder', AGENTS_FILE, '../outside.md'],
+        ['a CLAUDE.md that links outside the folder', 'CLAUDE.md', '../outside.md'],
+        ['an AGENTS.md that links to a missing file outside the folder', AGENTS_FILE, '../missing.md'],
+    ])('%s is refused, and nothing outside it changes', async (_name, file, target) => {
+        const { root, folder } = linkedFolder()
+        symlinkSync(target, join(folder, file))
+
+        await expect(writeBlock(processRuntime(), folder, 'new')).rejects.toMatchObject({
+            code: 'setup_file_outside_folder',
+        })
+
+        expect(readFileSync(join(root, 'outside.md'), 'utf8')).toBe('# Outside\n')
+        expect(existsSync(join(root, 'missing.md'))).toBe(false)
+        expect(existsSync(join(folder, file === AGENTS_FILE ? 'CLAUDE.md' : AGENTS_FILE))).toBe(false)
+    })
+
+    test('a CLAUDE.md linked to AGENTS.md inside the folder stays a link', async () => {
+        const { folder } = linkedFolder()
+        writeFileSync(join(folder, AGENTS_FILE), '# App\n')
+        symlinkSync(AGENTS_FILE, join(folder, 'CLAUDE.md'))
+
+        const written = await writeBlock(processRuntime(), folder, 'new')
+
+        expect(written.map((file) => file.status)).toEqual(['updated', 'unchanged'])
+        expect(lstatSync(join(folder, 'CLAUDE.md')).isSymbolicLink()).toBe(true)
+        expect(readFileSync(join(folder, AGENTS_FILE), 'utf8')).toBe(`# App\n\n${block('new')}\n`)
     })
 
     test('a file with only one marker fails instead of growing a second block', async () => {

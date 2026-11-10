@@ -191,7 +191,7 @@ export default defineCommand({
         const { token, apiHost } = result.context
         if (token && apiHost) {
             out.line()
-            out.line(`Project token: ${token}`)
+            out.line(`Project token: ${escapeControls(token)}`)
             out.line(`Host for the SDK: ${apiHost}`)
         }
         if (result.step === 'products') {

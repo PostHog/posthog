@@ -8,6 +8,7 @@ import { withFileLock } from '@/core/file-lock'
 import { parseJsonOrUndefined } from '@/core/json'
 import { posthogFile } from '@/posthog/credentials'
 import { HostSchema, REGION_IDS } from '@/posthog/host'
+import { SETUP_COMMAND } from '@/posthog/login/flow'
 
 export const STEP_IDS = [
     'purpose',
@@ -59,6 +60,7 @@ export interface SetupScope {
     folder: string
     statePath: string
     lockName: string
+    pendingName: string
 }
 
 export async function setupScope(ctx: Context): Promise<SetupScope> {
@@ -69,6 +71,7 @@ export async function setupScope(ctx: Context): Promise<SetupScope> {
         folder,
         statePath: posthogFile(ctx.runtime, `setup/${hash}.json`),
         lockName: `setup-${hash.slice(0, 32)}.lock`,
+        pendingName: `${SETUP_COMMAND} ${hash.slice(0, 32)}`,
     }
 }
 
@@ -104,8 +107,9 @@ export function hasRead(state: SetupState, file: SkillFile): boolean {
 // Called by `hog learn`. A read counts only while a setup is running in this folder, and a failure
 // to record it never fails the read.
 export async function recordSkillReads(ctx: Context, reads: readonly SkillRead[]): Promise<void> {
+    // The install gates stand for having read whole files, so a line range or a search doesn't count.
     const files = reads
-        .filter((read) => read.source === 'posthog')
+        .filter((read) => read.source === 'posthog' && (read.readKind === 'skill' || read.readKind === 'file'))
         .map((read) => ({ skill: `posthog:${read.skill}`, path: read.path }))
     if (files.length === 0) {
         return

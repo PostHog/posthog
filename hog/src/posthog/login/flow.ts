@@ -1,4 +1,4 @@
-import { clearPending, type ApprovalFlow, type ApprovalWait } from '@/core/approval'
+import { clearPendingFor, type ApprovalFlow, type ApprovalWait } from '@/core/approval'
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 import type { AccessKey, AccessKeyStatus } from '@/posthog/access-key'
@@ -24,7 +24,7 @@ const LOGIN_COMMANDS = [LOGIN_COMMAND, ADD_COMMAND, SETUP_COMMAND]
 
 // A login approved later must not replace a newer login, or one removed by logout, through `--wait`.
 export async function clearPendingLogins(runtime: Runtime): Promise<void> {
-    await Promise.all(LOGIN_COMMANDS.map((command) => clearPending(runtime, command)))
+    await Promise.all(LOGIN_COMMANDS.map((command) => clearPendingFor(runtime, command)))
 }
 
 export interface LoggedIn {
@@ -67,10 +67,12 @@ export function loginFlow(
         command = LOGIN_COMMAND,
         requiredScopes = [],
         projectId,
-    }: { command?: string; requiredScopes?: readonly string[]; projectId?: ProjectId } = {}
+        pendingName,
+    }: { command?: string; requiredScopes?: readonly string[]; projectId?: ProjectId; pendingName?: string } = {}
 ): ApprovalFlow<PendingLogin, OAuthLogin> {
     return {
         ...loginWait(runtime, command),
+        pendingName,
         start: () => startDeviceLogin(runtime, host, { scopes, requiredScopes, command, projectId }),
         reuse: (existing) =>
             existing.host === host &&

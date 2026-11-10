@@ -39,6 +39,7 @@ const NO_LOGIN_CODES = new Set(['not_authenticated', 'project_mismatch', 'host_m
 // A client clock can run behind PostHog's, so events count by when PostHog received them, and the
 // timestamp bound only keeps the query on recent partitions.
 const CLOCK_SKEW = 'interval 1 day'
+const SUMMARY_EVENTS_WINDOW_MS = 24 * 60 * 60 * 1000
 
 export interface SetupInput {
     next: boolean
@@ -417,7 +418,10 @@ const login: StepDefinition = {
         const { ctx } = run
         const host = await run.loginHost()
         const named = (await ctx.config())?.config.projectId?.toString()
-        const flow = loginFlow(ctx.runtime, host, LOGIN_SCOPES, { command: SETUP_COMMAND })
+        const flow = loginFlow(ctx.runtime, host, LOGIN_SCOPES, {
+            command: SETUP_COMMAND,
+            pendingName: run.scope.pendingName,
+        })
         if (!run.input.next) {
             const pending = await reusablePending(ctx.runtime, flow)
             return pending
@@ -682,8 +686,9 @@ const productsStep: StepDefinition = {
         run.context.products = products
         run.context.installableSkills = skills.map(({ id, name, description }) => ({ id, name, description }))
         const question = skills.length > 0 ? skillsQuestion(skills) : undefined
+        const acknowledged = input.productsAck === true || input.installSkills !== undefined
         const prompts = input.next ? ctx.prompts : undefined
-        if (prompts) {
+        if (prompts && !acknowledged) {
             prompts.note(
                 (products ?? []).map((product) => `${product.label}: ${product.command}`).join('\n'),
                 'What else PostHog can do'
@@ -697,8 +702,8 @@ const productsStep: StepDefinition = {
             await run.complete('products')
             return undefined
         }
-        const acknowledged = input.productsAck === true || input.installSkills !== undefined
-        if (acknowledged && run.startedOn('products')) {
+        // A person at the terminal typed the options, so they count without the step's instructions first.
+        if (acknowledged && (prompts !== undefined || run.startedOn('products'))) {
             await installSkills(run, input.installSkills ?? [], skills)
             await run.complete('products')
             return undefined
@@ -770,11 +775,13 @@ async function summary(run: SetupRun): Promise<SetupResult> {
     const state = run.state
     // The verify step of this call already counted. Otherwise the summary still shows without the
     // count, such as when the login lacks query:read.
+    // The count covers the last day at most, so a folder connected long ago doesn't scan every event since.
+    const since = state && Math.max(state.startedAt, run.ctx.runtime.now() - SUMMARY_EVENTS_WINDOW_MS)
     const counting =
-        state && loggedIn && run.context.events?.count == null
-            ? countEvents(run, state.startedAt).then(
-                  (count) => eventsContext(state.startedAt, count),
-                  () => eventsContext(state.startedAt, null)
+        since !== undefined && loggedIn && run.context.events?.count == null
+            ? countEvents(run, since).then(
+                  (count) => eventsContext(since, count),
+                  () => eventsContext(since, null)
               )
             : Promise.resolve(run.context.events)
     const [events, products] = await Promise.all([counting, run.productsContext()])

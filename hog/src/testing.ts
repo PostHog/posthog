@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { z } from 'zod'
 
 import type { ApiToolLibrary, SkillsLibrary, SkillsLibraryOptions } from '@posthog/mcp/src/cli/library-types'
@@ -214,6 +215,10 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
                 .sort()
         },
         writeFile: async (path, contents) => {
+            files[path] = contents
+        },
+        realPath: async (path) => resolve(path),
+        replaceFile: async (path, contents) => {
             files[path] = contents
         },
         writePrivateFile: async (path, contents) => {

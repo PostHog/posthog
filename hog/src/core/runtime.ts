@@ -1,7 +1,19 @@
 import { randomUUID } from 'node:crypto'
-import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import {
+    access,
+    lstat,
+    mkdir,
+    readdir,
+    readFile,
+    readlink,
+    realpath,
+    rename,
+    rm,
+    stat,
+    writeFile,
+} from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 
 import type { ApiToolLibrary, SkillsLibrary, SkillsLibraryOptions } from '@posthog/mcp/src/cli/library-types'
 
@@ -57,6 +69,11 @@ export interface Runtime {
     glob: (pattern: string, cwd: string) => Promise<string[]>
     // Writes a project file, such as a generated SDK, and creates the folders above it.
     writeFile: (path: string, contents: string) => Promise<void>
+    // The absolute path with every symlink resolved, including a last link whose target doesn't exist
+    // yet, so a caller can check where a write through it would land.
+    realPath: (path: string) => Promise<string>
+    // Replaces a file with one rename, so a failed write leaves the old contents. The file keeps its mode.
+    replaceFile: (path: string, contents: string) => Promise<void>
     writePrivateFile: (path: string, contents: string) => Promise<void>
     // Creates a private file unless the path exists, and resolves to false if it does, so it works as a lock.
     createFile: (path: string, contents: string) => Promise<boolean>
@@ -158,6 +175,28 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     })
 }
 
+const MAX_SYMLINK_HOPS = 40
+
+async function resolveLinks(path: string, hops: number): Promise<string> {
+    if (hops > MAX_SYMLINK_HOPS) {
+        throw Object.assign(new Error(`Too many symbolic links at ${path}`), { code: 'ELOOP' })
+    }
+    const stats = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') {
+            return undefined
+        }
+        throw error
+    })
+    if (stats === undefined) {
+        const parent = dirname(path)
+        return parent === path ? path : join(await resolveLinks(parent, hops), basename(path))
+    }
+    if (stats.isSymbolicLink()) {
+        return resolveLinks(resolve(dirname(path), await readlink(path)), hops + 1)
+    }
+    return realpath(path)
+}
+
 export function processRuntime(): Runtime {
     return {
         env: process.env,
@@ -214,6 +253,21 @@ export function processRuntime(): Runtime {
         writeFile: async (path, contents) => {
             await mkdir(dirname(path), { recursive: true })
             await writeFile(path, contents)
+        },
+        realPath: (path) => resolveLinks(resolve(path), 0),
+        replaceFile: async (path, contents) => {
+            const mode = await stat(path).then(
+                (stats) => stats.mode & 0o7777,
+                () => undefined
+            )
+            const temporary = `${path}.${randomUUID()}.tmp`
+            try {
+                await writeFile(temporary, contents, { flag: 'wx', mode })
+                await rename(temporary, path)
+            } catch (error) {
+                await rm(temporary, { force: true })
+                throw error
+            }
         },
         // A rename is atomic, so a crash never leaves a half-written file. The temporary name is
         // random and `wx` refuses an existing path, so nobody can plant a symlink there first.
