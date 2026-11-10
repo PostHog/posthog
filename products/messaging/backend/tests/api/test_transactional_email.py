@@ -103,6 +103,12 @@ class TestTransactionalEmail(APIBaseTest):
             type="email",
         )
 
+    def _save_template(self, fields: dict) -> None:
+        saved = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/", fields, format="json"
+        )
+        assert saved.status_code == status.HTTP_200_OK, saved.json()
+
     def _workflow(self, hog_flow_id) -> dict:
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{hog_flow_id}")
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -362,6 +368,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("category_turned_marketing", "marketing_template"),
             ("marketing_template_without_an_unsubscribe_link", "unsubscribe_link_required"),
             ("marketing_workflow_without_an_unsubscribe_link", "unsubscribe_link_required"),
+            ("marketing_workflow_with_copies", "copies_not_allowed"),
             ("liquid_in_recipient", "invalid_recipient"),
             ("idempotency_key_with_spaces", "invalid_idempotency_key"),
             ("idempotency_key_too_long", "invalid_idempotency_key"),
@@ -392,6 +399,13 @@ class TestTransactionalEmail(APIBaseTest):
                 message_category=self._category(),
                 content={"email": {"subject": "Reset your password", "html": self.UNSUBSCRIBE_HTML}},
             )
+        elif case == "marketing_workflow_with_copies":
+            content = {"email": {"subject": "Reset your password", "html": self.UNSUBSCRIBE_HTML}}
+            self._save_template({"message_category": str(self._category().id), "content": content})
+            # An edit in the workflows editor, or a restored version, can add copies the template never had.
+            actions = HogFlow.objects.get(team=self.team, id=self.hog_flow_id).actions
+            actions[1]["config"]["inputs"]["email"]["value"]["bcc"] = "audit@example.com"
+            HogFlow.objects.filter(team=self.team, id=self.hog_flow_id).update(actions=actions)
         elif case == "liquid_in_recipient":
             body["to"] = "{{person.properties.email}}@example.com"
         elif case == "idempotency_key_with_spaces":
@@ -1639,15 +1653,8 @@ class TestTransactionalEmail(APIBaseTest):
     def test_a_template_send_names_its_categorys_current_type(self, mock_post, _flag, _capture, _name, archived):
         self._cdp_accepts(mock_post)
         account = self._category(key="account", name="Account", category_type=MessageCategoryType.TRANSACTIONAL)
-        saved = self.client.patch(
-            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
-            {
-                "message_category": str(account.id),
-                "content": {"email": {"subject": "Your account", "html": self.UNSUBSCRIBE_HTML}},
-            },
-            format="json",
-        )
-        assert saved.status_code == status.HTTP_200_OK, saved.json()
+        content = {"email": {"subject": "Your account", "html": self.UNSUBSCRIBE_HTML}}
+        self._save_template({"message_category": str(account.id), "content": content})
         MessageCategory.objects.filter(id=account.id).update(
             category_type=MessageCategoryType.MARKETING, deleted=archived
         )

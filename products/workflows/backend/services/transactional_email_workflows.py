@@ -2,7 +2,7 @@
 and an exit. The message template it was made from owns the content, so each content change writes a new version
 of the workflow through the same write path as the workflows UI, with its revision history."""
 
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from django.db import transaction
@@ -12,9 +12,9 @@ from posthog.models.scoping import with_team_scope
 
 from products.workflows.backend.facade.contracts import (
     TRANSACTIONAL_EMAIL_ACTION_ID,
-    TransactionalEmailBody,
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
+    TransactionalEmailMessage,
     TransactionalEmailSenderRequired,
     TransactionalEmailSenderUnavailable,
     WorkflowNotFound,
@@ -256,15 +256,23 @@ def update_transactional_email_workflow(
         )
 
 
-def get_transactional_email_body(*, team_id: int, hog_flow_id: UUID) -> TransactionalEmailBody:
+def get_transactional_email_message(*, team_id: int, hog_flow_id: UUID) -> TransactionalEmailMessage:
     actions = HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id).values_list("actions", flat=True).first()
     if actions is None:
         raise WorkflowNotFound()
-    step = next((action for action in actions if action.get("id") == TRANSACTIONAL_EMAIL_ACTION_ID), {})
+    step: dict[str, Any] = next((action for action in actions if action.get("id") == TRANSACTIONAL_EMAIL_ACTION_ID), {})
     email = step.get("config", {}).get("inputs", {}).get("email", {}).get("value")
     if not isinstance(email, dict):
-        return TransactionalEmailBody(html="", text="")
-    return TransactionalEmailBody(html=email.get("html") or "", text=email.get("text") or "")
+        return TransactionalEmailMessage(html="", text="", has_copies=False)
+    return TransactionalEmailMessage(
+        html=email.get("html") or "",
+        text=email.get("text") or "",
+        has_copies=_has_addresses(email.get("cc")) or _has_addresses(email.get("bcc")),
+    )
+
+
+def _has_addresses(value: Any) -> bool:
+    return bool(value.strip()) if isinstance(value, str) else bool(value)
 
 
 @with_team_scope()

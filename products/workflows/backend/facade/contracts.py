@@ -726,9 +726,10 @@ class TransactionalEmailContent:
 
 
 @frozen
-class TransactionalEmailBody:
+class TransactionalEmailMessage:
     html: str
     text: str
+    has_copies: bool
 
 
 class TransactionalEmailSenderUnavailable(Exception):

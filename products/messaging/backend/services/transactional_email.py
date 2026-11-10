@@ -78,7 +78,7 @@ from products.workflows.backend.facade.transactional_emails import (
     code_send_sender_id,
     create_code_email_workflow,
     create_transactional_email_workflow,
-    get_transactional_email_body,
+    get_transactional_email_message,
     resolve_transactional_email_sender,
     update_transactional_email_workflow,
 )
@@ -560,8 +560,8 @@ def send_transactional_email(
         else:
             send = _template_send(team.id, template, marketing_enabled=marketing_enabled)
         if _is_marketing(send.category):
-            body = get_transactional_email_body(team_id=team.id, hog_flow_id=send.hog_flow_id)
-            _require_unsubscribe_link(body.html, body.text)
+            message = get_transactional_email_message(team_id=team.id, hog_flow_id=send.hog_flow_id)
+            _require_marketing_email(message.html, message.text, has_copies=message.has_copies)
         send_category = template_send_category(send.category, category)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
     if send_category is not None:
@@ -641,10 +641,13 @@ def _kind_of(category: SendCategory | None) -> MessageCategoryKind:
 
 
 def _require_marketing_rules(email: CodeEmail, kind: MessageCategoryKind) -> None:
-    if kind != "marketing":
-        return
-    _require_unsubscribe_link(email.html, email.text)
-    if email.cc or email.bcc:
+    if kind == "marketing":
+        _require_marketing_email(email.html, email.text, has_copies=bool(email.cc or email.bcc))
+
+
+def _require_marketing_email(html: str, text: str, *, has_copies: bool) -> None:
+    _require_unsubscribe_link(html, text)
+    if has_copies:
         raise CopiesNotAllowed(
             "A marketing email can't have `cc` or `bcc` recipients. Send each recipient their own email."
         )
