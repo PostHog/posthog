@@ -56,6 +56,12 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
         PAUSED = "paused", "Paused"
         ARCHIVED = "archived", "Archived"
 
+    class KickoffSkipReason(models.TextChoices):
+        TASKS_GATED = "tasks_gated", "Tasks access blocked"
+        NO_CREATOR = "no_creator", "No creator"
+        TEAM_DAILY_CAP = "team_daily_cap", "Project daily training cap"
+        NOT_LAUNCHABLE = "not_launchable", "Not launchable"
+
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     # db_constraint=False on team/user FKs: creating a real constraint takes a
     # SHARE ROW EXCLUSIVE lock on the hot parent table (see /django-migrations).
@@ -167,6 +173,10 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     last_scored_at = models.DateTimeField(null=True, blank=True)
+    # Why the daily sweep last did not start a training run that was due. Cleared when the sweep starts a run.
+    kickoff_skip_reason = models.CharField(max_length=40, null=True, blank=True, choices=KickoffSkipReason.choices)
+    kickoff_skip_detail = models.TextField(null=True, blank=True)
+    kickoff_skipped_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]

@@ -36,6 +36,39 @@ export const TrainingPhaseEnumApi = {
 } as const
 
 /**
+ * * `tasks_gated` - Tasks access blocked
+ * * `no_creator` - No creator
+ * * `team_daily_cap` - Project daily training cap
+ * * `not_launchable` - Not launchable
+ */
+export type AutoresearchPipelineKickoffSkipReasonEnumApi =
+    (typeof AutoresearchPipelineKickoffSkipReasonEnumApi)[keyof typeof AutoresearchPipelineKickoffSkipReasonEnumApi]
+
+export const AutoresearchPipelineKickoffSkipReasonEnumApi = {
+    TasksGated: 'tasks_gated',
+    NoCreator: 'no_creator',
+    TeamDailyCap: 'team_daily_cap',
+    NotLaunchable: 'not_launchable',
+} as const
+
+export interface AutoresearchKickoffSkipApi {
+    /** Why the run did not start. tasks_gated: the creator cannot start a Tasks sandbox now. no_creator: the pipeline has no creator to own the run. team_daily_cap: the project used all its training runs of the last 24 hours. not_launchable: the launch was refused, for example because the target action is gone.
+     *
+     * * `tasks_gated` - Tasks access blocked
+     * * `no_creator` - No creator
+     * * `team_daily_cap` - Project daily training cap
+     * * `not_launchable` - Not launchable */
+    readonly reason: AutoresearchPipelineKickoffSkipReasonEnumApi
+    /**
+     * More about the reason, for example '3 of 3 training runs in the last 24 hours'. Null when there is none.
+     * @nullable
+     */
+    readonly detail: string | null
+    /** When the daily sweep did not start the run. */
+    readonly skipped_at: string
+}
+
+/**
  * * `draft` - Draft
  * * `bootstrapping` - Bootstrapping
  * * `running` - Running
@@ -290,6 +323,8 @@ export interface AutoresearchPipelineApi {
      * @nullable
      */
     readonly next_research_at: string | null
+    /** Why the daily sweep last did not start a training run that was due. Null when the sweep has not skipped a due run since it last started one. */
+    readonly last_kickoff_skip: AutoresearchKickoffSkipApi | null
     /**
      * Why the best model of the newest completed training run did not go live, for example a failed fit or a failed scorability check. Set only while the pipeline is bootstrapping with no champion.
      * @nullable

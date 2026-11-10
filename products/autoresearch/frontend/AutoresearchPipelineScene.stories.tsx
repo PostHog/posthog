@@ -41,6 +41,7 @@ const pipeline = {
     effective_agent_reasoning_effort: 'medium',
     training_phase: 'maintain',
     next_research_at: '2026-11-12T00:00:00Z',
+    last_kickoff_skip: null,
     not_promoted_reason: null,
     success_auc: null,
     plateau_iterations: 5,

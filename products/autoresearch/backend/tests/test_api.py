@@ -1,7 +1,7 @@
 import uuid
 import base64
 import dataclasses
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -427,6 +427,18 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["id"] == str(pipeline.id)
         assert resp.json()["target_definition"] == {"type": "event"}
+        assert resp.json()["last_kickoff_skip"] is None
+
+        pipeline.kickoff_skip_reason = AutoresearchPipeline.KickoffSkipReason.TEAM_DAILY_CAP
+        pipeline.kickoff_skip_detail = "3 of 3 training runs in the last 24 hours"
+        pipeline.kickoff_skipped_at = datetime(2026, 11, 9, 2, tzinfo=UTC)
+        pipeline.save()
+        resp = self.client.get(f"{self.base_url}/{pipeline.id}/")
+        assert resp.json()["last_kickoff_skip"] == {
+            "reason": "team_daily_cap",
+            "detail": "3 of 3 training runs in the last 24 hours",
+            "skipped_at": "2026-11-09T02:00:00Z",
+        }
 
     @parameterized.expand(
         [

@@ -149,6 +149,15 @@ class RealizedAucPoint:
     realized_auc: float
 
 
+@dataclass(frozen=True)
+class KickoffSkip:
+    """Why the daily sweep last did not start a training run that was due."""
+
+    reason: str
+    detail: str | None
+    skipped_at: datetime
+
+
 @dataclass(frozen=True, config={"arbitrary_types_allowed": True})
 class Pipeline:
     """One prediction pipeline: a target, a population, and a horizon.
@@ -178,6 +187,7 @@ class Pipeline:
     effective_agent_reasoning_effort: str | None
     training_phase: str
     next_research_at: datetime | None
+    last_kickoff_skip: KickoffSkip | None
     not_promoted_reason: str | None
     success_auc: float | None
     plateau_iterations: int
