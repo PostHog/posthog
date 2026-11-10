@@ -17,6 +17,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertReceiverEdit,
     AlertRouteEdit,
+    ControlChangeKind,
     DestinationSend,
     HandbackRefusal,
     HeldDeliveryAddress,
@@ -34,6 +35,8 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformCheckEntry,
     PlatformCheckEventPage,
     PlatformCheckPage,
+    PlatformControlChangePage,
+    PlatformControlHistory,
     PlatformHandback,
     PlatformLastCheck,
     PlatformOwnershipHandover,
@@ -356,6 +359,28 @@ def notable_checks_by_public_id(
     return platform_reads.notable_checks_by_public_id(team_id=team_id, public_id=public_id, since=since, limit=limit)
 
 
+def control_changes_by_public_id(
+    *, team_id: int, public_id: UUID, kinds: Collection[ControlChangeKind], limit: int
+) -> PlatformControlChangePage | None:
+    """The newest `limit` control-plane changes of `kinds` to a named alert, with their total and the
+    time of the oldest change of any kind, or None when the platform does not own the alert.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.control_changes_by_public_id(team_id=team_id, public_id=public_id, kinds=kinds, limit=limit)
+
+
+def control_history_by_public_id(
+    *, team_id: int, public_ids: Collection[UUID], since: datetime, until: datetime
+) -> dict[UUID, PlatformControlHistory]:
+    """The control-plane changes in `[since, until)` of each named alert the platform owns, keyed by its
+    public id, with when its oldest kept change happened and its newest enable or disable before `since`.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.control_history_by_public_id(team_id=team_id, public_ids=public_ids, since=since, until=until)
+
+
 def update_configuration(
     *,
     team_id: int,
@@ -433,10 +458,12 @@ def update_owned_copy(
     snooze_changed: bool = False,
     cadence: PlatformAlertUpsert | None = None,
     rescheduled: bool = False,
+    at: datetime | None = None,
 ) -> None:
     """Applies an edit a source made to its own row onto the copy the platform owns. When `cadence`
     changes the copy's cadence, or `rescheduled` says the source moved its own due time, the copy is
-    next due at the cadence's `next_check_at`.
+    next due at the cadence's `next_check_at`. `at` is when the source made the edit, taken before
+    it wrote any history row of its own, so the platform's row of the same change is no later.
 
     Raises `InvalidPlatformAlertEdit` for an edit the source kind's schema rejects.
     """
@@ -448,6 +475,7 @@ def update_owned_copy(
         snooze_changed=snooze_changed,
         cadence=cadence,
         rescheduled=rescheduled,
+        at=at,
     )
 
 
