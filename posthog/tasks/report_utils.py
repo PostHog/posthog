@@ -78,7 +78,7 @@ def capture_event(
         pha_client.capture(
             distinct_id=distinct_id,
             event=name,
-            properties={**properties, "scope": "user"},
+            properties={**properties, "scope": "user", "$update_person_last_seen_at": False},
             groups={"organization": str(organization_id), "instance": settings.SITE_URL},
             timestamp=timestamp,
         )
@@ -86,7 +86,7 @@ def capture_event(
         pha_client.capture(
             distinct_id=get_machine_id(),
             event=name,
-            properties={**properties, "scope": "machine"},
+            properties={**properties, "scope": "machine", "$update_person_last_seen_at": False},
             groups={"instance": settings.SITE_URL},
             timestamp=timestamp,
         )

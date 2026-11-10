@@ -855,6 +855,7 @@ class DashboardImporter:
             "duration_seconds": round((timezone.now() - started).total_seconds(), 1),
             "layout_rounds": state.layout_check.round if state.layout_check else None,
             **result.summary.model_dump(),
+            "$update_person_last_seen_at": False,
         }
         if not background:
             report_user_action(self._user, "metrics dashboard import finished", properties, team=self._team)
