@@ -19,7 +19,12 @@ from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.workflows.backend.facade.contracts import ImportOptions, WorkflowImportRecord
-from products.workflows.backend.facade.enums import WorkflowImportNoteLevel, WorkflowImportSource, WorkflowImportStatus
+from products.workflows.backend.facade.enums import (
+    WorkflowImportNoteLevel,
+    WorkflowImportSegmentCohortStatus,
+    WorkflowImportSource,
+    WorkflowImportStatus,
+)
 from products.workflows.backend.facade.workflow_imports import import_for_workflow
 from products.workflows.backend.presentation.views.workflow_import_drafts import import_campaigns
 
@@ -198,7 +203,7 @@ class WorkflowImportSegmentCohortSerializer(serializers.Serializer):
     segment_id = serializers.CharField(help_text="The Customer.io segment's id.")
     segment_name = serializers.CharField(allow_blank=True, help_text="The segment's name.")
     status = serializers.ChoiceField(
-        choices=["created", "reused", "would_create", "not_converted"],
+        choices=WorkflowImportSegmentCohortStatus.choices,
         help_text=(
             "`created`: the import made a realtime cohort from the segment's rules. `reused`: an earlier import "
             "made it. `would_create`: a real import makes one, in a preview. `not_converted`: no cohort is used, "

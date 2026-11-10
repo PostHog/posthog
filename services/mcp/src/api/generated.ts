@@ -122790,10 +122790,10 @@ export namespace Schemas {
     }
 
     /**
-     * * `created` - created
-     * * `reused` - reused
-     * * `would_create` - would_create
-     * * `not_converted` - not_converted
+     * * `created` - Created
+     * * `reused` - Reused
+     * * `would_create` - Would create
+     * * `not_converted` - Not converted
      */
     export type WorkflowImportSegmentCohortStatusEnum = typeof WorkflowImportSegmentCohortStatusEnum[keyof typeof WorkflowImportSegmentCohortStatusEnum];
 
@@ -122812,10 +122812,10 @@ export namespace Schemas {
       segment_name: string;
       /** `created`: the import made a realtime cohort from the segment's rules. `reused`: an earlier import made it. `would_create`: a real import makes one, in a preview. `not_converted`: no cohort is used, see `reason`.
        *
-       * * `created` - created
-       * * `reused` - reused
-       * * `would_create` - would_create
-       * * `not_converted` - not_converted */
+       * * `created` - Created
+       * * `reused` - Reused
+       * * `would_create` - Would create
+       * * `not_converted` - Not converted */
       status: WorkflowImportSegmentCohortStatusEnum;
       /**
          * The cohort's id, when there is one.

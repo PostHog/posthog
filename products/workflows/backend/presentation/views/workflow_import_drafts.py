@@ -39,7 +39,11 @@ from products.workflows.backend.facade.contracts import (
     WorkflowActor,
     WorkflowStale,
 )
-from products.workflows.backend.facade.enums import HogFlowState, WorkflowImportNoteLevel
+from products.workflows.backend.facade.enums import (
+    HogFlowState,
+    WorkflowImportNoteLevel,
+    WorkflowImportSegmentCohortStatus as SegmentCohortStatus,
+)
 from products.workflows.backend.facade.workflow_imports import (
     import_content,
     previous_import,
@@ -180,15 +184,15 @@ def _convert_segments(
     for segment_id, source_ids in referenced.items():
         segment = options.segments[segment_id]
         result = creation.convert(segment_id, segment)
-        if result.status in ("created", "reused") and result.cohort_id is not None:
+        if result.status in (SegmentCohortStatus.CREATED, SegmentCohortStatus.REUSED) and result.cohort_id is not None:
             mapped[segment_id] = result.cohort_id
-        elif result.status == "would_create":
+        elif result.status == SegmentCohortStatus.WOULD_CREATE:
             pending[segment_id] = _cohort_name(segment_id, segment)
         outcomes.append(
             {
                 "segment_id": segment_id,
                 "segment_name": segment.name,
-                "status": result.status,
+                "status": result.status.value,
                 "cohort_id": result.cohort_id,
                 "reason": result.reason,
             }
@@ -210,22 +214,18 @@ def _cohort_name(segment_id: str, segment: ImportSegment) -> str:
 
 @frozen
 class _SegmentOutcome:
-    # `created`, `reused`, `would_create` in a preview, or `not_converted`.
-    status: str
+    status: SegmentCohortStatus
     cohort_id: int | None = None
     note: ImportNote | None = None
     reason: str | None = None
 
 
-@dataclasses.dataclass
 class _CohortCreation:
-    team: Team
-    user: User
-    context: _RequestContext
-    dry_run: bool
-    # Why cohorts can't be used or created, each worked out once per request, when the first segment needs it.
-    unavailable: str | None = None
-    blocked: str | None = None
+    def __init__(self, team: Team, user: User, context: _RequestContext, dry_run: bool) -> None:
+        self.team, self.user, self.context, self.dry_run = team, user, context, dry_run
+        # Why cohorts can't be used or created, each worked out once per request, when the first segment needs it.
+        self.unavailable: str | None = None
+        self.blocked: str | None = None
 
     def convert(self, segment_id: str, segment: ImportSegment) -> _SegmentOutcome:
         label = f'"{segment.name}" ({segment_id})' if segment.name else segment_id
@@ -243,7 +243,7 @@ class _CohortCreation:
                     existing.id,
                 )
             return _SegmentOutcome(
-                status="reused",
+                status=SegmentCohortStatus.REUSED,
                 cohort_id=existing.id,
                 note=ImportNote(
                     level=WorkflowImportNoteLevel.APPROXIMATED,
@@ -266,7 +266,7 @@ class _CohortCreation:
             return _not_converted(label, self.blocked)
         if self.dry_run:
             return _SegmentOutcome(
-                status="would_create",
+                status=SegmentCohortStatus.WOULD_CREATE,
                 note=ImportNote(
                     level=WorkflowImportNoteLevel.APPROXIMATED,
                     message=f'Importing for real creates the realtime cohort "{_cohort_name(segment_id, segment)}" '
@@ -295,7 +295,7 @@ class _CohortCreation:
                 created.id,
             )
         return _SegmentOutcome(
-            status="created",
+            status=SegmentCohortStatus.CREATED,
             cohort_id=created.id,
             note=ImportNote(
                 level=WorkflowImportNoteLevel.APPROXIMATED,
@@ -307,7 +307,7 @@ class _CohortCreation:
 
 def _not_converted(label: str, reason: str, cohort_id: int | None = None) -> _SegmentOutcome:
     return _SegmentOutcome(
-        status="not_converted",
+        status=SegmentCohortStatus.NOT_CONVERTED,
         cohort_id=cohort_id,
         reason=reason,
         note=ImportNote(
