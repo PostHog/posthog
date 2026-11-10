@@ -118,6 +118,28 @@ describe("gitlab_merge_request tool", () => {
     });
   });
 
+  it.each([true, false])(
+    "prefers an open MR for a reused branch (open: %s)",
+    async (hasOpen) => {
+      const closed = { ...MR, iid: 99, state: "closed" };
+      const { deps } = setup([]);
+      deps.client.fetch = vi.fn(async (url: string | URL | Request) => {
+        const query = new URL(String(url)).searchParams;
+        return jsonResponse(
+          query.get("state") === "opened" ? (hasOpen ? [MR] : []) : [closed],
+        );
+      }) as typeof fetch;
+
+      const result = await runGitlabMergeRequest(deps, { operation: "view" });
+
+      expect(JSON.parse(result.content[0].text)).toMatchObject(
+        hasOpen
+          ? { iid: MR.iid, state: "opened" }
+          : { iid: closed.iid, state: "closed" },
+      );
+    },
+  );
+
   it("refuses an MR URL from another project without a request", async () => {
     const { deps, fetchMock } = setup([]);
 

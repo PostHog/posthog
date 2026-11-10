@@ -239,15 +239,24 @@ export async function findGitlabMergeRequestBySourceBranch(
     source_branch: sourceBranch,
     order_by: "created_at",
     sort: "desc",
-    per_page: "20",
+    per_page: "1",
   });
-  const list = await gitlabRequest<RawMergeRequest[]>(
+  query.set("state", "opened");
+  const path = `${projectApiPath(projectPath)}/merge_requests`;
+  const open = await gitlabRequest<RawMergeRequest[]>(
     client,
     "GET",
-    `${projectApiPath(projectPath)}/merge_requests?${query}`,
+    `${path}?${query}`,
   );
-  const mrs = (list ?? []).map(toMergeRequest);
-  return mrs.find((mr) => mr.state === "opened") ?? mrs[0] ?? null;
+  if (open?.[0]) return toMergeRequest(open[0]);
+
+  query.delete("state");
+  const historical = await gitlabRequest<RawMergeRequest[]>(
+    client,
+    "GET",
+    `${path}?${query}`,
+  );
+  return historical?.[0] ? toMergeRequest(historical[0]) : null;
 }
 
 const DRAFT_TITLE_PREFIX = /^\s*(?:draft:|\[draft\]|\(draft\))/i;
