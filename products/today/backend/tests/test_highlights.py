@@ -412,8 +412,13 @@ class TestGetHighlights(BaseTest):
             found = highlights.get_highlights(team=self.team, user=self.user, scopes=None)
 
         self.assertEqual(
-            (found.status, connect.return_value.start_workflow.call_count, [m.key for m in found.pulse]),
-            (status, starts, pulse),
+            (
+                found.status,
+                connect.return_value.start_workflow.call_count,
+                [m.key for m in found.pulse],
+                [slot.key for slot in found.pulse_slots or []],
+            ),
+            (status, starts, pulse, pulse),
         )
 
 
@@ -611,6 +616,32 @@ class TestProgressiveHighlights(BaseTest):
                 [("kept", HighlightPinStatus.READY)],
                 ["kept"],
             ),
+        )
+
+    def test_a_computation_that_published_nothing_early_still_lists_its_numbers(self) -> None:
+        row = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="no-progress", pins_key="pins"
+        )
+        highlights.finalize(
+            FinalizeHighlightsInputs(
+                team_id=self.team.id,
+                highlights_id=str(row.id),
+                results=[
+                    HighlightSourceResult(
+                        source_name="routine",
+                        found=FOUND.dump_json(HighlightFindings(pulse=(metric("routine"),))).decode(),
+                        failed=False,
+                    )
+                ],
+                pins=[PinnedNumber(key="insight:p")],
+                pinned=PINNED_METRICS.dump_json([metric("insight:p")]).decode(),
+            )
+        )
+        row.refresh_from_db()
+
+        self.assertEqual(
+            [(slot.key, slot.status) for slot in HIGHLIGHTS.validate_python(row.content).pulse_slots or []],
+            [("insight:p", PulseSlotStatus.READY), ("routine", PulseSlotStatus.READY)],
         )
 
     @parameterized.expand([(False,), (True,)])

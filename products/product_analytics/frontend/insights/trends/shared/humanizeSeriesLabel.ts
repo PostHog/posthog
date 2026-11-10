@@ -19,6 +19,7 @@ const POSTHOG_EVENT_DISPLAY_NAMES: Record<string, string> = {
     $conversation_ticket_created: 'Conversation ticket created',
     $conversation_ticket_priority_changed: 'Conversation ticket priority changed',
     $conversation_ticket_status_changed: 'Conversation ticket status changed',
+    $conversation_ticket_tag_added: 'Conversation ticket tag added',
     $copy_autocapture: 'Clipboard autocapture',
     $create_alias: 'Alias',
     $csp_violation: 'CSP violation',

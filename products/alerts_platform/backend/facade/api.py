@@ -9,14 +9,18 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
+    AlertReceiverEdit,
+    AlertRouteEdit,
     DestinationSend,
     HandbackRefusal,
     HeldDeliveryAddress,
+    NativeConfigurationMatch,
     NewAlertDestination,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
@@ -35,11 +39,14 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformOwnershipHandover,
     SourceKind,
     StoredAlertDestination,
+    StoredAlertReceiver,
+    StoredAlertRoute,
     VerdictChange,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.logic import (
     alert_destinations,
+    alert_routing,
     delivery_holds,
     destination_sends,
     platform_lifecycle,
@@ -87,12 +94,12 @@ def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) ->
     return delivery_holds.reschedule_hold(address, release_after=release_after)
 
 
-def source_suppressed_holds_by_legacy_id(
-    *, team_id: int, legacy_configuration_id: UUID, evaluation_keys: Collection[str]
+def source_suppressed_holds_by_public_id(
+    *, team_id: int, public_id: UUID, evaluation_keys: Collection[str]
 ) -> frozenset[str]:
     """The named evaluations of an alert the platform owns whose held delivery its source released
     with a suppress. A suppress by the safety net, for a configuration turned off, is left out."""
-    return delivery_holds.source_suppressed_holds_by_legacy_id(team_id, legacy_configuration_id, evaluation_keys)
+    return delivery_holds.source_suppressed_holds_by_public_id(team_id, public_id, evaluation_keys)
 
 
 def record_verdict_change(change: VerdictChange, *, now: datetime) -> AlertDeliveryRequest | None:
@@ -214,6 +221,25 @@ def native_configuration_keys(
     `list_configurations`. With `created_by_uuid`, only the ones that user created."""
     return platform_reads.native_configuration_keys(
         team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
+    )
+
+
+def native_configuration_matches(
+    *, team_id: int, source_kind: SourceKind, search: str | None = None
+) -> tuple[NativeConfigurationMatch, ...]:
+    """Every alert of a kind with no source row, with what a source's list filters, sorts and pages
+    them on beside its own rows. With `search`, only the ones whose name matches it, exact and
+    similar alike: the source keeps only the exact tier when any row of either kind is exact."""
+    return platform_reads.native_configuration_matches(team_id=team_id, source_kind=source_kind.value, search=search)
+
+
+def native_configuration_ids(
+    *, team_id: int, source_kind: SourceKind, source_config_key: str, values: Collection[Any]
+) -> tuple[UUID, ...]:
+    """Ids of the team's alerts of a kind with no source row whose `source_config[key]` is one of
+    `values`, such as the alerts on a set of insights."""
+    return platform_reads.native_configuration_ids(
+        team_id=team_id, source_kind=source_kind.value, source_config_key=source_config_key, values=values
     )
 
 
@@ -504,3 +530,40 @@ def recent_destination_sends(
 ) -> tuple[DestinationSend, ...]:
     """The newest sends to the named destination HogFunctions, on both delivery paths, newest first."""
     return destination_sends.recent_destination_sends(team_id=team_id, destination_ids=destination_ids, limit=limit)
+
+
+def list_alert_receivers(*, team_id: int) -> tuple[StoredAlertReceiver, ...]:
+    return alert_routing.list_receivers(team_id=team_id)
+
+
+def create_alert_receiver(*, team_id: int, edit: AlertReceiverEdit) -> StoredAlertReceiver:
+    """Raises `AlertDestinationValidationError` on a refused receiver."""
+    return alert_routing.create_receiver(team_id=team_id, edit=edit)
+
+
+def update_alert_receiver(*, team_id: int, receiver_id: UUID, edit: AlertReceiverEdit) -> StoredAlertReceiver:
+    """Raises `UnknownAlertRouting` for an id the team has no receiver with."""
+    return alert_routing.update_receiver(team_id=team_id, receiver_id=receiver_id, edit=edit)
+
+
+def delete_alert_receiver(*, team_id: int, receiver_id: UUID) -> None:
+    """Deletes the receiver and its routes. Raises `UnknownAlertRouting` for an id the team has no receiver with."""
+    alert_routing.delete_receiver(team_id=team_id, receiver_id=receiver_id)
+
+
+def list_alert_routes(*, team_id: int) -> tuple[StoredAlertRoute, ...]:
+    return alert_routing.list_routes(team_id=team_id)
+
+
+def create_alert_route(*, team_id: int, edit: AlertRouteEdit) -> StoredAlertRoute:
+    return alert_routing.create_route(team_id=team_id, edit=edit)
+
+
+def update_alert_route(*, team_id: int, route_id: UUID, edit: AlertRouteEdit) -> StoredAlertRoute:
+    """Raises `UnknownAlertRouting` for an id the team has no route with."""
+    return alert_routing.update_route(team_id=team_id, route_id=route_id, edit=edit)
+
+
+def delete_alert_route(*, team_id: int, route_id: UUID) -> None:
+    """Raises `UnknownAlertRouting` for an id the team has no route with."""
+    alert_routing.delete_route(team_id=team_id, route_id=route_id)

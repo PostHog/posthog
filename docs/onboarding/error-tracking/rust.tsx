@@ -16,7 +16,7 @@ export const getRustSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                             Install the PostHog Rust SDK. Error tracking is enabled by its default \`error-tracking\` feature.
                         `}
                     </Markdown>
-                    <CodeBlock language="bash" code="cargo add posthog-rs" />
+                    <CodeBlock language="bash" code="cargo add posthog-rs@0.31" />
                     <Markdown>
                         {dedent`
                             If you disable default features, add \`error-tracking\` explicitly in your dependency configuration.
