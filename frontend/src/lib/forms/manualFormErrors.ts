@@ -17,3 +17,16 @@ export function showServerFormError(
         lemonToast.error(error.detail || fallbackMessage)
     }
 }
+
+/** kea-forms drops a manual error only on blur, and a stale one blocks a resubmit from the Enter key. */
+export function clearManualError(
+    key: string | number,
+    manualErrors: Record<string, unknown>,
+    setManualErrors: (errors: Record<string, unknown>) => void
+): void {
+    if (!(key in manualErrors)) {
+        return
+    }
+    const { [key]: _stale, ...remainingErrors } = manualErrors
+    setManualErrors(remainingErrors)
+}

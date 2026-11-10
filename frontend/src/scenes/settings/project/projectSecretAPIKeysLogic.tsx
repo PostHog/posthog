@@ -9,7 +9,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
-import { showServerFormError } from 'lib/forms/showServerFormError'
+import { clearManualError, showServerFormError } from 'lib/forms/manualFormErrors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     API_SCOPES,
@@ -438,10 +438,7 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
         },
         setEditingKeyValue: async ({ name, value }) => {
             const key = Array.isArray(name) ? name[0] : name
-            if (key in values.editingKeyManualErrors) {
-                const { [key]: _stale, ...remainingErrors } = values.editingKeyManualErrors
-                actions.setEditingKeyManualErrors(remainingErrors)
-            }
+            clearManualError(key, values.editingKeyManualErrors, actions.setEditingKeyManualErrors)
 
             if (key === 'preset' && value) {
                 const preset = PROJECT_SECRET_API_KEY_SCOPE_PRESETS.find((p) => p.value === value)

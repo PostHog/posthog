@@ -11,7 +11,7 @@ import { ApiError } from 'lib/api-error'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { showServerFormError } from 'lib/forms/showServerFormError'
+import { clearManualError, showServerFormError } from 'lib/forms/manualFormErrors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SCOPE_DOCS } from 'lib/scopeDocs.generated'
@@ -777,11 +777,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         },
         setEditingKeyValue: async ({ name, value }) => {
             const key = Array.isArray(name) ? name[0] : name
-            // kea-forms only drops a manual error on blur, and a stale one blocks a resubmit from the Enter key
-            if (key in values.editingKeyManualErrors) {
-                const { [key]: _stale, ...remainingErrors } = values.editingKeyManualErrors
-                actions.setEditingKeyManualErrors(remainingErrors)
-            }
+            clearManualError(key, values.editingKeyManualErrors, actions.setEditingKeyManualErrors)
             // When we select a preset, update the scopes
             if (key === 'preset' && value) {
                 const preset = API_KEY_SCOPE_PRESETS.find((preset) => preset.value === value)
