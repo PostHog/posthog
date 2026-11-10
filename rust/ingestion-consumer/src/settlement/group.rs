@@ -398,17 +398,15 @@ mod integration_tests {
         );
     }
 
-    enum Leaves {
-        Revoked,
-        Reassigned,
+    enum Rebalance {
+        Revoke,
+        Assign,
     }
 
     #[rstest::rstest]
-    #[case::revoked(Leaves::Revoked)]
-    #[case::reassigned(Leaves::Reassigned)]
-    fn a_partition_that_leaves_commits_neither_its_pending_nor_its_handed_out_frontier(
-        #[case] leaves: Leaves,
-    ) {
+    #[case::revoke(Rebalance::Revoke)]
+    #[case::assign(Rebalance::Assign)]
+    fn a_rebalance_drops_every_offset_the_partition_had_to_commit(#[case] rebalance: Rebalance) {
         let ledger = Arc::new(TopicOffsetLedger::new());
         let settlement = GroupSettlement::new(
             Arc::clone(&ledger),
@@ -422,9 +420,9 @@ mod integration_tests {
 
         charge_offsets(&ledger, &p0, 0, &[11]);
         settlement.settle_run(&p0, 0, &[Offset(11)]).unwrap();
-        match leaves {
-            Leaves::Revoked => settlement.on_revoked(&[p0]),
-            Leaves::Reassigned => settlement.on_assigned(&[p0]),
+        match rebalance {
+            Rebalance::Revoke => settlement.on_revoked(&[p0]),
+            Rebalance::Assign => settlement.on_assigned(&[p0]),
         }
 
         assert!(settlement.take_all().is_none());
