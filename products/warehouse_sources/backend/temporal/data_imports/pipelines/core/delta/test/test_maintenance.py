@@ -1389,10 +1389,10 @@ class TestRunScheduled:
 
 class TestVacuumOnARealTable:
     """Lite vacuum finds dead files only through tombstones, and a checkpoint drops tombstones older
-    than `delta.deletedFileRetentionDuration`. These tests shorten that window to one second."""
+    than `delta.deletedFileRetentionDuration`. These tests shorten that window to zero."""
 
     def _table_with_dropped_tombstones(self, root: str) -> None:
-        config = {"delta.checkpointInterval": "5", "delta.deletedFileRetentionDuration": "interval 1 seconds"}
+        config = {"delta.checkpointInterval": "5", "delta.deletedFileRetentionDuration": "interval 0 seconds"}
         deltalake.write_deltalake(
             root, pa.table({"p": ["a"] * 3, "x": [1, 2, 3]}), partition_by=["p"], configuration=config
         )
@@ -1401,8 +1401,6 @@ class TestVacuumOnARealTable:
                 root, pa.table({"p": ["a"] * 3, "x": [1, 2, 3]}), partition_by=["p"], mode="overwrite"
             )
         assert len(_dead_files(root)) == 3
-        # The tombstones must age past the window before the next checkpoint drops them.
-        time.sleep(1.1)
         for i in range(6):
             deltalake.write_deltalake(root, pa.table({"p": ["b"], "x": [i]}), partition_by=["p"], mode="append")
 
