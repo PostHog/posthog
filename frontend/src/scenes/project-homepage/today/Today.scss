@@ -341,40 +341,44 @@ html[data-today-transition]::view-transition-new(root) {
 .TodayPulseEmpty {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
 }
 
-.TodayPulse--ghost {
-    pointer-events: none;
-    user-select: none;
-    opacity: 0.75;
-
-    .TodayPulse__name {
-        color: var(--today-faint);
-    }
+.TodayPulse--ghost .TodayPulse__name {
+    color: var(--today-muted);
 }
 
-.TodayPulse__ghostValue {
-    display: inline-block;
-    width: 56px;
-    height: 16px;
-    margin: 4px 0;
-    background: var(--today-line);
-    border-radius: 4px;
+.TodayPulse__ghostStatus {
+    display: block;
+    font-size: 13px;
+    line-height: 20px;
+    color: var(--today-faint);
 }
 
 .TodayPulse__ghostLine {
     width: 100%;
-    height: 16px;
+    height: 20px;
     overflow: visible;
+    opacity: 0.4;
+    mask-image: linear-gradient(to right, transparent 0%, #000 70%);
 
-    path {
+    polyline {
         fill: none;
-        stroke: var(--today-faint);
+        stroke: var(--today-muted);
+        stroke-linejoin: round;
         stroke-linecap: round;
-        stroke-opacity: 0.6;
         stroke-width: 1.5;
         vector-effect: non-scaling-stroke;
+    }
+}
+
+.TodayPulse__ghostSetup {
+    align-self: flex-start;
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+
+    &:hover {
+        color: var(--today-ink);
     }
 }
 
