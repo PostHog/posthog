@@ -34,6 +34,8 @@ from posthog.scheduling.jitter import deterministic_offset
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.dashboards.backend.access import record_dashboard_view
+from products.dashboards.backend.facade.enums import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models import PropertyDefinition
@@ -204,6 +206,38 @@ class TestWarming(APIBaseTest):
 
         self.assertEqual(selection.insights, [(insight.pk, dashboard_id)] if expected_kept else [])
         self.assertEqual(selection.skipped, expected_skipped)
+
+    @parameterized.expand(
+        [
+            ("opened_in_the_app", DashboardAccessMethod.HUMAN, False, True, True),
+            ("opened_through_a_shared_link", DashboardAccessMethod.SHARED, False, True, True),
+            ("opened_through_an_embed", DashboardAccessMethod.EMBEDDED, False, True, True),
+            ("read_through_the_api", DashboardAccessMethod.API, False, True, False),
+            ("rendered_for_an_export", DashboardAccessMethod.SHARED, True, True, False),
+            ("read_through_the_api_with_the_setting_off", DashboardAccessMethod.API, False, False, True),
+        ]
+    )
+    def test_only_a_view_by_a_person_keeps_a_dashboard_warm_when_api_access_is_ignored(
+        self,
+        _name: str,
+        access_method: DashboardAccessMethod,
+        is_export_render: bool,
+        ignore_api_access: bool,
+        expected_kept: bool,
+    ) -> None:
+        insight = Insight.objects.create(team=self.team)
+        dashboard = Dashboard.objects.create(team=self.team)
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        record_dashboard_view(dashboard, access_method, is_export_render=is_export_render)
+
+        with (
+            override_instance_config("CACHE_WARMING_IGNORE_API_DASHBOARD_ACCESS", ignore_api_access),
+            patch("posthog.caching.warming.get_stale_insights", return_value=[f"{insight.pk}:{dashboard.pk}"]),
+        ):
+            selection = insights_to_keep_fresh(self.team, settings=load_warming_settings())
+
+        self.assertEqual(selection.insights, [(insight.pk, dashboard.pk)] if expected_kept else [])
+        self.assertEqual(selection.skipped, {} if expected_kept else {"dashboard_not_viewed_by_person": 1})
 
 
 class TestScheduleWarmingForTeamsTask(APIBaseTest):

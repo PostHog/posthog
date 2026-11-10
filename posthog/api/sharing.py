@@ -1199,7 +1199,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         elif resource.dashboard and not resource.dashboard.deleted:
             asset_title = resource.dashboard.name
             asset_description = resource.dashboard.description or ""
-            record_dashboard_view(resource.dashboard, context["dashboard_access_method"])
+            record_dashboard_view(
+                resource.dashboard,
+                context["dashboard_access_method"],
+                is_export_render=isinstance(resource, ExportedAsset),
+            )
 
             with task_chain_context():
                 # Viewers of a shared dashboard never get the tile details panel, so the people
