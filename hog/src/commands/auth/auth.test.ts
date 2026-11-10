@@ -853,6 +853,45 @@ describe('hog auth login', () => {
         expect([...items.keys()]).toEqual([EU_ITEM])
     })
 
+    test('a login that the keychain refused to remove from under its host goes on the next logout', async () => {
+        const items = new Map([[EU, JSON.stringify({ apiKey: 'phx_old' })]])
+        const deletes = { refused: true }
+        const secrets: Secrets = {
+            get: async (name) => items.get(name) ?? null,
+            set: async (name, value) => {
+                items.set(name, value)
+            },
+            delete: async (name) => {
+                if (deletes.refused && name === EU) {
+                    throw Object.assign(new Error('denied'), { code: 'ERR_SECRETS_USER_CANCELED' })
+                }
+                return items.delete(name)
+            },
+        }
+        const login = await runHog(['auth', 'login', '--wait'], {
+            env: { CLAUDECODE: '1' },
+            files: {
+                [SETTINGS_FILE]: JSON.stringify({ logins: { [EU]: keyRecord(EU) }, host: EU }),
+                [PENDING_FILE]: PENDING,
+            },
+            respond: deviceFlow(0),
+            secrets: () => secrets,
+        })
+        expect(login.json()).toMatchObject({ store: 'keychain' })
+        expect(items.has(EU)).toBe(true)
+
+        deletes.refused = false
+        const logout = await runHog(['auth', 'logout'], {
+            env: { CLAUDECODE: '1' },
+            files: login.files,
+            respond: deviceFlow(0),
+            secrets: () => secrets,
+        })
+
+        expect(logout.json()).toMatchObject({ status: 'logged_out', keychainLeftover: null })
+        expect([...items.keys()]).toEqual([])
+    })
+
     test.each(KEYCHAIN_LOGINS)(
         'a file login that replaced %s takes the old keychain item with it on logout',
         async (_name, files, item) => {
@@ -1164,6 +1203,7 @@ describe('hog auth login', () => {
         expect(result.keychain).toEqual(OAUTH_LOGIN.keychain)
         const revoke = result.requests.find((request) => request.url.endsWith('/oauth/revoke/'))
         expect((revoke?.body as { token?: string } | undefined)?.token).toBe(STEPPED_UP_REFRESH)
+        expect(result.files[ADD_PENDING_FILE]).toBeUndefined()
     })
 
     test('add --wait saves the scopes for the project that asked for them, not the one the folder uses', async () => {

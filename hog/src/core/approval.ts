@@ -319,11 +319,13 @@ export async function runApproval<Pending extends PendingApproval, Value>(
 }
 
 // `<command> --wait`: resumes the command's pending item. It takes no ID, because the item is on disk.
+// A caller that already read the item passes it, so another hog process can't replace it in between.
 export async function resumeApproval<Pending extends PendingApproval, Value>(
     ctx: Context,
-    flow: ApprovalWait<Pending, Value>
+    flow: ApprovalWait<Pending, Value>,
+    read?: Pending
 ): Promise<Value> {
-    const pending = await readPending(ctx.runtime, flow)
+    const pending = read ?? (await readPending(ctx.runtime, flow))
     if (!pending) {
         throw new HogError(
             `no_pending_${errorCode(flow.noun)}`,

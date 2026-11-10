@@ -97,10 +97,14 @@ export async function writeLogin(
             ...(keychainLeftover ? { keychainLeftover } : {}),
             ...(loggedInAt === undefined ? {} : { loggedInAt }),
         }
+        const save = (saved: LoginRecord): Promise<void> => {
+            const settings = withLogin(current, key, saved)
+            return writeSettings(runtime, options.lastLogin ? { ...settings, host: key.host } : settings)
+        }
+        await save(record)
         const settings = withLogin(current, key, record)
-        await writeSettings(runtime, options.lastLogin ? { ...settings, host: key.host } : settings)
-        // The previous secrets go only once settings.json no longer names them. A failed removal leaves
-        // them to `hog auth logout --all` instead of failing a login that is already saved. A keychain
+        // The previous secrets go only once settings.json no longer names them. A failed removal doesn't
+        // fail a login that is already saved. A keychain
         // item stays when the login moved to the file, because the keychain just failed and hog would
         // wait for it again. `keychainLeftover` marks it for logout instead.
         const stale: { store: StoreChoice; name: ItemName }[] = []
@@ -114,10 +118,18 @@ export async function writeLogin(
         if (previous?.keychainLeftover && store.kind === 'keychain' && !hostItemInUse(settings, key.host)) {
             stale.push({ store: 'keychain', name: hostItemName(key.host) })
         }
+        let keychainLeft = false
         for (const item of stale) {
-            await openStore(runtime, item.store)
+            const removed = await openStore(runtime, item.store)
                 .remove(item.name)
-                .catch(() => false)
+                .then(
+                    () => true,
+                    () => false
+                )
+            keychainLeft ||= !removed && item.store === 'keychain'
+        }
+        if (keychainLeft && !record.keychainLeftover) {
+            await save({ ...record, keychainLeftover: true })
         }
     })
 }

@@ -40,7 +40,7 @@ export default defineCommand({
             const started = await readPending(ctx.runtime, wait)
             const startedFor =
                 started?.projectId === undefined ? undefined : { host: started.host, projectId: started.projectId }
-            return finishStepUp(ctx, await resumeApproval(ctx, wait), startedFor)
+            return finishStepUp(ctx, await resumeApproval(ctx, wait, started), startedFor)
         }
         if (args.scopes.length === 0) {
             throw new HogError(

@@ -1,4 +1,4 @@
-import { refuseInCi, runApproval, type PendingResult } from '@/core/approval'
+import { clearPending, refuseInCi, runApproval, type PendingResult } from '@/core/approval'
 import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 import type { AccessKey } from '@/posthog/access-key'
@@ -42,7 +42,8 @@ export async function finishStepUp(
     // The approval asked for this login's scopes. Saving it as another project's login would replace
     // the scopes that login has, so hog revokes it instead.
     if (expected && sameHost(expected.host, approved.host) && expected.projectId !== approved.projectId) {
-        await approved.logout(ctx.runtime)
+        // PostHog has redeemed the device code, so a retry must start a new approval.
+        await Promise.all([approved.logout(ctx.runtime), clearPending(ctx.runtime, ADD_COMMAND)])
         throw new HogError(
             'step_up_other_project',
             `PostHog approved the scopes for project ${approved.projectId}, and hog asked for them for project ${expected.projectId}, so hog didn't save them.`,
