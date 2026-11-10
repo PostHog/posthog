@@ -398,8 +398,17 @@ mod integration_tests {
         );
     }
 
-    #[test]
-    fn a_revoked_partitions_pending_frontier_is_not_committed() {
+    enum Leaves {
+        Revoked,
+        Reassigned,
+    }
+
+    #[rstest::rstest]
+    #[case::revoked(Leaves::Revoked)]
+    #[case::reassigned(Leaves::Reassigned)]
+    fn a_partition_that_leaves_commits_neither_its_pending_nor_its_handed_out_frontier(
+        #[case] leaves: Leaves,
+    ) {
         let ledger = Arc::new(TopicOffsetLedger::new());
         let settlement = GroupSettlement::new(
             Arc::clone(&ledger),
@@ -413,7 +422,10 @@ mod integration_tests {
 
         charge_offsets(&ledger, &p0, 0, &[11]);
         settlement.settle_run(&p0, 0, &[Offset(11)]).unwrap();
-        settlement.on_revoked(&[p0]);
+        match leaves {
+            Leaves::Revoked => settlement.on_revoked(&[p0]),
+            Leaves::Reassigned => settlement.on_assigned(&[p0]),
+        }
 
         assert!(settlement.take_all().is_none());
     }

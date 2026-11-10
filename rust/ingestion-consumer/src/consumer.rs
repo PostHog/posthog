@@ -8,7 +8,7 @@ use common_kafka_consumer::{
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
-use rdkafka::error::KafkaError;
+use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::message::BorrowedMessage;
 use rdkafka::TopicPartitionList;
 use tokio::time::MissedTickBehavior;
@@ -46,6 +46,51 @@ fn commit_tick(commit_interval: Duration) -> Duration {
         HEALTH_TICK
     } else {
         commit_interval.min(HEALTH_TICK)
+    }
+}
+
+/// The exit commit runs after the shutdown drain, inside
+/// [`crate::config::GRACEFUL_SHUTDOWN`]. Two attempts and the wait between
+/// them take at most 10.5 s.
+const EXIT_COMMIT_TIMEOUT: Duration = Duration::from_secs(5);
+const STALE_EPOCH_RETRY_WAIT: Duration = Duration::from_millis(500);
+
+#[derive(Debug, thiserror::Error)]
+enum SyncCommitError {
+    #[error("no answer within {0:?}")]
+    TimedOut(Duration),
+    #[error(transparent)]
+    Kafka(#[from] KafkaError),
+    #[error("the commit task failed: {0}")]
+    Task(#[from] tokio::task::JoinError),
+}
+
+impl SyncCommitError {
+    fn is_stale_member_epoch(&self) -> bool {
+        matches!(
+            self,
+            Self::Kafka(KafkaError::ConsumerCommit(
+                RDKafkaErrorCode::StaleMemberEpoch
+            ))
+        )
+    }
+
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::TimedOut(_) => "timeout",
+            Self::Kafka(KafkaError::ConsumerCommit(code)) => match code {
+                RDKafkaErrorCode::StaleMemberEpoch => "stale_member_epoch",
+                RDKafkaErrorCode::UnknownMemberId => "unknown_member_id",
+                RDKafkaErrorCode::IllegalGeneration => "illegal_generation",
+                RDKafkaErrorCode::RebalanceInProgress => "rebalance_in_progress",
+                RDKafkaErrorCode::NotCoordinator
+                | RDKafkaErrorCode::CoordinatorNotAvailable
+                | RDKafkaErrorCode::BrokerTransportFailure => "coordinator",
+                _ => "other",
+            },
+            Self::Kafka(_) => "client",
+            Self::Task(_) => "task",
+        }
     }
 }
 
@@ -249,10 +294,34 @@ impl IngestionConsumer {
         };
         let poller = ContinuousPolling::new(parts, self.in_flight_limit);
         self.run(poller, outputs).await;
-        if let Err(err) = self.commit_all() {
-            warn!(error = %err, "Could not submit pending frontiers on exit");
-        }
+        self.commit_on_exit().await;
         info!("Consumer loop stopped");
+    }
+
+    /// The client's close bumps the member epoch, so the broker rejects an
+    /// async commit still in flight. The commit carries every partition's last
+    /// handed-out offset, which covers the async commits the shutdown drain sent.
+    async fn commit_on_exit(&self) {
+        let Some(commit) = self.settlement.take_all() else {
+            return;
+        };
+        let mut result = self
+            .commit_offsets_sync(&commit.offsets, EXIT_COMMIT_TIMEOUT, "exit")
+            .await;
+        if result
+            .as_ref()
+            .is_err_and(SyncCommitError::is_stale_member_epoch)
+        {
+            // librdkafka expedites a heartbeat on this error, and its answer
+            // carries the new epoch.
+            tokio::time::sleep(STALE_EPOCH_RETRY_WAIT).await;
+            result = self
+                .commit_offsets_sync(&commit.offsets, EXIT_COMMIT_TIMEOUT, "exit")
+                .await;
+        }
+        if let Err(err) = result {
+            warn!(error = %err, "Could not commit the processed offsets on exit");
+        }
     }
 
     fn rebalance(&self) -> &RebalanceContext {
@@ -464,7 +533,10 @@ impl IngestionConsumer {
         for topic_partition in &commit.resume {
             self.resume_partition(topic_partition);
         }
-        if let Err(err) = self.commit_offsets_sync(&commit.offsets, timeout).await {
+        if let Err(err) = self
+            .commit_offsets_sync(&commit.offsets, timeout, "revoke")
+            .await
+        {
             counter!("ingestion_consumer_revoke_commit_errors_total").increment(1);
             warn!(error = %err, "Could not commit the revoked partitions before their release");
         }
@@ -499,22 +571,41 @@ impl IngestionConsumer {
         &self,
         offsets: &HashMap<TopicPartition, Offset>,
         timeout: Duration,
-    ) -> anyhow::Result<()> {
+        path: &'static str,
+    ) -> Result<(), SyncCommitError> {
+        let result = self.try_commit_offsets_sync(offsets, timeout).await;
+        match &result {
+            Ok(()) => self.record_commit(offsets),
+            Err(err) => {
+                counter!(
+                    "ingestion_consumer_commit_failures_total",
+                    "path" => path,
+                    "kind" => err.kind(),
+                )
+                .increment(1);
+            }
+        }
+        result
+    }
+
+    async fn try_commit_offsets_sync(
+        &self,
+        offsets: &HashMap<TopicPartition, Offset>,
+        timeout: Duration,
+    ) -> Result<(), SyncCommitError> {
         let tpl = self.commit_list(offsets)?;
         let consumer = Arc::clone(&self.consumer);
         let commit = tokio::task::spawn_blocking(move || consumer.commit(&tpl, CommitMode::Sync));
         match tokio::time::timeout(timeout, commit).await {
-            Ok(joined) => joined??,
-            Err(_) => anyhow::bail!("no answer within {timeout:?}"),
+            Ok(joined) => Ok(joined??),
+            Err(_) => Err(SyncCommitError::TimedOut(timeout)),
         }
-        self.record_commit(offsets);
-        Ok(())
     }
 
     fn commit_list(
         &self,
         offsets: &HashMap<TopicPartition, Offset>,
-    ) -> anyhow::Result<TopicPartitionList> {
+    ) -> Result<TopicPartitionList, KafkaError> {
         let mut tpl = TopicPartitionList::new();
         for (topic_partition, next_to_read) in offsets {
             tpl.add_partition_offset(
@@ -641,13 +732,6 @@ impl IngestionConsumer {
                 error = %err,
                 "Could not resume a partition under its budget"
             );
-        }
-    }
-
-    fn commit_all(&self) -> anyhow::Result<()> {
-        match self.settlement.take_all() {
-            Some(commit) => self.commit(commit),
-            None => Ok(()),
         }
     }
 
