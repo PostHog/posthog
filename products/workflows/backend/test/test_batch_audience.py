@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -21,9 +22,27 @@ from products.workflows.backend.services.batch_audience import (
     get_batch_audience_person_ids,
     get_batch_audience_person_ids_snapshot,
 )
-from products.workflows.backend.services.blast_radius import get_audience_size
+from products.workflows.backend.services.blast_radius import get_audience_person_page, get_audience_size
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
+
+
+# On and around the id window ends, and several sort differently as strings than in ClickHouse.
+WINDOW_EDGE_IDS = [
+    "ffffffff-ffff-4fff-0001-000000000000",
+    "00000000-0000-0000-8000-000000000000",
+    "11111111-1111-5111-8000-000000000000",
+    "aaaaaaaa-aaaa-5aaa-9abc-000000000001",
+    "bbbbbbbb-bbbb-5bbb-9abc-000000000001",
+    "cccccccc-cccc-5ccc-9abc-000000000001",
+    "33333333-3333-5333-bfff-ffffffffffff",
+    "44444444-4444-4444-c000-000000000001",
+    "05555555-5555-4555-ffff-ffffffffffff",
+]
+
+
+def _clickhouse_order(uuid: str) -> tuple[str, str]:
+    return uuid[19:], uuid[:18]
 
 
 def _uuid(index: int) -> str:
@@ -105,6 +124,41 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
                 cursor = page[-1]
 
         assert collected == [_uuid(i) for i in expected_indices]
+
+    @parameterized.expand([("id_windows", True), ("whole_team", False)])
+    def test_paging_returns_every_matching_person_once(self, _name, windows_enabled):
+        for i, person_id in enumerate(WINDOW_EDGE_IDS):
+            _create_person(
+                team=self.team, distinct_ids=[f"user-{i}"], uuid=person_id, properties={"subscribed": "true"}
+            )
+        _create_person(
+            team=self.team,
+            distinct_ids=["unsubscribed"],
+            uuid="dddddddd-dddd-5ddd-9abc-000000000001",
+            properties={"subscribed": "false"},
+        )
+        flush_persons_and_events()
+
+        collected: list[str] = []
+        cursor = None
+        with (
+            override_settings(WORKFLOWS_PERSON_BATCH_SIZE=2),
+            patch(
+                "products.workflows.backend.services.batch_audience.posthoganalytics.feature_enabled",
+                return_value=windows_enabled,
+            ),
+        ):
+            for _ in range(50):
+                page = get_audience_person_page(
+                    team_id=self.team.pk, filters=FILTERS, group_type_index=None, cursor=cursor, dedupe_key=None
+                )
+                collected.extend(page.ids)
+                if not page.has_more:
+                    break
+                cursor = page.cursor
+
+        assert not page.has_more
+        assert collected == sorted(WINDOW_EDGE_IDS, key=_clickhouse_order)
 
     @override_settings(WORKFLOWS_PERSON_BATCH_SIZE=7)
     def test_has_more_page_size_follows_the_audience_kind(self):

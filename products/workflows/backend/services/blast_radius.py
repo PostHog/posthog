@@ -17,7 +17,12 @@ from products.workflows.backend.services.account_audience import (
     get_account_group_type_name as _get_account_group_type_name,
 )
 from products.workflows.backend.services.audience_v2 import get_dedupe_audience_count_v2, get_person_audience_count_v2
-from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
+from products.workflows.backend.services.batch_audience import (
+    audience_id_windows_enabled,
+    audience_page_size,
+    get_batch_audience_person_ids,
+    id_window_end,
+)
 from products.workflows.backend.services.batch_audience_cohorts import (
     find_realtime_behavioral_cohort,
     realtime_audience_cohort,
@@ -131,19 +136,30 @@ def get_audience_person_page(
     dedupe_key: str | None,
 ) -> AudiencePage:
     team = Team.objects.get(id=team_id)
-    enumeration_settings = None
-    if group_type_index is None:
-        enumeration_settings = bounded_memory_settings()
-        enumeration_settings.max_execution_time = settings.WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS
+    page_size = audience_page_size(group_type_index)
+    if group_type_index is not None:
+        ids = get_batch_audience_person_ids(team, filters, group_type_index, cursor, dedupe_key=dedupe_key)
+        return _page_ending_at_last_id(ids, page_size)
+
+    enumeration_settings = bounded_memory_settings()
+    enumeration_settings.max_execution_time = settings.WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS
+    windowed = dedupe_key is None and audience_id_windows_enabled(team)
+    window_end = id_window_end(cursor) if windowed else None
     ids = get_batch_audience_person_ids(
-        team, filters, group_type_index, cursor, dedupe_key=dedupe_key, settings=enumeration_settings
+        team, filters, None, cursor, dedupe_key=dedupe_key, settings=enumeration_settings, window_end=window_end
     )
-    return AudiencePage(ids=ids, has_more=len(ids) == audience_page_size(group_type_index))
+    if not windowed or len(ids) == page_size:
+        return _page_ending_at_last_id(ids, page_size)
+    return AudiencePage(ids=ids, cursor=window_end, has_more=window_end is not None)
+
+
+def _page_ending_at_last_id(ids: list[str], page_size: int) -> AudiencePage:
+    return AudiencePage(ids=ids, cursor=ids[-1] if ids else None, has_more=len(ids) == page_size)
 
 
 def get_account_audience_ids_page(*, team_id: int, filters: dict, cursor: str | None) -> AudiencePage:
     ids = get_account_audience_page(Team.objects.get(id=team_id), filters, cursor)
-    return AudiencePage(ids=ids, has_more=len(ids) == ACCOUNT_BATCH_SIZE)
+    return _page_ending_at_last_id(ids, ACCOUNT_BATCH_SIZE)
 
 
 def get_account_group_type_name(team_id: int) -> str | None:

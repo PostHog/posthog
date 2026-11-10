@@ -281,6 +281,8 @@ class AudiencePage:
     """One cursor-paginated page of a batch audience: person, group or account ids."""
 
     ids: list[str]
+    # Can be past the last id: a page that reads one id window can be empty and still have more.
+    cursor: str | None
     has_more: bool
 
 

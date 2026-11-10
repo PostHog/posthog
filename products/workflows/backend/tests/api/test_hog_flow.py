@@ -5568,7 +5568,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["users_affected"] == ["id-1"]
         mock_workflows_query.assert_called_once_with(
-            self.team, {"properties": []}, None, None, dedupe_key="email", settings=ANY
+            self.team, {"properties": []}, None, None, dedupe_key="email", settings=ANY, window_end=None
         )
         # A timed-out page has to raise instead of coming back short. A short page reads as
         # the end of the audience, so the batch send skips every recipient after it.

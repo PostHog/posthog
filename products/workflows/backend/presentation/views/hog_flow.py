@@ -8256,7 +8256,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                 InternalBlastRadiusPersonsSerializer(
                     {
                         "users_affected": page.ids,
-                        "cursor": page.ids[-1] if page.ids else None,
+                        "cursor": page.cursor,
                         "has_more": page.has_more,
                     }
                 ).data
@@ -8365,7 +8365,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                 InternalAccountAudienceSerializer(
                     {
                         "accounts": page.ids,
-                        "cursor": page.ids[-1] if page.ids else None,
+                        "cursor": page.cursor,
                         "has_more": page.has_more,
                         "group_type": group_type,
                     }

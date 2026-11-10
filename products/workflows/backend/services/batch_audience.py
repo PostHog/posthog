@@ -3,6 +3,7 @@ from typing import Any, Optional
 
 from django.conf import settings
 
+import posthoganalytics
 from rest_framework import exceptions
 
 from posthog.hogql import ast
@@ -28,6 +29,23 @@ from products.workflows.backend.services.batch_audience_cohorts import reject_ex
 
 EMAIL_DEDUPE_KEY = "email"
 SUPPORTED_DEDUPE_KEYS = (EMAIL_DEDUPE_KEY,)
+
+AUDIENCE_ID_WINDOWS_FLAG = "workflows-batch-audience-id-windows"
+
+# ClickHouse sorts a UUID by its second half first, so a range on that half prunes the person
+# table's (team_id, id) primary key. The RFC variant bits put almost every RFC 4122 person id (v4, v5, v7)
+# between 8000 and c000 there, so the windows split that range.
+_ID_WINDOW_COUNT = 16
+_RANDOM_ID_PREFIX_START = 0x8000
+_RANDOM_ID_PREFIX_END = 0xC000
+_ID_WINDOW_ENDS = [
+    f"00000000-0000-0000-{prefix:04x}-000000000000"
+    for prefix in range(
+        _RANDOM_ID_PREFIX_START,
+        _RANDOM_ID_PREFIX_END + 1,
+        (_RANDOM_ID_PREFIX_END - _RANDOM_ID_PREFIX_START) // _ID_WINDOW_COUNT,
+    )
+]
 
 
 def person_audience_page_size() -> int:
@@ -109,6 +127,35 @@ def reject_unusable_audience_conditions(team: Team, filters: dict) -> None:
         raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
 
 
+def audience_id_windows_enabled(team: Team) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            AUDIENCE_ID_WINDOWS_FLAG,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id), "uuid": str(team.uuid)},
+            },
+        )
+    )
+
+
+def _clickhouse_uuid_order(uuid: str) -> int:
+    digits = uuid.replace("-", "")
+    return int(digits[16:] + digits[:16], 16)
+
+
+def id_window_end(cursor: Optional[str]) -> Optional[str]:
+    """
+    The inclusive end of the id window that starts after `cursor`, or None for the last window.
+    """
+    if cursor is None:
+        return _ID_WINDOW_ENDS[0]
+    position = _clickhouse_uuid_order(cursor)
+    return next((end for end in _ID_WINDOW_ENDS if _clickhouse_uuid_order(end) > position), None)
+
+
 def get_batch_audience_person_ids(
     team: Team,
     filters: dict,
@@ -116,6 +163,7 @@ def get_batch_audience_person_ids(
     cursor: Optional[str] = None,
     dedupe_key: Optional[str] = None,
     settings: Optional[HogQLGlobalSettings] = None,
+    window_end: Optional[str] = None,
 ) -> list[str]:
     """
     Enumerate one page of a batch workflow's audience (person UUIDs, cursor-paginated).
@@ -131,7 +179,9 @@ def get_batch_audience_person_ids(
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)
         reject_excluded_cohort_without_members(team.project_id, cleaned_filter)
-        select_query = _build_audience_person_query(team, cleaned_filter, cursor=cursor, dedupe_key=dedupe_key)
+        select_query = _build_audience_person_query(
+            team, cleaned_filter, cursor=cursor, dedupe_key=dedupe_key, window_end=window_end
+        )
 
         tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
         # Background traffic: the only caller is the internal batch-send resolver, so route to
@@ -191,6 +241,7 @@ def _build_audience_person_query(
     cursor: Optional[str] = None,
     dedupe_key: Optional[str] = None,
     limit: Optional[int] = None,
+    window_end: Optional[str] = None,
 ) -> ast.SelectQuery:
     if limit is None:
         limit = person_audience_page_size()
@@ -212,6 +263,14 @@ def _build_audience_person_query(
                 op=ast.CompareOperationOp.Gt,
                 left=ast.Field(chain=["persons", "id"]),
                 right=ast.Constant(value=cursor),
+            )
+        )
+    if window_end is not None:
+        where_exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["persons", "id"]),
+                right=ast.Constant(value=window_end),
             )
         )
 

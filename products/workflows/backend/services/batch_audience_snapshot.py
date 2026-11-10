@@ -202,7 +202,7 @@ def get_audience_snapshot_page(*, team_id: int, batch_job_id: str, cursor: str |
     ids = [
         str(person_id) for person_id in members.order_by("person_id").values_list("person_id", flat=True)[:page_size]
     ]
-    return AudiencePage(ids=ids, has_more=len(ids) == page_size)
+    return AudiencePage(ids=ids, cursor=ids[-1] if ids else None, has_more=len(ids) == page_size)
 
 
 def delete_audience_snapshot(*, team_id: int, batch_job_id: str) -> None:

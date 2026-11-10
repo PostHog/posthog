@@ -10,12 +10,26 @@ Triggering a batch workflow creates one cyclotron job on `HOGFLOW_BATCH_RESOLVE_
 
 The page fetch runs a ClickHouse query, so it does not fit the generic 3s `EXTERNAL_REQUEST_TIMEOUT_MS` inter-service budget:
 
-- `CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS` (default `30000`) — client-side budget in milliseconds for each audience fetch (blast-radius count, persons page, account page).
+- `WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS` (Django, default `180`) is the ClickHouse `max_execution_time` of a person page query.
+- `CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS` (Node, default `185000`) is the client-side budget for each audience fetch (blast-radius count, persons page, account page). Keep it a little above the ClickHouse cap, so that a query ClickHouse kills comes back as an error and not as a client abort.
 
-A fetch that exceeds the budget aborts, retries up to `MAX_RESOLVER_ATTEMPTS` times with backoff, and then the run is marked failed on the workflow's log stream.
+A fetch that fails retries up to `MAX_RESOLVER_ATTEMPTS` times with backoff, and then the run is marked failed on the workflow's log stream.
 A timeout gets its own terminal reason, `Batch resolver failed: Audience query timed out…`, which names the budget and the attempt count.
 Any other fetch failure keeps the generic `Batch resolver failed: Audience fetch failed permanently…`, so search for both texts when you triage a failed run.
-Keep the budget under the HogQL default `max_execution_time` (60s): above it, the client only waits longer for a query ClickHouse will kill anyway. Note the client abort does not cancel the ClickHouse query — a query slower than the budget keeps running server-side until the HogQL cap, so a too-small budget wastes a full query execution per attempt.
+The client abort does not cancel the ClickHouse query, so a query slower than the budget keeps running server-side until the ClickHouse cap.
+
+## Id windows
+
+A person page query without windows reads every person of the team that sorts after the cursor, and the property filters run on the `properties` blob of each one.
+The cursor only trims the start of the scan, so the first page reads the whole team and an audience of N pages reads the team about N/2 times.
+
+With the `workflows-batch-audience-id-windows` flag on for the team, a page without the email dedupe reads one id window:
+
+- ClickHouse sorts a UUID by its second half first, and the person table's primary key is `(team_id, id)`. A range on that half lets ClickHouse skip the other windows.
+- RFC 4122 person ids (v4, v5 and v7) have the variant bits in that half, so almost all of them sort between `8000` and `c000` in its first 16 bits. That range has 16 windows. One open window on each side takes the rest.
+- A page ends at the window end or at the page size, whichever comes first. A page can be empty and still return `has_more` with a cursor at the window end, so a run makes at least 18 page fetches.
+
+The email dedupe keeps the whole-team query, because it needs every person of the team to pick the smallest id for each email.
 
 ## Lock heartbeats and batch size
 
