@@ -637,7 +637,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                         )}
                                     </div>
                                 )}
-                                                                {radioValue === 'incremental' && primaryKeyPicker}
+                                {radioValue === 'incremental' && primaryKeyPicker}
                             </>
                         )}
                     </div>
