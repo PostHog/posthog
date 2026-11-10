@@ -9,6 +9,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import * as generatedApi from 'products/workflows/frontend/generated/api'
 import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { broadcastsLogic } from './broadcastsLogic'
@@ -64,7 +65,9 @@ describe('broadcastsLogic', () => {
     })
 
     afterEach(() => {
-        logic.unmount()
+        if (logic.isMounted()) {
+            logic.unmount()
+        }
         jest.restoreAllMocks()
         resumeKeaLoadersErrors()
     })
@@ -227,6 +230,32 @@ describe('broadcastsLogic', () => {
         await reload()
 
         await waitFor(() => expect(logic.values.rowDetailsById[LIVE.id]).toEqual(expected))
+    })
+
+    it('drops a live row’s lookup without an error when the list unmounts before its runs arrive', async () => {
+        let releaseRuns!: (jobs: HogFlowBatchJobApi[]) => void
+        jest.spyOn(generatedApi, 'hogFlowsBatchJobsList').mockReturnValue(
+            new Promise((resolve) => {
+                releaseRuns = resolve
+            })
+        )
+        jest.spyOn(generatedApi, 'hogFlowsSchedulesList').mockResolvedValue([])
+        const rejections: unknown[] = []
+        const onRejection = (error: unknown): void => {
+            rejections.push(error)
+        }
+        process.on('unhandledRejection', onRejection)
+        page = { results: [LIVE], count: 1 }
+        await reload()
+
+        logic.unmount()
+        releaseRuns([RUN])
+        // A macrotask runs only after every queued continuation of the released lookup has settled.
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        process.off('unhandledRejection', onRejection)
+
+        expect(rejections).toEqual([])
+        expect(metrics).not.toHaveBeenCalled()
     })
 
     it('drops only the run statuses when the list reloads, keeping the tag and counts on screen', () => {
