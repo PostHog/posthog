@@ -9658,7 +9658,7 @@ export namespace Schemas {
       severity?: ErrorTrackingQueryIssueSeverity | null;
       source?: string | null;
       status: ErrorTrackingIssueStatus;
-      /** The issue's answers to its enabled tags. Absent when the project has no enabled tag. */
+      /** The issue's answers to its enabled tags, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
       tags?: ErrorTrackingIssueTag[] | null;
     }
 
@@ -9710,7 +9710,7 @@ export namespace Schemas {
       population: Population;
       severity?: ErrorTrackingQueryIssueSeverity | null;
       status: ErrorTrackingIssueStatus;
-      /** The issue's answers to its enabled tags. Absent when the project has no enabled tag. */
+      /** The issue's answers to its enabled tags, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
       tags?: ErrorTrackingIssueTag[] | null;
     }
 

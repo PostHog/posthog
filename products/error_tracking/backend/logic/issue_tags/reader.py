@@ -2,20 +2,18 @@ from collections.abc import Collection
 from uuid import UUID
 
 from products.error_tracking.backend.facade import contracts
-from products.error_tracking.backend.logic.issue_tags.gate import enabled_issue_tag_definitions
+from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
 from products.error_tracking.backend.models import ErrorTrackingIssueTag
 
 
 def tags_by_issue(
-    team_id: int, issue_ids: Collection[UUID | str]
-) -> dict[str, list[contracts.ErrorTrackingIssueTag]] | None:
-    """The enabled tags of each issue, read in one query and keyed by issue id. An issue without tags has no key.
+    team_id: int, issue_ids: Collection[UUID | str], definitions: Collection[IssueTagDefinition]
+) -> dict[str, list[contracts.ErrorTrackingIssueTag]]:
+    """The answers of each issue to the given tags, read in one query and keyed by issue id.
 
-    Return None when the team has no enabled tag, which includes while issue tags are off for the team.
+    An issue without answers has no key.
     """
-    definitions_by_key = {definition.key: definition for definition in enabled_issue_tag_definitions(team_id)}
-    if not definitions_by_key:
-        return None
+    definitions_by_key = {definition.key: definition for definition in definitions}
     rows = ErrorTrackingIssueTag.objects.for_team(team_id).filter(issue_id__in=issue_ids, key__in=definitions_by_key)
     result: dict[str, list[contracts.ErrorTrackingIssueTag]] = {}
     for issue_id, key, value, source in rows.order_by("key").values_list("issue_id", "key", "value", "source"):
@@ -26,3 +24,9 @@ def tags_by_issue(
             )
         )
     return result
+
+
+def issue_ids_with_answers(team_id: int, key: str, answers: Collection[bool], *, limit: int) -> list[str]:
+    """The ids of at most `limit` issues whose answer to the tag is one of `answers`."""
+    tags = ErrorTrackingIssueTag.objects.for_team(team_id).filter(key=key, value__in=answers)
+    return [str(issue_id) for issue_id in tags.values_list("issue_id", flat=True)[:limit]]

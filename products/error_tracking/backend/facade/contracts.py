@@ -193,7 +193,7 @@ class ErrorTrackingIssue:
     assignee: ErrorTrackingIssueAssignee | None
     external_issues: list[ErrorTrackingExternalReference] = field(default_factory=list)
     cohort: ErrorTrackingIssueCohort | None = None
-    # None while issue tags are off for the team, so a response leaves the field out.
+    # None when the tags were not read, so a response leaves the field out.
     tags: list[ErrorTrackingIssueTag] | None = None
 
 

@@ -42,16 +42,10 @@ from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     load_recent_issue_states,
 )
 from products.error_tracking.backend.logic.issue_tags.gate import enabled_issue_tag_definitions
-from products.error_tracking.backend.logic.issue_tags.reader import tags_by_issue
-from products.error_tracking.backend.models import ErrorTrackingIssueTag
+from products.error_tracking.backend.logic.issue_tags.reader import issue_ids_with_answers, tags_by_issue
+from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
 
 logger = structlog.get_logger(__name__)
-
-ISSUE_TAG_FILTER_VALUES: dict[ErrorTrackingIssueTagFilterValue, bool | None] = {
-    ErrorTrackingIssueTagFilterValue.YES: True,
-    ErrorTrackingIssueTagFilterValue.NO: False,
-    ErrorTrackingIssueTagFilterValue.UNKNOWN: None,
-}
 
 # The tag filter inlines its issue ids into the query text and into the `hogql` the response returns,
 # so it refuses a lookup above this size instead of sending megabytes to ClickHouse and the browser.
@@ -97,30 +91,39 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
 
     @cached_property
     def _builder(self) -> ErrorTrackingQueryBuilder:
+        return self._make_builder(include_recent_issue_state=False)
+
+    def _make_builder(self, *, include_recent_issue_state: bool) -> ErrorTrackingQueryBuilder:
         return ErrorTrackingQueryBuilder(
-            self.query, self.team, self.date_from, self.date_to, issue_id_filter=self._issue_tag_filter
+            self.query,
+            self.team,
+            self.date_from,
+            self.date_to,
+            include_recent_issue_state=include_recent_issue_state,
+            issue_id_filter=self._issue_tag_filter,
         )
+
+    @cached_property
+    def _enabled_tag_definitions(self) -> tuple[IssueTagDefinition, ...]:
+        return enabled_issue_tag_definitions(self.team.pk)
 
     @cached_property
     def _issue_tag_filter(self) -> IssueIdFilter | None:
         tag_filter = self.query.issueTag
-        if tag_filter is None or tag_filter.key not in {
-            definition.key for definition in enabled_issue_tag_definitions(self.team.pk)
-        }:
+        if tag_filter is None or tag_filter.key not in {definition.key for definition in self._enabled_tag_definitions}:
             return None
-        value = ISSUE_TAG_FILTER_VALUES[tag_filter.value]
-        tags = ErrorTrackingIssueTag.objects.for_team(self.team.pk).filter(key=tag_filter.key)
         # Unknown is a null answer or no row at all, and Postgres cannot list the issues without a row,
-        # so it matches every issue outside the yes and no answers.
-        tags = tags.filter(value__isnull=False) if value is None else tags.filter(value=value)
-        issue_ids = [
-            str(issue_id) for issue_id in tags.values_list("issue_id", flat=True)[: MAX_ISSUE_TAG_FILTER_ISSUE_IDS + 1]
-        ]
+        # so the filter keeps every issue outside the yes and no answers.
+        negated = tag_filter.value == ErrorTrackingIssueTagFilterValue.UNKNOWN
+        answers = (True, False) if negated else (tag_filter.value == ErrorTrackingIssueTagFilterValue.YES,)
+        issue_ids = issue_ids_with_answers(
+            self.team.pk, tag_filter.key, answers, limit=MAX_ISSUE_TAG_FILTER_ISSUE_IDS + 1
+        )
         if len(issue_ids) > MAX_ISSUE_TAG_FILTER_ISSUE_IDS:
             raise ValidationError(
                 "Too many issues are tagged to filter by this tag. Remove the tag filter to load the list."
             )
-        return IssueIdFilter(issue_ids=tuple(sorted(issue_ids)), negated=value is None)
+        return IssueIdFilter(issue_ids=tuple(sorted(issue_ids)), negated=negated)
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
@@ -195,14 +198,7 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
     def _calculate(self):
         recent_issue_states = self.recent_issue_states()
         context = self._hogql_context(recent_issue_states)
-        builder = ErrorTrackingQueryBuilder(
-            self.query,
-            self.team,
-            self.date_from,
-            self.date_to,
-            include_recent_issue_state=bool(recent_issue_states),
-            issue_id_filter=self._issue_tag_filter,
-        )
+        builder = self._make_builder(include_recent_issue_state=bool(recent_issue_states))
         with self.timings.measure("error_tracking_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
                 query=builder.build_query(),
@@ -228,12 +224,18 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
         )
 
     def _attach_tags(self, results: list[dict]) -> list[dict]:
-        if not results:
+        if not results or not self._enabled_tag_definitions:
             return results
         with self.timings.measure("error_tracking_query_tags"):
-            issue_tags = tags_by_issue(self.team.pk, [result["id"] for result in results])
-        if issue_tags is None:
-            return results
+            # Tags are extra data on rows that ClickHouse already returned, so a failed read drops them
+            # instead of failing the list.
+            try:
+                issue_tags = tags_by_issue(
+                    self.team.pk, [result["id"] for result in results], self._enabled_tag_definitions
+                )
+            except OperationalError:
+                logger.warning("error_tracking_issue_tags_unavailable", team_id=self.team.pk, exc_info=True)
+                return results
         for result in results:
             result["tags"] = [dataclasses.asdict(tag) for tag in issue_tags.get(result["id"], [])]
         return results

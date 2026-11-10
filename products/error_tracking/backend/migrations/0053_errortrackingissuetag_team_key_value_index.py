@@ -13,6 +13,6 @@ class Migration(migrations.Migration):
     operations = [
         SafeAddIndexConcurrently(
             model_name="errortrackingissuetag",
-            index=models.Index(fields=["team", "key", "value"], name="et_issue_tag_team_key_value"),
+            index=models.Index(fields=["team", "key", "value"], include=["issue"], name="et_issue_tag_team_key_value"),
         ),
     ]

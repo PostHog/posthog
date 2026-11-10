@@ -5812,7 +5812,7 @@ export interface ErrorTrackingIssueApi {
     severity?: ErrorTrackingQueryIssueSeverityApi | null
     source?: string | null
     status: ErrorTrackingIssueStatusApi
-    /** The issue's answers to its enabled tags. Absent when the project has no enabled tag. */
+    /** The issue's answers to its enabled tags, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
     tags?: ErrorTrackingIssueTagApi[] | null
 }
 
@@ -5864,7 +5864,7 @@ export interface ErrorTrackingCorrelatedIssueApi {
     population: PopulationApi
     severity?: ErrorTrackingQueryIssueSeverityApi | null
     status: ErrorTrackingIssueStatusApi
-    /** The issue's answers to its enabled tags. Absent when the project has no enabled tag. */
+    /** The issue's answers to its enabled tags, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
     tags?: ErrorTrackingIssueTagApi[] | null
 }
 

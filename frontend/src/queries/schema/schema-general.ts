@@ -4823,7 +4823,7 @@ export interface ErrorTrackingRelationalIssue {
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]
     cohort?: ErrorTrackingIssueCohort
-    /** The issue's answers to its enabled tags. Absent when the project has no enabled tag. */
+    /** The issue's answers to its enabled tags, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
     tags?: ErrorTrackingIssueTag[]
 }
 

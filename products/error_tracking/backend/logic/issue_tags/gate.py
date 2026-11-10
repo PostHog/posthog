@@ -11,7 +11,9 @@ def issue_tags_enabled(team_id: int) -> bool:
 
 def enabled_issue_tag_definitions(team_id: int) -> tuple[IssueTagDefinition, ...]:
     """The tags the team can see and filter by. Empty while issue tags are off for the team."""
-    if not issue_tags_enabled(team_id):
+    # Read the registry before the flag. The issue list and issue detail call this on every request, and a
+    # flag that the SDK cannot evaluate locally costs an HTTP call to the flags service.
+    if not registry.ISSUE_TAG_DEFINITIONS or not issue_tags_enabled(team_id):
         return ()
     return tuple(
         definition

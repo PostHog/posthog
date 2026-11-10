@@ -19038,7 +19038,10 @@ class ErrorTrackingIssue(BaseModel):
     status: ErrorTrackingIssueStatus
     tags: list[ErrorTrackingIssueTag] | None = Field(
         default=None,
-        description=("The issue's answers to its enabled tags. Absent when the project has no enabled tag."),
+        description=(
+            "The issue's answers to its enabled tags, on issue list results and issue"
+            " detail. Null or absent when the project has no enabled tag."
+        ),
     )
 
 
@@ -19159,7 +19162,10 @@ class ErrorTrackingRelationalIssue(BaseModel):
     status: ErrorTrackingIssueStatus
     tags: list[ErrorTrackingIssueTag] | None = Field(
         default=None,
-        description=("The issue's answers to its enabled tags. Absent when the project has no enabled tag."),
+        description=(
+            "The issue's answers to its enabled tags, on issue list results and issue"
+            " detail. Null or absent when the project has no enabled tag."
+        ),
     )
 
 
@@ -29414,7 +29420,10 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
     status: ErrorTrackingIssueStatus
     tags: list[ErrorTrackingIssueTag] | None = Field(
         default=None,
-        description=("The issue's answers to its enabled tags. Absent when the project has no enabled tag."),
+        description=(
+            "The issue's answers to its enabled tags, on issue list results and issue"
+            " detail. Null or absent when the project has no enabled tag."
+        ),
     )
 
 

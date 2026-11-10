@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -99,14 +100,8 @@ BLOCKS_CHECKOUT = IssueTagDefinition(
     enabled_flag="error-tracking-issue-tag-blocks-checkout",
     taggers=(),
 )
-OTHER_TAG = IssueTagDefinition(
-    key="other_tag",
-    label="Other tag",
-    description="Another question about the issue.",
-    question_version=1,
-    enabled_flag=BLOCKS_CHECKOUT.enabled_flag,
-    taggers=(),
-)
+OTHER_TAG = dataclasses.replace(BLOCKS_CHECKOUT, key="other_tag", label="Other tag")
+UNANSWERED_TAG = dataclasses.replace(BLOCKS_CHECKOUT, key="unanswered_tag", label="Unanswered tag")
 
 
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIdentities):
@@ -763,6 +758,18 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             ErrorTrackingIssue.objects.filter(id=issue_id).update(severity=severity)
         sync_issues_to_clickhouse(issue_ids=list(severities), team_id=self.team.pk)
 
+    def _status_is_set_filter(self) -> PropertyGroupFilter:
+        # Matches every issue, so it only forces the legacy shape.
+        return PropertyGroupFilter(
+            type=FilterLogicalOperator.AND_,
+            values=[
+                PropertyGroupFilterValue(
+                    type=FilterLogicalOperator.AND_,
+                    values=[ErrorTrackingIssueFilter(key="status", value=True, operator=PropertyOperator.IS_SET)],
+                )
+            ],
+        )
+
     def _severity_is_set_filter(self) -> PropertyGroupFilter:
         return PropertyGroupFilter(
             type=FilterLogicalOperator.AND_,
@@ -1245,15 +1252,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
     def test_severity_field(self, _name: str, legacy_shape: bool):
         self._assign_severities()
-        shape_filters: list[ErrorTrackingIssueFilter] = []
-        if legacy_shape:
-            # Matches every issue, so it only forces the legacy shape.
-            shape_filters = [ErrorTrackingIssueFilter(key="status", value=True, operator=PropertyOperator.IS_SET)]
-
-        filter_group = PropertyGroupFilter(
-            type=FilterLogicalOperator.AND_,
-            values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=shape_filters)],
-        )
+        filter_group = self._status_is_set_filter() if legacy_shape else None
 
         builder = ErrorTrackingQueryBuilder(
             query=ErrorTrackingQuery(
@@ -1307,19 +1306,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             ErrorTrackingIssueTag.objects.for_team(self.team.pk).create(
                 team=self.team, issue_id=issue_id, key=key, value=value, source="jev", question_version=1
             )
-        shape_filters: list[ErrorTrackingIssueFilter] = []
-        if legacy_shape:
-            # Matches every issue, so it only forces the legacy shape.
-            shape_filters = [ErrorTrackingIssueFilter(key="status", value=True, operator=PropertyOperator.IS_SET)]
-        filter_group = PropertyGroupFilter(
-            type=FilterLogicalOperator.AND_,
-            values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=shape_filters)],
-        )
+        filter_group = self._status_is_set_filter() if legacy_shape else None
         tag_filters = [(BLOCKS_CHECKOUT.key, value) for value in ErrorTrackingIssueTagFilterValue]
         tag_filters.append((OTHER_TAG.key, ErrorTrackingIssueTagFilterValue.NO))
+        tag_filters.append((UNANSWERED_TAG.key, ErrorTrackingIssueTagFilterValue.UNKNOWN))
 
         with (
-            mock.patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, OTHER_TAG)),
+            mock.patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, OTHER_TAG, UNANSWERED_TAG)),
             mock.patch.object(
                 team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
             ),
@@ -1347,6 +1340,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             "blocks_checkout unknown": {self.issue_id_three, self.issue_id_four, self.issue_id_five},
             # No issue has this answer, so the filter matches nothing.
             "other_tag no": set(),
+            # No issue has an answer, so every issue is unknown.
+            "unanswered_tag unknown": every_issue,
         }
         self.assertEqual(by_filter, expected if filter_applies else dict.fromkeys(expected, every_issue))
 

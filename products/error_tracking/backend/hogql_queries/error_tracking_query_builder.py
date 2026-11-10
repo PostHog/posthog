@@ -194,9 +194,10 @@ class IssueIdFilter:
     # Keep the issues outside `issue_ids` instead of the issues inside it.
     negated: bool
 
-    def to_expr(self, issue_id: ast.Expr) -> ast.Expr | None:
+    def to_expr(self, issue_id: ast.Expr) -> ast.Expr:
         if not self.issue_ids:
-            return None if self.negated else ast.Constant(value=False)
+            # An empty list excludes no issue when negated, and keeps no issue otherwise.
+            return ast.Constant(value=self.negated)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotIn if self.negated else ast.CompareOperationOp.In,
             left=issue_id,
@@ -478,9 +479,7 @@ class ErrorTrackingQueryBuilder:
                 )
 
         if self.issue_id_filter is not None:
-            issue_id_expr = self.issue_id_filter.to_expr(state_expr("issue_id"))
-            if issue_id_expr is not None:
-                exprs.append(issue_id_expr)
+            exprs.append(self.issue_id_filter.to_expr(state_expr("issue_id")))
 
         return exprs
 

@@ -181,10 +181,11 @@ def query_new_error_issues(period_start: datetime, period_end: datetime) -> Quer
 
 def get_issue(issue_id: UUID, team_id: int, *, with_tags: bool = False) -> contracts.ErrorTrackingIssue:
     issue = logic.get_issue(issue_id=issue_id, team_id=team_id)
-    if not with_tags:
+    definitions = issue_tag_gate.enabled_issue_tag_definitions(team_id) if with_tags else ()
+    if not definitions:
         return _to_issue(issue)
-    tags_by_issue = issue_tag_reader.tags_by_issue(team_id, [issue.id])
-    return _to_issue(issue, tags=None if tags_by_issue is None else tags_by_issue.get(str(issue.id), []))
+    tags = issue_tag_reader.tags_by_issue(team_id, [issue.id], definitions).get(str(issue.id), [])
+    return _to_issue(issue, tags=tags)
 
 
 def list_issue_tag_definitions(team_id: int) -> list[contracts.ErrorTrackingIssueTagDefinition]:
