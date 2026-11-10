@@ -33,6 +33,7 @@ from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils i
     TEST_MODELS,
     TEST_TIME,
     assert_clickhouse_records_in_bigquery,
+    key_file_integration,
 )
 from products.batch_exports.backend.tests.temporal.utils.models import (
     acreate_batch_export,
@@ -60,10 +61,12 @@ def table_id(ateam, interval):
 async def bigquery_batch_export(
     ateam, table_id, bigquery_config, interval, exclude_events, use_json_type, temporal_client, bigquery_dataset
 ):
+    integration = await key_file_integration(ateam, bigquery_config)
     destination_data = {
         "type": "BigQuery",
+        "integration_id": integration.id,
         "config": {
-            **bigquery_config,
+            "project_id": bigquery_config["project_id"],
             "table_id": table_id,
             "dataset_id": bigquery_dataset.dataset_id,
             "exclude_events": exclude_events,
@@ -135,6 +138,7 @@ async def test_bigquery_export_workflow(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_model=batch_export_model,
+        integration_id=bigquery_batch_export.destination.integration_id,
         **bigquery_batch_export.destination.config,
     )
 
@@ -224,6 +228,7 @@ async def test_bigquery_export_workflow_without_events(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_model=batch_export_model,
+        integration_id=bigquery_batch_export.destination.integration_id,
         **bigquery_batch_export.destination.config,
     )
 
@@ -298,6 +303,7 @@ async def test_bigquery_export_workflow_backfill_earliest_persons(
             end_at=data_interval_end.isoformat(),
             is_earliest_backfill=True,
         ),
+        integration_id=bigquery_batch_export.destination.integration_id,
         **bigquery_batch_export.destination.config,
     )
     _, persons = generate_test_data
@@ -367,6 +373,7 @@ async def test_bigquery_export_workflow_handles_unexpected_insert_activity_error
         batch_export_id=str(bigquery_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        integration_id=bigquery_batch_export.destination.integration_id,
         **bigquery_batch_export.destination.config,
     )
 
@@ -425,6 +432,7 @@ async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_er
         batch_export_id=str(bigquery_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        integration_id=bigquery_batch_export.destination.integration_id,
         **bigquery_batch_export.destination.config,
     )
 
@@ -481,6 +489,7 @@ async def test_bigquery_export_workflow_handles_cancellation(
         batch_export_id=str(bigquery_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        integration_id=bigquery_batch_export.destination.integration_id,
         **bigquery_batch_export.destination.config,
     )
 
