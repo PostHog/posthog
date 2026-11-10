@@ -125,6 +125,8 @@ def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_onc
     assert judge_content.endswith(f"<diff>\n{SCRIPT_CHUNK}{COMPONENT_CHUNK}\n</diff>")
     assert (report.needs_docs, report.change_kind) == (True, DocsChangeKind.UPDATE)
     assert report.page_urls == (FLAGS_PAGES[-1], *FLAGS_PAGES[:3])
+    assert (report.repository, report.pull_request_number) == ("PostHog/posthog", 7)
+    assert [(row.criterion, row.value) for row in report.criteria] == [("judge", "update")]
 
 
 def test_update_naming_no_sitemap_page_becomes_create() -> None:

@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 
 from django.db import IntegrityError
 
@@ -105,6 +106,7 @@ def latest_run_failed(task: TaskDetailDTO) -> bool:
 
 def capture_verdict(verdict: AdapterVerdict, *, team_id: int) -> None:
     request = verdict.request
+    trace = verdict.trace
     try:
         with ph_scoped_capture() as capture:
             capture(
@@ -117,6 +119,10 @@ def capture_verdict(verdict: AdapterVerdict, *, team_id: int) -> None:
                     "needs_docs": verdict.needs_docs,
                     "reason": verdict.reason,
                     "change_kind": request.change_kind if request else None,
+                    "repository": trace.repository if trace else None,
+                    "pull_request_number": trace.pull_request_number if trace else None,
+                    "low_confidence": trace.low_confidence if trace else False,
+                    "criteria": [dataclasses.asdict(row) for row in trace.criteria] if trace else [],
                     "dedupe_id": request.dedupe_id if request else None,
                     "requested_by": request.requested_by if request else None,
                     "requested_by_user_id": request.requested_by_user_id if request else None,

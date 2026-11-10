@@ -4,7 +4,7 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
-from .enums import DocsChangeKind, DocsRequestSource
+from .enums import CriterionEffect, DocsChangeKind, DocsRequestSource
 
 RawEvent = TypeVar("RawEvent", contravariant=True)
 
@@ -30,12 +30,30 @@ class DocsRequest:
 
 
 @dataclass(frozen=True, config={"extra": "forbid"})
+class CriterionResult:
+    criterion: str
+    value: str
+    source: str
+    evidence: str
+    effect: CriterionEffect
+
+
+@dataclass(frozen=True, config={"extra": "forbid"})
+class VerdictTrace:
+    repository: str
+    pull_request_number: int | None
+    low_confidence: bool
+    criteria: tuple[CriterionResult, ...]
+
+
+@dataclass(frozen=True, config={"extra": "forbid"})
 class AdapterVerdict:
     source: DocsRequestSource
     subject_id: str
     needs_docs: bool
     reason: str
     request: DocsRequest | None
+    trace: VerdictTrace | None = None
 
     def __post_init__(self) -> None:
         if self.needs_docs != (self.request is not None):
@@ -58,9 +76,13 @@ class MergeCheckReport:
     title: str
     needs_docs: bool
     reason: str
+    repository: str
     change_kind: DocsChangeKind | None = None
     page_urls: tuple[str, ...] = ()
     evidence: str = ""
+    pull_request_number: int | None = None
+    low_confidence: bool = False
+    criteria: tuple[CriterionResult, ...] = ()
 
 
 @dataclass(frozen=True, config={"extra": "forbid"})

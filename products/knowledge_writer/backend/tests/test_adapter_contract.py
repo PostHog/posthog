@@ -7,12 +7,13 @@ from unittest.mock import patch
 from products.knowledge_writer.backend.adapters.registry import REGISTRY
 from products.knowledge_writer.backend.facade.contracts import (
     AdapterVerdict,
+    CriterionResult,
     DocsCommandRequest,
     DocsRequest,
     InvalidAdapterVerdict,
     MergeCheckReport,
 )
-from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource
+from products.knowledge_writer.backend.facade.enums import CriterionEffect, DocsChangeKind, DocsRequestSource
 from products.knowledge_writer.backend.logic import intake
 
 SAMPLE_EVENTS: dict[DocsRequestSource, Any] = {
@@ -31,6 +32,18 @@ SAMPLE_EVENTS: dict[DocsRequestSource, Any] = {
         title="Add a retention option to session replay",
         needs_docs=True,
         reason="mapped_section_changed",
+        repository="PostHog/posthog",
+        pull_request_number=7,
+        low_confidence=True,
+        criteria=(
+            CriterionResult(
+                criterion="release_state",
+                value="ga",
+                source="model:claude-sonnet-5-5",
+                evidence="Ships to everyone",
+                effect=CriterionEffect.SUPPORTS,
+            ),
+        ),
         change_kind=DocsChangeKind.UPDATE,
         page_urls=("https://posthog.com/docs/session-replay/data-retention",),
     ),
@@ -125,3 +138,25 @@ def test_intake_accepts_a_valid_verdict_as_plain_data() -> None:
         trigger_instructions="",
         dedupe_id="knowledge_writer:command_tag:PostHog.posthog#123",
     )
+
+
+def test_repo_merge_verdict_event_records_repository_pull_request_and_criteria() -> None:
+    verdict = REGISTRY[DocsRequestSource.REPO_MERGE].assess(SAMPLE_EVENTS[DocsRequestSource.REPO_MERGE])
+
+    with patch.object(intake, "ph_scoped_capture") as scoped_capture:
+        intake.capture_verdict(verdict, team_id=1)
+
+    properties = scoped_capture.return_value.__enter__.return_value.call_args.kwargs["properties"]
+    assert properties["repository"] == "PostHog/posthog"
+    assert properties["pull_request_number"] == 7
+    assert properties["low_confidence"] is True
+    assert properties["change_kind"] == "update"
+    assert properties["criteria"] == [
+        {
+            "criterion": "release_state",
+            "value": "ga",
+            "source": "model:claude-sonnet-5-5",
+            "evidence": "Ships to everyone",
+            "effect": "supports",
+        }
+    ]
