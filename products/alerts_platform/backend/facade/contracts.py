@@ -419,14 +419,15 @@ class PlatformHandback:
 
 @frozen
 class PlatformAlertRuntime:
-    """Where an alert the platform owns stands, and how it splits into instances, for a source whose
-    API still shows the alert."""
+    """Where an alert the platform owns stands, and the settings only its copy stores, for a source
+    whose API still shows the alert."""
 
     state: PlatformAlertState
     last_notified_at: datetime | None
     consecutive_failures: int
     next_check_at: datetime | None
     grouping: Grouping
+    labels: dict[str, str]
 
 
 @frozen
@@ -505,6 +506,56 @@ class PlatformCheckEventPage:
 
     events: tuple[PlatformCheckEvent, ...]
     total: int
+
+
+class ControlChangeKind(StrEnum):
+    """A change a person made to an alert the platform owns, recorded in its history beside the checks.
+
+    Stored in the history row's `kind` column, but not an `AlertEventKind`: nothing is announced for
+    it, and every reader of checks leaves it out.
+    """
+
+    ENABLE = "enable"
+    DISABLE = "disable"
+    SNOOZE = "snooze"
+    UNSNOOZE = "unsnooze"
+    RESET = "reset"
+    CONFIG_CHANGE = "config_change"
+
+
+@frozen
+class PlatformControlChange:
+    """One control-plane change of an alert the platform owns, with its state either side of it.
+
+    The states are the whole alert's as a source shows it, so a snooze in force reads as SNOOZED.
+    """
+
+    occurred_at: datetime
+    evaluation_key: str
+    kind: ControlChangeKind
+    previous_state: PlatformAlertState
+    state: PlatformAlertState
+
+
+@frozen
+class PlatformControlChangePage:
+    """The newest control-plane changes of an alert, how many there are in all, and when the oldest
+    one still kept happened, of any kind, or None when there is none."""
+
+    changes: tuple[PlatformControlChange, ...]
+    total: int
+    oldest_at: datetime | None
+
+
+@frozen
+class PlatformControlHistory:
+    """An alert's control-plane changes in one window, oldest first, with what a timeline needs from
+    before it: when the oldest kept change of any kind happened, and the newest enable or disable
+    before the window, or None when there is none."""
+
+    changes: tuple[PlatformControlChange, ...]
+    oldest_at: datetime
+    toggle_before: ControlChangeKind | None
 
 
 class SkipReason(StrEnum):
@@ -983,6 +1034,21 @@ class PlatformAlertSnapshot:
 
 
 @frozen
+class NativeConfigurationMatch:
+    """One alert of a kind with no source row, as a source's list filters, sorts and pages it beside
+    its own rows before it reads the page with `list_configurations`."""
+
+    id: UUID
+    created_at: datetime
+    created_by_id: int | None
+    source_config: dict[str, Any]
+    # Set when the list was searched: whether the name contains the term, and the trigram rank
+    # that orders matches, on the same scale a source's own searched rows have.
+    is_exact: bool | None = None
+    search_score: float | None = None
+
+
+@frozen
 class PlatformAlertConfigurationView:
     """One configuration and its instances, as a reader outside this product sees them.
 
@@ -1161,6 +1227,9 @@ class NativeAlertLifecycle:
     # Removes the source's HogFunction destinations of a deleted alert. None for a kind whose
     # destinations are `AlertDestination` rows from the start, which go with the configuration.
     remove_destinations: NativeAlertRemoveDestinations | None = None
+    # False for a kind whose alerts without a source row the platform deletes but does not create
+    # yet. The API then neither publishes nor accepts a create of the kind.
+    creates: bool = True
 
     @property
     def platform_destinations(self) -> bool:
@@ -1211,13 +1280,15 @@ class SourceConfigSpec:
 
     @property
     def creatable(self) -> bool:
-        return self.native is not None or self.create is not None
+        return (self.native is not None and self.native.creates) or self.create is not None
 
     def creates_natively(self, team_id: int) -> bool:
         """Whether a create for the team makes only the configuration, with no source row."""
         if self.native is None:
             return False
-        return self.create is None or (self.native_create is not None and self.native_create(team_id))
+        if self.native_create is not None:
+            return self.native_create(team_id)
+        return self.create is None
 
 
 SourceConfigLoader = Callable[[], SourceConfigSpec]
@@ -1332,6 +1403,17 @@ DESTINATION_EVENT_KINDS: Final = frozenset(
     {AlertEventKind.FIRING, AlertEventKind.RESOLVED, AlertEventKind.ERRORED, AlertEventKind.BROKEN}
 )
 
+# Turns on team-wide receivers and routes for a team, in delivery and in the API that edits them.
+ROUTING_FLAG: Final = "platform-alerts-routing"
+# The types routed delivery sends to. It skips incident managers, and email and in-app need
+# recipients that belong to one alert.
+ROUTABLE_DESTINATION_TYPES: Final = (
+    DestinationType.SLACK,
+    DestinationType.WEBHOOK,
+    DestinationType.TEAMS,
+    DestinationType.DISCORD,
+)
+
 
 @frozen
 class NewAlertDestination:
@@ -1364,6 +1446,55 @@ class AlertDestinationValidationError(Exception):
         self.message = message
         self.field = field
         super().__init__(message)
+
+
+@frozen
+class AlertReceiverEdit:
+    """A team-wide destination that routes send to. Fields left as None keep what is stored."""
+
+    name: str | None = None
+    data: AlertDestinationData | None = None
+    enabled: bool | None = None
+
+
+@frozen
+class StoredAlertReceiver:
+    id: UUID
+    name: str
+    data: AlertDestinationData
+    enabled: bool
+    route_count: int
+
+
+@frozen
+class RouteMatcher:
+    """One condition a route checks on an alert's labels. Only equality is supported."""
+
+    label: str
+    value: str
+
+
+@frozen
+class AlertRouteEdit:
+    """Which alerts a receiver hears, by their labels. Fields left as None keep what is stored."""
+
+    receiver_id: UUID | None = None
+    matchers: tuple[RouteMatcher, ...] | None = None
+    event_kinds: tuple[AlertEventKind, ...] | None = None
+    enabled: bool | None = None
+
+
+@frozen
+class StoredAlertRoute:
+    id: UUID
+    receiver_id: UUID
+    matchers: tuple[RouteMatcher, ...]
+    event_kinds: tuple[AlertEventKind, ...]
+    enabled: bool
+
+
+class UnknownAlertRouting(Exception):
+    """No receiver or route with this id on the team."""
 
 
 @frozen

@@ -1,5 +1,6 @@
 import itertools
 from collections.abc import Iterable, Iterator, Sequence
+from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 if TYPE_CHECKING:
@@ -21,6 +22,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import has_aggregation
@@ -78,6 +80,13 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             return cast("AccountUsersQueryRunner", self.source_query_runner)
         return None
 
+    @property
+    def shared_database(self) -> Database:
+        source = self._get_account_users_source()
+        if source is None:
+            return super().shared_database
+        return source.get_catalog_database(lambda: super(ActorsQueryRunner, self).shared_database)
+
     def build_hogql_context(self, **kwargs: object) -> HogQLContext:
         context = super().build_hogql_context(**kwargs)
         source = self._get_account_users_source()
@@ -104,15 +113,26 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         account_users_source = self._get_account_users_source()
         if account_users_source is not None:
             account_users_source.validate_execution_mode(execution_mode)
-        return super().run(
-            execution_mode,
-            user,
-            query_id,
-            insight_id,
-            dashboard_id,
-            cache_age_seconds,
-            analytics_props=analytics_props,
-        )
+            self._shared_database = None
+        with (
+            account_users_source.catalog_context(
+                self.query, track_catalog=execution_mode != ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+            )
+            if account_users_source is not None
+            else nullcontext()
+        ):
+            response = super().run(
+                execution_mode,
+                user,
+                query_id,
+                insight_id,
+                dashboard_id,
+                cache_age_seconds,
+                analytics_props=analytics_props,
+            )
+            if account_users_source is not None:
+                account_users_source.set_catalog_result(response)
+            return response
 
     def validate_query_runner_access(self, user: User) -> bool:
         if self.source_query_runner is not None:

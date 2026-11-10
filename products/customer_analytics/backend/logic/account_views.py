@@ -15,6 +15,7 @@ from products.notebooks.backend.facade.contracts import NotebookMarkdownContentI
 ACCOUNT_VIEW_COMPONENT_LABELS = {
     "Properties": "Properties",
     "Notes": "Notes",
+    "Automations": "Automations",
     "Tasks": "Tasks",
     "Users": "Users",
     "Relationships": "Relationships",

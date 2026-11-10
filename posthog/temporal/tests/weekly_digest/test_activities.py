@@ -799,6 +799,7 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
         assert capture["event"] == "transactional email"
         assert capture["groups"]["organization"] == str(organization.id)
         properties = capture["properties"]
+        assert properties["$update_person_last_seen_at"] is False
         assert "to" not in properties
     else:
         post = session.post.call_args
@@ -814,6 +815,7 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
         assert body["distinct_id"] == (subscribed.distinct_id or subscribed.email)
         properties = body["properties"]
         assert properties["to"] == subscribed.email
+        assert properties["$update_person_last_seen_at"] is False
     (team_payload,) = properties["teams"]
     assert team_payload["team_id"] == team.id
     # The webhook refuses large bodies, so Workflows gets the first events and the exact count.

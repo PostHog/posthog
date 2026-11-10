@@ -539,7 +539,7 @@ class TestAttributeField(ClickhouseTestMixin, APIBaseTest):
             query_type="AttributeFieldTest",
             query=query,
             team=self.team,
-            workload=Workload.LOGS,
+            workload=Workload.METRICS,
         )
         if not response.results:
             return None

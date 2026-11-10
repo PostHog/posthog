@@ -163,6 +163,7 @@ def test_report_upcoming_events_deletions_tells_admins_once_two_weeks_before_the
                     "organization_name": "Scheduled",
                     "retention_months": 24,
                     "deletion_scheduled_on": "2027-02-03",
+                    "$update_person_last_seen_at": False,
                 },
                 "groups": {"organization": str(team.organization_id)},
             }

@@ -91,6 +91,32 @@ export namespace Schemas {
       updated_at: string | null;
     }
 
+    export interface AEOBrandCreateRequest {
+      /**
+         * The brand's domain or a URL on it, for example 'example.com'. Stored as its registrable domain, so citations on its subdomains count for the brand.
+         * @maxLength 253
+         */
+      domain: string;
+      /**
+         * Brand name as people say it. Guessed from the domain when empty.
+         * @maxLength 200
+         */
+      name?: string;
+      /** What the brand is to the project: 'own' (the project's site, counted as us in citations), 'competitor', 'publisher' or 'unknown'.
+       *
+       * * `own` - Own
+       * * `competitor` - Competitor
+       * * `publisher` - Publisher
+       * * `unknown` - Unknown */
+      kind: BrandKindEnum;
+      /**
+         * Other names for the brand, used to find it in answer text. Names are trimmed, and repeated names are dropped.
+         * @maxItems 20
+         * @items.maxLength 200
+         */
+      aliases?: string[];
+    }
+
     export interface AEOPromptEngineCheck {
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
       engine: string;
@@ -2520,6 +2546,34 @@ export namespace Schemas {
       team_id: number;
     }
 
+    export interface AccountAutomation {
+      /** ID of the workflow the caller can read. */
+      workflow_id: string;
+      /** Name of the workflow. */
+      workflow_name: string;
+      /** ID of this execution, including repeated workflow runs. */
+      invocation_id: string;
+      /** Run status: running, succeeded, failed, or canceled. */
+      status: string;
+      /** Original trigger or scheduling time. */
+      triggered_at: string;
+      /**
+         * Last successfully completed step time, or null when evidence is unavailable.
+         * @nullable
+         */
+      last_completed_step_at: string | null;
+      /**
+         * Current name of the last completed step, or null when unavailable.
+         * @nullable
+         */
+      last_completed_step_name: string | null;
+      /**
+         * Future pause time from retained logs, or null. This does not guarantee an action.
+         * @nullable
+         */
+      expected_resume_at: string | null;
+    }
+
     /**
      * Metadata for one message a channel summary covered — never the message text.
      */
@@ -3570,6 +3624,29 @@ export namespace Schemas {
       uses_history_table?: boolean | null;
     }
 
+    export type WarehouseSuggestionNoteKind = typeof WarehouseSuggestionNoteKind[keyof typeof WarehouseSuggestionNoteKind];
+
+
+    export const WarehouseSuggestionNoteKind = {
+      Materialize: 'materialize',
+      Unmaterialize: 'unmaterialize',
+    } as const;
+
+    export interface WarehouseSuggestionNote {
+      /** Whether this user can edit the view, which accepting the suggestion needs. */
+      can_act: boolean;
+      /** The suggestion id to pass to `warehouse-suggestions-get`, `-accept-prepare` or `-dismiss`. */
+      id: string;
+      /** What the suggestion proposes. */
+      kind: WarehouseSuggestionNoteKind;
+      /** Plain-language note for the person, with the next step. */
+      message: string;
+      /** Absolute link to the view's page in Models. */
+      url: string;
+      /** The view's current name. */
+      view_name: string;
+    }
+
     export interface DataWarehouseSyncWarning {
       /** True when the last sync is still within the table's sync interval, so the data is current and the warning only says it will stop updating (a sync paused recently). False or absent when the data is out of date. */
       data_is_current?: boolean | null;
@@ -3620,6 +3697,8 @@ export namespace Schemas {
       types?: string[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -4290,6 +4369,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -4643,6 +4724,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -6526,6 +6609,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -6679,6 +6764,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -7249,6 +7336,8 @@ export namespace Schemas {
       total_median_conversion_time?: number | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -7347,6 +7436,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -7605,6 +7696,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -7752,6 +7845,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -7804,6 +7899,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -7936,6 +8033,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -8112,6 +8211,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -8213,6 +8314,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -8398,6 +8501,21 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentMetricValueFormatType = typeof ExperimentMetricValueFormatType[keyof typeof ExperimentMetricValueFormatType];
+
+
+    export const ExperimentMetricValueFormatType = {
+      Currency: 'currency',
+      Duration: 'duration',
+      DurationMs: 'duration_ms',
+      Percentage: 'percentage',
+      PercentageScaled: 'percentage_scaled',
+    } as const;
+
+    export interface ExperimentMetricValueFormat {
+      type: ExperimentMetricValueFormatType;
+    }
+
     export type ExperimentMeanMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentMeanMetric {
@@ -8421,6 +8539,8 @@ export namespace Schemas {
       /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
       upper_bound_percentile?: number | null;
       uuid?: string | null;
+      /** How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it. */
+      value_format?: ExperimentMetricValueFormat | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -8453,6 +8573,8 @@ export namespace Schemas {
       series: (EventsNode | ActionsNode | ExperimentDataWarehouseNode)[];
       sharedMetricId?: number | null;
       uuid?: string | null;
+      /** How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it. */
+      value_format?: ExperimentMetricValueFormat | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -8491,6 +8613,8 @@ export namespace Schemas {
       response?: ExperimentRatioMetricResponse;
       sharedMetricId?: number | null;
       uuid?: string | null;
+      /** How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it. */
+      value_format?: ExperimentMetricValueFormat | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -8540,6 +8664,8 @@ export namespace Schemas {
       start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentExposureNode;
       start_handling: StartHandling;
       uuid?: string | null;
+      /** How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it. */
+      value_format?: ExperimentMetricValueFormat | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -8574,6 +8700,8 @@ export namespace Schemas {
       /** Must set `math_property`, the numeric property to take the quantile of. `math` is ignored. */
       source: EventsNode | ActionsNode;
       uuid?: string | null;
+      /** How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it. */
+      value_format?: ExperimentMetricValueFormat | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -8943,6 +9071,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Also carries access control warnings when a system-table query filters out objects the user can't access. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
@@ -9213,6 +9343,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9241,6 +9373,8 @@ export namespace Schemas {
       types?: string[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9269,6 +9403,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9308,6 +9444,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Also carries access control warnings when a system-table query filters out objects the user can't access. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
@@ -9340,6 +9478,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9375,6 +9515,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9403,6 +9545,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9430,6 +9574,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9465,6 +9611,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9509,6 +9657,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9536,6 +9686,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9563,6 +9715,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9607,6 +9761,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9638,6 +9794,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9815,6 +9973,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9865,6 +10025,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9954,6 +10116,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -9981,6 +10145,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -10011,6 +10177,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -10042,6 +10210,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -10180,6 +10350,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -10271,6 +10443,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -10316,6 +10490,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -10383,6 +10559,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -10450,6 +10628,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -10566,6 +10746,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -10650,6 +10832,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -10691,6 +10875,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -10901,6 +11087,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -10977,6 +11165,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -11076,6 +11266,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -11143,6 +11335,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -11180,6 +11374,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -11233,6 +11429,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -11275,6 +11473,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -11355,6 +11555,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -13944,10 +14146,10 @@ export namespace Schemas {
      * * `notify` - Notify
      * * `suppress` - Suppress
      */
-    export type InvestigationInconclusiveActionEnum = typeof InvestigationInconclusiveActionEnum[keyof typeof InvestigationInconclusiveActionEnum];
+    export type AlertInvestigationInconclusiveActionEnum = typeof AlertInvestigationInconclusiveActionEnum[keyof typeof AlertInvestigationInconclusiveActionEnum];
 
 
-    export const InvestigationInconclusiveActionEnum = {
+    export const AlertInvestigationInconclusiveActionEnum = {
       Notify: 'notify',
       Suppress: 'suppress',
     } as const;
@@ -14045,7 +14247,7 @@ export namespace Schemas {
        *
        * * `notify` - Notify
        * * `suppress` - Suppress */
-      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
+      investigation_inconclusive_action?: AlertInvestigationInconclusiveActionEnum;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
@@ -14201,6 +14403,123 @@ export namespace Schemas {
       alerts: AlertPatternPreviewAlert[];
       /** True when the project has more enabled alerts than `alerts` lists. */
       has_more: boolean;
+    }
+
+    /**
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord
+     */
+    export type AlertReceiverTypeEnum = typeof AlertReceiverTypeEnum[keyof typeof AlertReceiverTypeEnum];
+
+
+    export const AlertReceiverTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Discord: 'discord',
+    } as const;
+
+    export interface AlertReceiver {
+      /** ID of the receiver. Routes name it in receiver_id. */
+      id: string;
+      /** Name of the receiver, unique in the project. */
+      name: string;
+      /** Notification destination type.
+       *
+       * * `slack` - Slack
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `discord` - Discord */
+      type: AlertReceiverTypeEnum;
+      /** Whether routes send to this receiver. A disabled receiver gets nothing. */
+      enabled: boolean;
+      /** How many routes send to this receiver. Deleting the receiver deletes them. */
+      route_count: number;
+      /** Integration ID of the Slack workspace. Set when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Set when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable Slack channel name. Set when type=slack. */
+      slack_channel_name?: string;
+      /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+      webhook_url?: string;
+    }
+
+    export interface AlertReceiverWrite {
+      /**
+         * Name of the receiver, unique in the project.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether routes send to this receiver. Defaults to true. */
+      enabled?: boolean;
+      /** Notification destination type.
+       *
+       * * `slack` - Slack
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `discord` - Discord */
+      type: AlertReceiverTypeEnum;
+      /** Integration ID for the Slack workspace. Required when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Required when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable channel name for display. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
+      webhook_url?: string;
+    }
+
+    export interface AlertRouteMatcher {
+      /** Name of an alert label, such as team. */
+      label: string;
+      /** The value the label must equal, such as checkout. */
+      value: string;
+    }
+
+    /**
+     * * `firing` - firing
+     * * `resolved` - resolved
+     * * `errored` - errored
+     * * `broken` - broken
+     */
+    export type PlatformAlertDestinationEventKindEnum = typeof PlatformAlertDestinationEventKindEnum[keyof typeof PlatformAlertDestinationEventKindEnum];
+
+
+    export const PlatformAlertDestinationEventKindEnum = {
+      Firing: 'firing',
+      Resolved: 'resolved',
+      Errored: 'errored',
+      Broken: 'broken',
+    } as const;
+
+    export interface AlertRoute {
+      /** ID of the route. */
+      id: string;
+      /** ID of the receiver this route sends to. */
+      receiver_id: string;
+      /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
+      matchers: AlertRouteMatcher[];
+      /** The alert transitions the receiver hears about through this route. */
+      event_kinds: PlatformAlertDestinationEventKindEnum[];
+      /** Whether this route sends. */
+      enabled: boolean;
+    }
+
+    export interface AlertRouteWrite {
+      /** ID of the receiver this route sends to. */
+      receiver_id: string;
+      /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
+      matchers?: AlertRouteMatcher[];
+      /**
+         * The alert transitions the receiver hears about through this route. Defaults to every kind.
+         * @minItems 1
+         */
+      event_kinds?: PlatformAlertDestinationEventKindEnum[];
+      /** Whether this route sends. Defaults to true. */
+      enabled?: boolean;
     }
 
     export interface AlertSimulate {
@@ -18435,9 +18754,8 @@ export namespace Schemas {
     /**
      * Typed configuration for a PostgreSQL batch-export destination.
      *
-     * Connection credentials may live in a linked Integration (when one is provided) or
-     * inline in this config (legacy). Mirrors the non-credential fields of
-     * `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     * Connection credentials live in the linked Integration, never here. Mirrors the
+     * non-credential fields of `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface PostgresDestinationConfig {
       /** PostgreSQL database name to connect to. */
@@ -18554,22 +18872,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
-     */
-    export type RedshiftCopyInputsAuthorization = number | string | {
-      aws_access_key_id: string;
-      aws_secret_access_key: string;
-    };
-
-    /**
-     * AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
-     */
-    export type RedshiftCopyInputsBucketCredentials = number | {
-      aws_access_key_id: string;
-      aws_secret_access_key: string;
-    };
-
-    /**
      * S3 staging configuration for a Redshift batch export running in COPY mode.
      */
     export interface RedshiftCopyInputs {
@@ -18579,10 +18881,10 @@ export namespace Schemas {
       region_name: string;
       /** Key prefix for staged files in the S3 bucket. */
       s3_key_prefix: string;
-      /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
-      authorization: RedshiftCopyInputsAuthorization;
-      /** AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
-      bucket_credentials: RedshiftCopyInputsBucketCredentials;
+      /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. */
+      authorization: number | string;
+      /** AWS S3 integration ID used to stage files in the S3 bucket. */
+      bucket_credentials: number;
     }
 
     export type RedshiftDestinationConfigType = typeof RedshiftDestinationConfigType[keyof typeof RedshiftDestinationConfigType];
@@ -18595,8 +18897,7 @@ export namespace Schemas {
     /**
      * Typed configuration for a Redshift batch-export destination.
      *
-     * Connection credentials may live in a linked Integration (when one is provided) or inline in
-     * this config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
+     * Connection credentials live in the linked Integration, never here. Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
      * `products/batch_exports/backend/service.py`.
      */
     export interface RedshiftDestinationConfig {
@@ -22662,6 +22963,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -25647,12 +25950,14 @@ export namespace Schemas {
 
     /**
      * * `time_series` - Time series
+     * * `funnel_steps` - Funnel steps
      */
     export type ChartExplanationShapeEnum = typeof ChartExplanationShapeEnum[keyof typeof ChartExplanationShapeEnum];
 
 
     export const ChartExplanationShapeEnum = {
       TimeSeries: 'time_series',
+      FunnelSteps: 'funnel_steps',
     } as const;
 
     export interface StorySeriesResult {
@@ -25671,6 +25976,19 @@ export namespace Schemas {
          * @maxItems 5000
          */
       days?: string[];
+    }
+
+    export interface StoryFunnelStep {
+      /**
+         * The step's name.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * How many reached the step.
+         * @minimum 0
+         */
+      count: number;
     }
 
     /**
@@ -25839,21 +26157,30 @@ export namespace Schemas {
     }
 
     /**
-     * The insight query the explanation follows.
+     * The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.
      */
     export type ExplainChartDataQuery = {[key: string]: unknown};
 
     export interface ExplainChartData {
       /** What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.
        *
-       * * `time_series` - Time series */
+       * * `time_series` - Time series
+       * * `funnel_steps` - Funnel steps */
       shape?: ChartExplanationShapeEnum;
-      /** The insight query the explanation follows. */
+      /** The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps. */
       query: ExplainChartDataQuery;
-      /** Every series on the chart when it was explained. */
-      results: StorySeriesResult[];
+      /** Every series on the chart when it was explained. Time series only. */
+      results?: StorySeriesResult[];
+      /** The followed breakdown value's steps when it was explained. Funnel steps only. */
+      steps?: StoryFunnelStep[];
       /**
-         * The index in `results` the explanation follows.
+         * Every breakdown value's label, empty when the funnel has no breakdown. Funnel steps only.
+         * @maxItems 1000
+         * @items.maxLength 400
+         */
+      breakdowns?: string[];
+      /**
+         * The index in `results` the explanation follows, or the index in `breakdowns` on a funnel.
          * @minimum 0
          */
       seriesIndex: number;
@@ -25863,8 +26190,8 @@ export namespace Schemas {
          * @nullable
          */
       insightName: string | null;
-      /** Whether the last point's period had not ended yet. */
-      lastPointInProgress: boolean;
+      /** Whether the last point's period had not ended yet. Time series only. */
+      lastPointInProgress?: boolean;
       /**
          * One sentence a person could read in place of the whole explanation.
          * @maxLength 300
@@ -31654,6 +31981,30 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface DashboardActivitySummary {
+      /**
+         * When the dashboard was last changed, from its activity log. Null if never logged.
+         * @nullable
+         */
+      last_edited_at: string | null;
+      /** Who made the last logged change. */
+      last_edited_by: UserBasic | null;
+      /**
+         * Client that made the last logged change, e.g. 'mcp'. Null for the web app.
+         * @nullable
+         */
+      last_edited_client: string | null;
+      /**
+         * When someone other than the requesting user last opened the dashboard in the app. Programmatic reads (API, MCP, subscriptions) do not count.
+         * @nullable
+         */
+      last_viewed_by_others_at: string | null;
+      /** Who that last viewer was. */
+      last_viewed_by_others_user: UserBasic | null;
+      /** Number of people, including the requesting user, who opened the dashboard in the app in the last 30 days. */
+      recent_viewer_count: number;
+    }
+
     /**
      * Serializer mixin that handles tags for objects.
      */
@@ -34420,6 +34771,8 @@ export namespace Schemas {
          * @nullable
          */
       soft_update?: boolean | null;
+      /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+      acknowledge_breaking_changes?: boolean;
       /** @nullable */
       readonly is_materialized: boolean | null;
       /** Where this SavedQuery is created.
@@ -34742,6 +35095,8 @@ export namespace Schemas {
 
     export interface DatabaseSchemaField {
       chain?: (string | number)[] | null;
+      /** Short description of the column, when the HogQL schema defines one. */
+      description?: string | null;
       fields?: string[] | null;
       hogql_value: string;
       id?: string | null;
@@ -34772,6 +35127,8 @@ export namespace Schemas {
     export interface DatabaseSchemaBatchExportTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaBatchExportTableFields;
       id: string;
       name: string;
@@ -34802,6 +35159,8 @@ export namespace Schemas {
     export interface DatabaseSchemaDataWarehouseTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaDataWarehouseTableFields;
       /** Absent for a dual-mode source's virtual tables, which have no synced S3 backing. */
       format?: string | null;
@@ -34822,6 +35181,8 @@ export namespace Schemas {
     export interface DatabaseSchemaEndpointTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaEndpointTableFields;
       id: string;
       name: string;
@@ -34848,6 +35209,8 @@ export namespace Schemas {
     export interface DatabaseSchemaManagedViewTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaManagedViewTableFields;
       id: string;
       kind: DatabaseSchemaManagedViewTableKind;
@@ -34863,6 +35226,8 @@ export namespace Schemas {
     export interface DatabaseSchemaMaterializedViewTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaMaterializedViewTableFields;
       id: string;
       last_run_at?: string | null;
@@ -34878,6 +35243,8 @@ export namespace Schemas {
     export interface DatabaseSchemaPostHogTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaPostHogTableFields;
       id: string;
       name: string;
@@ -34890,6 +35257,8 @@ export namespace Schemas {
     export interface DatabaseSchemaSystemTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaSystemTableFields;
       id: string;
       name: string;
@@ -34902,6 +35271,8 @@ export namespace Schemas {
     export interface DatabaseSchemaViewTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaViewTableFields;
       id: string;
       name: string;
@@ -36903,6 +37274,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -37944,6 +38317,12 @@ export namespace Schemas {
          */
       source_issues?: SourceIssueWrite[];
       /**
+         * GitHub pull request URLs (`https://github.com/<owner>/<repo>/pull/<number>`) that fix what this report describes, when you found a fix that a person or another agent already opened. A linked pull request is the report's implementation: the report resolves on its own when every linked pull request is closed or merged and at least one merged, and a merged pull request resolves it at once. Additive: a pull request the report already links is skipped. Linking does not claim the report and does not change the pull request itself (no labels, reviewers, or ready-for-review). Link only a pull request whose diff targets this report's cause. The edit refuses a pull request outside the report's repository, one GitHub cannot read, and one closed without merging. At most 5 per call.
+         * @maxItems 5
+         * @items.maxLength 2048
+         */
+      pull_requests?: string[];
+      /**
          * The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one.
          * @maxItems 10
          * @nullable
@@ -38043,6 +38422,8 @@ export namespace Schemas {
       links_appended: number;
       /** How many source issues this edit added that the report did not name yet; 0 if none. */
       source_issues_appended: number;
+      /** How many pull requests this edit linked that the report did not link yet; 0 if none. */
+      pull_requests_linked: number;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
       /** Whether the report's repository was replaced (true for a cleared target too). */
@@ -39571,6 +39952,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -39623,6 +40006,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -39825,6 +40210,16 @@ export namespace Schemas {
       Duration: 'Duration',
     } as const;
 
+    export type PropertyDefinitionTypeNameEnum = typeof PropertyDefinitionTypeNameEnum[keyof typeof PropertyDefinitionTypeNameEnum];
+
+
+    export const PropertyDefinitionTypeNameEnum = {
+      Event: 'event',
+      Person: 'person',
+      Group: 'group',
+      Session: 'session',
+    } as const;
+
     /**
      * Serializer mixin that handles tags for objects.
      */
@@ -39848,6 +40243,13 @@ export namespace Schemas {
       hidden?: boolean | null;
       /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
       readonly warehouse_origin: unknown;
+      /** Kind of property: an event, person, group or session property. */
+      readonly type: PropertyDefinitionTypeNameEnum;
+      /**
+         * Group type index of a group property, null for every other type.
+         * @nullable
+         */
+      readonly group_type_index: number | null;
     }
 
     export interface ErrorDetail {
@@ -40150,6 +40552,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -40365,6 +40769,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -40761,6 +41167,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -41463,6 +41871,8 @@ export namespace Schemas {
       unattributed: ErrorTrackingReleaseSeries | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -41621,6 +42031,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -43525,6 +43937,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -44469,6 +44883,8 @@ export namespace Schemas {
       upper_bound_percentile?: number | null;
       /** Unique identifier. Auto-generated if omitted. */
       uuid?: string | null;
+      /** For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results. */
+      value_format?: ExperimentMetricValueFormat | null;
     }
 
     /**
@@ -45065,7 +45481,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -45868,7 +46284,7 @@ export namespace Schemas {
       /** Whether the changes were compared with the exposures. False when not_checked_reason is set. */
       checked: boolean;
       /**
-         * Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were.
+         * Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action', 'exposure_criteria', 'too_many_saves' or 'too_many_conditions'. Null when they were.
          * @nullable
          */
       not_checked_reason: string | null;
@@ -46295,9 +46711,9 @@ export namespace Schemas {
       readonly status: MetricsRecalculationStatusEnum;
       /** Total number of metrics to recalculate */
       readonly total_metrics: number;
-      /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+      /** Number of metrics with a COMPLETED result row that did not fail in this run (derived, not stored) */
       readonly completed_metrics: number;
-      /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+      /** Number of failed metrics in this run (derived): metrics with a FAILED result row or a metric_errors entry. A metric that fails keeps its earlier completed result, so it can count here and still have a completed row in results. The error of a rejected run counts only for a metric without a row */
       readonly failed_metrics: number;
       /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
       readonly metric_errors: unknown;
@@ -46323,6 +46739,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `current` - Current settings
+     * * `previous` - Earlier settings
+     * * `unknown` - Settings not recorded
+     */
+    export type ExperimentResultConfigurationStatusEnum = typeof ExperimentResultConfigurationStatusEnum[keyof typeof ExperimentResultConfigurationStatusEnum];
+
+
+    export const ExperimentResultConfigurationStatusEnum = {
+      Current: 'current',
+      Previous: 'previous',
+      Unknown: 'unknown',
+    } as const;
+
+    /**
      * * `pending` - pending
      * * `completed` - completed
      * * `failed` - failed
@@ -46340,6 +46770,12 @@ export namespace Schemas {
      * One metric's recalculated result row, read back from ExperimentMetricResult.
      */
     export interface MetricRecalculationResult {
+      /** Whether this result uses current settings, earlier settings, or settings that were not recorded.
+       *
+       * * `current` - Current settings
+       * * `previous` - Earlier settings
+       * * `unknown` - Settings not recorded */
+      readonly configuration_status: ExperimentResultConfigurationStatusEnum;
       /** UUID of the metric this result belongs to */
       readonly metric_uuid: string;
       /** Status of this metric's calculation in the run
@@ -46386,9 +46822,9 @@ export namespace Schemas {
       readonly status: MetricsRecalculationStatusEnum;
       /** Total number of metrics to recalculate */
       readonly total_metrics: number;
-      /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+      /** Number of metrics with a COMPLETED result row that did not fail in this run (derived, not stored) */
       readonly completed_metrics: number;
-      /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+      /** Number of failed metrics in this run (derived): metrics with a FAILED result row or a metric_errors entry. A metric that fails keeps its earlier completed result, so it can count here and still have a completed row in results. The error of a rejected run counts only for a metric without a row */
       readonly failed_metrics: number;
       /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
       readonly metric_errors: unknown;
@@ -46411,7 +46847,7 @@ export namespace Schemas {
       readonly query_to: string | null;
       /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
       readonly metric_retries: unknown;
-      /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+      /** Per-metric results of this run, scoped by the run's recalc fingerprint. When a metric fails, its earlier completed result at the same window stays here and the failure is in metric_errors */
       readonly results: readonly MetricRecalculationResult[];
       /**
          * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
@@ -46430,6 +46866,8 @@ export namespace Schemas {
        * * `recalculation` - recalculation
        * * `timeseries_fallback` - timeseries_fallback */
       readonly result_source: ResultSourceEnum;
+      /** True when the experiment started too long ago for its metrics to be recalculated. A recalculation request then returns a rejected run with the recalculation_window_too_long error, and the saved results stay as they are */
+      readonly exceeds_recalculation_age_limit: boolean;
     }
 
     /**
@@ -46471,9 +46909,9 @@ export namespace Schemas {
       readonly status: MetricsRecalculationStatusEnum;
       /** Total number of metrics to recalculate */
       readonly total_metrics: number;
-      /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+      /** Number of metrics with a COMPLETED result row that did not fail in this run (derived, not stored) */
       readonly completed_metrics: number;
-      /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+      /** Number of failed metrics in this run (derived): metrics with a FAILED result row or a metric_errors entry. A metric that fails keeps its earlier completed result, so it can count here and still have a completed row in results. The error of a rejected run counts only for a metric without a row */
       readonly failed_metrics: number;
       /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
       readonly metric_errors: unknown;
@@ -46496,7 +46934,7 @@ export namespace Schemas {
       readonly query_to: string | null;
       /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
       readonly metric_retries: unknown;
-      /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+      /** Per-metric results of this run, scoped by the run's recalc fingerprint. When a metric fails, its earlier completed result at the same window stays here and the failure is in metric_errors */
       readonly results: readonly MetricRecalculationResult[];
       /**
          * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
@@ -46616,7 +47054,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
+      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
       query: unknown;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -47604,6 +48042,85 @@ export namespace Schemas {
       prompt_version?: string | null;
     }
 
+    /**
+     * Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start date to the end date or today. Null for a day without a completed result.
+     */
+    export type ExperimentTimeseriesResultsTimeseries = {[key: string]: unknown};
+
+    /**
+     * Configuration provenance for each stored day: current, previous, or unknown.
+     */
+    export type ExperimentTimeseriesResultsConfigurationByDay = {[key: string]: 'current' | 'previous' | 'unknown'};
+
+    /**
+     * Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.
+     * @nullable
+     */
+    export type ExperimentTimeseriesResultsErrors = {[key: string]: string} | null;
+
+    /**
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `partial` - Partial
+     * * `failed` - Failed
+     */
+    export type ExperimentTimeseriesResultsStatusEnum = typeof ExperimentTimeseriesResultsStatusEnum[keyof typeof ExperimentTimeseriesResultsStatusEnum];
+
+
+    export const ExperimentTimeseriesResultsStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Partial: 'partial',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Day-by-day results of one metric under the experiment's current settings.
+     */
+    export interface ExperimentTimeseriesResults {
+      /** Experiment id. */
+      experiment_id: number;
+      /** UUID of the metric the series belongs to. */
+      metric_uuid: string;
+      /** 'completed' when every day has a result, 'partial' when some do, 'failed' when no day has a result and some failed, 'pending' when no day was calculated yet.
+       *
+       * * `pending` - Pending
+       * * `completed` - Completed
+       * * `partial` - Partial
+       * * `failed` - Failed */
+      status: ExperimentTimeseriesResultsStatusEnum;
+      /** Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start date to the end date or today. Null for a day without a completed result. */
+      timeseries: ExperimentTimeseriesResultsTimeseries;
+      /** Configuration provenance for each stored day: current, previous, or unknown. */
+      configuration_by_day: ExperimentTimeseriesResultsConfigurationByDay;
+      /**
+         * When the most recent day's result was computed, or null.
+         * @nullable
+         */
+      computed_at: string | null;
+      /** When the oldest stored day was written. */
+      created_at: string;
+      /** When the newest stored day was last written. */
+      updated_at: string;
+      /**
+         * 'pending' or 'in_progress' while a backfill of this series runs, otherwise null.
+         * @nullable
+         */
+      recalculation_status: string | null;
+      /**
+         * When the running backfill was requested, or null.
+         * @nullable
+         */
+      recalculation_created_at: string | null;
+      /** The series as a compact text table, one row per day, for language model consumers. */
+      formatted_results: string;
+      /**
+         * Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.
+         * @nullable
+         */
+      errors: ExperimentTimeseriesResultsErrors;
+    }
+
     export interface VariantsExperiment {
       /** The experiment's id. */
       id: number;
@@ -48064,7 +48581,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -49040,7 +49557,7 @@ export namespace Schemas {
       /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
       drop_history_table?: boolean;
       /**
-         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table` to stop writing history, a name means the history table was kept, for example because a sync started meanwhile. An update that adds a mask with `drop_history_table` keeps the table and its access rules, and deletes only its contents.
          * @nullable
          */
       readonly registered_history_table_name: string | null;
@@ -49383,6 +49900,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly connection_warning: string | null;
+    }
+
+    export interface ExternalDataSourceSyncState {
+      /** Opaque digest of the sync state the sources list shows: each source's status and last completed run, and each table's status, sync toggle, error, last sync and row count. It changes when that state changes. Compare it with an earlier value; do not parse it. */
+      fingerprint: string;
     }
 
     export type ExternalQueryErrorCode = typeof ExternalQueryErrorCode[keyof typeof ExternalQueryErrorCode];
@@ -53916,7 +54438,7 @@ export namespace Schemas {
       /** Key metrics of the project from its settings. */
       pulse: HighlightMetric[];
       /**
-         * Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null for clients using complete results.
+         * Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null only in results stored before every computation listed its numbers.
          * @nullable
          */
       pulse_slots?: PulseSlot[] | null;
@@ -55699,6 +56221,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -55787,6 +56311,8 @@ export namespace Schemas {
       unattributedConversions: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -55876,6 +56402,8 @@ export namespace Schemas {
       totalConversions: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -56004,6 +56532,8 @@ export namespace Schemas {
       truncatedCohorts: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -56131,6 +56661,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -56309,6 +56841,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -56411,6 +56945,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -56520,6 +57056,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -56610,6 +57148,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -56694,6 +57234,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -56761,6 +57303,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -56864,6 +57408,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -56915,6 +57461,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -57132,6 +57680,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -57202,6 +57752,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -57264,6 +57816,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -57318,6 +57872,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -57382,6 +57938,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -57442,6 +58000,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -57629,6 +58189,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -57737,6 +58299,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -57826,6 +58390,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -57891,6 +58457,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -57936,6 +58504,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -57980,6 +58550,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58028,6 +58600,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58072,6 +58646,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58120,6 +58696,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58167,6 +58745,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58221,6 +58801,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58273,6 +58855,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58332,6 +58916,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58379,6 +58965,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58448,6 +59036,8 @@ export namespace Schemas {
       totalSessions: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58533,6 +59123,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58579,6 +59171,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58618,6 +59212,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58658,6 +59254,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58696,6 +59294,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58742,6 +59342,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58792,6 +59394,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58846,6 +59450,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -58905,6 +59511,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -60717,6 +61325,14 @@ export namespace Schemas {
      */
     export type InsightPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
 
+    export type InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum = typeof InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum[keyof typeof InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum];
+
+
+    export const InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum = {
+      Notify: 'notify',
+      Suppress: 'suppress',
+    } as const;
+
     /**
      * Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API.
      */
@@ -60736,6 +61352,12 @@ export namespace Schemas {
          * @minimum 0
          */
       evaluation_delay_intervals?: number;
+      /** Whether an AI agent investigates each firing of an anomaly alert. It can't change through this API. */
+      investigation_agent_enabled?: boolean;
+      /** Whether a firing waits for the agent's verdict, and is dropped when the agent calls it a false positive. It can't change through this API. */
+      investigation_gates_notifications?: boolean;
+      /** What a waiting firing does when the agent's verdict is inconclusive. It can't change through this API. */
+      investigation_inconclusive_action?: InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnum;
     }
 
     /**
@@ -63806,6 +64428,11 @@ export namespace Schemas {
       timezone: string;
     }
 
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
+     */
+    export type LogsAlertConfigurationLabels = {[key: string]: string};
+
     export interface LogsAlertFilters {
       filterGroup?: PropertyGroupFilter | null;
       serviceNames?: string[] | null;
@@ -63988,7 +64615,9 @@ export namespace Schemas {
       readonly destination_types: readonly LogsAlertDestinationTypeEnum[];
       /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
       grouping?: LogsAlertGrouping;
-      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
+      labels?: LogsAlertConfigurationLabels;
+      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
       readonly platform_owned: boolean;
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
@@ -64004,6 +64633,11 @@ export namespace Schemas {
          */
       readonly updated_at: string | null;
     }
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
+     */
+    export type LogsAlertConfigurationDetailLabels = {[key: string]: string};
 
     export interface LogsAlertDestinationConfig {
       hog_function_ids: string[];
@@ -64129,7 +64763,9 @@ export namespace Schemas {
       readonly destination_types: readonly LogsAlertDestinationTypeEnum[];
       /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
       grouping?: LogsAlertGrouping;
-      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
+      labels?: LogsAlertConfigurationDetailLabels;
+      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
       readonly platform_owned: boolean;
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
@@ -65682,83 +66318,6 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
-    /**
-     * Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether real usage signal contributed.
-     */
-    export type MCPDiscoverCandidateWhy = { [key: string]: unknown };
-
-    /**
-     * Real MCP Analytics aggregates when the server is measured, otherwise null: calls, sessions, error_rate_pct, intent_coverage_pct, harness_count.
-     * @nullable
-     */
-    export type MCPDiscoverCandidateMeasured = { [key: string]: unknown } | null;
-
-    export type MCPDiscoverCandidateMatchedToolsItem = {
-      name?: string;
-      description?: string;
-      source?: string;
-    };
-
-    /**
-     * Connection instructions, most-automated method first, steps typed by actor so the agent runs its own steps and narrates the human ones.
-     */
-    export type MCPDiscoverCandidateConnect = { [key: string]: unknown };
-
-    /**
-     * One ranked candidate in a discover response, with everything an agent needs to act.
-     */
-    export interface MCPDiscoverCandidate {
-      /** 1-based position under the ranking version used. */
-      rank: number;
-      /** Registry server id, for the detail endpoint. */
-      id: string;
-      /** Official registry name, empty for measured-only servers. */
-      registry_name: string;
-      /** Human-readable server name. */
-      title: string;
-      /** What the server does. */
-      description: string;
-      /** The server's own standing in [0, 1] under the ranking version used: liveness x trust, independent of the query. */
-      score: number;
-      /**
-         * How well the server's own text answered `intent`, in [0, 1]. Null when the intent held no words worth matching on.
-         * @nullable
-         */
-      relevance: number | null;
-      /**
-         * The value candidates are ordered by: relevance and score combined, weighted toward relevance. Null in two cases. When the intent held no words worth matching on, ordering falls back to `score`. When the ranking version has no completed run, `score` is 0 for every candidate and ordering falls back to `relevance`.
-         * @nullable
-         */
-      combined_score: number | null;
-      /** Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether real usage signal contributed. */
-      why: MCPDiscoverCandidateWhy;
-      /** Probed liveness state (alive_open, alive_auth, dead, ...). */
-      liveness: string;
-      /** Detected auth method (none, oauth, api_key, unknown). */
-      auth_method: string;
-      /**
-         * Real MCP Analytics aggregates when the server is measured, otherwise null: calls, sessions, error_rate_pct, intent_coverage_pct, harness_count.
-         * @nullable
-         */
-      measured: MCPDiscoverCandidateMeasured;
-      /** Tools that matched the intent: [{name, description, source}]. Empty when only the server description matched. */
-      matched_tools: MCPDiscoverCandidateMatchedToolsItem[];
-      /** Connection instructions, most-automated method first, steps typed by actor so the agent runs its own steps and narrates the human ones. */
-      connect: MCPDiscoverCandidateConnect;
-    }
-
-    /**
-     * Everything an agent gets back from one discover call.
-     */
-    export interface MCPDiscoverResponse {
-      /** The intent the candidates were ranked against, echoed back. */
-      intent: string;
-      /** Ranking version the candidates were ordered by. */
-      ranking_version: string;
-      /** Servers most likely to do the thing, best first. */
-      candidates: MCPDiscoverCandidate[];
-    }
-
     export interface MCPFeedbackCreate {
       /**
          * The tool the user tried before leaving feedback, if known.
@@ -66193,18 +66752,6 @@ export namespace Schemas {
       readonly themes: readonly MCPIntentTheme[];
     }
 
-    /**
-     * One project's contribution to the measured layer, for the staff fleet view.
-     */
-    export interface MCPMeasuredProject {
-      /** Project supplying the MCP Analytics signal. */
-      team_id: number;
-      /** Distinct servers this project has measured. */
-      servers: number;
-      /** Tool calls this project contributes across those servers. */
-      calls: number;
-    }
-
     export interface MCPMissingCapabilityCreate {
       /**
          * The tool the user tried before leaving feedback, if known.
@@ -66284,129 +66831,6 @@ export namespace Schemas {
       enabled?: boolean;
       readonly created_at: string;
       readonly updated_at: string;
-    }
-
-    /**
-     * A completed ranking run.
-     */
-    export interface MCPRankingRun {
-      /** Run id. */
-      id: string;
-      /** Servers scored in the run. */
-      server_count: number;
-      /**
-         * When the run completed.
-         * @nullable
-         */
-      computed_at: string | null;
-    }
-
-    /**
-     * A registered ranking version and its latest completed run.
-     */
-    export interface MCPRankingVersion {
-      /** Ranking version key, passed as ?version= to the list endpoint. */
-      version: string;
-      /** What this version scores on. */
-      description: string;
-      /** Whether this is the version used when ?version= is omitted. */
-      is_default: boolean;
-      /** Latest completed run; null when the version never ran. */
-      latest_run: MCPRankingRun | null;
-    }
-
-    export type MCPRegistryServerDetailRemotesItem = {
-      type?: string;
-      url?: string;
-    };
-
-    export type MCPRegistryServerDetailPackagesItem = {
-      registry_type?: string;
-      identifier?: string;
-    };
-
-    export type MCPRegistryServerDetailToolsItem = { [key: string]: unknown };
-
-    export type MCPRegistryServerDetailMeasuredStatsItem = { [key: string]: unknown };
-
-    export type MCPRegistryServerDetailScoresItem = { [key: string]: unknown };
-
-    /**
-     * Connection instructions: methods ordered most-automated first, steps typed by actor (agent executes; human steps are narrated to the user).
-     */
-    export type MCPRegistryServerDetailConnect = { [key: string]: unknown };
-
-    export interface MCPRegistryServerDetail {
-      /** Registry server id. */
-      id: string;
-      /** Reverse-DNS name in the official MCP registry; empty for measured-only servers. */
-      registry_name: string;
-      /** Human-readable server name. */
-      display_name: string;
-      /** Server description. */
-      description: string;
-      /** Primary hosted remote URL; empty for package-only servers. */
-      canonical_url: string;
-      /** Probed liveness state (alive_open, alive_auth, dead, ...). */
-      liveness: string;
-      /** Detected auth method (none, oauth, api_key, unknown). */
-      auth_method: string;
-      /** Whether the server appears in the official MCP registry. */
-      listed_in_registry: boolean;
-      /** Whether real usage signal exists via MCP Analytics. */
-      is_measured: boolean;
-      /**
-         * Static score under the requested ranking version; null when the version has no completed run.
-         * @nullable
-         */
-      rank_score: number | null;
-      /** All hosted remotes: [{type, url}]. */
-      remotes: MCPRegistryServerDetailRemotesItem[];
-      /** Published packages: [{registry_type, identifier}]. */
-      packages: MCPRegistryServerDetailPackagesItem[];
-      /** Source repository URL, when published. */
-      repository_url: string;
-      /** Vendor website URL, when published. */
-      website_url: string;
-      /**
-         * When the shallow probe last ran.
-         * @nullable
-         */
-      last_probed_at: string | null;
-      /** Known tools, fused from probes and analytics. A tool known only from another project's traffic is limited to callers who may see that project's measurements. */
-      tools: MCPRegistryServerDetailToolsItem[];
-      /** Behavioral aggregates, one per measured MCP Analytics project. Limited to this project's own measurements unless the server is marked measured_public. */
-      measured_stats: MCPRegistryServerDetailMeasuredStatsItem[];
-      /** Latest score under every ranking version with a completed run. */
-      scores: MCPRegistryServerDetailScoresItem[];
-      /** Connection instructions: methods ordered most-automated first, steps typed by actor (agent executes; human steps are narrated to the user). */
-      connect: MCPRegistryServerDetailConnect;
-    }
-
-    export interface MCPRegistryServerList {
-      /** Registry server id. */
-      id: string;
-      /** Reverse-DNS name in the official MCP registry; empty for measured-only servers. */
-      registry_name: string;
-      /** Human-readable server name. */
-      display_name: string;
-      /** Server description. */
-      description: string;
-      /** Primary hosted remote URL; empty for package-only servers. */
-      canonical_url: string;
-      /** Probed liveness state (alive_open, alive_auth, dead, ...). */
-      liveness: string;
-      /** Detected auth method (none, oauth, api_key, unknown). */
-      auth_method: string;
-      /** Whether the server appears in the official MCP registry. */
-      listed_in_registry: boolean;
-      /** Whether real usage signal exists via MCP Analytics. */
-      is_measured: boolean;
-      /**
-         * Static score under the requested ranking version; null when the version has no completed run.
-         * @nullable
-         */
-      rank_score: number | null;
     }
 
     /**
@@ -72725,6 +73149,15 @@ export namespace Schemas {
       results: AEOPrompt[];
     }
 
+    export interface PaginatedAccountAutomationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountAutomation[];
+    }
+
     export interface PaginatedAccountChannelSummaryList {
       count: number;
       /** @nullable */
@@ -73982,15 +74415,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: MCPOrgRule[];
-    }
-
-    export interface PaginatedMCPRegistryServerListList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: MCPRegistryServerList[];
     }
 
     export interface PaginatedMCPServerInstallationList {
@@ -75906,7 +76330,7 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalRef {
       readonly id: string;
-      readonly integration: SessionRecordingExternalReferenceIntegration;
+      readonly integration: SessionRecordingExternalReferenceIntegration | null;
       integration_id: number;
       config: unknown;
       session_recording_id: string;
@@ -77063,6 +77487,8 @@ export namespace Schemas {
       readonly work_state: SignalReportWorkStateEnum;
       /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
       readonly assignee: SignalReportAssignee | null;
+      /** Whether an implementation run for this report is still working. A new implementation run cannot start until it settles. */
+      readonly implementation_in_flight: boolean;
       /** The report's PR refund, when one exists. One refund per report, ever. */
       readonly refund: SignalReportRefund | null;
       /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -77088,12 +77514,12 @@ export namespace Schemas {
          */
       readonly inbox_merge_key: number | null;
       /**
-         * The tier your personal ranking gave this report, for sort=personal. Null when the language model did not rank the report, and for every other sort.
+         * The tier your personal ranking gave this report, when the list response's ranker is personal. Null when the language model did not rank the report, and for every other ranker.
          * @nullable
          */
       readonly personal_tier: string | null;
       /**
-         * Why your personal ranking put this report where it is, for sort=personal. Null when the language model did not rank the report, and for every other sort.
+         * Why your personal ranking put this report where it is, when the list response's ranker is personal. Null when the language model did not rank the report, and for every other ranker.
          * @nullable
          */
       readonly personal_reason: string | null;
@@ -77107,12 +77533,12 @@ export namespace Schemas {
       previous?: string | null;
       results: SignalReportList[];
       /**
-         * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model. For sort=personal it is personal when a stored personal ranking ordered the page: the teammate's with scope=teammate, else yours. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+         * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model, or personal when a stored personal ranking ordered the page. For sort=personal that is the teammate's ranking with scope=teammate, else yours. For sort=recommended it is yours, when your flag arm serves it. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
          * @nullable
          */
       ranker?: string | null;
       /**
-         * The stored personal ranking that ordered the page when sort=personal. Pass it back as ranking_id on later pages, so a new ranking does not reorder them. Null when no personal ranking applied, and for every other sort.
+         * The stored personal ranking that ordered the page, when the ranker is personal. Pass it back as ranking_id on later pages, so a new ranking does not reorder them. Null when no personal ranking applied, and for every other sort.
          * @nullable
          */
       ranking_id?: string | null;
@@ -82183,9 +82609,48 @@ export namespace Schemas {
        *
        * * `notify` - Notify
        * * `suppress` - Suppress */
-      investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
+      investigation_inconclusive_action?: AlertInvestigationInconclusiveActionEnum;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
+    }
+
+    export interface PatchedAlertReceiverWrite {
+      /**
+         * Name of the receiver, unique in the project.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether routes send to this receiver. Defaults to true. */
+      enabled?: boolean;
+      /** Notification destination type.
+       *
+       * * `slack` - Slack
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `discord` - Discord */
+      type?: AlertReceiverTypeEnum;
+      /** Integration ID for the Slack workspace. Required when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Required when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable channel name for display. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
+      webhook_url?: string;
+    }
+
+    export interface PatchedAlertRouteWrite {
+      /** ID of the receiver this route sends to. */
+      receiver_id?: string;
+      /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
+      matchers?: AlertRouteMatcher[];
+      /**
+         * The alert transitions the receiver hears about through this route. Defaults to every kind.
+         * @minItems 1
+         */
+      event_kinds?: PlatformAlertDestinationEventKindEnum[];
+      /** Whether this route sends. Defaults to true. */
+      enabled?: boolean;
     }
 
     export interface PatchedAnnotation {
@@ -83602,6 +84067,8 @@ export namespace Schemas {
          * @nullable
          */
       soft_update?: boolean | null;
+      /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+      acknowledge_breaking_changes?: boolean;
       /** @nullable */
       readonly is_materialized?: boolean | null;
       /** Where this SavedQuery is created.
@@ -83992,6 +84459,13 @@ export namespace Schemas {
       hidden?: boolean | null;
       /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
       readonly warehouse_origin?: unknown;
+      /** Kind of property: an event, person, group or session property. */
+      readonly type?: PropertyDefinitionTypeNameEnum;
+      /**
+         * Group type index of a group property, null for every other type.
+         * @nullable
+         */
+      readonly group_type_index?: number | null;
     }
 
     export interface PatchedErrorTrackingAlertUpdateRequest {
@@ -84610,7 +85084,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
+      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
       query?: unknown;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
@@ -84694,7 +85168,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -85039,7 +85513,7 @@ export namespace Schemas {
       /** For CDC syncs: set to true with a change that stops writing the history table, such as `cdc_table_mode` from `both` or `cdc_only` to `consolidated`, or a `sync_type` other than `cdc`, to delete the history table and every past row version in it. This cannot be undone. Refused while a sync of the table is still running. Omit it, or send false, to keep the history table. */
       drop_history_table?: boolean;
       /**
-         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table` to stop writing history, a name means the history table was kept, for example because a sync started meanwhile. An update that adds a mask with `drop_history_table` keeps the table and its access rules, and deletes only its contents.
          * @nullable
          */
       readonly registered_history_table_name?: string | null;
@@ -86407,6 +86881,11 @@ export namespace Schemas {
       version_description?: string;
     }
 
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
+     */
+    export type PatchedLogsAlertConfigurationLabels = {[key: string]: string};
+
     export interface PatchedLogsAlertConfiguration {
       /** Unique identifier for this alert. */
       readonly id?: string;
@@ -86494,7 +86973,9 @@ export namespace Schemas {
       readonly destination_types?: readonly LogsAlertDestinationTypeEnum[];
       /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
       grouping?: LogsAlertGrouping;
-      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
+      labels?: PatchedLogsAlertConfigurationLabels;
+      /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
       readonly platform_owned?: boolean;
       /**
          * When the alert was first enabled. Null means the alert is still in draft state.
@@ -89750,7 +90231,7 @@ export namespace Schemas {
      */
     export interface PatchedSessionRecordingExternalRef {
       readonly id?: string;
-      readonly integration?: SessionRecordingExternalReferenceIntegration;
+      readonly integration?: SessionRecordingExternalReferenceIntegration | null;
       integration_id?: number;
       config?: unknown;
       session_recording_id?: string;
@@ -91680,7 +92161,7 @@ export namespace Schemas {
          * @nullable
          */
       snoozed_until?: string | null;
-      /** Tag names to set on the ticket. */
+      /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
       tags?: string[];
     }
 
@@ -93651,22 +94132,6 @@ export namespace Schemas {
       Teams: 'teams',
       Discord: 'discord',
       Pagerduty: 'pagerduty',
-    } as const;
-
-    /**
-     * * `firing` - firing
-     * * `resolved` - resolved
-     * * `errored` - errored
-     * * `broken` - broken
-     */
-    export type PlatformAlertDestinationEventKindEnum = typeof PlatformAlertDestinationEventKindEnum[keyof typeof PlatformAlertDestinationEventKindEnum];
-
-
-    export const PlatformAlertDestinationEventKindEnum = {
-      Firing: 'firing',
-      Resolved: 'resolved',
-      Errored: 'errored',
-      Broken: 'broken',
     } as const;
 
     export interface PlatformAlertCreateDestination {
@@ -96878,6 +97343,57 @@ export namespace Schemas {
       Person: 'person',
     } as const;
 
+    export interface PropertyUsageEntry {
+      /** Property definition type the name belongs to.
+       *
+       * * `event` - Event
+       * * `person` - Person
+       * * `group` - Group
+       * * `session` - Session */
+      type?: PropertyDefinitionTypeNameEnum;
+      /**
+         * Property name, for example `$current_url`.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Group type index of a group property. Required when `type` is `group`, otherwise omit it.
+         * @minimum 0
+         * @maximum 4
+         * @nullable
+         */
+      group_type_index?: number | null;
+    }
+
+    export interface PropertyUsageMetricsItem {
+      /** Property definition type the name belongs to.
+       *
+       * * `event` - Event
+       * * `person` - Person
+       * * `group` - Group
+       * * `session` - Session */
+      type: PropertyDefinitionTypeNameEnum;
+      /** Property name. */
+      name: string;
+      /**
+         * Group type index of a group property, null for other types.
+         * @nullable
+         */
+      group_type_index: number | null;
+      /** Number of query executions in the last 30 days that referenced this property, including cached insight views. */
+      query_usage_30_day: number;
+    }
+
+    export interface PropertyUsageMetricsRequest {
+      /** Properties to fetch 30-day query usage for, at most 100 per request. */
+      properties: PropertyUsageEntry[];
+    }
+
+    export interface PropertyUsageMetricsResponse {
+      /** One entry per requested property, in request order. */
+      results: PropertyUsageMetricsItem[];
+    }
+
     export interface PropertyValueItem {
       count?: number | null;
       name?: string | number | boolean | null;
@@ -96901,6 +97417,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98073,6 +98591,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98148,6 +98668,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98175,6 +98697,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98203,6 +98727,8 @@ export namespace Schemas {
       types?: string[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98231,6 +98757,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98266,6 +98794,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98312,6 +98842,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Also carries access control warnings when a system-table query filters out objects the user can't access. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
@@ -98364,6 +98896,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98390,6 +98924,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98415,6 +98951,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98438,6 +98976,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98462,6 +99002,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98502,6 +99044,8 @@ export namespace Schemas {
       unattributed: ErrorTrackingReleaseSeries | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98528,6 +99072,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98555,6 +99101,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98618,6 +99166,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98650,6 +99200,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98685,6 +99237,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98713,6 +99267,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98740,6 +99296,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98766,6 +99324,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98801,6 +99361,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98834,6 +99396,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98859,6 +99423,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98891,6 +99457,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98925,6 +99493,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98956,6 +99526,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -98993,6 +99565,8 @@ export namespace Schemas {
       unattributedConversions: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99026,6 +99600,8 @@ export namespace Schemas {
       totalConversions: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99061,6 +99637,8 @@ export namespace Schemas {
       truncatedCohorts: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99087,6 +99665,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99113,6 +99693,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99142,6 +99724,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99170,6 +99754,8 @@ export namespace Schemas {
       types?: string[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99198,6 +99784,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99237,6 +99825,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Also carries access control warnings when a system-table query filters out objects the user can't access. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
@@ -99269,6 +99859,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99304,6 +99896,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99332,6 +99926,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99359,6 +99955,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99394,6 +99992,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99427,6 +100027,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99454,6 +100056,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99481,6 +100085,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99515,6 +100121,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99546,6 +100154,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99572,6 +100182,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99598,6 +100210,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99624,6 +100238,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99651,6 +100267,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99681,6 +100299,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99712,6 +100332,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99746,6 +100368,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99770,6 +100394,8 @@ export namespace Schemas {
       total_median_conversion_time?: number | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99792,6 +100418,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99814,6 +100442,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99836,6 +100466,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99867,6 +100499,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99899,6 +100533,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99927,6 +100563,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99950,6 +100588,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99972,6 +100612,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -99994,6 +100636,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100022,6 +100666,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100049,6 +100695,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100073,6 +100721,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100097,6 +100747,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100121,6 +100773,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100152,6 +100806,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100177,6 +100833,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100199,6 +100857,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100225,6 +100885,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100262,6 +100924,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100284,6 +100948,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100306,6 +100972,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100336,6 +101004,8 @@ export namespace Schemas {
       types: string[];
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100367,6 +101037,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100389,6 +101061,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100416,6 +101090,8 @@ export namespace Schemas {
       types?: unknown[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100440,6 +101116,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100462,6 +101140,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100484,6 +101164,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100506,6 +101188,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100530,6 +101214,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100552,6 +101238,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100574,6 +101262,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100596,6 +101286,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100618,6 +101310,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100641,6 +101335,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100663,6 +101359,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100691,6 +101389,8 @@ export namespace Schemas {
       totalSessions: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100713,6 +101413,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100735,6 +101437,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100757,6 +101461,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100779,6 +101485,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100801,6 +101509,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100823,6 +101533,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100845,6 +101557,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100869,6 +101583,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100897,6 +101613,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -100919,6 +101637,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers; absent when not evaluated, empty when evaluated and none apply. */
+      warehouse_suggestions?: WarehouseSuggestionNote[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access, and a breakdown warning when the query ran without its requested breakdown. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[] | null;
     }
@@ -102132,6 +102852,8 @@ export namespace Schemas {
       readonly work_state: SignalReportWorkStateEnum;
       /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
       readonly assignee: SignalReportAssignee | null;
+      /** Whether an implementation run for this report is still working. A new implementation run cannot start until it settles. */
+      readonly implementation_in_flight: boolean;
       /** The report's PR refund, when one exists. One refund per report, ever. */
       readonly refund: SignalReportRefund | null;
       /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -112652,6 +113374,26 @@ export namespace Schemas {
     }
 
     /**
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     */
+    export type WarehouseSuggestionSurfaceEnum = typeof WarehouseSuggestionSurfaceEnum[keyof typeof WarehouseSuggestionSurfaceEnum];
+
+
+    export const WarehouseSuggestionSurfaceEnum = {
+      Models: 'models',
+      Catalog: 'catalog',
+    } as const;
+
+    export interface SurfaceMoreWarehouseSuggestions {
+      /** Page to show more suggestions on. Only the kinds that page shows are picked.
+       *
+       * * `models` - Models
+       * * `catalog` - Data catalog */
+      surface: WarehouseSuggestionSurfaceEnum;
+    }
+
+    /**
      * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
      */
     export type SurveyGlobalStatsResponseStats = { [key: string]: unknown };
@@ -116602,7 +117344,7 @@ export namespace Schemas {
          * @nullable
          */
       snoozed_until?: string | null;
-      /** Tag names to set on the ticket. */
+      /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
       tags?: string[];
     }
 
@@ -116763,6 +117505,28 @@ export namespace Schemas {
       git: TraceGit | null;
     }
 
+    export type TraceAttachmentMediaType = typeof TraceAttachmentMediaType[keyof typeof TraceAttachmentMediaType];
+
+
+    export const TraceAttachmentMediaType = {
+      Image: 'image',
+      Audio: 'audio',
+      Video: 'video',
+      File: 'file',
+    } as const;
+
+    export interface TraceAttachmentPart {
+      kind: 'attachment';
+      /** The kind of media, which decides how it is shown. */
+      mediaType: TraceAttachmentMediaType;
+      /** The file name, or the content item's type for an item that is not known media. Null otherwise. */
+      name: string | null;
+      /** The MIME type, such as `image/png`, or null when it is not known. */
+      mimeType: string | null;
+      /** A URL that loads the media: a link or data URI from the event, a project blob URL for offloaded media, or a data URI built from base64 data. Null when the media cannot be shown or was redacted. */
+      url: string | null;
+    }
+
     export interface TraceAvailability {
       /** Requested trace IDs readable from AI events or the shared events table. */
       available_trace_ids: string[];
@@ -116889,14 +117653,6 @@ export namespace Schemas {
       detail: string;
     }
 
-    export interface TraceNodeMetadata {
-      provider: string | null;
-      temperature: number | null;
-      sessionId: string | null;
-      promptName: string | null;
-      promptVersion: number | null;
-    }
-
     export interface TraceNodeIOKeys {
       input: string | null;
       output: string | null;
@@ -116918,11 +117674,11 @@ export namespace Schemas {
       ioKeys: TraceNodeIOKeys;
     }
 
-    export interface TraceNodeDetail {
+    export interface TraceNodeRaw {
+      /** The node id: the event's uuid, or the trace id for the root node. */
       id: string;
       kind: TraceNodeKindEnum;
-      error: string | null;
-      metadata: TraceNodeMetadata;
+      /** The node's event as ingested, or null for a root node whose trace has no `$ai_trace` event. */
       event: TraceNodeEvent | null;
     }
 
@@ -116931,8 +117687,8 @@ export namespace Schemas {
       trace: Trace;
       /** True when the trace has more events than an export reads. The file then holds the earliest events only, and leaves out the later steps. */
       truncated: boolean;
-      /** Every node with its event properties as ingested, inputs and outputs included: the root first, then the tree in pre-order. */
-      nodes: TraceNodeDetail[];
+      /** Every node with its event as ingested: the root first, then the tree in pre-order. */
+      nodes: TraceNodeRaw[];
     }
 
     export interface TraceFeedbackScore {
@@ -117051,6 +117807,93 @@ export namespace Schemas {
       comment: string | null;
       /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
       scores: TraceHumanReviewScore[];
+    }
+
+    export interface TraceJsonSide {
+      kind: 'json';
+      /** The side's value as captured, for a side that is not a conversation or that could not be normalized. */
+      value: unknown;
+    }
+
+    export type TraceMessageRoleEnum = typeof TraceMessageRoleEnum[keyof typeof TraceMessageRoleEnum];
+
+
+    export const TraceMessageRoleEnum = {
+      System: 'system',
+      User: 'user',
+      Assistant: 'assistant',
+      Tool: 'tool',
+    } as const;
+
+    export interface TraceTextPart {
+      kind: 'text';
+      /** The text of the message, as captured. */
+      text: string;
+    }
+
+    export interface TraceThinkingPart {
+      kind: 'thinking';
+      /** The model's reasoning text. */
+      text: string;
+    }
+
+    export interface TraceToolCallPart {
+      kind: 'toolCall';
+      /** The name of the called tool, or an empty string when the event has none. */
+      name: string;
+      /** The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured. */
+      args: unknown;
+      /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser. Null when no tool message answers the call. */
+      result: unknown;
+    }
+
+    export interface TraceMessage {
+      /** An id that is unique within the node, made of the node id, the side and a position. */
+      id: string;
+      role: TraceMessageRoleEnum;
+      /** The message's text, reasoning, tool calls and attachments, in order. */
+      parts: (TraceTextPart | TraceThinkingPart | TraceToolCallPart | TraceAttachmentPart)[];
+      /** Whether the message is a tool message, or holds only reasoning and tool calls. */
+      isInternal: boolean;
+      /** The id of the node whose input or output holds this message, or null when it is not known. */
+      sourceNodeId: string | null;
+    }
+
+    export interface TraceMessagesSide {
+      kind: 'messages';
+      /** The conversation, normalized from the provider's format by the built-in parsers and the project's custom parsers. */
+      messages: TraceMessage[];
+    }
+
+    export interface TraceNodeContent {
+      /** The node's input, as messages or as JSON. */
+      input: TraceMessagesSide | TraceJsonSide;
+      /** The node's output, as messages or as JSON. */
+      output: TraceMessagesSide | TraceJsonSide;
+    }
+
+    export interface TraceNodeMetadata {
+      provider: string | null;
+      temperature: number | null;
+      sessionId: string | null;
+      promptName: string | null;
+      promptVersion: number | null;
+    }
+
+    export interface TraceNodeDetailEvent {
+      name: string;
+      uuid: string;
+      timestamp: string;
+    }
+
+    export interface TraceNodeDetail {
+      id: string;
+      kind: TraceNodeKindEnum;
+      error: string | null;
+      metadata: TraceNodeMetadata;
+      event: TraceNodeDetailEvent | null;
+      /** The node's input and output, ready to render. */
+      content: TraceNodeContent;
     }
 
     export interface TracePullRequest {
@@ -118803,6 +119646,8 @@ export namespace Schemas {
          * @nullable
          */
       ready_at: string | null;
+      /** Whether the organization's Trino catalog is backed by hoglake. Hoglake credentials reach nothing otherwise. */
+      hoglake: boolean;
       /** Trino connection target. Null until Trino is ready and reachable. */
       connection: WarehouseTrinoConnection | null;
     }
@@ -118878,6 +119723,15 @@ export namespace Schemas {
          * @nullable
          */
       refreshed_at: string | null;
+      /** Suggestions waiting to be shown on the requested surface that you can read and act on. 0 without a surface, or while new suggestions are paused or off. */
+      waiting: number;
+      /** Whether a surface_more call would show at least one waiting suggestion now. False while the open limits are full. */
+      can_show_more: boolean;
+    }
+
+    export interface WarehouseSuggestionSurfaceMoreResult {
+      /** How many waiting suggestions this call showed. 0 when none could be shown. */
+      surfaced: number;
     }
 
     /**
@@ -124964,6 +125818,18 @@ export namespace Schemas {
       Desc: 'desc',
     } as const;
 
+    export type AccountsAutomationsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type AccountsEmailThreadsListParams = {
     /**
      * Number of results to return per page.
@@ -126271,6 +127137,13 @@ export namespace Schemas {
     };
 
     export type AiObservabilityTracesNodesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesNodesRawRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
@@ -128072,6 +128945,18 @@ export namespace Schemas {
 
 
     export const DashboardsDestroyFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsActivitySummaryRetrieveParams = {
+    format?: DashboardsActivitySummaryRetrieveFormat;
+    };
+
+    export type DashboardsActivitySummaryRetrieveFormat = typeof DashboardsActivitySummaryRetrieveFormat[keyof typeof DashboardsActivitySummaryRetrieveFormat];
+
+
+    export const DashboardsActivitySummaryRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -135315,62 +136200,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type McpRegistryServersListParams = {
-    /**
-     * Number of results to return per page.
-     * @maximum 200
-     */
-    limit?: number;
-    /**
-     * Only servers with real MCP Analytics signal.
-     */
-    measured_only?: boolean;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Free-text query matched against server names, descriptions, and tool names.
-     */
-    search?: string;
-    /**
-     * Ranking version ordering the results; defaults to the current default version.
-     */
-    version?: string;
-    };
-
-    export type McpRegistryServersCompareRetrieveParams = {
-    /**
-     * Rows per arm (default 20, max 100).
-     */
-    limit?: number;
-    /**
-     * Optional text filter applied to every arm.
-     */
-    search?: string;
-    /**
-     * Comma-separated ranking versions to compare (2+).
-     */
-    versions: string;
-    };
-
-    export type McpRegistryServersCompareRetrieve200 = { [key: string]: unknown };
-
-    export type McpRegistryServersDiscoverRetrieveParams = {
-    /**
-     * What the agent is trying to do, in natural language.
-     */
-    intent: string;
-    /**
-     * Candidates to return (default 5, max 20).
-     */
-    limit?: number;
-    /**
-     * Ranking version to rank candidates by.
-     */
-    version?: string;
-    };
-
     export type McpServerInstallationsListParams = {
     /**
      * Number of results to return per page.
@@ -137245,7 +138074,7 @@ export namespace Schemas {
      */
     priority?: string;
     /**
-     * For sort=personal: the ranking_id of the first page. Pass it on later pages, so a new personal ranking does not reorder them. When that ranking no longer exists, the latest one applies.
+     * For sort=personal, and for sort=recommended when its ranker is personal: the ranking_id of the first page. Pass it on later pages, so a new personal ranking does not reorder them. When that ranking no longer exists, the latest one applies.
      */
     ranking_id?: string;
     /**
@@ -137273,7 +138102,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
      */
     sort?: string;
     /**
@@ -137285,7 +138114,7 @@ export namespace Schemas {
      */
     source_product?: string;
     /**
-     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, closed, failed, suppressed. Defaults to all statuses except suppressed.
      */
     status?: string;
     /**
@@ -137313,7 +138142,7 @@ export namespace Schemas {
      */
     use_priority_preference?: boolean;
     /**
-     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
+     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being verified after implementation. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
      */
     view?: string;
     };
@@ -140770,6 +141599,14 @@ export namespace Schemas {
      * Only return suggestions about the view or table with this ID.
      */
     subject_id?: string;
+    /**
+     * Only return the kinds of suggestions this page shows. models: materialize, stop materializing and view deprecations. catalog: certify and deprecate.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsListSurface;
     };
 
     export type WarehouseSuggestionsListKind = typeof WarehouseSuggestionsListKind[keyof typeof WarehouseSuggestionsListKind];
@@ -140791,6 +141628,14 @@ export namespace Schemas {
       Dismissed: 'dismissed',
       Expired: 'expired',
       AutoResolved: 'auto_resolved',
+    } as const;
+
+    export type WarehouseSuggestionsListSurface = typeof WarehouseSuggestionsListSurface[keyof typeof WarehouseSuggestionsListSurface];
+
+
+    export const WarehouseSuggestionsListSurface = {
+      Models: 'models',
+      Catalog: 'catalog',
     } as const;
 
     export type WarehouseSuggestionsAcceptCreateParams = {
@@ -140827,6 +141672,25 @@ export namespace Schemas {
 
 
     export const WarehouseSuggestionsDismissCreateSurface = {
+      Models: 'models',
+      Catalog: 'catalog',
+    } as const;
+
+    export type WarehouseSuggestionsStatusRetrieveParams = {
+    /**
+     * Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsStatusRetrieveSurface;
+    };
+
+    export type WarehouseSuggestionsStatusRetrieveSurface = typeof WarehouseSuggestionsStatusRetrieveSurface[keyof typeof WarehouseSuggestionsStatusRetrieveSurface];
+
+
+    export const WarehouseSuggestionsStatusRetrieveSurface = {
       Models: 'models',
       Catalog: 'catalog',
     } as const;

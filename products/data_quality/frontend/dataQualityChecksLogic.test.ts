@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -132,6 +134,22 @@ describe('dataQualityChecksLogic', () => {
         expect(dataQualityChecksList).toHaveBeenCalledWith('1', { ...subject, limit: 100 })
         expect(dataQualityChecksHealthList).toHaveBeenCalledWith('1', subject)
         expect(dataQualityRunsList).toHaveBeenCalledWith('1', { ...subject, limit: 20 })
+    })
+
+    it('opens the run history and records that it was opened', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        await mountLogic()
+
+        logic.actions.openRunHistory()
+
+        expect(logic.values.runHistoryOpen).toBe(true)
+        expect(capture).toHaveBeenCalledWith(
+            'data quality run history opened',
+            expect.objectContaining({ subject_type: VIEW_PROPS.subjectType })
+        )
+
+        logic.actions.closeRunHistory()
+        expect(logic.values.runHistoryOpen).toBe(false)
     })
 
     it('keeps a failed metric check load distinct from an empty result and can retry', async () => {
