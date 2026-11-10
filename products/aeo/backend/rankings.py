@@ -141,7 +141,9 @@ def get_rankings(team_id: int, *, target_domains: list[str], timezone_name: str,
     ranked_domains = citations.ranked_domains()
     # Competitors a person confirmed in the brand catalog win; until there are any, derive them from citations.
     confirmed = _confirmed_competitors(team_id)
-    competitors = list(confirmed) or _competitors(ranked_domains, targets, brand_names(target_domains))
+    competitors = list(confirmed) or _competitors(
+        ranked_domains, targets, brand_names(target_domains), catalog_excluded=_catalog_exclusions(team_id)
+    )
     names = {domain: confirmed[domain][0] if domain in confirmed else _brand_name(domain) for domain in competitors}
     top_domains = ranked_domains[:MAX_RANKED_DOMAINS]
     domain_urls = citations.urls_per_domain([domain for domain, _ in top_domains])
@@ -286,18 +288,34 @@ def _confirmed_competitors(team_id: int) -> dict[str, tuple[str, ...]]:
 
 
 def _word_pattern(names: tuple[str, ...]) -> str:
-    """Postgres regex (for `~*`) matching any of the names as whole words."""
-    return r"\m(" + "|".join(re.escape(name.strip().lower()) for name in names if name.strip()) + r")\M"
+    """Postgres regex (for `~*`) matching any of the names as whole words. The boundaries are any non-word
+    character or the text's ends, so a name that ends in punctuation (`Yahoo!`) still matches."""
+    return r"(^|\W)(" + "|".join(re.escape(name.strip().lower()) for name in names if name.strip()) + r")(\W|$)"
 
 
-def _competitors(ranked_domains: list[tuple[str, int]], targets: set[str], target_names: tuple[str, ...]) -> list[str]:
+def _catalog_exclusions(team_id: int) -> set[str]:
+    """Domains a person ignored or confirmed as something other than a competitor, so the fallback skips them."""
+    rows = AEOBrand.objects.for_team(team_id).filter(
+        Q(status=BrandStatus.IGNORED.value)
+        | (Q(status=BrandStatus.CONFIRMED.value) & ~Q(kind=BrandKind.COMPETITOR.value))
+    )
+    return set(rows.values_list("domain", flat=True))
+
+
+def _competitors(
+    ranked_domains: list[tuple[str, int]],
+    targets: set[str],
+    target_names: tuple[str, ...],
+    *,
+    catalog_excluded: set[str],
+) -> list[str]:
     # The project's own brand on another domain (example.de for example.com) is not a competitor.
     excluded = NON_BRAND_NAMES | set(target_names)
     competitors: list[str] = []
     for domain, _ in ranked_domains:
         if len(competitors) == MAX_RANKED_COMPETITORS:
             break
-        if domain not in targets and _brand_name(domain) not in excluded:
+        if domain not in targets and domain not in catalog_excluded and _brand_name(domain) not in excluded:
             competitors.append(domain)
     return competitors
 

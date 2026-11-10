@@ -44,7 +44,10 @@ describe('aiVisibilityBrandsLogic', () => {
 
         logic.actions.labelBrand(BRAND.id, 'competitor')
 
-        await expectLogic(logic).toDispatchActions(['updateBrandSuccess', 'loadBrandsSuccess'])
+        await expectLogic(logic).toDispatchActions(['updateBrandSuccess'])
+        // The saved brand shows before the reload, so the row never unlocks with stale values.
+        expect(logic.values.brands?.results[0]).toMatchObject({ kind: 'competitor', status: 'confirmed' })
+        await expectLogic(logic).toDispatchActions(['loadBrandsSuccess'])
         expect(aeoBrandsPartialUpdate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), BRAND.id, {
             kind: 'competitor',
             status: 'confirmed',

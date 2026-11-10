@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonInputSelect,
@@ -22,8 +23,8 @@ const KIND_OPTIONS: { value: BrandKindEnumApi; label: string }[] = [
 
 /** Reviews the brand catalog the daily runs fill from cited sites. Confirmed competitors drive the Rankings tab. */
 export const AiVisibilityBrandsSetting = (): JSX.Element => {
-    const { brands, brandsLoading, status, search, page, updatingIds } = useValues(aiVisibilityBrandsLogic)
-    const { setStatus, setSearch, setPage, labelBrand, updateBrand } = useActions(aiVisibilityBrandsLogic)
+    const { brands, brandsLoading, brandsError, status, search, page, updatingIds } = useValues(aiVisibilityBrandsLogic)
+    const { setStatus, setSearch, setPage, labelBrand, updateBrand, loadBrands } = useActions(aiVisibilityBrandsLogic)
 
     return (
         <div className="flex flex-col gap-3" data-attr="ai-visibility-brands-setting">
@@ -49,9 +50,17 @@ export const AiVisibilityBrandsSetting = (): JSX.Element => {
                     data-attr="ai-visibility-brands-search"
                 />
             </div>
+            {brandsError ? (
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: loadBrands, loading: brandsLoading }}
+                >
+                    Couldn't load the brands. Try again, and if it keeps happening contact support.
+                </LemonBanner>
+            ) : null}
             <LemonTable<AEOBrandApi>
                 size="small"
-                dataSource={brands?.results ?? []}
+                dataSource={brandsError ? [] : (brands?.results ?? [])}
                 loading={brandsLoading}
                 rowKey="id"
                 pagination={{
@@ -86,7 +95,7 @@ export const AiVisibilityBrandsSetting = (): JSX.Element => {
                                 size="small"
                                 value={brand.kind}
                                 options={KIND_OPTIONS}
-                                onChange={(kind) => kind && labelBrand(brand.id, kind)}
+                                onSelect={(kind) => kind && labelBrand(brand.id, kind)}
                                 disabledReason={updatingIds.includes(brand.id) ? 'Saving…' : undefined}
                                 data-attr="ai-visibility-brand-kind"
                             />

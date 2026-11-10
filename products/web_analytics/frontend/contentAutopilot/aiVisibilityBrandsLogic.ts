@@ -24,6 +24,7 @@ export interface BrandsPage {
 export interface aiVisibilityBrandsLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     brands: BrandsPage | null
+    brandsError: boolean
     brandsLoading: boolean
     page: number
     search: string
@@ -112,6 +113,14 @@ export const aiVisibilityBrandsLogic = kea<aiVisibilityBrandsLogicType>([
         status: ['suggested' as BrandStatusEnumApi, { setStatus: (_, { status }) => status }],
         search: ['', { setSearch: (_, { search }) => search }],
         page: [1, { setPage: (_, { page }) => page, setStatus: () => 1, setSearch: () => 1 }],
+        brandsError: [
+            false,
+            {
+                loadBrands: () => false,
+                loadBrandsSuccess: () => false,
+                loadBrandsFailure: () => true,
+            },
+        ],
         updatingIds: [
             [] as string[],
             {
@@ -139,6 +148,13 @@ export const aiVisibilityBrandsLogic = kea<aiVisibilityBrandsLogicType>([
             },
         ],
     })),
+    reducers({
+        // The saved brand replaces the row before the row unlocks, so a quick second edit starts from it.
+        brands: {
+            updateBrandSuccess: (state, { brand }) =>
+                state ? { ...state, results: state.results.map((row) => (row.id === brand.id ? brand : row)) } : state,
+        },
+    }),
     listeners(({ actions, values }) => ({
         setStatus: () => actions.loadBrands(),
         setSearch: () => actions.loadBrands(),

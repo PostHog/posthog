@@ -812,7 +812,7 @@ class TestAEOPromptAPI(APIBaseTest):
                 kind="competitor",
                 status="confirmed",
                 source="manual",
-                aliases=["Acme Ltd"],
+                aliases=["Acme Ltd!"],
             )
             AEOBrand.objects.create(
                 team=self.team,
@@ -826,7 +826,7 @@ class TestAEOPromptAPI(APIBaseTest):
             ids["funnels?"],
             "claude-web-search",
             minutes_ago=10,
-            answer_text="Acme Ltd is popular.",
+            answer_text="Acme Ltd! is popular.",
             cited_urls=["https://rival.io/x"],
         )
         self._record_check(ids["funnels?"], "exa-answer", minutes_ago=20, answer_text="Nothing here.")
@@ -839,6 +839,35 @@ class TestAEOPromptAPI(APIBaseTest):
             ("acme.co.uk", "Acme", 1),
             ("example.com", "example", 0),
         ]
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_rankings_fallback_skips_brands_ignored_or_labeled_otherwise(self) -> None:
+        ids = self._import_prompts([{"prompt": "funnels?"}])
+        with team_scope(self.team.pk):
+            AEOBrand.objects.create(
+                team=self.team, name="Rival", domain="rival.io", kind="competitor", status="ignored", source="citations"
+            )
+            AEOBrand.objects.create(
+                team=self.team,
+                name="Acme",
+                domain="acme.co.uk",
+                kind="publisher",
+                status="confirmed",
+                source="citations",
+            )
+        self._record_check(
+            ids["funnels?"],
+            "claude-web-search",
+            minutes_ago=10,
+            answer_text="Rival and Acme.",
+            cited_urls=["https://rival.io/x", "https://acme.co.uk/z", "https://third.io/y"],
+        )
+
+        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
+            rankings = self.client.get(f"{self.url}rankings/").json()
+
+        assert rankings["competitors_confirmed"] is False
+        assert [row["domain"] for row in rankings["brands"]] == ["third.io", "example.com"]
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_rankings_compare_the_brand_with_competitors_from_cited_domains(self) -> None:
