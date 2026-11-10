@@ -1577,7 +1577,8 @@ _REPORT_LIST_PARAMETERS = [
         required=False,
         description=(
             "Comma-separated list of statuses to include. "
-            "Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. "
+            "Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, closed, failed, "
+            "suppressed. "
             "Defaults to all statuses except suppressed."
         ),
     ),
@@ -1693,8 +1694,9 @@ _REPORT_LIST_PARAMETERS = [
         required=False,
         description=(
             "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, "
-            "dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, "
-            "actionability, and implementation-PR filters. for_you holds the open, actionable reports that "
+            "closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, "
+            "actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being "
+            "verified after implementation. for_you holds the open, actionable reports that "
             "wait for the requesting user's input, that they claimed, or that name them as a suggested "
             "reviewer. needs_decision also includes failed reports without a judgment. "
             "dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent "
@@ -2741,7 +2743,9 @@ class SignalReportViewSet(
                 )
             )
         if inbox_view == "monitoring":
-            return queryset.filter(status=SignalReport.Status.READY).filter(self._implementation_pr_report_filter())
+            if not self._report_monitoring_enabled:
+                return queryset.none()
+            return queryset.filter(status=SignalReport.Status.MONITORING)
         if inbox_view == "resolved":
             return queryset.filter(status__in=self._resolved_read_statuses())
         if inbox_view == "closed":
