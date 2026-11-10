@@ -1,8 +1,10 @@
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from functools import partial
 from itertools import count
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, _create_person, flush_persons_and_events
@@ -33,12 +35,12 @@ from products.workflows.backend.services.push_token_import import (
     get_push_token_import,
     import_unknown_persons,
     parse_push_token_csv,
-    run_push_token_import_batches,
     start_push_token_import,
 )
 from products.workflows.backend.tasks import push_token_import as tasks
 
 APNS_TOKEN = "a1" * 32
+THREE_DEVICES = [f"a,{APNS_TOKEN}", f"b,{APNS_TOKEN}", f"c,{APNS_TOKEN}"]
 
 
 class _MemoryStorage:
@@ -62,30 +64,36 @@ class _Ingestion:
     def __init__(self) -> None:
         # Ingestion deduplicates on the event ID and timestamp, so a copy sent again is stored once.
         self.stored: dict[tuple[str, str], dict[str, Any]] = {}
-        self.unconfirmed_once: set[str] = set()
-        self.times_out_once = False
+        self.fails_once: dict[str, str] = {}
 
     def capture(self, *, events: list[dict[str, Any]], **kwargs: Any) -> CaptureInternalResult:
         result = CaptureInternalResult(status_code=200)
         for event in events:
-            self.stored.setdefault((event["event_uuid"], str(event.get("timestamp"))), event)
-            unconfirmed = event["distinct_id"] in self.unconfirmed_once
-            self.unconfirmed_once.discard(event["distinct_id"])
-            (result.unaccounted if unconfirmed else result.ok).append(event["event_uuid"])
-        if self.times_out_once:
-            self.times_out_once = False
-            raise TimeoutError("ingestion stored the batch but its answer was lost")
+            failure = self.fails_once.pop(event["distinct_id"], None)
+            if failure != "dropped":
+                timestamp = str(event.get("timestamp") or timezone.now())
+                self.stored.setdefault((event["event_uuid"], timestamp), event)
+            getattr(result, failure or "ok").append(event["event_uuid"])
         return result
 
     def devices(self) -> list[str]:
         return sorted(event["distinct_id"] for event in self.stored.values())
 
 
+@dataclass(order=True)
+class _Scheduled:
+    due: datetime
+    order: int
+    task: Any = field(compare=False)
+    kwargs: dict[str, Any] = field(compare=False)
+    retries: int = field(compare=False)
+
+
 class _Queue:
     def __init__(self, start: datetime) -> None:
         self.traveller = time_machine.travel(start, tick=False)
         self.clock = self.traveller.start()
-        self.scheduled: list[tuple[datetime, int, Any, dict[str, Any], int]] = []
+        self.scheduled: list[_Scheduled] = []
         self.loses_imports = False
         self.order = count()
 
@@ -93,25 +101,24 @@ class _Queue:
         if task is tasks.run_push_token_import and self.loses_imports:
             return
         due = timezone.now() + timedelta(seconds=countdown or 0)
-        self.scheduled.append((due, next(self.order), task, kwargs, options.get("retries", 0)))
+        self.scheduled.append(_Scheduled(due, next(self.order), task, kwargs, options.get("retries", 0)))
 
     def sleep(self, seconds: float) -> None:
         self.clock.shift(seconds)
 
     def advance(self, by: timedelta = timedelta()) -> None:
         until = timezone.now() + by
-        while due := sorted(entry for entry in self.scheduled if entry[0] <= until):
+        while due := sorted(entry for entry in self.scheduled if entry.due <= until):
             self.scheduled.remove(due[0])
-            when, _, task, kwargs, retries = due[0]
-            self.clock.move_to(max(when, timezone.now()))
-            self.run(task, kwargs, retries)
+            self.clock.move_to(max(due[0].due, timezone.now()))
+            self.run(due[0].task, due[0].kwargs, due[0].retries)
         self.clock.move_to(until)
 
     def run(self, task: Any, kwargs: dict[str, Any], retries: int = 0) -> None:
         task.push_request(id=str(uuid4()), kwargs=kwargs, args=[], retries=retries, called_directly=False)
         try:
             task.run(**kwargs)
-        except Retry:
+        except (Retry, SystemExit):
             pass
         finally:
             task.pop_request()
@@ -190,8 +197,7 @@ class _PushTokenImportTestCase(APIBaseTest):
             tasks.check_push_token_import_stalled,
             tasks.expire_push_token_import_devices,
         ):
-            enqueue = lambda *args, task=task, **options: self.queue.apply_async(task, *args, **options)  # noqa: E731
-            patchers.append(patch.object(task, "apply_async", side_effect=enqueue))
+            patchers.append(patch.object(task, "apply_async", side_effect=partial(self.queue.apply_async, task)))
         for patcher in patchers:
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -204,11 +210,6 @@ class _PushTokenImportTestCase(APIBaseTest):
             content="\n".join(["distinct_id,device_token", *lines]).encode(),
             create_missing_persons=create_missing_persons,
         )
-
-    def _run_to_end(self, import_id: UUID) -> PushTokenImportRecord:
-        while run_push_token_import_batches(self.team.id, import_id):
-            pass
-        return get_push_token_import(self.team.id, import_id)
 
 
 class TestPushTokenImportJob(_PushTokenImportTestCase):
@@ -305,7 +306,9 @@ class TestPushTokenImportJob(_PushTokenImportTestCase):
             return self.ingestion.capture(**kwargs)
 
         with patch("posthog.api.integration_push_tokens.capture_batch_internal", side_effect=stop_while_sending):
-            result = self._run_to_end(import_id)
+            self.queue.advance()
+
+        result = get_push_token_import(self.team.id, import_id)
 
         assert (result.status, result.processed_devices, result.imported_devices) == (
             PushTokenImportStatus.CANCELLED,
@@ -315,8 +318,9 @@ class TestPushTokenImportJob(_PushTokenImportTestCase):
         assert result.finished_at is not None
         assert self.storage.objects == {}
 
-    def test_a_device_ingestion_did_not_confirm_is_sent_again_and_stored_once(self) -> None:
-        self.ingestion.unconfirmed_once = {"b"}
+    @parameterized.expand([("dropped",), ("unaccounted",)])
+    def test_a_device_ingestion_did_not_confirm_is_sent_again_and_stored_once(self, failure: str) -> None:
+        self.ingestion.fails_once = {"b": failure}
         import_id = self._upload([f"a,{APNS_TOKEN}", f"b,{APNS_TOKEN}"], create_missing_persons=True).id
 
         self.queue.advance()
@@ -337,12 +341,16 @@ class TestPushTokenImportJob(_PushTokenImportTestCase):
         assert self.storage.objects == {}
         assert PushTokenImport.objects.for_team(self.team.id).get(id=import_id).storage_key == ""
 
-    def test_a_batch_sent_again_after_a_crash_is_stored_once(self) -> None:
-        self.ingestion.times_out_once = True
-        lines = [f"a,{APNS_TOKEN}", f"b,{APNS_TOKEN}", f"c,{APNS_TOKEN}"]
-        import_id = self._upload(lines, create_missing_persons=True).id
+    def test_a_batch_sent_again_after_its_worker_died_is_stored_once(self) -> None:
+        import_id = self._upload(THREE_DEVICES, create_missing_persons=True).id
 
-        self.queue.advance(timedelta(minutes=1))
+        def store_then_die(**kwargs: Any) -> None:
+            capture.side_effect = self.ingestion.capture
+            self.ingestion.capture(**kwargs)
+            raise SystemExit("the worker was killed after ingestion stored the batch")
+
+        with patch("posthog.api.integration_push_tokens.capture_batch_internal", side_effect=store_then_die) as capture:
+            self.queue.advance(push_token_import.STALLED_AFTER)
 
         result = get_push_token_import(self.team.id, import_id)
         assert (result.status, result.imported_devices) == (PushTokenImportStatus.COMPLETED, 3)
@@ -360,10 +368,11 @@ class TestPushTokenImportJob(_PushTokenImportTestCase):
         assert self.ingestion.devices() == []
 
     def test_a_failed_delete_does_not_let_unknown_people_be_imported_twice(self) -> None:
-        first = self._run_to_end(self._upload([f"new-1,{APNS_TOKEN}"]).id)
-        with patch.object(self.storage, "delete", side_effect=RuntimeError("storage down")):
-            retry = import_unknown_persons(team=self.team, user=self.user, import_id=first.id)
-        self._run_to_end(retry.id)
+        first = self._upload([f"new-1,{APNS_TOKEN}"])
+        self.queue.advance()
+        self.storage.down = True
+        import_unknown_persons(team=self.team, user=self.user, import_id=first.id)
+        self.queue.advance()
 
         with self.assertRaises(PushTokenImportInvalid):
             import_unknown_persons(team=self.team, user=self.user, import_id=first.id)
@@ -380,8 +389,7 @@ class TestPushTokenImportJob(_PushTokenImportTestCase):
 
     def test_progress_during_the_last_stall_check_keeps_the_import_running(self) -> None:
         self.queue.loses_imports = True
-        lines = [f"a,{APNS_TOKEN}", f"b,{APNS_TOKEN}", f"c,{APNS_TOKEN}"]
-        import_id = self._upload(lines, create_missing_persons=True).id
+        import_id = self._upload(THREE_DEVICES, create_missing_persons=True).id
 
         def worker_comes_back() -> None:
             self.queue.loses_imports = False
@@ -393,15 +401,18 @@ class TestPushTokenImportJob(_PushTokenImportTestCase):
         assert get_push_token_import(self.team.id, import_id).status == PushTokenImportStatus.COMPLETED
         assert self.ingestion.devices() == ["a", "b", "c"]
 
-    def test_an_import_that_stops_making_progress_is_resumed_then_failed(self) -> None:
+    def test_a_stalled_import_is_resumed_and_completes(self) -> None:
         self.queue.loses_imports = True
-        resumed = self._upload([f"a,{APNS_TOKEN}", f"b,{APNS_TOKEN}", f"c,{APNS_TOKEN}"], create_missing_persons=True)
+        import_id = self._upload(THREE_DEVICES, create_missing_persons=True).id
         self.queue.advance(push_token_import.STALLED_AFTER)
         self.queue.loses_imports = False
+
         self.queue.advance(push_token_import.STALLED_AFTER)
-        assert get_push_token_import(self.team.id, resumed.id).status == PushTokenImportStatus.COMPLETED
+
+        assert get_push_token_import(self.team.id, import_id).status == PushTokenImportStatus.COMPLETED
         assert self.ingestion.devices() == ["a", "b", "c"]
 
+    def test_an_import_that_never_progresses_fails_after_its_resumes(self) -> None:
         self.queue.loses_imports = True
         stuck = self._upload([f"d,{APNS_TOKEN}"], create_missing_persons=True)
         self.queue.advance(push_token_import.STALLED_AFTER * (push_token_import.MAX_RESUMES + 1))
@@ -433,7 +444,7 @@ class TestPushTokenImportApi(_PushTokenImportTestCase):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["status"] == "running"
-        self._run_to_end(UUID(response.json()["id"]))
+        self.queue.advance()
         url = f"/api/projects/{self.team.pk}/push_token_imports"
         result = self.client.get(f"{url}/{response.json()['id']}/").json()
         assert result["status"] == "completed"
@@ -454,7 +465,7 @@ class TestPushTokenImportApi(_PushTokenImportTestCase):
 
     def test_importing_unknown_people_twice_is_a_bad_request(self) -> None:
         first = self._post_file([f"new-1,{APNS_TOKEN}"]).json()
-        self._run_to_end(UUID(first["id"]))
+        self.queue.advance()
         url = f"/api/projects/{self.team.pk}/push_token_imports/{first['id']}/import_unknown_persons/"
 
         retry = self.client.post(url)
