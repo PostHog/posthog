@@ -609,12 +609,12 @@ impl IngestionConsumer {
         }
     }
 
-    /// The client's close bumps the member epoch, and the broker rejects a
-    /// commit that arrives after it.
     async fn commit_on_exit(&self) {
         if let Some(commit) = self.settlement.take_all() {
             self.commit(commit);
         }
+        // The client's close bumps the member epoch, so the broker rejects a
+        // commit that arrives after it.
         if !self.committer.flush_all(EXIT_FLUSH_TIMEOUT).await {
             warn!("Could not commit the processed offsets before the close");
         }
