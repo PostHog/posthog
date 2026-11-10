@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import uuid
 import datetime as dt
+import dataclasses
 from collections import Counter, defaultdict
 from collections.abc import Mapping
 from typing import Any
@@ -23,8 +24,9 @@ from django.utils import timezone
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
+from posthog.permissions import posthog_feature_flag_enabled
 
-from products.aeo.backend import catalog, gaps, rankings, suggestions
+from products.aeo.backend import catalog, gaps, rankings, suggestions, weekly_report
 from products.aeo.backend.brand import (
     SEGMENT_SQL,
     brand_names,
@@ -36,6 +38,7 @@ from products.aeo.backend.brand import (
 )
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_domains
 from products.aeo.backend.facade.contracts import (
+    AEO_CITATION_TRACKING_FLAG,
     PROMPT_TOPIC_MAX_LENGTH,
     Brand,
     BrandedSegment,
@@ -75,6 +78,13 @@ from products.aeo.backend.facade.contracts import (
     PromptUpdate,
     PromptUpdateError,
     PromptVersion,
+    WeeklyReport,
+    WeeklyReportAction,
+    WeeklyReportActionKind,
+    WeeklyReportPage,
+    WeeklyReportPageRole,
+    WeeklyReportScorecard,
+    WeeklyReportTopic,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.runner import run_citation_checks
@@ -566,6 +576,54 @@ def get_prompt_set_rankings(
         timezone_name=timezone_name,
         days=days,
         segment=branded,
+    )
+
+
+def is_ai_visibility_enabled(*, distinct_id: str, organization_id: str | uuid.UUID) -> bool:
+    """Whether AI visibility, and so its weekly report, is rolled out to this user."""
+    return posthog_feature_flag_enabled(AEO_CITATION_TRACKING_FLAG, distinct_id, organization_id=organization_id)
+
+
+def get_weekly_report(team_id: int, *, timezone_name: str, end_date: dt.date | None = None) -> WeeklyReport:
+    """The weekly AI visibility report over non-branded prompts: the 7 days ending on `end_date` (by
+    default yesterday, the last complete day in the team's timezone) against the 7 days before."""
+    return weekly_report.build_weekly_report(
+        team_id, target_domains=settings.AEO_TARGET_DOMAINS, timezone_name=timezone_name, end_date=end_date
+    )
+
+
+def weekly_report_to_json(report: WeeklyReport) -> dict[str, Any]:
+    """A JSON-safe copy of the report, for a caller that stores it and reads it back with `weekly_report_from_json`."""
+    return {
+        "window_from": report.window_from.isoformat(),
+        "window_to": report.window_to.isoformat(),
+        "previous_from": report.previous_from.isoformat(),
+        "previous_to": report.previous_to.isoformat(),
+        "brand_names": list(report.brand_names),
+        "scorecard": dataclasses.asdict(report.scorecard),
+        "topics": [dataclasses.asdict(topic) for topic in report.topics],
+        "pages": [{**dataclasses.asdict(page), "role": page.role.value} for page in report.pages],
+        "actions": [{**dataclasses.asdict(action), "kind": action.kind.value} for action in report.actions],
+        "app_url": report.app_url,
+    }
+
+
+def weekly_report_from_json(data: Mapping[str, Any]) -> WeeklyReport:
+    """Raises KeyError, TypeError or ValueError when `data` is not a report `weekly_report_to_json` wrote."""
+    return WeeklyReport(
+        window_from=dt.date.fromisoformat(data["window_from"]),
+        window_to=dt.date.fromisoformat(data["window_to"]),
+        previous_from=dt.date.fromisoformat(data["previous_from"]),
+        previous_to=dt.date.fromisoformat(data["previous_to"]),
+        brand_names=tuple(data["brand_names"]),
+        scorecard=WeeklyReportScorecard(**data["scorecard"]),
+        topics=tuple(WeeklyReportTopic(**topic) for topic in data["topics"]),
+        pages=tuple(WeeklyReportPage(**{**page, "role": WeeklyReportPageRole(page["role"])}) for page in data["pages"]),
+        actions=tuple(
+            WeeklyReportAction(**{**action, "kind": WeeklyReportActionKind(action["kind"])})
+            for action in data["actions"]
+        ),
+        app_url=data["app_url"],
     )
 
 

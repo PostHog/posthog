@@ -540,3 +540,92 @@ class PromptSetRankings:
     daily: tuple[RankedBrandDay, ...]
     top_domains: tuple[RankedDomain, ...]
     top_pages: tuple[RankedPage, ...]
+
+
+# A weekly change smaller than this, in rate points (0-1), is too small to act on.
+WEEKLY_REPORT_ACTION_MIN_CHANGE = 0.05
+WEEKLY_REPORT_MAX_ACTIONS = 3
+WEEKLY_REPORT_DAYS = 7
+
+
+class WeeklyReportPageRole(LabeledStrEnum):
+    OWNED_GAINED = "owned_gained", "Your page that gained most"
+    OWNED_LOST = "owned_lost", "Your page that lost most"
+    COMPETITOR_GAINED = "competitor_gained", "Competitor page that gained most"
+
+
+class WeeklyReportActionKind(LabeledStrEnum):
+    UPDATE_OWNED_PAGE = "update_owned_page", "Update an owned page"
+    REVIEW_COMPETITOR_PAGE = "review_competitor_page", "Review a competitor page"
+    CHECK_TOPIC = "check_topic", "Check a topic"
+
+
+@frozen
+class WeeklyReportScorecard:
+    """Non-branded answers in the report week against the week before. Rates are shares (0-1) of
+    answered checks, and changes are the difference between the two weeks."""
+
+    answers: int
+    previous_answers: int
+    visibility: float | None
+    previous_visibility: float | None
+    visibility_change: float | None
+    citation_rate: float | None
+    previous_citation_rate: float | None
+    citation_rate_change: float | None
+
+
+@frozen
+class WeeklyReportTopic:
+    topic: str
+    answers: int
+    previous_answers: int
+    visibility: float | None
+    previous_visibility: float | None
+    visibility_change: float | None
+
+
+@frozen
+class WeeklyReportPage:
+    """A page whose citation rate within one topic moved: the share of the topic's answers that cited it."""
+
+    role: WeeklyReportPageRole
+    url: str
+    domain: str
+    topic: str
+    citation_rate: float
+    previous_citation_rate: float
+    change: float
+
+
+@frozen
+class WeeklyReportAction:
+    kind: WeeklyReportActionKind
+    text: str
+    url: str
+    topic: str
+    page_url: str | None
+    # The owned page a competitor page is compared with, when the topic has one.
+    compare_url: str | None
+
+
+@frozen
+class WeeklyReport:
+    """The weekly AI visibility report: the last complete 7 days against the 7 days before, over
+    non-branded prompts only, since a prompt that names the brand almost always gets an answer that
+    mentions it."""
+
+    window_from: dt.date
+    window_to: dt.date
+    previous_from: dt.date
+    previous_to: dt.date
+    brand_names: tuple[str, ...]
+    scorecard: WeeklyReportScorecard
+    topics: tuple[WeeklyReportTopic, ...]
+    pages: tuple[WeeklyReportPage, ...]
+    actions: tuple[WeeklyReportAction, ...]
+    app_url: str
+
+    @property
+    def has_answers(self) -> bool:
+        return self.scorecard.answers > 0

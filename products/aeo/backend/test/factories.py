@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
@@ -6,7 +7,7 @@ from posthog.models.team import Team
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 
 
-def create_citation_check(team: Team, label: str) -> uuid.UUID:
+def create_citation_check(team: Team, label: str, *, created_at: dt.datetime | None = None) -> uuid.UUID:
     with team_scope(team.pk):
         prompt = AEOPrompt.objects.create(
             team=team, prompt=f"is {label} cited?", prompt_hash=label, prompt_source=AEOPrompt.Source.MANUAL
@@ -21,4 +22,7 @@ def create_citation_check(team: Team, label: str) -> uuid.UUID:
             engine="exa-answer",
             model="exa-answer",
         )
+        if created_at is not None:
+            # created_at is set on insert, so a check in the past is moved there afterwards.
+            AEOCitationCheck.objects.filter(pk=check.pk).update(created_at=created_at)
     return check.pk
