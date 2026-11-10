@@ -19,7 +19,10 @@ export function isEmailStep(action: HogFlowAction | null | undefined): action is
 
 export function needsSandboxSender(action: HogFlowAction, canAdoptSandbox: boolean): action is OwnEmailAction {
     return (
-        canAdoptSandbox && action.type === 'function_email' && !action.config.inputs?.email?.value?.from?.integrationId
+        canAdoptSandbox &&
+        action.type === 'function_email' &&
+        !action.config.inputs?.email?.value?.from?.integrationId &&
+        ownOnlySettings(action).length === 0
     )
 }
 
