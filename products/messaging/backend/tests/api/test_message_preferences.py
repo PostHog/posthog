@@ -48,8 +48,7 @@ def mock_response(status_code: int, response_json: dict):
     return response
 
 
-# The columns of the ClickHouse Kafka table that reads this topic, so a row of any other shape is refused
-APP_METRICS2_KAFKA_COLUMNS = frozenset(
+APP_METRICS2_KAFKA_TABLE_COLUMNS = frozenset(
     {"team_id", "timestamp", "app_source", "app_source_id", "instance_id", "metric_kind", "metric_name", "count"}
 )
 
@@ -62,7 +61,7 @@ class AppMetricsTopic:
         if topic != KAFKA_APP_METRICS2:
             return
         row = json.loads(value)
-        if set(row) != APP_METRICS2_KAFKA_COLUMNS:
+        if set(row) != APP_METRICS2_KAFKA_TABLE_COLUMNS:
             raise ValueError(f"app_metrics2 row does not match the Kafka table: {sorted(row)}")
         self.rows.append({key: value for key, value in row.items() if key != "timestamp"})
 
@@ -376,9 +375,6 @@ class TestMessagePreferencesViews(BaseTest):
                 reverse("message_preferences_update"), {"token": self.token, "preferences[]": prefs}
             )
 
-        for _ in range(2):
-            self.assertEqual(act().status_code, 200)
-
         expected_metric = {
             "team_id": self.team.id,
             "app_source": "hog_flow",
@@ -388,7 +384,9 @@ class TestMessagePreferencesViews(BaseTest):
             "metric_name": "email_unsubscribed",
             "count": 1,
         }
-        self.assertEqual(self.app_metrics.rows, [expected_metric] if expect_metric else [])
+        for _ in range(2):
+            self.assertEqual(act().status_code, 200)
+            self.assertEqual(self.app_metrics.rows, [expected_metric] if expect_metric else [])
 
     @parameterized.expand(
         [
@@ -482,19 +480,13 @@ class TestMessagePreferencesViews(BaseTest):
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier, **token_claims}
         )
 
-        # The second request replays the first, as a link scanner or a reused token does
+        expected_event = self._captured(
+            "$workflows_email_unsubscribed",
+            {"category": ALL_MESSAGE_PREFERENCE_CATEGORY_ID, "source": "one_click", **send_properties},
+        )
         for _ in range(2):
             self.assertEqual(self._post_one_click().status_code, 200)
-
-        self.assertEqual(
-            self.capture_rs.events,
-            [
-                self._captured(
-                    "$workflows_email_unsubscribed",
-                    {"category": ALL_MESSAGE_PREFERENCE_CATEGORY_ID, "source": "one_click", **send_properties},
-                )
-            ],
-        )
+            self.assertEqual(self.capture_rs.events, [expected_event])
 
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_update_preferences_emits_only_for_newly_opted_out(self, mock_validate_messaging_preferences_token):
@@ -690,18 +682,13 @@ class TestMessagePreferencesViews(BaseTest):
         )
         data = {"token": self.token, "preferences[]": [f"{EMAIL_TRACKING_PREFERENCE_ID}:false"]}
 
+        expected_event = self._captured(
+            "$workflows_email_tracking_consent_updated",
+            {"status": PreferenceStatus.OPTED_OUT.value, "source": "preferences_page"},
+        )
         for _ in range(2):
             self.assertEqual(self.client.post(reverse("message_preferences_update"), data).status_code, 200)
-
-        self.assertEqual(
-            self.capture_rs.events,
-            [
-                self._captured(
-                    "$workflows_email_tracking_consent_updated",
-                    {"status": PreferenceStatus.OPTED_OUT.value, "source": "preferences_page"},
-                )
-            ],
-        )
+            self.assertEqual(self.capture_rs.events, [expected_event])
 
 
 class TestMessagePreferencesAPIViewSet(APIBaseTest):
