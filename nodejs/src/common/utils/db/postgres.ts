@@ -102,6 +102,7 @@ export class TransactionClient {
 export class PostgresRouter {
     private pools: Map<PostgresUse, Pool>
     private readonly connectionTimeoutRouters = new Map<number, PostgresRouter>()
+    private ended = false
 
     constructor(
         private readonly serverConfig: PostgresRouterConfig,
@@ -284,6 +285,9 @@ export class PostgresRouter {
     }
 
     public withConnectionTimeout(connectionTimeoutMillis: number): PostgresRouter {
+        if (this.ended) {
+            return this
+        }
         let router = this.connectionTimeoutRouters.get(connectionTimeoutMillis)
         if (!router) {
             router = new PostgresRouter(this.serverConfig, this.appName, connectionTimeoutMillis)
@@ -293,6 +297,7 @@ export class PostgresRouter {
     }
 
     async end(): Promise<void> {
+        this.ended = true
         for (const router of this.connectionTimeoutRouters.values()) {
             await router.end()
         }
