@@ -3478,7 +3478,6 @@ describe('Workflows E2E (email queue)', () => {
                 email.envelope.to.some((recipient: { address: string }) => recipient.address === address)
             )
 
-        // Whom each link in a body that opens this site's preferences page belongs to.
         const preferencesLinkOwners = async (body: string): Promise<string[]> =>
             await Promise.all(
                 [...body.matchAll(/https?:\/\/[^\s"'<>]+/g)]
@@ -3495,7 +3494,6 @@ describe('Workflows E2E (email queue)', () => {
                     })
             )
 
-        // Where each link in an html body takes its reader; a tracked link goes through the click redirect.
         const clickThroughLinks = async (html: string): Promise<string> =>
             (
                 await Promise.all(
