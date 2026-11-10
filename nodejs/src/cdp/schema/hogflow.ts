@@ -223,7 +223,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                 z.literal('any'),
                 z.literal('weekday'),
                 z.literal('weekend'),
-                z.array(z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])),
+                z.array(z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])).min(1),
             ]),
             // time can be "any", or a time range [start, end]
             time: z.union([

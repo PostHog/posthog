@@ -453,6 +453,7 @@ class QueryTags(BaseModel):
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
     api_queries_budgeted: Optional[bool] = None  # server-set only; request tags cannot reach it
+    warehouse_suggestion_access: Optional[str] = None
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product
