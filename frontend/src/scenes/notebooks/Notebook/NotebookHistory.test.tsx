@@ -77,9 +77,9 @@ describe('Notebook history revert flow', () => {
             .spyOn(api.notebooks, 'markdownSave')
             .mockResolvedValue({ ...cachedNotebook, version: 2, content: HISTORICAL_DOC })
         apiActivityListLegacySpy = jest.spyOn(api.activity, 'listLegacy').mockResolvedValue({ results: [], count: 0 })
-        // collabStream opens an SSE connection that never resolves in production —
+        // The markdown stream opens an SSE connection that never resolves in production —
         // resolve immediately in tests so the listener doesn't dangle.
-        jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
+        jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
     })
 
     afterEach(() => {
@@ -284,7 +284,7 @@ converted`)
     })
 
     it('backs off stream retries and reports each connection outage once', async () => {
-        const stream = jest.spyOn(api.notebooks, 'collabStream')
+        const stream = jest.spyOn(api, 'stream')
         const capture = jest.spyOn(posthog, 'captureException')
         jest.spyOn(api.notebooks, 'get').mockResolvedValue({
             ...cachedNotebook,
@@ -314,7 +314,7 @@ converted`)
 
     it('pauses a hidden notebook stream and resumes from the last received event', async () => {
         const hidden = jest.spyOn(document, 'hidden', 'get').mockReturnValue(false)
-        const stream = jest.spyOn(api.notebooks, 'collabStream')
+        const stream = jest.spyOn(api, 'stream')
         jest.spyOn(api.notebooks, 'get').mockResolvedValue({
             ...cachedNotebook,
             content: buildMarkdownNotebookContent('# Shared report'),
@@ -334,8 +334,8 @@ converted`)
         hidden.mockReturnValue(false)
         document.dispatchEvent(new Event('visibilitychange'))
         expect(stream).toHaveBeenCalledWith(
-            SHORT_ID,
-            expect.objectContaining({ lastEventId: '10-1', signal: expect.any(AbortSignal) })
+            expect.stringContaining(`/notebooks/${SHORT_ID}/collab/stream/`),
+            expect.objectContaining({ headers: { 'Last-Event-ID': '10-1' }, signal: expect.any(AbortSignal) })
         )
     })
 
@@ -359,7 +359,7 @@ converted`)
         jest.spyOn(api.notebooks, 'get')
             .mockResolvedValueOnce(streamNotebook as NotebookType)
             .mockResolvedValueOnce(updatedNotebook as NotebookType)
-        jest.spyOn(api.notebooks, 'collabStream').mockImplementation(async (_shortId, { onMessage }) => {
+        jest.spyOn(api, 'stream').mockImplementation(async (_shortId, { onMessage }) => {
             streamOnMessage = onMessage
         })
 

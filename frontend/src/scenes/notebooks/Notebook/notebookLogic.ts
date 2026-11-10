@@ -68,7 +68,10 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import { notebooksCollabPresenceCreate } from 'products/notebooks/frontend/generated/api'
+import {
+    getNotebooksCollabStreamRetrieveUrl,
+    notebooksCollabPresenceCreate,
+} from 'products/notebooks/frontend/generated/api'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 
 import type { Node } from '../../../queries/schema/schema-general'
@@ -1792,8 +1795,8 @@ export const notebookLogic = kea<notebookLogicType>([
                         actions.connectMarkdownUpdateStream()
                     }
 
-                    void api.notebooks
-                        .collabStream(values.shortId, {
+                    void api
+                        .stream(getNotebooksCollabStreamRetrieveUrl(String(getCurrentTeamId()), values.shortId), {
                             onMessage,
                             onError,
                             onOpen: () => {
@@ -1801,7 +1804,9 @@ export const notebookLogic = kea<notebookLogicType>([
                             },
                             onClose,
                             signal: controller.signal,
-                            lastEventId: cache.markdownUpdateStreamLastEventId,
+                            headers: cache.markdownUpdateStreamLastEventId
+                                ? { 'Last-Event-ID': cache.markdownUpdateStreamLastEventId }
+                                : undefined,
                         })
                         .catch((error) => {
                             if (controller.signal.aborted) {
