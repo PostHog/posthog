@@ -1949,6 +1949,11 @@ export interface SourceCredentialApi {
     expires_at: string
 }
 
+export interface ExternalDataSourceSyncStateApi {
+    /** Opaque digest of the sync state the sources list shows: each source's status and last completed run, and each table's status, sync toggle, error, last sync and row count. It changes when that state changes. Compare it with an earlier value; do not parse it. */
+    fingerprint: string
+}
+
 export type DataWarehouseSourceCategoryApi =
     (typeof DataWarehouseSourceCategoryApi)[keyof typeof DataWarehouseSourceCategoryApi]
 
