@@ -257,6 +257,18 @@ describe('sandbox email test sends', () => {
         expect(world.ses.delivered).toEqual([])
     })
 
+    it('asks for the internal secret on a path below the test send route, even with a valid token', async () => {
+        const response = await supertest(app)
+            .post(`${SANDBOX_TEST_SEND_PATH.replace(':team_id', String(hogFlow.team_id))}/extra`)
+            .set('Authorization', `Bearer ${workerJwt.mint({ team_id: hogFlow.team_id, hog_flow_id: hogFlow.id })}`)
+            .send({ hog_flow_id: hogFlow.id, action_id: 'email', email: { to: { email: member() } } })
+
+        expect({ status: response.status, body: response.body }).toEqual({
+            status: 401,
+            body: { error: 'Unauthorized: Missing authentication header' },
+        })
+    })
+
     it.each([
         ['a token for another team', (teamId: number) => ({ team_id: teamId + 1, hog_flow_id: hogFlow.id }), 60],
         [
