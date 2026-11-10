@@ -32,12 +32,17 @@ A tool is a page that is not about one record, for example a report across all t
 3. For an action that is not about one record, return a `ToolOperation` from `operations(request)`. It works like a record `Operation` without the record: `handler(request, form)`. Its handler returns `None` (back to the tool with its messages), or a `Page` that the console shows as the result. Return a result `Page` only when running the operation again is harmless, such as a dry run, because a reload submits the form again. `products/cohorts/backend/console.py` is the reference.
 4. An operation that changes many records at once sets `preview`. The console shows the preview `Page` and a confirm button, and the confirm runs exactly the previewed input from a signed token. The handler still re-checks the current state, because records can change between preview and confirm. The token is readable, so a form with a preview holds no secrets. `posthog/admin/console/organization_tools.py` is the reference.
 5. A block that should follow running work, such as the runs of a started job, is a `Live` block. Return it from `live(request, key)` and embed the same call in `page`. Keep `refresh_seconds` set while something runs and None once nothing does, so the page stops asking. `posthog/admin/console/health_checks_tool.py` is the reference.
-6. When a tool replaces a Django admin page, keep the old path and point it at `MovedToConsole.page_redirect`, so bookmarks keep working. Keep its URL name too when the name lives in the root URLconf, such as `ee/urls.py`. A name in the `admin:` namespace only exists inside a `ModelAdmin.get_urls`, which the freeze rule flags, so drop it once `rg` finds no caller that reverses it.
+6. When a tool replaces a Django admin page, declare the old path in the same `console.py` with `console.register_moved_page(old_path=..., title=..., url=..., name=...)`, so bookmarks keep working. Pass `name` only while something still reverses the old URL name. A name in the `admin:` namespace only exists inside a `ModelAdmin.get_urls`, which the freeze rule flags, so drop it once `rg` finds no caller that reverses it.
 
 ## Move a Django admin action
 
-Replace the old button with `MovedToConsole.action(record, obj, panel_key, label)` from `moved.py`. It links to the panel on the console record page, so staff who look in the usual place find the new one. When a whole page moves, route its old URL to `MovedToConsole.page_redirect(title, url)`, which tells staff the page moved.
-Old URLs never break, because staff keep bookmarks to them, query parameters included. When a record action's view is deleted, its old path goes into the `MOVED_*_ACTIONS` map of its record type in `urls.py`, which redirects to the console form or panel.
+Replace the old button with `MovedToConsole.action(record, obj, panel_key, label)` from `moved.py`. It links to the panel on the console record page, so staff who look in the usual place find the new one.
+Old URLs never break, because staff keep bookmarks to them, query parameters included. When a record action's view is deleted, declare its old path in your `console.py` with `console.register_moved_action(old_path=..., record=..., target=...)`, which redirects to the console form or panel. An old path without the record's `<pk>`, such as a legal document ID, passes a `resolver` that returns a `MovedRecord`. `urls.py` builds every old route from the registry, so a move never edits a shell file.
+
+## Shell modules and tests
+
+- `discover()` imports every shell module whose name ends in `_panels`, `_tool` or `_tools`. A core panel sets `order` below the default 100, so core panels lead each page.
+- Product console tests live in `products/<product>/backend/tests/test_console.py`. `posthog/admin/test_admin_console.py` holds only shell tests, and it checks every registered panel and moved URL from the registry, so a new contribution adds no case there.
 
 ## Read when needed
 
