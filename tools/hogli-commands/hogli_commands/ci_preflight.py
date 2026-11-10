@@ -175,7 +175,7 @@ DIFF_CHECKS: list[DiffCheck] = [
     ),
     DiffCheck(
         key="test-owners",
-        label="test ownership (CI fails on a new test with no owner)",
+        label="test ownership (a test file left with no team owner)",
         triggers=["*"],
         verify=None,
         run=check_test_owners,

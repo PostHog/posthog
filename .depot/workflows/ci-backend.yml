@@ -541,9 +541,9 @@ jobs:
                         # _EXTERNAL_COMPANION_SKILL_DIRS in products/signals/backend/scout_harness/lazy_seed.py
                         # names this companion skill from another product.
                         - 'products/replay_vision/skills/exploring-replay-vision-observations/**'
-                        # repo-checks fails a new test file that has no owner, Jest included, and no
-                        # other filter matches a frontend test. The filter reports a moved file as
-                        # added. Keep in step with runner_for_path in
+                        # repo-checks fails a test file that a pull request leaves with no team owner,
+                        # Jest included, and no other filter matches a new frontend test. The filter
+                        # reports a moved file as added. Keep in step with runner_for_path in
                         # packages/owners-yaml/owners_yaml/census.py.
                         - added: '**/test_*.py'
                         - added: '**/*_test.py'
@@ -1657,7 +1657,7 @@ jobs:
             - name: Check for new files under ee/
               if: github.event_name == 'pull_request'
               run: python .github/scripts/check-no-new-ee-files.py --against HEAD^1 --committed
-            - name: Check that new test files have an owner
+            - name: Check for test files left with no team owner
               if: github.event_name == 'pull_request'
               run: ./bin/hogli lint:test-owners --against HEAD^1 --committed
             # Deterministic = a static check above failed after setup completed.
