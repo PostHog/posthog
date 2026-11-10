@@ -192,24 +192,26 @@ async function churnCountForQueue(queue: string): Promise<number> {
 }
 
 const ENQUEUE_PHASE_METRIC = 'cdp_cyclotron_v2_enqueue_phase_duration_seconds'
-const ENQUEUE_PHASES = ['depth_check', 'sequence_reserve', 'insert'] as const
-type EnqueuePhaseTotals = Record<(typeof ENQUEUE_PHASES)[number], { count: number; seconds: number }>
 
-async function enqueuePhaseTotals(): Promise<EnqueuePhaseTotals> {
+async function enqueuePhaseCounts(): Promise<Record<string, number>> {
     const metric = register.getSingleMetric(ENQUEUE_PHASE_METRIC) as Histogram | undefined
     const values = metric ? (await metric.get()).values : []
-    const sample = (phase: string, suffix: 'count' | 'sum'): number =>
-        values.find((v) => v.metricName === `${ENQUEUE_PHASE_METRIC}_${suffix}` && v.labels.phase === phase)?.value ?? 0
     return Object.fromEntries(
-        ENQUEUE_PHASES.map((phase) => [phase, { count: sample(phase, 'count'), seconds: sample(phase, 'sum') }])
-    ) as EnqueuePhaseTotals
+        values
+            .filter((v) => v.metricName === `${ENQUEUE_PHASE_METRIC}_count`)
+            .map((v) => [`${v.labels.caller}:${v.labels.phase}`, v.value])
+    )
 }
 
 async function enqueuePhaseCountsDuring(step: () => Promise<unknown>): Promise<Record<string, number>> {
-    const before = await enqueuePhaseTotals()
+    const before = await enqueuePhaseCounts()
     await step()
-    const after = await enqueuePhaseTotals()
-    return Object.fromEntries(ENQUEUE_PHASES.map((phase) => [phase, after[phase].count - before[phase].count]))
+    const after = await enqueuePhaseCounts()
+    return Object.fromEntries(
+        Object.entries(after)
+            .map(([key, count]) => [key, count - (before[key] ?? 0)])
+            .filter(([, delta]) => delta !== 0)
+    )
 }
 
 describe('Cyclotron V2', () => {
@@ -1948,7 +1950,7 @@ describe('Cyclotron V2', () => {
                                 { teamId: 7, queueName: 'hogflow' },
                             ])
                         ),
-                    expected: { depth_check: 1, sequence_reserve: 1, insert: 1 },
+                    expected: { 'manager:depth_check': 1, 'manager:sequence_reserve': 1, 'manager:insert': 1 },
                 },
                 {
                     write: 'a manager batch of hogflow jobs',
@@ -1959,7 +1961,7 @@ describe('Cyclotron V2', () => {
                                 { teamId: 7, queueName: 'hogflow' },
                             ])
                         ),
-                    expected: { depth_check: 1, sequence_reserve: 0, insert: 1 },
+                    expected: { 'manager:depth_check': 1, 'manager:insert': 1 },
                 },
                 {
                     write: 'a worker moving its job into the email queue',
@@ -1967,7 +1969,7 @@ describe('Cyclotron V2', () => {
                         const { job } = await seedAndDequeue({ teamId: 7 })
                         return () => job.reschedule({ queueName: EMAIL_QUEUE })
                     },
-                    expected: { depth_check: 0, sequence_reserve: 1, insert: 0 },
+                    expected: { 'worker:sequence_reserve': 1 },
                 },
                 {
                     write: 'a worker inserting children with its check-in',
@@ -1979,7 +1981,7 @@ describe('Cyclotron V2', () => {
                                 selfDisposition: { kind: 'ack' },
                             })
                     },
-                    expected: { depth_check: 0, sequence_reserve: 0, insert: 1 },
+                    expected: { 'worker:insert': 1 },
                 },
             ])('times each enqueue phase of $write', async ({ prepare, expected }) => {
                 const step = await prepare()
@@ -1987,27 +1989,34 @@ describe('Cyclotron V2', () => {
                 expect(await enqueuePhaseCountsDuring(step)).toEqual(expected)
             })
 
-            it('times a wait for the team sequence row as sequence_reserve, not as insert', async () => {
-                const holdMs = 300
+            it('records the sequence reserve only once a held team sequence row is released', async () => {
                 await manager.bulkCreateJobs([{ teamId: 7, queueName: EMAIL_QUEUE }])
-                const before = await enqueuePhaseTotals()
                 const holder = await assertPool.connect()
                 try {
                     await holder.query('BEGIN')
                     await holder.query('SELECT counter FROM cyclotron_email_team_seq WHERE team_id = 7 FOR UPDATE')
+                    const before = await enqueuePhaseCounts()
                     const enqueued = manager.bulkCreateJobs([{ teamId: 7, queueName: EMAIL_QUEUE }])
-                    await sleep(holdMs)
+                    await waitForExpect(async () => {
+                        const blocked = await assertPool.query(
+                            `SELECT 1 FROM pg_stat_activity
+                             WHERE wait_event_type = 'Lock' AND query LIKE '%INSERT INTO cyclotron_email_team_seq%'`
+                        )
+                        expect(blocked.rowCount).toBe(1)
+                    })
+
+                    const whileBlocked = await enqueuePhaseCounts()
                     await holder.query('COMMIT')
                     await enqueued
+                    const after = await enqueuePhaseCounts()
+
+                    expect({
+                        whileBlocked: whileBlocked['manager:sequence_reserve'] - before['manager:sequence_reserve'],
+                        afterRelease: after['manager:sequence_reserve'] - before['manager:sequence_reserve'],
+                    }).toEqual({ whileBlocked: 0, afterRelease: 1 })
                 } finally {
                     holder.release()
                 }
-                const after = await enqueuePhaseTotals()
-
-                expect(after.sequence_reserve.seconds - before.sequence_reserve.seconds).toBeGreaterThanOrEqual(
-                    (holdMs - 50) / 1000
-                )
-                expect(after.insert.seconds - before.insert.seconds).toBeLessThan((holdMs - 50) / 1000)
             })
 
             it('uses counter * 16M + team_id as the formula', async () => {

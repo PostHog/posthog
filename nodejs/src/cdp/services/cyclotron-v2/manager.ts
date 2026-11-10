@@ -60,7 +60,7 @@ export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
  * own batched UPSERT for efficiency rather than calling this in a loop.
  */
 export function assignEmailDequeueSeq(pool: Pool, teamId: number): Promise<string> {
-    return timeEnqueuePhase('sequence_reserve', () => reserveEmailDequeueSeq(pool, teamId))
+    return timeEnqueuePhase('sequence_reserve', 'worker', () => reserveEmailDequeueSeq(pool, teamId))
 }
 
 async function reserveEmailDequeueSeq(pool: Pool, teamId: number): Promise<string> {
@@ -118,16 +118,21 @@ const rescheduleFailureCounter = new Counter({
 })
 
 type EnqueuePhase = 'depth_check' | 'sequence_reserve' | 'insert'
+type EnqueueCaller = 'manager' | 'worker'
 
 const enqueuePhaseHistogram = new Histogram({
     name: 'cdp_cyclotron_v2_enqueue_phase_duration_seconds',
     help: 'Time spent in each awaited step of enqueuing cyclotron jobs: the queue depth check, the email dequeue sequence reserve, and the insert.',
-    labelNames: ['phase'] as const,
+    labelNames: ['phase', 'caller'] as const,
     buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60],
 })
 
-export async function timeEnqueuePhase<T>(phase: EnqueuePhase, step: () => Promise<T>): Promise<T> {
-    const end = enqueuePhaseHistogram.startTimer({ phase })
+export async function timeEnqueuePhase<T>(
+    phase: EnqueuePhase,
+    caller: EnqueueCaller,
+    step: () => Promise<T>
+): Promise<T> {
+    const end = enqueuePhaseHistogram.startTimer({ phase, caller })
     try {
         return await step()
     } finally {
@@ -233,7 +238,7 @@ export class CyclotronV2Manager {
             : 'RETURNING id'
         let result: { rows: { id: string }[] }
         try {
-            result = await timeEnqueuePhase('insert', () =>
+            result = await timeEnqueuePhase('insert', 'manager', () =>
                 this.pool.query<{ id: string }>(
                     `INSERT INTO cyclotron_jobs
                  (id, team_id, function_id, queue_name, status, priority, scheduled, created,
@@ -344,7 +349,7 @@ export class CyclotronV2Manager {
             : 'RETURNING id'
         let result: { rows: { id: string }[] }
         try {
-            result = await timeEnqueuePhase('insert', () =>
+            result = await timeEnqueuePhase('insert', 'manager', () =>
                 this.pool.query<{ id: string }>(
                     `INSERT INTO cyclotron_jobs
                  (id, team_id, function_id, queue_name, status, priority, scheduled, created,
@@ -456,7 +461,7 @@ export class CyclotronV2Manager {
         // so they slot in next to established teams. Existing-team rows still
         // add just `increment` (we subtract the MAX shift back out in the ON
         // CONFLICT branch). MAX is computed once per batch via the CTE.
-        const upsertResult = await timeEnqueuePhase('sequence_reserve', () =>
+        const upsertResult = await timeEnqueuePhase('sequence_reserve', 'manager', () =>
             this.pool.query<{ team_id: number; counter: string }>(
                 `WITH max_counter AS (
                  SELECT COALESCE(MAX(counter), 0) AS m FROM cyclotron_email_team_seq
@@ -802,7 +807,7 @@ export class CyclotronV2Manager {
     }
 
     private async insertGuard(): Promise<void> {
-        if (await timeEnqueuePhase('depth_check', () => this.isFull())) {
+        if (await timeEnqueuePhase('depth_check', 'manager', () => this.isFull())) {
             throw new Error(`Cyclotron V2 queue is full (depth limit: ${this.depthLimit})`)
         }
     }

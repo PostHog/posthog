@@ -100,7 +100,7 @@ async function insertNewJobsInTx(client: PoolClient, newJobs: CyclotronV2JobInit
         actionIds.push(job.actionId ?? null)
     }
 
-    await timeEnqueuePhase('insert', () =>
+    await timeEnqueuePhase('insert', 'worker', () =>
         client.query(
             `INSERT INTO cyclotron_jobs
          (id, team_id, function_id, queue_name, status, priority, scheduled, created,
