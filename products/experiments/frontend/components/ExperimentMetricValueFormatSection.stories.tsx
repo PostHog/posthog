@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { ExperimentMetricMathType } from '~/types'
 
-import { ExperimentMetricValueFormatSelector } from './ExperimentMetricValueFormatSelector'
+import { ExperimentMetricValueFormatSection } from './ExperimentMetricValueFormatSection'
 
 const METRIC: ExperimentMetric = {
     kind: NodeKind.ExperimentMetric,
@@ -18,9 +18,9 @@ const METRIC: ExperimentMetric = {
     value_format: { type: 'currency' },
 }
 
-const meta: Meta<typeof ExperimentMetricValueFormatSelector> = {
-    title: 'Experiments/ExperimentMetricValueFormatSelector',
-    component: ExperimentMetricValueFormatSelector,
+const meta: Meta<typeof ExperimentMetricValueFormatSection> = {
+    title: 'Experiments/ExperimentMetricValueFormatSection',
+    component: ExperimentMetricValueFormatSection,
     parameters: {
         testOptions: { snapshotBrowsers: [] },
     },
@@ -28,11 +28,11 @@ const meta: Meta<typeof ExperimentMetricValueFormatSelector> = {
         const [metric, setMetric] = useState<ExperimentMetric>(METRIC)
         return (
             <div className="max-w-prose">
-                <ExperimentMetricValueFormatSelector metric={metric} handleSetMetric={setMetric} />
+                <ExperimentMetricValueFormatSection metric={metric} handleSetMetric={setMetric} />
             </div>
         )
     },
 }
 export default meta
 
-export const Default: StoryObj<typeof ExperimentMetricValueFormatSelector> = {}
+export const Default: StoryObj<typeof ExperimentMetricValueFormatSection> = {}

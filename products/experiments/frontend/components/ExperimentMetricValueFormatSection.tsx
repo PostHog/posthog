@@ -1,10 +1,13 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { isProportionMetric } from 'scenes/experiments/MetricsView/shared/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { CurrencyCode, ExperimentMetric, ExperimentMetricValueFormatType } from '~/queries/schema/schema-general'
 
@@ -42,14 +45,15 @@ function valueFormatOptions(baseCurrency: CurrencyCode): LemonSelectOption<Value
     ]
 }
 
-export function ExperimentMetricValueFormatSelector({
+export function ExperimentMetricValueFormatSection({
     metric,
     handleSetMetric,
 }: {
     metric: ExperimentMetric
     handleSetMetric: (newMetric: ExperimentMetric) => void
-}): JSX.Element {
+}): JSX.Element | null {
     const { baseCurrency } = useValues(teamLogic)
+    const valueFormatEnabled = useFeatureFlag('EXPERIMENTS_METRIC_VALUE_FORMAT')
 
     const handleValueFormatChange = (option: ValueFormatOption): void => {
         handleSetMetric({ ...metric, value_format: option === 'number' ? undefined : { type: option } })
@@ -59,19 +63,28 @@ export function ExperimentMetricValueFormatSelector({
         })
     }
 
+    // A proportion metric always shows a percentage. A metric that has a value format already keeps the
+    // setting editable when the team is not flagged in.
+    if (isProportionMetric(metric) || (!valueFormatEnabled && metric.value_format == null)) {
+        return null
+    }
+
     return (
-        <SceneSection
-            title="Value format"
-            description="Choose what kind of value this metric has. Results show it in that format. The calculation stays the same."
-            className="max-w-prose"
-        >
-            <LemonSelect<ValueFormatOption>
-                data-attr="experiment-metric-value-format-select"
-                value={metric.value_format?.type ?? 'number'}
-                onChange={handleValueFormatChange}
-                dropdownMatchSelectWidth={false}
-                options={valueFormatOptions(baseCurrency)}
-            />
-        </SceneSection>
+        <>
+            <SceneSection
+                title="Value format"
+                description="Choose what kind of value this metric has. Results show it in that format. The calculation stays the same."
+                className="max-w-prose"
+            >
+                <LemonSelect<ValueFormatOption>
+                    data-attr="experiment-metric-value-format-select"
+                    value={metric.value_format?.type ?? 'number'}
+                    onChange={handleValueFormatChange}
+                    dropdownMatchSelectWidth={false}
+                    options={valueFormatOptions(baseCurrency)}
+                />
+            </SceneSection>
+            <SceneDivider />
+        </>
     )
 }
