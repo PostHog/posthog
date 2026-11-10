@@ -3,7 +3,6 @@ import React from 'react'
 
 import { CardMeta, Resizeable } from 'lib/components/Cards/CardMeta'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
-import { EditModeEdge, EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -12,9 +11,6 @@ import { DashboardPlacement, DashboardTile } from '~/types'
 
 interface DashboardErrorTileItemProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     tile: DashboardTile
-    canEnterEditModeFromEdge?: boolean
-    onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
-    onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     onRemove?: () => void
     onRetry?: () => void
     retryLoading?: boolean
@@ -25,11 +21,8 @@ interface DashboardErrorTileItemProps extends React.HTMLAttributes<HTMLDivElemen
 function DashboardErrorTileItemInternal(
     {
         tile,
-        canEnterEditModeFromEdge,
         children,
         className,
-        onDragHandleMouseDown,
-        onEnterEditModeFromEdge,
         onRemove,
         onRetry,
         retryLoading,
@@ -50,7 +43,6 @@ function DashboardErrorTileItemInternal(
             <CardMeta
                 topHeading={<span>{getDashboardTileDisplayName(tile)}</span>}
                 showEditingControls={showEditingControls}
-                onMouseDown={onDragHandleMouseDown}
                 moreButtons={
                     onRemove ? (
                         <LemonButton status="danger" onClick={onRemove} fullWidth>
@@ -65,9 +57,6 @@ function DashboardErrorTileItemInternal(
                 retryLoading={retryLoading}
                 placement={placement}
             />
-            {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
-                <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
-            )}
             {showResizeHandles && <DashboardResizeHandles />}
             {children}
         </div>

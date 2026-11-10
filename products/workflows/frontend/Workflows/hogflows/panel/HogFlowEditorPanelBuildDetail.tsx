@@ -136,7 +136,12 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 },
                                             } as Extract<HogFlowAction, { type: 'function_email' | 'function_sms' }>)
                                         }}
-                                        value={action.config.message_category_id}
+                                        value={action.config.message_category_id ?? undefined}
+                                        placeholder={
+                                            action.config.message_category_type === 'transactional'
+                                                ? 'Transactional, no category'
+                                                : undefined
+                                        }
                                     />
                                 </div>
                             </LemonLabel>
