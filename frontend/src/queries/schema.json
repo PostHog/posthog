@@ -25270,7 +25270,9 @@
                     "type": "number"
                 },
                 "volumeResolution": {
-                    "$ref": "#/definitions/integer"
+                    "maximum": 200,
+                    "minimum": 0,
+                    "type": "integer"
                 },
                 "withAggregations": {
                     "type": "boolean"

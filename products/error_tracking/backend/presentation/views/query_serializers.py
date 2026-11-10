@@ -15,6 +15,7 @@ from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.facade.query_utils import TREND_CHANGE_FRACTION
+from products.error_tracking.backend.hogql_queries.error_tracking_query_validation_rules import VOLUME_RESOLUTION_MAX
 from products.error_tracking.backend.presentation.views.issues import AssigneeType, ErrorTrackingIssueSeverityField
 
 STRING_OR_STRING_LIST_SCHEMA = {
@@ -103,7 +104,6 @@ def validate_filter_group(value: list[dict[str, object]]) -> list[dict[str, obje
     return value
 
 
-VOLUME_RESOLUTION_MAX = 200
 VOLUME_RESOLUTION_HELP = (
     f"Integer count of equal-width time buckets across dateRange, from 0 to {VOLUME_RESOLUTION_MAX}. "
     "Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets."
