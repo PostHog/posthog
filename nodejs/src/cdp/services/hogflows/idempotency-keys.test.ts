@@ -53,14 +53,24 @@ describe('IdempotencyKeys', () => {
         { send: 'now', scheduledInMs: null, windowMs: 24 * HOUR_MS },
         { send: 'scheduled 3 days ahead', scheduledInMs: 72 * HOUR_MS, windowMs: 96 * HOUR_MS },
     ])('keeps the key of a send $send until 24 hours after it is due', async ({ scheduledInMs, windowMs }) => {
-        await keys.reserve(1, key, 'request-a', 'run-1')
+        const scope = `scope-${new UUIDT().toString()}`
+        const scopedKeys = new IdempotencyKeys(valkey, scope)
+        await scopedKeys.reserve(1, key, 'request-a', 'run-1')
         const scheduledAt = scheduledInMs === null ? undefined : new Date(Date.now() + scheduledInMs).toISOString()
 
-        await keys.markQueued(1, key, 'request-a', 'run-1', scheduledAt)
+        await scopedKeys.markQueued(1, key, 'request-a', 'run-1', scheduledAt)
 
-        const ttlSeconds = await valkey.useClient({ name: 'test-ttl' }, (client) =>
-            client.ttl(keys['redisKey'](1, key))
-        )
+        expect(await scopedKeys.reserve(1, key, 'request-a', 'run-2')).toEqual({
+            status: 'replayed',
+            invocationId: 'run-1',
+            scheduledAt,
+        })
+        // Valkey cannot be moved days ahead, so the window is read from the expiry Valkey holds for the key.
+        const ttlSeconds = await valkey.useClient({ name: 'test-ttl' }, async (client) => {
+            const stored = await client.keys(`*${scope}*`)
+            expect(stored).toHaveLength(1)
+            return client.ttl(stored[0].slice(client.options.keyPrefix?.length ?? 0))
+        })
         expect(ttlSeconds).toBeGreaterThan(windowMs / 1000 - 60)
         expect(ttlSeconds).toBeLessThanOrEqual(windowMs / 1000)
     })

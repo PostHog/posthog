@@ -4,6 +4,7 @@ import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
+import { Pool } from 'pg'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -36,11 +37,13 @@ import { insertHogFlow as _insertHogFlow, hideHogFlowsFromReplica } from './_tes
 import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
+import { CyclotronV2Worker } from './services/cyclotron-v2'
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
 import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
@@ -2556,7 +2559,6 @@ describe('CDP API', () => {
 
                 expect(retry.status).toEqual(202)
                 expect(retry.body).toEqual({ ...first.body, replayed: true })
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
                 const scheduledRow = expect.objectContaining({
                     message_id: first.body.invocation_id,
                     status: 'scheduled',
@@ -2591,6 +2593,51 @@ describe('CDP API', () => {
         })
 
         describe('with a scheduled_at', () => {
+            let queue: CyclotronJobQueuePostgresV2
+            let cyclotron: Pool
+
+            beforeAll(async () => {
+                queue = new CyclotronJobQueuePostgresV2(100, hub)
+                await queue.startAsProducer()
+                cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+            })
+
+            afterAll(async () => {
+                await queue.stopProducer()
+                await cyclotron.end()
+            })
+
+            beforeEach(async () => {
+                await cyclotron.query(`DELETE FROM cyclotron_jobs WHERE queue_name = 'email'`)
+                api['hogflowQueue'] = queue
+            })
+
+            const storedJob = async (id: string) =>
+                (await cyclotron.query('SELECT scheduled, priority, state FROM cyclotron_jobs WHERE id = $1', [id]))
+                    .rows[0]
+
+            const idsAnEmailWorkerClaims = async (): Promise<string[]> => {
+                const worker = new CyclotronV2Worker({
+                    pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+                    queueName: 'email',
+                    batchMaxSize: 100,
+                    pollDelayMs: 10,
+                    includeEmptyBatches: true,
+                })
+                let claimed: string[] = []
+                await new Promise<void>((resolve, reject) => {
+                    worker
+                        // eslint-disable-next-line @typescript-eslint/require-await
+                        .connect(async (batch) => {
+                            claimed = batch.map((job) => job.id)
+                            resolve()
+                        })
+                        .catch(reject)
+                })
+                await worker.disconnect()
+                return claimed
+            }
+
             const sendAt = (route: 'transactional_email' | 'transactional_email/send', scheduledAt: string) =>
                 sendOn(
                     route,
@@ -2617,10 +2664,11 @@ describe('CDP API', () => {
                         scheduled_at: scheduledAt,
                         replayed: false,
                     })
-                    const [invocation] = mockQueueInvocations.mock.calls[0][0]
-                    expect(invocation.queueScheduledAt.toJSDate().toISOString()).toEqual(scheduledAt)
-                    expect(invocation.state.scheduledAt).toEqual(scheduledAt)
-                    expect(invocation.queuePriority).toEqual(0)
+                    const job = await storedJob(res.body.invocation_id)
+                    expect(new Date(job.scheduled).toISOString()).toEqual(scheduledAt)
+                    expect(job.priority).toEqual(0)
+                    expect(parseJSON(job.state.toString())).toMatchObject({ state: { scheduledAt } })
+                    expect(await idsAnEmailWorkerClaims()).toEqual([])
                     expect(emailStatusRows()).toEqual([
                         expect.objectContaining({
                             message_id: res.body.invocation_id,
@@ -2638,8 +2686,7 @@ describe('CDP API', () => {
 
                 expect(res.status).toEqual(202)
                 expect(res.body).toMatchObject({ status: 'queued', scheduled_at: null })
-                const [invocation] = mockQueueInvocations.mock.calls[0][0]
-                expect(invocation.queueScheduledAt).toBeUndefined()
+                expect(await idsAnEmailWorkerClaims()).toEqual([res.body.invocation_id])
                 expect(emailStatusRows()).toEqual([expect.objectContaining({ status: 'queued' })])
             })
 
@@ -2657,7 +2704,9 @@ describe('CDP API', () => {
                 if (outcome === 'invalid_scheduled_at') {
                     expect(res.body).toEqual({ error: 'invalid_scheduled_at', reason: 'too_far' })
                 }
-                expect(mockQueueInvocations).not.toHaveBeenCalled()
+                expect(
+                    (await cyclotron.query(`SELECT 1 FROM cyclotron_jobs WHERE queue_name = 'email'`)).rowCount
+                ).toEqual(0)
                 expect(emailStatusRows()).toEqual([])
             })
         })
