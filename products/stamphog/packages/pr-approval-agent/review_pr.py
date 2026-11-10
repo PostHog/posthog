@@ -327,10 +327,9 @@ class Pipeline:
         gate verdict stands in each case.
         """
         deny = set(self.classification.get("deny_categories", []))
-        unproven: set[str] = set()
+        unproven = self.classification.get("unattested_files", [])
         candidates = POLICY.attestations
         if self.admitted_bot:
-            unproven = set(self.pr.deny_paths) - set(self.classification.get("pinned_files", []))
             candidates = tuple(attestation for attestation in candidates if attestation.publisher_files)
         if not deny and not unproven:
             return []
@@ -488,6 +487,7 @@ class Pipeline:
         reviewed = ReviewedHead(pr_number=pr.number, head_sha=pr.head_sha, merge_base_sha=pr.merge_base_sha)
         lifted = lifted_files(POLICY.attestations, pr.check_runs, file_paths, reviewed)
         pinned = pinned_files(POLICY.attestations, pr.check_runs, file_paths, reviewed)
+        unattested = sorted(set(pr.deny_paths) - pinned) if self.admitted_bot else []
         # The server polls GitHub for these checks after a WAIT, so the list names each one by the
         # check name and App id that a check run carries.
         attestation_checks = {
@@ -577,7 +577,7 @@ class Pipeline:
             "deny_categories": deny,
             "title_scrutiny_flags": title_flags,
             "lifted_files": {category: sorted(files) for category, files in sorted(lifted.items())},
-            "pinned_files": sorted(pinned),
+            "unattested_files": unattested,
             "attestations": attestation_checks,
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
@@ -591,7 +591,7 @@ class Pipeline:
                 **self._summarize_assurance(),
                 # A bot has no reviewer and no owning team, so the proof of every file is the
                 # independent assurance of its PR.
-                "every_file_proven": bool(self.admitted_bot and pr.deny_paths) and set(pr.deny_paths) <= pinned,
+                "every_file_proven": bool(self.admitted_bot and pr.deny_paths) and not unattested,
             },
             # Judgment-layer signal for the reviewer prompt, attached later on
             # the T1-agent path only (see _maybe_compute_familiarity). None here
@@ -766,7 +766,7 @@ class Pipeline:
             return True, "not a bot PR"
         if not self.pr.deny_paths:
             return False, "the PR changes no file"
-        unattested = sorted(set(self.pr.deny_paths) - set(self.classification["pinned_files"]))
+        unattested = self.classification["unattested_files"]
         if unattested:
             return False, f"no attestation covers: {', '.join(unattested[:5])}"
         return True, "every file attested"

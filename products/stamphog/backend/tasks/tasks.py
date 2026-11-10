@@ -684,10 +684,7 @@ def _bot_admission(installation_id: str, repo: str, pr: dict[str, Any], action: 
     repo_config = _resolve_repo_config(installation_id, repo)
     if repo_config is None or not repo_config.enabled:
         return None
-    bot = admitted_bot_author(repo_config, pr, action)
-    if bot is None:
-        return None
-    return {"name": bot.name, "login": bot.login, "id": bot.id}
+    return admitted_bot_author(repo_config, pr, action)
 
 
 def _clear_trigger_label_from_bot_pr(installation_id: str, repo: str, pr: dict[str, Any], action: str) -> None:

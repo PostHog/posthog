@@ -13,9 +13,8 @@ from django.core.cache import cache
 import yaml
 import structlog
 
-from posthog.dataclasses import frozen
-
 from .github_client import StamphogGitHubClient
+from .routing.service import is_fork
 
 if TYPE_CHECKING:
     from ..models import StamphogRepoConfig
@@ -27,15 +26,8 @@ BOT_AUTHORS_CACHE_SECONDS = 300
 _ADMITTING_ACTIONS = frozenset({"opened", "synchronize", "reopened"})
 
 
-@frozen
-class BotAuthor:
-    name: str
-    login: str
-    id: int
-
-
-def admitted_bot_author(repo_config: StamphogRepoConfig, pr: dict[str, Any], action: str) -> BotAuthor | None:
-    """The policy entry that admits this PR, or None.
+def admitted_bot_author(repo_config: StamphogRepoConfig, pr: dict[str, Any], action: str) -> dict[str, Any] | None:
+    """The policy entry that admits this PR, as `{name, login, id}`, or None.
 
     The author must be a GitHub App account whose login and numeric id both match one entry, because
     a login can be renamed and claimed by someone else while the id cannot. The head must live in
@@ -45,16 +37,13 @@ def admitted_bot_author(repo_config: StamphogRepoConfig, pr: dict[str, Any], act
     if action not in _ADMITTING_ACTIONS:
         return None
     user = pr.get("user") or {}
-    if user.get("type") != "Bot":
-        return None
-    head_repo = ((pr.get("head") or {}).get("repo") or {}).get("full_name") or ""
-    if head_repo.strip().lower() != repo_config.repository.strip().lower():
+    if user.get("type") != "Bot" or is_fork(pr, repo_config.repository):
         return None
     login, user_id = user.get("login"), user.get("id")
-    return next((bot for bot in load_repo_bot_authors(repo_config) if bot.login == login and bot.id == user_id), None)
+    return next((bot for bot in _repo_bot_authors(repo_config) if bot["login"] == login and bot["id"] == user_id), None)
 
 
-def load_repo_bot_authors(repo_config: StamphogRepoConfig) -> tuple[BotAuthor, ...]:
+def _repo_bot_authors(repo_config: StamphogRepoConfig) -> list[dict[str, Any]]:
     """The `bot_authors` entries on the repo's default branch, cached briefly, absence included."""
     key = f"stamphog:bot_authors:{repo_config.id}"
     cached = cache.get(key)
@@ -64,7 +53,7 @@ def load_repo_bot_authors(repo_config: StamphogRepoConfig) -> tuple[BotAuthor, .
         )
         cached = _parse_bot_authors(raw_text, repo_config.repository)
         cache.set(key, cached, BOT_AUTHORS_CACHE_SECONDS)
-    return tuple(BotAuthor(**entry) for entry in cached)
+    return cached
 
 
 def _parse_bot_authors(raw_text: str | None, repository: str) -> list[dict[str, Any]]:
