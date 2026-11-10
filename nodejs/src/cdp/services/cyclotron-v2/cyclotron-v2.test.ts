@@ -203,6 +203,19 @@ async function enqueuePhaseCounts(): Promise<Record<string, number>> {
     )
 }
 
+async function managerSequenceReserveTotals(): Promise<{ count: number; seconds: number }> {
+    const metric = register.getSingleMetric(ENQUEUE_PHASE_METRIC) as Histogram | undefined
+    const values = metric ? (await metric.get()).values : []
+    const sample = (suffix: 'count' | 'sum'): number =>
+        values.find(
+            (v) =>
+                v.metricName === `${ENQUEUE_PHASE_METRIC}_${suffix}` &&
+                v.labels.caller === 'manager' &&
+                v.labels.phase === 'sequence_reserve'
+        )?.value ?? 0
+    return { count: sample('count'), seconds: sample('sum') }
+}
+
 async function enqueuePhaseCountsDuring(step: () => Promise<unknown>): Promise<Record<string, number>> {
     const before = await enqueuePhaseCounts()
     await step()
@@ -1989,31 +2002,33 @@ describe('Cyclotron V2', () => {
                 expect(await enqueuePhaseCountsDuring(step)).toEqual(expected)
             })
 
-            it('records the sequence reserve only once a held team sequence row is released', async () => {
+            it('times a held team sequence row into the sequence reserve', async () => {
+                const holdMs = 100
                 await manager.bulkCreateJobs([{ teamId: 7, queueName: EMAIL_QUEUE }])
                 const holder = await assertPool.connect()
                 try {
                     await holder.query('BEGIN')
                     await holder.query('SELECT counter FROM cyclotron_email_team_seq WHERE team_id = 7 FOR UPDATE')
-                    const before = await enqueuePhaseCounts()
+                    const holderPid = (await holder.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]
+                        .pid
+                    const before = await managerSequenceReserveTotals()
                     const enqueued = manager.bulkCreateJobs([{ teamId: 7, queueName: EMAIL_QUEUE }])
                     await waitForExpect(async () => {
                         const blocked = await assertPool.query(
-                            `SELECT 1 FROM pg_stat_activity
-                             WHERE wait_event_type = 'Lock' AND query LIKE '%INSERT INTO cyclotron_email_team_seq%'`
+                            'SELECT pid FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))',
+                            [holderPid]
                         )
                         expect(blocked.rowCount).toBe(1)
                     })
-
-                    const whileBlocked = await enqueuePhaseCounts()
+                    const whileBlocked = await managerSequenceReserveTotals()
+                    await sleep(holdMs)
                     await holder.query('COMMIT')
                     await enqueued
-                    const after = await enqueuePhaseCounts()
+                    const after = await managerSequenceReserveTotals()
 
-                    expect({
-                        whileBlocked: whileBlocked['manager:sequence_reserve'] - before['manager:sequence_reserve'],
-                        afterRelease: after['manager:sequence_reserve'] - before['manager:sequence_reserve'],
-                    }).toEqual({ whileBlocked: 0, afterRelease: 1 })
+                    expect(whileBlocked.count - before.count).toBe(0)
+                    expect(after.count - before.count).toBe(1)
+                    expect(after.seconds - before.seconds).toBeGreaterThanOrEqual((holdMs - 5) / 1000)
                 } finally {
                     holder.release()
                 }
