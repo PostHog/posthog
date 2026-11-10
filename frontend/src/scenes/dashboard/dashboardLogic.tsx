@@ -1231,8 +1231,9 @@ export interface dashboardLogicActions {
     recheckRefreshEligibility: () => {
         value: true
     }
-    refreshDashboardItem: (payload: { tile: DashboardTile }) => {
+    refreshDashboardItem: (payload: { tile: DashboardTile; reason?: DashboardRefreshReason }) => {
         tile: DashboardTile
+        reason: DashboardRefreshReason
     }
     refreshDashboardItems: (payload: {
         action: DashboardLoadAction | RefreshDashboardItemsAction
@@ -2174,7 +2175,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
          */
         forceRefreshIfStale: true,
         /** Manually refresh a single insight from the insight card on the dashboard. */
-        refreshDashboardItem: (payload: { tile: DashboardTile }) => payload,
+        refreshDashboardItem: ({
+            tile,
+            reason = 'manual_tile_refresh',
+        }: {
+            tile: DashboardTile
+            reason?: DashboardRefreshReason
+        }) => ({ tile, reason }),
         /** Refresh tiles of a loaded dashboard e.g. stale tiles after initial load, previewed tiles after applying filters, etc. */
         refreshDashboardItems: (payload: {
             action: RefreshDashboardItemsAction | DashboardLoadAction
@@ -5120,7 +5127,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         [insightsModel.actionTypes.insightSaved]: ({ shortId }: { shortId: InsightShortId }) => {
             for (const tile of values.insightTiles) {
                 if (tile.insight?.short_id === shortId) {
-                    actions.refreshDashboardItem({ tile })
+                    actions.refreshDashboardItem({ tile, reason: 'update' })
                 }
             }
         },
@@ -5568,7 +5575,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         /** Called when a single insight is refreshed manually on the dashboard */
-        refreshDashboardItem: async ({ tile }, breakpoint) => {
+        refreshDashboardItem: async ({ tile, reason }, breakpoint) => {
             const dashboardId: number = props.id
             const insight = tile.insight
 
@@ -5616,7 +5623,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     withCompactMetricVariables(effectiveRefreshFilters, savedMetricVariables),
                     urlVariables,
                     tile.filters_overrides,
-                    'manual_tile_refresh'
+                    reason
                 )
 
                 const queryError = refreshedInsight ? getInsightQueryError(refreshedInsight) : null
@@ -6942,7 +6949,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             ignored: isIgnored,
                         })
                     }
-                    actions.refreshDashboardItem({ tile })
+                    actions.refreshDashboardItem({ tile, reason: 'update' })
                     lemonToast.success('Tile filters saved')
                 },
             })
