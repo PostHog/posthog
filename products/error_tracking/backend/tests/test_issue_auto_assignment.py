@@ -99,6 +99,7 @@ class TestAssignIssueAutomatically(BaseTest):
             ("assigned_to_a_role", "role", True, "member", AutoAssignmentOutcome.KEPT_EXISTING, False),
             ("assigned_by_rule_no_team", "other_member", False, "member", AutoAssignmentOutcome.KEPT_EXISTING, False),
             ("assigned_on_an_earlier_attempt", "member", True, "member", AutoAssignmentOutcome.KEPT_EXISTING, True),
+            ("left_after_write", "former_member", True, "former_member", AutoAssignmentOutcome.KEPT_EXISTING, True),
             ("role_candidate", "nobody", True, "role", AutoAssignmentOutcome.ROLE_SKIPPED, False),
             ("former_member_candidate", "nobody", True, "former_member", AutoAssignmentOutcome.NOT_MEMBER, False),
         ]

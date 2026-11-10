@@ -690,8 +690,6 @@ def assign_issue_automatically(team_id: int, issue_id: UUID | str, decision: "De
     if candidate.assignee.type != "user":
         return _counted(AutoAssignmentOutcome.ROLE_SKIPPED)
     user_id = int(candidate.assignee.id)
-    if not OrganizationMembership.objects.filter(user_id=user_id, organization__team__id=team_id).exists():
-        return _counted(AutoAssignmentOutcome.NOT_MEMBER)
 
     operation = ChangeOperation.for_automation(team_id, AUTO_ASSIGNMENT_AUTOMATION_ID)
     with transaction.atomic():
@@ -700,10 +698,17 @@ def assign_issue_automatically(team_id: int, issue_id: UUID | str, decision: "De
             raise ErrorTrackingIssueNotFoundError
         issue = locked[0]
         # Look up by issue only, because cymbal writes rule assignments without a team_id.
-        # nosemgrep: idor-lookup-without-team (the issue is locked under team_id above)
-        assignment, created = ErrorTrackingIssueAssignment.objects.get_or_create(
-            issue_id=issue.id, defaults={"team_id": team_id, "user_id": user_id}
-        )
+        assignment = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).first()
+        created = False
+        if assignment is None:
+            if not OrganizationMembership.objects.filter(
+                user_id=user_id, organization_id=issue.team.organization_id
+            ).exists():
+                return _counted(AutoAssignmentOutcome.NOT_MEMBER)
+            # nosemgrep: idor-lookup-without-team (the issue is locked under team_id above)
+            assignment, created = ErrorTrackingIssueAssignment.objects.get_or_create(
+                issue_id=issue.id, defaults={"team_id": team_id, "user_id": user_id}
+            )
         if created:
             _stamp_issue_state(team_id=team_id, issue_ids=[issue.id])
             record_issue_changes(operation, [IssueChange(issue=issue, data=AssigneeChanged(previous=None))])
