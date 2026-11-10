@@ -14,22 +14,25 @@ issue-spiking notification. Issue-created is capped per team per hour (see
 
 ## Shared exception counters (processing mode)
 
-`modes/processing/ledger.rs` counts a team's batch of exceptions in one script call and returns the counts.
-Rules that limit or sample exceptions decide from that result, so they do not need Redis keys of their own.
+`modes/processing/ledger.rs` counts a team's batch of exceptions per issue in one script call and returns the recent counts.
+Rules that limit or alert on exceptions decide from that result, so they do not need Redis keys of their own.
 No pipeline stage calls the ledger yet.
 
-All keys carry the `{team_id}` hash tag.
+The caller chooses the windows.
+A window is a number of fixed buckets of one width, for example 12 buckets of 5 minutes or 24 buckets of one hour.
+Buckets follow the processing clock, not the event timestamp.
 
 | Key | Type | Fields | Expiry |
 | --- | --- | --- | --- |
-| `et:c1:{team_id}:days` | hash | `n<day>`: exceptions counted that day; `x<day>`: exceptions a per-issue rule removed | 16 days after the last new day; fields older than 14 days are deleted |
-| `et:c1:{team_id}:l:<day>:<issue_id>` | hash | one field per client: its count for the issue that day | one hour after the UTC day ends |
-| `et:c1:{team_id}:s:<window>:<issue_id>` | hash | one field per client: its count for the issue in the 10-minute window | 11 minutes |
+| `et:c1:{team_id}:b:<width>:<bucket>` | hash | `_n`: the team's exceptions in the bucket; one field per issue ID: that issue's exceptions in the bucket | `buckets + 2` widths after the first exception in the bucket |
 
-`<day>` and `<window>` are the Unix time divided by 86,400 and by 600, on the processing clock.
-A client is the event's distinct ID, or its session ID when it has no distinct ID.
-A client field is the first 64 bits of the SHA-256 of the client ID, in hexadecimal.
-Each issue hash stops adding clients at the limit the caller passes, and reports later new clients as uncounted.
+`<width>` is the bucket width in seconds, and `<bucket>` is the Unix time divided by the width.
+The `{team_id}` hash tag keeps all the keys of a team in one slot.
+The number of fields minus one is the number of issues with an exception in the bucket.
+
+A rolling count is the sum of the buckets inside the window, plus the bucket before them weighted by the share of it that the window still covers.
+For that reason the ledger stores one bucket more than the window holds.
+The estimate assumes that the events of that oldest bucket were spread evenly.
 
 ## Issue-created rate limit (notifications mode)
 

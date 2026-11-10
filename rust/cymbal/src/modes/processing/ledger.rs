@@ -1,249 +1,161 @@
-//! Counters that the exception rules share. One script call counts a team's
-//! batch and returns the counts, so each rule decides without its own Redis keys.
-
-use std::collections::HashMap;
+//! Per-issue exception counts in fixed buckets, shared by the rules that need rolling windows.
 
 use common_redis::{CustomRedisError, ScriptRunner};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-pub const DAY_SECONDS: i64 = 86_400;
-pub const SHORT_WINDOW_SECONDS: i64 = 600;
-pub const HISTORY_DAYS: usize = 14;
-
-const DAYS_TTL_SECONDS: i64 = (HISTORY_DAYS as i64 + 2) * DAY_SECONDS;
-const SHORT_TTL_SECONDS: i64 = SHORT_WINDOW_SECONDS + 60;
-// A late pod can still write to a day after it ends, so the client counts outlive the day.
-const CLIENT_DAY_GRACE_SECONDS: i64 = 3_600;
-
-// KEYS[1] is the team's daily totals. Each client group then owns two keys:
-// its issue's client counts for the day, and for the short window.
-// ARGV[8..] holds one (client, count) pair per client group, in key order.
+// Each window owns a run of KEYS, newest bucket first, and two ARGV entries: the run length and the bucket expiry.
+// The reply holds, per window and per bucket: the team total, the number of fields, then one count per issue.
 const RECORD_LUA: &str = r#"
-local day = tonumber(ARGV[1])
-local history = tonumber(ARGV[2])
-local total = tonumber(ARGV[3])
-local days_ttl = tonumber(ARGV[4])
-local client_day_ttl = tonumber(ARGV[5])
-local short_ttl = tonumber(ARGV[6])
-local client_cap = tonumber(ARGV[7])
-
-local function count_client(key, client, n, ttl)
-  local before = redis.call('hget', key, client)
-  if before then
-    redis.call('hincrby', key, client, n)
-    return tonumber(before)
-  end
-  local clients = redis.call('hlen', key)
-  if clients >= client_cap then return -1 end
-  redis.call('hset', key, client, n)
-  if clients == 0 then redis.call('expire', key, ttl) end
-  return 0
-end
-
-local today = 'n' .. day
-local new_day = redis.call('hexists', KEYS[1], today) == 0
-redis.call('hincrby', KEYS[1], today, total)
-if new_day then
-  for _, field in ipairs(redis.call('hkeys', KEYS[1])) do
-    local field_day = tonumber(string.sub(field, 2))
-    if field_day and field_day < day - history then
-      redis.call('hdel', KEYS[1], field)
-    end
-  end
-  redis.call('expire', KEYS[1], days_ttl)
+local windows = tonumber(ARGV[1])
+local first_issue = 2 + 2 * windows
+local fields = { '_n' }
+local total = 0
+for arg = first_issue, #ARGV, 2 do
+  fields[#fields + 1] = ARGV[arg]
+  total = total + tonumber(ARGV[arg + 1])
 end
 
 local out = {}
-for offset = 0, history do
-  local counts = redis.call('hmget', KEYS[1], 'n' .. (day - offset), 'x' .. (day - offset))
-  out[#out + 1] = tonumber(counts[1]) or 0
-  out[#out + 1] = tonumber(counts[2]) or 0
-end
-for group = 0, (#ARGV - 7) / 2 - 1 do
-  local client = ARGV[8 + 2 * group]
-  local n = tonumber(ARGV[9 + 2 * group])
-  out[#out + 1] = count_client(KEYS[2 + 2 * group], client, n, client_day_ttl)
-  out[#out + 1] = count_client(KEYS[3 + 2 * group], client, n, short_ttl)
+local key = 1
+for window = 0, windows - 1 do
+  local buckets = tonumber(ARGV[2 + 2 * window])
+  local current = KEYS[key]
+  local created = redis.call('exists', current) == 0
+  for arg = first_issue, #ARGV, 2 do
+    redis.call('hincrby', current, ARGV[arg], ARGV[arg + 1])
+  end
+  redis.call('hincrby', current, '_n', total)
+  if created then
+    redis.call('expire', current, tonumber(ARGV[3 + 2 * window]))
+  end
+  for bucket = 0, buckets - 1 do
+    local counts = redis.call('hmget', KEYS[key + bucket], unpack(fields))
+    out[#out + 1] = tonumber(counts[1]) or 0
+    out[#out + 1] = redis.call('hlen', KEYS[key + bucket])
+    for field = 2, #fields do
+      out[#out + 1] = tonumber(counts[field]) or 0
+    end
+  end
+  key = key + buckets
 end
 return out
 "#;
 
-const RECORD_REMOVED_LUA: &str = r#"
-return { redis.call('hincrby', KEYS[1], ARGV[1], tonumber(ARGV[2])) }
-"#;
-
-/// The events of one batch that one client sent for one issue.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClientGroup {
-    pub issue_id: Uuid,
-    pub client: String,
-    pub events: u32,
+/// Every window of one width must use the same number of buckets, because the first writer of a bucket sets its expiry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Window {
+    pub width_seconds: i64,
+    pub buckets: usize,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct DayCount {
-    pub events: u64,
-    /// Events that a per-issue rule removed, or would have removed.
-    pub removed: u64,
-}
-
-impl DayCount {
-    pub fn kept(&self) -> u64 {
-        self.events.saturating_sub(self.removed)
+impl Window {
+    // One bucket beyond the window: the rolling count needs the part of it that the window still covers.
+    fn stored_buckets(&self) -> usize {
+        self.buckets + 1
     }
 }
 
-/// A client's counts for one issue before the current batch. `None` means the
-/// issue already tracks the maximum number of clients and this client is not one of them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ClientCount {
-    pub day: Option<u64>,
-    pub short_window: Option<u64>,
+/// Counts in consecutive buckets, newest first. The first bucket is still open.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Series {
+    pub window: Window,
+    pub counts: Vec<u64>,
+}
+
+impl Series {
+    pub fn current(&self) -> u64 {
+        self.counts[0]
+    }
+
+    /// The oldest bucket counts for the share of it that the window ending at `now` still covers.
+    /// This assumes that its events were spread evenly.
+    pub fn rolling(&self, now: i64) -> f64 {
+        let elapsed = now.rem_euclid(self.window.width_seconds) as f64;
+        let covered = 1.0 - elapsed / self.window.width_seconds as f64;
+        let (oldest, inside) = self
+            .counts
+            .split_last()
+            .expect("a series has one bucket or more");
+        inside.iter().sum::<u64>() as f64 + *oldest as f64 * covered
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TeamSnapshot {
-    /// Today, including the current batch.
-    pub today: DayCount,
-    /// The previous `HISTORY_DAYS` days, most recent first.
-    pub history: Vec<DayCount>,
-    /// One entry per input client group, in input order.
-    pub clients: Vec<ClientCount>,
+pub struct WindowCounts {
+    pub team: Series,
+    pub active_issues: Vec<u64>,
+    /// One series per input issue, in input order.
+    pub issues: Vec<Series>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Ledger {
-    pub client_cap: u32,
+    pub windows: Vec<Window>,
 }
 
 impl Ledger {
-    /// Count one team's batch and return the counts the rules decide from.
-    /// `total` includes events without a client, which no group carries.
+    /// Returns one entry per window. `issue_counts` holds each issue once, and the returned counts include it.
     pub async fn record(
         &self,
         redis: &dyn ScriptRunner,
         team_id: i32,
         now: i64,
-        total: u32,
-        groups: &[ClientGroup],
-    ) -> Result<TeamSnapshot, CustomRedisError> {
-        let day = now.div_euclid(DAY_SECONDS);
-        let short_window = now.div_euclid(SHORT_WINDOW_SECONDS);
-        let client_day_ttl = (day + 1) * DAY_SECONDS - now + CLIENT_DAY_GRACE_SECONDS;
-
-        let mut keys = vec![days_key(team_id)];
-        let mut args = vec![
-            day.to_string(),
-            HISTORY_DAYS.to_string(),
-            total.to_string(),
-            DAYS_TTL_SECONDS.to_string(),
-            client_day_ttl.to_string(),
-            SHORT_TTL_SECONDS.to_string(),
-            self.client_cap.to_string(),
-        ];
-        for group in groups {
-            keys.push(format!("et:c1:{{{team_id}}}:l:{day}:{}", group.issue_id));
-            keys.push(format!(
-                "et:c1:{{{team_id}}}:s:{short_window}:{}",
-                group.issue_id
-            ));
-            args.push(client_field(&group.client));
-            args.push(group.events.to_string());
+        issue_counts: &[(Uuid, u32)],
+    ) -> Result<Vec<WindowCounts>, CustomRedisError> {
+        let mut keys = Vec::new();
+        let mut args = vec![self.windows.len().to_string()];
+        for window in &self.windows {
+            let width = window.width_seconds;
+            let current = now.div_euclid(width);
+            keys.extend(
+                (0..window.stored_buckets() as i64)
+                    .map(|age| format!("et:c1:{{{team_id}}}:b:{width}:{}", current - age)),
+            );
+            args.push(window.stored_buckets().to_string());
+            args.push(((window.stored_buckets() as i64 + 1) * width).to_string());
+        }
+        for (issue_id, events) in issue_counts {
+            args.push(issue_id.to_string());
+            args.push(events.to_string());
         }
 
         let reply = redis.eval_int_vec(RECORD_LUA, keys, args).await?;
-        decode(&reply, total, groups.len())
+        let total: u64 = issue_counts.iter().map(|(_, n)| u64::from(*n)).sum();
+        self.decode(&reply, total, issue_counts.len())
             .ok_or_else(|| CustomRedisError::ParseError("invalid ledger reply".into()))
     }
 
-    /// Add to today's count of events that a per-issue rule removed, or would have removed.
-    pub async fn record_removed(
-        &self,
-        redis: &dyn ScriptRunner,
-        team_id: i32,
-        now: i64,
-        removed: u32,
-    ) -> Result<(), CustomRedisError> {
-        let day = now.div_euclid(DAY_SECONDS);
-        redis
-            .eval_int_vec(
-                RECORD_REMOVED_LUA,
-                vec![days_key(team_id)],
-                vec![format!("x{day}"), removed.to_string()],
-            )
-            .await
-            .map(|_| ())
-    }
-}
-
-fn days_key(team_id: i32) -> String {
-    format!("et:c1:{{{team_id}}}:days")
-}
-
-// A distinct id can be 200 characters long. A fixed-size hash bounds the memory of each entry.
-fn client_field(client: &str) -> String {
-    let hash = Sha256::digest(client.as_bytes());
-    format!(
-        "{:016x}",
-        u64::from_be_bytes(hash[0..8].try_into().expect("sha256 has 32 bytes"))
-    )
-}
-
-fn decode(reply: &[i64], total: u32, groups: usize) -> Option<TeamSnapshot> {
-    let day_values = 2 * (HISTORY_DAYS + 1);
-    if reply.len() != day_values + 2 * groups {
-        return None;
-    }
-    let (days, clients) = reply.split_at(day_values);
-    let days = days
-        .chunks_exact(2)
-        .map(|pair| {
-            Some(DayCount {
-                events: u64::try_from(pair[0]).ok()?,
-                removed: u64::try_from(pair[1]).ok()?,
-            })
-        })
-        .collect::<Option<Vec<_>>>()?;
-    if days[0].events < u64::from(total) {
-        return None;
-    }
-    let clients = clients
-        .chunks_exact(2)
-        .map(|pair| ClientCount {
-            day: u64::try_from(pair[0]).ok(),
-            short_window: u64::try_from(pair[1]).ok(),
-        })
-        .collect();
-    Some(TeamSnapshot {
-        today: days[0],
-        history: days[1..].to_vec(),
-        clients,
-    })
-}
-
-/// Group a team's events by (issue, client), in order of first appearance.
-/// Returns the groups and, for each input event, the index of its group.
-pub fn group_clients(events: &[(Uuid, Option<&str>)]) -> (Vec<ClientGroup>, Vec<Option<usize>>) {
-    let mut index: HashMap<(Uuid, &str), usize> = HashMap::new();
-    let mut groups: Vec<ClientGroup> = Vec::new();
-    let membership = events
-        .iter()
-        .map(|(issue_id, client)| {
-            let client = (*client)?;
-            let group = *index.entry((*issue_id, client)).or_insert_with(|| {
-                groups.push(ClientGroup {
-                    issue_id: *issue_id,
-                    client: client.to_owned(),
-                    events: 0,
-                });
-                groups.len() - 1
+    fn decode(&self, reply: &[i64], total: u64, issues: usize) -> Option<Vec<WindowCounts>> {
+        let mut values = reply.iter().map(|value| u64::try_from(*value).ok());
+        let mut next = || values.next().flatten();
+        let mut decoded = Vec::with_capacity(self.windows.len());
+        for window in &self.windows {
+            let mut team = Vec::new();
+            let mut active_issues = Vec::new();
+            let mut per_issue = vec![Vec::new(); issues];
+            for _ in 0..window.stored_buckets() {
+                team.push(next()?);
+                // The team total is a field of the bucket, not an issue.
+                active_issues.push(next()?.saturating_sub(1));
+                for counts in &mut per_issue {
+                    counts.push(next()?);
+                }
+            }
+            if team[0] < total {
+                return None;
+            }
+            let series = |counts| Series {
+                window: *window,
+                counts,
+            };
+            decoded.push(WindowCounts {
+                team: series(team),
+                active_issues,
+                issues: per_issue.into_iter().map(series).collect(),
             });
-            groups[group].events += 1;
-            Some(group)
-        })
-        .collect();
-    (groups, membership)
+        }
+        values.next().is_none().then_some(decoded)
+    }
 }
 
 #[cfg(test)]
@@ -251,117 +163,117 @@ mod tests {
     use super::*;
     use crate::test_support::{start_redis, FakeRunner};
 
-    const LEDGER: Ledger = Ledger { client_cap: 2 };
+    const FIVE_MINUTES: Window = Window {
+        width_seconds: 300,
+        buckets: 2,
+    };
+    const HOURLY: Window = Window {
+        width_seconds: 3_600,
+        buckets: 24,
+    };
 
-    fn group(issue_id: Uuid, client: &str, events: u32) -> ClientGroup {
-        ClientGroup {
-            issue_id,
-            client: client.into(),
-            events,
+    fn ledger() -> Ledger {
+        Ledger {
+            windows: vec![FIVE_MINUTES, HOURLY],
         }
+    }
+
+    #[test]
+    fn rolling_count_weighs_the_oldest_bucket_by_its_share_inside_the_window() {
+        let series = Series {
+            window: FIVE_MINUTES,
+            counts: vec![4, 10, 100],
+        };
+        assert_eq!(series.current(), 4);
+        assert_eq!(series.rolling(600), 114.0);
+        assert_eq!(series.rolling(600 + 75), 89.0);
+        assert!((series.rolling(600 + 299) - (14.0 + 100.0 / 300.0)).abs() < 1e-9);
     }
 
     #[tokio::test]
     async fn rejects_a_reply_that_does_not_match_the_batch() {
-        let issue = Uuid::now_v7();
-        let groups = [group(issue, "a", 1)];
+        let ledger = Ledger {
+            windows: vec![FIVE_MINUTES],
+        };
+        let batch = [(Uuid::now_v7(), 2)];
+        let valid = vec![2, 2, 2, 0, 0, 0, 0, 0, 0];
+        assert!(ledger
+            .record(&*FakeRunner::returning(valid.clone()), 7, 0, &batch)
+            .await
+            .is_ok());
         for reply in [
-            vec![0; 30],
-            std::iter::once(-1).chain(vec![0; 31]).collect(),
-            vec![0; 32],
+            valid[..8].to_vec(),
+            valid.iter().copied().chain([0]).collect(),
+            std::iter::once(-1).chain(valid[1..].to_vec()).collect(),
+            std::iter::once(1).chain(valid[1..].to_vec()).collect(),
         ] {
-            let result = LEDGER
-                .record(&*FakeRunner::returning(reply), 7, 0, 1, &groups)
+            let result = ledger
+                .record(&*FakeRunner::returning(reply), 7, 0, &batch)
                 .await;
             assert!(result.is_err());
         }
     }
 
-    #[test]
-    fn groups_events_by_issue_and_client_in_first_seen_order() {
-        let (first, second) = (Uuid::now_v7(), Uuid::now_v7());
-        let (groups, membership) = group_clients(&[
-            (first, Some("a")),
-            (first, None),
-            (second, Some("a")),
-            (first, Some("a")),
-        ]);
-        assert_eq!(groups, [group(first, "a", 2), group(second, "a", 1)]);
-        assert_eq!(membership, [Some(0), None, Some(1), Some(0)]);
+    #[tokio::test]
+    #[ignore = "requires Docker for Redis container"]
+    async fn counts_issues_per_bucket_and_slides_old_buckets_out() {
+        let (redis, _container) = start_redis().await;
+        let (noisy, quiet) = (Uuid::now_v7(), Uuid::now_v7());
+        let ledger = ledger();
+
+        let first = ledger
+            .record(&*redis, 7, 0, &[(noisy, 5), (quiet, 1)])
+            .await
+            .unwrap();
+        assert_eq!(first[0].team.counts, [6, 0, 0]);
+        assert_eq!(first[0].active_issues, [2, 0, 0]);
+        assert_eq!(first[0].issues[0].counts, [5, 0, 0]);
+        assert_eq!(first[1].issues[1].current(), 1);
+
+        let other_team = ledger.record(&*redis, 8, 0, &[(noisy, 3)]).await.unwrap();
+        assert_eq!(other_team[0].team.counts, [3, 0, 0]);
+
+        let next_bucket = ledger.record(&*redis, 7, 300, &[(noisy, 2)]).await.unwrap();
+        assert_eq!(next_bucket[0].issues[0].counts, [2, 5, 0]);
+        assert_eq!(next_bucket[0].active_issues, [1, 2, 0]);
+        assert_eq!(next_bucket[1].issues[0].current(), 7);
+
+        let slid_out = ledger.record(&*redis, 7, 900, &[(noisy, 1)]).await.unwrap();
+        assert_eq!(slid_out[0].issues[0].counts, [1, 0, 2]);
+        assert_eq!(slid_out[1].issues[0].rolling(900), 8.0);
+
+        let next_hour = ledger
+            .record(&*redis, 7, 3_600, &[(noisy, 1)])
+            .await
+            .unwrap();
+        assert_eq!(next_hour[1].issues[0].counts[..2], [1, 8]);
+        assert_eq!(next_hour[1].team.counts[..2], [1, 9]);
     }
 
     #[tokio::test]
     #[ignore = "requires Docker for Redis container"]
-    async fn counts_days_and_clients_across_window_boundaries() {
+    async fn buckets_expire_one_width_after_they_leave_the_window() {
         let (redis, _container) = start_redis().await;
-        let issue = Uuid::now_v7();
-        let looping = [group(issue, "looping", 3)];
-
-        let first = LEDGER.record(&*redis, 7, 0, 4, &looping).await.unwrap();
-        assert_eq!(first.today.events, 4);
-        assert_eq!(
-            first.clients,
-            [ClientCount {
-                day: Some(0),
-                short_window: Some(0)
-            }]
-        );
-
-        LEDGER.record_removed(&*redis, 7, 0, 1).await.unwrap();
-        let next_window = LEDGER
-            .record(&*redis, 7, SHORT_WINDOW_SECONDS, 3, &looping)
-            .await
-            .unwrap();
-        assert_eq!(
-            next_window.today,
-            DayCount {
-                events: 7,
-                removed: 1
+        let ledger = ledger();
+        for _ in 0..2 {
+            ledger
+                .record(&*redis, 7, 0, &[(Uuid::now_v7(), 1)])
+                .await
+                .unwrap();
+        }
+        let ttl = |key: &str| {
+            let redis = redis.clone();
+            let key = key.to_string();
+            async move {
+                redis
+                    .eval_int_vec("return { redis.call('ttl', KEYS[1]) }", vec![key], vec![])
+                    .await
+                    .unwrap()[0]
             }
-        );
-        assert_eq!(
-            next_window.clients,
-            [ClientCount {
-                day: Some(3),
-                short_window: Some(0)
-            }]
-        );
-
-        let other_team = LEDGER.record(&*redis, 8, 0, 3, &looping).await.unwrap();
-        assert_eq!(other_team.today.events, 3);
-        assert_eq!(other_team.clients[0].day, Some(0));
-
-        let next_day = LEDGER
-            .record(&*redis, 7, DAY_SECONDS, 3, &looping)
-            .await
-            .unwrap();
-        assert_eq!(next_day.today.events, 3);
-        assert_eq!(next_day.history[0].kept(), 6);
-        assert_eq!(next_day.clients[0].day, Some(0));
-
-        let after_history = LEDGER
-            .record(&*redis, 7, (HISTORY_DAYS as i64 + 1) * DAY_SECONDS, 1, &[])
-            .await
-            .unwrap();
-        assert_eq!(after_history.history[HISTORY_DAYS - 1].events, 3);
-        assert!(after_history.history[..HISTORY_DAYS - 1]
-            .iter()
-            .all(|day| day.events == 0));
-    }
-
-    #[tokio::test]
-    #[ignore = "requires Docker for Redis container"]
-    async fn stops_adding_clients_at_the_cap_but_keeps_counting_known_ones() {
-        let (redis, _container) = start_redis().await;
-        let issue = Uuid::now_v7();
-        let groups = [
-            group(issue, "a", 1),
-            group(issue, "b", 1),
-            group(issue, "c", 1),
-        ];
-        LEDGER.record(&*redis, 7, 0, 3, &groups).await.unwrap();
-        let second = LEDGER.record(&*redis, 7, 0, 3, &groups).await.unwrap();
-        let days: Vec<_> = second.clients.iter().map(|client| client.day).collect();
-        assert_eq!(days, [Some(1), Some(1), None]);
+        };
+        let five_minutes = ttl("et:c1:{7}:b:300:0").await;
+        assert!((1_100..=1_200).contains(&five_minutes));
+        let hourly = ttl("et:c1:{7}:b:3600:0").await;
+        assert!((93_000..=93_600).contains(&hourly));
     }
 }
