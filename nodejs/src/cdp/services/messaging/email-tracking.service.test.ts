@@ -933,6 +933,36 @@ describe('EmailTrackingService', () => {
                     expect(recordedMetrics()).toEqual(bounceMetrics)
                 })
 
+                it('produces the metrics and logs of a whole batch in one flush before the batch resolves', async () => {
+                    const hogFlow = await insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                    )
+                    for (let i = 0; i < 3; i++) {
+                        await postBounce({ functionId: hogFlow.id })
+                    }
+                    const flush = jest.spyOn(consumer['emailTrackingService']['hogFunctionMonitoringService'], 'flush')
+
+                    await consumer.processBatch(queuedNotifications())
+
+                    expect(flush).toHaveBeenCalledTimes(1)
+                    expect(recordedMetrics()).toEqual([
+                        ['email_bounced', 3],
+                        ['email_bounced_hard', 3],
+                    ])
+                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)).toHaveLength(3)
+                })
+
+                it('fails the batch so Kafka redelivers it when the flush fails', async () => {
+                    await postBounce({ functionId: hogFunction.id })
+                    jest.spyOn(
+                        consumer['emailTrackingService']['hogFunctionMonitoringService'],
+                        'flush'
+                    ).mockRejectedValueOnce(new Error('broker unavailable'))
+
+                    await expect(consumer.processBatch(queuedNotifications())).rejects.toThrow('broker unavailable')
+                })
+
                 it('queues a sensitive email click without its subject or link secrets and still records it', async () => {
                     const trackingCode = signer.generate({
                         functionId: hogFunction.id,

@@ -13,8 +13,14 @@ import { counterParseError } from './metrics'
 
 type SkipReason = 'unparseable' | 'not_an_sns_envelope' | 'invalid_ses_event' | 'rejected'
 
-// Each notification records serially, so the default batch size could outrun the heartbeat health check.
-const SES_NOTIFICATIONS_PER_BATCH = 50
+// Smaller than the default, because the whole batch must record within the 30s heartbeat health check. With 10 in
+// flight and one Kafka flush per batch, 200 notifications take a few seconds.
+const SES_NOTIFICATIONS_PER_BATCH = 200
+
+// Each write of a notification is an atomic Postgres upsert, an atomic Redis script, or a Kafka append, so
+// notifications can record in any order. The topic is keyed by SNS message id, so other pods already record
+// notifications to the same recipient at the same time.
+const SES_NOTIFICATIONS_IN_FLIGHT = 10
 
 // A notification that can never record is skipped, as SNS drops it after its last retry, so it cannot hold its
 // partition. Any other error fails the batch so Kafka redelivers it once the datastore recovers, which can count
@@ -33,18 +39,34 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
     }
 
     public async processBatch(messages: Message[]): Promise<void> {
-        for (const message of messages) {
-            const skipReason = await this.record(message)
-            if (skipReason) {
-                logger.error('[CdpSesWebhooksConsumer] Skipping an SES notification that can never record', {
-                    topic: message.topic,
-                    partition: message.partition,
-                    offset: message.offset,
-                    reason: skipReason,
-                })
-                sesQueuedNotificationsCounter.inc({ stage: 'skipped' })
+        let next = 0
+        const errors: unknown[] = []
+        const recordNext = async (): Promise<void> => {
+            while (next < messages.length && errors.length === 0) {
+                const message = messages[next++]
+                try {
+                    const skipReason = await this.record(message)
+                    if (skipReason) {
+                        logger.error('[CdpSesWebhooksConsumer] Skipping an SES notification that can never record', {
+                            topic: message.topic,
+                            partition: message.partition,
+                            offset: message.offset,
+                            reason: skipReason,
+                        })
+                        sesQueuedNotificationsCounter.inc({ stage: 'skipped' })
+                    }
+                } catch (error) {
+                    errors.push(error)
+                }
             }
         }
+        // A failure stops new notifications and waits for those in flight, so no write outlives the failed batch.
+        await Promise.all(Array.from({ length: SES_NOTIFICATIONS_IN_FLIGHT }, recordNext))
+        if (errors.length > 0) {
+            throw errors[0]
+        }
+        // Offsets commit after processBatch resolves, so the batch commits only after Kafka acks its writes.
+        await this.emailTrackingService.flush()
     }
 
     private async record(message: Message): Promise<SkipReason | null> {
