@@ -368,6 +368,31 @@ function fileIndex(cache: Record<string, any>): Map<string, FileSystemEntry> {
     return cache.fileIndex
 }
 
+/** Makes a full scan the truth for the files `owns` selects: cached copies that moved or went away elsewhere leave the shared tree, and `scanned` replaces them in the file index. */
+function applyFullScan(
+    cache: Record<string, any>,
+    entries: FileSystemEntry[],
+    scanned: FileSystemEntry[],
+    owns: (entry: FileSystemEntry) => boolean
+): void {
+    const freshPaths = new Map(scanned.map((entry) => [entry.id, entry.path]))
+    for (const cached of Object.values(projectTreeDataLogic.values.folders).flat()) {
+        if (owns(cached) && !cached.shortcut && freshPaths.get(cached.id) !== cached.path) {
+            projectTreeDataLogic.actions.deleteSavedItem(cached)
+        }
+    }
+    projectTreeDataLogic.actions.addLoadedResults({
+        searchTerm: '',
+        results: entries,
+        hasMore: false,
+        lastCount: entries.length,
+    })
+    cache.fileIndex = new Map([
+        ...[...fileIndex(cache)].filter(([, entry]) => !owns(entry)),
+        ...scanned.map((entry): [string, FileSystemEntry] => [entry.id, entry]),
+    ])
+}
+
 function treeFolderId(folder: string | null): string {
     return `project://${folder ?? ''}`
 }
@@ -565,23 +590,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         if (changeCount(cache) !== changesBefore) {
                             continue
                         }
-                        // A full load is the truth for folders and workflow files, so drop cached copies that moved or went away elsewhere.
-                        const freshPaths = new Map(entries.map((entry) => [entry.id, entry.path]))
-                        for (const cached of Object.values(projectTreeDataLogic.values.folders).flat()) {
-                            if (isIndexed(cached) && !cached.shortcut && freshPaths.get(cached.id) !== cached.path) {
-                                projectTreeDataLogic.actions.deleteSavedItem(cached)
-                            }
-                        }
-                        projectTreeDataLogic.actions.addLoadedResults({
-                            searchTerm: '',
-                            results: entries,
-                            hasMore: false,
-                            lastCount: entries.length,
-                        })
-                        cache.fileIndex = new Map([
-                            ...[...fileIndex(cache)].filter(([, entry]) => !isIndexed(entry)),
-                            ...entries.filter(isIndexed).map((entry): [string, FileSystemEntry] => [entry.id, entry]),
-                        ])
+                        applyFullScan(cache, entries, entries.filter(isIndexed), isIndexed)
                         return true
                     }
                     throw new Error('Project files kept changing while the folders loaded')
@@ -602,24 +611,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         if (changeCount(cache) !== changesBefore) {
                             continue
                         }
-                        const files = entries.filter((file) => !file.shortcut)
-                        // This scan is the truth for other products' files, so a file deleted or moved elsewhere stops hiding its old folder.
-                        const freshPaths = new Map(files.map((entry) => [entry.id, entry.path]))
-                        for (const cached of Object.values(projectTreeDataLogic.values.folders).flat()) {
-                            if (!isIndexed(cached) && !cached.shortcut && freshPaths.get(cached.id) !== cached.path) {
-                                projectTreeDataLogic.actions.deleteSavedItem(cached)
-                            }
-                        }
-                        projectTreeDataLogic.actions.addLoadedResults({
-                            searchTerm: '',
-                            results: entries,
-                            hasMore: false,
-                            lastCount: entries.length,
-                        })
-                        cache.fileIndex = new Map([
-                            ...[...fileIndex(cache)].filter(([, entry]) => isIndexed(entry)),
-                            ...files.map((entry): [string, FileSystemEntry] => [entry.id, entry]),
-                        ])
+                        applyFullScan(
+                            cache,
+                            entries,
+                            entries.filter((file) => !file.shortcut),
+                            (entry) => !isIndexed(entry)
+                        )
                         return true
                     }
                     throw new Error('Project files kept changing while the folders loaded')
