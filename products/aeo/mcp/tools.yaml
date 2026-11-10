@@ -86,8 +86,8 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-prompts-get:
         operation: aeo_prompts_retrieve
-        enrich_url: 'prompts/{id}'
         enabled: true
+        enrich_url: prompts/{id}
         title: Get a tracked AI prompt
         description: >
             Get one AI citation tracking prompt by id, with its topic, on/off state, when it last ran, and
@@ -115,8 +115,8 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-prompts-list:
         operation: aeo_prompts_list
-        enrich_url: 'prompts/{id}'
         enabled: true
+        enrich_url: prompts/{id}
         list: true
         title: List tracked AI prompts
         description: >
@@ -153,8 +153,8 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-prompts-stats-get:
         operation: aeo_prompts_stats
-        enrich_url: 'prompts/{params.id}'
         enabled: true
+        enrich_url: prompts/{params.id}
         title: Get a tracked AI prompt's citation stats
         description: >
             Get citation stats for one AI citation tracking prompt. `engines` has one row per answer engine over the
@@ -217,12 +217,12 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-prompts-update:
         operation: aeo_prompts_partial_update
-        enrich_url: 'prompts/{id}'
         enabled: true
         annotations:
             readOnly: false
             destructive: false
             idempotent: false
+        enrich_url: prompts/{id}
         title: Update a tracked AI prompt
         description: >
             Change one AI citation tracking prompt. Send only the fields to change; the prompt keeps its id. `active`
