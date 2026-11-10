@@ -13,6 +13,7 @@ HIGHER_MIN_ARGS_THAN_HOGQL = {
 
 LOWER_MAX_ARGS_THAN_HOGQL = {
     "range": "HogQL takes a step argument, Hog's implementation has no step and would ignore it",
+    "toDate": "HogQL takes ClickHouse's timezone argument, Hog's implementation has no timezone support",
 }
 
 

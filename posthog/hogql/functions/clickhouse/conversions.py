@@ -153,10 +153,12 @@ DATE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         name: HogQLFunctionMeta(
             "toDateOrNull",
             1,
-            1,
+            2,
             signatures=[
                 ((StringType(),), DateType()),
                 ((DateTimeType(),), DateType()),
+                ((StringType(), StringType()), DateType()),
+                ((DateTimeType(), StringType()), DateType()),
             ],
             # Only the plain constructor takes a number: toDateOrNull expects a String, and rejects a
             # Float with code 43. Integer covers `date - date`, Float `timestamp - timestamp`.

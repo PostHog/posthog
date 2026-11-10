@@ -3324,6 +3324,23 @@ class TestPrinter(BaseTest):
     @parameterized.expand(
         [
             (
+                "datetime",
+                "toDate(timestamp, 'US/Pacific')",
+                "toDate(toTimeZone(events.timestamp, %(hogql_val_0)s), %(hogql_val_1)s)",
+            ),
+            (
+                "string",
+                "toDate(event, 'US/Pacific')",
+                "toDate(parseDateTime64BestEffortOrNull(events.event, 6, %(hogql_val_0)s), %(hogql_val_0)s)",
+            ),
+        ]
+    )
+    def test_to_date_with_timezone(self, _name: str, expression: str, expected: str) -> None:
+        self.assertEqual(self._expr(expression), expected)
+
+    @parameterized.expand(
+        [
+            (
                 "aggregated_array",
                 "SELECT toDate(d) AS day FROM (SELECT groupArrayIf(timestamp, event = 'a') AS ds FROM events) ARRAY JOIN ds AS d",
                 "toDate(d)",

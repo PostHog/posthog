@@ -16,7 +16,7 @@ from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 import posthog.hogql.resolver_utils as resolver_utils
 from posthog.hogql import ast
 from posthog.hogql.compilation import COMPILATION_TIMEOUT_SECONDS
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import (
@@ -573,6 +573,16 @@ class TestResolver(BaseTest):
 
         resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
         assert isinstance(resolved.select[0], ast.TryCast)
+
+    @parameterized.expand([("postgres",), ("mysql",), ("snowflake",), ("trino",)])
+    def test_resolve_to_date_timezone_dialect_guard(self, dialect: HogQLDialect) -> None:
+        expr = self._select("SELECT toDate('2024-03-05', 'US/Pacific')")
+
+        with self.assertRaises(QueryError) as context:
+            resolve_types(expr, self.context, dialect=dialect)
+        self.assertEqual(
+            str(context.exception), f"toDate with a timezone argument is not supported in {dialect} dialect"
+        )
 
     def test_resolve_is_distinct_from_unresolved_field(self):
         expr = self._select("SELECT missing is distinct from 1")

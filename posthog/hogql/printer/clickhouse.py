@@ -340,6 +340,12 @@ class ClickHousePrinter(BasePrinter):
                 ):
                     args[0] = f"toFloat64({args[0]})"
 
+        # toDateOrNull rejects a timezone argument, so a string with a timezone is parsed in that timezone first.
+        # An unparseable string still gives NULL, and a string with an offset gets the date in the given timezone.
+        if relevant_clickhouse_name == "toDateOrNull" and len(args) == 2:
+            relevant_clickhouse_name = "toDate"
+            args[0] = f"parseDateTime64BestEffortOrNull({args[0]}, 6, {args[1]})"
+
         if func_meta.tz_aware:
             has_tz_override = len(node.args) == func_meta.max_args
 

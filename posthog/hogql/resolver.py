@@ -2207,6 +2207,9 @@ class Resolver(CloningVisitor):
             node = self._copy(node)
             node.name = "toDate"
 
+        if node.name in ("toDate", "to_date") and len(node.args) == 2 and self.dialect not in ("clickhouse", "hogql"):
+            raise QueryError(f"toDate with a timezone argument is not supported in {self.dialect} dialect")
+
         # Expand *COLUMNS(...) in function arguments
         expanded_args: list[ast.Expr] = []
         has_spread = False

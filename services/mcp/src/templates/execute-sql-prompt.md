@@ -24,7 +24,7 @@ Both typed queries and SQL support visualizations. Save supported dashboard anal
 
 - **For `system.*` entities, `information_schema` stores the fully-qualified `table_name`:** `table_name = 'system.insights'` works alone. The bare name works only with a schema filter: `table_schema = 'system' AND table_name = 'insights'`. A bare `table_name = 'insights'` alone returns zero rows.
 - **HogQL rejects the ClickHouse `SETTINGS` clause outright** — appending `SETTINGS ...` (e.g. to tune `max_execution_time` or `join_algorithm`) always fails with `Unsupported: SelectStmt.settingsClause()`. Don't include it.
-- **`toDate()` takes exactly one argument** — it does not accept ClickHouse's `toDate(value, timezone)` form. Convert timezone first with `toTimeZone()`, then wrap in `toDate()`: `toDate(toTimeZone(timestamp, 'US/Pacific'))`, not `toDate(timestamp, 'US/Pacific')`.
+- **`toDate()` accepts an optional timezone argument** — `toDate(timestamp, 'US/Pacific')` returns the calendar date in that timezone. Without it, `toDate` uses the project timezone. The timezone form does not work on direct warehouse connections (Postgres, MySQL, Snowflake, Trino).
 - **Width-suffixed conversion functions aren't supported** — `toInt64`, `toInt32`, `toFloat64`, `toUInt8`, etc. (and their `OrNull`/`OrZero` variants) always fail. Use the unsuffixed form instead: `toInt()`, `toFloat()`, `toUInt()`, `toIntOrNull()`, `toFloatOrZero()`, and so on.
 
 ### Format SQL for readability
