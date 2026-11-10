@@ -386,7 +386,7 @@ export interface CohortRealtimeReadinessApi {
     ready_at: string | null
     /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
     build: CohortHistoryBuildApi | null
-    /** Why feature flags can't target the cohort, when PostHog knows. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. Other criteria can keep a cohort off realtime too. `too_large_to_build`, on a `needs_attention` cohort: its criteria match too many past events for PostHog to prepare it automatically. Null in every other case.
+    /** Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
      *
      * * `history_over_limit` - History over limit
      * * `too_large_to_build` - Too large to build */

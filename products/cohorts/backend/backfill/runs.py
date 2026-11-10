@@ -12,6 +12,7 @@ from django.utils import timezone as django_timezone
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTableUnresolved
@@ -356,24 +357,22 @@ def attempt_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: 
 
     max_events_per_day = settings.BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY
     estimate: BehavioralScanEstimate | None = None
+    refusal_message: str | None = None
     if max_events_per_day:
-        estimate = estimate_behavioral_scan_events(
-            team_id,
-            pinned["event_names"],
-            flag_calls_table=pinned["flag_calls_table"],
-            max_events_per_day=max_events_per_day,
-        )
-        if estimate.over_limit:
-            CohortBackfillRefusal.objects.for_team(team_id).update_or_create(
-                cohort=cohort,
-                defaults={
-                    "team_id": team_id,
-                    "shape_hash": cohort.behavioral_filters_shape_hash or "",
-                    "message": _scan_over_limit_message(estimate),
-                    "refused_at": django_timezone.now(),
-                },
+        try:
+            estimate = estimate_behavioral_scan_events(
+                team_id,
+                pinned["event_names"],
+                flag_calls_table=pinned["flag_calls_table"],
+                max_events_per_day=max_events_per_day,
             )
-            return BackfillRunAttempt.refused(BackfillRefusalReason.SCAN_OVER_LIMIT)
+        except (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong) as error:
+            # Refused like an over-limit count. The task's retries land seconds apart and repeat the same
+            # capped scan, then leave the cohort with no run and no stored reason.
+            refusal_message = f"The scan estimate hit its time cap: {error}"
+        else:
+            if estimate.over_limit:
+                refusal_message = _scan_over_limit_message(estimate)
 
     try:
         with transaction.atomic():
@@ -401,6 +400,19 @@ def attempt_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: 
 
             filters_shape_hash = ensure_filters_shape_hash(cohort)
             behavioral_filters_shape_hash = cohort.behavioral_filters_shape_hash or ""
+            # Stored under the lock and after the slot checks, so a run created during the estimate
+            # refuses this attempt instead of being outlived by its refusal.
+            if refusal_message is not None:
+                CohortBackfillRefusal.objects.for_team(team_id).update_or_create(
+                    cohort=cohort,
+                    defaults={
+                        "team_id": team_id,
+                        "shape_hash": behavioral_filters_shape_hash,
+                        "message": refusal_message,
+                        "refused_at": django_timezone.now(),
+                    },
+                )
+                return BackfillRunAttempt.refused(BackfillRefusalReason.SCAN_OVER_LIMIT)
             preconditions, missing = check_run_preconditions()
             status, blocked_reason = _run_status(missing)
             run = CohortBackfillRun.objects.for_team(team_id).create(

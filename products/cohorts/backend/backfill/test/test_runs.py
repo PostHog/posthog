@@ -10,6 +10,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.hogql_cohort_query import FlagCallReads
 
 from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTable
@@ -127,12 +128,18 @@ class TestBackfillRuns(BaseTest):
         self.assertEqual(run.status, CohortBackfillRunStatus.BLOCKED)
         self.assertIn("merge gate", run.blocked_reason)
 
-    @parameterized.expand([("cohort",), ("team",)])
+    @parameterized.expand(
+        [
+            ("counted_then_cohort_run", _scan_estimate(peak_day_events=2_000), "cohort"),
+            ("counted_then_team_run", _scan_estimate(peak_day_events=2_000), "team"),
+            ("timed_out", ClickHouseQueryTimeOut(), "cohort"),
+        ]
+    )
     @mock.patch("products.cohorts.backend.backfill.runs.estimate_behavioral_scan_events")
     def test_a_cohort_over_the_scan_limit_keeps_its_refusal_until_a_run_covers_it(
-        self, scope: str, estimate: mock.Mock
+        self, _name: str, scan: Callable[..., BehavioralScanEstimate] | Exception, scope: str, estimate: mock.Mock
     ) -> None:
-        estimate.side_effect = _scan_estimate(peak_day_events=2_000)
+        estimate.side_effect = scan
         cohort = self._cohort()
 
         with override_settings(BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY=1_000):
@@ -153,6 +160,22 @@ class TestBackfillRuns(BaseTest):
         else:
             create_team_backfill_run(self.team.id, "team_enablement", [cohort.id])
 
+        self.assertFalse(CohortBackfillRefusal.objects.for_team(self.team.id).exists())
+
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_behavioral_scan_events")
+    def test_a_run_created_during_the_scan_estimate_leaves_no_refusal(self, estimate: mock.Mock) -> None:
+        cohort = self._cohort()
+
+        def accept_then_estimate(*args: Any, **kwargs: Any) -> BehavioralScanEstimate:
+            create_team_backfill_run(self.team.id, "team_enablement", [cohort.id], max_events_per_day=0)
+            return _scan_estimate(peak_day_events=2_000)(*args, **kwargs)
+
+        estimate.side_effect = accept_then_estimate
+
+        with override_settings(BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY=1_000):
+            attempt = attempt_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited")
+
+        self.assertEqual(attempt.reason, BackfillRefusalReason.PARTICIPATION_ACTIVE)
         self.assertFalse(CohortBackfillRefusal.objects.for_team(self.team.id).exists())
 
     @parameterized.expand([("cohort",), ("team",)])

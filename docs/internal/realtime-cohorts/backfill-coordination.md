@@ -270,13 +270,14 @@ Other cases to know:
   A run the seeder fails keeps its stamp empty and frees its slot.
   Nothing re-creates it.
 - **A cohort is too large to build.**
-  When the save path refuses a behavioral run on the scan limit, it stores the refusal in `cohort_backfill_refusals`, one row per cohort, with the numbers in `message`.
+  When the save path refuses a behavioral run on the scan limit, or because the count hit its time cap, it stores the refusal in `cohort_backfill_refusals`, one row per cohort, with the numbers or the timeout in `message`.
   The row records the behavioral shape hash it judged.
   While that hash matches the cohort's, the cohort API reports a `needs_attention` cohort with `reason: too_large_to_build`.
   An edit to the behavioral criteria moves the hash, so the row stops applying, and the edit's own run attempt replaces it.
   To accept the volume, run `create_cohort_backfill_run --team-id T --trigger team_enablement --cohort-ids C --max-scan-events-per-day 0`.
   That is a team-scoped run, so it is refused while the team has an active behavioral team run.
   Any behavioral run created for the cohort deletes the row.
+  Raising the limit does not retry the cohorts it refused, so each still needs that command or an edit to its behavioral criteria.
 
 ## Worked example
 

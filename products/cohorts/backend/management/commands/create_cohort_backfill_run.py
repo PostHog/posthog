@@ -165,7 +165,7 @@ class Command(BaseCommand):
         except BehavioralScanOverLimit as error:
             self._write_scan_estimate(error.estimate, error.event_name_count)
             raise CommandError(
-                f"{error} Narrow it with --cohort-ids, or pass --max-scan-events-per-day to accept the volume."
+                f"{error} Narrow it with --cohort-ids, or pass --max-scan-events-per-day 0 to accept the volume."
             ) from error
         except _SCAN_ESTIMATE_ERRORS as error:
             raise _scan_estimate_failed(error) from error
