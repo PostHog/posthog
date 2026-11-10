@@ -1476,6 +1476,20 @@ class TestAccessControlFiltering(BaseAccessControlTest):
         res = self._get_notebooks()
         assert len(res.json()["results"]) == 2
 
+    @parameterized.expand([("default", "", 1), ("admin_include_all", "?admin_include_all=true", 2)])
+    def test_org_admin_lists_a_restricted_notebook_only_when_asking_for_all(
+        self, _name: str, query: str, expected: int
+    ) -> None:
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        assert (
+            self._put_notebook_access_control(self.other_user_notebook.short_id, {"access_level": "none"}).status_code
+            == status.HTTP_200_OK
+        )
+
+        res = self.client.get(f"/api/projects/@current/notebooks/{query}")
+
+        assert len(res.json()["results"]) == expected
+
     def test_search_results_exclude_restricted_objects(self):
         res = self.client.get("/api/projects/@current/search?q=my notebook")
         assert len(res.json()["results"]) == 2
