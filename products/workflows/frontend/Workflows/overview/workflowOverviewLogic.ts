@@ -18,7 +18,6 @@ import type { HogFlowInFlightApi } from '../../generated/api.schemas'
 import type { HogFlow, HogFlowAction } from '../hogflows/types'
 import { getOrderedActions } from '../templates/workflowTemplateDisplay'
 import { workflowLogic } from '../workflowLogic'
-import { SANDBOX_EMAIL_METRICS } from '../workflowMetricsSummaryLogic'
 
 export interface WorkflowOverviewLogicProps {
     id: string
@@ -40,11 +39,19 @@ const HEALTH_METRICS = [
     'email_blocked',
     'push_sent',
     'push_failed',
+    'email_sandbox_sent',
+    'email_sandbox_bounced',
+    'email_sandbox_complained',
 ] as const
 export type HealthMetric = (typeof HEALTH_METRICS)[number]
-const SANDBOX_HEALTH_METRICS = Object.keys(SANDBOX_EMAIL_METRICS).filter((name) =>
-    (HEALTH_METRICS as readonly string[]).includes(SANDBOX_EMAIL_METRICS[name])
-)
+
+export type EmailHealth = {
+    sent: number
+    ownSenderSent: number
+    hardBounces: number
+    bounced: number
+    complaints: number
+}
 
 export type StepReach = {
     action: HogFlowAction
@@ -74,6 +81,7 @@ export interface workflowOverviewLogicValues {
     } // appMetricsLogic
     params: Partial<AppMetricsCommonParams> // appMetricsLogic
     originalWorkflow: HogFlow | null // workflowLogic
+    emailHealth: EmailHealth
     failedRuns: number | null
     healthTotals: Partial<Record<HealthMetric, number>> | null
     healthTotalsFailed: boolean
@@ -158,6 +166,9 @@ export interface workflowOverviewLogicActions {
                 | 'email_blocked'
                 | 'email_bounced'
                 | 'email_bounced_hard'
+                | 'email_sandbox_bounced'
+                | 'email_sandbox_complained'
+                | 'email_sandbox_sent'
                 | 'email_sent'
                 | 'push_failed'
                 | 'push_sent'
@@ -172,6 +183,9 @@ export interface workflowOverviewLogicActions {
                 | 'email_blocked'
                 | 'email_bounced'
                 | 'email_bounced_hard'
+                | 'email_sandbox_bounced'
+                | 'email_sandbox_complained'
+                | 'email_sandbox_sent'
                 | 'email_sent'
                 | 'push_failed'
                 | 'push_sent'
@@ -220,6 +234,23 @@ export interface workflowOverviewLogicActions {
 export interface workflowOverviewLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        emailHealth: (
+            healthTotals: Partial<
+                Record<
+                    | 'email_blocked'
+                    | 'email_bounced'
+                    | 'email_bounced_hard'
+                    | 'email_sandbox_bounced'
+                    | 'email_sandbox_complained'
+                    | 'email_sandbox_sent'
+                    | 'email_sent'
+                    | 'push_failed'
+                    | 'push_sent'
+                    | 'triggered',
+                    number
+                >
+            > | null
+        ) => EmailHealth
         orderedSteps: (originalWorkflow: HogFlow | null) => HogFlowAction[]
         stepReach: (
             orderedSteps: HogFlowAction[],
@@ -382,7 +413,7 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
                         appSource: 'hog_flow',
                         appSourceId: values.params.appSourceId ?? props.id,
                         breakdownBy: ['metric_name'],
-                        metricName: [...HEALTH_METRICS, ...SANDBOX_HEALTH_METRICS],
+                        metricName: [...HEALTH_METRICS],
                         dateFrom: dateRange.dateFrom.toISOString(),
                         dateTo: dateRange.dateTo.toISOString(),
                     }
@@ -390,7 +421,7 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
                     await breakpoint(10)
                     const totals: Partial<Record<HealthMetric, number>> = {}
                     Object.values(response).forEach(({ total, breakdowns }) => {
-                        const metricName = (SANDBOX_EMAIL_METRICS[breakdowns[0]] ?? breakdowns[0]) as HealthMetric
+                        const metricName = breakdowns[0] as HealthMetric
                         totals[metricName] = (totals[metricName] ?? 0) + total
                     })
                     return totals
@@ -407,6 +438,16 @@ export const workflowOverviewLogic = kea<workflowOverviewLogicType>([
         ],
     })),
     selectors({
+        emailHealth: [
+            (s) => [s.healthTotals],
+            (totals: Partial<Record<HealthMetric, number>> | null): EmailHealth => ({
+                sent: (totals?.email_sent ?? 0) + (totals?.email_sandbox_sent ?? 0),
+                ownSenderSent: totals?.email_sent ?? 0,
+                hardBounces: totals?.email_bounced_hard ?? 0,
+                bounced: (totals?.email_bounced ?? 0) + (totals?.email_sandbox_bounced ?? 0),
+                complaints: (totals?.email_blocked ?? 0) + (totals?.email_sandbox_complained ?? 0),
+            }),
+        ],
         orderedSteps: [
             (s) => [s.originalWorkflow],
             (workflow: HogFlow | null): HogFlowAction[] =>

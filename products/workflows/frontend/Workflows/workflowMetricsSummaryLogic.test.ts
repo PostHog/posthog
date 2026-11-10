@@ -479,7 +479,7 @@ describe('workflowMetricsSummaryLogic', () => {
             ],
             emailsSent: 20,
             stepTotals: [{ id: 'sandbox-1', sent: 20, delivered: 17, bounced: 2, markedAsSpam: 1, sandboxBlocked: 0 }],
-            health: { email_sent: 20, email_bounced: 2, email_blocked: 1 },
+            health: { sent: 20, ownSenderSent: 0, hardBounces: 0, bounced: 2, complaints: 1 },
         },
         {
             name: 'own and sandbox steps, and a step that moved between senders',
@@ -488,14 +488,16 @@ describe('workflowMetricsSummaryLogic', () => {
                 { instanceId: 'email-1', metricName: 'email_sent', count: 100 },
                 { instanceId: 'email-1', metricName: 'email_sandbox_sent', count: 5 },
                 { instanceId: 'email-1', metricName: 'email_blocked', count: 4 },
+                { instanceId: 'email-1', metricName: 'email_bounced', count: 3 },
+                { instanceId: 'email-1', metricName: 'email_bounced_hard', count: 2 },
                 { instanceId: 'sandbox-1', metricName: 'email_sandbox_sent', count: 20 },
             ],
             emailsSent: 125,
             stepTotals: [
-                { id: 'email-1', sent: 105, delivered: 105, bounced: 0, markedAsSpam: 4, sandboxBlocked: 0 },
+                { id: 'email-1', sent: 105, delivered: 102, bounced: 3, markedAsSpam: 4, sandboxBlocked: 0 },
                 { id: 'sandbox-1', sent: 20, delivered: 20, bounced: 0, markedAsSpam: 0, sandboxBlocked: 0 },
             ],
-            health: { email_sent: 125, email_blocked: 4 },
+            health: { sent: 125, ownSenderSent: 100, hardBounces: 2, bounced: 3, complaints: 4 },
         },
         {
             name: 'a sandbox block that is not a spam complaint',
@@ -506,21 +508,21 @@ describe('workflowMetricsSummaryLogic', () => {
             ],
             emailsSent: 6,
             stepTotals: [{ id: 'sandbox-1', sent: 6, delivered: 6, bounced: 0, markedAsSpam: 0, sandboxBlocked: 3 }],
-            health: { email_sent: 6 },
+            health: { sent: 6, ownSenderSent: 0, hardBounces: 0, bounced: 0, complaints: 0 },
         },
     ])('counts sandbox sender email for $name', async ({ steps, rows, emailsSent, stepTotals, health }) => {
         serveAppMetrics(rows)
         const logic = await mountMetrics(makeWorkflow(steps))
         const overview = workflowOverviewLogic({ id: WORKFLOW_ID, logicKey: LOGIC_KEY })
         overview.mount()
-        await expectLogic(overview).toDispatchActions(['loadHealthTotalsSuccess'])
+        await expectLogic(overview).toFinishAllListeners()
 
         const sentTile = logic.values.getSentSummarySeries()
         expect({
             tile: sentTile?.series.map(({ name, values }) => [name, values]),
             chart: logic.values.workflowSummaryTrends?.series.find((s) => s.name === 'Emails sent')?.values,
             steps: logic.values.emailMetricsRows,
-            overviewHealth: overview.values.healthTotals,
+            overviewHealth: overview.values.emailHealth,
         }).toEqual({
             tile: [['Emails sent', [emailsSent, 0]]],
             chart: [emailsSent, 0],

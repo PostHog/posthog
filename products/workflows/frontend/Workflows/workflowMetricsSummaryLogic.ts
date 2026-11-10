@@ -479,8 +479,6 @@ const EMAIL_METRICS: EmailMetricName[] = [
     'email_sandbox_blocked',
 ]
 
-// A step on the sandbox sender records its sends under its own metric names. A step keeps its id
-// when it moves between senders, so the sandbox names add into the own-sender counts of that step.
 export const SANDBOX_EMAIL_METRICS: Record<string, EmailMetricName> = {
     email_sandbox_sent: 'email_sent',
     email_sandbox_delivered: 'email_delivered',
@@ -489,7 +487,10 @@ export const SANDBOX_EMAIL_METRICS: Record<string, EmailMetricName> = {
     email_sandbox_complained: 'email_blocked',
 }
 
-const EMAIL_SENT_METRIC_NAMES = ['email_sent', 'email_sandbox_sent']
+const EMAIL_SENT_METRIC_NAMES = [
+    'email_sent',
+    ...Object.keys(SANDBOX_EMAIL_METRICS).filter((name) => SANDBOX_EMAIL_METRICS[name] === 'email_sent'),
+]
 
 const PUSH_METRICS: PushMetric[] = ['push_sent', 'push_skipped', 'push_failed', 'push_opened']
 // Every (step, metric) pair of a large workflow; the query's default limit is 100 rows.
@@ -775,8 +776,7 @@ export interface workflowMetricsSummaryLogicMeta {
             messagingChannels: {
                 hasEmail: boolean
                 hasPush: boolean
-            },
-            sentSummaryLabel: string
+            }
         ) => (previousPeriod?: boolean) => AppMetricsTimeSeriesResponse | null
         metricNameBySummaryMetric: (
             appMetricsTrends: AppMetricsTimeSeriesResponse | null
@@ -1106,14 +1106,13 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
         ],
 
         getSentSummarySeries: [
-            (s) => [s.getSingleTrendSeries, s.messagingChannels, s.sentSummaryLabel],
+            (s) => [s.getSingleTrendSeries, s.messagingChannels],
             (
                 getSingleTrendSeries: (name: string, previousPeriod?: boolean) => AppMetricsTimeSeriesResponse | null,
-                messagingChannels: { hasEmail: boolean; hasPush: boolean },
-                sentSummaryLabel: string
+                messagingChannels: { hasEmail: boolean; hasPush: boolean }
             ) =>
                 (previousPeriod: boolean = false): AppMetricsTimeSeriesResponse | null =>
-                    buildSentSummarySeries(getSingleTrendSeries, messagingChannels, sentSummaryLabel, previousPeriod),
+                    buildSentSummarySeries(getSingleTrendSeries, messagingChannels, previousPeriod),
         ],
 
         metricNameBySummaryMetric: [
@@ -1350,7 +1349,6 @@ function subtractSeriesValues(minuend: number[] | undefined, subtrahend: number[
 export function buildSentSummarySeries(
     getSingleTrendSeries: (name: string, previousPeriod?: boolean) => AppMetricsTimeSeriesResponse | null,
     messagingChannels: { hasEmail: boolean; hasPush: boolean },
-    sentSummaryLabel: string,
     previousPeriod?: boolean
 ): AppMetricsTimeSeriesResponse | null {
     const emailSeries = sumSeries(
@@ -1359,7 +1357,7 @@ export function buildSentSummarySeries(
     )
     const pushSeries = withDisplayName(getSingleTrendSeries('push_sent', previousPeriod), 'Push notifications sent')
     if (!messagingChannels.hasEmail || !messagingChannels.hasPush) {
-        return withDisplayName(messagingChannels.hasPush ? pushSeries : emailSeries, sentSummaryLabel)
+        return messagingChannels.hasPush ? pushSeries : emailSeries
     }
     const source = emailSeries ?? pushSeries
     if (!source) {

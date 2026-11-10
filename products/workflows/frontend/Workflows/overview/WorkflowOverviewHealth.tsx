@@ -84,6 +84,7 @@ export function WorkflowOverviewHealth({
     const logic = workflowOverviewLogic({ id, logicKey })
     const {
         healthTotals,
+        emailHealth,
         healthTotalsLoading,
         failedRuns,
         stepTotalsLoading,
@@ -100,23 +101,27 @@ export function WorkflowOverviewHealth({
     const loading = (healthTotalsLoading && !healthTotals) || (stepTotalsLoading && failedRuns === null)
     const totals = healthTotals ?? {}
     const started = totals.triggered ?? 0
-    const emailSent = totals.email_sent ?? 0
+    const emailSent = emailHealth.sent
     const pushSent = totals.push_sent ?? 0
     // Reputation thresholds apply to permanent bounces only, as on the Reputation page.
-    const hardBounces = totals.email_bounced_hard ?? 0
-    const bounce = rateItem(
-        'bounce',
-        hardBounces,
-        emailSent,
-        `${humanFriendlyNumber(hardBounces)} hard, ${humanFriendlyNumber(totals.email_bounced ?? 0)} bounced in total`
-    )
-    // Spam complaints are stored under the email_blocked metric name.
-    const complaintCount = totals.email_blocked ?? 0
+    const bounce =
+        emailHealth.ownSenderSent === 0 && emailSent > 0
+            ? {
+                  value: '-',
+                  tag: null,
+                  detail: `${humanFriendlyNumber(emailHealth.bounced)} bounced in total. The sandbox sender doesn't track hard bounces.`,
+              }
+            : rateItem(
+                  'bounce',
+                  emailHealth.hardBounces,
+                  emailHealth.ownSenderSent,
+                  `${humanFriendlyNumber(emailHealth.hardBounces)} hard, ${humanFriendlyNumber(emailHealth.bounced)} bounced in total`
+              )
     const complaint = rateItem(
         'complaint',
-        complaintCount,
+        emailHealth.complaints,
         emailSent,
-        `${humanFriendlyNumber(complaintCount)} marked as spam`
+        `${humanFriendlyNumber(emailHealth.complaints)} marked as spam`
     )
     const failed = stepTotalsFailed || healthTotalsFailed
 

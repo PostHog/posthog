@@ -142,7 +142,7 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
     const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
 
     const sentFor = (previous?: boolean): AppMetricsTimeSeriesResponse | null =>
-        buildSentSummarySeries(getSingleTrendSeries, messagingChannels, sentSummaryLabel, previous)
+        buildSentSummarySeries(getSingleTrendSeries, messagingChannels, previous)
     const openedFor = (previous?: boolean): AppMetricsTimeSeriesResponse | null =>
         hasEmail && hasPush
             ? byChannel(getSingleTrendSeries('email_opened', previous), getSingleTrendSeries('push_opened', previous), {
