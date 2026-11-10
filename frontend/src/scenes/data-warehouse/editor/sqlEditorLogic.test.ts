@@ -577,7 +577,11 @@ describe('sqlEditorLogic', () => {
             }
         )
 
-        it.each(['SELECT explicit', ''])('prefers explicit SQL over a local draft (%s)', async (query) => {
+        it.each([
+            { param: 'q', query: 'SELECT explicit' },
+            { param: 'q', query: '' },
+            { param: 'open_query', query: '' },
+        ])('prefers explicit SQL over a local draft ($param=$query)', async ({ param, query }) => {
             mountEditor()
             await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), {}, { q: 'SELECT 1' }))
                 .toDispatchActions(['createTab', 'setQueryInput'])
@@ -587,7 +591,13 @@ describe('sqlEditorLogic', () => {
             initKeaTests()
             mountEditor()
 
-            await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), {}, { q: query }))
+            await expectLogic(logic, () =>
+                router.actions.push(
+                    urls.sqlEditor(),
+                    param === 'open_query' ? { open_query: query } : {},
+                    param === 'q' ? { q: query } : {}
+                )
+            )
                 .toDispatchActions(['createTab', 'setQueryInput'])
                 .toFinishAllListeners()
                 .toMatchValues({ queryInput: query })
