@@ -98,7 +98,10 @@ function checkStallBound(card: Card, setting: (name: string) => string): string[
     if (!card.valves.some(({ valve }) => STALLING_VALVES.includes(valve))) {
         return []
     }
-    const milliseconds = (name: string): number => parseFloat(setting(name))
+    const milliseconds = (name: string): number => {
+        const raw = setting(name)
+        return raw.indexOf('.') ? parseFloat(raw) : parseInt(raw)
+    }
     const names = ['CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS', 'CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS']
     const unreadable = names.filter((name) => !(milliseconds(name) >= 0))
     if (unreadable.length > 0) {
