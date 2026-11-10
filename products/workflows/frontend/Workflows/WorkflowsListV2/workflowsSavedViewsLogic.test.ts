@@ -837,17 +837,34 @@ describe('workflowsSavedViewsLogic', () => {
         expect(logic.values.isModified).toBe(false)
     })
 
+    const viewOnlyLink = { view: VIEW_ID }
+    const linkWithAdditions = { view: VIEW_ID, q: 'status:active trigger:event', added: 'trigger:event' }
+
     it.each([
-        ['a search', { filters: [], text: 'renewal' }, { filters: savedView.state.filters, text: 'renewal' }, []],
         [
-            'a filter',
+            'a search on a view-only link',
+            viewOnlyLink,
+            { filters: [], text: 'renewal' },
+            { filters: savedView.state.filters, text: 'renewal' },
+            [],
+        ],
+        [
+            'a filter on a view-only link',
+            viewOnlyLink,
             { filters: [eventTrigger], text: '' },
             { filters: [status('active'), eventTrigger], text: '' },
             [eventTrigger],
         ],
+        [
+            'a filter on a link that carries additions',
+            linkWithAdditions,
+            { filters: [status('active'), eventTrigger, adaOwns], text: '' },
+            { filters: [status('active'), eventTrigger, adaOwns], text: '' },
+            [eventTrigger, adaOwns],
+        ],
     ])(
-        'keeps the view filters on a view-only link when %s is entered before the views load',
-        async (_, edit, expected, added) => {
+        'keeps the view filters and the additions when %s is entered before the views load',
+        async (_, link, edit, expected, added) => {
             let release: () => void = () => {}
             const pending = new Promise<void>((resolve) => {
                 release = resolve
@@ -860,7 +877,7 @@ describe('workflowsSavedViewsLogic', () => {
                     },
                 },
             })
-            router.actions.push(urls.workflows(), { view: VIEW_ID })
+            router.actions.push(urls.workflows(), link)
             logic = workflowsSavedViewsLogic()
             logic.mount()
 

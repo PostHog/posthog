@@ -579,6 +579,15 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             }
         }
         const pillKey = (filter: FacetFilter): string => facetFilterKey(filter, values.facets)
+        const withFilters = (filters: FacetFilter[], more: FacetFilter[]): FacetFilter[] => {
+            const keys = new Set(filters.map(pillKey))
+            return [...filters, ...more.filter((filter) => !keys.has(pillKey(filter)))]
+        }
+        const filtersAddedSinceViewsStartedLoading = (): FacetFilter[] => {
+            const before: FacetSearchValue | undefined = cache.valueBeforeViewsLoaded
+            cache.valueBeforeViewsLoaded = undefined
+            return before ? addedFiltersAfterEdit(before.filters, [], values.value.filters, values.facets) : []
+        }
         const additionTrackers = (): Set<Set<string>> => (cache.additionTrackers ??= new Set<Set<string>>())
         const trackAdditions = (): Set<string> => {
             const added = new Set<string>()
@@ -725,6 +734,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             loadSavedViewsSuccess: () => actions.syncViewFromUrl(),
             setValue: ({ value, fromUrl }, _, __, previousState) => {
                 if (!fromUrl) {
+                    if (values.enabled && !values.available) {
+                        cache.valueBeforeViewsLoaded ??= workflowsListV2Logic.selectors.value(previousState)
+                    }
                     if (values.available && !cache.applyingView && !cache.syncingUrl) {
                         const previous = workflowsListV2Logic.selectors.value(previousState)
                         actions.setAddedFilters(
@@ -834,6 +846,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 const view = values.views.find((candidate) => candidate.id === id)
                 const viewOnlyLink: { id: string; baseline: FacetSearchValue } | undefined = cache.viewOnlyLink
                 cache.viewOnlyLink = undefined
+                const addedWhileViewsLoaded = filtersAddedSinceViewsStartedLoading()
                 if (view && viewOnlyLink?.id === id) {
                     const edited = values.value
                     const baselineKeys = new Set(viewOnlyLink.baseline.filters.map(pillKey))
@@ -854,12 +867,13 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 cache.syncingUrl = true
                 actions.setActiveViewId(view?.id ?? 'all')
                 if (explicit) {
+                    const linkFilters = raw.has('q')
+                        ? parseFacetQuery(raw.get('q') ?? '', values.facets)
+                        : view
+                          ? workflowViewValue(view.state).filters
+                          : []
                     const value: FacetSearchValue = {
-                        filters: raw.has('q')
-                            ? parseFacetQuery(raw.get('q') ?? '', values.facets)
-                            : view
-                              ? workflowViewValue(view.state).filters
-                              : [],
+                        filters: withFilters(linkFilters, addedWhileViewsLoaded),
                         text: raw.has('text') ? (raw.get('text') ?? '') : (view?.state.text ?? ''),
                     }
                     actions.setValue(value)
@@ -868,8 +882,11 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     const effectiveKeys = new Set(value.filters.map(pillKey))
                     actions.setAddedFilters(
                         raw.has('added')
-                            ? parseFacetQuery(raw.get('added') ?? '', values.facets).filter((filter) =>
-                                  effectiveKeys.has(pillKey(filter))
+                            ? withFilters(
+                                  parseFacetQuery(raw.get('added') ?? '', values.facets).filter((filter) =>
+                                      effectiveKeys.has(pillKey(filter))
+                                  ),
+                                  addedWhileViewsLoaded
                               )
                             : addedFiltersAfterEdit(
                                   view ? workflowViewValue(view.state).filters : [],
