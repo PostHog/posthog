@@ -9,7 +9,6 @@ import {
   EmptyTitle,
   Kbd,
 } from "@posthog/quill";
-import { useTriageFocusEnabled } from "@posthog/ui/features/feature-flags/useTriageFocusEnabled";
 import { useInboxSectionedReports } from "@posthog/ui/features/inbox/hooks/useInboxSectionedReports";
 import { useInboxTriageHotkey } from "@posthog/ui/features/inbox/hooks/useInboxTriageHotkey";
 import { useSelfDrivingSetupStatus } from "@posthog/ui/features/inbox/hooks/useSelfDrivingSetupStatus";
@@ -29,14 +28,12 @@ import type { ReactElement } from "react";
  */
 export function InboxHomePane(): ReactElement {
   const inbox = useInboxSectionedReports({ autoPage: false });
-  const triageEnabled = useTriageFocusEnabled();
   const setupStatus = useSelfDrivingSetupStatus();
   const hasActiveFilters = useInboxSignalsFilterStore(
     hasActiveReportsListFilters,
   );
 
   useInboxTriageHotkey({
-    enabled: triageEnabled,
     triageReportCount: inbox.triageReports.length,
   });
 
@@ -45,7 +42,7 @@ export function InboxHomePane(): ReactElement {
     !hasActiveFilters &&
     !setupStatus.isLoading &&
     !setupStatus.isConfigured;
-  const canTriage = triageEnabled && inbox.triageReports.length > 0;
+  const canTriage = inbox.triageReports.length > 0;
 
   return (
     <div className="flex h-full items-center justify-center">
