@@ -55,7 +55,6 @@ export function PlayerFrameAmbient(): JSX.Element | null {
         let animationFrame = 0
         let rebuildFrame = 0
         let lastPaintTime = 0
-        // The blend outlives the canvas, so a canvas mounted by turning the setting back on starts empty.
         let canvasSized = false
         const markDirty = (): void => {
             dirty = true
@@ -195,7 +194,6 @@ export function PlayerFrameAmbient(): JSX.Element | null {
         return null
     }
 
-    // Hidden rather than unmounted while the window is masked, so the colors are still there when it lifts.
     return (
         <div className="PlayerFrame__ambient" aria-hidden>
             <canvas

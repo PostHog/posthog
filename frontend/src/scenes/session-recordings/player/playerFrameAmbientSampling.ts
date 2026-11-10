@@ -18,7 +18,6 @@ const MAX_DECODED_PIXELS = 4096 * 4096
 const MAX_STACK_DEPTH = 32
 const FALLBACK_COLOR: Rgba = [0, 0, 0, 255]
 const BLEND_TIME_CONSTANT_MS = 1500
-// Under a 40px blur a gap of two 8-bit steps is invisible, and waiting for less keeps repainting for seconds.
 const BLEND_SETTLE_DELTA = 2
 
 export type Rgba = [number, number, number, number]
@@ -98,7 +97,6 @@ export class AmbientFrameSampler {
                 pixels.set(this.colorAt(doc, view, x, y) ?? fallback, (row * columns + column) * 4)
             }
         }
-        // Cleared here so the sampler holds no recorded nodes between samples.
         this.canvasesThisSample.clear()
         this.elementColorsThisSample.clear()
         return { columns, rows, pixels }
