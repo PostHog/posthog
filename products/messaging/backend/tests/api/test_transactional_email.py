@@ -1,6 +1,5 @@
 import re
 import json
-import time
 import base64
 import threading
 from collections.abc import Callable, Iterator
@@ -33,6 +32,7 @@ from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 from posthog.security.outbound_proxy import internal_requests
+from posthog.test.waiting import wait_until
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -2513,17 +2513,20 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             connection.close()
 
     def _send_waits_on_the_insert(self) -> bool:
-        for _ in range(600):
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT pg_stat_clear_snapshot()")
-                cursor.execute(
-                    "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
-                    "AND wait_event_type = 'Lock' AND query ILIKE 'INSERT INTO \"posthog_messagecategory\"%%'"
-                )
-                if cursor.fetchone()[0]:
-                    return True
-            time.sleep(0.05)
-        return False
+        try:
+            wait_until(self._send_is_waiting_on_the_insert, timeout=30, interval=0.05)
+        except AssertionError:
+            return False
+        return True
+
+    def _send_is_waiting_on_the_insert(self) -> bool:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_stat_clear_snapshot()")
+            cursor.execute(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+                "AND wait_event_type = 'Lock' AND query ILIKE 'INSERT INTO \"posthog_messagecategory\"%%'"
+            )
+            return bool(cursor.fetchone()[0])
 
     def test_a_key_the_app_creates_while_the_send_inserts_it_is_the_one_used(self, cdp_post, _flag, _capture):
         cdp = CdpApi()
