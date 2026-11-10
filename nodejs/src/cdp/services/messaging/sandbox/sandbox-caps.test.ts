@@ -7,7 +7,7 @@ import { RedisClient, RedisClientPipeline, RedisV2, createRedisV2PoolFromConfig 
 import { createRedisFromConfig } from '~/common/utils/db/redis'
 
 import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
-import { claimSandboxCaps } from './sandbox-caps'
+import { claimSandboxCaps, markSandboxCapsClaimSent } from './sandbox-caps'
 
 describe('claimSandboxCaps', () => {
     let client: Redis
@@ -110,6 +110,16 @@ describe('claimSandboxCaps', () => {
         ).toEqual({ ok: false, reason: 'cap_storage_unavailable' })
         expect(await claimSandboxCaps(limiter, caps, sendAttempt)).toEqual({ ok: true })
         expect(await claim(caps, 'member@example.com')).toEqual({ ok: true })
+        expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
+    })
+
+    it('charges a replayed claim again once its send was marked sent', async () => {
+        const caps = { team: 5, recipient: 2 }
+        const sendAttempt = { organizationId, teamId, storedAddress: 'member@example.com', claimId: randomUUID() }
+        await claimSandboxCaps(limiter, caps, sendAttempt)
+        expect(await markSandboxCapsClaimSent(limiter, sendAttempt)).toBe(true)
+
+        expect(await claimSandboxCaps(limiter, caps, sendAttempt)).toEqual({ ok: true })
         expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
     })
 

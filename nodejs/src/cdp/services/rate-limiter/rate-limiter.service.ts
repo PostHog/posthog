@@ -145,7 +145,7 @@ local claimTtlSeconds = tonumber(ARGV[#ARGV])
 if claimTtlSeconds == nil or claimTtlSeconds < 1 or claimTtlSeconds > 2147483647 or claimTtlSeconds % 1 ~= 0 then
     return redis.error_reply('invalid ttl for ' .. claimKey)
 end
-if redis.call('exists', claimKey) == 1 then
+if redis.call('get', claimKey) == '1' then
     return 1
 end
 
@@ -251,6 +251,22 @@ export class RateLimiterService {
     ): Promise<{ granted: boolean; retryAfterMs: number | null; reserved: boolean }> {
         const { granted, retryAfterMs, reserved } = await this.evalClaim(req, reserveOnDenyMs, true)
         return { granted: granted >= req.requested, retryAfterMs, reserved }
+    }
+
+    public async markClaimSpent(claimKey: string): Promise<boolean> {
+        try {
+            const result = await this.valkey.useClient(
+                { name: `rate-limiter:${this.config.name}:markClaimSpent`, timeout: 1000 },
+                (client) => client.set(claimKey, 'spent', 'XX', 'KEEPTTL')
+            )
+            return result === 'OK'
+        } catch (err) {
+            logger.warn('🪙', `RateLimiterService(${this.config.name}) mark claim spent threw`, {
+                key: claimKey,
+                error: String(err),
+            })
+            return false
+        }
     }
 
     public async claimAllOrNothingAcross(
