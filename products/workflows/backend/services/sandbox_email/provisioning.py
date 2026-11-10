@@ -6,8 +6,9 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 
-from products.workflows.backend.facade.contracts import SandboxSenderStatus
+from products.workflows.backend.facade.contracts import SandboxSenderStatus, SandboxSenderUnavailable
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
+from products.workflows.backend.services.sandbox_email.validation import ADOPTION_UNAVAILABLE
 
 SANDBOX_SENDER_ADOPTION_FLAG = "workflows-sandbox-sender"
 # Every team's row carries this one ID, so the unique (team, kind, integration_id) key allows one row per team.
@@ -49,3 +50,20 @@ def sandbox_sender_status(team: Team, user: User | None = None) -> SandboxSender
         organization_blocked=organization_blocked(team),
         adoption_enabled=sandbox_adoption_enabled(team, user),
     )
+
+
+ORGANIZATION_BLOCKED = "This organization can't use the sandbox sender. Verify a domain to send email from workflows."
+
+
+def set_up_sandbox_sender(team: Team, user: User) -> IntegrationRecord:
+    """The team's sandbox sender, set up on the first call. Raise when the team may not use it."""
+    status = sandbox_sender_status(team, user)
+    if not status.adoption_enabled:
+        raise SandboxSenderUnavailable(ADOPTION_UNAVAILABLE)
+    if status.organization_blocked:
+        raise SandboxSenderUnavailable(ORGANIZATION_BLOCKED)
+    return provision_sandbox_sender(team, user)
+
+
+def has_verified_own_sender(team_id: int) -> bool:
+    return any(sender.config.get("verified") for sender in IntegrationManager.email.credentials.list(team_id))

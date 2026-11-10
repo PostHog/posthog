@@ -1,25 +1,45 @@
 """The sandbox sender: PostHog's shared email sender for teams that haven't verified a domain yet."""
 
+from products.workflows.backend.facade.contracts import SandboxSenderUnavailable
 from products.workflows.backend.models.hog_flow.hog_flow import SANDBOX_EMAIL_ACTION_TYPE
+from products.workflows.backend.services.sandbox_email.conversion import (
+    can_default_to_sandbox,
+    own_only_settings,
+    to_own_email_action,
+    to_sandbox_action,
+)
 from products.workflows.backend.services.sandbox_email.provisioning import (
     SANDBOX_SENDER_ADOPTION_FLAG,
     SANDBOX_SENDER_INTEGRATION_ID,
+    has_verified_own_sender,
     provision_sandbox_sender,
     sandbox_adoption_enabled,
     sandbox_sender_status,
+    set_up_sandbox_sender,
 )
 from products.workflows.backend.services.sandbox_email.validation import (
     ADOPTION_UNAVAILABLE,
+    INVALID_ACTION_ID,
+    valid_sandbox_action_id,
     validate_sandbox_email_action,
 )
 
 __all__ = [
     "ADOPTION_UNAVAILABLE",
+    "INVALID_ACTION_ID",
     "SANDBOX_EMAIL_ACTION_TYPE",
     "SANDBOX_SENDER_ADOPTION_FLAG",
     "SANDBOX_SENDER_INTEGRATION_ID",
+    "SandboxSenderUnavailable",
+    "can_default_to_sandbox",
+    "has_verified_own_sender",
+    "own_only_settings",
     "provision_sandbox_sender",
     "sandbox_adoption_enabled",
     "sandbox_sender_status",
+    "set_up_sandbox_sender",
+    "to_own_email_action",
+    "to_sandbox_action",
+    "valid_sandbox_action_id",
     "validate_sandbox_email_action",
 ]

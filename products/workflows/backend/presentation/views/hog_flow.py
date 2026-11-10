@@ -268,8 +268,17 @@ from products.workflows.backend.facade.proposals import (
 )
 from products.workflows.backend.facade.revisions import get_revision, list_revisions, restore_revision
 from products.workflows.backend.facade.sandbox_email import (
+    INVALID_ACTION_ID,
     SANDBOX_EMAIL_ACTION_TYPE,
+    SandboxSenderUnavailable,
+    can_default_to_sandbox,
+    has_verified_own_sender,
+    own_only_settings,
     sandbox_adoption_enabled,
+    set_up_sandbox_sender,
+    to_own_email_action,
+    to_sandbox_action,
+    valid_sandbox_action_id,
     validate_sandbox_email_action,
 )
 from products.workflows.backend.facade.schedules import (
@@ -1053,6 +1062,47 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
         value = item.get("value") if isinstance(item, dict) else None
         if not isinstance(value, list) or not value:
             raise serializers.ValidationError({"inputs": {schema["key"]: {"input": "This field is required."}}})
+
+
+def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, context: dict) -> Any:
+    actions = data.get("actions") if isinstance(data, dict) else None
+    get_team = context.get("get_team")
+    user = getattr(context.get("request"), "user", None)
+    if (
+        not isinstance(actions, list)
+        or context.get("event_source") in (None, EventSource.WEB)
+        or get_team is None
+        or not isinstance(user, User)
+        or (instance.origin_product if instance else data.get("origin_product"))
+    ):
+        return data
+    stored_ids = (
+        {
+            action.get("id")
+            for action in [*(instance.actions or []), *((instance.draft or {}).get("actions") or [])]
+            if isinstance(action, dict)
+        }
+        if instance
+        else set()
+    )
+    new_steps = [
+        index
+        for index, action in enumerate(actions)
+        if isinstance(action, dict) and action.get("id") not in stored_ids and can_default_to_sandbox(action)
+    ]
+    if not new_steps:
+        return data
+    team = get_team()
+    if has_verified_own_sender(team.id):
+        return data
+    try:
+        set_up_sandbox_sender(team, user)
+    except SandboxSenderUnavailable:
+        return data
+    converted = list(actions)
+    for index in new_steps:
+        converted[index] = to_sandbox_action(actions[index])
+    return {**data, "actions": converted}
 
 
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
@@ -3728,7 +3778,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
             for action in (actions or [])
         )
-        return super().to_internal_value(data)
+        return super().to_internal_value(_with_new_email_steps_on_the_sandbox_sender(data, instance, self.context))
 
     class Meta:
         fields = [
@@ -4178,8 +4228,28 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
             "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, "
             "preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, "
             "where email and name are optional templated overrides resolved per invocation; the address must "
-            "resolve to the selected sender's verified domain or the send fails. The design is edited via "
+            "resolve to the selected sender's verified domain or the send fails. A sandbox step (type "
+            "email_sandbox) takes only subject, preheader, text and to. The design is edited via "
             "operations, and html is always re-rendered from it."
+        ),
+    )
+    sender = serializers.ChoiceField(
+        choices=["sandbox", "own"],
+        required=False,
+        help_text=(
+            "Switch the step's sender. 'sandbox' moves it to PostHog's sandbox sender, which sends only to "
+            "verified members of the organization and needs no verified domain; it is set up for the project "
+            "on first use. 'own' moves a sandbox step back to one of the project's verified senders, named in "
+            "email_patch.from.integrationId. The step keeps its id, recipient, content and category."
+        ),
+    )
+    drop_own_sender_settings = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "With sender 'sandbox': drop the settings the sandbox sender can't keep (custom from address or "
+            "name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch "
+            "is refused and the error lists them, so confirm with the user before setting it."
         ),
     )
 
@@ -4195,20 +4265,30 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
         return value
 
     def validate(self, data: Any) -> Any:
-        if not data.get("operations") and not data.get("email_patch"):
-            raise serializers.ValidationError("Provide operations and/or email_patch.")
+        if not data.get("operations") and not data.get("email_patch") and not data.get("sender"):
+            raise serializers.ValidationError("Provide operations, email_patch and/or sender.")
+        sender_id = _patched_sender_id(data.get("email_patch"))
+        if data.get("sender") == "own" and (not isinstance(sender_id, int) or isinstance(sender_id, bool)):
+            raise serializers.ValidationError(
+                {"sender": "Name the verified sender to switch to in email_patch.from.integrationId."}
+            )
         return data
+
+
+def _patched_sender_id(email_patch: Any) -> Any:
+    sender = email_patch.get("from") if isinstance(email_patch, dict) else None
+    return sender.get("integrationId") if isinstance(sender, dict) else None
 
 
 def _locate_action_email_value(actions: list[dict], action_id: str) -> dict:
     target = next((a for a in actions if isinstance(a, dict) and a.get("id") == action_id), None)
     if target is None:
         raise exceptions.ValidationError({"action_id": f"Action '{action_id}' not found in this workflow."})
-    if target.get("type") != "function_email":
+    if target.get("type") not in ("function_email", SANDBOX_EMAIL_ACTION_TYPE):
         raise exceptions.ValidationError(
             {
                 "action_id": f"Action '{action_id}' is a '{target.get('type')}' step. "
-                "Only function_email steps carry an email."
+                "Only function_email and email_sandbox steps carry an email."
             }
         )
     inputs = (target.get("config") or {}).get("inputs")
@@ -4266,12 +4346,34 @@ def _render_action_email_operations(
     return _RenderedActionEmailDesign(base_design=design, design=new_design, html=html)
 
 
+_SANDBOX_EMAIL_PATCH_KEYS = frozenset({"subject", "preheader", "text", "to"})
+
+
 def _apply_action_email_edit(
-    actions: list[dict], action_id: str, email_patch: dict, rendered: Optional[_RenderedActionEmailDesign]
+    actions: list[dict],
+    action_id: str,
+    email_patch: dict,
+    rendered: Optional[_RenderedActionEmailDesign],
+    *,
+    sender: Optional[str] = None,
+    drop_own_sender_settings: bool = False,
 ) -> list[dict]:
     # Twin of apply_graph_operations for one email step: returns a new actions list with the step's
     # email value patched (the pre-rendered design installed, then the field merge).
     new_actions = deepcopy(actions)
+    _locate_action_email_value(new_actions, action_id)
+    index = next(i for i, a in enumerate(new_actions) if isinstance(a, dict) and a.get("id") == action_id)
+    if sender == "own" and new_actions[index]["type"] == SANDBOX_EMAIL_ACTION_TYPE:
+        new_actions[index] = to_own_email_action(new_actions[index], _patched_sender_id(email_patch))
+    elif new_actions[index]["type"] == SANDBOX_EMAIL_ACTION_TYPE:
+        own_only = sorted(set(email_patch) - _SANDBOX_EMAIL_PATCH_KEYS)
+        if own_only:
+            raise exceptions.ValidationError(
+                {
+                    "email_patch": f"A sandbox email step can't set {', '.join(own_only)}. To send from one of "
+                    "the project's own senders, set sender: 'own' with email_patch.from.integrationId."
+                }
+            )
     value = _locate_action_email_value(new_actions, action_id)
 
     if rendered is not None:
@@ -4286,7 +4388,29 @@ def _apply_action_email_edit(
     if email_patch:
         deep_merge(value, email_patch)
 
+    if sender == "sandbox" and new_actions[index]["type"] == "function_email":
+        new_actions[index] = _switched_to_sandbox(new_actions[index], drop_own_sender_settings)
+
     return new_actions
+
+
+def _switched_to_sandbox(action: dict, drop_own_sender_settings: bool) -> dict:
+    if not valid_sandbox_action_id(action.get("id")):
+        raise exceptions.ValidationError(
+            {
+                "sender": f"{INVALID_ACTION_ID} Add a new email step with such an ID on the sandbox sender, "
+                "then remove this one."
+            }
+        )
+    dropped = own_only_settings(action)
+    if dropped and not drop_own_sender_settings:
+        raise exceptions.ValidationError(
+            {
+                "sender": f"The sandbox sender can't keep {', '.join(dropped)}. Clear them first, or send "
+                "drop_own_sender_settings: true to drop them."
+            }
+        )
+    return to_sandbox_action(action)
 
 
 class HogFlowInvocationSerializer(serializers.Serializer):
@@ -5930,7 +6054,11 @@ class HogFlowViewSet(
         op_serializer.is_valid(raise_exception=True)
         operations = op_serializer.validated_data.get("operations") or []
         email_patch = op_serializer.validated_data.get("email_patch") or {}
+        sender = op_serializer.validated_data.get("sender")
+        drop_own_sender_settings = op_serializer.validated_data["drop_own_sender_settings"]
         action_id = kwargs["action_id"]
+        if sender == "sandbox":
+            self._set_up_sandbox_sender(request)
 
         # Authorize + team-scope via the normal lookup; the service re-reads FOR UPDATE inside the transaction.
         unlocked = self._edit_state()
@@ -5949,7 +6077,14 @@ class HogFlowViewSet(
             rendered = _render_action_email_operations(render_base, action_id, operations)
 
         def edit(state: WorkflowEditState, base_actions: list[dict], base_edges: list[dict]) -> dict:
-            new_actions = _apply_action_email_edit(base_actions, action_id, email_patch, rendered)
+            new_actions = _apply_action_email_edit(
+                base_actions,
+                action_id,
+                email_patch,
+                rendered,
+                sender=sender,
+                drop_own_sender_settings=drop_own_sender_settings,
+            )
             return self._validate_locked_content(state, {"actions": new_actions}, enforce_graph_structure=True)
 
         # Same staleness and draft contract as /graph, but no action-redirect refresh or timing
@@ -5977,10 +6112,19 @@ class HogFlowViewSet(
                 "operations_count": len(operations),
                 "merged_fields": sorted(email_patch.keys()),
                 "routed_to_draft": result.routed_to_draft,
+                "sender": sender,
             },
         )
 
         return Response(self.get_serializer(instance).data)
+
+    def _set_up_sandbox_sender(self, request: Request) -> None:
+        if not isinstance(request.user, User):
+            raise exceptions.ValidationError({"sender": "Switching to the sandbox sender needs a signed-in user."})
+        try:
+            set_up_sandbox_sender(self.team, request.user)
+        except SandboxSenderUnavailable as error:
+            raise exceptions.ValidationError({"sender": str(error)})
 
     def _require_audience_confirm_token(self, request: Request, hog_flow: WorkflowRef) -> None:
         """Only meaningful for triggers that fan out to a person audience; see _trigger_has_audience."""

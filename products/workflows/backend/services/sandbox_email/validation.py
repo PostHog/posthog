@@ -25,6 +25,11 @@ _CATEGORY_TYPES = ("marketing", "transactional")
 _TEMPLATING = ("hog", "liquid")
 
 ADOPTION_UNAVAILABLE = "The sandbox sender isn't available for this organization. Choose a verified email sender."
+INVALID_ACTION_ID = "A sandbox email step ID can only use letters, numbers, '-' and '_', up to 128 characters."
+
+
+def valid_sandbox_action_id(action_id: Any) -> bool:
+    return isinstance(action_id, str) and bool(_ACTION_ID.match(action_id))
 
 
 def validate_sandbox_email_action(
@@ -42,10 +47,8 @@ def validate_sandbox_email_action(
     a warehouse table triggers the workflow, so the email may read the synced row as `record`.
     """
     action_id = action.get("id")
-    if not isinstance(action_id, str) or not _ACTION_ID.match(action_id):
-        raise ValidationError(
-            {"id": "A sandbox email step ID can only use letters, numbers, '-' and '_', up to 128 characters."}
-        )
+    if not valid_sandbox_action_id(action_id):
+        raise ValidationError({"id": INVALID_ACTION_ID})
     if action_id not in stored_sandbox_action_ids and not adoption_enabled:
         raise ValidationError({"type": ADOPTION_UNAVAILABLE})
 
