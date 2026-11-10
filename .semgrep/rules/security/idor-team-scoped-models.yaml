@@ -311,6 +311,7 @@ rules:
                               |MessageTemplate
                               |Metric
                               |MetricDailyQueryCount
+                              |MetricRecordingRule
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
