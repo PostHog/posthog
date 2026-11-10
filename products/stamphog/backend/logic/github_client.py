@@ -1344,10 +1344,9 @@ class StamphogGitHubClient:
     def get_default_branch_blob_shas(self, repo: str, paths: list[str]) -> dict[str, str | None]:
         """The blob sha of each of ``paths`` on the default branch now, None for a path it lacks.
 
-        One request, one alias per path. The paths come from a check run, so they travel as GraphQL
-        variables and never as query text. Each one is read as `object(expression: "HEAD:<path>")`,
-        which answers null for a missing path. `Commit.file` answers that with a NOT_FOUND error,
-        and one such error would fail the whole request.
+        The paths come from a check run, so they travel as GraphQL variables and never as query
+        text. `object(expression:)` answers null for a missing path. `Commit.file` answers it with
+        a NOT_FOUND error, which would fail the whole request.
         """
         declarations = " ".join(f"$p{index}: String!" for index in range(len(paths)))
         aliases = " ".join(f"p{index}: object(expression: $p{index}) {{ oid }}" for index in range(len(paths)))
