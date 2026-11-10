@@ -621,6 +621,11 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
+ */
+export type LogsAlertConfigurationApiLabels = { [key: string]: string }
+
 export interface LogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
     readonly id: string
@@ -708,7 +713,9 @@ export interface LogsAlertConfigurationApi {
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
     /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
     grouping?: LogsAlertGroupingApi
-    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
+    labels?: LogsAlertConfigurationApiLabels
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
     readonly platform_owned: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
@@ -733,6 +740,11 @@ export interface PaginatedLogsAlertConfigurationListApi {
     previous?: string | null
     results: LogsAlertConfigurationApi[]
 }
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
+ */
+export type LogsAlertConfigurationDetailApiLabels = { [key: string]: string }
 
 /**
  * * `critical` - critical
@@ -884,7 +896,9 @@ export interface LogsAlertConfigurationDetailApi {
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
     /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
     grouping?: LogsAlertGroupingApi
-    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
+    labels?: LogsAlertConfigurationDetailApiLabels
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
     readonly platform_owned: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
@@ -902,6 +916,11 @@ export interface LogsAlertConfigurationDetailApi {
     /** This alert's notification destinations, one entry per destination. Each carries the HogFunction IDs that delete it as a group, and its configuration with credential-bearing URL components removed. */
     readonly destinations: readonly LogsAlertDestinationConfigApi[]
 }
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
+ */
+export type PatchedLogsAlertConfigurationApiLabels = { [key: string]: string }
 
 export interface PatchedLogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
@@ -990,7 +1009,9 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly destination_types?: readonly LogsAlertDestinationTypeEnumApi[]
     /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
     grouping?: LogsAlertGroupingApi
-    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
+    labels?: PatchedLogsAlertConfigurationApiLabels
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, or a grouping other than single. */
     readonly platform_owned?: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.

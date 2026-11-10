@@ -128,6 +128,8 @@ services:
             file: docker-compose.base.yml
             service: worker
         restart: unless-stopped
+        # Hobby runs one worker, so the scheduler runs inside it and shares its memory.
+        command: ./bin/docker-worker-celery --with-embedded-scheduler
         logging: *default-logging
         environment:
             # Each Celery pool process loads all of Django. Celery starts one per CPU by default,

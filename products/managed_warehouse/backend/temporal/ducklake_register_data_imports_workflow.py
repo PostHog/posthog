@@ -573,29 +573,43 @@ def _copy_and_register_through_trino(
         job_id=inputs.job_id,
         prepared_queryable_folder=metadata.prepared_queryable_folder,
     )
-    attempt_uri = f"{generation_uri}/{attempt_token}"
+    landing_uri = f"{generation_uri}/{attempt_token}/{uuid.uuid4().hex[:16]}"
     organization_id = str(_get_org_id_for_team(inputs.team_id))
 
+    add_files_started = False
+
+    def mark_add_files_started() -> None:
+        nonlocal add_files_started
+        add_files_started = True
+
     with heartbeater:
-        with _stage_timer(stage="copy", team_id=inputs.team_id, schema_id=schema_id):
-            landing_paths, copied_bytes = _copy_prepared_parquet_files(metadata.prepared_source_uri, attempt_uri)
-        cancel_delay = _duckgres_cancel_delay(activity_started_monotonic)
-        with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=schema_id):
-            result = register_prepared_files_through_trino(
-                organization_id=organization_id,
-                team_id=inputs.team_id,
-                schema_id=uuid.UUID(schema_id),
-                ducklake_schema=metadata.ducklake_schema_name,
-                ducklake_table=metadata.ducklake_table_name,
-                shadow_name=registration_names.shadow_name,
-                attempt_token=attempt_token,
-                landing_paths=landing_paths,
-                hive_partition_columns=_hive_partition_columns(attempt_uri, landing_paths),
-                filesystem=get_s3_client(),
-                should_publish=lambda: _should_publish_prepared_generation(inputs),
-                deadline_monotonic=None if cancel_delay is None else time.monotonic() + cancel_delay,
-                canary=metadata.trino_canary,
-            )
+        try:
+            with _stage_timer(stage="copy", team_id=inputs.team_id, schema_id=schema_id):
+                landing_paths, copied_bytes = _copy_prepared_parquet_files(metadata.prepared_source_uri, landing_uri)
+            cancel_delay = _duckgres_cancel_delay(activity_started_monotonic)
+            with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=schema_id):
+                result = register_prepared_files_through_trino(
+                    organization_id=organization_id,
+                    team_id=inputs.team_id,
+                    schema_id=uuid.UUID(schema_id),
+                    ducklake_schema=metadata.ducklake_schema_name,
+                    ducklake_table=metadata.ducklake_table_name,
+                    shadow_name=registration_names.shadow_name,
+                    attempt_token=attempt_token,
+                    landing_paths=landing_paths,
+                    hive_partition_columns=_hive_partition_columns(landing_uri, landing_paths),
+                    filesystem=get_s3_client(),
+                    should_publish=lambda: _should_publish_prepared_generation(inputs),
+                    before_add_files=mark_add_files_started,
+                    deadline_monotonic=None if cancel_delay is None else time.monotonic() + cancel_delay,
+                    canary=metadata.trino_canary,
+                )
+        except Exception:
+            # No table can reference this execution's files before it adds them, and no other execution writes
+            # into this folder.
+            if not add_files_started:
+                _delete_trino_landing_files(landing_uri, logger=logger)
+            raise
         if not result.published:
             _record_stale_generation_skip(team_id=inputs.team_id, schema_id=schema_id, logger=logger)
             return False
@@ -611,9 +625,39 @@ def _copy_and_register_through_trino(
             "Copied, verified, and registered prepared Parquet files in DuckLake through Trino",
             ducklake_table=f"{metadata.ducklake_schema_name}.{metadata.ducklake_table_name}",
             file_count=len(landing_paths),
-            landing_uri=attempt_uri,
+            landing_uri=landing_uri,
         )
         return True
+
+
+def _trino_landing_files(landing_uri: str) -> list[str]:
+    s3 = get_s3_client()
+    # The trailing slash keeps the listing inside this execution's folder.
+    prefix = landing_uri.removeprefix("s3://").rstrip("/") + "/"
+    s3.invalidate_cache(prefix)
+    return list(s3.find(prefix))
+
+
+def _delete_trino_landing_files(landing_uri: str, *, logger: typing.Any) -> None:
+    try:
+        paths = _trino_landing_files(landing_uri)
+        if paths:
+            get_s3_client().rm(paths)
+        remaining = _trino_landing_files(landing_uri)
+        if remaining:
+            raise RuntimeError(f"{len(remaining)} files remain after the delete")
+        logger.info(
+            "Deleted the files of a Trino registration attempt that added none of them",
+            landing_uri=landing_uri,
+            file_count=len(paths),
+        )
+    except Exception as error:
+        logger.warning(
+            "Failed to delete the files of a Trino registration attempt that added none of them",
+            landing_uri=landing_uri,
+            error=str(error),
+        )
+        capture_exception(error)
 
 
 def _is_valid_queryable_folder(queryable_folder: str) -> bool:
@@ -700,6 +744,11 @@ def _copy_prepared_parquet_files(source_uri: str, landing_uri: str) -> tuple[lis
     source_prefix = source_uri.removeprefix("s3://").rstrip("/")
     landing_prefix = landing_uri.removeprefix("s3://").rstrip("/")
     s3 = get_s3_client()
+    # The client is cached per thread for the life of the worker, and its listings never expire.
+    # s3fs find() never replaces a listing that is already cached, and copy() reads the details of
+    # each source file from that listing. A rotating prepared folder that was rewritten with new
+    # file names would fail with FileNotFoundError, so start from an empty cache.
+    s3.invalidate_cache()
     found = s3.find(source_prefix, detail=True)
     source_paths = list(found.keys()) if isinstance(found, dict) else list(found)
     parquet_paths = sorted(str(path) for path in source_paths if str(path).lower().endswith(".parquet"))
