@@ -10,6 +10,7 @@ from posthog.hogql.database.schema.channel_type import (
 )
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.visitor import clone_expr
 
 from products.web_analytics.backend.hogql_queries.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
 from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder import (
@@ -69,6 +70,11 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         ):
             return False
 
+        # The bounces table keeps one viewport per session, while live counts a session under every
+        # viewport it reported, so a resized session would skew the bounce rate of the other sizes.
+        if self._joins_breakdown_bounce_rate() and self.runner.query.breakdownBy == WebStatsBreakdown.VIEWPORT:
+            return False
+
         return self.runner._effective_breakdown() in WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS
 
     def _joins_breakdown_bounce_rate(self) -> bool:
@@ -113,6 +119,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
     def _bounce_rate_query(self, breakdown_value: ast.Expr | None = None) -> ast.SelectQuery:
         # Like in the original stats_table, we will need this method to build the "Paths" tile so it is a special breakdown
         period_filters = self.get_date_ranges()
+        keep_null_values = breakdown_value is not None
         if breakdown_value is None:
             breakdown_value = ast.Call(
                 name="nullIf",
@@ -134,12 +141,15 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 {views_tuple} as `context.columns.views`,
                 {bounce_rate_tuple} as `context.columns.bounce_rate`
             FROM {bounce_table}
-            WHERE and({filters}, {breakdown_value} IS NOT NULL)
+            WHERE and({filters}, {not_null_filter})
             GROUP BY `context.columns.breakdown_value`
             """,
                 placeholders={
                     "bounce_table": ast.Field(chain=[self.bounces_table]),
                     "breakdown_value": breakdown_value,
+                    "not_null_filter": ast.Constant(value=True)
+                    if keep_null_values
+                    else parse_expr("{value} IS NOT NULL", placeholders={"value": clone_expr(breakdown_value)}),
                     "visitors_tuple": self._period_comparison_tuple(
                         "persons_uniq_state",
                         "uniqMergeIf",
@@ -242,7 +252,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`
             FROM {stats_table}
             LEFT JOIN ({bounce_subquery}) bounces
-                ON {breakdown_field} = bounces.`context.columns.breakdown_value`
+                ON ifNull({breakdown_field}, '') = ifNull(bounces.`context.columns.breakdown_value`, '')
             WHERE {filters}
             GROUP BY `context.columns.breakdown_value`
             """

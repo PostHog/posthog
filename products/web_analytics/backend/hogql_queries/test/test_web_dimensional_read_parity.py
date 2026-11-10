@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+import pytest
 import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
@@ -36,6 +37,7 @@ from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
     WebAnalyticsPreAggregatedTestBase,
 )
@@ -234,16 +236,30 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 {"Desktop": (2.0, 3.0), "Mobile": (1.0, 1.0)},
                 {"Desktop": 0.5, "Mobile": 1.0},
             ),
+            (
+                "unset_utm_source_with_bounce_rate",
+                None,
+                {None: (3.0, 4.0)},
+                {None: 2 / 3},
+                WebStatsBreakdown.INITIAL_UTM_SOURCE,
+            ),
         ]
     )
-    def test_dimensional_matches_v2(self, _name, properties, expected_counts, expected_bounce_rates=None):
+    def test_dimensional_matches_v2(
+        self,
+        _name,
+        properties,
+        expected_counts,
+        expected_bounce_rates=None,
+        breakdown=WebStatsBreakdown.DEVICE_TYPE,
+    ):
         include_bounce_rate = expected_bounce_rates is not None
         v2_strategy, v2, v2_response = self._run(
-            WebStatsBreakdown.DEVICE_TYPE, LEGACY, None, properties=properties, include_bounce_rate=include_bounce_rate
+            breakdown, LEGACY, None, properties=properties, include_bounce_rate=include_bounce_rate
         )
         # Only the request opt-in: the legacy modifier must not be needed to reach this path.
         dimensional_strategy, dimensional, dimensional_response = self._run(
-            WebStatsBreakdown.DEVICE_TYPE, None, OPT_IN, properties=properties, include_bounce_rate=include_bounce_rate
+            breakdown, None, OPT_IN, properties=properties, include_bounce_rate=include_bounce_rate
         )
 
         assert v2_strategy == "stats_table_preaggregated"
@@ -254,32 +270,44 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert dimensional_response.preComputeStale is None
         assert dimensional == v2, f"{_name} mismatch\nv2={v2}\ndimensional={dimensional}"
         assert self._counts(dimensional) == expected_counts
-        live = self._run_live(WebStatsBreakdown.DEVICE_TYPE, properties, include_bounce_rate=include_bounce_rate)
+        live = self._run_live(breakdown, properties, include_bounce_rate=include_bounce_rate)
         assert self._counts(live) == expected_counts
         if include_bounce_rate:
             assert "context.columns.bounce_rate" in (dimensional_response.columns or [])
-            assert self._bounce_rates(dimensional) == expected_bounce_rates
-            assert self._bounce_rates(live) == expected_bounce_rates
+            assert self._bounce_rates(dimensional) == pytest.approx(expected_bounce_rates)
+            assert self._bounce_rates(live) == pytest.approx(expected_bounce_rates)
 
-    def test_pathname_filter_with_bounce_rate_reads_live(self):
-        properties = [EventPropertyFilter(key="$pathname", value="/", operator=PropertyOperator.EXACT)]
+    @parameterized.expand(
+        [
+            (
+                "pathname_filter",
+                WebStatsBreakdown.DEVICE_TYPE,
+                [EventPropertyFilter(key="$pathname", value="/", operator=PropertyOperator.EXACT)],
+                {"Desktop": 0.0, "Mobile": 1.0},
+            ),
+            ("viewport_breakdown", WebStatsBreakdown.VIEWPORT, [], None),
+        ]
+    )
+    def test_bounce_rate_shape_skips_pre_aggregated_tables(self, _name, breakdown, properties, expected_bounce_rates):
         runner = WebStatsTableQueryRunner(
             team=self.team,
             query=WebStatsTableQuery(
                 dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
                 properties=properties,
-                breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
+                breakdownBy=breakdown,
                 includeBounceRate=True,
                 limit=100,
                 webQueryModifiers=OPT_IN,
             ),
             modifiers=LEGACY,
         )
-        opted_in = self._sort_results(runner.calculate().results)
 
-        assert not runner.used_preaggregated_tables
-        assert opted_in == self._run_live(WebStatsBreakdown.DEVICE_TYPE, properties, include_bounce_rate=True)
-        assert self._bounce_rates(opted_in) == {"Desktop": 0.0, "Mobile": 1.0}
+        assert not StatsTablePreAggregatedQueryBuilder(runner).can_use_preaggregated_tables()
+        if expected_bounce_rates is not None:
+            opted_in = self._sort_results(runner.calculate().results)
+            assert not runner.used_preaggregated_tables
+            assert opted_in == self._run_live(breakdown, properties, include_bounce_rate=True)
+            assert self._bounce_rates(opted_in) == expected_bounce_rates
 
     @parameterized.expand(
         [
