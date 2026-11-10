@@ -673,41 +673,6 @@ export const aiObservabilityOfflineScorersHistoryList = async (
     })
 }
 
-export const getAiObservabilityTracesRetrieveUrl = (
-    projectId: string,
-    id: string,
-    params?: AiObservabilityTracesRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/ai_observability/traces/${id}/?${stringifiedParams}`
-        : `/api/projects/${projectId}/ai_observability/traces/${id}/`
-}
-
-/**
- * A trace ready to render: its tree with roll-ups, timeline, totals and person, without inputs or outputs.
- */
-export const aiObservabilityTracesRetrieve = async (
-    projectId: string,
-    id: string,
-    params?: AiObservabilityTracesRetrieveParams,
-    options?: RequestInit
-): Promise<TraceApi> => {
-    return apiMutator<TraceApi>(getAiObservabilityTracesRetrieveUrl(projectId, id, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getAiObservabilityTracesClustersRetrieveUrl = (
     projectId: string,
     id: string,
@@ -1095,6 +1060,41 @@ export const aiObservabilityTracesSummaryCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(traceSummaryRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/`
+}
+
+/**
+ * A trace ready to render: its tree with roll-ups, timeline, totals and person, without inputs or outputs.
+ */
+export const aiObservabilityTracesRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesRetrieveParams,
+    options?: RequestInit
+): Promise<TraceApi> => {
+    return apiMutator<TraceApi>(getAiObservabilityTracesRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

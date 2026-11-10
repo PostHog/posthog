@@ -2,7 +2,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.ai_observability.backend.presentation.trace_ids import (
+from products.ai_observability.backend.presentation.views.trace_ids import (
     MalformedTraceIdSegmentError,
     decode_trace_id_segment,
     encode_trace_id_segment,

@@ -126634,13 +126634,6 @@ export namespace Schemas {
       All: 'all',
     } as const;
 
-    export type AiObservabilityTracesRetrieveParams = {
-    /**
-     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
-     */
-    timestamp_hint?: string;
-    };
-
     export type AiObservabilityTracesClustersRetrieveParams = {
     /**
      * When the trace started, as the trace resource's createdAt. Bounds which clustering runs are read.
@@ -126709,6 +126702,13 @@ export namespace Schemas {
     };
 
     export type AiObservabilityTracesSummaryCreateParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */

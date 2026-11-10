@@ -1429,77 +1429,6 @@ export interface OfflineHistoryPageApi {
     results: OfflineHistoryPointApi[]
 }
 
-export type TraceApiNodeIdsByAlias = { [key: string]: string }
-
-export interface TracePersonApi {
-    distinctId: string
-    label: string
-}
-
-export interface TraceNodeStatsApi {
-    costUsd: number | null
-    inputTokens: number | null
-    outputTokens: number | null
-    cacheReadTokens: number | null
-    cacheWriteTokens: number | null
-    latencyMs: number | null
-}
-
-export type TraceNodeKindEnumApi = (typeof TraceNodeKindEnumApi)[keyof typeof TraceNodeKindEnumApi]
-
-export const TraceNodeKindEnumApi = {
-    Trace: 'trace',
-    Span: 'span',
-    Generation: 'generation',
-    Embedding: 'embedding',
-} as const
-
-export interface TraceNodeApi {
-    id: string
-    kind: TraceNodeKindEnumApi
-    name: string
-    model: string | null
-    stats: TraceNodeStatsApi
-    hasError: boolean
-    children: TraceNodeApi[]
-}
-
-export interface TraceTimelineRowApi {
-    id: string
-    kind: TraceNodeKindEnumApi
-    name: string
-    depth: number
-    startMs: number
-    durationMs: number | null
-    hasError: boolean
-}
-
-export interface TraceGitApi {
-    /** The git branch checked out when the trace ran. */
-    branch: string
-    /** The repository as owner/name, or null when the branch's event has none. */
-    repo: string | null
-}
-
-export interface TraceApi {
-    id: string
-    name: string | null
-    createdAt: string
-    sessionId: string | null
-    person: TracePersonApi | null
-    totals: TraceNodeStatsApi
-    hasError: boolean
-    errorCount: number
-    tree: TraceNodeApi[]
-    timeline: TraceTimelineRowApi[]
-    totalMs: number
-    threadNodeIds: string[]
-    defaultNodeId: string
-    nodeIdsByAlias: TraceApiNodeIdsByAlias
-    /** The branch the trace's work ran on: the latest stamped branch other than main or master, else the first stamp. Null when no event carries a branch. */
-    git: TraceGitApi | null
-}
-
 export interface TraceClusterApi {
     /** The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id. */
     runId: string
@@ -1606,6 +1535,77 @@ export interface TraceExportApi {
     expiresAfter: string | null
     /** Why the export failed, null unless status is failed. */
     exception: string | null
+}
+
+export interface TracePersonApi {
+    distinctId: string
+    label: string
+}
+
+export interface TraceNodeStatsApi {
+    costUsd: number | null
+    inputTokens: number | null
+    outputTokens: number | null
+    cacheReadTokens: number | null
+    cacheWriteTokens: number | null
+    latencyMs: number | null
+}
+
+export type TraceNodeKindEnumApi = (typeof TraceNodeKindEnumApi)[keyof typeof TraceNodeKindEnumApi]
+
+export const TraceNodeKindEnumApi = {
+    Trace: 'trace',
+    Span: 'span',
+    Generation: 'generation',
+    Embedding: 'embedding',
+} as const
+
+export interface TraceNodeApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    name: string
+    model: string | null
+    stats: TraceNodeStatsApi
+    hasError: boolean
+    children: TraceNodeApi[]
+}
+
+export interface TraceTimelineRowApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    name: string
+    depth: number
+    startMs: number
+    durationMs: number | null
+    hasError: boolean
+}
+
+export interface TraceGitApi {
+    /** The git branch checked out when the trace ran. */
+    branch: string
+    /** The repository as owner/name, or null when the branch's event has none. */
+    repo: string | null
+}
+
+export type TraceApiNodeIdsByAlias = { [key: string]: string }
+
+export interface TraceApi {
+    id: string
+    name: string | null
+    createdAt: string
+    sessionId: string | null
+    person: TracePersonApi | null
+    totals: TraceNodeStatsApi
+    hasError: boolean
+    errorCount: number
+    tree: TraceNodeApi[]
+    timeline: TraceTimelineRowApi[]
+    totalMs: number
+    threadNodeIds: string[]
+    defaultNodeId: string
+    nodeIdsByAlias: TraceApiNodeIdsByAlias
+    /** The branch the trace's work ran on: the latest stamped branch other than main or master, else the first stamp. Null when no event carries a branch. */
+    git: TraceGitApi | null
 }
 
 export interface TraceNodeIOKeysApi {
@@ -6113,13 +6113,6 @@ export const AiObservabilityOfflineScorersHistoryListTagMatch = {
     All: 'all',
 } as const
 
-export type AiObservabilityTracesRetrieveParams = {
-    /**
-     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
-     */
-    timestamp_hint?: string
-}
-
 export type AiObservabilityTracesClustersRetrieveParams = {
     /**
      * When the trace started, as the trace resource's createdAt. Bounds which clustering runs are read.
@@ -6188,6 +6181,13 @@ export type AiObservabilityTracesSearchRetrieveParams = {
 }
 
 export type AiObservabilityTracesSummaryCreateParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
