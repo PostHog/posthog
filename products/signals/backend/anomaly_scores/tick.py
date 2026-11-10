@@ -26,6 +26,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
 from posthog.dataclasses import frozen
+from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
@@ -329,6 +330,10 @@ def failure_status(error: Exception) -> str | None:
         return STATUS_BROKEN_QUERY
     # A query runner raises this for a saved query that its validation rules reject, so a later tick cannot pass.
     if isinstance(error, ValidationError):
+        return STATUS_BROKEN_QUERY
+    # A user-safe ClickHouse error, such as a warehouse file that cannot be parsed, fails the same way until the
+    # data owner fixes it. A transient one, such as a file that changed during the read, can pass on a retry.
+    if isinstance(error, ExposedCHQueryError) and not isinstance(error, CH_TRANSIENT_ERRORS):
         return STATUS_BROKEN_QUERY
     return None
 

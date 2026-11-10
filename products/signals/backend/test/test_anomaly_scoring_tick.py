@@ -16,6 +16,7 @@ from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
 import numpy as np
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 from temporalio import activity
@@ -28,6 +29,7 @@ from posthog.schema import IntervalType
 from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorS3FileChangedDuringRead, CHQueryErrorTypeMismatch, wrap_clickhouse_query_error
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
@@ -745,6 +747,12 @@ class TestRunInsight(SimpleTestCase):
             ("access_denied", TableAccessDeniedError("no access"), "access_denied"),
             ("unknown_table", QueryError("Unknown table `deleted_table`."), "broken_query"),
             ("invalid_query", ValidationError("Not supported.", code="unsupported_settings"), "broken_query"),
+            (
+                "unparseable_warehouse_value",
+                wrap_clickhouse_query_error(ServerException("Cannot parse input", code=27)),
+                "broken_query",
+            ),
+            ("type_mismatch", CHQueryErrorTypeMismatch("Cannot convert", code=53), "broken_query"),
             ("unsupported", UnsupportedInsightError("not trends"), "unsupported"),
         ]
     )
@@ -881,6 +889,7 @@ class TestRunInsight(SimpleTestCase):
     @parameterized.expand(
         [
             ("cluster_memory", ClickHouseClusterMemoryLimitExceeded()),
+            ("file_changed_during_read", CHQueryErrorS3FileChangedDuringRead("File changed", code=36)),
             ("internal_resolver", ResolutionError("Type already resolved for Field (FieldType). Can't run again.")),
             ("unknown", RuntimeError("boom")),
         ]
