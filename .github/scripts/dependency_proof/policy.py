@@ -29,6 +29,7 @@ RANGE = re.compile(r"(?P<operator>[~^]?)(?P<major>[0-9]+)\.(?P<minor>[0-9]+)\.(?
 # A package name with `*` wildcards. Other pattern syntax is refused, because pnpm and Renovate each read it their own way.
 PACKAGE_PATTERN = re.compile(r"(@[A-Za-z0-9._~*-]+/)?[A-Za-z0-9._~*-]+")
 SAFE_PATH = re.compile(r"^[A-Za-z0-9._@-]+(/[A-Za-z0-9._@-]+)*$")
+WORKSPACE_GLOB = re.compile(r"[A-Za-z0-9._@/*-]+")
 PNPM_VERSION = re.compile(r"^pnpm@(\d+\.\d+\.\d+)$")
 
 
@@ -147,8 +148,11 @@ def is_workspace_member(directory: str, globs: list[str]) -> bool:
 
 
 def _glob(pattern: str) -> re.Pattern[str]:
-    parts = (re.escape(part).replace(r"\*", "[^/]*") for part in pattern.split("**"))
-    return re.compile("^" + ".*".join(parts) + "$")
+    """A workspace glob of path segments, `*` and `**`. pnpm reads more syntax, such as braces, which is refused."""
+    if not WORKSPACE_GLOB.fullmatch(pattern):
+        raise Refused(f"the workspace glob {pattern} uses syntax this proof does not read")
+    regex = re.escape(pattern).replace(r"\*\*/", "(?:.*/)?").replace(r"\*\*", ".*").replace(r"\*", "[^/]*")
+    return re.compile(f"^{regex}$")
 
 
 def check_bump(label: str, old: str, new: str) -> None:

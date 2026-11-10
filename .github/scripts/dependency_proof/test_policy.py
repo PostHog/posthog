@@ -251,11 +251,19 @@ def test_new_packages(resolution: dict, reason: str | None) -> None:
         ("packages/quill/apps/x", True),
         ("packages/quill", False),
         ("tools", False),
+        ("docs", True),
+        ("services/mcp/docs", True),
+        ("docs/guides", False),
     ],
 )
 def test_is_workspace_member(directory: str, member: bool) -> None:
-    globs = ["frontend", "products/*", "!products/desktop", "packages/quill/apps/*"]
+    globs = ["frontend", "products/*", "!products/desktop", "packages/quill/apps/*", "**/docs"]
     assert policy.is_workspace_member(directory, globs) is member
+
+
+def test_is_workspace_member_refuses_glob_syntax_it_cannot_read() -> None:
+    with pytest.raises(Refused, match="syntax this proof does not read"):
+        policy.is_workspace_member("products/desktop", ["products/*", "!products/{desktop,mobile}"])
 
 
 def test_lockfile_dir() -> None:
