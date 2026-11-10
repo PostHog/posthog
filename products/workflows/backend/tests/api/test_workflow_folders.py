@@ -399,6 +399,28 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/").status_code, 200)
         self.assertEqual(self.client.get(f"{files_url}{file['id']}/").json()["path"], "Campaigns/Welcome")
 
+    @parameterized.expand(
+        [
+            ("file_system_scopes_only", ["file_system:read", "file_system:write"], 403, 200),
+            ("with_workflow_write_scope", ["file_system:read", "file_system:write", "hog_flow:write"], 200, 404),
+        ]
+    )
+    def test_tree_delete_of_a_workflow_needs_the_workflow_write_scope(
+        self, _name: str, scopes: list[str], delete_status: int, workflow_status: int
+    ) -> None:
+        workflow_id, file = self._workflow_file_in_folder("archived")
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        deleted = self.client.delete(
+            f"/api/projects/{self.team.id}/file_system/{file['id']}/", HTTP_AUTHORIZATION=f"Bearer {key}"
+        )
+
+        self.assertEqual(deleted.status_code, delete_status, deleted.content)
+        self.client.force_login(self.user)
+        workflow = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/")
+        self.assertEqual(workflow.status_code, workflow_status, workflow.content)
+
     def test_deleting_workflow_through_the_project_tree_records_activity(self) -> None:
         workflow_id, file = self._workflow_file_in_folder("archived")
         with self.captureOnCommitCallbacks(execute=True):
