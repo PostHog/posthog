@@ -27,6 +27,14 @@ class _RecipeScanner(Scanner):
             )
         super().fetch_flow_collection_start(TokenClass, to_push)
 
+    # A `%TAG` prefix is copied into every node that uses its handle, so one long prefix grows a short source the way an
+    # alias would. Recipes use only the built-in `!` and `!!` handles.
+    def scan_directive(self):
+        token = super().scan_directive()
+        if token.name == "TAG":
+            raise ScannerError(None, None, "recipes do not support %TAG directives", token.start_mark)
+        return token
+
 
 class _RecipeComposer(Composer):
     # An alias reuses a node, so a short source can describe a tree exponentially larger than itself, and every later
