@@ -30,6 +30,14 @@ const frequencyCapCanWait = (emailStep: EmailStep): FilesWorkflowShape => ({
     },
 })
 
+const sendingRateLimitCanWait = (): FilesWorkflowShape => ({
+    refused: {
+        error: 'workflow_can_wait',
+        reason: "This workflow's sending rate limit can hold this send before its email goes out, so its files could expire first.",
+        fix: 'Send files through a workflow without a sending rate limit, or send this email without files.',
+    },
+})
+
 const successorsById = (hogFlow: HogFlow): Map<string, string[]> => {
     const successors = new Map<string, string[]>()
     for (const edge of hogFlow.edges) {
@@ -103,5 +111,8 @@ export const filesWorkflowShape = (hogFlow: HogFlow): FilesWorkflowShape => {
     if (outOfPlace) {
         return stepDoesNotFit(outOfPlace)
     }
-    return frequencyCapCanHold(emailStep) ? frequencyCapCanWait(emailStep) : { emailStep }
+    if (frequencyCapCanHold(emailStep)) {
+        return frequencyCapCanWait(emailStep)
+    }
+    return hogFlow.email_sending_rate_limit ? sendingRateLimitCanWait() : { emailStep }
 }

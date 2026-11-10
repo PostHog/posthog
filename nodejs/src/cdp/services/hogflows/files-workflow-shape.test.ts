@@ -1,4 +1,5 @@
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
+import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { filesWorkflowShape } from './files-workflow-shape'
 
@@ -22,8 +23,10 @@ const exit = { type: 'exit', config: {} } as const
 const step = (from: string, to: string) => ({ from, to, type: 'continue' as const })
 const namedById = (actions: Actions): Actions =>
     Object.fromEntries(Object.entries(actions).map(([id, action]) => [id, { ...action, name: id }]))
-const flowOf = (actions: Actions, edges: Edges) =>
-    new FixtureHogFlowBuilder().withWorkflow({ actions: namedById(actions), edges }).build()
+const flowOf = (actions: Actions, edges: Edges, settings: Partial<HogFlow> = {}): HogFlow => ({
+    ...new FixtureHogFlowBuilder().withWorkflow({ actions: namedById(actions), edges }).build(),
+    ...settings,
+})
 
 const longChainAfterEmail = (length: number): { actions: Actions; edges: Edges } => {
     const ids = Array.from({ length }, (_, index) => `after_${index}`)
@@ -39,7 +42,7 @@ const longChainAfterEmail = (length: number): { actions: Actions; edges: Edges }
 describe('filesWorkflowShape', () => {
     const chain = longChainAfterEmail(20_000)
 
-    it.each<[string, Actions, Edges, Expected]>([
+    it.each<[string, Actions, Edges, Expected, Partial<HogFlow>?]>([
         [
             'the generated workflow, a trigger, an email step and an exit',
             { trigger, email: email(), exit },
@@ -113,13 +116,27 @@ describe('filesWorkflowShape', () => {
             { error: 'workflow_can_wait', step: 'email' },
         ],
         [
+            'the generated workflow under a sending rate limit, which can hold the email',
+            { trigger, email: email(), exit },
+            [step('trigger', 'email'), step('email', 'exit')],
+            { error: 'workflow_can_wait', step: null },
+            { email_sending_rate_limit: { count: 100, period: 'hour' } },
+        ],
+        [
+            'the generated workflow with its sending rate limit cleared',
+            { trigger, email: email(), exit },
+            [step('trigger', 'email'), step('email', 'exit')],
+            { emailStep: 'email' },
+            { email_sending_rate_limit: null },
+        ],
+        [
             'a long chain of steps after the email',
             chain.actions,
             chain.edges,
             { error: 'workflow_shape_not_supported', step: 'after_0' },
         ],
-    ])('judges a send with files to %s', (_name, actions, edges, expected) => {
-        const shape = filesWorkflowShape(flowOf(actions, edges))
+    ])('judges a send with files to %s', (_name, actions, edges, expected, settings = {}) => {
+        const shape = filesWorkflowShape(flowOf(actions, edges, settings))
 
         if ('emailStep' in expected) {
             expect('emailStep' in shape && shape.emailStep.id).toBe(expected.emailStep)
