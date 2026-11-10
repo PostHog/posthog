@@ -62,8 +62,8 @@ OUTPUT_PATH = Path(__file__).resolve().parents[1] / "backend" / "hogql_queries" 
 
 
 def fetch_networks(url: str) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
-    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected (urls come from the hardcoded PROVIDERS constant, never user input)
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected (urls come from the hardcoded PROVIDERS constant, never user input)
     with urllib.request.urlopen(request, timeout=30) as response:
         data = json.load(response)
     prefixes = data.get("prefixes")
