@@ -74443,7 +74443,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+         * Raw YAML recipe source. Must compile as a parser recipe; a 400 response names the first problem found.
          * @maxLength 100000
          */
       source: string;
@@ -87554,7 +87554,7 @@ export namespace Schemas {
          */
       name?: string;
       /**
-         * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+         * Raw YAML recipe source. Must compile as a parser recipe; a 400 response names the first problem found.
          * @maxLength 100000
          */
       source?: string;

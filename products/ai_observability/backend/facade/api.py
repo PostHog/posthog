@@ -42,6 +42,8 @@ from ..logic.evaluations.period import (
 )
 from ..logic.evaluations.runs import RunOutcome, load_runs
 from ..logic.evaluations.score_distribution import load_score_distribution, score_buckets
+from ..logic.message_normalizer.errors import RecipeCompileError as RecipeCompileError
+from ..logic.message_normalizer.normalizer import check_stored_recipe_source
 from ..logic.traces.cluster_queries import ClusterRunWindow, can_read_clusters, load_cluster_runs
 from ..logic.traces.clusters import ClusterMemberships, TraceCluster
 from ..logic.traces.evaluation_result import EvaluationResult
@@ -789,3 +791,8 @@ def _to_trace_export(asset: ExportedAsset) -> contracts.TraceExport:
         expires_after=asset.expires_after,
         exception=state.exception,
     )
+
+
+def validate_parser_recipe_source(source: str) -> None:
+    """Raises `RecipeCompileError` with a message for the author when trace reads would skip this recipe."""
+    check_stored_recipe_source(source)

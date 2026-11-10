@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from langgraph.errors import GraphInterrupt
+from parameterized import parameterized
 
 from products.ai_observability.backend.max_tools import CONTEXT_PROMPT_TEMPLATE, DSL_REFERENCE, CreateParserRecipeTool
 
@@ -26,26 +27,38 @@ class TestCreateParserRecipeTool(BaseTest):
             node_path=(NodePath(name="root", tool_call_id="call_1", message_id="msg_1"),),
         )
 
-    async def test_invalid_yaml_returns_error_without_client_round_trip(self):
+    @parameterized.expand(
+        [
+            ("not_yaml", "rules: [unclosed", "Recipe YAML does not parse"),
+            ("yaml_but_not_a_recipe", "foo: bar", "missing a 'rules:' sequence"),
+        ]
+    )
+    async def test_recipe_that_does_not_compile_returns_error_without_client_round_trip(
+        self, _name, yaml_source, expected_error
+    ):
         tool = self._create_tool()
 
         with patch("ee.hogai.tool.interrupt") as mock_interrupt:
-            content, artifact = await tool._arun_impl(
-                name="My SDK", yaml_source="rules: [unclosed", event_uuid="event-1"
-            )
+            content, artifact = await tool._arun_impl(name="My SDK", yaml_source=yaml_source, event_uuid="event-1")
 
             mock_interrupt.assert_not_called()
-            self.assertIn("not valid YAML", content)
+            self.assertIn(expected_error, content)
             self.assertIsNone(artifact)
 
-    async def test_valid_yaml_interrupts_for_client_validation(self):
+    @parameterized.expand(
+        [
+            ("valid_recipe", VALID_RECIPE),
+            ("impossible_date_stays_text", "rules:\n  - on: {}\n    emit: {content: 2026-02-30}"),
+        ]
+    )
+    async def test_recipe_that_compiles_interrupts_for_client_validation(self, _name, yaml_source):
         tool = self._create_tool()
 
         with patch("ee.hogai.tool.interrupt") as mock_interrupt:
             mock_interrupt.side_effect = GraphInterrupt()
 
             with self.assertRaises(GraphInterrupt):
-                await tool._arun_impl(name="My SDK", yaml_source=VALID_RECIPE, event_uuid="event-1")
+                await tool._arun_impl(name="My SDK", yaml_source=yaml_source, event_uuid="event-1")
 
             request = mock_interrupt.call_args.args[0]
             self.assertIsInstance(request, ClientToolCallRequest)
