@@ -82,7 +82,11 @@ class Migration(migrations.Migration):
             ],
             options={
                 "abstract": False,
+                "default_manager_name": "all_teams",
             },
+            managers=[
+                ("all_teams", models.Manager()),
+            ],
         ),
         migrations.CreateModel(
             name="PropertyDefinitionMetadata",
@@ -137,6 +141,10 @@ class Migration(migrations.Migration):
             ],
             options={
                 "abstract": False,
+                "default_manager_name": "all_teams",
             },
+            managers=[
+                ("all_teams", models.Manager()),
+            ],
         ),
     ]

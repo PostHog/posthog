@@ -1635,6 +1635,7 @@ layer = "modules"
 
 [[interfaces]]
 expose = [
+    "backend\\.logic\\.definition_metadata.*",
     "backend\\.logic\\.event_property_purge.*",
     "backend\\.logic\\.placeholder.*",
     "backend\\.models.*",

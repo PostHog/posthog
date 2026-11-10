@@ -32,10 +32,15 @@ class DefinitionMetadata(models.Model):
     )
     hidden = models.BooleanField(null=True, blank=True, default=False)
 
+    # As in ProductTeamModel: code reads through the fail-closed `objects`, and Django's own reads
+    # (admin, dumpdata, DRF defaults) go through the unscoped default. ProductTeamModel itself does
+    # not fit, because its save() moves team_id to the canonical team.
     objects = TeamScopedManager()
+    all_teams = models.Manager()  # noqa: DJ012 — both are managers, ruff misclassifies this
 
     class Meta:
         abstract = True
+        default_manager_name = "all_teams"
 
 
 class EventDefinitionMetadata(DefinitionMetadata):

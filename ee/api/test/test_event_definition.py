@@ -22,6 +22,8 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.event_definitions.backend.logic.definition_metadata import copy_definition_metadata
+from products.event_definitions.backend.models import EventDefinitionMetadata
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.exports.backend.models.exported_asset import ExportedAsset
 
@@ -385,6 +387,31 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             assert verified_changes == [
                 {"type": "EventDefinition", "action": "changed", "field": "verified", "before": False, "after": True}
             ]
+
+    def test_bulk_update_verified_copies_the_metadata_in_one_statement(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        events = [
+            EnterpriseEventDefinition.objects.create(team=self.demo_team, name=f"bulk_copy_{i}") for i in range(3)
+        ]
+
+        with (
+            patch(
+                "products.event_definitions.backend.logic.definition_metadata.copy_definition_metadata",
+                wraps=copy_definition_metadata,
+            ) as copy,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_verified/",
+                {"ids": [str(e.id) for e in events], "verified": True},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        copy.assert_called_once()
+        metadata = EventDefinitionMetadata.objects.for_team(self.demo_team.pk, canonical=True)
+        assert set(metadata.filter(verified=True).values_list("pk", flat=True)) == {e.id for e in events}
 
     def test_bulk_update_verified_ignores_event_definitions_in_other_project(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
