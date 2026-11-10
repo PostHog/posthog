@@ -252,6 +252,15 @@ describe('Hog Inputs', () => {
             expect(inputs.hog_templated).toMatchInlineSnapshot(`"event: "test""`)
         })
 
+        it('runs no hog input once the deadline it was given has passed', async () => {
+            const deadline = new AbortController()
+            deadline.abort(new DOMException('The verification deadline passed', 'TimeoutError'))
+
+            await expect(
+                hogInputsService.buildInputs(hogFunction, globals, undefined, undefined, deadline.signal)
+            ).rejects.toThrow('The verification deadline passed')
+        })
+
         it('should template out liquid inputs', async () => {
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
             expect(inputs.liquid_templated).toMatchInlineSnapshot(`"event: "test""`)

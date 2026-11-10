@@ -12,13 +12,15 @@ const semaphore = new Semaphore(1)
 
 export async function execHog(
     bytecode: any,
-    options?: ExecOptions
+    options?: ExecOptions,
+    signal?: AbortSignal
 ): Promise<{
     execResult?: ExecResult
     error?: any
     durationMs: number
 }> {
     return await semaphore.run(async () => {
+        signal?.throwIfAborted()
         return await instrumentFn(`hog-exec`, async () => {
             return await yieldEventLoopIfNeeded('hog-exec', () => execHogImmediate(bytecode, options))
         })

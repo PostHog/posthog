@@ -102,13 +102,15 @@ export class HogExecutorService {
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>,
-        preferencesTokenSource?: PreferencesTokenSource
+        preferencesTokenSource?: PreferencesTokenSource,
+        signal?: AbortSignal
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
         return this.hogInputsService.buildInputsWithGlobals(
             hogFunction,
             globals,
             additionalInputs,
-            preferencesTokenSource
+            preferencesTokenSource,
+            signal
         )
     }
 

@@ -1618,12 +1618,12 @@ export class CdpApi {
             ...invocation,
             state: { ...invocation.state, currentAction: { id: step.id, startedAtTimestamp: Date.now() } },
         }
-        const rendered = await this.hogFlowFunctionsService.buildHogFunctionInvocation(atEmailStep, hogFunction, {
-            event: invocation.state.event,
-            person,
-            groups,
-            variables: invocation.state.variables,
-        })
+        const rendered = await this.hogFlowFunctionsService.buildHogFunctionInvocation(
+            atEmailStep,
+            hogFunction,
+            { event: invocation.state.event, person, groups, variables: invocation.state.variables },
+            deadline
+        )
         deadline.throwIfAborted()
         const email = { ...rendered.state.globals.inputs?.email, ...acceptedSendEmailFields(invocation.state.send) }
         return {

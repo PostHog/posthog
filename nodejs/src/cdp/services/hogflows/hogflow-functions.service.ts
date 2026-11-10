@@ -100,7 +100,8 @@ export class HogFlowFunctionsService {
     async buildHogFunctionInvocation(
         invocation: CyclotronJobInvocationHogFlow,
         hogFunction: HogFunctionType,
-        globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>
+        globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>,
+        signal?: AbortSignal
     ): Promise<CyclotronJobInvocationHogFunction> {
         const teamId = invocation.hogFlow.team_id
         const projectUrl = `${this.siteUrl}/project/${teamId}`
@@ -138,7 +139,8 @@ export class HogFlowFunctionsService {
                           workflowId: invocation.hogFlow.id,
                           invocationId: invocation.id,
                           workflowVersion: invocation.hogFlow.version,
-                      }
+                      },
+                      signal
                   ),
                   timings: [],
                   attempts: 0,

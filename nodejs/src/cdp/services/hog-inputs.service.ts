@@ -48,7 +48,8 @@ export class HogInputsService {
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>,
-        preferencesTokenSource?: PreferencesTokenSource
+        preferencesTokenSource?: PreferencesTokenSource,
+        signal?: AbortSignal
     ): Promise<Record<string, any>> {
         // TODO: Load the values from the integrationManager
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
@@ -98,7 +99,7 @@ export class HogInputsService {
             }
             if (templating === 'hog' && input?.bytecode) {
                 try {
-                    return await formatHogInput(input.bytecode, newGlobals, key)
+                    return await formatHogInput(input.bytecode, newGlobals, key, signal)
                 } catch (error) {
                     throw withBytecodeContract(error, input.bytecode_contract)
                 }
@@ -158,11 +159,12 @@ export class HogInputsService {
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
         additionalInputs?: Record<string, any>,
-        preferencesTokenSource?: PreferencesTokenSource
+        preferencesTokenSource?: PreferencesTokenSource,
+        signal?: AbortSignal
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
         return {
             ...globals,
-            inputs: await this.buildInputs(hogFunction, globals, additionalInputs, preferencesTokenSource),
+            inputs: await this.buildInputs(hogFunction, globals, additionalInputs, preferencesTokenSource, signal),
         }
     }
 
@@ -346,7 +348,8 @@ const warehouseIntegrationMessage = (key: string): string =>
 export const formatHogInput = async (
     bytecode: any,
     globals: HogFunctionInvocationGlobalsWithInputs,
-    key?: string
+    key?: string,
+    signal?: AbortSignal
 ): Promise<any> => {
     // Similar to how we generate the bytecode by iterating over the values,
     // here we iterate over the object and replace the bytecode with the actual values
@@ -357,7 +360,7 @@ export const formatHogInput = async (
     }
 
     if (Array.isArray(bytecode) && (bytecode[0] === '_h' || bytecode[0] === '_H')) {
-        const { execResult: result, error } = await execHog(bytecode, { globals })
+        const { execResult: result, error } = await execHog(bytecode, { globals }, signal)
         if (!result || error) {
             throw error ?? result?.error
         }
@@ -378,12 +381,12 @@ export const formatHogInput = async (
     }
 
     if (Array.isArray(bytecode)) {
-        return await Promise.all(bytecode.map((item) => formatHogInput(item, globals, key)))
+        return await Promise.all(bytecode.map((item) => formatHogInput(item, globals, key, signal)))
     } else if (typeof bytecode === 'object' && bytecode !== null) {
         let ret: Record<string, any> = {}
 
         if (bytecode[EXTEND_OBJECT_KEY]) {
-            const res = await formatHogInput(bytecode[EXTEND_OBJECT_KEY], globals, key)
+            const res = await formatHogInput(bytecode[EXTEND_OBJECT_KEY], globals, key, signal)
             if (res && typeof res === 'object') {
                 ret = {
                     ...res,
@@ -396,7 +399,7 @@ export const formatHogInput = async (
                 if (subkey === EXTEND_OBJECT_KEY) {
                     return
                 }
-                ret[subkey] = await formatHogInput(value, globals, key ? `${key}.${subkey}` : subkey)
+                ret[subkey] = await formatHogInput(value, globals, key ? `${key}.${subkey}` : subkey, signal)
             })
         )
 
