@@ -129,7 +129,10 @@ class TestDimensionalReadSelection(SimpleTestCase):
         insert_modifiers_patcher = patch(f"{_READ}.dimensional_insert_modifiers", return_value=HogQLQueryModifiers())
         insert_modifiers_patcher.start()
         self.addCleanup(insert_modifiers_patcher.stop)
-        flag_patcher = patch(f"{_READ}.feature_enabled_or_false", return_value=True)
+        flag_patcher = patch(
+            f"{_READ}.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key == "web-analytics-query-modifiers",
+        )
         self.flag_enabled = flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
 
@@ -274,16 +277,24 @@ class TestDimensionalReadSelection(SimpleTestCase):
         ):
             assert ready_dimensional_job_ids(runner, _BOTH_TABLES) is None
 
-    def test_request_modifier_is_ignored_when_the_flag_is_off(self):
-        self.flag_enabled.return_value = False
+    @parameterized.expand(
+        [
+            ("request_opts_in_with_the_modifiers_flag", True, {"web-analytics-query-modifiers"}, True),
+            ("request_opts_in_without_the_modifiers_flag", True, {"web-analytics-dimensional-reads"}, False),
+            ("unset_modifier_with_the_team_flag", None, {"web-analytics-dimensional-reads"}, True),
+            ("unset_modifier_without_the_team_flag", None, {"web-analytics-query-modifiers"}, False),
+            ("request_opts_out_of_the_team_flag", False, {"web-analytics-dimensional-reads"}, False),
+        ]
+    )
+    def test_opt_in_follows_the_request_modifier_then_the_team_flag(self, _name, opted_in, enabled_flags, serves):
+        self.flag_enabled.side_effect = lambda key, *args, **kwargs: key in enabled_flags
         with (
             patch(f"{_READ}.team_has_property_access_rules", return_value=False),
             patch(f"{_READ}.dimensional_job_ids", return_value=_JOB_IDS) as mock_job_ids,
         ):
-            assert ready_dimensional_job_ids(_runner(True), _BOTH_TABLES) is None
+            assert ready_dimensional_job_ids(_runner(opted_in), _BOTH_TABLES) == (_JOB_IDS if serves else None)
 
-        assert self.flag_enabled.call_args.args[0] == "web-analytics-query-modifiers"
-        mock_job_ids.assert_not_called()
+        assert mock_job_ids.called == serves
 
     @parameterized.expand(
         [
