@@ -1667,7 +1667,7 @@ describe('workflow contract', () => {
         // Two hand-maintained strings in different languages. Nothing else binds
         // them, and a rename drops the promotions section from the PR body.
         const workflow = fs.readFileSync(
-            path.join(__dirname, '../../../../../../../.github/workflows/update-ai-costs.yml'),
+            path.join(__dirname, '../../../../../../../../../../.github/workflows/update-ai-costs.yml'),
             'utf8'
         )
         expect(workflow).toContain(`${DISCOUNT_SUMMARY_ENV}=`) // the step that sets it

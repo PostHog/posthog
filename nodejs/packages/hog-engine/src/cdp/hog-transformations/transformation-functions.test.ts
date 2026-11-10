@@ -10,7 +10,7 @@ const CHROME_UA =
 
 // The Rust HogVM binding asserts the same cases against its port, so both implementations agree.
 const USER_AGENT_CASES: { label: string; userAgent: string; expected: ReturnType<typeof parseUserAgent> }[] = parseJSON(
-    readFileSync(join(__dirname, '../../../../rust/common/hogvm/node/tests/static/user_agent_cases.json'), 'utf8')
+    readFileSync(join(__dirname, '../../../../../../rust/common/hogvm/node/tests/static/user_agent_cases.json'), 'utf8')
 )
 
 describe('transformation-functions', () => {
