@@ -184,7 +184,7 @@ class TestCheckProxyIsLive(TestCase):
         self.assertEqual(result.errors, ["Live proxy certificate is expiring soon"])
         self.assertEqual(
             result.warnings,
-            [f"Proxy does not forward /i/v1/analytics/events ({reason}); mobile SDKs send events there"],
+            [f"Proxy does not forward /i/v1/analytics/events ({reason}); v1 SDKs send events there"],
         )
 
     @pytest.mark.asyncio
@@ -208,7 +208,7 @@ class TestCheckProxyIsLive(TestCase):
         self.assertEqual(result.errors, [])
         self.assertEqual(
             result.warnings,
-            ["Proxy does not forward /i/v1/ai/events (got 404); mobile SDKs send AI events there"],
+            ["Proxy does not forward /i/v1/ai/events (got 404); v1 SDKs send AI events there"],
         )
 
     @parameterized.expand(

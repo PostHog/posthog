@@ -66,12 +66,12 @@ CAPTURE_V1_MISSING_AUTHORIZATION = "missing_authorization"
 # with one small JSON body, so one read covers it.
 CAPTURE_V1_PROBE_TIMEOUT_S = (3.0, 5.0)
 
-# Capture v1 routes the mobile SDK majors send to, each with the reason a missing route matters.
+# Capture v1 routes the v1 SDK majors send to, each with the reason a missing route matters.
 # `captureAi` has its own route, served by a separate capture deployment, so a proxy can forward
 # one and not the other.
 CAPTURE_V1_ROUTES = (
-    ("/i/v1/analytics/events", "mobile SDKs send events there"),
-    ("/i/v1/ai/events", "mobile SDKs send AI events there"),
+    ("/i/v1/analytics/events", "v1 SDKs send events there"),
+    ("/i/v1/ai/events", "v1 SDKs send AI events there"),
 )
 
 # Every way a resolver reports "no answer". One left uncaught fails the run instead of
@@ -480,9 +480,9 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
 def _check_capture_v1_route(probe_base: str, path: str, consequence: str) -> str | None:
     """Return a warning if the proxy doesn't forward this capture v1 route, or None if it does.
 
-    Mobile SDK majors (posthog-ios 4, posthog-android 4, posthog-flutter 6) send every event to
-    /i/v1/analytics/events (and `captureAi` to /i/v1/ai/events) with no fallback, so a proxy that forwards /i/v0 but not /i/v1 drops
-    all of their data. The probe carries no Authorization header, and capture checks that header
+    The v1 SDK majors (posthog-ios 4, posthog-android 4, posthog_flutter 6, posthog-python 8) send
+    every analytics event to /i/v1/analytics/events (and `captureAi` to /i/v1/ai/events) with no
+    fallback, so a proxy that forwards /i/v0 but not /i/v1 drops all of those events. The probe carries no Authorization header, and capture checks that header
     before anything else (rust/capture/src/v1/context.rs), so it answers 401 with a JSON body whose
     `error` is `missing_authorization` and ingests nothing. Requiring that code proves the request
     reached capture: a bare 4xx can come from whatever sits in front of it.
