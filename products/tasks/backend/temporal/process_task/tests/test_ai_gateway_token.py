@@ -723,7 +723,7 @@ class TestProvisioningBoundaries:
                 run.state,
             )
             with patch.object(utils, "mint_scoped_token", side_effect=[failure, "synthetic-token"]):
-                with pytest.raises(GatewayNotConfiguredError):
+                with pytest.raises(ProcessTaskTransientError, match="mint_failed"):
                     utils.run_gateway_env_vars(ctx, task)
                 assert utils.run_gateway_env_vars(ctx, task)["AI_GATEWAY_TOKEN"] == "synthetic-token"
         run.refresh_from_db()
