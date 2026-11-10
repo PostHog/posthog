@@ -81,6 +81,7 @@
          AND "posthog_filesystem"."type" = 'dashboard'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.101
@@ -803,6 +804,7 @@
          AND "posthog_filesystem"."type" = 'insight'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.112
@@ -1696,6 +1698,7 @@
          AND "posthog_filesystem"."type" = 'dashboard'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.133
@@ -2078,6 +2081,7 @@
          AND "posthog_filesystem"."type" = 'insight'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.140
@@ -2345,6 +2349,7 @@
          AND "posthog_filesystem"."type" = 'insight'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.144
@@ -3709,6 +3714,7 @@
          AND "posthog_filesystem"."type" = 'dashboard'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.30
@@ -3825,6 +3831,7 @@
          AND "posthog_filesystem"."type" = 'dashboard'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.37
@@ -4535,6 +4542,7 @@
          AND "posthog_filesystem"."type" = 'insight'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.48
@@ -5477,6 +5485,7 @@
          AND "posthog_filesystem"."type" = 'dashboard'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.69
@@ -6121,6 +6130,7 @@
          AND "posthog_filesystem"."type" = 'insight'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.8
