@@ -8,6 +8,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from products.replay_vision.backend.api.cloud_only import ReplayVisionCloudOnly
 from products.replay_vision.backend.api.scout_permissions import ScoutDataAccessPermission
 from products.replay_vision.backend.scanner_access import scanner_for_recording_derived_read
 from products.replay_vision.backend.scout_source import SCOUT_SOURCE_PRODUCT
@@ -57,7 +58,7 @@ class ScannerScoutReportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # The reports these scouts filed are canonical-team rows, so access is checked against that
     # team and not just the environment in the URL.
     # Appended to the standard stack by `TeamAndOrgViewSetMixin.get_permissions`.
-    permission_classes = [ScoutDataAccessPermission]
+    permission_classes = [ReplayVisionCloudOnly, ScoutDataAccessPermission]
     scope_object = "replay_scanner"
     # `inbox` is the scope object Signals gates its own report reads on, so a token that cannot read
     # reports there cannot read them through a scanner either.

@@ -83,6 +83,15 @@ _TEMPDB_ALLOCATION_FAILED_EXHAUSTED_MESSAGE = (
     "autogrowth settings. This sync is still enabled and will run again on its next schedule."
 )
 
+# SQL Server error 1222 — the same transient, customer-side lock contention `get_retryable_errors`
+# in mssql.py treats as retryable during a sync. `validate_credentials` doesn't go through that
+# classification, so without a mapping here it falls through to `capture_exception` as noise.
+_LOCK_TIMEOUT_VALIDATION_ERROR = (
+    "SQL Server is waiting on a lock held by another session on your database, and the wait timed "
+    "out (SQL Server error 1222). This is usually temporary — wait for the other session to finish, "
+    "then try again."
+)
+
 MSSQLErrors = {
     # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
     # disabled), not a problem with the database field. Surface the same wording the sibling SQL
@@ -97,6 +106,7 @@ MSSQLErrors = {
     # matches (and leaves unmapped there since the cause varies). Map it here too so a credential
     # check that hits it names the likely causes instead of falling through to `capture_exception`.
     "Adaptive Server connection failed": _CONNECTION_DROPPED_ERROR,
+    "Lock request time out period exceeded": _LOCK_TIMEOUT_VALIDATION_ERROR,
 }
 
 _MSSQL_IMPLEMENTATION = MSSQLImplementation()

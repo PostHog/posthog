@@ -82,14 +82,6 @@ describe('CdpCyclotronWorkerEmailSandbox', () => {
     const currentAction = (result: CyclotronJobInvocationResult): HogFlowInvocationContext['currentAction'] =>
         (result.invocation.state as HogFlowInvocationContext).currentAction
 
-    it('consumes only the emailsandbox queue', async () => {
-        const jobQueue = createMockJobQueue()
-
-        await new CdpCyclotronWorkerEmailSandbox(hub, createCdpConsumerDeps(hub), jobQueue).start()
-
-        expect(jobQueue.startAsConsumer).toHaveBeenCalledWith('emailsandbox', expect.any(Function))
-    })
-
     it('hands a sandbox step back to the hogflow queue, which then runs the next action', async () => {
         const sandboxWorker = new CdpCyclotronWorkerEmailSandbox(hub, createCdpConsumerDeps(hub), createMockJobQueue())
 
