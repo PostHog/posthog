@@ -56,7 +56,7 @@ export function QuillInsightEmptyStateNextSteps({
             detail = `${eventLabel(reason.event)} was last sent on ${formatDay(reason.lastSeen)}, before this date range.`
             fix = (
                 <Button
-                    variant="primary"
+                    variant="outline"
                     onClick={() => updateDateRange({ date_from: range.dateFrom, date_to: null }, true)}
                     data-attr="insight-empty-state-widen-date-range"
                 >
@@ -69,7 +69,7 @@ export function QuillInsightEmptyStateNextSteps({
             detail = `${eventLabel(reason.event)} was last sent on ${formatDay(reason.lastSeen)}, after this date range.`
             fix = (
                 <Button
-                    variant="primary"
+                    variant="outline"
                     onClick={() => updateDateRange({ date_from: dateRange?.date_from, date_to: null }, true)}
                     data-attr="insight-empty-state-extend-to-today"
                 >
@@ -82,7 +82,7 @@ export function QuillInsightEmptyStateNextSteps({
             if (hasInsightFilters) {
                 fix = (
                     <Button
-                        variant="primary"
+                        variant="outline"
                         onClick={() => updateQuerySource({ properties: [], filterTestAccounts: false })}
                         data-attr="insight-empty-state-remove-filters"
                     >

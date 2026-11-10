@@ -8,7 +8,6 @@ import { objectsEqual } from 'lib/utils/objects'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { isEventsNode } from '~/queries/schema/node-guards'
 import { InsightLogicProps } from '~/types'
 
 import { eventDefinitionsList } from 'products/event_definitions/frontend/generated/api'
@@ -25,7 +24,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../../queries/schema/schema-general'
-import { EmptyStateReason, emptyStateReason, hasPropertyFilters } from './emptyStateReason'
+import { EmptyStateReason, emptyStateReason, explainableEvents, hasPropertyFilters } from './emptyStateReason'
 
 export interface InsightEmptyStateLogicProps {
     insightProps: InsightLogicProps
@@ -177,14 +176,7 @@ export const insightEmptyStateLogic = kea<insightEmptyStateLogicType>([
                     | WebOverviewQuery
                     | WebStatsTableQuery
                     | null
-            ): string[] | null => {
-                const series = querySource && 'series' in querySource ? querySource.series : null
-                const events = series?.map((node) => (isEventsNode(node) ? node.event : null)) ?? []
-                if (!events.length || !events.every((event): event is string => !!event)) {
-                    return null
-                }
-                return [...new Set(events)]
-            },
+            ): string[] | null => explainableEvents(querySource),
         ],
         hasInsightFilters: [
             (s) => [s.querySource],

@@ -1,6 +1,8 @@
 import { dayjs } from 'lib/dayjs'
 
-import { emptyStateReason, hasPropertyFilters, rangeReaching } from './emptyStateReason'
+import { NodeKind } from '~/queries/schema/schema-general'
+
+import { emptyStateReason, explainableEvents, hasPropertyFilters, rangeReaching } from './emptyStateReason'
 
 describe('emptyStateReason', () => {
     const rangeStart = dayjs('2026-10-01')
@@ -31,5 +33,19 @@ describe('emptyStateReason', () => {
         ['nothing', undefined, false],
     ])('hasPropertyFilters with %s', (_, properties, expected) => {
         expect(hasPropertyFilters(properties)).toBe(expected)
+    })
+
+    const event = (name: string): Record<string, unknown> => ({ kind: NodeKind.EventsNode, event: name })
+    test.each([
+        ['trends counts every series', NodeKind.TrendsQuery, [event('a'), event('b'), event('a')], ['a', 'b']],
+        ['a funnel counts only its first step', NodeKind.FunnelsQuery, [event('a'), event('b')], ['a']],
+        [
+            'an action series cannot be explained',
+            NodeKind.TrendsQuery,
+            [event('a'), { kind: NodeKind.ActionsNode, id: 1 }],
+            null,
+        ],
+    ])('explainableEvents: %s', (_, kind, series, expected) => {
+        expect(explainableEvents({ kind, series } as any)).toEqual(expected)
     })
 })

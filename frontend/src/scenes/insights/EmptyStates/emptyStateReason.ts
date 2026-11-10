@@ -1,5 +1,8 @@
 import { type Dayjs, dayjs } from 'lib/dayjs'
 
+import { isEventsNode, isFunnelsQuery } from '~/queries/schema/node-guards'
+import type { InsightQueryNode } from '~/queries/schema/schema-general'
+
 export type EmptyStateReason =
     | { kind: 'never-sent'; events: string[] }
     | { kind: 'last-seen-before'; event: string; lastSeen: Dayjs }
@@ -42,6 +45,20 @@ export function emptyStateReason({
     }
     // Last sent inside the range, so the events exist there and a filter is the likely cause.
     return hasFilters ? { kind: 'filtered', event: latest.event } : { kind: 'unknown' }
+}
+
+/**
+ * The events whose last-sent time can explain an empty result, or null when a series is not a plain event.
+ * A funnel is empty when nobody did its first step, so only that step counts.
+ */
+export function explainableEvents(querySource: InsightQueryNode | null): string[] | null {
+    const series = querySource && 'series' in querySource ? querySource.series : null
+    const counted = series && isFunnelsQuery(querySource) ? series.slice(0, 1) : series
+    const events = counted?.map((node) => (isEventsNode(node) ? node.event : null)) ?? []
+    if (!events.length || !events.every((event): event is string => !!event)) {
+        return null
+    }
+    return [...new Set(events)]
 }
 
 function isPropertyGroup(value: unknown): value is { values: unknown[] } {
