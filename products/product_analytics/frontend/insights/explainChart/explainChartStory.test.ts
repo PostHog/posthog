@@ -2,11 +2,18 @@ import type { insightLogicValues } from 'scenes/insights/insightLogic'
 
 import type {
     ExplainChartData,
+    FunnelStepsExplainChartData,
     TimeSeriesExplainChartData,
 } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import { followedSeriesIndex } from 'products/product_analytics/mcp/apps/explainChart/storySeries'
 
-import { explainChartStoryFor, storyOnChart, withEvidenceLinks } from './explainChartStory'
+import {
+    explainChartStoryFor,
+    followedFunnelBarIndex,
+    funnelStoryOnChart,
+    storyOnChart,
+    withEvidenceLinks,
+} from './explainChartStory'
 
 const INSIGHT = { id: 42, short_id: 'aBc12345' } as insightLogicValues['insight']
 const STORY = {
@@ -113,6 +120,34 @@ describe('explainChartStory', () => {
 
         expect(shown.seriesIndex).toBe(expectedIndex)
         expect(shown.chapters.map((chapter) => chapter.range)).toEqual(expected)
+    })
+
+    test.each([
+        ['the chart draws a baseline before the breakdown values', ['Baseline', ['Desktop'], ['Mobile']], 2, [50, 5]],
+        ['the chart hides the followed breakdown value', ['Baseline', ['Desktop']], null, [40, 4]],
+    ])('follows a funnel breakdown value by its name when %s', (_, drawn, expectedBar, expectedCounts) => {
+        const counts: Record<string, number[]> = { Baseline: [150, 25], Desktop: [100, 20], Mobile: [50, 5] }
+        const chart = [0, 1].map((step) => ({
+            count: counts.Baseline[step],
+            nested_breakdown: drawn.map((value) => ({ breakdown_value: value, count: counts[String(value)][step] })),
+        }))
+        const story = {
+            ...FUNNEL_STORY,
+            steps: [
+                { name: 'Pageview', count: 40 },
+                { name: 'Signed up', count: 4 },
+            ],
+            breakdowns: ['Desktop', 'Mobile'],
+            seriesIndex: 1,
+            chapters: [{ title: 'The drop to signing up', range: [0, 1] }],
+        } as unknown as FunnelStepsExplainChartData
+
+        const bar = followedFunnelBarIndex(story, chart)
+        const shown = funnelStoryOnChart(story, chart, bar)
+
+        expect(bar).toBe(expectedBar)
+        expect(shown.steps.map((step) => step.count)).toEqual(expectedCounts)
+        expect(shown.chapters.map((chapter) => chapter.range)).toEqual([expectedBar === null ? null : [0, 1]])
     })
 
     it('links saved evidence to its query, its insight or its GitHub change', () => {

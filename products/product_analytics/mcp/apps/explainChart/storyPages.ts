@@ -1,6 +1,6 @@
 import type { ExplainChartData, StoryChapter } from './explainChartTypes'
 import { anchorOf, chapterFacts, overviewFacts, type StoryFactsOptions } from './storyFacts'
-import { funnelChapterFacts, funnelOverviewFacts } from './storyFunnelFacts'
+import { funnelChapterFacts, funnelFactsSteps, funnelOverviewFacts } from './storyFunnelFacts'
 
 export interface StoryPage {
     title: string
@@ -31,12 +31,13 @@ interface StoryFacts {
 
 function factsOf(data: ExplainChartData, formatValue: StoryFactsOptions['formatValue']): StoryFacts {
     if (data.shape === 'funnel_steps') {
+        const steps = funnelFactsSteps(data)
         return {
-            pointCount: data.steps.length,
-            overview: funnelOverviewFacts(data.steps, formatValue),
+            pointCount: steps.length,
+            overview: funnelOverviewFacts(steps, formatValue),
             // The marker sits on the step that people reached, or failed to reach.
             anchor: ([, end]) => end,
-            chapter: (range) => funnelChapterFacts(data.steps, range, formatValue),
+            chapter: (range) => funnelChapterFacts(steps, range, formatValue),
         }
     }
     const series = data.results[data.seriesIndex]

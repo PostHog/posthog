@@ -3,8 +3,9 @@ import { urls } from 'scenes/urls'
 
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import type { Node } from '~/queries/schema/schema-general'
-import type { InsightShortId } from '~/types'
+import type { FunnelStep, InsightShortId } from '~/types'
 
+import { hasBreakdown } from 'products/product_analytics/frontend/insights/funnels/funnelUtils'
 import type {
     ExplainChartData,
     FunnelStepsExplainChartData,
@@ -13,6 +14,7 @@ import type {
 } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import { storyEvidenceNode } from 'products/product_analytics/mcp/apps/explainChart/storyEvidenceNode'
 import type { StoryPage } from 'products/product_analytics/mcp/apps/explainChart/storyPages'
+import { funnelBreakdownLabel, storySeriesLabel } from 'products/product_analytics/mcp/apps/explainChart/storySeries'
 
 const INSIGHT_ID_KEYS = ['insightId', 'insight_id', 'id', 'short_id', 'shortId']
 
@@ -77,6 +79,50 @@ export function storyOnChart(
             const start = chapter.range ? dayIndex.get(savedDays[chapter.range[0]]) : undefined
             const end = chapter.range ? dayIndex.get(savedDays[chapter.range[1]]) : undefined
             return { ...chapter, range: start !== undefined && end !== undefined ? [start, end] : null }
+        }),
+    }
+}
+
+type FunnelChartBar = Pick<FunnelStep, 'count' | 'breakdown_value' | 'compare_label'>
+
+export interface FunnelChartStep extends FunnelChartBar {
+    nested_breakdown?: FunnelChartBar[]
+}
+
+// The chart draws a baseline before the breakdown values, sorts them and hides some, so the saved index does not find the bars.
+export function followedFunnelBarIndex(story: FunnelStepsExplainChartData, steps: FunnelChartStep[]): number | null {
+    const bars = steps[0]?.nested_breakdown
+    if (!bars) {
+        return steps.length ? 0 : null
+    }
+    const label = storySeriesLabel(story.breakdowns[story.seriesIndex])
+    const index = bars.findIndex(
+        (bar) =>
+            bar.compare_label !== 'previous' &&
+            (label === undefined ||
+                (hasBreakdown(bar.breakdown_value) &&
+                    storySeriesLabel(funnelBreakdownLabel(bar.breakdown_value)) === label))
+    )
+    return index === -1 ? null : index
+}
+
+export function funnelStoryOnChart(
+    story: FunnelStepsExplainChartData,
+    steps: FunnelChartStep[],
+    barIndex: number | null
+): FunnelStepsExplainChartData {
+    if (!steps.length) {
+        return story
+    }
+    if (barIndex === null || steps.length !== story.steps.length) {
+        return { ...story, chapters: story.chapters.map((chapter) => ({ ...chapter, range: null })) }
+    }
+    return {
+        ...story,
+        steps: story.steps.map((step, index) => {
+            const chartStep = steps[index]
+            const bar = chartStep.nested_breakdown ? chartStep.nested_breakdown[barIndex] : chartStep
+            return { ...step, count: bar?.count ?? 0 }
         }),
     }
 }

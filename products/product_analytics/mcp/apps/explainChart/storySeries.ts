@@ -6,6 +6,10 @@ export function storySeriesLabel(label: string | undefined): string | undefined 
     return label?.slice(0, STORY_SERIES_LABEL_MAX_LENGTH)
 }
 
+export function funnelBreakdownLabel(value: unknown): string {
+    return Array.isArray(value) ? value.join(', ') : value === undefined || value === null ? '' : String(value)
+}
+
 // Breakdown series are sorted by volume, so the saved index can point at another series by the time a link is opened.
 export function followedSeriesIndex(story: TimeSeriesExplainChartData, results: StorySeriesResult[]): number | null {
     const label = story.results[story.seriesIndex]?.label

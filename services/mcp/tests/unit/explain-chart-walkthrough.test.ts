@@ -127,6 +127,42 @@ describe('explain chart', () => {
         expect(paying?.anchor).toBe(2)
     })
 
+    it('measures the step after an optional step from the last required step', () => {
+        const data: ExplainChartData = {
+            shape: 'funnel_steps',
+            query: {
+                kind: 'FunnelsQuery',
+                series: [{}, { optionalInFunnel: true }, {}, {}],
+            },
+            steps: [
+                { name: 'Pageview', count: 100 },
+                { name: 'Took the tour', count: 10 },
+                { name: 'Signed up', count: 50 },
+                { name: 'Paid', count: 40 },
+            ],
+            breakdowns: [],
+            seriesIndex: 0,
+            insightName: 'Signups',
+            headline: 'A headline.',
+            chapters: [
+                {
+                    title: 'Signing up',
+                    range: [2, 2],
+                    summary: null,
+                    cause: null,
+                    confidence: null,
+                    confidenceReason: null,
+                    evidence: [],
+                },
+            ],
+        }
+
+        const [summary, signingUp] = buildStoryPages(data, String)
+
+        expect(summary?.facts).toContain('The biggest drop is from ⟦d:Pageview⟧ to ⟦d:Signed up⟧, where ⟦v:50%⟧ go on.')
+        expect(signingUp?.facts).toBe('⟦v:50⟧ reached ⟦d:Signed up⟧: ⟦v:50%⟧ of the 100 at ⟦d:Pageview⟧.')
+    })
+
     it('does not compare a period that has not ended with complete ones', () => {
         const facts = chapterFacts([60, 62, 58, 61, 9], DAYS, [4, 4], {
             interval: 'day',

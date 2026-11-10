@@ -31,6 +31,10 @@ const FUNNEL_STEPS_MOBILE = [
     { name: 'Paid', count: 1, breakdown_value: ['Mobile'] },
 ]
 
+function inPeriod<Step>(steps: Step[], period: 'current' | 'previous'): (Step & { compare_label: string })[] {
+    return steps.map((step) => ({ ...step, compare_label: period }))
+}
+
 function createContext(
     query: Record<string, unknown>,
     response: Record<string, unknown> = {},
@@ -193,7 +197,7 @@ describe('explain-chart', () => {
     })
 
     it.each([
-        ['without a breakdown', [FUNNEL_STEPS], 0, [], [100, 20, 5]],
+        ['without a breakdown', FUNNEL_STEPS, 0, [], [100, 20, 5]],
         [
             'following its second breakdown value',
             [FUNNEL_STEPS, FUNNEL_STEPS_MOBILE],
@@ -201,8 +205,26 @@ describe('explain-chart', () => {
             ['Desktop', 'Mobile'],
             [40, 4, 1],
         ],
-    ])('explains a funnel %s', async (_, groups, series, breakdowns, counts) => {
-        const results = groups.length === 1 ? groups[0] : groups
+        [
+            'compared with the previous period',
+            [...inPeriod(FUNNEL_STEPS, 'current'), ...inPeriod(FUNNEL_STEPS, 'previous')],
+            0,
+            [],
+            [100, 20, 5],
+        ],
+        [
+            'with a breakdown, compared with the previous period',
+            [
+                inPeriod(FUNNEL_STEPS, 'current'),
+                inPeriod(FUNNEL_STEPS_MOBILE, 'current'),
+                inPeriod(FUNNEL_STEPS, 'previous'),
+                inPeriod(FUNNEL_STEPS_MOBILE, 'previous'),
+            ],
+            1,
+            ['Desktop', 'Mobile'],
+            [40, 4, 1],
+        ],
+    ])('explains a funnel %s', async (_, results, series, breakdowns, counts) => {
         const context = createContext(
             { kind: 'InsightVizNode', source: { kind: 'FunnelsQuery', series: [] } },
             { results }

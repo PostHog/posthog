@@ -23,6 +23,7 @@ import {
     insightPageShowsStory,
 } from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
 import { storyEvidenceNode } from 'products/product_analytics/mcp/apps/explainChart/storyEvidenceNode'
+import { funnelBreakdownLabel } from 'products/product_analytics/mcp/apps/explainChart/storySeries'
 
 import { analyzeQuery } from '../shared'
 import { findStepRange, findStoryRange, lastBucketInProgress } from './storyRanges'
@@ -305,21 +306,23 @@ interface FunnelStepResult {
     custom_name?: string | null
     count?: number
     breakdown_value?: unknown
+    compare_label?: 'current' | 'previous'
 }
 
 function breakdownLabel(steps: FunnelStepResult[], index: number): string {
-    const value = steps[0]?.breakdown_value
-    const text = Array.isArray(value) ? value.join(', ') : value === undefined || value === null ? '' : String(value)
-    return text || `breakdown value ${index + 1}`
+    return funnelBreakdownLabel(steps[0]?.breakdown_value) || `breakdown value ${index + 1}`
 }
 
 function funnelChart(query: StoryFunnelsQuery, results: unknown[], seriesIndex: number): ShownChart {
     // A funnel with a breakdown returns one list of steps per breakdown value.
-    const groups = (Array.isArray(results[0]) ? results : [results]) as FunnelStepResult[][]
+    // A comparison adds the previous period's steps to the same result, and the explanation follows the current period.
+    const groups = ((Array.isArray(results[0]) ? results : [results]) as FunnelStepResult[][])
+        .map((group) => group.filter((step) => step.compare_label !== 'previous'))
+        .filter((group) => group.length > 0)
     const followed = groups[seriesIndex]
-    if (!followed?.length) {
+    if (!followed) {
         throw new Error(
-            results.length
+            groups.length
                 ? `The funnel has ${groups.length} breakdown values, so \`series\` must be below ${groups.length}.`
                 : 'The funnel has no data to explain.'
         )
