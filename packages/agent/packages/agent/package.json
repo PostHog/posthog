@@ -195,7 +195,7 @@
     "@opentelemetry/sdk-trace-base": "^2.8.0",
     "@opentelemetry/semantic-conventions": "^1.28.0",
     "@types/jsonwebtoken": "^9.0.10",
-    "commander": "^15.0.0",
+    "commander": "^14.0.3",
     "fflate": "^0.8.2",
     "hono": "^4.11.7",
     "jsonwebtoken": "^9.0.2",
