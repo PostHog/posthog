@@ -2346,10 +2346,10 @@ def test_a_wait_on_attestation_checks_is_reviewed_again_only_when_all_of_them_re
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize("admitted", [True, False], ids=["admitted-bot", "unadmitted-bot"])
-def test_a_check_wakes_a_bot_wait_only_with_the_admission_it_was_created_with(
+def test_a_reported_check_reviews_a_bot_wait_again_only_with_the_admission_it_was_created_with(
     team, stamphog_chain: StamphogChain, admitted: bool
 ) -> None:
-    # The wake refetches the PR and runs the same pre-filters as a delivery, which drop every bot
+    # The re-review refetches the PR and runs the same pre-filters as a delivery, which drop every bot
     # author. Only the waiting run's own admission stamp lets a named bot through.
     repo_config = _repo_config(team.id)
     head_sha = "sha129b"
@@ -2368,11 +2368,11 @@ def test_a_check_wakes_a_bot_wait_only_with_the_admission_it_was_created_with(
         status=ReviewRunStatus.GATED,
         verdict=ReviewVerdict.WAIT,
         output={"bot_admission": admission, "review_trigger": "bot_admission"} if admitted else {},
-        gate_result={"classification": {"attestations": {"pending": [_CHECK], "lifting": []}}},
+        gate_result={"final_verdict": "WAIT", "classification": {"attestations": {"pending": [_CHECK]}}},
     )
 
     with patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow"):
-        wake_on_attestation_check(REPO, 129, head_sha, "Migration risk", _MIGRATION_RISK_APP_ID)
+        rereview_once_attestations_reported(waiting)
 
     new_runs = list(
         ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request, created_at__gt=waiting.created_at)

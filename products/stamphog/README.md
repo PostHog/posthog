@@ -153,6 +153,8 @@ A repository may list under `bot_authors` the bots whose PRs stamphog reviews, e
 A matching PR skips the bot-author refusal, the review mode and the write-permission check, because the policy entry replaces them.
 Every other gate stays, and one more applies.
 An attestation must vouch for every file in the PR, so a bot can only land the kinds of change a check proves.
+Name a bot only when each such check is published by a dedicated GitHub App whose key the default branch alone can use, for example through an Environment restricted to that branch, and when the entry lists the check's `publisher_files`.
+Anyone who can post a check run as that App can approve the bot's PRs.
 The list is read from the default branch, like the rest of the policy.
 
 ### The `digest:` key
