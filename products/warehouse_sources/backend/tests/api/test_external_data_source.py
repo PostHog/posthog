@@ -5882,18 +5882,21 @@ class TestExternalDataSource(APIBaseTest):
             # Frontend sends null when the user leaves the PK selector empty — backend falls
             # back to the source-detected primary key so sync-time detection is not the only
             # line of defense.
-            ("fallback_to_detected", None, ["id"], ["id"]),
+            ("fallback_to_detected", "incremental", None, ["id"], ["id"]),
             # User explicitly overrides — caller value wins, detected is ignored.
-            ("explicit_wins_over_detected", ["custom_pk"], ["id"], ["custom_pk"]),
+            ("explicit_wins_over_detected", "incremental", ["custom_pk"], ["id"], ["custom_pk"]),
             # Nothing detected and nothing provided, but the table has an `id` column, which is
             # what resolution falls back to — so the key is omitted here and found at sync time.
-            ("both_absent_omits_key", None, None, None),
+            ("both_absent_omits_key", "incremental", None, None, None),
+            ("xmin_fallback_to_detected", "xmin", None, ["id"], ["id"]),
+            ("xmin_explicit_wins_over_detected", "xmin", ["custom_pk"], ["id"], ["custom_pk"]),
         ]
     )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_create_postgres_incremental_primary_key_fallback(
+    def test_create_postgres_primary_key_fallback(
         self,
         _name: str,
+        sync_type: str,
         payload_primary_keys: list[str] | None,
         detected_primary_keys: list[str] | None,
         expected_persisted: list[str] | None,
@@ -5949,7 +5952,7 @@ class TestExternalDataSource(APIBaseTest):
                         {
                             "name": "events",
                             "should_sync": True,
-                            "sync_type": "incremental",
+                            "sync_type": sync_type,
                             "incremental_field": "updated_at",
                             "incremental_field_type": "timestamp",
                             "primary_key_columns": payload_primary_keys,

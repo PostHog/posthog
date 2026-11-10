@@ -1929,6 +1929,14 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     "cdc_table_mode": cdc_table_mode,
                 }
                 sync_type_config.update(history_naming_config_by_schema.get(schema_name, {}))
+            elif sync_type == ExternalDataSchema.SyncType.XMIN and new_source_model.supports_scheduled_sync:
+                xmin_primary_key_columns = primary_key_columns or (
+                    source_schema.detected_primary_keys if source_schema else None
+                )
+                sync_type_config = {
+                    "schema_metadata": schema_metadata,
+                    **({"primary_key_columns": xmin_primary_key_columns} if xmin_primary_key_columns else {}),
+                }
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 
