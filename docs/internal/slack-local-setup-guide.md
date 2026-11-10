@@ -166,7 +166,7 @@ Django must be up at that moment.
 > `slack_app_slacksettings`. That also lets the work focus DM run again the next time you link your account. With
 > the `slack-app-daily-work-focus` flag on, that first work focus DM also turns on a daily one. To run it without
 > waiting for the next workday, set `next_run_at` on your row in `slack_app_slackdailyfocus` to a past time. The
-> `slack-app-daily-focus-sweep` schedule picks it up within 30 minutes. The
+> `slack-app-daily-focus-sweep` schedule picks it up within 15 minutes. The
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). With the `slack-app-link-search-scopes` flag on, the
 > link asks for the `search:read.*` and `users:read*` user scopes at `oauth.v2.authorize` instead, so the
