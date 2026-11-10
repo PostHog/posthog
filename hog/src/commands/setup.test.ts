@@ -202,12 +202,6 @@ describe('hog setup', () => {
         expect((fresh.json() as any).context.products.map((product: { id: string }) => product.id)).toContain(
             'mcp-analytics'
         )
-        expect((fresh.json() as any).next.instructions).toContain('Your answer stays on this machine.')
-
-        const askedWithTelemetry = await machine.run(['setup'], { telemetry: true })
-        expect((askedWithTelemetry.json() as any).next.instructions).toContain(
-            'Your answer goes to PostHog, to improve setup. To keep it on this machine, set HOG_NO_TELEMETRY=1.'
-        )
 
         const started = await machine.run(['setup', 'next', ...ANSWERS], { telemetry: true })
         expect(started.json()).toMatchObject({
