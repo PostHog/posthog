@@ -151,6 +151,16 @@ describe('errorTrackingIssueSceneLogic', () => {
         expect(loadIssue).toHaveBeenCalledTimes(1)
     })
 
+    it('shows only the tags answered yes', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const yes = { key: 'a', label: 'A', description: '', value: true, source: 'jev' }
+        logic.actions.setIssue({
+            ...ISSUE,
+            tags: [yes, { ...yes, key: 'b', value: false }, { ...yes, key: 'c', value: null }],
+        })
+        expect(logic.values.yesTags).toEqual([yes])
+    })
+
     it('reloads only the issue that was split, with both of its exception lists', async () => {
         // The issue page lists the issue events query, and the notebook widget lists the plain events query.
         const lists = [

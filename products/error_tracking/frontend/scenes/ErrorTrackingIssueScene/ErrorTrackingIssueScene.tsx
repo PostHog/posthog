@@ -62,6 +62,7 @@ import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
 import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
 import { IssueSummary } from './IssueSummary'
+import { IssueTags } from './IssueTags'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -337,9 +338,10 @@ const RightHandColumn = ({
     isOpen: boolean
     onClose: () => void
 }): JSX.Element | null => {
-    const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
+    const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary, yesTags } =
         useValues(errorTrackingIssueSceneLogic)
     const { setOnlyWithRecording } = useActions(issueRecordingFilterLogic({ issueId }))
+    const hasIssueTags = useFeatureFlag('ERROR_TRACKING_ISSUE_TAGS')
     const tagRenderer = useErrorTagRenderer()
     const detailEvent = selectedEvent ?? initialEvent
     const showOnlyWithRecording = useCallback(() => setOnlyWithRecording(true), [setOnlyWithRecording])
@@ -363,6 +365,7 @@ const RightHandColumn = ({
                 </div>
             )}
             <PostHogSDKIssueBanner event={detailEvent} />
+            {hasIssueTags && <IssueTags tags={yesTags} />}
             <IssueSummary />
             <LinkedReports />
             <div className="flex-1 min-h-0 flex flex-col">
