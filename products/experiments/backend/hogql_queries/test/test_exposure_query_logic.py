@@ -159,6 +159,7 @@ class TestExposureCriteriaOnTheEvent:
             ("cohort", {"key": "id", "value": 1, "type": "cohort"}, False),
             ("hogql_on_the_person", {"key": "person.properties.plan = 'pro'", "type": "hogql"}, False),
             ("hogql_subquery", {"key": "distinct_id IN (SELECT distinct_id FROM events)", "type": "hogql"}, False),
+            ("hogql_in_cohort", {"key": "distinct_id IN COHORT 5", "type": "hogql"}, False),
             ("hogql_posthog_function", {"key": "matchesAction(1)", "type": "hogql"}, False),
             ("hogql_that_does_not_parse", {"key": "plan = (", "type": "hogql"}, False),
         ]

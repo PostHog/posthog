@@ -3497,7 +3497,7 @@ class ExperimentHealthInputsFlagHistorySerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', "
-            "'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were."
+            "'exposure_action', 'exposure_criteria', 'too_many_saves' or 'too_many_conditions'. Null when they were."
         ),
     )
     start_date = serializers.DateTimeField(

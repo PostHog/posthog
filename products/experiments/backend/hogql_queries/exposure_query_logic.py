@@ -429,7 +429,7 @@ def exposure_criteria_on_the_event(
     """
     The exposure criteria with only the property filters that read the exposure event itself, such as its properties
     or its timestamp. The other filters read persons, cohorts, sessions or groups. Their match can change after the
-    event, and a reader can be denied a property that they read.
+    event, and a reader can be denied a property that those filters read.
     """
     criteria = normalize_to_exposure_criteria(exposure_criteria)
     config = criteria.exposure_config if criteria else None
@@ -471,6 +471,12 @@ class _EventFieldsReader(TraversingVisitor):
         if find_hogql_function(node.name) is None:
             self.only_event_fields = False
         super().visit_call(node)
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        # `IN COHORT` reads the cohort's members, whatever field it compares.
+        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+            self.only_event_fields = False
+        super().visit_compare_operation(node)
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         self.only_event_fields = False

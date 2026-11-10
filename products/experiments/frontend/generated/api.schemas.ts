@@ -3714,7 +3714,7 @@ export interface ExperimentHealthInputsFlagHistoryApi {
     /** Whether the changes were compared with the exposures. False when not_checked_reason is set. */
     checked: boolean
     /**
-     * Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were.
+     * Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_action', 'exposure_criteria', 'too_many_saves' or 'too_many_conditions'. Null when they were.
      * @nullable
      */
     not_checked_reason: string | null
