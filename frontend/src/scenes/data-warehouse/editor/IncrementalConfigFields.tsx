@@ -2,6 +2,7 @@ import { useMountedLogic, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
 import { lemonDialogLogic } from 'lib/lemon-ui/LemonDialog/lemonDialogLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
@@ -43,6 +44,25 @@ const UNIQUE_KEY_LABEL = 'Unique key'
 const UNIQUE_KEY_HELP =
     'The columns that together identify a row, like a primary key. Rows that match on them are updated in place. Include every column the query groups by. Values here can never be empty.'
 const LOOKBACK_HELP = 'Include this much previously processed data in each run to catch late arrivals and updates.'
+
+/** Save-as-view form fields, keyed by the `blocked_keys` names the API reports for a refused config. */
+const BLOCKED_KEY_FORM_FIELDS: Record<string, string> = {
+    incremental_key: 'incrementalKey',
+    unique_key: 'incrementalUniqueKey',
+}
+
+/**
+ * The save-as-view form field that a refused incremental config names, with the error to show under
+ * it. The error detail is the first blocker, which belongs to the first blocked key.
+ */
+export function incrementalFieldErrorFromSave(error: unknown): { field: string; message: string } | null {
+    if (!(error instanceof ApiError) || error.status !== 400 || error.attr !== 'incremental' || !error.detail) {
+        return null
+    }
+    const blockedKeys: unknown = error.data?.extra?.blocked_keys
+    const field = Array.isArray(blockedKeys) ? BLOCKED_KEY_FORM_FIELDS[String(blockedKeys[0])] : undefined
+    return field ? { field, message: error.detail } : null
+}
 
 interface IncrementalConfigFieldsProps {
     queries: string[]
