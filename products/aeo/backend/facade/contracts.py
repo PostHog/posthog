@@ -67,6 +67,14 @@ MAX_RANKED_DOMAINS = 20
 MAX_RANKED_PAGES = 20
 
 
+class BrandedSegment(LabeledStrEnum):
+    """Which checks a set-level read counts, by whether the prompt as it ran names the brand."""
+
+    ALL = "all", "All"
+    BRANDED = "branded", "Branded"
+    NON_BRANDED = "non_branded", "Non-branded"
+
+
 @frozen
 class PromptEngineCheck:
     """The most recent check of one prompt against one answer engine."""
@@ -95,6 +103,8 @@ class Prompt:
     current_version: int
     version_count: int
     latest_checks: tuple[PromptEngineCheck, ...]
+    # Whether the current text names the brand, from the target domains at read time.
+    branded: bool
 
 
 @frozen
@@ -283,8 +293,12 @@ class PromptSetOverview:
     prompts_tracked: int
     target_domains: tuple[str, ...]
     brand_names: tuple[str, ...]
+    branded: BrandedSegment
     current: PromptSetCounts
     previous: PromptSetCounts
+    # Answered checks in the current window on each side of the split, whatever `branded` selects.
+    branded_answers: int
+    non_branded_answers: int
     engines: tuple[PromptSetEngineCounts, ...]
     topics: tuple[PromptSetTopicCounts, ...]
     top_domains: tuple[PromptSetDomain, ...]
@@ -520,6 +534,7 @@ class PromptSetRankings:
     days: int
     window_from: dt.date
     window_to: dt.date
+    branded: BrandedSegment
     answers: int
     brands: tuple[RankedBrand, ...]
     daily: tuple[RankedBrandDay, ...]

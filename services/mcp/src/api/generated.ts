@@ -150,6 +150,8 @@ export namespace Schemas {
       current_version: number;
       /** How many versions the prompt has. */
       version_count: number;
+      /** Whether the current text names the brand. Computed when read, so it follows changes to the target domains. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand. */
+      branded: boolean;
     }
 
     export interface AEOPromptAuthor {
@@ -481,6 +483,20 @@ export namespace Schemas {
       engines: string[];
     }
 
+    /**
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     */
+    export type BrandedSegmentEnum = typeof BrandedSegmentEnum[keyof typeof BrandedSegmentEnum];
+
+
+    export const BrandedSegmentEnum = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
+
     export interface AEOPromptSetOverview {
       /** Checks across the prompt set in the last 'days' days. */
       current: AEOPromptSetCounts;
@@ -506,6 +522,16 @@ export namespace Schemas {
       target_domains: string[];
       /** Lower-cased brand names, derived from the target domains. An answer that contains one of them as a word counts as a mention. */
       brand_names: string[];
+      /** Which checks every count covers: 'all', 'branded' or 'non_branded' prompts, as requested.
+       *
+       * * `all` - All
+       * * `branded` - Branded
+       * * `non_branded` - Non-branded */
+      branded: BrandedSegmentEnum;
+      /** Answered checks in the current window whose prompt named the brand, whatever 'branded' selects. The sample size behind the branded numbers. */
+      branded_answers: number;
+      /** Answered checks in the current window whose prompt did not name the brand, whatever 'branded' selects. The sample size behind the non-branded numbers. */
+      non_branded_answers: number;
     }
 
     export interface AEORankedBrand {
@@ -589,6 +615,12 @@ export namespace Schemas {
       window_from: string;
       /** Last day of the current window (today), in the project's timezone. */
       window_to: string;
+      /** Which checks every count covers: 'all', 'branded' or 'non_branded' prompts, as requested.
+       *
+       * * `all` - All
+       * * `branded` - Branded
+       * * `non_branded` - Non-branded */
+      branded: BrandedSegmentEnum;
       /** Answered checks in the current window: the denominator of every share. */
       answers: number;
     }
@@ -125943,6 +125975,11 @@ export namespace Schemas {
      */
     active?: boolean | null;
     /**
+     * Only list prompts whose current text names the brand (true) or does not (false). Omit to list both. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     * @nullable
+     */
+    branded?: boolean | null;
+    /**
      * Also list archived prompts. Archived prompts are left out by default.
      */
     include_archived?: boolean;
@@ -125999,14 +126036,14 @@ export namespace Schemas {
 
     export type AeoPromptsOverviewParams = {
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
      */
-    days?: number;
-    };
-
-    export type AeoPromptsRankingsParams = {
+    branded?: AeoPromptsOverviewBranded;
     /**
      * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
      * @minimum 1
@@ -126014,6 +126051,42 @@ export namespace Schemas {
      */
     days?: number;
     };
+
+    export type AeoPromptsOverviewBranded = typeof AeoPromptsOverviewBranded[keyof typeof AeoPromptsOverviewBranded];
+
+
+    export const AeoPromptsOverviewBranded = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
+
+    export type AeoPromptsRankingsParams = {
+    /**
+     * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoPromptsRankingsBranded;
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    };
+
+    export type AeoPromptsRankingsBranded = typeof AeoPromptsRankingsBranded[keyof typeof AeoPromptsRankingsBranded];
+
+
+    export const AeoPromptsRankingsBranded = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
 
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
     /**
