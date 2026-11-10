@@ -2,6 +2,7 @@ import { MOCK_SECOND_BASIC_USER } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -166,6 +167,7 @@ export const PropertyDefinitionUsage: Story = {
     parameters: {
         pageUrl: urls.propertyDefinition(MOCK_PROPERTY_DEFINITION.id),
         testOptions: { waitForLoadersToDisappear: true },
+        featureFlags: [FEATURE_FLAGS.DEFINITION_USAGE_SECTION],
     },
     decorators: [propertyUsageDecorator(4821, MOCK_INSIGHTS)],
 }
@@ -174,6 +176,7 @@ export const PropertyDefinitionUsageEmpty: Story = {
     parameters: {
         pageUrl: urls.propertyDefinition(MOCK_PROPERTY_DEFINITION.id),
         testOptions: { waitForLoadersToDisappear: true },
+        featureFlags: [FEATURE_FLAGS.DEFINITION_USAGE_SECTION],
     },
     decorators: [propertyUsageDecorator(0, [])],
 }
