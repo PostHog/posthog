@@ -26,4 +26,5 @@ ingestion/
 
 - Run cargo from `rust/`, the workspace root: `cargo test -p capture`. Cargo also resolves the workspace from inside a crate directory; `ingestion/rust/.cargo/config.toml` links to the workspace's build config so it applies there too.
 - `ingestion-rust.yml` decides what to build with `rust/affected-services --rules ingestion/ci/determinator-rules.toml`, so a change to `rust/common` runs exactly the ingestion crates that depend on it.
-- The images build from the repository root with `rust/Dockerfile`; `ingestion/ci/images.yml` lists them.
+- The images build from the repository root with `rust/Dockerfile` and `ingestion/node/Dockerfile`; `ingestion/ci/images.yml` lists them.
+- The hog engine is CDP's: `publish-hog-engine-npm.yml` publishes `@posthog/hog-engine` from master and `bump-hog-engine.yml` opens the PR that moves ingestion's pin. The pin replaces the `workspace:*` dependency in `packages/ingestion/package.json` once the first version is on npm.

@@ -1,0 +1,91 @@
+name: Publish @posthog/hog-engine to npm
+
+# CDP's hog transformation engine is consumed by ingestion at a pinned version, so a change to it
+# on master publishes a new patch version; bump-hog-engine.yml then opens the pin PR. The version
+# base is read live from npm, as publish-quill-npm.yml does, so nothing is committed back.
+
+on:
+    workflow_dispatch:
+    push:
+        branches: [master]
+        paths:
+            - 'nodejs/packages/hog-engine/**'
+            - '.github/workflows/publish-hog-engine-npm.yml'
+
+permissions:
+    contents: read
+
+# The bump base is read live from npm, so two concurrent runs could publish the same version.
+concurrency:
+    group: ${{ github.workflow }}
+    cancel-in-progress: false
+
+env:
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
+
+jobs:
+    publish:
+        name: Build and publish
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        if: github.repository == 'PostHog/posthog'
+        environment: Release
+        permissions:
+            contents: read
+            id-token: write
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter "@posthog/hog-engine..."
+
+            - name: Set up npm for trusted publishing
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/setup-node@v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  registry-url: https://registry.npmjs.org
+
+            - name: Ensure modern npm (OIDC trusted publishing support)
+              run: npm install -g npm@11.6.4
+
+            - name: Bump the version from the latest on npm
+              working-directory: nodejs/packages/hog-engine
+              run: |
+                  set -euo pipefail
+                  if versions_json=$(npm view "@posthog/hog-engine" versions --json 2>/tmp/npm-view-err); then
+                      base=$(printf '%s' "$versions_json" | node -e '
+                          const vs = JSON.parse(require("fs").readFileSync(0, "utf8"))
+                          const list = Array.isArray(vs) ? vs : [vs]
+                          const key = (v) => v.split(".").map(Number)
+                          console.log(list.filter((v) => /^\d+\.\d+\.\d+$/.test(v)).sort((a, b) => { const [x, y] = [key(a), key(b)]; for (let i = 0; i < 3; i++) { if (x[i] !== y[i]) return x[i] - y[i] } return 0 }).pop() || "")')
+                  elif grep -q "E404" /tmp/npm-view-err; then
+                      base=""
+                  else
+                      echo "::error::npm view @posthog/hog-engine versions failed (not a 404):" >&2
+                      cat /tmp/npm-view-err >&2
+                      exit 1
+                  fi
+                  if [ -n "$base" ]; then
+                      npm version "$base" --no-git-tag-version --allow-same-version >/dev/null
+                      npm version patch --no-git-tag-version >/dev/null
+                  else
+                      npm version 0.1.0 --no-git-tag-version --allow-same-version >/dev/null
+                  fi
+                  echo "Publishing @posthog/hog-engine $(node -p "require('./package.json').version")"
+
+            - name: Build
+              run: bin/turbo --filter=@posthog/hog-engine build
+
+            # pnpm pack rewrites the workspace: specifiers to the versions the workspace holds; the
+            # peers (node-common, the native hogvm binding) stay as `*` for the host to provide.
+            - name: Publish
+              working-directory: nodejs/packages/hog-engine
+              env:
+                  NODE_AUTH_TOKEN: ''
+                  NPM_CONFIG_PROVENANCE: true
+              run: |
+                  TARBALL="$(pnpm pack | tail -1)"
+                  npm publish "$TARBALL" --access public

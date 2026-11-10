@@ -1,7 +1,6 @@
 {
     "name": "@posthog/hog-engine",
     "version": "0.0.0",
-    "private": true,
     "description": "The hog transformation engine: hog function execution, legacy plugins, inputs, monitoring and the types behind them.",
     "repository": {
         "type": "git",
@@ -9,6 +8,13 @@
         "directory": "nodejs/packages/hog-engine"
     },
     "license": "MIT",
+    "files": [
+        "dist",
+        "assets"
+    ],
+    "publishConfig": {
+        "access": "public"
+    },
     "exports": {
         "./types": {
             "types": "./dist/types.d.ts",
@@ -19,10 +25,6 @@
             "default": "./dist/*.js"
         }
     },
-    "files": [
-        "dist",
-        "assets"
-    ],
     "scripts": {
         "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
         "typescript:check": "tsc --noEmit -p .",
@@ -33,14 +35,17 @@
         "format:check": "prettier --check .",
         "prepublishOnly": "pnpm build"
     },
+    "engines": {
+        "node": ">=26 <27"
+    },
     "peerDependencies": {
+        "@posthog/hogvm-node": "*",
         "@posthog/node-common": "*"
     },
     "dependencies": {
         "@google-cloud/pubsub": "4.11.0",
         "@google-cloud/storage": "5.20.5",
         "@posthog/hogvm": "workspace:*",
-        "@posthog/hogvm-node": "workspace:*",
         "detect-browser": "5.3.0",
         "fernet-nodejs": "1.0.6",
         "jsonwebtoken": "9.0.2",
@@ -52,6 +57,7 @@
     },
     "devDependencies": {
         "@maxmind/geoip2-node": "3.5.0",
+        "@posthog/hogvm-node": "workspace:*",
         "@posthog/node-common": "workspace:*",
         "@trivago/prettier-plugin-sort-imports": "^5.2.2",
         "@types/jest": "30.0.0",
@@ -72,8 +78,5 @@
         "tsc-alias": "1.8.16",
         "tsconfig-paths": "4.2.0",
         "typescript": "6.0.3"
-    },
-    "engines": {
-        "node": ">=26 <27"
     }
 }
