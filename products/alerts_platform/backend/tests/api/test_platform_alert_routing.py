@@ -13,8 +13,15 @@ from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.logic.alert_routes import routed_receivers
 from products.alerts_platform.backend.models import AlertReceiver
+from products.alerts_platform.backend.presentation.views.platform_alert import SOURCE_KIND_RESOURCE
 
 _WEBHOOK = {"type": "webhook", "webhook_url": "https://example.com/hooks/secret-token"}
+# Built from the source list, so a key in this test keeps covering every source when a new one is added.
+_EVERY_SOURCE_WRITE_SCOPES = [
+    "alert:write",
+    "insight:write",
+    *sorted({f"{resource}:write" for resource in SOURCE_KIND_RESOURCE.values()}),
+]
 
 
 class TestPlatformAlertRouting(APIBaseTest):
@@ -91,12 +98,7 @@ class TestPlatformAlertRouting(APIBaseTest):
             ("routing_flag_off", None, False, status.HTTP_403_FORBIDDEN),
             ("member_who_is_not_an_org_admin", None, True, status.HTTP_403_FORBIDDEN),
             ("key_without_source_scopes", ["alert:read", "alert:write"], True, status.HTTP_403_FORBIDDEN),
-            (
-                "key_with_every_source_scope",
-                ["alert:write", "logs:write", "metrics:write", "external_data_source:write", "insight:write"],
-                True,
-                status.HTTP_201_CREATED,
-            ),
+            ("key_with_every_source_scope", _EVERY_SOURCE_WRITE_SCOPES, True, status.HTTP_201_CREATED),
         ]
     )
     def test_writing_routing_needs_the_flag_an_org_admin_and_every_source(
