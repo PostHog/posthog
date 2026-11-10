@@ -841,7 +841,7 @@ describe('SesWebhookHandler', () => {
         Timestamp: '2025-10-03T12:10:00Z',
         SignatureVersion: '1',
         Signature: 'fake',
-        SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+        SigningCertURL: 'https://sns.us-east-1.amazonaws.com/SimpleNotificationService-0123456789abcdef.pem',
     })
 
     it('confirms SubscriptionConfirmation with valid SNS SubscribeURL', async () => {
@@ -882,7 +882,7 @@ describe('SesWebhookHandler', () => {
     })
 
     describe('the SNS signing certificate', () => {
-        const certUrl = 'https://sns.us-east-1.amazonaws.com/cert.pem'
+        const certUrl = 'https://sns.us-east-1.amazonaws.com/SimpleNotificationService-0123456789abcdef.pem'
         const deliverSigned = (signingCertUrl = certUrl): ReturnType<SesWebhookHandler['handleWebhook']> => {
             const envelope = {
                 Type: 'Notification',
@@ -896,6 +896,13 @@ describe('SesWebhookHandler', () => {
             signEnvelope(envelope)
             return handler.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
         }
+
+        const otherCertUrls = (count: number): string[] =>
+            Array.from(
+                { length: count },
+                (_, i) =>
+                    `https://sns.us-east-1.amazonaws.com/SimpleNotificationService-${i.toString(16).padStart(16, 'f')}.pem`
+            )
 
         const statuses = async (urls: string[]): Promise<number[]> => {
             const results: number[] = []
@@ -912,10 +919,7 @@ describe('SesWebhookHandler', () => {
         })
 
         it('is no longer reused once more distinct certificates than the cache holds came after it', async () => {
-            const urls = Array.from(
-                { length: SNS_SIGNING_CERT_CACHE_SIZE + 1 },
-                (_, i) => `https://sns.us-east-1.amazonaws.com/cert-${i}.pem`
-            )
+            const urls = otherCertUrls(SNS_SIGNING_CERT_CACHE_SIZE + 1)
             expect(await statuses(urls)).toEqual(urls.map(() => 200))
             snsAvailable = false
             expect(await statuses([urls[0], urls[urls.length - 1]])).toEqual([403, 200])
@@ -926,14 +930,22 @@ describe('SesWebhookHandler', () => {
             snsHeldResponses.set(certUrl, new Promise((resolve) => (releaseDownload = resolve)))
             const pending = deliverSigned()
 
-            const others = Array.from(
-                { length: SNS_SIGNING_CERT_CACHE_SIZE },
-                (_, i) => `https://sns.us-east-1.amazonaws.com/cert-${i}.pem`
-            )
+            const others = otherCertUrls(SNS_SIGNING_CERT_CACHE_SIZE)
             expect(await statuses(others)).toEqual(others.map(() => 200))
             releaseDownload()
 
             expect((await pending).status).toBe(200)
+        })
+
+        it.each([
+            [
+                'an extra leading slash',
+                'https://sns.us-east-1.amazonaws.com//SimpleNotificationService-0123456789abcdef.pem',
+            ],
+            ['a file SNS does not serve', 'https://sns.us-east-1.amazonaws.com/evil.pem'],
+            ['a nested path', 'https://sns.us-east-1.amazonaws.com/a/SimpleNotificationService-0123456789abcdef.pem'],
+        ])('rejects a correctly signed envelope whose certificate URL has %s', async (_label, url) => {
+            expect(await statuses([url])).toEqual([403])
         })
 
         it('is downloaded again after a failed download', async () => {
@@ -954,7 +966,7 @@ describe('SesWebhookHandler', () => {
             Timestamp: '2025-10-03T12:10:00Z',
             SignatureVersion: '1',
             Signature: 'forged',
-            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/SimpleNotificationService-0123456789abcdef.pem',
         })
         const ignoredCount = async (): Promise<number> => {
             const metric = await register.getSingleMetric('ses_webhook_ignored_notifications_total')?.get()
@@ -1071,7 +1083,7 @@ describe('SesWebhookHandler', () => {
             Timestamp: '2025-10-03T12:10:00Z',
             SignatureVersion: '1',
             Signature: 'fake',
-            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/SimpleNotificationService-0123456789abcdef.pem',
         }
         const result = await handler.handleWebhook({ body: snsEnvelope, headers: {}, verifySignature: false })
         expect(result.status).toBe(200)
@@ -1374,7 +1386,7 @@ describe('SesWebhookHandler', () => {
             Timestamp: '2025-10-03T12:10:00Z',
             SignatureVersion: '1',
             Signature: 'stubbed',
-            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/SimpleNotificationService-0123456789abcdef.pem',
         })
 
         const globalBounce = {

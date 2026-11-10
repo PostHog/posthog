@@ -572,6 +572,7 @@ const UNSIGNED_RAW_DELIVERY = { status: 403, body: { error: 'Unsigned raw delive
 export const SNS_SIGNING_CERT_CACHE_SIZE = 32
 
 const SNS_HOSTNAME = /^sns\.[a-z0-9-]+\.amazonaws\.com$/
+const SNS_CERT_PATH = /^\/SimpleNotificationService-[A-Za-z0-9]{8,64}\.pem$/
 
 const parseSnsUrl = (url: string): URL | undefined => {
     const parsed = URL.parse(url)
@@ -580,7 +581,7 @@ const parseSnsUrl = (url: string): URL | undefined => {
 
 const canonicalSnsCertUrl = (url: string): string | undefined => {
     const parsed = parseSnsUrl(url)
-    return parsed?.pathname.endsWith('.pem') ? `https://${parsed.hostname}${parsed.pathname}` : undefined
+    return parsed && SNS_CERT_PATH.test(parsed.pathname) ? `https://${parsed.hostname}${parsed.pathname}` : undefined
 }
 
 export class SesWebhookHandler {
