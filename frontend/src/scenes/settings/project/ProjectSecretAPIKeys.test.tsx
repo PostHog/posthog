@@ -7,7 +7,9 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
@@ -84,6 +86,44 @@ describe('<ProjectSecretAPIKeys />', () => {
             }
         }
     )
+
+    it.each([
+        {
+            description: 'under the field it names',
+            attr: 'label',
+            detail: "Project secret API key with label 'CI' already exists.",
+            expectedManualErrors: { label: "Project secret API key with label 'CI' already exists." },
+            expectedToasts: [],
+        },
+        {
+            description: 'as a toast when it names no field',
+            attr: null,
+            detail: 'You can only have 50 project secret API keys. Remove an existing key before creating a new one.',
+            expectedManualErrors: {},
+            expectedToasts: [
+                ['You can only have 50 project secret API keys. Remove an existing key before creating a new one.'],
+            ],
+        },
+    ])('shows a server error $description', async ({ attr, detail, expectedManualErrors, expectedToasts }) => {
+        jest.spyOn(api.projectSecretApiKeys, 'create').mockRejectedValue(
+            new ApiError(detail, 400, undefined, { type: 'validation_error', code: 'invalid_input', detail, attr })
+        )
+        const toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
+        logic.actions.setEditingKeyId('new')
+        logic.actions.setEditingKeyValues({ label: 'CI', scopes: ['endpoint:read'] })
+
+        await logic.asyncActions.submitEditingKey()
+
+        expect(logic.values.editingKeyManualErrors).toEqual(expectedManualErrors)
+        expect(logic.values.isEditingKeySubmitting).toBe(false)
+        expect(logic.values.editingKeyId).toBe('new')
+        expect(toastError.mock.calls).toEqual(expectedToasts)
+
+        logic.actions.setEditingKeyValue('label', 'CI 2')
+
+        expect(logic.values.editingKeyManualErrors).toEqual({})
+        expect(logic.values.editingKeyHasErrors).toBe(false)
+    })
 
     it('names the recipient preference row and says it cannot send email', () => {
         expect(logic.values.filteredScopes.find(({ key }) => key === 'messaging_preference')).toMatchObject({
