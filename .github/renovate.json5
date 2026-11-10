@@ -143,48 +143,19 @@
     {
       matchManagers: ['cargo'],
       matchUpdateTypes: ['minor', 'patch'],
-      groupName: '{{manager}} non-major',
+      groupName: 'cargo non-major',
     },
     // Directories with their own lock file. Digest updates join the group because a pseudo-version
     // pin (such as x/vt in tools/phrocs) can depend on the same libraries as its tagged neighbors
     {
       matchManagers: ['cargo', 'gomod'],
       matchUpdateTypes: ['minor', 'patch', 'digest'],
-      matchFileNames: [
-        '**/go.mod',
-        'cli/**',
-        'funnel-udf/**',
-        'rust/common/hogvm/node/Cargo.toml',
-        'services/llm-gateway/**',
-        'services/stripe-mock/**',
-        'tools/hedgebox-dummy/**',
-        'frontend/@posthog/lemon-ui/**',
-        'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/**',
-        '.depot/actions/paths-filter/**',
-        '.github/actions/paths-filter/**',
-        '.github/actions/shared-image-releases/**',
-        'products/canvas/packages/canvas_builder/**',
-        'products/visual_review/cli/**',
-        'rust/batch-import-worker/scripts/**',
-      ],
+      matchFileNames: ['**/go.mod', 'cli/**', 'funnel-udf/**', 'rust/common/hogvm/node/Cargo.toml'],
       groupName: '{{manager}} non-major in {{packageFileDir}}',
     },
-    {
-      matchManagers: ['cargo', 'gomod'],
-      matchUpdateTypes: ['minor', 'patch'],
-      matchFileNames: ['products/desktop/**', 'packages/agent/**'],
-      groupName: "{{manager}} non-major in {{lookup (split packageFileDir '/') 0}}/{{lookup (split packageFileDir '/') 1}}",
-    },
-    // Dagster packages require matching exact versions.
-    {
-      matchManagers: ['pep621'],
-      matchUpdateTypes: ['minor', 'patch'],
-      matchPackageNames: ['dagster*'],
-      groupName: 'python dagster non-major',
-    },
     // Keep in sync with minimumReleaseAgeExclude in pnpm-workspace.yaml. pnpm does not check these
-    // versions, so stamphog never approves them. Their own group keeps them out of the groups above,
-    // which stamphog can approve. This rule comes after those groups so that its groupName wins.
+    // versions, so stamphog never approves them. Their own group keeps them out of the
+    // per-package and preset family groups, which stamphog can approve.
     // Majors stay in their own PRs and keep the 7-day wait
     {
       matchDatasources: ['npm'],
@@ -217,6 +188,27 @@
       matchCurrentVersion: '/^v?0\\./',
       groupName: null,
       automerge: false,
+    },
+    // Each package in these groups requires an exact version of another package in the group, so
+    // they must update together. The rules come after the 0.x rule because some Dagster libraries
+    // are 0.x and must stay in the group on a minor update
+    {
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: ['dagster*'],
+      groupName: 'python dagster non-major',
+    },
+    {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: ['@connectrpc/connect', '@connectrpc/connect-node'],
+      groupName: 'npm connectrpc non-major',
+    },
+    {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: ['@bufbuild/protobuf', '@bufbuild/protoc-gen-es'],
+      groupName: 'npm protobuf-es non-major',
     },
     {
       matchDepTypes: ['requires-python', 'packageManager'],
