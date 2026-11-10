@@ -958,7 +958,9 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             cache.disposables.add(
                 () => {
                     const onFocus = (): void => {
-                        if (values.dataWarehouseSavedQueriesLoaded && !values.dataWarehouseSavedQueriesLoading) {
+                        // A failed load clears `dataWarehouseSavedQueriesLoaded`, so do not gate on it, or one
+                        // failed refresh would stop every later one.
+                        if (!values.dataWarehouseSavedQueriesLoading) {
                             actions.refreshAfterWindowFocus()
                         }
                     }

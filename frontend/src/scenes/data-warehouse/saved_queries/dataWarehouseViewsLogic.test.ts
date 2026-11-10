@@ -143,6 +143,33 @@ describe('dataWarehouseViewsLogic', () => {
         }
     })
 
+    it('keeps refreshing on window focus after a failed focus refresh', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+
+        useMocks({ get: { '/api/projects/:team_id/warehouse_saved_queries/': [500, {}] } })
+        await expectLogic(logic, () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+            .toDispatchActions(['refreshAfterWindowFocus', 'loadDataWarehouseSavedQueriesFailure'])
+            .toFinishAllListeners()
+
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_saved_queries/': () => [
+                    200,
+                    { results: [{ id: 'view-1', name: 'view_1', columns: [] }] },
+                ],
+            },
+        })
+        await expectLogic(logic, () => {
+            window.dispatchEvent(new Event('focus'))
+        })
+            .toDispatchActions(['refreshAfterWindowFocus', 'loadDataWarehouseSavedQueriesSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.dataWarehouseSavedQueries.map((view) => view.id)).toEqual(['view-1'])
+    })
+
     // Regression: deleting a view that's already gone (double DELETE, stale list, double-click) is
     // the outcome the user asked for, so a 404 must resolve as success — not throw an error toast.
     it('treats a 404 on delete as success', async () => {
