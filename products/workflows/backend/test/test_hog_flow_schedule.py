@@ -7,6 +7,7 @@ from typing import Any
 import unittest.mock
 from posthog.test.base import APIBaseTest
 
+from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 from django.utils import timezone
@@ -640,10 +641,10 @@ def _worker_response(status_code: int, body: dict[str, Any]) -> requests.Respons
 class _ManualRunWorker:
     ROUTE = re.compile(re.escape(CDP_API_URL) + r"/api/projects/(\d+)/hog_flows/([^/]+)/manual_invocations")
 
-    def __init__(self, signing_keys: list[str], refusal: tuple[int, str] | None = None) -> None:
-        self.signing_keys = signing_keys
+    def __init__(self, signing_keys: list[str] | None = None, refusal: tuple[int, str] | None = None) -> None:
+        self.signing_keys = signing_keys if signing_keys is not None else list(settings.WORKFLOWS_CANCEL_JWT_SECRETS)
         self.refusal = refusal
-        self.runs: list[dict[str, Any]] = []
+        self.runs: dict[str, dict[str, Any]] = {}
 
     def post(self, url: str, json: Any = None, headers: dict[str, str] | None = None, **_: Any) -> requests.Response:
         route = self.ROUTE.fullmatch(url)
@@ -668,15 +669,12 @@ class _ManualRunWorker:
             refusal_status, message = self.refusal
             return _worker_response(refusal_status, {"error": message})
         invocation_id = str(uuid.uuid4())
-        self.runs.append(
-            {
-                "team_id": team_id,
-                "hog_flow_id": hog_flow_id,
-                "user_id": user_id,
-                "variables": variables,
-                "invocation_id": invocation_id,
-            }
-        )
+        self.runs[invocation_id] = {
+            "team_id": team_id,
+            "hog_flow_id": hog_flow_id,
+            "user_id": user_id,
+            "variables": variables,
+        }
         return _worker_response(200, {"status": "queued", "invocation_id": invocation_id})
 
     def _verified_claims(self, authorization: str) -> dict[str, Any] | None:
@@ -779,11 +777,10 @@ class TestHogFlowRun(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         mock_invocation.assert_not_called()
 
-    def _start_manual_run_worker(self, **worker_setup: Any) -> _ManualRunWorker:
-        # The plugin server's dev and test key, from nodejs/src/cdp/config.ts.
-        worker = _ManualRunWorker(signing_keys=["local-dev-workflows-cancel-jwt"])
-        for name, value in worker_setup.items():
-            setattr(worker, name, value)
+    def _start_manual_run_worker(
+        self, signing_keys: list[str] | None = None, refusal: tuple[int, str] | None = None
+    ) -> _ManualRunWorker:
+        worker = _ManualRunWorker(signing_keys=signing_keys, refusal=refusal)
         transport = unittest.mock.patch("posthog.plugins.plugin_server_api.internal_requests.post", worker.post)
         transport.start()
         self.addCleanup(transport.stop)
@@ -796,15 +793,15 @@ class TestHogFlowRun(APIBaseTest):
         response = self.client.post(self._run_url(workflow.id), {"variables": {"name": "Ada"}}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert len(worker.runs) == 1
-        assert worker.runs[0] == {
-            "team_id": self.team.id,
-            "hog_flow_id": str(workflow.id),
-            "user_id": self.user.email,
-            "variables": {"greeting": "Hello", "name": "Ada"},
-            "invocation_id": worker.runs[0]["invocation_id"],
+        assert response.json()["status"] == "queued"
+        assert worker.runs == {
+            response.json()["invocation_id"]: {
+                "team_id": self.team.id,
+                "hog_flow_id": str(workflow.id),
+                "user_id": self.user.email,
+                "variables": {"greeting": "Hello", "name": "Ada"},
+            }
         }
-        assert response.json() == {"status": "queued", "invocation_id": worker.runs[0]["invocation_id"]}
 
     @unittest.mock.patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_manual_invocation")
     def test_run_refuses_a_manual_trigger_for_a_workflows_viewer(self, mock_manual_invocation, mock_invocation):
