@@ -49,10 +49,10 @@ export function AccountDotMatrixTile({
     return (
         <div className="flex flex-col gap-3 min-w-0" data-attr="account-dot-matrix-tile">
             {sourceKind === null ? (
-                <>
+                <div className="flex flex-col items-start gap-3 px-4 pt-2 pb-4">
                     <p className="text-secondary mb-0">Choose a data source to show activity in this tile.</p>
                     <DotMatrixSourcePicker id={`${generatedId}-source`} value={null} onChange={chooseSource} />
-                </>
+                </div>
             ) : (
                 <>
                     <DotMatrixTileSettings logic={logic} />

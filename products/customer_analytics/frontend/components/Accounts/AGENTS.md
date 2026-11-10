@@ -38,6 +38,7 @@ Account tiles and the book grid share setup-specific empty messages from `../Pro
 Custom HogQL matrices cap columns times series at 512 glyph slots per row. Chronological columns keep the most recent periods, and the bound notice explains omitted columns.
 Account tile queries use metadata-only query telemetry for every source, including custom HogQL. Query contents and translated SQL stay out of analytics events.
 Account activity matrices use its embedded mode edge to edge inside view cards and hide legend filter instructions.
+Unconfigured tiles keep an inset setup state with a source picker sized to its content.
 `AccountViewTileHeaderActions` places widget-owned controls in the enclosing tile header, with an inline fallback outside a tile.
 `DotMatrixTileSettings` uses this slot for the Options gear and custom-query edit action.
 Product grouping and first-use controls share a left-aligned, inset row with a focusable activity-definition info icon.
