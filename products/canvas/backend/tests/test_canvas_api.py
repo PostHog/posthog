@@ -1130,6 +1130,13 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
                 status.HTTP_403_FORBIDDEN,
             ),
             (
+                "build_malformed_action",
+                "post",
+                "builds/action/",
+                {"build_id": str(uuid4()), "action": ["retry"]},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
                 "build_cancel",
                 "post",
                 "builds/action/",

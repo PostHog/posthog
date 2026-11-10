@@ -50,7 +50,9 @@ def blocks_session_action(action: str | None, data: Any) -> bool:
     if action == "partial_update" and isinstance(data, dict):
         return not EXPERIMENT_SESSION_BLOCKED_UPDATE_FIELDS.isdisjoint(data)
     if action == "build_action" and isinstance(data, dict):
-        return data.get("action") in EXPERIMENT_SESSION_BLOCKED_BUILD_ACTIONS
+        # The body is not validated yet, and an unhashable value would raise on the membership check.
+        build_action = data.get("action")
+        return isinstance(build_action, str) and build_action in EXPERIMENT_SESSION_BLOCKED_BUILD_ACTIONS
     return False
 
 
