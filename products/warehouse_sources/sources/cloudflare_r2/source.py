@@ -74,7 +74,7 @@ class CloudflareR2Source(ObjectStorageSource[CloudflareR2SourceConfig]):
             label="Cloudflare R2",
             caption=source_caption("a Cloudflare R2 bucket"),
             iconPath="/static/services/cloudflare.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
