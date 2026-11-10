@@ -17,6 +17,9 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Integration, User
 from posthog.models.user_integration import UserIntegration
 
+from products.signals.backend.facade.testing import claim_trial
+from products.signals.backend.models import SignalReport
+from products.signals.backend.task_run_artefacts import record_report_task
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR
 from products.tasks.backend.facade import (
     access as tasks_access,
@@ -36,6 +39,7 @@ from products.tasks.backend.models import (
     SandboxEnvironment,
     SandboxSession,
     Task,
+    TaskClientProvenance,
     TaskRun,
 )
 from products.tasks.backend.redis import get_tasks_cache
@@ -815,7 +819,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         )
         return task, run
 
-    def _create(self, **data):
+    def _create(self, client_provenance: TaskClientProvenance | None = None, **data):
         validated = {
             "description": "fix the bug",
             "repository": "posthog/posthog",
@@ -823,7 +827,9 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             "branch": "main",
         }
         validated.update(data)
-        return facade.create_task(self.team.id, self.user.id, validated_data=validated)
+        return facade.create_task(
+            self.team.id, self.user.id, validated_data=validated, client_provenance=client_provenance
+        )
 
     def _report_warm_run(self, report, *, github_integration: Integration | None = None) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
@@ -1046,6 +1052,16 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
         assert str(dto.id) == str(warm_task.id)
         assert Task.objects.filter(team=self.team, deleted=False).count() == 1
+
+    def test_claiming_a_warm_task_records_the_client(self):
+        warm_task, _run = self._warm_run()
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            dto = self._create(client_provenance=TaskClientProvenance.POSTHOG_WEB)
+
+        assert str(dto.id) == str(warm_task.id)
+        warm_task.refresh_from_db()
+        assert warm_task.last_client == TaskClientProvenance.POSTHOG_WEB
+        assert warm_task.last_client_at is not None
 
     def test_reuses_matching_posthog_ai_warm_task(self):
         warm_task, run = self._warm_run(
@@ -2043,6 +2059,45 @@ class TestRunTaskWarmActivation(APIBaseTest):
         run.refresh_from_db()
         assert "await_user_message" not in run.state
         assert run.state.get("auto_publish") is True
+
+    @parameterized.expand([("interactive", True), ("background", False)])
+    def test_report_warm_reuse_preserves_billing_mode(self, mode: str, reuse: bool) -> None:
+        report = SignalReport.objects.create(team=self.team)
+        task = Task.objects.create(
+            team=self.team,
+            title="Implement report",
+            origin_product="signal_report",
+            signal_report=report,
+            created_by=self.user,
+        )
+        record_report_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        warm = task.create_run(mode="interactive", extra_state={"await_user_message": True})
+        with (
+            patch(
+                "products.signals.backend.trial.policy.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == "self-driving-ubp",
+            ),
+            patch(f"{FACADE}.signal_task_run_user_message", return_value=True),
+            patch(f"{FACADE}._trigger_task_processing_workflow", return_value=None),
+        ):
+            grant_id = claim_trial(team=self.team, user_id=self.user.id)
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": mode, "pending_user_message": "Implement this report"},
+            )
+        assert result is not None and result.error is None and result.run_error is None
+        assert result.run_id is not None
+        assert (result.run_id == warm.id) is reuse
+        run = TaskRun.objects.get(id=result.run_id)
+        if reuse:
+            assert run.state["billing_product"] == "posthog_ai"
+            assert "self_driving_funding" not in run.state
+        else:
+            assert run.state["self_driving_funding"]["grant_id"] == str(grant_id)
+            warm.refresh_from_db()
+            assert warm.state["billing_product"] == "posthog_ai"
 
     @parameterized.expand([("run_task",), ("user_message",)])
     def test_first_message_to_a_warm_run_logs_a_live_sibling_once(self, activation: str) -> None:

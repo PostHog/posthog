@@ -47,8 +47,6 @@ from products.signals.backend.activity_summary.read import (
 from products.signals.backend.activity_summary.search import (
     ActivitySummarySearchResult as ActivitySummarySearchResult,
     MatchKind as MatchKind,
-    SearchMode as SearchMode,
-    SemanticSearchUnavailable as SemanticSearchUnavailable,
     search_summaries,
 )
 from products.signals.backend.anomaly_scores import search as anomaly_search
@@ -78,6 +76,10 @@ from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalS
 from products.signals.backend.facade.source_scouts import (
     SOURCE_TEMPLATE_HASH_METADATA_KEY,
     SOURCE_TEMPLATE_METADATA_KEY,
+)
+from products.signals.backend.hybrid_search import (
+    SearchMode as SearchMode,
+    SemanticSearchUnavailable as SemanticSearchUnavailable,
 )
 from products.signals.backend.inbox_summary import (
     INBOX_SUMMARY_PERIOD as INBOX_SUMMARY_PERIOD,
@@ -137,7 +139,12 @@ from products.signals.backend.scout_harness.workflow_runs import (
     start_workflow_scout_run as start_workflow_scout_run,
 )
 from products.signals.backend.signal_metadata import SourceSliceSignalStats, fetch_signal_stats_for_source_slice
-from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids, signal_id_for
+from products.signals.backend.spend import (
+    begin_signal_spend,
+    complete_signal_pipeline,
+    finalized_signal_ids,
+    signal_id_for,
+)
 from products.signals.backend.spend_billing import system_source_exempt
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
@@ -1026,6 +1033,9 @@ async def emit_signal(
     )
     if await database_sync_to_async(finalized_signal_ids)(team_id=team.id, signal_ids=[signal_id]):
         return False
+
+    if system_source_exempt(source_product):
+        await database_sync_to_async(begin_signal_spend)(team_id=team.id, signal_id=signal_id, billing_exempt=True)
 
     # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
     # counted against, so a steering drop reads apart from a dispatch failure rather than as one.
