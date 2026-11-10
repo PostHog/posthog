@@ -52,7 +52,6 @@ export interface ApiRedactedPersonalApiKey {
     // The tools a run with a picked tool list holds. Absent means no per-tool policy.
     mcp_allowed_tools?: string[]
     supports_step_up?: boolean
-    // The credential's owner. Only returned to the credential itself, and absent from an older backend.
     user_distinct_id?: string | null
     current_organization_id?: string | null
     current_team_id?: number | null

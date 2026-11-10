@@ -2577,10 +2577,8 @@ def _active_access_token_response(
         data["client_id"] = application.client_id
         data["client_name"] = application.name
     if self_introspecting_user is not None:
-        # The MCP server reads these to attribute analytics and pick a default project without
-        # calling /api/users/@me/, which needs `user:read`. A token already acts as its own user,
-        # so this reveals nothing new to it. Never set these for another token: a caller holding
-        # the `introspection` scope can read other users' tokens from the same application.
+        # Only for self-introspection: a caller with the `introspection` scope can read other
+        # users' tokens from the same application.
         data["user_distinct_id"] = self_introspecting_user.distinct_id
         data["current_organization_id"] = (
             str(self_introspecting_user.current_organization_id)

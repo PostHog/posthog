@@ -238,11 +238,6 @@ export class StateManager {
         return _distinctId
     }
 
-    /**
-     * The credential's owner, read from the token introspection or `@current` key response, which
-     * need no scope. `/api/users/@me/` needs `user:read`, so it is only a fallback for a backend
-     * that does not return the owner yet.
-     */
     private async _getOwner(): Promise<CredentialOwner> {
         const apiKey = await this.getApiKey()
         if (apiKey.user_distinct_id) {
@@ -256,8 +251,8 @@ export class StateManager {
                 teamId: user.team?.id ?? null,
             }
         } catch (error) {
-            // An OAuth token's key state is cached for the token's life, so a token cached before
-            // the backend returned the owner never sees the new fields. Fetch it again once here.
+            // OAuth key state is cached for the token's life, so an entry cached before the
+            // backend returned the owner never gets it without a fresh fetch.
             if (!findPostHogPermissionError(error)) {
                 throw error
             }
@@ -571,7 +566,6 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            // A credential without the scope for this lookup is an expected state, not a fault.
             if (!(opts.expectTimeouts && hasTimeoutCause(error)) && !findPostHogPermissionError(error)) {
                 this._reportException(error, `get_or_fetch_${opts.name}`)
             }

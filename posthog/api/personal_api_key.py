@@ -179,8 +179,6 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         ]
 
     def _owner(self, obj: PersonalAPIKey) -> User:
-        # Every key this serializer sees belongs to the requesting user, so reuse the loaded
-        # user instead of lazy-loading `obj.user` once per key in a list.
         request = self.context.get("request")
         if request is not None and request.user.id == obj.user_id:
             return request.user
