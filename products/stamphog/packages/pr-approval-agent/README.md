@@ -16,13 +16,13 @@ The stamphog product in [`products/stamphog/`](../../../stamphog/) runs `review_
 
 ## Verdicts
 
-| Verdict  | Meaning                                                                                                            |
-| -------- | ------------------------------------------------------------------------------------------------------------------ |
-| APPROVED | The gates passed and the reviewer found no showstoppers                                                            |
-| REFUSED  | A gate denied the PR (deny-list, size, bot author, pending migration check) or the reviewer found a concrete issue |
-| ESCALATE | Only a human can rule out a showstopper                                                                            |
-| WAIT     | No verdict yet: a reviewer bot or a CI check is pending                                                            |
-| ERROR    | The run could not produce a verdict                                                                                |
+| Verdict  | Meaning                                                                                                     |
+| -------- | ----------------------------------------------------------------------------------------------------------- |
+| APPROVED | The gates passed and the reviewer found no showstoppers                                                     |
+| REFUSED  | A gate denied the PR (deny-list, size, bot author, pending CI check) or the reviewer found a concrete issue |
+| ESCALATE | Only a human can rule out a showstopper                                                                     |
+| WAIT     | No verdict yet: a reviewer bot or a CI check is pending                                                     |
+| ERROR    | The run could not produce a verdict                                                                         |
 
 These are the values of `Pipeline.final_verdict`, which both entrypoints return.
 The nested LLM reviewer does not choose a verdict.
@@ -35,7 +35,7 @@ It reports facts in a fixed schema: the risky territory the diff enters, the rev
 
 Asked for a verdict directly, the model sees the same facts but does not apply this rule reliably, so the rule lives in code.
 
-`WAIT` means either that an allowlisted reviewer bot still had a review in flight (👀 reaction) after the polling budget, or that the `Migration risk` check had not reported yet.
+`WAIT` means either that an allowlisted reviewer bot still had a review in flight (👀 reaction) after the polling budget, or that a check named in the policy's `attestations` had not reported yet.
 Neither is a verdict on the PR, so the caller can retry unchanged.
 `ERROR` means the run failed before it could judge the PR: the LLM backend was unreachable through credentials, credit or an outage, the reviewer hit a non-retryable analysis failure such as its turn limit, or `review_pr.py` could not create the worktree for a stacked PR.
 It is never a judgment on the PR.
