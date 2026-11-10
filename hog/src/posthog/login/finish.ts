@@ -62,6 +62,7 @@ export async function finishLogin(ctx: Context, key: AccessKey): Promise<Finishe
     const loggedIn = await saveLogin(ctx.runtime, key)
     const config = await nameInConfig(ctx, loggedIn)
     ctx.reload()
+    ctx.telemetry.loggedInAs(key)
     const { host, projectId, store, credentialsPath, keychainError, status } = loggedIn
     const { scopes, expiresAt } = status
     return {

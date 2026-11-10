@@ -124,6 +124,7 @@ const IdentityProject = z.object({ organization: Text, uuid: Text })
 export class Telemetry {
     private readonly queue: QueuedEvent[] = []
     private enabled: boolean
+    private loggedIn: AccessKey | undefined
     readonly invocationId = randomUUID()
     commandName: string | undefined
     credentials: (() => Promise<Credentials>) | undefined
@@ -151,11 +152,17 @@ export class Telemetry {
         }
     }
 
+    // The run logged in as `key`, so its events belong to that user, and so do the install ID's
+    // earlier events, such as the ones a person sent before they had an account.
+    loggedInAs(key: AccessKey): void {
+        this.loggedIn = key
+    }
+
     async flush(debug = false): Promise<void> {
         if (!this.enabled || this.queue.length === 0) {
             return
         }
-        const key = (await this.credentials?.().catch(() => undefined))?.key
+        const key = this.loggedIn ?? (await this.credentials?.().catch(() => undefined))?.key
         const identity = key ? await this.identity(key) : undefined
         const installId = await this.installId()
         const workload = key?.workload && isCloudHost(key.host) ? key.workload : undefined
@@ -179,6 +186,13 @@ export class Telemetry {
             ...(workload ? { workload_provider: workload.provider } : {}),
             ...(identity?.distinctId ? {} : { $process_person_profile: false }),
             ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
+        }
+        if (this.loggedIn && identity?.distinctId) {
+            this.queue.unshift({
+                event: '$identify',
+                properties: { $anon_distinct_id: installId },
+                timestamp: new Date(this.runtime.now()).toISOString(),
+            })
         }
         const batch = this.queue.splice(0).map(({ event, properties, timestamp }) => ({
             event,

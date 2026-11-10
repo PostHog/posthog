@@ -1,6 +1,8 @@
 import { join } from 'node:path'
 import { z } from 'zod'
 
+import type { InstallableSkill } from '@posthog/mcp/src/cli/library-types'
+
 import { continueApproval, refuseInCi, reusablePending } from '@/core/approval'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
@@ -44,6 +46,8 @@ export interface SetupInput {
     products?: string[]
     region?: RegionId
     reviewed?: boolean
+    productsAck?: boolean
+    installSkills?: string[]
 }
 
 interface QuestionChoice {
@@ -53,7 +57,7 @@ interface QuestionChoice {
 }
 
 export interface Question {
-    id: 'reason' | 'products' | 'region'
+    id: 'reason' | 'products' | 'region' | 'skills'
     question: string
     option: string
     multiple: boolean
@@ -91,6 +95,8 @@ export interface SetupContext {
     agentsMd?: WrittenFile[]
     events?: EventsContext
     products?: (Product & { chosen: boolean })[]
+    installableSkills?: { id: string; name: string; description: string }[]
+    installedSkills?: { id: string; directory: string | null; status: 'installed' | 'already_installed' }[]
     warnings: string[]
 }
 
@@ -197,6 +203,7 @@ class SetupRun {
             const base = current ?? this.state
             return !base || base.completed.includes(step) ? base : { ...base, completed: [...base.completed, step] }
         })
+        this.ctx.telemetry.capture('hog setup step completed', { step })
     }
 
     async loginHost(): Promise<Host> {
@@ -241,11 +248,16 @@ interface PurposeQuestion {
     choices?: QuestionChoice[]
 }
 
-function purposeQuestions(products: readonly Product[]): Record<'reason' | 'products' | 'region', PurposeQuestion> {
+function purposeQuestions(
+    products: readonly Product[],
+    telemetry: boolean
+): Record<'reason' | 'products' | 'region', PurposeQuestion> {
     return {
         reason: {
             question: 'Why are you adding PostHog to this app?',
-            help: 'hog keeps the answer on this machine.',
+            help: telemetry
+                ? 'hog sends the answer to PostHog, to improve setup.'
+                : 'hog keeps the answer on this machine.',
         },
         products: {
             question: 'Which PostHog products interest you?',
@@ -278,7 +290,7 @@ const purpose: StepDefinition = {
         const configHost = (await ctx.config())?.config.host
         const needsRegion = ctx.globals.host === undefined && cloudRegion(configHost) === undefined
         const products = await run.products()
-        const questions = purposeQuestions(products)
+        const questions = purposeQuestions(products, ctx.telemetry.isEnabled)
         let { reason, products: picked, region } = input
         const prompts = input.next ? ctx.prompts : undefined
         if (prompts) {
@@ -354,6 +366,8 @@ const purpose: StepDefinition = {
             reads: [],
             completed: [],
         }
+        // The reason is the one text a person typed that telemetry carries, because the question says so.
+        ctx.telemetry.capture('hog setup started', answers)
         await run.complete('purpose')
         return undefined
     },
@@ -440,6 +454,30 @@ const login: StepDefinition = {
     },
 }
 
+// A failed intent only costs PostHog a hint about what to show first, so it warns and setup goes on.
+async function recordIntents(run: SetupRun): Promise<void> {
+    const intents = (run.state?.products ?? []).map(knownProduct).filter((product) => product.intent !== null)
+    if (intents.length === 0) {
+        return
+    }
+    const api = (await run.ctx.posthog()).withoutStepUp()
+    const results = await Promise.allSettled(
+        intents.map((product) =>
+            api.patch(
+                'add_product_intent/',
+                { product_type: product.intent, metadata: { source: 'hog setup' } },
+                z.unknown()
+            )
+        )
+    )
+    results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+            const reason = result.reason instanceof Error ? result.reason.message : String(result.reason)
+            run.context.warnings.push(`PostHog didn't record your interest in ${intents[index]?.label}: ${reason}`)
+        }
+    })
+}
+
 const project: StepDefinition = {
     isDone: async (run) => {
         const key = (await run.credentials())?.key
@@ -453,7 +491,7 @@ const project: StepDefinition = {
         if (!run.input.next) {
             return runNext(
                 'setup_project_pending',
-                `Run \`${SETUP_NEXT}\`. hog names the project in posthog.json and writes the host and project to posthog.json.`
+                `Run \`${SETUP_NEXT}\`. hog names the project in posthog.json and tells PostHog which products you picked.`
             )
         }
         const key = await run.key()
@@ -468,6 +506,7 @@ const project: StepDefinition = {
         if (named.status !== 'unchanged') {
             run.ctx.reload()
         }
+        await recordIntents(run)
         await run.complete('project')
         return undefined
     },
@@ -576,6 +615,106 @@ const verify: StepDefinition = {
     },
 }
 
+async function installSkills(run: SetupRun, ids: readonly string[], known: readonly InstallableSkill[]): Promise<void> {
+    const unknown = ids.filter((id) => !known.some((skill) => skill.id === id))
+    if (unknown.length > 0) {
+        throw new HogError(
+            'setup_unknown_skill',
+            `There is no PostHog skill to install named ${unknown.join(', ')}.`,
+            `Pass ids from installableSkills in \`hog setup\`: ${known.map((skill) => skill.id).join(', ')}.`,
+            EXIT_USAGE
+        )
+    }
+    run.context.installedSkills = []
+    if (ids.length === 0) {
+        return
+    }
+    const library = await run.ctx.skills()
+    for (const id of ids) {
+        const result = await library.install(id, { cwd: run.scope.folder })
+        if (result.ok) {
+            run.context.installedSkills.push({ id, directory: result.value.skill.directory, status: 'installed' })
+        } else if (result.error.code === 'already_installed') {
+            run.context.installedSkills.push({ id, directory: null, status: 'already_installed' })
+        } else {
+            throw new HogError(
+                'skill_install_failed',
+                `hog couldn't install the skill ${id}: ${result.error.message}`,
+                `Run \`${SETUP_NEXT} --install-skills ${ids.join(',')}\` again, or leave --install-skills out to skip it.`
+            )
+        }
+    }
+}
+
+// A list that fails to load only leaves the skills out of the products step.
+async function installable(run: SetupRun): Promise<InstallableSkill[]> {
+    let failure: string
+    try {
+        const result = await (await run.ctx.skills()).installable()
+        if (result.ok) {
+            return result.value.skills
+        }
+        failure = result.error.message
+    } catch (error) {
+        failure = error instanceof Error ? error.message : String(error)
+    }
+    run.context.warnings.push(`hog couldn't list the PostHog skills to install: ${failure}`)
+    return []
+}
+
+function skillsQuestion(skills: readonly InstallableSkill[]): Question {
+    return {
+        id: 'skills',
+        question:
+            'Install PostHog skills into this repository, so later agent sessions can use them? Pick any, or none.',
+        option: '--install-skills',
+        multiple: true,
+        choices: skills.map((skill) => ({ value: skill.id, label: skill.name, description: skill.description })),
+    }
+}
+
+const productsStep: StepDefinition = {
+    summary: () => 'Went through what else PostHog can do',
+    async advance(run) {
+        const { ctx, input } = run
+        // Both load the same skills release, so they share one download.
+        const [products, skills] = await Promise.all([run.productsContext(), installable(run)])
+        run.context.products = products
+        run.context.installableSkills = skills.map(({ id, name, description }) => ({ id, name, description }))
+        const question = skills.length > 0 ? skillsQuestion(skills) : undefined
+        const prompts = input.next ? ctx.prompts : undefined
+        if (prompts) {
+            prompts.note(
+                (products ?? []).map((product) => `${product.label}: ${product.command}`).join('\n'),
+                'What else PostHog can do'
+            )
+            const picked = question
+                ? await prompts.multiselect(question.question, promptChoices(question.choices ?? []), {
+                      help: 'Space picks a skill, Enter goes on.',
+                  })
+                : []
+            await installSkills(run, picked, skills)
+            await run.complete('products')
+            return undefined
+        }
+        const acknowledged = input.productsAck === true || input.installSkills !== undefined
+        if (acknowledged && run.startedOn('products')) {
+            await installSkills(run, input.installSkills ?? [], skills)
+            await run.complete('products')
+            return undefined
+        }
+        return {
+            code: 'setup_products_pending',
+            next: {
+                kind: 'ask_user',
+                ask: question ? [question] : [],
+                command: `${SETUP_NEXT} --products-ack`,
+                instructions: `Tell the user what else PostHog can do, from the products list${question ? ', and ask the question' : ''}. Then run \`${SETUP_NEXT} --products-ack\`${question ? ', with --install-skills <id,id> for the skills they picked' : ''}.`,
+            },
+        }
+    },
+}
+
 async function writeFinalBlock(run: SetupRun): Promise<WrittenFile[]> {
     const key = await run.key()
     const body = finalBlock({
@@ -597,7 +736,12 @@ const connected: StepDefinition = {
             )
         }
         run.context.agentsMd = await writeFinalBlock(run)
+        const startedAt = run.state?.startedAt ?? run.ctx.runtime.now()
         await run.complete('connected')
+        run.ctx.telemetry.capture('hog setup completed', {
+            products: run.state?.products ?? [],
+            duration_ms: run.ctx.runtime.now() - startedAt,
+        })
         return undefined
     },
 }
@@ -610,6 +754,7 @@ const STEPS: Record<StepId, StepDefinition> = {
     install,
     review,
     verify,
+    products: productsStep,
     connected,
 }
 

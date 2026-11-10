@@ -17,6 +17,7 @@ export const STEP_IDS = [
     'install',
     'review',
     'verify',
+    'products',
     'connected',
 ] as const
 

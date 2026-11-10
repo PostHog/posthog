@@ -68,16 +68,18 @@ interface World {
     // When PostHog received each event, as epoch milliseconds.
     events: number[]
     installs: string[]
+    intentStatus: number
 }
 
 // One machine across several hog runs: files and the keychain carry over, and PostHog answers the
-// device login, the project and event counts.
+// device login, the project, product intents and event counts.
 function world(files: Record<string, string> = {}, cwd = '/work'): World {
     let keychain: Record<string, string> = {}
     const state: World = {
         files,
         events: [],
         installs: [],
+        intentStatus: 201,
         async run(argv, extra = {}) {
             const respond = (url: string, body: unknown): { status: number; body: unknown } => {
                 const origin = new URL(url).origin
@@ -110,6 +112,9 @@ function world(files: Record<string, string> = {}, cwd = '/work'): World {
                             scoped_organizations: [],
                         },
                     }
+                }
+                if (url.endsWith('/api/environments/42/add_product_intent/')) {
+                    return { status: state.intentStatus, body: { detail: 'Intent refused.' } }
                 }
                 if (url.endsWith('/api/environments/42/') || url.endsWith('/api/projects/42/')) {
                     return { status: 200, body: { api_token: TOKEN, uuid: 'project-uuid', organization: 'org-1' } }
@@ -145,6 +150,12 @@ function world(files: Record<string, string> = {}, cwd = '/work'): World {
 
 const ANSWERS = ['--reason', 'See where users drop off', '--products', 'session-replay,feature-flags', '--region', 'eu']
 
+function telemetryEvents(
+    result: HogRun
+): { event: string; distinct_id: string; properties: Record<string, unknown> }[] {
+    return result.requests.filter((request) => request.url === TELEMETRY).flatMap((request: any) => request.body.batch)
+}
+
 describe('hog setup', () => {
     test('an agent goes from a fresh folder to connected, one hand-off at a time', async () => {
         const machine = world({ '/work/AGENTS.md': '# My app\n\nUse pnpm.\n' })
@@ -162,15 +173,22 @@ describe('hog setup', () => {
         expect(questions.map((question: { id: string }) => question.id)).toEqual(['reason', 'products', 'region'])
         expect(questions[1].choices.map((choice: { value: string }) => choice.value)).toContain('metrics')
 
-        const started = await machine.run(['setup', 'next', ...ANSWERS])
+        const started = await machine.run(['setup', 'next', ...ANSWERS], { telemetry: true })
         expect(started.json()).toMatchObject({
             step: 'login',
             code: 'setup_login_pending',
             next: { kind: 'wait', command: 'hog setup next', url: `${EU}/device?code=BCDF-GHJK`, code: 'BCDF-GHJK' },
         })
         expect(started.stdout).not.toContain('device-secret')
+        expect(telemetryEvents(started).find((event) => event.event === 'hog setup started')?.properties).toMatchObject(
+            {
+                reason: 'See where users drop off',
+                products: ['session-replay', 'feature-flags'],
+                region: 'eu',
+            }
+        )
 
-        const loggedIn = await machine.run(['setup', 'next'])
+        const loggedIn = await machine.run(['setup', 'next'], { telemetry: true })
         expect(loggedIn.json()).toMatchObject({
             step: 'install',
             code: 'setup_skill_not_read',
@@ -187,6 +205,18 @@ describe('hog setup', () => {
         expect(readJson(machine.files['/work/posthog.json'] ?? '')).toMatchObject({ host: EU, projectId: 42 })
         expect(machine.files['/work/AGENTS.md']).toStartWith('# My app\n\nUse pnpm.\n\n<!-- posthog:setup:start -->')
         expect(machine.files['/work/AGENTS.md']).toContain('PostHog setup is in progress')
+        expect(
+            loggedIn.requests.filter((request) => request.url.endsWith('/add_product_intent/')).map((r) => r.body)
+        ).toEqual([
+            { product_type: 'session_replay', metadata: { source: 'hog setup' } },
+            { product_type: 'feature_flags', metadata: { source: 'hog setup' } },
+        ])
+        const installId = machine.files['/home/test/.posthog/hog-telemetry-id']?.trim()
+        expect(telemetryEvents(loggedIn)[0]).toMatchObject({
+            event: '$identify',
+            distinct_id: 'user-1',
+            properties: { $anon_distinct_id: installId },
+        })
 
         await machine.run(['learn', 'posthog:instrument-integration'])
         const halfRead = await machine.run(['setup', 'next'])
@@ -217,7 +247,18 @@ describe('hog setup', () => {
         machine.events.push(START + 60_000)
         const verified = await machine.run(['setup', 'next'])
         expect(verified.exitCode).toBe(0)
-        expect(verified.json()).toMatchObject({ step: 'connected', status: 'connected', next: { kind: 'done' } })
+        expect(verified.json()).toMatchObject({
+            step: 'products',
+            next: { kind: 'ask_user', ask: [{ id: 'skills', option: '--install-skills' }] },
+        })
+        expect((verified.json() as any).context.products.slice(0, 2)).toMatchObject([
+            { id: 'session-replay', chosen: true, command: 'hog learn -s "session replay"' },
+            { id: 'feature-flags', chosen: true, command: 'hog learn posthog:instrument-feature-flags' },
+        ])
+
+        const finished = await machine.run(['setup', 'next', '--install-skills', 'querying-posthog-data'])
+        expect(finished.json()).toMatchObject({ step: 'connected', status: 'connected', next: { kind: 'done' } })
+        expect(machine.installs).toEqual(['/work:querying-posthog-data'])
         const agentsMd = machine.files['/work/AGENTS.md'] ?? ''
         expect(agentsMd).toStartWith('# My app\n\nUse pnpm.\n\n<!-- posthog:setup:start -->')
         expect(agentsMd).not.toContain('in progress')
@@ -248,6 +289,7 @@ describe('hog setup', () => {
         await machine.run(['setup', 'next', ...ANSWERS])
         await machine.run(['setup', 'next'])
         delete machine.files[statePath('/work')]
+        machine.intentStatus = 500
 
         const status = await machine.run(['setup'])
         expect(status.json()).toMatchObject({ step: 'purpose' })
@@ -260,6 +302,7 @@ describe('hog setup', () => {
         expect(resumed.json()).toMatchObject({
             step: 'install',
             done: [{ step: 'purpose' }, { step: 'login' }, { step: 'project' }, { step: 'agents-md' }],
+            context: { warnings: [expect.stringContaining("PostHog didn't record your interest in Session replay")] },
         })
         expect(resumed.requests.some((request) => request.url.endsWith('/oauth/device-authorization/'))).toBe(false)
     })

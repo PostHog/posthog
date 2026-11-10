@@ -26,7 +26,7 @@ const IdList = z
 
 const ProductList = z.union([z.literal('none').transform((): string[] => []), IdList])
 
-const NEXT_OPTIONS = ['reason', 'products', 'region', 'reviewed'] as const
+const NEXT_OPTIONS = ['reason', 'products', 'region', 'reviewed', 'productsAck', 'installSkills'] as const
 
 // The instructions address an agent. A person who asks or approves gets their own line here.
 function printNext(out: Output, result: SetupResult): void {
@@ -104,7 +104,8 @@ export default defineCommand({
             type: 'string',
             placeholder: 'text',
             parse: (raw: string, failure: ParseFailure) => parseOrThrow(Reason, raw, failure),
-            description: 'Why you are adding PostHog, in your own words',
+            description:
+                'Why you are adding PostHog, in your own words. hog sends it to PostHog unless telemetry is off',
         },
         products: {
             type: 'string',
@@ -122,6 +123,17 @@ export default defineCommand({
             type: 'boolean',
             description: 'You checked your changes against the install rules and fixed any that broke one',
         },
+        productsAck: {
+            type: 'boolean',
+            description: 'You went through the other products, and the setup can finish',
+        },
+        installSkills: {
+            type: 'string',
+            placeholder: 'ids',
+            parse: (raw: string, failure: ParseFailure) => parseOrThrow(IdList, raw, failure),
+            description:
+                'Install these PostHog skills into the repository at the products step, separated by commas. Also finishes that step',
+        },
     },
     writes: true,
     scopes: ['project:read', 'query:read'],
@@ -136,6 +148,7 @@ export default defineCommand({
         'hog setup next',
         'hog setup next --reason "See where users drop off" --products product-analytics,session-replay --region us',
         'hog setup next --reviewed',
+        'hog setup next --products-ack',
     ],
 
     async run({ args, options, ctx }): Promise<SetupResult> {
@@ -180,6 +193,9 @@ export default defineCommand({
             out.line()
             out.line(`Project token: ${token}`)
             out.line(`Host for the SDK: ${apiHost}`)
+        }
+        if (result.step === 'products') {
+            printProducts(out, result)
         }
         printNext(out, result)
     },
