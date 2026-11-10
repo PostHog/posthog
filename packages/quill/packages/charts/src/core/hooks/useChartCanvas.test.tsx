@@ -39,16 +39,45 @@ function reportWrapperSize(width: number, height: number): void {
 
 describe('useChartCanvas', () => {
     let resizeObserverSpy: jest.SpyInstance
+    const originalDpr = window.devicePixelRatio
+    const originalMatchMedia = window.matchMedia
+    let pixelRatioListeners: Record<string, () => void> = {}
 
     beforeEach(() => {
         resizeObserverSpy = jest.spyOn(globalThis, 'ResizeObserver').mockImplementation((callback) => {
             resizeObserverCallback = callback
             return { observe: () => {}, unobserve: () => {}, disconnect: () => {} }
         })
+        pixelRatioListeners = {}
+        window.matchMedia = ((query: string) => ({
+            addEventListener: (_: string, listener: () => void) => {
+                pixelRatioListeners[query] = listener
+            },
+            removeEventListener: () => {},
+        })) as unknown as typeof window.matchMedia
     })
 
     afterEach(() => {
         resizeObserverSpy.mockRestore()
+        window.matchMedia = originalMatchMedia
+        Object.defineProperty(window, 'devicePixelRatio', { value: originalDpr, configurable: true })
+    })
+
+    it('repaints at each new pixel ratio when the screen resolution changes', () => {
+        const drawStatic = jest.fn()
+        const canvas = renderCanvas(drawStatic)
+
+        for (const [from, to] of [
+            [1, 2],
+            [2, 3],
+        ]) {
+            drawStatic.mockClear()
+            Object.defineProperty(window, 'devicePixelRatio', { value: to, configurable: true })
+            act(() => pixelRatioListeners[`(resolution: ${from}dppx)`]())
+
+            expect(drawStatic).toHaveBeenCalled()
+            expect(canvas.width).toBe(mockRect.width * to)
+        }
     })
 
     it('keeps the last frame until the repaint resizes the backing store', () => {

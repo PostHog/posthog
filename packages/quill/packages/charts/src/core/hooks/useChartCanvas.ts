@@ -118,9 +118,28 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         )
         restoreTargets.forEach((canvas) => canvas.addEventListener('contextrestored', onContextRestored))
 
+        // A window that moves to a screen with another pixel ratio, or a browser zoom, changes
+        // `devicePixelRatio` without a resize, so the bitmap keeps its old ratio and looks blurry.
+        // The query matches the current ratio only, so each change subscribes again.
+        let stopWatchingPixelRatio = (): void => {}
+        const watchPixelRatio = (): void => {
+            if (typeof window.matchMedia !== 'function') {
+                return
+            }
+            const query = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
+            const onPixelRatioChange = (): void => {
+                updateSize(true)
+                watchPixelRatio()
+            }
+            query.addEventListener?.('change', onPixelRatioChange, { once: true })
+            stopWatchingPixelRatio = () => query.removeEventListener?.('change', onPixelRatioChange)
+        }
+        watchPixelRatio()
+
         return () => {
             observer.disconnect()
             restoreTargets.forEach((canvas) => canvas.removeEventListener('contextrestored', onContextRestored))
+            stopWatchingPixelRatio()
         }
         // Bind the observer once. `marginsRef` is a ref so `updateSize` always reads the
         // latest margins; depending on `marginsRef.current` here would disconnect and re-run
