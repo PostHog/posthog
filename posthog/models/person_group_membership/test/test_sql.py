@@ -91,7 +91,12 @@ def test_migration_placement(
             for op in operations:
                 assert "ON CLUSTER" not in op._sql
                 if migration == ACTIVITY_MIGRATION:
-                    assert op._sql.startswith("ALTER TABLE person_group_membership_mv MODIFY QUERY ")
+                    assert op._sql.startswith(
+                        f"ALTER TABLE {django_settings.CLICKHOUSE_DATABASE}.person_group_membership_mv MODIFY QUERY "
+                    )
+                    assert f"FROM {django_settings.CLICKHOUSE_DATABASE}.kafka_person_group_membership" in op._sql
+                    assert op._sharded is False
+                    assert op._is_alter_on_replicated_table is False
                     assert "JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false'" in op._sql
                 else:
                     assert "IF NOT EXISTS" in op._sql
