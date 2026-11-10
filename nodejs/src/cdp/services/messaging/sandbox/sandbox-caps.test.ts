@@ -351,6 +351,12 @@ describe('claimSandboxCaps', () => {
 
             expect(burst).toEqual(burst.map(() => unavailable))
             expect(store.openConnections).toBeLessThanOrEqual(MAX_PENDING_ACQUIRES_WITH_DEADLINE)
+
+            store.answerNewConnections()
+            await waitForExpect(
+                async () => expect(await claimSandboxCaps(wide, caps, sameSend())).toMatchObject({ ok: true }),
+                30_000
+            )
         })
 
         it('claims a burst of more sends than that limit on one connection while storage answers', async () => {
