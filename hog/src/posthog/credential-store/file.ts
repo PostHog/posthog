@@ -1,9 +1,10 @@
 import { JsonObject, parseJsonOrUndefined } from '@/core/json'
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
+import type { ProjectId } from '@/posthog/ids'
 
 import { StoredSecretSchema } from './helpers'
-import { parseItemName, type ItemName, type ItemOwner } from './item-name'
+import { parseItemName, type ItemName, type LoginTarget } from './item-name'
 import type { CredentialStore, StoredSecret } from './types'
 
 // One JSON file, readable only by its owner, for machines without a keychain hog can use.
@@ -29,7 +30,7 @@ export class FileStore implements CredentialStore {
         return parseJsonOrUndefined(text, JsonObject) ?? {}
     }
 
-    async owners(): Promise<ItemOwner[]> {
+    async owners(): Promise<LoginTarget<ProjectId | null>[]> {
         return Object.keys(await this.readAll()).flatMap((name) => parseItemName(name) ?? [])
     }
 
@@ -45,26 +46,23 @@ export class FileStore implements CredentialStore {
     }
 
     async remove(name: ItemName): Promise<boolean> {
-        return this.removeKeys((key) => key === name)
+        return (await this.removeWhere((key) => key === name)).length > 0
     }
 
-    // Removes the entries under a name hog can't read, such as one an older hog wrote, which `owners`
-    // leaves out.
-    async removeUnreadable(): Promise<boolean> {
-        return this.removeKeys((name) => parseItemName(name) === undefined)
-    }
-
-    private async removeKeys(matches: (name: string) => boolean): Promise<boolean> {
+    async removeWhere(matches: (name: string) => boolean): Promise<string[]> {
         const all = await this.readAll()
-        const kept = Object.fromEntries(Object.entries(all).filter(([name]) => !matches(name)))
-        if (Object.keys(kept).length === Object.keys(all).length) {
-            return false
+        const removed = Object.keys(all).filter(matches)
+        if (removed.length === 0) {
+            return []
         }
+
+        const kept = Object.fromEntries(Object.entries(all).filter(([name]) => !matches(name)))
         if (Object.keys(kept).length === 0) {
             await this.runtime.removeFile(this.path)
         } else {
             await this.runtime.writePrivateFile(this.path, JSON.stringify(kept, null, 2))
         }
-        return true
+
+        return removed
     }
 }

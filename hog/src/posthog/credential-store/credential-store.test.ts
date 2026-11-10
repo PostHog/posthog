@@ -14,8 +14,8 @@ import { MemoryStore } from './memory'
 import type { CredentialStore, StoredSecret } from './types'
 
 const PROJECT = parseProjectId('42')
-const EU = itemName({ host: parseHost('https://eu.posthog.com'), projectId: PROJECT })
-const US = itemName({ host: parseHost('https://us.posthog.com'), projectId: PROJECT })
+const EU = itemName(parseHost('https://eu.posthog.com'), PROJECT)
+const US = itemName(parseHost('https://us.posthog.com'), PROJECT)
 
 function secret(apiKey: string): StoredSecret {
     return { apiKey: parsePersonalApiKey(apiKey) }
@@ -63,10 +63,7 @@ describe('credential stores', () => {
             await store.write(EU, secret('phx_first'))
             await store.write(US, US_OAUTH)
             // The same origin written another way names the same login.
-            await store.write(
-                itemName({ host: parseHost('https://EU.posthog.com:443/'), projectId: PROJECT }),
-                secret('phx_second')
-            )
+            await store.write(itemName(parseHost('https://EU.posthog.com:443/'), PROJECT), secret('phx_second'))
 
             expect(await store.read(EU)).toEqual(secret('phx_second'))
             expect(await store.read(US)).toEqual(US_OAUTH)

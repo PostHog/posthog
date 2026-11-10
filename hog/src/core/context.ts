@@ -1,9 +1,14 @@
-import { join } from 'node:path'
-
 import type { ApiToolLibrary, SkillsLibrary } from '@posthog/mcp/src/cli/library-types'
 
 import { PostHogApi } from '@/posthog/api'
-import { loginQuery, posthogHomeDir, resolveCredentials, type Credentials } from '@/posthog/credentials'
+import {
+    loginQuery,
+    posthogPath,
+    resolveCredentials,
+    type CredentialOptions,
+    type Credentials,
+} from '@/posthog/credentials'
+import { parseProjectId } from '@/posthog/ids'
 import { KeySession } from '@/posthog/key-session'
 import type { LoginQuery } from '@/posthog/login/choose'
 import { canStepUp } from '@/posthog/scope-challenge'
@@ -96,7 +101,7 @@ export class Context {
     // folder, the skills still download and nothing is saved.
     skills(): Promise<SkillsLibrary> {
         this.skillsLibrary ??= this.runtime.loadSkills({
-            cacheDir: this.skillsCacheDir(),
+            cacheDir: posthogPath(this.runtime, 'skills'),
             learnCommand: 'hog learn',
             // The downloads go to GitHub, not PostHog, so --rate-limit doesn't count them.
             fetch: (url, init) => this.runtime.fetch(url, { ...init, skipRateLimit: true }),
@@ -104,18 +109,15 @@ export class Context {
         return this.skillsLibrary
     }
 
-    private skillsCacheDir(): string | undefined {
-        const home = posthogHomeDir(this.runtime.env, this.runtime.homeDir())
-        return home === undefined ? undefined : join(home, 'skills')
-    }
-
-    private async credentialOptions(): Promise<Parameters<typeof resolveCredentials>[1]> {
+    private async credentialOptions(): Promise<CredentialOptions> {
         const loaded = await this.config()
+        const projectId = loaded?.config.projectId
+
         return {
             ...this.globals,
             configPath: loaded?.path,
             configHost: loaded?.config.host,
-            configProjectId: loaded?.config.projectId?.toString(),
+            configProjectId: projectId === undefined ? undefined : parseProjectId(projectId),
         }
     }
 

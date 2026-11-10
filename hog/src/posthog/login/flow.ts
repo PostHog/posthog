@@ -94,6 +94,7 @@ export async function saveLogin(
     let store = openStore(runtime, probe.usable ? 'keychain' : 'file')
     let keychainError = probe.usable ? null : probe.reason
     const target = { host: key.host, projectId: key.projectId }
+
     // Under the renewal lock, so a renewal of the previous login that is still in flight can't
     // store that login over this one.
     const replaced = await withLoginLock(runtime, target, async () => {
@@ -103,24 +104,30 @@ export async function saveLogin(
         if (stored) {
             key = replace(stored)
         }
+
         try {
             // A keychain that times out sends the login to the file below.
-            await writeLogin(runtime, store, key, { lastLogin: true, removeIfLate: true })
+            await writeLogin(runtime, store, key, { leftBehind: [] })
         } catch (error) {
             // The probe writes an item of its own, so the keychain can still refuse this login's item,
             // such as one an older hog build saved.
             if (store.kind !== 'keychain' || !(error instanceof HogError) || !error.code.startsWith('keychain_')) {
                 throw error
             }
+
             keychainError = error.message
             store = new FileStore(runtime)
             // The failed keychain write can still land after hog gave up on it.
-            await writeLogin(runtime, store, key, { lastLogin: true, keychainLeftover: true })
+            const late = { store: 'keychain', host: key.host, projectId: key.projectId } as const
+            await writeLogin(runtime, store, key, { leftBehind: [late] })
         }
+
         return stored || undefined
     })
+
     // Outside the lock: no renewal can rotate the replaced login once the new one is stored.
     const [revoked] = await Promise.all([replaced?.logout(runtime), clearPendingLogins(runtime)])
+
     return {
         host: key.host,
         projectId: key.projectId,

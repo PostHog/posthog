@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import type {
+    LearnRequest,
     LearnResult,
     SkillAssetStatus,
     SkillsError,
@@ -39,24 +40,28 @@ const READ: LearnResult = {
 
 interface FakeSkills {
     library: (options: SkillsLibraryOptions) => SkillsLibrary
-    calls: readonly string[][]
+    calls: readonly LearnRequest[]
     options: SkillsLibraryOptions[]
 }
 
 function fakeSkills(answer: LearnResult | SkillsError = READ): FakeSkills {
-    const calls: string[][] = []
+    const calls: LearnRequest[] = []
     const options: SkillsLibraryOptions[] = []
+
     return {
         calls,
         options,
         library: (given) => {
             options.push(given)
+
             return {
-                learn: async (words) => {
-                    calls.push([...words])
+                learn: async (request) => {
+                    calls.push(request)
+
                     return 'code' in answer ? { ok: false, error: answer } : { ok: true, value: answer }
                 },
                 installable: async () => ({ ok: true, value: { skills: [], assets: NETWORK } }),
+                instrumentSkills: async () => ({ ok: true, value: { skills: [], assets: NETWORK } }),
                 install: async () => ({ ok: false, error: { code: 'unknown_skill', message: 'Unknown skill' } }),
             }
         },
@@ -71,46 +76,37 @@ function learn(argv: string[], skills: FakeSkills, caller: 'agent' | 'person' = 
 }
 
 describe('hog learn', () => {
-    test.each([
-        [[], []],
-        [['skills'], ['skills']],
-        [
-            ['-s', 'session replay'],
-            ['-s', 'session replay'],
-        ],
-        [
-            ['-s', 'session', 'replay'],
-            ['-s', 'session', 'replay'],
-        ],
+    test.each<[string[], LearnRequest]>([
+        [[], { paths: [] }],
+        [['skills'], { skill: 'skills', paths: [] }],
+        [['-s', 'session replay'], { paths: [], search: 'session replay' }],
+        [['-s', 'session', 'replay'], { paths: [], search: 'session replay' }],
         [
             ['-d', 'posthog:funnels', 'posthog:retention'],
-            ['-d', 'posthog:funnels', 'posthog:retention'],
+            { skill: 'posthog:funnels', paths: ['posthog:retention'], describe: true },
         ],
         [
             ['posthog:funnels', 'SKILL.md', '-s', 'conversion'],
-            ['posthog:funnels', 'SKILL.md', '-s', 'conversion'],
+            { skill: 'posthog:funnels', paths: ['SKILL.md'], search: 'conversion' },
         ],
         [
             ['posthog:funnels', 'SKILL.md', '--lines', '1:20'],
-            ['posthog:funnels', 'SKILL.md', '--lines', '1:20'],
+            { skill: 'posthog:funnels', paths: ['SKILL.md'], lines: '1:20' },
         ],
-        [
-            ['posthog:funnels', 'a.md', 'b.md'],
-            ['posthog:funnels', 'a.md', 'b.md'],
-        ],
+        [['posthog:funnels', 'a.md', 'b.md'], { skill: 'posthog:funnels', paths: ['a.md', 'b.md'] }],
         [
             ['-s', 'conversion', 'posthog:funnels', 'SKILL.md'],
-            ['posthog:funnels', 'SKILL.md', '-s', 'conversion'],
+            { skill: 'posthog:funnels', paths: ['SKILL.md'], search: 'conversion' },
         ],
         [
             ['posthog:funnels', 'SKILL.md', '-s', 'conversion', 'rate'],
-            ['posthog:funnels', 'SKILL.md', '-s', 'conversion', 'rate'],
+            { skill: 'posthog:funnels', paths: ['SKILL.md'], search: 'conversion rate' },
         ],
-    ])('hog learn %j runs learn %j', async (argv, words) => {
+    ])('hog learn %j asks the library for %j', async (argv, request) => {
         const skills = fakeSkills()
         const result = await learn(argv, skills)
         expect(result.exitCode).toBe(0)
-        expect(skills.calls).toEqual([words])
+        expect(skills.calls).toEqual([request])
     })
 
     test('a person reads the skill text without logging in, and the skills cache in ~/.posthog/skills', async () => {
@@ -164,6 +160,12 @@ describe('hog learn', () => {
             { code: 'unknown_file', message: 'Unknown file: "nope.md".' },
             'unknown_file',
             'Give the path from the skill folder, such as references/COMMANDMENTS.md.',
+            1,
+        ],
+        [
+            { code: 'unavailable', message: 'This CLI serves PostHog skills only.' },
+            'skills_unavailable',
+            'Run `hog learn skills` to list the skills hog serves.',
             1,
         ],
         [

@@ -28,20 +28,8 @@ function ok<T>(value: T): SkillsResult<T> {
 
 function fakeSkills(installs: string[]): () => SkillsLibrary {
     return () => ({
-        learn: async (words) => {
-            if (words[0] === 'skills') {
-                const skills = [
-                    'posthog:instrument-integration',
-                    'posthog:instrument-feature-flags',
-                    'posthog:instrument-metrics',
-                ]
-                return ok<LearnResult>({
-                    output: { kind: 'list', skills, count: 3, truncated: false },
-                    reads: [],
-                    assets: [],
-                })
-            }
-            const [skill = '', path = 'SKILL.md'] = words
+        learn: async ({ skill = '', paths, lines }) => {
+            const [path = 'SKILL.md'] = paths
             return ok<LearnResult>({
                 output: { kind: 'text', text: `${skill} ${path}` },
                 reads: [
@@ -49,12 +37,21 @@ function fakeSkills(installs: string[]): () => SkillsLibrary {
                         source: 'posthog',
                         skill: skill.replace('posthog:', ''),
                         path,
-                        readKind: words.includes('--lines') ? 'file_lines' : 'file',
+                        readKind: lines === undefined ? 'file' : 'file_lines',
                     },
                 ],
                 assets: [],
             })
         },
+        instrumentSkills: async () =>
+            ok({
+                skills: [
+                    'posthog:instrument-integration',
+                    'posthog:instrument-feature-flags',
+                    'posthog:instrument-metrics',
+                ],
+                assets: [],
+            }),
         installable: async () =>
             ok({
                 skills: [

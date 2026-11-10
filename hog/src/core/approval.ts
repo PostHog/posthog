@@ -116,7 +116,7 @@ function pendingFile(
     return pendingPath(runtime, flow.pendingName ?? flow.command)
 }
 
-export async function readPending<Pending extends PendingApproval>(
+async function readPending<Pending extends PendingApproval>(
     runtime: Runtime,
     flow: ApprovalWait<Pending, unknown>
 ): Promise<Pending | undefined> {
@@ -375,13 +375,11 @@ export async function continueApproval<Pending extends PendingApproval, Value>(
 }
 
 // `<command> --wait`: resumes the command's pending item. It takes no ID, because the item is on disk.
-// A caller that already read the item passes it, so another hog process can't replace it in between.
 export async function resumeApproval<Pending extends PendingApproval, Value>(
     ctx: Context,
-    flow: ApprovalWait<Pending, Value>,
-    read?: Pending
-): Promise<Value> {
-    const pending = read ?? (await readPending(ctx.runtime, flow))
+    flow: ApprovalWait<Pending, Value>
+): Promise<{ pending: Pending; value: Value }> {
+    const pending = await readPending(ctx.runtime, flow)
     if (!pending) {
         throw new HogError(
             `no_pending_${errorCode(flow.noun)}`,
@@ -391,7 +389,7 @@ export async function resumeApproval<Pending extends PendingApproval, Value>(
     }
     flow.checkResumable?.(pending)
     const spinner = ctx.prompts?.spinner(`Waiting for the ${flow.noun} to be approved in the browser`)
-    return withSpinner(spinner, flow.noun, waitFor(ctx.runtime, flow, pending))
+    return { pending, value: await withSpinner(spinner, flow.noun, waitFor(ctx.runtime, flow, pending)) }
 }
 
 // What a person sees when an agent or a script started the request.

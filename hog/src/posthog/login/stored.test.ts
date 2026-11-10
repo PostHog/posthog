@@ -1,15 +1,17 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 
+import type { Runtime } from '@/core/runtime'
 import { PersonalAPIKey } from '@/posthog/access-key'
 import { FileStore } from '@/posthog/credential-store/file'
 import { KeychainStore } from '@/posthog/credential-store/keychain'
 import { parseHost, type Host } from '@/posthog/host'
 import { parseProjectId } from '@/posthog/ids'
+import { readSettings } from '@/posthog/settings'
 import { parsePersonalApiKey } from '@/posthog/tokens'
 import { fakeRuntime, readJson } from '@/testing'
 
-import { loginStorage, writeLogin } from './stored'
+import { loginStorage, logout, logoutAll, readLogin, writeLogin } from './stored'
 
 const EU = parseHost('https://eu.posthog.com')
 const US = parseHost('https://us.posthog.com')
@@ -55,7 +57,7 @@ describe('stored logins', () => {
         expect(runtime.files[file.path] ?? '').not.toContain('phx_renewed')
     })
 
-    test('a renewal leaves a keychain leftover to the next login or logout', async () => {
+    test('a renewal leaves a pending keychain removal to the next login or logout', async () => {
         const runtime = fakeRuntime({ keychain: { [EU]: JSON.stringify({ apiKey: 'phx_left_over' }) } })
         const { secrets } = runtime
         const deleted: string[] = []
@@ -66,20 +68,65 @@ describe('stored logins', () => {
                 return secrets.delete(name)
             },
         }
-        const record = {
-            store: 'keychain',
-            type: 'personal_api_key',
-            projectId: '42',
-            host: EU,
-            keychainLeftover: true,
-        }
-        runtime.files[SETTINGS_FILE] = JSON.stringify({ logins: { [EU]: { '42': record } }, host: EU })
+        const record = { store: 'keychain', type: 'personal_api_key', projectId: '42', host: EU }
+        const pendingRemovals = [{ store: 'keychain', host: EU, projectId: null }]
+        runtime.files[SETTINGS_FILE] = JSON.stringify({ logins: { [EU]: { '42': record } }, pendingRemovals })
 
         await writeLogin(runtime, new KeychainStore(runtime), login(EU, 'phx_renewed'))
 
         expect(deleted).toEqual([])
-        expect(readJson(runtime.files[SETTINGS_FILE] ?? '{}')).toMatchObject({
-            logins: { [EU]: { '42': { keychainLeftover: true } } },
+        expect(readJson(runtime.files[SETTINGS_FILE] ?? '{}')).toMatchObject({ pendingRemovals })
+    })
+
+    test.each([
+        ['logout', (runtime: Runtime) => logout(runtime, { host: EU, projectId: parseProjectId('42') })],
+        ['logoutAll', (runtime: Runtime) => logoutAll(runtime)],
+    ])('%s removes the copy a move left behind when it failed to save settings.json', async (_, logOut) => {
+        const runtime = fakeRuntime({
+            files: {
+                [SETTINGS_FILE]: JSON.stringify({
+                    logins: { [EU]: { store: 'keychain', type: 'personal_api_key', projectId: '42', host: EU } },
+                }),
+            },
+            keychain: { [EU]: JSON.stringify({ apiKey: 'phx_moving' }) },
         })
+        const { writePrivateFile } = runtime
+        let failed = false
+        runtime.writePrivateFile = async (path, contents) => {
+            if (path === SETTINGS_FILE && !failed) {
+                failed = true
+                throw new Error('disk full')
+            }
+            return writePrivateFile(path, contents)
+        }
+
+        await logOut(runtime)
+
+        expect(failed).toBe(true)
+        expect(runtime.keychain).toEqual({})
+    })
+
+    test('a login in the old shape stays readable when hog cannot write to its folder', async () => {
+        const runtime = fakeRuntime({
+            files: {
+                [SETTINGS_FILE]: JSON.stringify({
+                    logins: { [EU]: { store: 'file', type: 'personal_api_key', projectId: '42', host: EU } },
+                    host: EU,
+                }),
+                '/home/test/.config/hog/credentials.json': JSON.stringify({ [EU]: { apiKey: 'phx_read_only' } }),
+            },
+        })
+        const readOnly = Object.assign(new Error('read-only file system'), { code: 'EROFS' })
+        runtime.createFile = async () => {
+            throw readOnly
+        }
+        runtime.writePrivateFile = async () => {
+            throw readOnly
+        }
+
+        const settings = await readSettings(runtime)
+        const login = await readLogin(runtime, settings, { host: EU, projectId: parseProjectId('42') })
+
+        expect(login?.key).toMatchObject({ apiKey: 'phx_read_only' })
     })
 })

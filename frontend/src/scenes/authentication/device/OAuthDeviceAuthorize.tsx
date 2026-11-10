@@ -69,7 +69,7 @@ export function OAuthDeviceAuthorize(): JSX.Element {
                     }
                 >
                     <AuthCardTitle
-                        className=""
+                        className="mb-0"
                         title={approved ? 'Login approved' : 'Login denied'}
                         sub={
                             approved

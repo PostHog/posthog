@@ -71,8 +71,8 @@ export default defineCommand({
     notes: [
         'At a terminal, hog asks where your PostHog account is hosted and opens the browser to approve the login.',
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
-        'The person picks one project, and the token only works there. hog renews the token by itself.',
-        'Each project keeps its own login, and the closest posthog.json picks which one a command uses. hog writes the host and project to posthog.json in this folder, or to the closest one above it.',
+        'You pick one project when you approve the login, and the token only works in that project. The token renews automatically.',
+        'Each project has its own login, and the closest posthog.json picks the one a command uses. Login writes the host and project to posthog.json in this folder, or to the closest one above it.',
         'hog stores the token in the system keychain. If no keychain is available, such as over SSH, it stores the token in a file only you can read.',
         'In CI, skip login. Run `hog ci setup` once so jobs use their OIDC token, or set HOG_PERSONAL_API_KEY and HOG_HOST, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.',
     ].join('\n'),
@@ -90,7 +90,7 @@ export default defineCommand({
             )
         }
         if (options.wait) {
-            return finish(ctx, await resumeApproval(ctx, loginWait(ctx.runtime)))
+            return finish(ctx, (await resumeApproval(ctx, loginWait(ctx.runtime))).value)
         }
 
         refuseInCi(ctx, LOGIN_COMMAND, CI_CREDENTIALS_HINT)
@@ -159,6 +159,7 @@ export default defineCommand({
                 out.line(out.style(`Credentials saved to ${result.credentialsPath}, which only you can read`, 'dim'))
                 break
         }
+
         const { path, status, error } = result.config
         const file = escapeControls(path)
         if (status === 'failed') {
@@ -171,6 +172,7 @@ export default defineCommand({
             out.line(`Try it: ${result.next}`)
             return
         }
+
         const saved = {
             created: `Created ${file} with this host and project.`,
             updated: `Set this host and project in ${file}.`,

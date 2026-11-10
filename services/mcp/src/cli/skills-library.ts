@@ -1,20 +1,25 @@
 // PostHog's agent skills with the `learn` grammar of the MCP server's exec tool, for CLIs that serve
 // them in-process. `scripts/build-cli-library.ts` bundles this file on its own, so a CLI loads it
 // without the tool catalog.
-import { unzipSync } from 'fflate'
 import { randomUUID } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 import { z } from 'zod'
 
 import { hashBytes } from '@/hono/cache/SharedBlobCache'
-import { CONTEXT_MILL_URL, extractContextMill } from '@/resources/internals'
-import { PRODUCT_SKILL_ARCHIVE_URL, SkillCatalog, withinExtractionLimits } from '@/skills/skill-catalog'
-import { ExecLearnCatalog, SkillsUnavailableError } from '@/tools/exec-learn'
+import { CONTEXT_MILL_URL, contextMillEntries, omnibusSkillFiles, unzipOmnibusArchives } from '@/resources/internals'
+import {
+    LearnLookupError,
+    MAX_SKILL_ARCHIVE_BYTES,
+    PRODUCT_SKILL_ARCHIVE_URL,
+    SkillCatalog,
+    unzipUntrusted,
+} from '@/skills/skill-catalog'
+import { ExecLearnCatalog, learnSkillCommands, SkillsUnavailableError } from '@/tools/exec-learn'
 
 import type {
     InstallableSkill,
-    LearnOutput,
+    LearnRequest,
     LearnResult,
     SkillAssetName,
     SkillAssetStatus,
@@ -25,12 +30,11 @@ import type {
     SkillsLibraryOptions,
     SkillsResult,
 } from './library-types'
-import { installSkill, type InstallableSkills, listSkills } from './skills'
-import { replaceExecInvocations } from './utils'
+import { installSkill, type InstallableSkills, listSkills, SkillInstallError } from './skills'
 
 const DEFAULT_RESPONSE_TIMEOUT_MS = 5_000
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 60_000
-const MAX_ASSET_BYTES = 64 * 1024 * 1024
+const INSTRUMENT_SKILL_PREFIX = 'instrument-'
 const PROJECT_SKILLS_UNAVAILABLE =
     'This CLI serves PostHog skills only. Read project skills through the PostHog MCP server.'
 
@@ -44,8 +48,7 @@ function assetUrl(name: SkillAssetName): string {
 const CacheRecord = z.object({
     url: z.string(),
     etag: z.string().optional(),
-    // The digest names the cached copy's file, so it must not carry path separators.
-    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+    sha256: z.string(),
     fetchedAt: z.string(),
 })
 
@@ -72,7 +75,9 @@ function message(error: unknown): string {
 
 // Keeps a load only once every asset in it came from the network, so a process that outlives a
 // network outage downloads again on its next call instead of serving the outage forever.
-function keepOnline<T extends { assets: readonly SkillAssetStatus[] }>(load: () => Promise<T>): () => Promise<T> {
+function memoizeWhileFresh<T extends { assets: readonly SkillAssetStatus[] }>(
+    load: () => Promise<T>
+): () => Promise<T> {
     let kept: Promise<T> | undefined
     return () => {
         if (kept) {
@@ -80,6 +85,7 @@ function keepOnline<T extends { assets: readonly SkillAssetStatus[] }>(load: () 
         }
         const loading = load()
         kept = loading
+
         void loading.then((result) => {
             if (result.assets.some((asset) => asset.origin !== 'network')) {
                 kept = undefined
@@ -100,84 +106,79 @@ async function writeAtomically(file: string, contents: Uint8Array | string): Pro
     }
 }
 
-// The release counts as valid when its manifest loads. The omnibus skills are read only for `learn`.
-function parseContextMill(bytes: Uint8Array): InstallableSkills {
-    const archive = unzipSync(bytes, { filter: withinExtractionLimits('The release exceeds the extraction limit') })
-    return { archive, entries: extractContextMill(archive, false).entries }
+interface ContextMillRelease extends InstallableSkills {
+    omnibus(): SkillCatalog | undefined
+}
+
+// The release counts as valid when its manifest loads. Every other file stays zipped until a call
+// reads it: a skill's zip to install it, or the omnibus skills for `learn`.
+function parseContextMill(bytes: Uint8Array): ContextMillRelease {
+    let omnibus: { catalog: SkillCatalog | undefined } | undefined
+
+    return {
+        entries: contextMillEntries(bytes),
+        readFile: (name) => unzipUntrusted(bytes, 'The context-mill release', (file) => file.name === name)[name],
+        omnibus: () => {
+            omnibus ??= { catalog: omnibusCatalog(bytes) }
+            return omnibus.catalog
+        },
+    }
 }
 
 // Omnibus skills that don't parse are left out, as the server leaves them out.
-function omnibusCatalog(release: InstallableSkills): SkillCatalog | undefined {
+function omnibusCatalog(release: Uint8Array): SkillCatalog | undefined {
     try {
-        const { omnibusSkillsArchive } = extractContextMill(release.archive)
-        return omnibusSkillsArchive ? SkillCatalog.fromZip(omnibusSkillsArchive) : undefined
+        const files = omnibusSkillFiles(unzipOmnibusArchives(release))
+
+        return Object.keys(files).length > 0 ? SkillCatalog.fromFiles(files) : undefined
     } catch {
         return undefined
     }
 }
 
-// A copy in the cache folder, written by an earlier load. Each copy's file is named by its hash and
-// the record points to it, so a write that stops halfway, or two runs that write at once, never leave
-// a record without its copy.
+// The last good download of one asset: its bytes, and a record that names their hash. Each file is
+// replaced atomically, and bytes that don't match the record count as no copy, so a write that stops
+// halfway, or two runs that write at once, cost a download instead of serving a wrong copy.
 class AssetCache {
+    private readonly bytesFile: string
+    private readonly recordFile: string
+
     constructor(
-        private readonly folder: string | undefined,
-        private readonly name: SkillAssetName
-    ) {}
-
-    private file(suffix: string): string | undefined {
-        return this.folder && path.join(this.folder, `${this.name}${suffix}`)
-    }
-
-    private bytesFile(record: CacheRecord): string | undefined {
-        return this.file(`-${record.sha256.slice(0, 16)}.zip`)
+        private readonly folder: string,
+        name: SkillAssetName
+    ) {
+        this.bytesFile = path.join(folder, `${name}.zip`)
+        this.recordFile = path.join(folder, `${name}.json`)
     }
 
     async record(): Promise<CacheRecord | undefined> {
-        const file = this.file('.json')
         try {
-            const parsed = file && CacheRecord.safeParse(JSON.parse(await fs.readFile(file, 'utf8')))
-            return parsed && parsed.success ? parsed.data : undefined
+            const parsed = CacheRecord.safeParse(JSON.parse(await fs.readFile(this.recordFile, 'utf8')))
+            return parsed.success ? parsed.data : undefined
         } catch {
             return undefined
         }
     }
 
     async bytes(record: CacheRecord): Promise<Uint8Array | undefined> {
-        const file = this.bytesFile(record)
         try {
-            const bytes = file && (await fs.readFile(file))
-            return bytes && hashBytes(bytes) === record.sha256 ? bytes : undefined
+            const bytes = await fs.readFile(this.bytesFile)
+            return hashBytes(bytes) === record.sha256 ? bytes : undefined
         } catch {
             return undefined
         }
     }
 
-    async confirm(record: CacheRecord, fetchedAt: string): Promise<void> {
-        // A run that cached a newer copy deleted this record's copy, so writing it back would leave
-        // the record without its copy.
-        const current = await this.record()
-        if (current?.url === record.url && current.sha256 === record.sha256) {
-            await this.write({ ...record, fetchedAt })
-        }
-    }
-
     // A cache that can't be written only costs the next offline run its fallback.
-    async write(record: CacheRecord, bytes?: Uint8Array, previous?: CacheRecord): Promise<void> {
-        const [bytesFile, recordFile] = [this.bytesFile(record), this.file('.json')]
-        if (!this.folder || !bytesFile || !recordFile) {
-            return
-        }
+    async write(record: CacheRecord, bytes?: Uint8Array): Promise<void> {
         try {
             await fs.mkdir(this.folder, { recursive: true })
+
             if (bytes) {
-                await writeAtomically(bytesFile, bytes)
+                await writeAtomically(this.bytesFile, bytes)
             }
-            await writeAtomically(recordFile, JSON.stringify(record))
-            const stale = previous && previous.sha256 !== record.sha256 ? this.bytesFile(previous) : undefined
-            if (stale) {
-                await fs.rm(stale, { force: true })
-            }
+
+            await writeAtomically(this.recordFile, JSON.stringify(record))
         } catch {
             return
         }
@@ -190,9 +191,9 @@ async function readLimited(response: Response): Promise<Uint8Array> {
     let size = 0
     for (let chunk = await reader?.read(); chunk && !chunk.done; chunk = await reader?.read()) {
         size += chunk.value.byteLength
-        if (size > MAX_ASSET_BYTES) {
+        if (size > MAX_SKILL_ARCHIVE_BYTES) {
             await reader?.cancel().catch(() => undefined)
-            throw new DownloadError(`The asset is over the ${MAX_ASSET_BYTES} byte limit`)
+            throw new DownloadError(`The asset is over the ${MAX_SKILL_ARCHIVE_BYTES} byte limit`)
         }
         chunks.push(chunk.value)
     }
@@ -234,8 +235,8 @@ async function download(
             throw new DownloadError(`HTTP ${response.status}`)
         }
         const length = Number(response.headers.get('content-length'))
-        if (Number.isFinite(length) && length > MAX_ASSET_BYTES) {
-            throw new DownloadError(`The asset is ${length} bytes, over the ${MAX_ASSET_BYTES} byte limit`)
+        if (Number.isFinite(length) && length > MAX_SKILL_ARCHIVE_BYTES) {
+            throw new DownloadError(`The asset is ${length} bytes, over the ${MAX_SKILL_ARCHIVE_BYTES} byte limit`)
         }
         const bytes = await readLimited(response)
         if (bytes.length === 0) {
@@ -258,11 +259,12 @@ async function loadAsset<T>(
     parse: (bytes: Uint8Array) => T
 ): Promise<LoadedAsset<T>> {
     const url = assetUrl(name)
-    const cache = new AssetCache(settings.cacheDir, name)
-    const record = await cache.record()
+    const cache = settings.cacheDir === undefined ? undefined : new AssetCache(settings.cacheDir, name)
+    const record = await cache?.record()
     const cached = record?.url === url ? record : undefined
+
     const readCached = async (): Promise<T | undefined> => {
-        const bytes = cached && (await cache.bytes(cached))
+        const bytes = cached && (await cache?.bytes(cached))
         try {
             return bytes && parse(bytes)
         } catch {
@@ -270,31 +272,39 @@ async function loadAsset<T>(
         }
     }
     const fetchedAt = new Date(settings.now()).toISOString()
+
     try {
         let fresh = await download(settings, url, cached?.etag)
         if (!fresh && cached) {
             const parsed = await readCached()
+
             if (parsed) {
-                await cache.confirm(cached, fetchedAt)
+                await cache?.write({ ...cached, fetchedAt })
                 return { status: { name, url, origin: 'network', fetchedAt }, parsed }
             }
-            // The record's copy is gone, so the 304 can't be served. Ask again for the whole asset.
+
+            // The cached copy is gone or no longer matches its record, so the 304 can't be served. Ask
+            // again for the whole asset.
             fresh = await download(settings, url, undefined)
         }
+
         if (!fresh) {
             throw new DownloadError('HTTP 304')
         }
+
         let parsed: T
         try {
             parsed = parse(fresh.bytes)
         } catch (error) {
             throw new DownloadError(`The downloaded archive is not valid: ${message(error)}`)
         }
-        await cache.write({ url, etag: fresh.etag, sha256: hashBytes(fresh.bytes), fetchedAt }, fresh.bytes, record)
+
+        await cache?.write({ url, etag: fresh.etag, sha256: hashBytes(fresh.bytes), fetchedAt }, fresh.bytes)
         return { status: { name, url, origin: 'network', fetchedAt }, parsed }
     } catch (error) {
         const failure = message(error)
         const parsed = await readCached()
+
         return parsed && cached
             ? { status: { name, url, origin: 'cache', fetchedAt: cached.fetchedAt, failure }, parsed }
             : { status: { name, url, origin: 'unavailable', failure } }
@@ -309,23 +319,18 @@ function offline(assets: SkillAssetStatus[]): SkillsError {
     }
 }
 
-// Rewrites `learn ...` in text the catalog wrote, and in skill files, into the caller's syntax. Only a
-// `learn` followed by a learn argument counts, so prose such as "learn more" stays as it is. `skills`
-// counts only at the end of a quoted command, because "learn skills" also reads as prose.
-const LEARN_COMMAND = /(?<=^|[\s`"(])learn(?=`| (?:skills(?=[`"]|$)|-s\b|-d\b|--lines\b|posthog:|project:|<))/gm
+// A `learn` command in a skill's text, bare or inside an exec tool call, which a CLI serves as the
+// bare command. Only a bare `learn` followed by a learn argument counts, so prose such as "learn more"
+// stays as it is. `skills` counts only at the end of a quoted command, because "learn skills" also
+// reads as prose.
+const LEARN_COMMAND =
+    /posthog:exec\(\{\s*"command":\s*"learn((?: (?:\\.|[^"\\])*)?)"\s*\}\)|(?<=^|[\s`"(])learn(?=`| (?:skills(?=[`"]|$)|-s\b|-d\b|--lines\b|posthog:|project:|<))/gm
 
 export function rewriteLearnCommands(text: string, learnCommand: string): string {
-    // A `learn` that already follows the caller's prefix, as in `hog learn`, is in the caller's syntax.
-    const prefix = learnCommand.endsWith('learn') ? learnCommand.slice(0, -'learn'.length) : undefined
-    const rewritten =
-        learnCommand === 'learn'
-            ? text
-            : text.replace(LEARN_COMMAND, (match, offset: number) =>
-                  prefix && text.slice(Math.max(0, offset - prefix.length), offset) === prefix ? match : learnCommand
-              )
-    // The regex also rewrites the command inside an exec tool call, which then becomes the bare command.
-    return replaceExecInvocations(rewritten, (command) =>
-        command === 'learn' ? learnCommand : command.startsWith(`${learnCommand} `) ? command : undefined
+    return text.replace(
+        LEARN_COMMAND,
+        (_match, execArguments: string | undefined) =>
+            `${learnCommand}${execArguments === undefined ? '' : execArguments.replace(/\\"/g, '"')}`
     )
 }
 
@@ -334,43 +339,35 @@ function learnInput(words: readonly string[]): string {
     return words.map((word) => `"${word.replace(/[\\"]/g, '\\$&')}"`).join(' ')
 }
 
-// The catalog throws plain errors, which the MCP server also classifies by how their message starts.
-const LEARN_ERROR_CODES: readonly [prefix: string, code: SkillsError['code']][] = [
-    ['Unknown skill:', 'unknown_skill'],
-    ['Unknown file:', 'unknown_file'],
-    ['Unknown ', 'unknown_topic'],
-]
+function learnWords(skill: string | undefined, paths: readonly string[], request: LearnRequest): string[] {
+    const words = skill === undefined ? [...paths] : [skill, ...paths]
 
-function learnError(error: unknown, learnCommand: string): SkillsError {
-    const raw = message(error)
+    if (request.describe) {
+        return ['-d', ...words]
+    }
+    if (request.lines !== undefined) {
+        return [...words, '--lines', request.lines]
+    }
+    if (request.search !== undefined) {
+        return skill === undefined ? ['-s', request.search, ...paths] : [...words, '-s', request.search]
+    }
+    return words
+}
+
+function learnError(error: unknown): SkillsError {
     const code =
         error instanceof SkillsUnavailableError
             ? 'unavailable'
-            : (LEARN_ERROR_CODES.find(([prefix]) => raw.startsWith(prefix))?.[1] ?? 'usage')
-    return { code, message: rewriteLearnCommands(raw, learnCommand) }
+            : error instanceof LearnLookupError
+              ? error.code
+              : 'usage'
+
+    return { code, message: message(error) }
 }
 
-const Overview = z.object({ skills: z.object({ commands: z.array(z.string()) }) })
 const Listing = z.object({
     posthog: z.object({ skills: z.array(z.string()), count: z.number(), truncated: z.boolean() }),
 })
-
-function learnOutput(words: readonly string[], raw: string, learnCommand: string): LearnOutput {
-    if (words.length === 0) {
-        const { commands } = Overview.parse(JSON.parse(raw)).skills
-        return {
-            kind: 'overview',
-            commands: commands
-                .filter((command) => !command.includes('project:'))
-                .map((command) => command.replace(/^learn\b/, learnCommand)),
-        }
-    }
-    if (words.length === 1 && words[0] === 'skills') {
-        const { skills, count, truncated } = Listing.parse(JSON.parse(raw)).posthog
-        return { kind: 'list', skills, count, truncated }
-    }
-    return { kind: 'text', text: rewriteLearnCommands(raw, learnCommand) }
-}
 
 export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrary {
     const settings: Settings = {
@@ -381,81 +378,143 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
         now: options.now ?? Date.now,
     }
     const learnCommand = options.learnCommand ?? 'learn'
-    const loadContextMill = keepOnline(async () => {
+
+    const loadContextMill = memoizeWhileFresh(async () => {
         const loaded = await loadAsset(settings, 'context-mill', parseContextMill)
-        return { ...loaded, assets: [loaded.status] }
+        return { release: loaded.parsed, assets: [loaded.status] }
     })
-    const loadCatalog = keepOnline(async () => {
-        const [product, contextMill] = await Promise.all([
-            loadAsset(settings, 'product-skills', (bytes) => SkillCatalog.fromZip(bytes)),
-            loadContextMill(),
-        ])
-        const omnibus = contextMill.parsed && omnibusCatalog(contextMill.parsed)
+
+    const loadProductSkills = memoizeWhileFresh(async () => {
+        const loaded = await loadAsset(settings, 'product-skills', (bytes) => SkillCatalog.fromZip(bytes))
+        return { catalog: loaded.parsed, assets: [loaded.status] }
+    })
+
+    // Each asset keeps its own network copy, so an outage of one doesn't download the other again.
+    const loadCatalog = memoizeWhileFresh(async () => {
+        const [product, contextMill] = await Promise.all([loadProductSkills(), loadContextMill()])
+        const omnibus = contextMill.release?.omnibus()
+        const catalog = product.catalog && omnibus ? product.catalog.withOverlay(omnibus) : (product.catalog ?? omnibus)
+
         return {
-            catalog: product.parsed && omnibus ? product.parsed.withOverlay(omnibus) : (product.parsed ?? omnibus),
-            assets: [product.status, contextMill.status],
+            // A CLI has no exec tool, so the commands in the skills are rewritten once, when they load.
+            catalog: catalog?.mapText((text) => rewriteLearnCommands(text, learnCommand)),
+            assets: [...product.assets, ...contextMill.assets],
         }
     })
-    const loadInstallable = async (): Promise<
-        SkillsResult<{ skills: InstallableSkills; assets: SkillAssetStatus[] }>
+
+    const loadRelease = async (): Promise<
+        SkillsResult<{ release: ContextMillRelease; assets: SkillAssetStatus[] }>
     > => {
-        const { parsed, assets } = await loadContextMill()
-        return parsed ? { ok: true, value: { skills: parsed, assets } } : { ok: false, error: offline(assets) }
+        const { release, assets } = await loadContextMill()
+        return release ? { ok: true, value: { release, assets } } : { ok: false, error: offline(assets) }
     }
 
     return {
-        async learn(given): Promise<SkillsResult<LearnResult>> {
+        async learn(request): Promise<SkillsResult<LearnResult>> {
             // The exec tool never sees an empty word, because its tokenizer drops them.
-            const words = given.filter((word) => word.trim())
-            // The overview lists fixed commands, so it answers without the network.
-            const { catalog, assets } = words.length === 0 ? { catalog: undefined, assets: [] } : await loadCatalog()
-            if (!catalog && words.length > 0) {
+            const skill = request.skill?.trim() ? request.skill : undefined
+            const paths = request.paths.filter((word) => word.trim())
+            const { search, describe, lines } = request
+            const modes = Number(search !== undefined) + Number(describe === true) + Number(lines !== undefined)
+
+            if (modes > 1) {
+                return {
+                    ok: false,
+                    error: { code: 'usage', message: 'Give only one of search, describe and lines.' },
+                }
+            }
+
+            if (skill === undefined && paths.length === 0 && modes === 0) {
+                // The overview lists fixed commands, so it answers without the network.
+                const commands = learnSkillCommands(learnCommand).filter((command) => !command.includes('project:'))
+                return { ok: true, value: { output: { kind: 'overview', commands }, reads: [], assets: [] } }
+            }
+
+            const { catalog, assets } = await loadCatalog()
+            if (!catalog) {
                 return { ok: false, error: offline(assets) }
             }
+
             const reads: SkillRead[] = []
             const learn = new ExecLearnCatalog(
                 [],
                 { posthog: catalog, projectUnavailableReason: PROJECT_SKILLS_UNAVAILABLE },
-                ({ source, skill, path: file, readKind }) =>
-                    reads.push({ source, skill, path: file ?? 'SKILL.md', readKind })
+                ({ source, skill: name, path: file, readKind }) =>
+                    reads.push({ source, skill: name, path: file ?? 'SKILL.md', readKind }),
+                learnCommand
             )
+
             try {
-                const raw = await learn.execute(learnInput(words))
-                return { ok: true, value: { output: learnOutput(words, raw, learnCommand), reads, assets } }
+                const raw = await learn.execute(learnInput(learnWords(skill, paths, request)))
+
+                if (skill === 'skills' && paths.length === 0 && modes === 0) {
+                    const { skills, count, truncated } = Listing.parse(JSON.parse(raw)).posthog
+                    return { ok: true, value: { output: { kind: 'list', skills, count, truncated }, reads, assets } }
+                }
+
+                return { ok: true, value: { output: { kind: 'text', text: raw }, reads, assets } }
             } catch (error) {
-                return { ok: false, error: learnError(error, learnCommand) }
+                return { ok: false, error: learnError(error) }
             }
         },
 
         async installable(): Promise<SkillsResult<{ skills: InstallableSkill[]; assets: SkillAssetStatus[] }>> {
-            const loaded = await loadInstallable()
+            const loaded = await loadRelease()
             if (!loaded.ok) {
                 return loaded
             }
-            return { ok: true, value: { skills: await listSkills(loaded.value.skills), assets: loaded.value.assets } }
+
+            return { ok: true, value: { skills: await listSkills(loaded.value.release), assets: loaded.value.assets } }
+        },
+
+        async instrumentSkills(): Promise<SkillsResult<{ skills: string[]; assets: SkillAssetStatus[] }>> {
+            const loaded = await loadRelease()
+            if (!loaded.ok) {
+                return loaded
+            }
+
+            const names = loaded.value.release.omnibus()?.listNames() ?? []
+
+            return {
+                ok: true,
+                value: {
+                    skills: names
+                        .filter((name) => name.startsWith(INSTRUMENT_SKILL_PREFIX))
+                        .map((name) => `posthog:${name}`),
+                    assets: loaded.value.assets,
+                },
+            }
         },
 
         async install(id, { cwd, force }) {
-            const loaded = await loadInstallable()
+            const loaded = await loadRelease()
             if (!loaded.ok) {
                 return loaded
             }
-            const { skills, assets } = loaded.value
-            // installSkill's own message names posthog-cli's list command, which is not this caller's.
-            if (!skills.entries.some((entry) => entry.id === id)) {
-                return { ok: false, error: { code: 'unknown_skill', message: `Unknown skill "${id}".` } }
-            }
+
+            const { release, assets } = loaded.value
+
             try {
-                return { ok: true, value: { skill: await installSkill(id, { cwd, force, source: skills }), assets } }
+                return { ok: true, value: { skill: await installSkill(id, { cwd, force, source: release }), assets } }
             } catch (error) {
-                const text = message(error)
-                const code = text.includes('is already installed')
-                    ? 'already_installed'
-                    : text.startsWith('Invalid skill ID')
-                      ? 'usage'
-                      : 'install_failed'
-                return { ok: false, error: { code, message: text } }
+                return { ok: false, error: installError(id, error) }
             }
         },
+    }
+}
+
+function installError(id: string, error: unknown): SkillsError {
+    if (!(error instanceof SkillInstallError)) {
+        return { code: 'install_failed', message: message(error) }
+    }
+
+    switch (error.code) {
+        case 'unknown_skill':
+            // installSkill's own message names posthog-cli's list command, which is not this caller's.
+            return { code: 'unknown_skill', message: `Unknown skill "${id}".` }
+        case 'invalid_skill_id':
+            return { code: 'usage', message: error.message }
+        case 'already_installed':
+            return { code: 'already_installed', message: error.message }
     }
 }

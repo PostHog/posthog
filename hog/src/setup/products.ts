@@ -153,8 +153,8 @@ function productList(skills: readonly string[] | undefined): Product[] {
 // The skill list downloads like any `hog learn`. A failure leaves every product on a search.
 export async function loadProducts(ctx: Context): Promise<Product[]> {
     try {
-        const result = await (await ctx.skills()).learn(['skills'])
-        return productList(result.ok && result.value.output.kind === 'list' ? result.value.output.skills : undefined)
+        const result = await (await ctx.skills()).instrumentSkills()
+        return productList(result.ok ? result.value.skills : undefined)
     } catch {
         return productList(undefined)
     }

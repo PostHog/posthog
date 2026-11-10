@@ -12,7 +12,7 @@ import { CI_CREDENTIALS_HINT, type Credentials } from '@/posthog/credentials'
 import { LOGIN_SCOPES } from '@/posthog/device-auth'
 import { cloudRegion, INGESTION_HOSTS, REGIONS, regionOf, type Host, type RegionId } from '@/posthog/host'
 import { parseProjectId } from '@/posthog/ids'
-import { configNames, finishLogin, nameInConfig } from '@/posthog/login/finish'
+import { hasLogin, finishLogin, writeLoginToConfig } from '@/posthog/login/finish'
 import { loginFlow, saveLogin, SETUP_COMMAND } from '@/posthog/login/flow'
 import { runHogQL } from '@/posthog/query'
 import { ProjectTokenSchema, type ProjectToken } from '@/posthog/tokens'
@@ -485,7 +485,7 @@ async function recordIntents(run: SetupRun): Promise<void> {
 const project: StepDefinition = {
     isDone: async (run) => {
         const key = (await run.credentials())?.key
-        return completed(run, 'project') && key !== undefined && configNames((await run.ctx.config())?.config, key)
+        return completed(run, 'project') && key !== undefined && hasLogin((await run.ctx.config())?.config, key)
     },
     summary: async (run) => {
         const key = await run.key()
@@ -499,7 +499,7 @@ const project: StepDefinition = {
             )
         }
         const key = await run.key()
-        const named = await nameInConfig(run.ctx, key)
+        const named = await writeLoginToConfig(run.ctx, key)
         if (named.status === 'failed') {
             throw new HogError(
                 'setup_config_unwritable',

@@ -1,15 +1,14 @@
-import { join } from 'node:path'
-
-import { CONFIG_FILE, updateConfig, type PostHogConfig } from '@/core/config'
+import { configPathFor, updateConfig, type PostHogConfig } from '@/core/config'
 import type { Context } from '@/core/context'
 import type { AccessKey } from '@/posthog/access-key'
 import type { StoreChoice } from '@/posthog/credential-store/types'
-import type { Host } from '@/posthog/host'
+import { sameHost, type Host } from '@/posthog/host'
 import { parseProjectId, type ProjectId } from '@/posthog/ids'
 
 import { saveLogin } from './flow'
 
-export interface NamedIn {
+// The posthog.json that login writes the host and project to.
+export interface ConfigWrite {
     path: string
     status: 'created' | 'updated' | 'unchanged' | 'failed'
     // Why hog couldn't write the file. Null unless `status` is failed.
@@ -27,40 +26,49 @@ export interface FinishedLogin {
     scopes: string[] | null
     // ISO 8601, for an OAuth login. hog renews the token before then.
     expiresAt: string | null
-    config: NamedIn
+    config: ConfigWrite
 }
 
-export function configNames(
+export function hasLogin(
     config: PostHogConfig | undefined,
     { host, projectId }: { host: Host; projectId: ProjectId }
 ): boolean {
-    return config?.host === host && config.projectId !== undefined && parseProjectId(config.projectId) === projectId
+    return (
+        config?.host !== undefined &&
+        sameHost(config.host, host) &&
+        config.projectId !== undefined &&
+        parseProjectId(config.projectId) === projectId
+    )
 }
 
-// Commands pick a login from the closest posthog.json, so the login names itself there. The file in
-// this folder or above it keeps its other settings, and a new one goes in this folder.
-// The login is already saved, so a file hog can't write only warns. The caller reloads `ctx` after a write.
-export async function nameInConfig(ctx: Context, target: { host: Host; projectId: ProjectId }): Promise<NamedIn> {
+// Commands pick their login from the closest posthog.json, so login writes its host and project
+// there. A new file goes in this folder. The login is already saved, so a failed write only warns.
+// The caller reloads `ctx` after a write.
+export async function writeLoginToConfig(
+    ctx: Context,
+    login: { host: Host; projectId: ProjectId }
+): Promise<ConfigWrite> {
     const loaded = await ctx.config()
-    if (loaded && configNames(loaded.config, target)) {
-        return { path: loaded.path, status: 'unchanged', error: null }
+    if (hasLogin(loaded?.config, login)) {
+        return { path: configPathFor(ctx.runtime, loaded), status: 'unchanged', error: null }
     }
-    const { host, projectId } = target
-    const path = loaded?.path ?? join(ctx.runtime.cwd(), CONFIG_FILE)
+
     try {
-        await updateConfig(ctx.runtime, loaded, (raw) => {
-            raw.host = host
-            raw.projectId = Number(projectId)
+        const path = await updateConfig(ctx.runtime, loaded, (raw) => {
+            raw.host = login.host
+            raw.projectId = Number(login.projectId)
         })
+
+        return { path, status: loaded ? 'updated' : 'created', error: null }
     } catch (error) {
+        const path = configPathFor(ctx.runtime, loaded)
         return { path, status: 'failed', error: error instanceof Error ? error.message : String(error) }
     }
-    return { path, status: loaded ? 'updated' : 'created', error: null }
 }
 
 export async function finishLogin(ctx: Context, key: AccessKey): Promise<FinishedLogin> {
     const loggedIn = await saveLogin(ctx.runtime, key)
-    const config = await nameInConfig(ctx, loggedIn)
+    const config = await writeLoginToConfig(ctx, loggedIn)
     ctx.reload()
     ctx.telemetry.loggedInAs(key)
     const { host, projectId, store, credentialsPath, keychainError, status } = loggedIn
