@@ -1,6 +1,9 @@
+import re
 import json
 import base64
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from functools import partial
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
@@ -13,6 +16,7 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
 import requests
+import responses
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
@@ -25,6 +29,7 @@ from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team, Us
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
+from posthog.security.outbound_proxy import internal_requests
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.facade.transactional_email import report_first_code_send
@@ -63,6 +68,51 @@ def _stage_counts() -> dict[str, float]:
         or 0
         for stage in get_args(TransactionalEmailStage)
     }
+
+
+ACCEPTED_SEND_KEYS: dict[str, set[str] | None] = {
+    "content": {"subject", "html", "text"},
+    "from": {"integrationId", "email", "name"},
+    "replyTo": None,
+    "cc": None,
+    "bcc": None,
+    "attachments": None,
+    "tracking": {"captureEngagement"},
+}
+
+
+class FakeCdpApi:
+    def __init__(self) -> None:
+        self.queued_sends: list[dict[str, Any]] = []
+
+    @contextmanager
+    def serving(self, client_post: MagicMock) -> Iterator["FakeCdpApi"]:
+        client_post.side_effect = partial(requests.Session.post, internal_requests)
+        with responses.RequestsMock() as http:
+            http.add_callback(responses.POST, re.compile(r".*/hog_flows/[^/]+/transactional_email/send$"), self._send)
+            yield self
+
+    def _send(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
+        send = json.loads(request.body or "{}")["send"]
+        issues = self._unrecognized_keys(send)
+        if not isinstance(send.get("tracking", {}).get("captureEngagement"), bool):
+            issues.append({"code": "invalid_type", "path": ["send", "tracking", "captureEngagement"]})
+        if issues:
+            return 400, {}, json.dumps({"error": json.dumps(issues)})
+        self.queued_sends.append(send)
+        return 202, {}, json.dumps({"invocation_id": f"invocation-{len(self.queued_sends)}"})
+
+    def _unrecognized_keys(self, send: dict[str, Any]) -> list[dict[str, Any]]:
+        issues = [
+            {"code": "unrecognized_keys", "keys": [key], "path": ["send"]}
+            for key in send.keys() - ACCEPTED_SEND_KEYS.keys()
+        ]
+        for field, allowed in ACCEPTED_SEND_KEYS.items():
+            if allowed is not None and isinstance(send.get(field), dict) and send[field].keys() - allowed:
+                issues.append(
+                    {"code": "unrecognized_keys", "keys": sorted(send[field].keys() - allowed), "path": ["send", field]}
+                )
+        return issues
 
 
 @patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
@@ -720,14 +770,13 @@ class TestTransactionalEmail(APIBaseTest):
         assert json.loads(mock_post.call_args.kwargs["data"])["send"] == sent
 
     def test_a_form_encoded_code_send_without_capture_engagement_captures_engagement(self, mock_post, _flag, _capture):
-        self._cdp_accepts(mock_post)
-
-        response = self._psak_client(["hog_flow:write"]).post(
-            self.send_email_url, self._code_send(), format="multipart"
-        )
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, self._code_send(), format="multipart"
+            )
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert json.loads(mock_post.call_args.kwargs["data"])["send"]["tracking"] == {"captureEngagement": True}
+        assert [send["tracking"] for send in cdp.queued_sends] == [{"captureEngagement": True}]
 
     @parameterized.expand(
         [
