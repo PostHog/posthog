@@ -1126,10 +1126,11 @@ class TestCohortUtils(BaseTest):
     def test_replace_restamps_every_match_then_prunes_both_stores(self):
         # Random uuids: this class shares one team across tests and never clears ClickHouse, so a
         # fixed uuid can collide with a person an earlier test wrote.
-        kept, new, stale = (
+        kept, new, stale, pg_only = (
             create_person(team=self.team, distinct_ids=[name], properties={"tag": tag}, uuid=uuid4())
-            for name, tag in (("kept", "in"), ("new", "in"), ("stale", "out"))
+            for name, tag in (("kept", "in"), ("new", "in"), ("stale", "out"), ("pg_only", "out"))
         )
+        other_person = create_person(team=self.team, distinct_ids=["other"], uuid=uuid4())
         flush_persons_and_events()
         cohort = Cohort.objects.create(
             team=self.team,
@@ -1141,7 +1142,10 @@ class TestCohortUtils(BaseTest):
         cohort.insert_users_list_by_uuid([str(kept.uuid), str(stale.uuid)], team_id=self.team.pk)
         # A member whose person can't be resolved, as a person not yet on a replica would be.
         unresolved_id = 987_654_321
-        insert_cohort_members(self.team.pk, cohort.pk, [unresolved_id], None)
+        insert_cohort_members(self.team.pk, cohort.pk, [unresolved_id, pg_only.id], None)
+
+        other_cohort = Cohort.objects.create(team=self.team, name="other", is_static=True)
+        other_cohort.insert_users_list_by_uuid([str(other_person.uuid)], team_id=self.team.pk)
 
         with time_machine.travel(timezone.now() + timedelta(seconds=10), tick=False):
             marker = mint_population_marker(cohort, team_id=self.team.pk)
@@ -1162,7 +1166,7 @@ class TestCohortUtils(BaseTest):
 
         # One delete call per page that has stale members, never one per member. And the page size must
         # stay within what that call accepts, or every replace would fail.
-        self.assertEqual(delete_calls.call_count, 1)
+        self.assertEqual(delete_calls.call_count, 2)
         self.assertLessEqual(PRUNE_PAGE_SIZE, DELETE_COHORT_MEMBERS_BY_PERSON_IDS_MAX)
 
         # The existing member who still matches gets a second row at the marker. The append insert
@@ -1171,9 +1175,11 @@ class TestCohortUtils(BaseTest):
             (written, before_prune[str(kept.uuid)], before_prune[str(new.uuid)][1]),
             (2, (2, marker), marker),
         )
-        self.assertEqual(removed, 1)
+        self.assertEqual(removed, 2)
         self.assertEqual(set(list_cohort_member_ids(self.team.pk, cohort.pk)), {kept.id, new.id, unresolved_id})
         self.assertEqual(self._static_cohort_stamps(cohort), {str(kept.uuid): (1, marker), str(new.uuid): (1, marker)})
+        self.assertEqual(list_cohort_member_ids(self.team.pk, other_cohort.pk), [other_person.id])
+        self.assertEqual(len(self._static_cohort_stamps(other_cohort)), 1)
 
     def test_replace_prune_restores_a_member_whose_row_arrives_late(self):
         late = create_person(team=self.team, distinct_ids=["late"], uuid=uuid4())
