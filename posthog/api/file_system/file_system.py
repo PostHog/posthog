@@ -58,7 +58,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, InsufficientScope
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 from posthog.models.file_system.constants import (
     RETIRED_FILE_SYSTEM_TYPES,
@@ -88,6 +88,7 @@ from posthog.models.tagged_item_registry import object_column_for
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
+from posthog.permissions import scopes_caller_lacks
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
@@ -177,7 +178,19 @@ class FileSystemFrequentQuerySerializer(serializers.Serializer):
     )
 
 
-def _stored_spellings(team_id: int, file_type: str, refs: set[str], surface: str) -> dict[str, set[str]]:
+def _any_surface_q(team_id: int) -> Q:
+    surfaces: list[str] = []
+    named = FileSystem.objects.filter(team_id=team_id, surface__isnull=False).order_by("surface")
+    while (
+        surface := (named.filter(surface__gt=surfaces[-1]) if surfaces else named)
+        .values_list("surface", flat=True)
+        .first()
+    ) is not None:
+        surfaces.append(surface)
+    return Q(surface__isnull=True) | Q(surface__in=surfaces)
+
+
+def _stored_spellings(team_id: int, file_type: str, refs: set[str], any_surface: Q) -> dict[str, set[str]]:
     spellings = {ref: {ref} for ref in refs}
     canonical_by_spelling = {
         spelling: ref for ref in refs for spelling in file_system_ref_alternate_spellings(file_type, ref)
@@ -185,9 +198,8 @@ def _stored_spellings(team_id: int, file_type: str, refs: set[str], surface: str
     if not canonical_by_spelling:
         return spellings
     stored_spellings = (
-        FileSystem.objects.filter(
-            surface_q(surface), team_id=team_id, type=file_type, shortcut=False, ref__in=canonical_by_spelling
-        )
+        FileSystem.objects.filter(any_surface, team_id=team_id, type=file_type, shortcut=False)
+        .filter(ref__in=canonical_by_spelling)
         .values_list("ref", flat=True)
         .distinct()
     )
@@ -535,8 +547,27 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ]
         )
 
+    def _ensure_can_place_workflow_file(
+        self, entry_type: Optional[str], ref: Optional[str], shortcut: Optional[bool], team_id: int
+    ) -> None:
+        if entry_type in WORKFLOW_FILE_SYSTEM_TYPES and ref and not shortcut:
+            self._ensure_can_delete_objects([(entry_type, ref, team_id)])
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        data = serializer.validated_data
+        self._ensure_can_place_workflow_file(data.get("type"), data.get("ref"), data.get("shortcut"), self.team.id)
+        super().perform_create(serializer)
+
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
-        self._ensure_can_change_workflow_files(FileSystem.objects.filter(pk=cast(FileSystem, serializer.instance).pk))
+        instance = cast(FileSystem, serializer.instance)
+        data = serializer.validated_data
+        self._ensure_can_change_workflow_files(FileSystem.objects.filter(pk=instance.pk))
+        self._ensure_can_place_workflow_file(
+            data.get("type", instance.type),
+            data.get("ref", instance.ref),
+            data.get("shortcut", instance.shortcut),
+            instance.team_id,
+        )
         super().perform_update(serializer)
 
     def _basename_regex(self, value: str) -> str:
@@ -1134,6 +1165,14 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not entries_to_check:
             return {}
 
+        self._ensure_can_delete_objects(
+            [
+                (entry.type, entry.ref, entry.team_id)
+                for entry in entries_to_check
+                if entry.type in WORKFLOW_FILE_SYSTEM_TYPES and entry.ref
+            ]
+        )
+
         ids_to_remove = {entry.id for entry in entries_to_check}
 
         # Several leaf rows can share one (team, type, ref) - that's the "last reference" case
@@ -1153,8 +1192,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         for team_id, file_type, ref, _row_key in entries_by_group:
             if ref:
                 refs_by_type.setdefault((team_id, file_type), set()).add(ref)
+        any_surface_by_team = {team_id: _any_surface_q(team_id) for team_id, _file_type in refs_by_type}
         spellings_by_type = {
-            key: _stored_spellings(key[0], key[1], refs, self.file_system_surface)
+            key: _stored_spellings(key[0], key[1], refs, any_surface_by_team[key[0]])
             for key, refs in sorted(refs_by_type.items())
         }
 
@@ -1184,7 +1224,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 sibling_ids = {
                     row.id
                     for row in FileSystem.objects.select_for_update()
-                    .filter(team_id=team_id, type=file_type, ref__in=spellings, shortcut=False)
+                    .filter(any_surface_by_team[team_id], team_id=team_id, type=file_type, shortcut=False)
+                    .filter(ref__in=spellings)
                     .order_by("id")
                 }
                 remaining = len(sibling_ids - ids_to_remove)
@@ -1208,6 +1249,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if remaining == 0 and ref:
                 objects_to_delete.append((file_type, ref, team_id))
 
+        if any(file_type in WORKFLOW_FILE_SYSTEM_TYPES for file_type, _ref, _team_id in objects_to_delete):
+            if missing_scopes := scopes_caller_lacks(self.request, ["hog_flow:write"]):
+                raise InsufficientScope(missing_scopes)
         self._ensure_can_delete_objects(objects_to_delete)
 
         return reaches_backing_object

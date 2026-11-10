@@ -2405,7 +2405,7 @@ export const HogFlowTypeEnumApi = {
 } as const
 
 /**
- * One row of the workflows list: the summary fields and the workflow type, without the step graph.
+ * Mixin for serializers to add user access control fields
  */
 export interface HogFlowListSummaryApi {
     readonly id: string
