@@ -12,13 +12,17 @@ import {
 
 describe("PostHogAPIClient", () => {
   it.each([
-    ["timeout", "headers"],
-    ["timeout", "body"],
-    ["cancel", "headers"],
-    ["cancel", "body"],
+    ["getGithubRepositories", "timeout", "headers"],
+    ["getGithubRepositories", "timeout", "body"],
+    ["getGithubRepositories", "cancel", "headers"],
+    ["getGithubRepositories", "cancel", "body"],
+    ["refreshGithubRepositories", "timeout", "headers"],
+    ["refreshGithubRepositories", "timeout", "body"],
+    ["refreshGithubRepositories", "cancel", "headers"],
+    ["refreshGithubRepositories", "cancel", "body"],
   ] as const)(
-    "aborts a GitHub repository lookup on %s when the %s stall",
-    async (reason, stage) => {
+    "aborts %s on %s while waiting for %s",
+    async (method, reason, stage) => {
       vi.useFakeTimers();
       try {
         let markStarted!: (signal: AbortSignal) => void;
@@ -28,7 +32,7 @@ describe("PostHogAPIClient", () => {
         const fetch = vi.fn(
           (_url: string | URL | Request, init?: RequestInit) => {
             const pending = new Promise<never>((_resolve, reject) => {
-              const signal = init?.signal as AbortSignal;
+              const signal = init?.signal ?? new AbortController().signal;
               signal.addEventListener("abort", () => reject(signal.reason), {
                 once: true,
               });
@@ -49,16 +53,16 @@ describe("PostHogAPIClient", () => {
         );
         const controller = new AbortController();
         const result = expect(
-          client.getGithubRepositories(1, controller.signal),
+          client[method](1, controller.signal),
         ).rejects.toThrow("abort");
         const signal = await started;
         if (reason === "timeout") {
-          await vi.advanceTimersByTimeAsync(15_000);
+          await vi.runAllTimersAsync();
         } else {
           controller.abort();
         }
-        await result;
         expect(signal.aborted).toBe(true);
+        await result;
         expect(fetch).toHaveBeenCalledOnce();
       } finally {
         vi.useRealTimers();

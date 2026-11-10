@@ -5585,25 +5585,38 @@ export class PostHogAPIClient {
 
   async refreshGithubRepositories(
     integrationId: string | number,
+    signal?: AbortSignal,
   ): Promise<string[]> {
     const teamId = await this.getTeamId();
     const url = new URL(
       `${this.api.baseUrl}/api/environments/${teamId}/integrations/${integrationId}/github_repos/refresh/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: `/api/environments/${teamId}/integrations/${integrationId}/github_repos/refresh/`,
-    });
+    const controller = new AbortController();
+    const requestSignal = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal;
+    const timeout = setTimeout(() => controller.abort(), 60_000);
 
-    if (!response.ok) {
-      throw new Error(
-        `Failed to refresh GitHub repositories: ${response.statusText}`,
-      );
+    try {
+      requestSignal.throwIfAborted();
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: `/api/environments/${teamId}/integrations/${integrationId}/github_repos/refresh/`,
+        overrides: { signal: requestSignal },
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to refresh GitHub repositories: ${response.statusText}`,
+        );
+      }
+
+      const data: unknown = await response.json();
+      return this.normalizeGithubRepositories(data);
+    } finally {
+      clearTimeout(timeout);
     }
-
-    const data: unknown = await response.json();
-    return this.normalizeGithubRepositories(data);
   }
 
   async refreshGithubUserRepositories(
