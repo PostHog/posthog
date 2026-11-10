@@ -67,12 +67,19 @@ class TestLintTestOwners:
 
         assert result.exit_code == 0
 
-    def test_a_path_with_a_newline_cannot_forge_a_workflow_command(
-        self, add: Add, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        "path",
+        [
+            pytest.param("gap/test_x\n::error::forged.py", id="after_a_newline"),
+            pytest.param("::error::forged/test_x.py", id="at_the_start_of_the_path"),
+        ],
+    )
+    def test_a_path_cannot_forge_a_workflow_command(
+        self, add: Add, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str
     ) -> None:
         summary = tmp_path.parent / f"{tmp_path.name}-summary.md"
         monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
-        add("gap/test_x\n::error::forged.py")
+        add(path)
 
         result = CliRunner().invoke(ownership_lint.cmd_lint_test_owners, ["--against", "HEAD"])
 

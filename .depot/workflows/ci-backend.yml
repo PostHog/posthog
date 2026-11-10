@@ -1653,9 +1653,13 @@ jobs:
             - name: Check for new files under ee/
               if: github.event_name == 'pull_request'
               run: python .github/scripts/check-no-new-ee-files.py --against HEAD^1 --committed
+            # A branch that predates the command has nothing to run, and picks the check up when it rebases.
             - name: Check that new test files have an owner
               if: github.event_name == 'pull_request'
-              run: ./bin/hogli lint:test-owners --against HEAD^1 --committed
+              run: |
+                  if ./bin/hogli lint:test-owners --help >/dev/null 2>&1; then
+                      ./bin/hogli lint:test-owners --against HEAD^1 --committed
+                  fi
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
             - name: Flag deterministic failure

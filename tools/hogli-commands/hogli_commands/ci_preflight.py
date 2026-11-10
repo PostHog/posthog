@@ -179,6 +179,7 @@ DIFF_CHECKS: list[DiffCheck] = [
         triggers=["*"],
         verify=None,
         run=check_unowned_paths,
+        soft=True,
     ),
     DiffCheck(
         key="ruff-format",

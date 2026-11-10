@@ -19,10 +19,13 @@ from hogli_commands.preflight_checks import Outcome, Scope
 HINT = "Name the owner in the nearest owners.yaml. `hogli owners:who <path>` shows which file applies."
 
 
-def _one_line(text: str) -> str:
-    """Git allows a newline in a path. CI reads a line that starts with `::` as a workflow command,
-    so a path that kept its newline could forge an annotation."""
-    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+def _log_line(path: str) -> str:
+    """One line of CI output for a path, which is text the pull request author controls.
+
+    CI reads a line that starts with `::` as a workflow command. The fixed prefix keeps the path off
+    the start of the line, and the escapes stop a newline in the path from starting another line.
+    """
+    return "no owner: " + path.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
 def _first(paths: list[str]) -> str:
@@ -46,16 +49,12 @@ def cmd_lint_test_owners(against: str, committed: bool) -> None:
         paths = newly_unowned(REPO_ROOT, against, committed_only=committed)
     except subprocess.CalledProcessError as error:
         raise click.ClickException(f"could not compare with {against!r}: {error.stderr.strip()}") from error
-    tests = [_one_line(path) for path in paths if runner_for_path(path)]
-    if not tests:
+    lines = "".join(f"{_log_line(path)}\n" for path in paths if runner_for_path(path))
+    if not lines:
         return
-    for path in tests:
-        click.echo(f"{path}: this test has no owner")
-    click.echo(HINT)
+    click.echo(lines + HINT)
     if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
-        # A fence closes only on a line of its own, so a one-line path cannot break out of the block.
+        # A fence closes only on a line of its own, and no line here is only a fence.
         with Path(summary_path).open("a", encoding="utf-8") as summary:
-            summary.write(
-                "### Tests with no owner\n\n```text\n" + "".join(f"{path}\n" for path in tests) + f"```\n\n{HINT}\n\n"
-            )
+            summary.write(f"### Tests with no owner\n\n```text\n{lines}```\n\n{HINT}\n\n")
     raise SystemExit(1)
