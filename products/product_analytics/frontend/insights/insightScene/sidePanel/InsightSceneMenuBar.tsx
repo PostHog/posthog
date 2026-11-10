@@ -29,6 +29,7 @@ import { SceneMenuBarPinItem } from 'lib/components/Scenes/SceneMenuBarPinItem'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -66,6 +67,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
@@ -113,6 +115,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
 
     const { createStaticCohort, startExport } = useActions(exportsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const metricsAlertsEnabled = useFeatureFlag('METRICS')
     const { openCreateFromInsightModal } = useActions(endpointLogic)
     const { push } = useActions(router)
     const { openTerraformModal, openAddToDashboardModal } = useActions(insightModalsLogic(insightLogicProps))
@@ -182,6 +185,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const showCreateEndpoint =
         isSavedInsight && !getAccessControlDisabledReason(AccessControlResourceType.Endpoint, AccessControlLevel.Editor)
     const showCreateMetric = isSavedInsight
+    const canCreateAlert = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
     // Adding to notebooks is deprecated under the rail redesign; gated here so an emptied menu can disable itself.
     const showAddToNotebook = isSavedInsight && !featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
     const showCreateMenu =
@@ -285,6 +289,24 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                         </>
                     )}
                     <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
+                    {isSavedInsight && canCreateAlert && (
+                        <SceneMenuBarItem
+                            onClick={() => push(urls.insightAlerts(insight.short_id!))}
+                            data-attr={`${RESOURCE_TYPE}-menubar-monitor-alerts`}
+                        >
+                            <IconWarning />
+                            Alerts
+                        </SceneMenuBarItem>
+                    )}
+                    {isSavedInsight && (
+                        <SceneMenuBarItem
+                            onClick={() => push(urlForSubscriptions({ insightShortId: insight.short_id }))}
+                            data-attr={`${RESOURCE_TYPE}-menubar-monitor-subscriptions`}
+                        >
+                            <IconBell />
+                            Subscriptions
+                        </SceneMenuBarItem>
+                    )}
                     {showCopyToProject && (
                         <SceneMenuBarItem
                             onClick={() => push(urls.resourceTransfer('Insight', insight.id!, insight.short_id))}
