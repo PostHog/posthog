@@ -5,6 +5,7 @@ import {
   flattenBranchPages,
   type GithubBranchesPage,
 } from "@posthog/core/integrations/branches";
+import { combineGitlabProjects } from "@posthog/core/integrations/gitlabProjects";
 import { REPOSITORIES_SERVICE } from "@posthog/core/integrations/identifiers";
 import {
   combineGithubRepositories,
@@ -47,6 +48,7 @@ import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useDebounce } from "@posthog/ui/primitives/hooks/useDebounce";
 import { logger } from "@posthog/ui/shell/logger";
 import {
+  keepPreviousData,
   type QueryClient,
   useQueries,
   useQueryClient,
@@ -357,6 +359,53 @@ export function useUserGithubRepositories(
     hasMore,
     loadMore,
   };
+}
+
+/**
+ * The gitlab.com project of each connection, with the integration to send for
+ * each, and the token scopes that coding tasks need and a token lacks.
+ */
+export function useGitlabProjects(
+  integrationIds: ReadonlyArray<number>,
+  search: string,
+  enabled: boolean,
+) {
+  const client = useOptionalAuthenticatedClient();
+  const trimmedSearch = search.trim();
+  const debouncedSearch = useDebounce(
+    trimmedSearch,
+    trimmedSearch ? BRANCH_SEARCH_DEBOUNCE_MS : 0,
+  );
+  return useQueries({
+    queries: integrationIds.map((integrationId) => ({
+      queryKey: integrationKeys.gitlabProjects(integrationId, debouncedSearch),
+      queryFn: async () => {
+        if (!client) throw new Error("Not authenticated");
+        return await client.getGitlabProjects(integrationId, debouncedSearch);
+      },
+      enabled: enabled && !!client,
+      staleTime: 5 * 60 * 1000,
+      placeholderData: keepPreviousData,
+      meta: AUTH_SCOPED_QUERY_META,
+    })),
+    combine: (results) => ({
+      ...combineGitlabProjects(
+        results.map((result, index) => ({
+          integrationId: integrationIds[index],
+          response: result.data,
+        })),
+      ),
+      isPending: enabled && results.some((result) => result.isPending),
+      // keepPreviousData can still hold an older result, so the error is
+      // reported even when some projects are listed.
+      isError: enabled && results.some((result) => result.isError),
+      retry: () => {
+        for (const result of results) {
+          if (result.isError) void result.refetch();
+        }
+      },
+    }),
+  });
 }
 
 export function useGithubBranches(
