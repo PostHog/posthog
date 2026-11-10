@@ -54,9 +54,11 @@ export async function listSkills(source?: InstallableSkills): Promise<SkillListI
         .sort((a, b) => a.id.localeCompare(b.id))
 }
 
-function targetSkillDirectory(targetRoot: string, skillId: string): string {
+const DEFAULT_SKILLS_DIR = '.agents/skills'
+
+function targetSkillDirectory(targetRoot: string, skillsDir: string, skillId: string): string {
     assertSafeSkillId(skillId)
-    const skillsRoot = path.resolve(targetRoot, '.agents', 'skills')
+    const skillsRoot = path.resolve(targetRoot, skillsDir)
     const destinationRoot = path.resolve(skillsRoot, skillId)
     assertSafeDestination(skillsRoot, destinationRoot)
     return destinationRoot
@@ -73,7 +75,7 @@ function assertSafeSkillId(skillId: string): void {
 
 export async function installSkill(
     skillId: string,
-    opts: { cwd?: string; force?: boolean; source?: InstallableSkills } = {}
+    opts: { cwd?: string; force?: boolean; skillsDir?: string; source?: InstallableSkills } = {}
 ): Promise<SkillInstallResult> {
     const cwd = opts.cwd ?? process.cwd()
     const source = opts.source ?? (await loadSkills())
@@ -98,7 +100,7 @@ export async function installSkill(
     // Unzipped before anything on disk changes, so an archive past the limits, or with an unsafe path, leaves an
     // installed copy as it is.
     const skillArchive = unzipUntrusted(skillBytes, `Skill archive "${entry.file}"`)
-    const destinationRoot = targetSkillDirectory(cwd, skillId)
+    const destinationRoot = targetSkillDirectory(cwd, opts.skillsDir ?? DEFAULT_SKILLS_DIR, skillId)
     await assertResolvesInside(cwd, destinationRoot)
     try {
         await fs.access(destinationRoot)

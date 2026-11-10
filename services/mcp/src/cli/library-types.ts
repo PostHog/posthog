@@ -195,9 +195,13 @@ export interface SkillsLibrary {
     instrumentSkills(): Promise<SkillsResult<{ skills: string[]; assets: SkillAssetStatus[] }>>
     /** The skills `install` can write into a repository, as `posthog-cli api skill list` lists them. */
     installable(): Promise<SkillsResult<{ skills: InstallableSkill[]; assets: SkillAssetStatus[] }>>
-    /** Writes a skill into `.agents/skills/<id>` under `cwd`, as `posthog-cli api skill install` does. */
+    /**
+     * Writes a skill into `<skillsDir>/<id>` under `cwd`. `skillsDir` defaults to `.agents/skills`, where
+     * `posthog-cli api skill install` writes. A write that would land outside `cwd`, through `..` or a
+     * symlink, fails with `install_failed`.
+     */
     install(
         id: string,
-        options: { cwd: string; force?: boolean }
+        options: { cwd: string; force?: boolean; skillsDir?: string }
     ): Promise<SkillsResult<{ skill: InstalledSkill; assets: SkillAssetStatus[] }>>
 }

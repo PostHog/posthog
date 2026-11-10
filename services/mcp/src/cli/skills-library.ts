@@ -486,7 +486,7 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
             }
         },
 
-        async install(id, { cwd, force }) {
+        async install(id, { cwd, force, skillsDir }) {
             const loaded = await loadRelease()
             if (!loaded.ok) {
                 return loaded
@@ -495,7 +495,10 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
             const { release, assets } = loaded.value
 
             try {
-                return { ok: true, value: { skill: await installSkill(id, { cwd, force, source: release }), assets } }
+                return {
+                    ok: true,
+                    value: { skill: await installSkill(id, { cwd, force, skillsDir, source: release }), assets },
+                }
             } catch (error) {
                 return { ok: false, error: installError(id, error) }
             }
