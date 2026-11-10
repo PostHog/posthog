@@ -116,6 +116,8 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                 key={primaryChart.key}
                 option={primaryChart}
                 size="primary"
+                // Matches the selected stat tile's 1px border plus 4px accent edge, tying the tile to this chart.
+                className="!border-t-[5px] !border-t-accent"
                 source="Pageviews and screen views"
                 loadPriority={0}
             />

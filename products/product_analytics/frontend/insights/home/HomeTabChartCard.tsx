@@ -1,6 +1,7 @@
 import '~/queries/nodes/InsightViz/InsightViz.scss'
 import './HomeTabChartCard.scss'
 
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useMemo, type ReactNode } from 'react'
 
@@ -25,9 +26,17 @@ interface HomeTabChartCardProps {
     control?: ReactNode
     source?: string
     loadPriority: number
+    className?: string
 }
 
-export function HomeTabChartCard({ option, size, control, source, loadPriority }: HomeTabChartCardProps): JSX.Element {
+export function HomeTabChartCard({
+    option,
+    size,
+    control,
+    source,
+    loadPriority,
+    className,
+}: HomeTabChartCardProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { shouldShowSampleData, sampleDataPending } = useValues(sampleDataStateLogic)
     const sampleData = useMemo(
@@ -57,7 +66,10 @@ export function HomeTabChartCard({ option, size, control, source, loadPriority }
         />
     )
     return (
-        <LemonCard hoverEffect={false} className="HomeTabChartCard flex min-w-0 flex-col overflow-hidden p-0">
+        <LemonCard
+            hoverEffect={false}
+            className={clsx('HomeTabChartCard flex min-w-0 flex-col overflow-hidden p-0', className)}
+        >
             <div className="HomeTabChartCard__header border-b border-primary px-4 py-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <div className="flex min-w-0 items-center gap-1">

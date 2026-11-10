@@ -15,7 +15,7 @@ export function HomeTabStatTiles({ dateRange, compare, selectedKey, onSelect }: 
     const stats = getHomeTabStatQueries(dateRange, compare)
 
     return (
-        <div className="flex snap-x snap-proximity gap-2 overflow-x-auto pb-1" aria-label="Overview metrics">
+        <div className="flex snap-x snap-proximity gap-2 overflow-x-auto pb-2" aria-label="Overview metrics">
             {stats.map((stat) => (
                 <div
                     key={stat.key}

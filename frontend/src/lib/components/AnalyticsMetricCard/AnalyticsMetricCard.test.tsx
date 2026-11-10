@@ -39,6 +39,31 @@ describe('AnalyticsMetricCard', () => {
         expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'true')
     })
 
+    it.each([
+        ['header text selects the card', 'Header title', 1],
+        ['header controls keep their own action', 'Header menu', 0],
+    ])('%s', (_, target, expectedSelections) => {
+        const parentClick = jest.fn()
+        const onClick = jest.fn()
+        render(
+            <div onClick={parentClick}>
+                <AnalyticsMetricCard
+                    value={120}
+                    onClick={onClick}
+                    header={
+                        <div>
+                            <span>Header title</span>
+                            <button type="button">Header menu</button>
+                        </div>
+                    }
+                />
+            </div>
+        )
+        fireEvent.click(screen.getByText(target))
+        expect(onClick).toHaveBeenCalledTimes(expectedSelections)
+        expect(parentClick).toHaveBeenCalledTimes(expectedSelections === 1 ? 0 : 1)
+    })
+
     it('keeps loading distinct from an empty or failed response', () => {
         const { rerender } = render(<AnalyticsMetricCard title="Sessions" loading error="Could not load" />)
         expect(screen.queryByText('Could not load')).not.toBeInTheDocument()

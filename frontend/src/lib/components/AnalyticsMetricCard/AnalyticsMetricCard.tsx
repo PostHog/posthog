@@ -68,14 +68,32 @@ export function AnalyticsMetricCard({
                 selected
                     ? tinted
                         ? 'border-accent bg-accent-highlight-secondary'
-                        : // The elevation shadow's 3px solid edge, in the accent colour.
-                          'border-accent bg-surface-primary shadow-[0_3px_0_var(--color-accent)]'
+                        : // A solid accent edge in the shape of the elevation shadow, heavier so it stands out.
+                          'border-accent bg-surface-primary shadow-[0_4px_0_var(--color-accent)]'
                     : 'border-primary bg-surface-primary',
                 onClick && 'hover:border-accent',
                 className
             )}
         >
-            {header}
+            {header && onClick ? (
+                // Lets a pointer click on the header's text select the card too. Keyboard users already have the
+                // button below, and clicks on the header's own controls or its portalled popovers are ignored.
+                <div
+                    className="cursor-pointer"
+                    onClick={(event) => {
+                        const target = event.target as HTMLElement
+                        if (!event.currentTarget.contains(target) || target.closest('button, a, [role="button"]')) {
+                            return
+                        }
+                        event.stopPropagation()
+                        onClick()
+                    }}
+                >
+                    {header}
+                </div>
+            ) : (
+                header
+            )}
             <Content
                 type={onClick ? 'button' : undefined}
                 onClick={
