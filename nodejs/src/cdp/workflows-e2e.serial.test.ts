@@ -3306,6 +3306,7 @@ describe('Workflows E2E (email queue)', () => {
     })
 
     describe('an email sent through the API in a message category', () => {
+        const siteUrl = 'https://app.example.com'
         const newsletterId = '0195d6b4-6c3e-0000-1a2b-3c4d5e6f7a8b'
         const otherCategoryId = '0195d6b4-6c3e-0001-5e6f-7a8b9c0d1e2f'
         const newsletter = { id: newsletterId, type: 'marketing' } as const
@@ -3477,20 +3478,36 @@ describe('Workflows E2E (email queue)', () => {
                 email.envelope.to.some((recipient: { address: string }) => recipient.address === address)
             )
 
+        // Whom each link in a body that opens this site's preferences page belongs to.
         const preferencesLinkOwners = async (body: string): Promise<string[]> =>
             await Promise.all(
-                [...body.matchAll(/\/messaging-preferences\/([^/\s"'<>]+)\//g)].map(async ([, token]) => {
-                    const owner = (await supertest(app).get(`/api/messaging/validate_preferences_token/${token}`)).body
-                    return owner.valid && owner.team_id === team.id ? owner.identifier : 'nobody'
-                })
+                [...body.matchAll(/https?:\/\/[^\s"'<>]+/g)]
+                    .map(([link]) => new URL(link.replace(/&amp;/g, '&')))
+                    .filter(
+                        ({ origin, pathname }) =>
+                            origin === siteUrl && /^\/messaging-preferences\/[^/]+\/$/.test(pathname)
+                    )
+                    .map(async ({ pathname }) => {
+                        const token = pathname.split('/')[2]
+                        const owner = (await supertest(app).get(`/api/messaging/validate_preferences_token/${token}`))
+                            .body
+                        return owner.valid && owner.team_id === team.id ? owner.identifier : 'nobody'
+                    })
             )
 
+        // Where each link in an html body takes its reader; a tracked link goes through the click redirect.
         const clickThroughLinks = async (html: string): Promise<string> =>
             (
                 await Promise.all(
                     [...html.matchAll(/href="([^"]+)"/g)].map(async ([, href]) => {
-                        const { pathname, search } = new URL(href.replace(/&amp;/g, '&'))
-                        return (await supertest(app).get(`${pathname}${search}`)).headers.location ?? href
+                        const link = new URL(href.replace(/&amp;/g, '&'))
+                        if (link.pathname !== '/public/m/redirect') {
+                            return link.href
+                        }
+                        const res = await supertest(app).get(`${link.pathname}${link.search}`)
+                        return res.status >= 300 && res.status < 400 && res.headers.location
+                            ? res.headers.location
+                            : 'unreachable'
                     })
                 )
             ).join('\n')
@@ -3660,6 +3677,8 @@ describe('Workflows E2E (email queue)', () => {
 
         beforeEach(async () => {
             await emailWorker.stop()
+            hub.SITE_URL = siteUrl
+            deps = createCdpConsumerDeps(hub, kafkaProducer)
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-email',
                 name: 'Email',
@@ -3734,13 +3753,11 @@ describe('Workflows E2E (email queue)', () => {
             const ses = await startSesFake()
             const preferencesPage = await startPreferencesPageFake()
             const env = { ...process.env }
-            const siteUrl = hub.SITE_URL
             process.env.AWS_ACCESS_KEY_ID = 'test'
             process.env.AWS_SECRET_ACCESS_KEY = 'test'
             try {
                 hub.SES_ENDPOINT = ses.endpoint
                 hub.SES_UNTRACKED_CONFIGURATION_SET = 'untracked'
-                hub.SITE_URL = 'https://app.example.com'
                 await insertIntegration(hub.postgres, team.id, {
                     id: 2,
                     kind: 'email',
@@ -3777,7 +3794,6 @@ describe('Workflows E2E (email queue)', () => {
                 })
             } finally {
                 process.env = env
-                hub.SITE_URL = siteUrl
                 await ses.close()
                 await preferencesPage.close()
             }

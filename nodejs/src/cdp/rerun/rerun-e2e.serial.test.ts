@@ -693,7 +693,6 @@ describe('CDP hog invocation rerun e2e', () => {
         let emailWorker = await startEmailWorker()
 
         try {
-            // ── 1. The send fails: its sender does not exist yet ─────────────────────
             const token = jsonwebtoken.sign(
                 { team_id: team.id, hog_flow_id: flow.id },
                 hub.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET,
@@ -714,7 +713,6 @@ describe('CDP hog invocation rerun e2e', () => {
                 return rows[0].invocation_id
             }, 30_000)
 
-            // ── 2. The sender is fixed, and the recipient opts out of the category ───
             await insertIntegration(hub.postgres, team.id, {
                 id: senderId,
                 kind: 'email',
@@ -737,7 +735,6 @@ describe('CDP hog invocation rerun e2e', () => {
                 'test-insert-opt-out'
             )
 
-            // ── 3. The rerun resumes at the email step and skips the send ────────────
             await emailWorker.stop()
             emailWorker = await startEmailWorker()
             await rerunManager.enqueue(team.id, 'hog_flow', flow.id, {
