@@ -23,7 +23,44 @@ pub const NON_CRATE_IMAGE_TRIGGERS: &[(&str, &[&str])] = &[
             "ingestion/rust/Dockerfile.persons-migrate",
         ],
     ),
-    ("ingestion-node", &["ingestion/node/", "ingestion/pinned/"]),
+    ("ingestion-node", NODE_IMAGE_INPUTS),
+    (
+        "ingestion-ai-research-node",
+        &[
+            "ingestion/node/",
+            "ingestion/pinned/",
+            "nodejs/packages/common/",
+            "nodejs/packages/hog-engine/",
+            "nodejs/packages/replay-storage/",
+            "common/hogvm/typescript/",
+            "rust/common/hogvm/",
+            "rust/replay-anonymizer/",
+            "rust/replay-anonymizer-node/",
+            "rust/ai-research/replay-core-v4/",
+            "rust/ai-research/replay-core-v4-node/",
+            "package.json",
+            "pnpm-lock.yaml",
+            "pnpm-workspace.yaml",
+            "turbo.json",
+            ".nvmrc",
+        ],
+    ),
+];
+
+/// The workspace packages the ingestion Node image carries and the root files that pin them.
+const NODE_IMAGE_INPUTS: &[&str] = &[
+    "ingestion/node/",
+    "ingestion/pinned/",
+    "nodejs/packages/common/",
+    "nodejs/packages/hog-engine/",
+    "nodejs/packages/replay-storage/",
+    "common/hogvm/typescript/",
+    "rust/common/hogvm/",
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "turbo.json",
+    ".nvmrc",
 ];
 
 #[derive(Debug, Default)]
@@ -217,6 +254,17 @@ mod tests {
     fn non_crate_no_false_positives() {
         let affected = non_crate_images_affected(&["rust/capture/src/main.rs".into()]);
         assert!(affected.is_empty());
+    }
+
+    #[test]
+    fn non_crate_node_images_follow_their_shared_packages() {
+        let affected = non_crate_images_affected(&["nodejs/packages/common/src/config.ts".into()]);
+        assert_eq!(
+            affected,
+            vec!["ingestion-node", "ingestion-ai-research-node"]
+        );
+        let affected = non_crate_images_affected(&["rust/replay-anonymizer/src/lib.rs".into()]);
+        assert_eq!(affected, vec!["ingestion-ai-research-node"]);
     }
 
     #[test]
