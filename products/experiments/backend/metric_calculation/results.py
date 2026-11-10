@@ -28,8 +28,9 @@ row up with `.get()` on that key. While the constraint holds, no two rows tie, s
 
 Every write looks the row up on `(experiment, metric_uuid, query_to)` and stores the fingerprint as an updated
 field. A row that holds the window under another fingerprint is therefore updated in place, and no write can
-violate the unique constraint or create a second row for a window. A daily failure is the exception: it leaves a
-completed row under another fingerprint in place, because it has no result to replace that row with.
+violate the unique constraint or create a second row for a window. A failure is the exception: it leaves a
+completed row under another fingerprint in place, because it has no result to replace that row with. A recalculation
+failure also leaves a completed row under its own key in place, and the run keeps the failure in its `metric_errors`.
 
 Every query filters on the experiment first, so the `(experiment, metric_uuid, query_to)` indexes serve it.
 """
@@ -422,7 +423,9 @@ class MetricResultStore:
         error_message: str,
         query_id: str | None,
     ) -> None:
-        """Store the failure of one metric of a recalculation run, unless the run is terminal or missing."""
+        """Store the failure of one metric of a recalculation run, unless the run is terminal or missing, or a completed
+        row holds the window. The caller records the failure in the run's `metric_errors` too, so the run reports it
+        even when the completed row stays."""
         self._record_for_run(
             recalculation_id,
             calculation_config,
@@ -489,7 +492,7 @@ class MetricResultStore:
             error_message=error_message,
             query_id=None,
             completed_at=None,
-            keep_completed_row_of_other_fingerprint=True,
+            replaces_completed_row_of_same_fingerprint=True,
         )
 
     def copy_into_sync_run(
@@ -583,7 +586,7 @@ class MetricResultStore:
         error_message: str | None,
         query_id: str | None,
         completed_at: datetime | None,
-        keep_completed_row_of_other_fingerprint: bool = False,
+        replaces_completed_row_of_same_fingerprint: bool = False,
     ) -> None:
         fields: dict[str, Any] = {
             "fingerprint": fingerprint,
@@ -604,12 +607,15 @@ class MetricResultStore:
             )
             if created:
                 return
-            if keep_completed_row_of_other_fingerprint and row.status == _COMPLETED and row.fingerprint != fingerprint:
+            replaces_completed_row = replaces_completed_row_of_same_fingerprint and row.fingerprint == fingerprint
+            if status == _FAILED and row.status == _COMPLETED and not replaces_completed_row:
                 logger.info(
-                    "Keeping a completed experiment metric result that another fingerprint holds",
+                    "Keeping a completed experiment metric result instead of a failure",
                     experiment_id=self.experiment_id,
                     metric_uuid=metric_uuid,
                     query_to=window,
+                    kept_fingerprint=row.fingerprint,
+                    failed_fingerprint=fingerprint,
                 )
                 return
             for name, value in fields.items():
