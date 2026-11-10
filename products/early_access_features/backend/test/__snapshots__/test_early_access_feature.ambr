@@ -22,6 +22,7 @@
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features.1
@@ -275,6 +276,7 @@
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features.4
@@ -340,6 +342,7 @@
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features.7
@@ -365,6 +368,7 @@
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features.8
@@ -444,6 +448,7 @@
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_includes_payload_in_preview.1
@@ -509,6 +514,7 @@
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_includes_payload_in_preview.4
@@ -874,6 +880,7 @@
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_cached_team.2
@@ -939,6 +946,7 @@
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_cached_team.5
@@ -1108,6 +1116,7 @@
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.1
@@ -1173,6 +1182,7 @@
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.4
