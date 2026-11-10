@@ -14,11 +14,14 @@ from posthog.utils import absolute_uri
 
 from products.alerts_platform.backend.delivery import delivery_paths, describers, legacy_webhook, recipients
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
-from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
-from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBHOOK_BODY_FLAG
+from products.alerts_platform.backend.delivery.evaluation import add_late_image, deliver_evaluation
+from products.alerts_platform.backend.delivery.legacy_webhook import (
+    ALERTMANAGER_WEBHOOK_BODY_FLAG,
+    LEGACY_WEBHOOK_BODY_FLAG,
+)
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
-from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
 from products.alerts_platform.backend.facade.api import create_alert_destinations
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -30,7 +33,9 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationType,
     EvaluationAnnouncement,
     IncidentAction,
+    LateImageResult,
     LegacyEventEmission,
+    MessageImage,
     MessageLink,
     NewAlertDestination,
     SourceKind,
@@ -224,6 +229,52 @@ class TestDeliverEvaluation(APIBaseTest):
                 part=part,
             )
             return deliver_evaluation(replace(request, source_alert_url=source_alert_url))
+
+    @parameterized.expand(
+        [
+            ("edited", None, LateImageResult(edited=1, waiting=0)),
+            (
+                "rate_limited",
+                DeliveryError("Slack refused the edit: ratelimited"),
+                LateImageResult(edited=0, waiting=1),
+            ),
+            (
+                "bot_left_the_channel",
+                DestinationMisconfigured("Slack refused the edit: not_in_channel"),
+                LateImageResult(edited=0, waiting=0),
+            ),
+        ]
+    )
+    def test_a_late_image_is_drawn_from_the_late_detail_and_goes_to_slack_only(
+        self, _name: str, refusal: DeliveryError | None, expected: LateImageResult
+    ) -> None:
+        drawn: list[dict[str, Any]] = []
+
+        def resolver(*, team_id: int, transition: AnnouncedTransition) -> MessageImage | None:
+            drawn.append(transition.source_detail)
+            return (
+                MessageImage(url="https://example.com/chart.png", alt_text="Chart")
+                if "chart" in transition.source_detail
+                else None
+            )
+
+        with (
+            patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
+            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(SLACK), _group(WEBHOOK)]),
+            patch.dict(describers._image_resolvers, {SourceKind.LOGS: resolver}),
+            patch(
+                f"{_MODULE}.add_late_image_to_target",
+                return_value=LateImageResult(edited=1, waiting=0),
+                side_effect=refusal,
+            ) as edit,
+        ):
+            result = add_late_image(_request(self.team.id), {"chart": 7})
+
+        assert result == expected
+        assert drawn == [{"chart": 7}]
+        assert [(call.kwargs["target"], call.kwargs["image"].url) for call in edit.call_args_list] == [
+            (SLACK, "https://example.com/chart.png")
+        ]
 
     def test_a_destination_hears_only_about_the_kinds_it_subscribed_to(self) -> None:
         # One group fires while another resolves. A destination that asked for firings must not
@@ -579,23 +630,32 @@ class TestDeliverEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("keeps_the_legacy_body", True, "1", "legacy"),
-            ("moved_to_alertmanager", False, "2", "4"),
-            ("flag_unreadable", RuntimeError("flags unreachable"), None, None),
+            ("keeps_the_legacy_body", True, True, "1", "legacy"),
+            ("moved_to_alertmanager", False, True, "2", "4"),
+            ("alertmanager_body_not_turned_on", False, False, "1", "legacy"),
+            ("flag_unreadable", RuntimeError("flags unreachable"), True, None, None),
             # The SDK swallows a failed lookup and answers None.
-            ("flag_lookup_swallowed", None, None, None),
+            ("flag_lookup_swallowed", None, True, None, None),
+            ("alertmanager_flag_lookup_swallowed", False, None, None, None),
         ]
     )
     def test_a_webhook_gets_the_body_its_team_still_receives(
-        self, _name: str, keeps_legacy: bool | Exception | None, header: str | None, body_version: str | None
+        self,
+        _name: str,
+        listed: bool | Exception | None,
+        alertmanager_body: bool | None,
+        header: str | None,
+        body_version: str | None,
     ) -> None:
         flag_reads: list[str] = []
 
         def flag(key: str, *_args: Any, **_kwargs: Any) -> bool | None:
             flag_reads.append(key)
-            if isinstance(keeps_legacy, Exception):
-                raise keeps_legacy
-            return keeps_legacy
+            if key == ALERTMANAGER_WEBHOOK_BODY_FLAG:
+                return alertmanager_body
+            if isinstance(listed, Exception):
+                raise listed
+            return listed
 
         def legacy_body(**kwargs: Any) -> dict[str, Any]:
             return {"version": "legacy", "alert_id": kwargs["alert_id"]}
@@ -628,19 +688,19 @@ class TestDeliverEvaluation(APIBaseTest):
         assert post.call_args.kwargs["headers"] == {"X-PostHog-Webhook-Version": header}
         assert post.call_args.args[1]["version"] == body_version
 
-    @parameterized.expand([("registered_a_body", True, True), ("registered_none", False, False)])
-    def test_native_delivery_keeps_the_webhook_body_only_for_a_source_that_registered_one(
-        self, _name: str, registered: bool, keeps: bool
-    ) -> None:
-        bodies: dict[SourceKind, Any] = {SourceKind.INSIGHT: lambda **_kwargs: {}} if registered else {}
-        with (
-            patch.dict(f"{_LEGACY_MODULE}._bodies", bodies, clear=True),
-            patch(
-                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
-                return_value=True,
-            ),
+    def test_a_flag_refresh_between_the_two_reads_keeps_a_newly_listed_team_on_the_legacy_body(self) -> None:
+        before = {LEGACY_WEBHOOK_BODY_FLAG: False, ALERTMANAGER_WEBHOOK_BODY_FLAG: False}
+        after = {LEGACY_WEBHOOK_BODY_FLAG: True, ALERTMANAGER_WEBHOOK_BODY_FLAG: True}
+        reads: list[str] = []
+
+        def flag(key: str, *_args: Any, **_kwargs: Any) -> bool:
+            reads.append(key)
+            return (before if len(reads) == 1 else after)[key]
+
+        with patch(
+            "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled", side_effect=flag
         ):
-            assert legacy_webhook.native_sends_legacy_body(SourceKind.INSIGHT, self.team) is keeps
+            assert legacy_webhook.keeps_legacy_webhook_body(self.team) is True
 
     def test_logs_registers_its_legacy_webhook_body_at_startup(self) -> None:
         # Every other case here patches the registry, so none of them notices a missing registration,

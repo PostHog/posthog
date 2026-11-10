@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import field
+from http import HTTPStatus
 from typing import cast
 
 from django.db import transaction
@@ -39,6 +40,30 @@ class HubspotRetryableError(Exception):
 class HubspotTokenRefreshError(Exception):
     """HubSpot rejected the token refresh."""
 
+    def __init__(self, message: str, grant_rejected: bool = False) -> None:
+        super().__init__(message)
+        # HubSpot said the refresh token itself is invalid, expired or revoked. Any other refusal, such as one
+        # of PostHog's app credentials, says nothing about the grant.
+        self.grant_rejected = grant_rejected
+
+
+def _is_retryable_status(status_code: int) -> bool:
+    """Transient HubSpot statuses that warrant a backoff-and-retry rather than failing the sync.
+
+    408, 429 and 5xx are the usual transient signals. Unrecognised 4xx codes (e.g. the
+    non-standard 477 HubSpot's edge has been observed returning during brief incidents) aren't
+    actionable client errors, so treat any unknown 4xx as transient too instead of crashing the
+    import on it.
+    """
+    if status_code in (408, 429) or status_code >= 500:
+        return True
+    if 400 <= status_code < 500:
+        try:
+            HTTPStatus(status_code)
+        except ValueError:
+            return True
+    return False
+
 
 @frozen
 class HubspotLegacyGrant:
@@ -74,6 +99,19 @@ def _error_message_from_response(res: requests.Response) -> str:
         return res.json()["message"]
     except Exception:
         return res.text
+
+
+def _is_grant_rejection(res: requests.Response) -> bool:
+    """HubSpot's OAuth error body names a rejected refresh token with `invalid_grant` (RFC 6749), or with its own
+    older `BAD_REFRESH_TOKEN` status. `BAD_HUB` (with `access_denied`) means the portal of the grant was deleted or
+    disconnected, which `posthog/models/integration/refresh_tracking.py` also treats as a dead grant."""
+    try:
+        body = res.json()
+    except Exception:
+        return False
+    if not isinstance(body, Mapping):
+        return False
+    return body.get("error") == "invalid_grant" or body.get("status") in ("BAD_REFRESH_TOKEN", "BAD_HUB")
 
 
 def _hubspot_app_credentials() -> dict[str, str]:
@@ -118,7 +156,7 @@ def _hubspot_refresh_token_payload(refresh_token: str) -> Mapping[str, object]:
         # and retry rather than failing the sync (and disabling the schema) on a transient state.
         if "migration in progress" in err_message.lower():
             raise HubspotRetryableError(err_message)
-        raise HubspotTokenRefreshError(err_message)
+        raise HubspotTokenRefreshError(err_message, grant_rejected=_is_grant_rejection(res))
 
     payload = res.json()
     if not isinstance(payload, Mapping):
@@ -151,11 +189,13 @@ def hubspot_exchange_legacy_grant(refresh_token: str) -> HubspotLegacyGrant:
             res = make_tracked_session().get(
                 "https://api.hubapi.com/oauth/v1/access-tokens/" + access_token,
             )
+        if _is_retryable_status(res.status_code):
+            raise HubspotRetryableError("HubSpot could not return token information")
         if res.status_code != 200:
             raise LegacyOAuthGrantUnusable("HubSpot rejected the token information request")
         token_info = res.json()
         if not isinstance(token_info, Mapping):
-            raise LegacyOAuthGrantUnusable("HubSpot returned invalid token information")
+            raise HubspotRetryableError("HubSpot returned invalid token information")
         hub_id = token_info.get("hub_id")
         if isinstance(hub_id, bool) or not isinstance(hub_id, (int, str)) or not hub_id:
             raise LegacyOAuthGrantUnusable("HubSpot returned no hub id")
@@ -169,8 +209,14 @@ def hubspot_exchange_legacy_grant(refresh_token: str) -> HubspotLegacyGrant:
             access_token=access_token,
             refresh_token=rotated_refresh_token,
         )
-    except (HubspotTokenRefreshError, HubspotRetryableError, requests.RequestException, ValueError):
+    except HubspotTokenRefreshError as e:
+        # Only a confirmed rejection of the refresh token lets the cleanup clear the tokens. A timeout, a malformed
+        # body or a refusal of PostHog's app credentials says nothing about the grant.
+        if not e.grant_rejected:
+            raise HubspotRetryableError("The legacy HubSpot grant could not be checked") from None
         raise LegacyOAuthGrantUnusable("The legacy HubSpot grant could not be exchanged") from None
+    except (HubspotRetryableError, requests.RequestException, ValueError):
+        raise HubspotRetryableError("The legacy HubSpot grant could not be checked") from None
 
 
 def hubspot_access_token_is_valid(access_token: str) -> bool:

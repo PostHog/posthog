@@ -9,7 +9,9 @@ import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
 import { ContentAutopilotPromptAddModal } from './ContentAutopilotPromptAddModal'
 import { ContentAutopilotPrompts } from './ContentAutopilotPrompts'
 import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOverview'
+import { ContentAutopilotPromptSuggestModal } from './ContentAutopilotPromptSuggestModal'
 import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail'
+import { ContentAutopilotRankings } from './ContentAutopilotRankings'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import { ContentAutopilotSiteGate } from './ContentAutopilotSiteGate'
 
@@ -140,6 +142,11 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                                 content: <ContentAutopilotPromptsOverview />,
                             },
                             {
+                                key: 'rankings',
+                                label: 'Rankings',
+                                content: <ContentAutopilotRankings />,
+                            },
+                            {
                                 key: 'prompts',
                                 label: 'Prompts',
                                 content: <ContentAutopilotPrompts />,
@@ -184,6 +191,7 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
             )}
             <ContentAutopilotProposalDetail />
             <ContentAutopilotPromptAddModal />
+            <ContentAutopilotPromptSuggestModal />
         </div>
     )
 }

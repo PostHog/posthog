@@ -26,7 +26,14 @@ describe('classic conversation events', () => {
         expect(state.messages).toHaveLength(2)
         expect(classicThreadItems(state, '')).toEqual([
             { kind: 'user', id: 'stream-0', text: 'A question' },
-            { kind: 'assistant', id: 'stream-1', text: 'The answer.', complete: true, projectUrl: '' },
+            {
+                kind: 'assistant',
+                id: 'stream-1',
+                text: 'The answer.',
+                complete: true,
+                projectUrl: '',
+                traceId: 'trace-1',
+            },
         ])
     })
 
@@ -35,12 +42,16 @@ describe('classic conversation events', () => {
             [
                 { id: 'a', type: 'ai', content: 'First answer' },
                 { id: 'b', type: 'human', content: 'Follow-up' },
-                { id: 'c', type: 'ai', content: 'Second answer' },
+                { id: 'c', type: 'ai', content: 'Second answer', trace_id: 'trace-c' },
+                { id: 'd', type: 'human', content: 'Another question' },
+                { id: 'e', type: 'ai', content: 'Answer without a trace' },
             ],
             'Saved title'
         )
         expect(state.title).toBe('Saved title')
-        expect(classicThreadItems(state, '').map((item) => item.id)).toEqual(['a', 'b', 'c'])
+        expect(classicThreadItems(state, '').map((item) => item.id)).toEqual(['a', 'b', 'c', 'd', 'e'])
+        expect(classicThreadItems(state, '')[2]).toMatchObject({ traceId: 'trace-c' })
+        expect(classicThreadItems(state, '')[4]).not.toHaveProperty('traceId')
     })
 
     test('restores pending approvals and ignores malformed stream frames', () => {

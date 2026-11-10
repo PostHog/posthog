@@ -15,6 +15,7 @@ from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     DatabaseField,
+    EventsRetentionTable,
     SavedQuery,
     StringJSONDatabaseField,
     StructDatabaseField,
@@ -52,7 +53,7 @@ from posthog.hogql.type_system import infer_tuple_access_constant_type, parse_sq
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.clickhouse.client.escape import substitute_params
-from posthog.clickhouse.events_json import NULL_KEYS_COLUMNS, TEMPORARY_PROPERTIES_COLUMN
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
@@ -81,8 +82,10 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
-def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_months: int) -> ast.Expr:
-    """Floor an events-table scan to ``timestamp > now() - toIntervalMonth(retention_months)``.
+def retention_floor_for_table(
+    table_type: ast.TableOrSelectType, retention_months: int, field_name: str = "timestamp"
+) -> ast.Expr:
+    """Floor an events-derived scan to ``<field_name> > now() - toIntervalMonth(retention_months)``.
 
     Sibling to ``team_id_guard_for_table``: a mandatory, context-derived guard added at the lowest level on the
     events table, so the events-data-retention cap can't be bypassed by query-supplied date filters or modifiers.
@@ -91,7 +94,7 @@ def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_month
     field_table_type = _table_filter_type(table_type)
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Gt,
-        left=ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=field_table_type)),
+        left=ast.Field(chain=[field_name], type=ast.FieldType(name=field_name, table_type=field_table_type)),
         right=ast.ArithmeticOperation(
             op=ast.ArithmeticOperationOp.Sub,
             left=ast.Call(name="now", args=[]),
@@ -692,23 +695,17 @@ class ClickHousePrinter(BasePrinter):
             return None
 
         prefix = field_sql.removesuffix(self._print_identifier(resolved_field.name))
-        null_keys_sql = f"{prefix}{self._print_identifier(NULL_KEYS_COLUMNS[resolved_field.name])}"
         if resolved_field.name == "properties":
             temporary_properties_sql = f"{prefix}{self._print_identifier(TEMPORARY_PROPERTIES_COLUMN)}"
-            temporary_null_keys_sql = (
-                f"{prefix}{self._print_identifier(NULL_KEYS_COLUMNS[TEMPORARY_PROPERTIES_COLUMN])}"
-            )
             serialized = event_document_sql(
                 field_sql,
-                null_keys_sql,
                 temporary_properties_sql,
-                temporary_null_keys_sql,
                 self._document_feature_flags_sql(type, field_sql),
             )
         elif resolved_field.name == "person_properties":
-            serialized = person_document_sql(field_sql, null_keys_sql)
+            serialized = person_document_sql(field_sql)
         else:
-            serialized = json_document_sql(field_sql, null_keys_sql)
+            serialized = json_document_sql(field_sql)
         return serialized
 
     def _document_feature_flags_sql(self, type: ast.FieldType, field_sql: str) -> str | None:
@@ -1064,7 +1061,7 @@ class ClickHousePrinter(BasePrinter):
 
         # In ClickHouse `equals(x, NULL)` is always NULL, so `IS [NOT] NULL` must print as a null check even when
         # the shortcut below skips the ifNull wrapping (for example on the $ai_* bloom-filter columns).
-        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq) and not in_join_constraint:
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             null_check = "isNull" if node.op == ast.CompareOperationOp.Eq else "isNotNull"
             if isinstance(node.right, ast.Constant) and node.right.value is None:
                 return f"{null_check}({left})"
@@ -1258,16 +1255,12 @@ class ClickHousePrinter(BasePrinter):
         table_type: ast.TableType | ast.LazyTableType,
         node_type: ast.TableOrSelectType | None,
     ) -> ast.Expr | None:
-        from posthog.hogql.database.schema.events import EventsTable
-        from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
-
         months = self.context.events_retention_months
         if months is None or node_type is None or not isinstance(table_type, ast.TableType):
             return None
-        # flag_evaluations holds flag calls that are events too, and a query on events can read them from there.
-        if not isinstance(table_type.table, (EventsTable, FlagEvaluationsTable)):
+        if not isinstance(table_type.table, EventsRetentionTable):
             return None
-        return retention_floor_for_table(node_type, months)
+        return retention_floor_for_table(node_type, months, field_name=table_type.table.events_retention_field)
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         table = table_type.table

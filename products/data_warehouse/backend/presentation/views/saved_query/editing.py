@@ -23,6 +23,7 @@ from posthog.hogql.database.database import (
 )
 from posthog.hogql.direct_sql.trino_adapter import ensure_read_only_raw_trino_statement
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import prepare_and_print_ast
@@ -42,9 +43,12 @@ from products.data_modeling.backend.facade import api as modeling_api
 from products.data_modeling.backend.facade.api import has_incremental_history
 from products.data_modeling.backend.facade.modeling import ResolutionCycleError, get_parents_from_model_query
 from products.data_modeling.backend.facade.models import (
+    CONNECTION_SAVE_REASON,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
-    is_raw_managed_trino_query,
+    ViewColumnSource,
+    ViewEngine,
+    ViewEngineTarget,
     validate_saved_query_name,
 )
 from products.data_tools.backend.facade.models import DataWarehouseSavedQueryFolder
@@ -111,6 +115,28 @@ def _view_types_validation_error(e: Exception) -> serializers.ValidationError:
     return serializers.ValidationError(f"Failed to retrieve types for view: unexpected {type(e).__name__}")
 
 
+def _unreferenceable_view_refusal(team_id: int, sql: str) -> str | None:
+    """Why `sql` fails to resolve, when it names a saved view that HogQL on ClickHouse cannot reference.
+
+    The HogQL database leaves such views out, so without this the refusal only says the table is unknown.
+    """
+    try:
+        names = get_table_names(parse_select(sql))
+    except ExposedHogQLError:
+        return None
+    views = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, name__in=names)
+        .exclude(deleted=True)
+        .only("name", "query")
+        .order_by("name")
+    )
+    for view in views:
+        reference = view.engine.referenceable_from_clickhouse
+        if not reference.available:
+            return f"This view reads '{view.name}'. {reference.reason} Remove that reference to save this view."
+    return None
+
+
 def _apply_frequency_target(
     view: DataWarehouseSavedQuery,
     frequency: str | None,
@@ -137,6 +163,17 @@ def _apply_frequency_target(
             "modeling DAG yet. Re-save the view to create its node, then set the frequency."
         )
     return target
+
+
+def _cadence_asks_to_materialize(view: DataWarehouseSavedQuery, sync_frequency: str | None) -> bool:
+    # Incremental only means something for a materialized table, so a cadence on an incremental
+    # view asks for one. Without a cadence the caller materializes it, as the SQL editor does.
+    return (
+        view.engine.can_materialize.available
+        and not view.is_materialized
+        and sync_frequency not in (None, "never")
+        and bool((view.incremental_config or {}).get("enabled"))
+    )
 
 
 def _authored_model_answering_to(
@@ -248,10 +285,8 @@ class DataWarehouseSavedQuerySerializer(
     has_incremental_history = serializers.SerializerMethodField(
         help_text="Whether incremental settings participated in any materialization run."
     )
-    is_raw_managed_trino = serializers.BooleanField(
-        read_only=True,
-        help_text="Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it.",
-    )
+    engine = view_state.ViewEngineSerializer(read_only=True, help_text=view_state.VIEW_ENGINE_HELP_TEXT)
+    is_raw_managed_trino = serializers.SerializerMethodField(help_text=view_state.IS_RAW_MANAGED_TRINO_HELP_TEXT)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -285,6 +320,7 @@ class DataWarehouseSavedQuerySerializer(
             "expires_at",
             "user_access_level",
             "suspended",
+            "engine",
             "is_raw_managed_trino",
         ]
         read_only_fields = [
@@ -368,9 +404,7 @@ class DataWarehouseSavedQuerySerializer(
             capture_exception(e)
             logger.exception("Failed to report view action", analytics_event=event)
 
-    def _raw_trino_columns(self, sync_frequency: str | None) -> dict[str, dict[str, Any]]:
-        if sync_frequency not in (None, "never"):
-            raise serializers.ValidationError("Views that run raw Trino SQL cannot be materialized yet.")
+    def _columns_from_request_types(self) -> dict[str, dict[str, Any]]:
         client_types = self.context["request"].data.get("types", [])
         if not isinstance(client_types, list) or any(
             not isinstance(item, list | tuple)
@@ -384,12 +418,36 @@ class DataWarehouseSavedQuerySerializer(
             raise serializers.ValidationError("Run the query in the SQL editor before saving it as a view.")
         return _columns_from_client_types(client_types)
 
+    def _materialize(self, view: DataWarehouseSavedQuery, sync_frequency: str) -> None:
+        request = self.context["request"]
+        try:
+            modeling_api.enable_saved_query_materialization(
+                view.team_id,
+                view.id,
+                user=cast(User, request.user),
+                frequency_target=sync_frequency_to_sync_frequency_interval(sync_frequency),
+                visible_blocker_names=lambda bounds: sync_cadence.visible_blocker_names(
+                    bounds, self.user_access_control, team_id=view.team_id
+                ),
+                was_impersonated=is_impersonated(request),
+            )
+        except modeling_api.MaterializationForbiddenError as e:
+            raise exceptions.PermissionDenied(str(e))
+        except modeling_api.MaterializationRefusedError as e:
+            raise serializers.ValidationError(str(e))
+        except modeling_api.MaterializationFailedError as e:
+            raise exceptions.APIException(str(e))
+        view.refresh_from_db()
+
     def _validate_view_dependencies(self, team: Team, name: str, query: str) -> None:
         try:
             get_parents_from_model_query(team, name, query, database=self.context["database"])
         except (RecursionError, ResolutionCycleError):
             raise serializers.ValidationError("Model contains a cycle")
         except Exception as error:
+            refusal = _unreferenceable_view_refusal(team.pk, query)
+            if refusal is not None:
+                raise serializers.ValidationError(refusal)
             _capture_unless_user_error(error)
             raise _view_types_validation_error(error)
 
@@ -403,14 +461,16 @@ class DataWarehouseSavedQuerySerializer(
         sync_frequency = validated_data.pop("sync_frequency", None)
         validated_data.pop("edited_history_id", None)
         view = DataWarehouseSavedQuery(**validated_data)
+        engine = view.engine
 
-        if view.is_raw_managed_trino:
-            # ClickHouse cannot run Trino SQL, so the view gets no lineage, no inferred types and no DAG node.
-            view.set_columns(self._raw_trino_columns(sync_frequency))
-        else:
+        if sync_frequency not in (None, "never") and not engine.can_materialize.available:
+            raise serializers.ValidationError(engine.can_materialize.reason)
+        if engine.column_source == ViewColumnSource.CLIENT_TYPES:
+            view.set_columns(self._columns_from_request_types())
+        if engine.has_lineage.available:
             self._validate_view_dependencies(self.context["get_team"](), view.name, validated_data["query"]["query"])
 
-        if not soft_update and not view.is_raw_managed_trino:
+        if not soft_update and engine.column_source == ViewColumnSource.CLICKHOUSE_PROBE:
             try:
                 # The columns will be inferred from the query
                 client_types = self.context["request"].data.get("types", [])
@@ -452,7 +512,7 @@ class DataWarehouseSavedQuerySerializer(
                     ],
                 ),
             )
-            if not view.is_raw_managed_trino:
+            if engine.has_lineage.available:
                 try:
                     with transaction.atomic():
                         modeling_api.sync_saved_query_to_dag(view)
@@ -460,7 +520,8 @@ class DataWarehouseSavedQuerySerializer(
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
                     modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
-            if sync_frequency is not None and not view.is_raw_managed_trino:
+            # The frequency writes through to the DAG node's freshness target, which only a view with lineage has.
+            if sync_frequency is not None and engine.has_lineage.available:
                 if sync_frequency != "never":
                     assert_user_can_read_query(
                         view.query,
@@ -469,6 +530,10 @@ class DataWarehouseSavedQuerySerializer(
                         database=self.context.get("database"),
                     )
                 _apply_frequency_target(view, sync_frequency, self.user_access_control)
+
+        if _cadence_asks_to_materialize(view, sync_frequency):
+            # After commit, so the first run the schedule starts can read the new row.
+            self._materialize(view, sync_frequency)
 
         self._report_view_action(
             "view created",
@@ -487,10 +552,10 @@ class DataWarehouseSavedQuerySerializer(
 
         frequency_given = "sync_frequency" in validated_data
         sync_frequency = validated_data.pop("sync_frequency", None)
-        raw_trino = is_raw_managed_trino_query(validated_data.get("query", instance.query))
+        engine = ViewEngine.from_query(validated_data.get("query", instance.query))
 
-        if raw_trino and sync_frequency not in (None, "never"):
-            raise serializers.ValidationError("Views that run raw Trino SQL cannot be materialized yet.")
+        if sync_frequency not in (None, "never") and not engine.can_materialize.available:
+            raise serializers.ValidationError(engine.can_materialize.reason)
 
         if sync_frequency and sync_frequency != "never":
             # Scheduling a view is the same grant as materializing it directly.
@@ -501,8 +566,9 @@ class DataWarehouseSavedQuerySerializer(
                 database=self.context.get("database"),
             )
 
-        # The frequency writes through to the DAG node's freshness target. Raw Trino views have no node.
-        frequency_changed = frequency_given and not raw_trino
+        # Setting a cadence needs the view's DAG node. Clearing one does not, because a direct-connection view
+        # saved before those views lost lineage can still hold a node target that a pause must remove.
+        frequency_changed = frequency_given and (engine.has_lineage.available or sync_frequency in (None, "never"))
 
         soft_update = validated_data.pop("soft_update", False)
         edited_history_id = self.context["request"].data.get("edited_history_id", None)
@@ -520,21 +586,21 @@ class DataWarehouseSavedQuerySerializer(
 
         inferred_columns: dict[str, dict[str, Any]] | None = None
         inferred_external_tables: list[str] | None = None
-        if raw_trino != instance.is_raw_managed_trino:
+        # Switching would add or drop the view's DAG node, and the dependents that read it through HogQL.
+        if engine.has_lineage.available != instance.engine.has_lineage.available:
             raise serializers.ValidationError(
-                "A view cannot switch between Trino and ClickHouse. Save it as a new view."
+                "A view cannot switch to or from raw Trino SQL or a direct connection. Save it as a new view."
             )
-        if raw_trino:
-            if "query" in validated_data and not soft_update:
-                inferred_columns = self._raw_trino_columns(None)
-                inferred_external_tables = []
-        elif "query" in validated_data or "name" in validated_data:
+        if engine.column_source == ViewColumnSource.CLIENT_TYPES and "query" in validated_data and not soft_update:
+            inferred_columns = self._columns_from_request_types()
+            inferred_external_tables = []
+        if engine.has_lineage.available and ("query" in validated_data or "name" in validated_data):
             self._validate_view_dependencies(
                 instance.team,
                 validated_data.get("name", instance.name),
                 validated_data.get("query", instance.query)["query"],
             )
-        if "query" in validated_data and not soft_update and not raw_trino:
+        if "query" in validated_data and not soft_update and engine.column_source == ViewColumnSource.CLICKHOUSE_PROBE:
             # Inference runs the query on ClickHouse, so it happens before the row lock, on a probe
             # carrying the pending query and name rather than the stored ones, as create() does.
             probe = DataWarehouseSavedQuery(
@@ -587,12 +653,6 @@ class DataWarehouseSavedQuerySerializer(
             if query_changed:
                 validated_data["query_revision"] = uuid.uuid4()
                 validated_data["query_updated_at"] = timezone.now()
-
-            if frequency_changed:
-                # The node target is the only store of frequency intent. The interval column
-                # stays NULL so a stale v1 schedule can never be revived from it.
-                locked_instance.sync_frequency_interval = None
-                validated_data["sync_frequency_interval"] = None
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
             name_changed = before_update.name != view.name
@@ -647,7 +707,7 @@ class DataWarehouseSavedQuerySerializer(
 
             # Best effort sync to the data modeling DAG representation. The savepoint keeps a
             # failed sync best effort without poisoning the update's own transaction.
-            if ("query" in validated_data or name_changed) and not view.is_raw_managed_trino:
+            if ("query" in validated_data or name_changed) and view.engine.has_lineage.available:
                 try:
                     with transaction.atomic():
                         modeling_api.sync_saved_query_to_dag(view)
@@ -655,6 +715,9 @@ class DataWarehouseSavedQuerySerializer(
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
                     modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
+
+        if frequency_changed and _cadence_asks_to_materialize(view, sync_frequency):
+            self._materialize(view, sync_frequency)
 
         self._report_view_action(
             "view updated",
@@ -686,8 +749,13 @@ class DataWarehouseSavedQuerySerializer(
 
         team_id = self.context["team_id"]
         user = self.context["request"].user
+        engine = ViewEngine.from_query(query)
 
-        if is_raw_managed_trino_query(query):
+        # Saved connection views stay as they are; this only blocks writing a connection query.
+        if engine.target == ViewEngineTarget.CONNECTION:
+            raise exceptions.ValidationError(detail=CONNECTION_SAVE_REASON)
+
+        if engine.is_raw_trino:
             try:
                 validate_managed_trino_query(
                     HogQLQuery(query=query["query"], executionTarget=ExecutionTarget.MANAGED_TRINO, sendRawQuery=True),
@@ -726,13 +794,25 @@ class DataWarehouseSavedQuerySerializer(
             )
         except Exception as err:
             if isinstance(err, ExposedHogQLError):
-                error = str(err)
-                raise exceptions.ValidationError(detail=f"Invalid query: {error}")
+                refusal = _unreferenceable_view_refusal(team_id, query["query"])
+                raise exceptions.ValidationError(detail=refusal or f"Invalid query: {err}")
             elif not settings.DEBUG:
                 # We don't want to accidentally expose too much data via errors
                 raise exceptions.ValidationError(detail=f"Unexpected {err.__class__.__name__}")
 
         return query
+
+    def is_valid(self, *, raise_exception: bool = False) -> bool:
+        try:
+            return super().is_valid(raise_exception=raise_exception)
+        except serializers.ValidationError as error:
+            # DRF rebuilds the error raised in validate(), so the refused keys are attached here.
+            # drf-exceptions-hog renders `extra` into the response, and the editor reads
+            # `extra.blocked_keys` to show the error under the field it names.
+            refused_keys = getattr(self, "_refused_incremental_keys", None)
+            if refused_keys:
+                error.extra = {"blocked_keys": refused_keys}  # type: ignore[attr-defined]
+            raise
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -743,12 +823,20 @@ class DataWarehouseSavedQuerySerializer(
         config = attrs.get("incremental_config")
         if config is None and self.instance is not None:
             config = self.instance.incremental_config
-        if not isinstance(config, dict) or not config.get("enabled"):
+        incremental = isinstance(config, dict) and bool(config.get("enabled"))
+
+        query_changed = "query" in attrs or self.instance is None
+        output_columns = self._pending_output_columns(query_changed)
+        if output_columns is not None and self._changes_what_materializes(attrs, incremental):
+            duplicates = modeling_api.duplicate_output_columns(name for name, _ in output_columns)
+            if duplicates:
+                raise serializers.ValidationError({"query": modeling_api.duplicate_output_columns_message(duplicates)})
+
+        if not incremental or not isinstance(config, dict):
             return attrs
         if not config.get("incremental_key") or not config.get("unique_key"):
             return attrs
 
-        query_changed = "query" in attrs
         query = attrs.get("query") or (self.instance.query if self.instance is not None else None)
         sql = (query or {}).get("query")
         if not isinstance(sql, str):
@@ -760,9 +848,9 @@ class DataWarehouseSavedQuerySerializer(
             definition_database,
         )
 
-        # The stored column types describe the stored query, so they say nothing about a query being
-        # replaced. The runtime guard still catches a nullable key on the first incremental run.
-        column_types = None if query_changed or self.instance is None else self.instance.columns
+        # Without column types the nullable key check is skipped, and the runtime guard catches a
+        # nullable key on the first incremental run instead.
+        column_types = {name: clickhouse_type for name, clickhouse_type in output_columns or [] if clickhouse_type}
         database = definition_database(self.context["team_id"], user=cast(User, self.context["request"].user))
         result = check_incremental_eligibility(
             sql,
@@ -771,12 +859,47 @@ class DataWarehouseSavedQuerySerializer(
                 unique_key=tuple(config["unique_key"]),
                 lookback_seconds=config.get("lookback_seconds", 0),
             ),
-            column_types=incremental_config._clickhouse_types(column_types),
+            column_types=column_types or None,
             database=database,
         )
         if not result.eligible:
+            self._refused_incremental_keys = result.blocked_keys
             raise serializers.ValidationError({"incremental": result.blockers})
         return attrs
+
+    def _pending_output_columns(self, query_changed: bool) -> list[tuple[str, str | None]] | None:
+        """The saved query's output columns as (name, ClickHouse type), in output order, or None when
+        they are unknown before inference runs. A query's output can repeat a name, so this is a list.
+
+        The stored columns describe the stored query, so they say nothing about a query being
+        replaced. For a new query, only the types the editor sends from running it are known here."""
+        if not query_changed:
+            assert self.instance is not None
+            stored = self.instance.columns if isinstance(self.instance.columns, dict) else {}
+            return [(name, meta.get("clickhouse") if isinstance(meta, dict) else None) for name, meta in stored.items()]
+        client_types = self.context["request"].data.get("types")
+        if (
+            not isinstance(client_types, list)
+            or not client_types
+            or any(
+                not isinstance(item, list | tuple)
+                or len(item) != 2
+                or not isinstance(item[0], str)
+                or not isinstance(item[1], str)
+                for item in client_types
+            )
+        ):
+            return None
+        return [(name, clickhouse_type) for name, clickhouse_type in client_types]
+
+    def _changes_what_materializes(self, attrs: dict[str, Any], incremental: bool) -> bool:
+        """Whether this write sets what a materialized table is built from: the query of a materialized
+        view, or settings that make the view materialize. Pausing or renaming a view builds nothing."""
+        if not {"query", "incremental_config", "sync_frequency"} & attrs.keys():
+            return False
+        if incremental or attrs.get("sync_frequency") not in (None, "never"):
+            return True
+        return "query" in attrs and self.instance is not None and bool(self.instance.is_materialized)
 
     def validate_is_test(self, is_test):
         if is_test and not self.context["request"].user.is_staff:

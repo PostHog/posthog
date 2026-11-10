@@ -65,6 +65,10 @@ from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
 from products.signals.backend.pull_requests import update_pull_request_review_decision, update_pull_request_state
+from products.signals.backend.rated_usage_tasks import (
+    enqueue_signals_rated_usage as enqueue_signals_rated_usage,
+    report_signals_rated_usage as report_signals_rated_usage,
+)
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,
@@ -94,6 +98,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
+from products.signals.backend.spend_recovery import recover_incomplete_spend as recover_incomplete_spend
 from products.signals.backend.support_writeback import (
     post_pull_request_to_tickets,
     task_can_write_support_ticket_update,

@@ -9,8 +9,7 @@ from collections.abc import Iterable
 from django.db.models import BigIntegerField
 from django.db.models.functions import Coalesce
 
-from posthog.models import PropertyDefinition
-
+from products.event_definitions.backend.models import PropertyDefinition
 from products.warehouse_sources.backend.facade.hooks import WarehouseBinding
 
 _GROUP_TARGET = "group"

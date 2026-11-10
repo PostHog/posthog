@@ -16,8 +16,8 @@ from posthog.models.user_integration import UserIntegration
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.task_profiles import CLEANUP
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.tasks.backend.facade import api as tasks_facade
 
 
 class TestExperimentCleanupPr(APIBaseTest):
@@ -90,7 +90,7 @@ class TestExperimentCleanupPr(APIBaseTest):
         if expect_task_created:
             mock_create_task.assert_called_once()
             kwargs = mock_create_task.call_args.kwargs
-            self.assertEqual(kwargs["origin_product"], tasks_facade.TaskOriginProduct.EXPERIMENTS)
+            self.assertEqual(kwargs["profile"], CLEANUP)
             self.assertEqual(kwargs["repository"], "posthog/posthog")
             self.assertTrue(kwargs["create_pr"])
             self.assertEqual(experiment.flag_cleanup_task_id, task_id)

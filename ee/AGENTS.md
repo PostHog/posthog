@@ -17,3 +17,4 @@ An agent must not do step 2 on its own. Report the blocked file to the person an
 Extend code in `ee/` only when the change cannot live in `posthog/` or a `products/` folder. Say why in the pull request description.
 
 Tests and migrations for existing `ee/` code are new files too, so they follow the same approval.
+The exception is the squash files that django-nextgensquash generates in `ee/migrations/`: the check exempts them by name, and the squash pull request carries the approval.

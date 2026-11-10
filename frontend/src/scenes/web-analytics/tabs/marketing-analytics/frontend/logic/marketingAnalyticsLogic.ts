@@ -35,6 +35,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsDrillDownLevel,
+    MarketingAnalyticsRecommendationRule,
     NativeMarketingSource,
     NodeKind,
     ProductIntentContext,
@@ -65,6 +66,7 @@ import {
     findSchemaByFieldName,
     generateUniqueName,
     getEnabledNativeMarketingSources,
+    getSourceMapId,
     nativeSourceDisplayLabel,
     sanitizeIntegrationFilter,
     validColumnsForTiles,
@@ -116,6 +118,38 @@ export interface DashboardGoalsConfigured {
     customerGoal: boolean
     revenueGoal: boolean
 }
+
+export type RecommendationsShownState =
+    | 'recommendations'
+    | 'empty'
+    | 'error'
+    | 'no_selected_source'
+    | 'no_connected_source'
+
+export interface RecommendationsShownProperties {
+    state: RecommendationsShownState
+    recommendation_count: number
+    rule_count: number
+    rules: MarketingAnalyticsRecommendationRule[]
+    has_save_impact: boolean
+    has_gain_impact: boolean
+    has_invest_impact: boolean
+    source_types: string[]
+    data_gap_count: number
+    intro_shown: boolean
+}
+
+export type RecommendationsEntryPoint = 'button' | 'intro'
+
+export type RecommendationsAction = 'connect_google_ads' | 'manage_source' | 'view_instructions' | 'open_step_link'
+
+export type RecommendationsActionLocation =
+    | 'section_empty'
+    | 'section_campaigns'
+    | 'section_data_gaps'
+    | 'modal_data_gaps'
+    | 'rule_banner'
+    | 'instructions'
 
 /** Where a tab key lands once Setup absorbs it. Applied by the scene, which is what
  * knows whether Setup is rendering — with its flag off `integration-health` is still a
@@ -510,6 +544,38 @@ export interface marketingAnalyticsLogicActions {
         configured: DashboardGoalsConfigured
         section: string
     }
+    reportRecommendationsActionClicked: (
+        action: RecommendationsAction,
+        location: RecommendationsActionLocation,
+        rule?: MarketingAnalyticsRecommendationRule
+    ) => {
+        action: RecommendationsAction
+        location: RecommendationsActionLocation
+        rule: MarketingAnalyticsRecommendationRule | undefined
+    }
+    reportRecommendationsClosed: (rule: MarketingAnalyticsRecommendationRule | null) => {
+        rule: MarketingAnalyticsRecommendationRule | null
+    }
+    reportRecommendationsIntroDismissed: () => {
+        value: true
+    }
+    reportRecommendationsOpened: (
+        entryPoint: RecommendationsEntryPoint,
+        recommendationCount: number
+    ) => {
+        entryPoint: RecommendationsEntryPoint
+        recommendationCount: number
+    }
+    reportRecommendationsRuleSelected: (
+        rule: MarketingAnalyticsRecommendationRule,
+        ruleRecommendationCount: number
+    ) => {
+        rule: MarketingAnalyticsRecommendationRule
+        ruleRecommendationCount: number
+    }
+    reportRecommendationsShown: (properties: RecommendationsShownProperties) => {
+        properties: RecommendationsShownProperties
+    }
     reportSearchNewTagShown: () => {
         value: true
     }
@@ -852,6 +918,22 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             control,
             value,
         }),
+        reportRecommendationsShown: (properties: RecommendationsShownProperties) => ({ properties }),
+        reportRecommendationsOpened: (entryPoint: RecommendationsEntryPoint, recommendationCount: number) => ({
+            entryPoint,
+            recommendationCount,
+        }),
+        reportRecommendationsIntroDismissed: true,
+        reportRecommendationsRuleSelected: (
+            rule: MarketingAnalyticsRecommendationRule,
+            ruleRecommendationCount: number
+        ) => ({ rule, ruleRecommendationCount }),
+        reportRecommendationsClosed: (rule: MarketingAnalyticsRecommendationRule | null) => ({ rule }),
+        reportRecommendationsActionClicked: (
+            action: RecommendationsAction,
+            location: RecommendationsActionLocation,
+            rule?: MarketingAnalyticsRecommendationRule
+        ) => ({ action, location, rule }),
         reportTabSelected: (
             tab: MarketingAnalyticsTab,
             previousTab: MarketingAnalyticsTab,
@@ -1202,14 +1284,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         const tableType = isDataWarehouse
                             ? DataWarehouseSettingsTab.Managed
                             : DataWarehouseSettingsTab.SelfManaged
-                        const sourceMap = sources_map?.[table.schema?.id || ''] ?? sources_map?.[table.id] ?? null
+                        const sourceMapId = getSourceMapId(table, sources_map)
 
                         externalTables.push({
                             ...table,
                             name: table.name,
                             url_pattern: table.url_pattern || '',
+                            // An adopted table reads PostHog's storage, so only its source names the provider.
                             source_type: table.source?.source_type || mapUrlToProvider(table.url_pattern),
-                            source_map_id: table.schema?.id || table.source?.id || table.id,
+                            source_map_id: sourceMapId,
                             source_prefix: table.source?.prefix || '',
                             columns: Object.keys(table.fields).map((field) => ({
                                 name: table.fields[field].hogql_value,
@@ -1219,7 +1302,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                                 `${tableType}-${dataWarehouseSource?.id || table.source?.id || table.id}`
                             ),
                             external_type: tableType,
-                            source_map: sourceMap,
+                            source_map: sources_map?.[sourceMapId] ?? null,
                             schema_name: table.schema?.name || table.name,
                             dw_source_type: tableType,
                             schema_status: table.schema?.status,
@@ -1720,6 +1803,30 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
             reportDashboardControlUsed: ({ section, control, value }) => {
                 posthog.capture('marketing analytics dashboard control used', { section, control, value })
+            },
+            reportRecommendationsShown: ({ properties }) => {
+                posthog.capture('marketing analytics recommendations shown', properties)
+            },
+            reportRecommendationsOpened: ({ entryPoint, recommendationCount }) => {
+                posthog.capture('marketing analytics recommendations opened', {
+                    entry_point: entryPoint,
+                    recommendation_count: recommendationCount,
+                })
+            },
+            reportRecommendationsIntroDismissed: () => {
+                posthog.capture('marketing analytics recommendations intro dismissed')
+            },
+            reportRecommendationsRuleSelected: ({ rule, ruleRecommendationCount }) => {
+                posthog.capture('marketing analytics recommendations rule selected', {
+                    rule,
+                    rule_recommendation_count: ruleRecommendationCount,
+                })
+            },
+            reportRecommendationsClosed: ({ rule }) => {
+                posthog.capture('marketing analytics recommendations closed', { rule })
+            },
+            reportRecommendationsActionClicked: ({ action, location, rule }) => {
+                posthog.capture('marketing analytics recommendations action clicked', { action, location, rule })
             },
             reportTabSelected: ({ tab, previousTab, searchNewTagVisible }) => {
                 // LemonTabs calls onChange when the open tab is clicked again.

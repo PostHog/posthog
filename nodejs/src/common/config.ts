@@ -49,6 +49,7 @@ export enum PluginServerMode {
     cdp_person_updates = 'cdp-person-updates',
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
     cdp_internal_events = 'cdp-internal-events',
+    cdp_ses_webhooks = 'cdp-ses-webhooks',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     // TODO: remove once charts stop setting PLUGIN_SERVER_MODE=cdp-precalculated-filters.
     // The consumer is gone; an unknown mode would throw at boot, so keep the member until then.
@@ -116,6 +117,10 @@ export type CommonConfig = BaseServerConfig & {
     POSTGRES_BEHAVIORAL_COHORTS_HOST: string
     POSTGRES_BEHAVIORAL_COHORTS_USER: string
     POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: string
+
+    // Schema check hook Job (nodejs/src/schema-check)
+    SCHEMA_CHECK_PUSHGATEWAY_URL: string
+    SCHEMA_CHECK_APP: string
 
     // PersonHog gRPC
     PERSONHOG_ENABLED: boolean
@@ -344,6 +349,10 @@ export function getDefaultCommonConfig(): CommonConfig {
         POSTGRES_BEHAVIORAL_COHORTS_HOST: 'localhost',
         POSTGRES_BEHAVIORAL_COHORTS_USER: 'postgres',
         POSTGRES_BEHAVIORAL_COHORTS_PASSWORD: '',
+
+        // Schema check hook Job (nodejs/src/schema-check)
+        SCHEMA_CHECK_PUSHGATEWAY_URL: '',
+        SCHEMA_CHECK_APP: '',
 
         // PersonHog gRPC
         PERSONHOG_ENABLED: false,
