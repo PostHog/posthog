@@ -144,9 +144,13 @@ def presented_alert(configuration: PlatformAlertConfigurationView, *, team_id: i
     alert.created_at = configuration.created_at
     # The platform checked the alert from its creation, so its whole history is the platform's.
     alert.owner_changed_at = configuration.created_at
+    # The schedule's minute, which a row keeps as its start time and the platform as its anchor.
+    alert.schedule_start_time = configuration.anchor_time
     if alert.threshold is None:
         # Every insight row has a threshold, and the API's readers expect one.
         alert.threshold = Threshold(team=alert.team, insight=alert.insight, configuration={})
+    # An unsaved threshold has no `created_at`, which the API's readers expect.
+    alert.threshold.created_at = configuration.created_at
     # What the viewset annotates on a row. The platform's last check replaces it when there is one.
     alert.last_value = None  # type: ignore[attr-defined]
     for method in ("save", "delete"):
