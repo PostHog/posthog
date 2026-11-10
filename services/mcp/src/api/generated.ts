@@ -2520,6 +2520,34 @@ export namespace Schemas {
       team_id: number;
     }
 
+    export interface AccountAutomation {
+      /** ID of the workflow the caller can read. */
+      workflow_id: string;
+      /** Name of the workflow. */
+      workflow_name: string;
+      /** ID of this execution, including repeated workflow runs. */
+      invocation_id: string;
+      /** Run status: running, succeeded, failed, or canceled. */
+      status: string;
+      /** Original trigger or scheduling time. */
+      triggered_at: string;
+      /**
+         * Last successfully completed step time, or null when evidence is unavailable.
+         * @nullable
+         */
+      last_completed_step_at: string | null;
+      /**
+         * Current name of the last completed step, or null when unavailable.
+         * @nullable
+         */
+      last_completed_step_name: string | null;
+      /**
+         * Future pause time from retained logs, or null. This does not guarantee an action.
+         * @nullable
+         */
+      expected_resume_at: string | null;
+    }
+
     /**
      * Metadata for one message a channel summary covered — never the message text.
      */
@@ -38263,6 +38291,12 @@ export namespace Schemas {
          */
       source_issues?: SourceIssueWrite[];
       /**
+         * GitHub pull request URLs (`https://github.com/<owner>/<repo>/pull/<number>`) that fix what this report describes, when you found a fix that a person or another agent already opened. A linked pull request is the report's implementation: the report resolves on its own when every linked pull request is closed or merged and at least one merged, and a merged pull request resolves it at once. Additive: a pull request the report already links is skipped. Linking does not claim the report and does not change the pull request itself (no labels, reviewers, or ready-for-review). Link only a pull request whose diff targets this report's cause. The edit refuses a pull request outside the report's repository, one GitHub cannot read, and one closed without merging. At most 5 per call.
+         * @maxItems 5
+         * @items.maxLength 2048
+         */
+      pull_requests?: string[];
+      /**
          * The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one.
          * @maxItems 10
          * @nullable
@@ -38362,6 +38396,8 @@ export namespace Schemas {
       links_appended: number;
       /** How many source issues this edit added that the report did not name yet; 0 if none. */
       source_issues_appended: number;
+      /** How many pull requests this edit linked that the report did not link yet; 0 if none. */
+      pull_requests_linked: number;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
       /** Whether the report's repository was replaced (true for a cleared target too). */
@@ -73071,6 +73107,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: AEOPrompt[];
+    }
+
+    export interface PaginatedAccountAutomationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountAutomation[];
     }
 
     export interface PaginatedAccountChannelSummaryList {
@@ -125725,6 +125770,18 @@ export namespace Schemas {
       Asc: 'asc',
       Desc: 'desc',
     } as const;
+
+    export type AccountsAutomationsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type AccountsEmailThreadsListParams = {
     /**
