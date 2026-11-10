@@ -377,6 +377,8 @@ export const warehouseSavedQueriesCreateBodyIncrementalOneLookbackSecondsDefault
 export const warehouseSavedQueriesCreateBodyIncrementalOneLookbackSecondsMin = 0
 export const warehouseSavedQueriesCreateBodyIncrementalOneLookbackSecondsMax = 2592000
 
+export const warehouseSavedQueriesCreateBodyAcknowledgeBreakingChangesDefault = false
+
 export const WarehouseSavedQueriesCreateBody = () => zod
     .object({
         name: zod
@@ -450,6 +452,12 @@ export const WarehouseSavedQueriesCreateBody = () => zod
             .string()
             .nullish()
             .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
+        acknowledge_breaking_changes: zod
+            .boolean()
+            .default(warehouseSavedQueriesCreateBodyAcknowledgeBreakingChangesDefault)
+            .describe(
+                "Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access."
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -569,6 +577,12 @@ export const WarehouseSavedQueriesPartialUpdateBody = () => zod
             .describe(
                 'The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.'
             ),
+        acknowledge_breaking_changes: zod
+            .boolean()
+            .optional()
+            .describe(
+                "Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access."
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -663,6 +677,8 @@ export const warehouseSavedQueriesRevertMaterializationCreateBodyIncrementalOneL
 export const warehouseSavedQueriesRevertMaterializationCreateBodyIncrementalOneLookbackSecondsMin = 0
 export const warehouseSavedQueriesRevertMaterializationCreateBodyIncrementalOneLookbackSecondsMax = 2592000
 
+export const warehouseSavedQueriesRevertMaterializationCreateBodyAcknowledgeBreakingChangesDefault = false
+
 export const WarehouseSavedQueriesRevertMaterializationCreateBody = () => zod
     .object({
         name: zod
@@ -751,6 +767,12 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = () => zod
             .nullish()
             .describe(
                 'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
+            ),
+        acknowledge_breaking_changes: zod
+            .boolean()
+            .default(warehouseSavedQueriesRevertMaterializationCreateBodyAcknowledgeBreakingChangesDefault)
+            .describe(
+                "Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access."
             ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })

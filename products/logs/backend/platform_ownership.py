@@ -102,9 +102,16 @@ def create_platform_owned(*, team_id: int, edit: PlatformAlertConfigurationEdit,
     return alert.id
 
 
-def on_updated(alert: LogsAlertConfiguration, *, snooze_changed: bool, grouping: Grouping | None = None) -> None:
+def on_updated(
+    alert: LogsAlertConfiguration,
+    *,
+    snooze_changed: bool,
+    grouping: Grouping | None = None,
+    at: datetime | None = None,
+) -> None:
     """Writes an edit the logs API saved onto the platform's copy, with the grouping the edit set.
-    A `grouping` of None keeps the copy's own. An alert logs owns has no copy to write.
+    A `grouping` of None keeps the copy's own. An alert logs owns has no copy to write. `at` is when
+    the edit started, before its `LogsAlertEvent` row.
 
     Raises `InvalidPlatformAlertEdit` when the platform's schema rejects the edit, or when the
     alert cannot take the grouping.
@@ -118,6 +125,7 @@ def on_updated(alert: LogsAlertConfiguration, *, snooze_changed: bool, grouping:
         change=platform_change_of(alert, grouping),
         snooze_until=alert.snooze_until,
         snooze_changed=snooze_changed,
+        at=at,
     )
 
 

@@ -9,7 +9,6 @@ import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 import { urls } from 'scenes/urls'
 
-import { tagsModel } from '~/models/tagsModel'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -33,7 +32,6 @@ export function SettingsTab(): JSX.Element {
     const { updateExperiment, updateExperimentSettings } = useActions(experimentLogic)
     const { openStatsEngineModal, openCupedModal } = useActions(modalsLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
-    const { tags: allExistingTags } = useValues(tagsModel)
 
     const canEditExperiment = userHasAccess(
         AccessControlResourceType.Experiment,
@@ -79,7 +77,6 @@ export function SettingsTab(): JSX.Element {
                         // computation, so don't trigger its results refresh.
                         onChange={(tags) => updateExperiment({ tags })}
                         saving={experimentUpdateLoading}
-                        tagsAvailable={allExistingTags.filter((tag: string) => !experiment.tags?.includes(tag))}
                         data-attr="experiment-tags"
                     />
                 ) : (

@@ -123,6 +123,7 @@ Only an accessor with one auth type can write, because a new row has exactly one
 - `upsert(team_id, external_id, config=..., ...)` returns `(row, created)`. It replaces the config of an existing row. It raises `IntegrationConflict` when the existing row is not in the scope, for example a row with another auth type.
 - `update(team_id, id, config_patch=..., config_remove=..., sensitive_config_patch=..., errors=...)` merges a patch. `errors=None` keeps the errors.
 - `update_by_external_id(external_id, patch)` patches the rows of every team that are in the scope. It writes only the rows that the patch changes, in one `bulk_update`, and returns their count. A `bulk_update` sends no `post_save` signal.
+- `change_external_id(team_id, id, external_id)` gives the row another external id. It raises `IntegrationConflict` when the team already has a row of the kind with that id.
 
 Delete rows with `delete(team_id, id)`. It raises `IntegrationInUse` with the usages when other objects use the row. Pass `ignore_usages=True` to delete it anyway.
 `delete_by_external_id(external_id)` deletes the rows of every team in one transaction. It deletes each row on its own, so the delete signals fire. Like `list_by_external_id`, it needs an accessor with a kind.
