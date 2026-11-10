@@ -370,6 +370,8 @@ The Celery beat task `report_upcoming_events_deletions` runs daily at 15:00 UTC.
 On the day the next cleanup is exactly 14 days away, it reschedules the rows due at that cleanup, the same way a settings save does, so a period that got shorter since the pass was set moves the pass instead of announcing it.
 It then sends an `events retention deletion upcoming` event to the admins of each organization with a team still due, one organization at a time, whether the team downgraded or not.
 Every pass gets this event, every 3 months, and only teams behind the deletion flag have rows, so a team that joins the flag after a downgrade hears before its first pass.
+A team whose set period is at or below its pass's period is left out, because the monthly cleanup already deletes everything that pass would.
+A set period above the pass's period still sends.
 Only that one day sends, so nothing records what was sent.
 A failed send fails the task, which retries the same way as the shortened task, and a retry sends again to the organizations already sent.
 Workflows turn both events into emails.

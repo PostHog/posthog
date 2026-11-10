@@ -54,6 +54,11 @@ ACTIVITY_MODULE_PATH = "products.signals.backend.emission.emit_signals"
 
 
 @pytest.fixture(autouse=True)
+def no_llm_retry_delay(monkeypatch):
+    monkeypatch.setattr(f"{PIPELINE_MODULE_PATH}.LLM_RETRY_INITIAL_DELAY_SECONDS", 0)
+
+
+@pytest.fixture(autouse=True)
 def no_trial() -> Iterator[None]:
     with (
         patch(f"{PIPELINE_MODULE_PATH}.requires_trial_accounting", return_value=False),
