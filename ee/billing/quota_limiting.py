@@ -261,6 +261,7 @@ def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimiti
     Returns a list of team attributes that are still under quota limits. Uses Redis sorted set
     where scores are expiration timestamps. Only returns attributes whose limits haven't expired yet.
     Note: this is cached for 30 seconds so it's not always up to date.
+    Each refresh returns every member of the zset, so use `is_team_limited` to check one team.
     """
     now = timezone.now()
     redis_client = get_client()
@@ -285,18 +286,19 @@ def _get_previous_recordings_zset_tokens() -> set[str]:
 
 
 def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: QuotaLimitingCaches) -> bool:
-    limited_team_attributes = list_limited_team_attributes(resource, cache_key)
-    return team_api_token in limited_team_attributes
+    """Whether the team's own entry in the resource's zset is still in force.
+
+    Reads one score instead of the whole zset. Returning the whole zset holds the shared Redis
+    for time in proportion to its size, and a quota that limits every organization without an
+    allowance has nearly every team in it. Expired entries stay in the zset until the quota job
+    removes them, so the score must be compared with the current time.
+    """
+    score = get_client().zscore(f"{cache_key.value}{resource.value}", team_api_token)
+    return score is not None and score >= timezone.now().timestamp()
 
 
 def get_fresh_team_limited_resources(team_api_token: str) -> dict[QuotaResource, bool]:
-    """Uncached limited-state for one team across every resource, one Redis round trip.
-
-    `is_team_limited` reads a fleet-wide list memoized per worker for 30 seconds, which
-    is fine for callers that re-check constantly — but consumers that cache the answer
-    downstream for minutes (the LLM gateway) would re-cache a just-lifted limit as still
-    limited. This reads the zset scores directly instead.
-    """
+    """Limited-state for one team across every resource, in one Redis round trip."""
     now_ts = timezone.now().timestamp()
     pipe = get_client().pipeline()
     for resource in QuotaResource:

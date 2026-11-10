@@ -40,6 +40,7 @@ from ee.billing.quota_limiting import (
     _patch_todays_usage,
     add_limited_team_tokens,
     get_team_attribute_by_quota_resource,
+    is_team_limited,
     list_limited_team_attributes,
     org_quota_limited_until,
     refresh_org_self_driving_quota,
@@ -95,6 +96,28 @@ class TestQuotaLimiting(BaseTest):
     def _run_quota_limiting(self) -> QuotaLimitingRunResult:
         with self.captureOnCommitCallbacks(execute=True):
             return update_all_orgs_billing_quotas()
+
+    @parameterized.expand(
+        [
+            ("limit_in_force", 60, True),
+            ("limit_expired", -60, False),
+            ("not_in_zset", None, False),
+        ]
+    )
+    def test_is_team_limited_counts_only_the_teams_unexpired_entry(
+        self, _name: str, own_offset_seconds: int | None, expected: bool
+    ) -> None:
+        now_ts = int(timezone.now().timestamp())
+        tokens = {"phc_another_limited_team": now_ts + 60}
+        if own_offset_seconds is not None:
+            tokens[self.team.api_token] = now_ts + own_offset_seconds
+        add_limited_team_tokens(QuotaResource.EVENTS, tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+
+        limited = is_team_limited(
+            self.team.api_token, QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
+        assert limited is expected
 
     @parameterized.expand([(False,), (True,)])
     @time_machine.travel("2026-10-31T23:59:59.999999Z", tick=False)
