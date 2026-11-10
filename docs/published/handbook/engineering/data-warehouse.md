@@ -36,6 +36,12 @@ Direct-connection catalogs contain no authored models and are exempt from the re
 
 This reservation does not add qualified names to existing models or require a namespace on new models.
 
+## Model materialization reads
+
+ClickHouse materializations distribute S3 reads for warehouse-only queries when a source's recorded size is at least 1 GiB. Supported queries include aggregations, `UNION ALL`, and subqueries in `FROM`.
+
+Joins, CTEs, expression subqueries, and queries involving PostHog system tables keep single-node S3 reads. Distributed S3 table functions cannot nest inside a remote query. Ordinary queries retain their existing reader selection.
+
 ## Model materialization usage
 
 The Models **Usage** tab shows bytes read, CPU time, and run counts for materializations over a preset or custom range of complete UTC days.

@@ -2229,6 +2229,47 @@ class _EmptyArrowClient:
 
 
 class TestHogqlTableModifiers:
+    @pytest.mark.parametrize(
+        "query,distributed",
+        [
+            (
+                "SELECT id, created_at FROM large_orders UNION ALL SELECT id, created_at FROM large_orders",
+                True,
+            ),
+            (
+                "SELECT event AS id, timestamp AS created_at FROM events WHERE event IN (SELECT id FROM large_orders)",
+                False,
+            ),
+        ],
+    )
+    async def test_distributes_only_warehouse_scans(self, ateam: Team, query: str, distributed: bool) -> None:
+        await database_sync_to_async(DataWarehouseTable.objects.create)(
+            team=ateam,
+            name="large_orders",
+            format="DeltaS3Wrapper",
+            url_pattern="https://bucket.example.com/orders",
+            queryable_folder="orders__query_c",
+            size_in_s3_mib=4096.0,
+            columns={"id": "String", "created_at": "DateTime64(6, 'UTC')"},
+        )
+        schema_fields: list[pa.Field[Any]] = [pa.field("id", pa.string()), pa.field("created_at", pa.timestamp("us"))]
+        client = _EmptyArrowClient(pa.schema(schema_fields))
+        client.describe_body = b"id\tString\ncreated_at\tDateTime64(6, 'UTC')\n"
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+
+        assert client.describe_query is not None
+        assert client.arrow_query is not None
+        assert ("s3Cluster(" in client.describe_query) is distributed
+        assert ("s3Cluster(" in client.arrow_query) is distributed
+
     async def test_formatter_shaped_aliases_preserve_values_and_team_scope(
         self, ateam: Team, clickhouse_client: ClickHouseClient
     ) -> None:

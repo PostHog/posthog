@@ -348,7 +348,7 @@ class S3Table(FunctionCallTable):
             access_secret=self.access_secret,
             structure=self.structure,
             context=context,
-            table_size_mib=self.table_size_mib,
+            table_size_mib=self.table_size_mib if context.allow_s3_cluster else None,
         )
 
     def to_printed_duckdb(self, context: HogQLContext) -> str:

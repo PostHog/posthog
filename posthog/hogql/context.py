@@ -101,6 +101,8 @@ class HogQLContext:
     output_format: str | None = None
     emit_top_level_settings: bool = True
     top_level_settings: dict[str, object] = field(default_factory=dict)
+    # boffin: Distributed S3 reads cannot nest inside a remote query, so materializers must opt in after checking the AST.
+    allow_s3_cluster: bool = False
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
     # Standard-library names the bytecode compiler accepts for a direct call. The Python and Node
