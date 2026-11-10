@@ -16,6 +16,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { urls } from 'scenes/urls'
 
 import type { AEOPromptApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
@@ -23,8 +24,6 @@ import { ContentAutopilotCheckResultTag } from './ContentAutopilotCheckResultTag
 import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
-import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
-import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
@@ -99,7 +98,6 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
         setShowArchived,
     } = useActions(contentAutopilotPromptsLogic)
     const { opportunityByPromptId } = useValues(contentAutopilotLogic)
-    const { openPromptDetail } = useActions(contentAutopilotPromptDetailLogic)
 
     if (promptsError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -232,7 +230,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                 <div className="py-2 min-w-60 break-words">
                                     <Link
                                         subtle
-                                        onClick={() => openPromptDetail(prompt.id)}
+                                        to={urls.webAnalyticsContentAutopilotPrompt(prompt.id)}
                                         className="text-left font-semibold"
                                         data-attr="content-autopilot-prompt-open-detail"
                                     >
@@ -292,7 +290,6 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     ]}
                 />
             )}
-            <ContentAutopilotPromptDetail />
         </section>
     )
 }

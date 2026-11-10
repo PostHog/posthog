@@ -1554,6 +1554,15 @@ class ExperimentMetricType(StrEnum):
     MEAN = "mean"
     RATIO = "ratio"
     RETENTION = "retention"
+    QUANTILE = "quantile"
+
+
+class ExperimentMetricValueFormatType(StrEnum):
+    CURRENCY = "currency"
+    DURATION = "duration"
+    DURATION_MS = "duration_ms"
+    PERCENTAGE = "percentage"
+    PERCENTAGE_SCALED = "percentage_scaled"
 
 
 class PrecomputationMode(StrEnum):
@@ -2702,6 +2711,7 @@ class ProductIntentContext(StrEnum):
     METRICS_DOCS_VIEWED = "metrics_docs_viewed"
     METRICS_VIEWER_QUERY_RUN = "metrics_viewer_query_run"
     METRICS_SQL_QUERY_RUN = "metrics_sql_query_run"
+    METRICS_DERIVED_QUERY_RUN = "metrics_derived_query_run"
     METRICS_QUERY_SAVED = "metrics_query_saved"
     METRICS_FIRST_INGESTED = "metrics_first_ingested"
     METRICS_SCRAPE_AGENT_SNIPPET_COPIED = "metrics_scrape_agent_snippet_copied"
@@ -3375,6 +3385,11 @@ class UsageMetricDisplay(StrEnum):
 class UsageMetricFormat(StrEnum):
     NUMERIC = "numeric"
     CURRENCY = "currency"
+
+
+class WarehouseSuggestionNoteKind(StrEnum):
+    MATERIALIZE = "materialize"
+    UNMATERIALIZE = "unmaterialize"
 
 
 class WebAgentAnalyticsQueryType(StrEnum):
