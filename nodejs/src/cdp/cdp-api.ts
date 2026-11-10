@@ -1254,8 +1254,7 @@ export class CdpApi {
     // in its path (step resume) pins the job through extraClaims instead. Writes the 401 itself
     // and returns false on any mismatch.
     // Run a transactional email's workflow once. Django checks the template and the workflow, then calls this
-    // once per send. The job goes straight onto the email queue: a transactional send on its fast lane, a marketing
-    // send on its bulk lane.
+    // once per send.
     //
     // Auth: a per-call JWT minted by Django on its own audience and key, pinned to the team and the workflow,
     // never the fleet-wide internal secret.
