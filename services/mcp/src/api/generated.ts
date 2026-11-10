@@ -131567,6 +131567,10 @@ export namespace Schemas {
 
     export type ExperimentSavedMetricsListParams = {
     /**
+     * Filter to shared metrics created by these users. Accepts a single user ID, a comma-separated list, or a JSON-encoded array of user IDs.
+     */
+    created_by_id?: string;
+    /**
      * Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name/description/tags.
      */
     event?: string;
@@ -131575,6 +131579,10 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Filter to shared metrics of this type. 'funnel' also matches legacy funnel metrics, and 'trend' matches legacy trend metrics.
+     */
+    metric_type?: ExperimentSavedMetricsListMetricType;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
@@ -131582,7 +131590,22 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    /**
+     * Filter to shared metrics carrying any of these tags. Accepts a JSON-encoded array of tag names. Distinct from 'search', which also matches name and description.
+     */
+    tags?: string;
     };
+
+    export type ExperimentSavedMetricsListMetricType = typeof ExperimentSavedMetricsListMetricType[keyof typeof ExperimentSavedMetricsListMetricType];
+
+
+    export const ExperimentSavedMetricsListMetricType = {
+      Funnel: 'funnel',
+      Mean: 'mean',
+      Ratio: 'ratio',
+      Retention: 'retention',
+      Trend: 'trend',
+    } as const;
 
     export type ExperimentsListParams = {
     /**
