@@ -366,6 +366,8 @@ def test_comparable_keeps_scalars_that_pnpm_reads_differently_apart(one: bytes, 
         (b"a: !!map {}\n", "an alias or an explicit tag"),
         ("a: 1 b: 2\n".encode(), "a line separator"),
         ("a: 1\x85b: 2\n".encode(), "a line separator"),
+        ("a: 1\n".encode("utf-16"), "not UTF-8"),
+        ("a: 1\n".encode("utf-8-sig"), "a byte order mark"),
     ],
 )
 def test_comparable_refuses_yaml_that_pnpm_never_writes(text: bytes, reason: str) -> None:

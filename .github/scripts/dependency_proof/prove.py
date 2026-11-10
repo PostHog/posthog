@@ -440,15 +440,20 @@ def load_workspace(git: Git, ref: str, directory: str) -> dict[str, Any]:
 
 
 def load_yaml(text: bytes) -> dict[str, Any]:
-    # PyYAML ends a line at U+0085, U+2028 and U+2029, and pnpm's parser does not.
-    if any(separator.encode() in text for separator in ("\x85", " ", " ")):
-        raise Refused("a YAML file uses a line separator that pnpm does not read")
+    # pnpm reads UTF-8. PyYAML detects UTF-16 from the bytes, so it gets decoded text and no choice.
+    try:
+        decoded = text.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise Refused("a YAML file is not UTF-8") from error
+    # PyYAML drops a byte order mark and ends a line at U+0085, U+2028 and U+2029. pnpm's parser does neither.
+    if any(character in decoded for character in ("﻿", "\x85", " ", " ")):
+        raise Refused("a YAML file uses a byte order mark or a line separator that pnpm does not read")
     # pnpm never writes an alias or an explicit tag, and either would let two texts build one
     # structure. The C parser skips a Python compose hook, so the event stream is read for them.
-    for event in yaml.parse(text, Loader=StrictLoader):
+    for event in yaml.parse(decoded, Loader=StrictLoader):
         if isinstance(event, yaml.AliasEvent) or getattr(event, "tag", None) is not None:
             raise Refused("a YAML file uses an alias or an explicit tag")
-    loaded = yaml.load(text, Loader=StrictLoader) or {}
+    loaded = yaml.load(decoded, Loader=StrictLoader) or {}
     if not isinstance(loaded, dict):
         raise Refused("a settings file is not a mapping")
     return loaded
