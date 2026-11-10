@@ -96,7 +96,7 @@ class WorkflowViewStateSerializer(serializers.Serializer):
     columns = serializers.ListField(
         child=serializers.ChoiceField(choices=WorkflowViewColumn.choices),
         max_length=6,
-        help_text="Visible optional workflow columns in display order.",
+        help_text="Visible optional workflow columns. The list always shows them in the same fixed order.",
     )
 
     def validate_columns(self, columns: list[str]) -> list[str]:
