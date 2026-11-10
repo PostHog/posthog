@@ -24,6 +24,7 @@ from posthog.redis import get_client
 from posthog.test.fixtures import create_app_metric2
 from posthog.usage_counters import UsageCounterService
 
+from products.ai_observability.backend.facade.limits import get_ai_event_limits
 from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationUsageLedger
 
 from ee.billing.quota_limiting import (
@@ -2012,6 +2013,31 @@ class TestQuotaLimiting(BaseTest):
             assert self.redis_client.zrange("@posthog/quota-limits/logs_mb_ingested", 0, -1) == [
                 self.team.api_token.encode("UTF-8")
             ]
+
+    @patch("posthoganalytics.capture")
+    def test_ai_overage_is_reported_as_a_dry_run_beside_ai_event_limits(self, patch_capture) -> None:
+        with self.settings(USE_TZ=False), time_machine.travel("2021-01-25T00:00:00Z", tick=False):
+            self.organization.usage = {
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+                "llm_events": {"usage": 0, "limit": 1, "todays_usage": 0},
+            }
+            self.organization.save()
+            included = get_ai_event_limits().included_bytes_per_event
+            for index in range(2):
+                _create_event(
+                    event="$ai_generation",
+                    team=self.team,
+                    distinct_id=f"ai_user_{index}",
+                    timestamp=now(),
+                    properties={"$ai_event_bytes": included + 1_500_000},
+                )
+            flush_persons_and_events()
+
+            result = update_all_orgs_billing_quotas()
+
+            assert result.quota_limited_orgs["llm_events"] == {str(self.organization.id): 1612137599}
+            assert result.stats["ai_overage_teams"] == 1
+            assert result.stats["ai_overage_mb"] == 3
 
     @parameterized.expand(
         [

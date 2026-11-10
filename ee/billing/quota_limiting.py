@@ -1497,7 +1497,6 @@ QUOTA_USAGE_COUNTERS = (
     UsageCounter.CDP_INVOCATIONS,
     UsageCounter.SURVEY_RESPONSES,
     UsageCounter.AI_EVENTS,
-    UsageCounter.AI_OVERAGE_BYTES,
     UsageCounter.WORKFLOW_EMAILS,
     UsageCounter.WORKFLOW_PUSH,
     UsageCounter.WORKFLOW_INVOCATIONS,
@@ -1560,10 +1559,6 @@ def _fetch_quota_usage_counts(service: UsageCounterService, period: DayRange) ->
         "teams_with_rows_exported_in_period": dict(counter_report.counts[UsageCounter.ROWS_EXPORTED]),
         "teams_with_survey_responses_count_in_period": dict(counter_report.counts[UsageCounter.SURVEY_RESPONSES]),
         "teams_with_ai_event_count_in_period": dict(counter_report.counts[UsageCounter.AI_EVENTS]),
-        "teams_with_ai_overage_mb_in_period": {
-            team_id: int(overage_bytes // 1_000_000)
-            for team_id, overage_bytes in counter_report.counts[UsageCounter.AI_OVERAGE_BYTES]
-        },
         "teams_with_mcp_event_count_in_period": convert_team_usage_rows_to_dict(mcp_event_counts),
         "teams_with_ai_credits_used_in_period": dict(counter_report.counts[UsageCounter.AI_CREDITS]),
         "teams_with_signals_credits_used_in_period": dict(counter_report.counts[UsageCounter.SIGNALS_CREDITS]),
@@ -1636,6 +1631,11 @@ class _FinishedYesterday:
         # A run that stops early leaves the day unmarked, so the next run counts yesterday again.
         if self._counts is not None:
             self._redis.set(self._key, 1, ex=YESTERDAY_FINISHED_TTL)
+
+
+def _get_ai_overage_mb_by_team(service: UsageCounterService, period: DayRange) -> dict[int, int]:
+    rows = service.get_legacy(UsageCounter.AI_OVERAGE_BYTES, period.start, period.end, caller="quota_limiting")
+    return {team_id: int(overage_bytes // 1_000_000) for team_id, overage_bytes in rows}
 
 
 def update_all_orgs_billing_quotas(
@@ -1995,6 +1995,9 @@ def update_all_orgs_billing_quotas(
         if recordings_transitioned_team_ids:
             dispatch_recordings_remote_config_sync(recordings_transitioned_team_ids)
 
+    # No quota reads AI overage yet, so it runs after every decision is written and cannot delay them.
+    ai_overage_mb = _timed_query("ai_overage_mb", _get_ai_overage_mb_by_team, service, period)
+
     total_duration_s = time() - total_start
     logger.info(
         "quota_limiting_run",
@@ -2015,6 +2018,8 @@ def update_all_orgs_billing_quotas(
             "orgs_processed": orgs_processed,
             "orgs_limited": orgs_limited_count,
             "orgs_suspended": orgs_suspended_count,
+            "ai_overage_teams": len(ai_overage_mb),
+            "ai_overage_mb": sum(ai_overage_mb.values()),
         },
     )
 
