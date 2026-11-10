@@ -40,6 +40,7 @@ _SPAN_SQL = (
 )
 _MAX_ATTRS_PER_ROW = 8
 _TOKEN_DELIMITERS = frozenset(" \t\r\n\"'")
+_BARE_VALUE_RE = re.compile(r"[\w.:/@+…-]*")
 _PADDING_RE = re.compile(r"^(\d+)([smh])$")
 _ID_LIKE_RE = re.compile(r"(^|[._])(id|uuid)$|[a-z](Id|ID)$|^(run|request)")
 _NOISE_KEYS = frozenset(
@@ -121,8 +122,8 @@ def _cut(text: str, limit: int) -> str:
 
 
 def _quote(value: str) -> str:
-    # Flattened attrs are space-separated, so a value with whitespace is quoted to keep its boundary.
-    return json.dumps(value, ensure_ascii=False) if any(char.isspace() for char in value) else value
+    # Flattened attrs lose their value boundaries, so anything but a plain token is quoted to keep the value whole.
+    return value if _BARE_VALUE_RE.fullmatch(value) else json.dumps(value, ensure_ascii=False)
 
 
 def _utc(value: dt.datetime) -> dt.datetime:
