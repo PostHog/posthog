@@ -22,6 +22,10 @@ describe("deriveReportVerdict", () => {
   it.each([
     // Non-ready lifecycle states speak for themselves, whatever the artefacts say.
     [{ status: "resolved" }, false, "Resolved", "info"],
+    [{ status: "monitoring" }, false, "Monitoring", "info"],
+    [{ status: "monitoring" }, true, "Monitoring", "info"],
+    [{ status: "closed" }, false, "Closed", "info"],
+    [{ status: "closed" }, true, "Closed", "info"],
     [{ status: "suppressed" }, false, "Archived", "info"],
     [{ status: "deleted" }, false, "Archived", "info"],
     [{ status: "failed" }, false, "Run failed", "danger"],

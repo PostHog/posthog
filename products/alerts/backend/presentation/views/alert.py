@@ -1,12 +1,13 @@
 import json
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from functools import reduce
 from operator import or_
 from typing import Annotated, Any, Final, cast
 from zoneinfo import ZoneInfo
 
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
@@ -20,6 +21,7 @@ from pydantic import (
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import (
@@ -107,12 +109,14 @@ from products.alerts.backend.facade.contracts import (
     INSIGHT_ALERT_DESTINATION_EVENT_IDS,
     INSIGHT_ALERT_DESTINATION_TYPES,
     INSIGHT_ALERT_EVENT_IDS,
+    INSIGHT_ALERT_INCIDENT_OPENED_EVENT,
     MovedAlertCheck,
     PlatformCannotOwn,
 )
 from products.alerts.backend.facade.destinations import (
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     MAX_DESTINATIONS_PER_ALERT,
+    build_insight_alert_pagerduty_configs,
     build_insight_alert_slack_config,
     count_active_alert_destinations,
     create_alert_destination_hog_functions,
@@ -128,6 +132,7 @@ from products.alerts.backend.facade.platform import (
     moved_alert_check_page,
     moved_alert_fired_checks,
     moved_alert_statuses,
+    platform_takes_new_alert_with,
     write_moved_alert_edit,
 )
 from products.alerts.backend.insight_alert_state_machine import (
@@ -146,10 +151,15 @@ from products.alerts.backend.models.alert import (
     Threshold,
 )
 from products.alerts_platform.backend.facade.contracts import (
+    DEFAULT_PAGERDUTY_REGION,
+    DEFAULT_PAGERDUTY_SEVERITY,
+    AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
     InvalidPlatformAlertEdit,
+    PagerDutyRegion,
+    PagerDutySeverity,
 )
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
@@ -718,6 +728,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         queryset=Insight.objects.all(),
         help_text="Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
     )
+    pagerduty_available = serializers.BooleanField(
+        source="platform_owned",
+        read_only=True,
+        help_text="Whether this alert can open PagerDuty incidents. Add one with destinations/pagerduty.",
+    )
     insight_short_id = serializers.CharField(
         source="insight.short_id",
         read_only=True,
@@ -836,6 +851,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "insight_short_id",
             "insight_display_name",
             "llm_detector_available",
+            "pagerduty_available",
             "name",
             "subscribed_users",
             "threshold",
@@ -868,6 +884,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "last_notified_at",
             "last_checked_at",
             "next_check_at",
+            "pagerduty_available",
         ]
 
     def to_representation(self, instance):
@@ -904,7 +921,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             insight.refresh_from_db()
             _reject_deleted_insight(insight)
             validated_data = self.validate(validated_data)
-        current_count = AlertConfiguration.objects.filter(team_id=team.id).count()
+        current_count = AlertConfiguration.team_alert_count(team.id)
         check_count_limit(
             team=team,
             key=LimitKey.MAX_ALERTS_PER_TEAM,
@@ -922,6 +939,16 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 calculation_interval=validated_data.get("calculation_interval", AlertCalculationInterval.DAILY),
                 instance=None,
             )
+            # Again under the lock, because `validate` checked before this transaction began. After the
+            # insight lock and the AI detector's admission, so the lock order matches `update`'s and
+            # the admission's flag reads never run while this team-wide lock is held.
+            if refusal := AlertConfiguration.create_limit_error(
+                team_id=team.id,
+                organization=team.organization,
+                calculation_interval=validated_data.get("calculation_interval", AlertCalculationInterval.DAILY),
+                enabled=validated_data.get("enabled", True) is True,
+            ):
+                raise ValidationError({refusal.field: [refusal.message]})
             if threshold_data:
                 threshold_instance = self.add_threshold(threshold_data, validated_data)
                 validated_data["threshold"] = threshold_instance
@@ -975,6 +1002,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             enabled=resulting_enabled,
             calculation_interval=validated_data.get("calculation_interval", instance.calculation_interval),
             instance=instance,
+        )
+        # The state before this update, which decides whether the update adds an active real-time alert.
+        previous = AlertConfiguration(
+            id=instance.id, calculation_interval=instance.calculation_interval, enabled=instance.enabled
         )
         enable_now = enabled_changed and validated_data["enabled"]
         if enable_now:
@@ -1080,6 +1111,17 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 raise ValidationError(str(error)) from error
             except InvalidPlatformAlertEdit as error:
                 raise ValidationError({error.field_name: str(error)}) from error
+        # Again under the lock, because `validate` counted without it and another update can race. After
+        # `write_moved_alert_edit`, because the platform locks a copy before this lock, and an update
+        # that took them the other way round could deadlock with it.
+        if msg := AlertConfiguration.update_limit_error(
+            team_id=instance.team_id,
+            organization=self.context["get_organization"](),
+            calculation_interval=instance.calculation_interval,
+            enabled=instance.enabled,
+            existing=previous,
+        ):
+            raise ValidationError({"calculation_interval": [msg]})
 
         instance.report_updated(
             self.context["request"].user,
@@ -1483,6 +1525,59 @@ class AlertCreateDestinationSerializer(serializers.Serializer):
         if not IntegrationManager.slack.oauth.get_many(team.id, [attrs["slack_workspace_id"]]):
             raise ValidationError({"slack_workspace_id": "Connect this Slack workspace to PostHog first."})
         return attrs
+
+
+# The labels equal the values, so these share the PagerDutySeverityEnum and PagerDutyRegionEnum
+# names that ENUM_NAME_OVERRIDES gives the logs and metrics fields.
+PagerDutySeverityChoices = cast(Any, models.TextChoices)(
+    "PagerDutySeverityChoices", [(member.name, (member.value, member.value)) for member in PagerDutySeverity]
+)
+PagerDutyRegionChoices = cast(Any, models.TextChoices)(
+    "PagerDutyRegionChoices", [(member.name, (member.value, member.value)) for member in PagerDutyRegion]
+)
+
+
+class AlertCreatePagerDutyDestinationSerializer(serializers.Serializer):
+    pagerduty_routing_key = serializers.CharField(
+        write_only=True,
+        help_text="The 32-character integration key of a PagerDuty Events API v2 integration.",
+    )
+    pagerduty_severity = serializers.ChoiceField(
+        choices=PagerDutySeverityChoices.choices,
+        default=DEFAULT_PAGERDUTY_SEVERITY,
+        help_text="Severity of the incidents the alert opens.",
+    )
+    pagerduty_region = serializers.ChoiceField(
+        choices=PagerDutyRegionChoices.choices,
+        default=DEFAULT_PAGERDUTY_REGION,
+        help_text="Region of the PagerDuty account.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        attrs["type"] = DestinationType.PAGERDUTY
+        try:
+            validate_destination_data(
+                cast(AlertDestinationData, attrs), allowed_destination_types=(DestinationType.PAGERDUTY,)
+            )
+        except AlertDestinationValidationError as error:
+            raise as_drf_validation_error(error)
+        return attrs
+
+
+class AlertPagerDutyAvailabilityQuerySerializer(serializers.Serializer):
+    calculation_interval = serializers.ChoiceField(
+        choices=AlertConfiguration.CALCULATION_INTERVAL_CHOICES,
+        help_text="How often the new alert is checked.",
+    )
+    investigation_agent_enabled = serializers.BooleanField(
+        default=False, help_text="Whether the new alert runs the investigation agent."
+    )
+
+
+class AlertPagerDutyAvailabilitySerializer(serializers.Serializer):
+    available = serializers.BooleanField(
+        help_text="Whether a new alert with these settings can open PagerDuty incidents."
+    )
 
 
 class AlertDestinationResponseSerializer(serializers.Serializer):
@@ -1988,9 +2083,74 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = AlertCreateDestinationSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data)
+        return self._create_destination(
+            request,
+            alert,
+            data,
+            [build_insight_alert_slack_config(alert_id=str(alert.id), alert_name=alert.name, data=data)],
+        )
 
+    @extend_schema(
+        request=AlertCreatePagerDutyDestinationSerializer,
+        responses={201: AlertDestinationResponseSerializer},
+        description=(
+            "Open a PagerDuty incident when this alert starts firing, and resolve it when the alert stops. "
+            "Only an alert whose pagerduty_available is true can take one. The returned IDs identify the destination."
+        ),
+    )
+    # The routing key is a target the caller supplies, so an alert-only token cannot add one. A sandboxed agent
+    # can hold `alert:write`, and the HogFunction API already asks for `hog_function:write` for the same reach.
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="destinations/pagerduty",
+        required_scopes=["alert:write", "hog_function:write"],
+    )
+    def create_pagerduty_destination(self, request, *args, **kwargs):
+        alert = self.get_object()
+        serializer = AlertCreatePagerDutyDestinationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        # Only the alerts platform sends the incident events these destinations listen on. An alert that
+        # moves back to the insight stack keeps its PagerDuty destination, which then stops paging.
+        if not alert.platform_owned:
+            raise ValidationError({"type": "PagerDuty isn't available for this alert yet."})
+        data = cast(AlertDestinationData, serializer.validated_data)
+        return self._create_destination(
+            request,
+            alert,
+            data,
+            build_insight_alert_pagerduty_configs(alert_id=str(alert.id), alert_name=alert.name, data=data),
+        )
+
+    @extend_schema(
+        parameters=[AlertPagerDutyAvailabilityQuerySerializer],
+        responses={200: AlertPagerDutyAvailabilitySerializer},
+        description="Whether a new alert with these settings could open PagerDuty incidents once it is created.",
+    )
+    @action(detail=False, methods=["GET"], url_path="pagerduty_availability", required_scopes=["alert:read"])
+    def pagerduty_availability(self, request, *args, **kwargs):
+        query = AlertPagerDutyAvailabilityQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        available = platform_takes_new_alert_with(
+            team_id=self.team_id,
+            calculation_interval=query.validated_data["calculation_interval"],
+            investigation_agent_enabled=query.validated_data["investigation_agent_enabled"],
+        )
+        return Response(AlertPagerDutyAvailabilitySerializer({"available": available}).data)
+
+    def _create_destination(
+        self,
+        request: Request,
+        alert: AlertConfiguration,
+        data: AlertDestinationData,
+        configs: Sequence[AlertDestinationConfig],
+    ) -> Response:
+        user = cast(User, request.user)
+        # A PagerDuty destination is two functions, one per incident event, so it counts once.
         existing = count_active_alert_destinations(
-            team_id=self.team_id, alert_id=str(alert.id), allowed_event_ids=INSIGHT_ALERT_EVENT_IDS
+            team_id=self.team_id,
+            alert_id=str(alert.id),
+            allowed_event_ids=(*INSIGHT_ALERT_EVENT_IDS, INSIGHT_ALERT_INCIDENT_OPENED_EVENT),
         )
         if existing >= MAX_DESTINATIONS_PER_ALERT:
             raise ValidationError(
@@ -1999,17 +2159,17 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             hog_function_ids = create_alert_destination_hog_functions(
-                [build_insight_alert_slack_config(alert_id=str(alert.id), alert_name=alert.name, data=data)],
+                list(configs),
                 team_id=alert.team_id,
-                created_by_id=request.user.id,
+                created_by_id=user.id,
                 alert_id=str(alert.id),
-                allowed_event_ids=INSIGHT_ALERT_EVENT_IDS,
+                allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
             )
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
 
         posthoganalytics.capture(
-            distinct_id=str(request.user.distinct_id),
+            distinct_id=str(user.distinct_id),
             event="insight alert destination created",
             properties={
                 **get_request_analytics_properties(request),
