@@ -1,8 +1,20 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import path from 'path'
 
 import { deriveSchemaRequirements } from './derive-requirements'
+
+const REPO_ROOT = path.resolve(__dirname, '../../../../..')
+
+// Every Node source root in the repo, so the real-repo case covers each package an image can carry.
+function allNodeSourceRoots(): string[] {
+    const packageRoots = ['nodejs/packages', 'ingestion/node/packages'].flatMap((parent) =>
+        readdirSync(path.join(REPO_ROOT, parent), { withFileTypes: true })
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => path.posix.join(parent, entry.name, 'src'))
+    )
+    return ['nodejs/src', ...packageRoots]
+}
 
 const FIXTURE_FILES: Record<string, string> = {
     'posthog/apps.py': 'class PostHogConfig(AppConfig):\n    name = "posthog"\n',
@@ -125,7 +137,7 @@ describe('deriveSchemaRequirements', () => {
     })
 
     it('requires the leaf of every Django app and sqlx database whose tables nodejs/src reads', () => {
-        const { requirements, tablesByRequirement, findings } = deriveSchemaRequirements(repoRoot)
+        const { requirements, tablesByRequirement, findings } = deriveSchemaRequirements(repoRoot, ['nodejs/src'])
 
         expect(requirements).toEqual([
             { kind: 'django', database: 'default', app: 'legacy', migration: '0002_move_widget' },
@@ -165,7 +177,7 @@ describe('deriveSchemaRequirements', () => {
     })
 
     it('finds the workflows config, team and cyclotron job tables on the real repo, and no uncovered table', () => {
-        const { tablesByRequirement, findings } = deriveSchemaRequirements(path.resolve(__dirname, '../../..'))
+        const { tablesByRequirement, findings } = deriveSchemaRequirements(REPO_ROOT, allNodeSourceRoots())
 
         expect(tablesByRequirement.get('workflows')).toContain('workflows_teamworkflowsconfig')
         expect(tablesByRequirement.get('posthog')).toContain('posthog_team')

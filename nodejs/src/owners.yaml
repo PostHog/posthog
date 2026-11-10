@@ -49,9 +49,6 @@ rules:
           - '/common/utils/event-ingestion-restrictions/*.test.*'
       owners: team-ingestion
     - match:
-          - '/schema-check/*.test.*'
-      owners: team-devex
-    - match:
           - '/session-replay/recording-api/*.test.*'
       owners: team-replay
     - match:

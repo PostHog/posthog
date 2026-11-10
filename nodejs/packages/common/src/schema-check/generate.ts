@@ -6,8 +6,9 @@ import { deriveSchemaRequirements } from './derive-requirements'
 import { buildManifest } from './manifest'
 
 const USAGE =
-    'Usage: node nodejs/dist/schema-check/generate.js --repo-root PATH --output PATH [--source-commit SHA] [--strict]\n' +
-    'Writes the Django migrations this Node build needs, for nodejs/dist/schema-check/cli.js to check.\n' +
+    'Usage: node nodejs/packages/common/dist/schema-check/generate.js --repo-root PATH --source-root DIR... --output PATH [--source-commit SHA] [--strict]\n' +
+    'Writes the Django migrations this Node build needs, for schema-check/cli.js to check. Each --source-root is a\n' +
+    'directory of Node source under the repo root, one per package the image carries.\n' +
     '--strict exits 1 when Node SQL reads a table that the check cannot cover. The image build runs without it and only\n' +
     'warns; the real-repo Jest test asserts the same rule in CI.'
 
@@ -15,20 +16,24 @@ function main(): number {
     const { values } = parseArgs({
         options: {
             'repo-root': { type: 'string' },
+            'source-root': { type: 'string', multiple: true },
             output: { type: 'string' },
             'source-commit': { type: 'string' },
             strict: { type: 'boolean' },
             help: { type: 'boolean' },
         },
     })
-    if (values.help || !values['repo-root'] || !values.output) {
+    if (values.help || !values['repo-root'] || !values['source-root']?.length || !values.output) {
         console.error(USAGE)
         return values.help ? 0 : 2
     }
 
-    const { requirements, tablesByRequirement, findings } = deriveSchemaRequirements(path.resolve(values['repo-root']))
+    const { requirements, tablesByRequirement, findings } = deriveSchemaRequirements(
+        path.resolve(values['repo-root']),
+        values['source-root']
+    )
     if (!requirements.some((requirement) => requirement.kind === 'django')) {
-        console.error('Found no Django tables in nodejs/src. The source mounts are probably wrong.')
+        console.error('Found no Django tables in the source roots. The source mounts are probably wrong.')
         return 1
     }
 

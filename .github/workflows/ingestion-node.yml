@@ -69,6 +69,15 @@ jobs:
                         - '.nvmrc'
                         # The clientwarnings e2e replays capture's envelope fixture and the no-drift test reads the generated table.
                         - 'ingestion/rust/ingestion_warnings/*.json'
+                        # node-common's schema-check test reads every Django app's migrations and the routing
+                        # file to prove that each table Node SQL reads has a migration the check covers.
+                        - 'posthog/*/migrations/**'
+                        - 'posthog/migrations/**'
+                        - 'ee/migrations/**'
+                        - 'products/*/backend/migrations/**'
+                        - 'products/db_routing.yaml'
+                        - 'rust/cyclotron-node-migrations/**'
+                        - 'rust/behavioral_cohorts_migrations/**'
                         - '.github/workflows/ingestion-node.yml'
 
     check:

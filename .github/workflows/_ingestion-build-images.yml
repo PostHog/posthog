@@ -238,7 +238,8 @@ jobs:
                       BIN=${{ matrix.bin || matrix.image }}
                       PACKAGE=${{ matrix.build_args.PACKAGE || '' }}
                       PACKAGE_DIR=${{ matrix.build_args.PACKAGE_DIR || '' }}
-                      RUNTIME_PACKAGES=${{ matrix.build_args.RUNTIME_PACKAGES || '' }}
+                      # Passed only when set, so the Dockerfile default holds for the ingestion package.
+                      ${{ matrix.build_args.RUNTIME_PACKAGES && format('RUNTIME_PACKAGES={0}', matrix.build_args.RUNTIME_PACKAGES) || '' }}
                       BUILD_FEATURES=${{ matrix.features || '' }}
                       EXTRA_RUSTFLAGS=${{ matrix.extra_rustflags || '' }}
                       EXTRA_CFLAGS=${{ matrix.extra_cflags || '' }}

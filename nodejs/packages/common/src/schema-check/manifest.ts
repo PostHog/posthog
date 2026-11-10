@@ -2,12 +2,12 @@ import { createHash } from 'crypto'
 import { existsSync, readFileSync } from 'fs'
 import path from 'path'
 
-import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { parseJSON } from '~/utils/json-parse'
 
 export const MANIFEST_SCHEMA_VERSION = 1
 
-// Resolves to /code/nodejs/schema-requirements.json in the Node image, next to nodejs/dist.
-export const DEFAULT_MANIFEST_PATH = path.resolve(__dirname, '..', '..', 'schema-requirements.json')
+// The posthog-node image writes its manifest here, under the image WORKDIR; the other images pass --manifest.
+export const DEFAULT_MANIFEST_PATH = path.resolve('nodejs', 'schema-requirements.json')
 
 // The names match the arguments of rust/bin/migrate-entry, which the sqlx-migrate deploy runs per database.
 export const SQLX_DATABASES = ['persons', 'cyclotron-node', 'behavioral-cohorts'] as const

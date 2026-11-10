@@ -5,6 +5,9 @@
 # rust/ cargo workspace. ingestion/node/Dockerfile.dockerignore limits the context.
 #
 
+# Every workspace package the service loads at runtime: its own and its dependencies.
+ARG RUNTIME_PACKAGES="common/hogvm/typescript nodejs/packages/hog-engine nodejs/packages/common nodejs/packages/replay-storage ingestion/node/packages/common ingestion/node/packages/ingestion"
+
 #
 # Build stage: Compile nodejs and dependencies
 #
@@ -70,6 +73,27 @@ COPY ./ingestion/node/packages/ingestion/ ./ingestion/node/packages/ingestion/
 COPY ./${PACKAGE_DIR:-ingestion/node/packages/ingestion}/ ./${PACKAGE_DIR:-ingestion/node/packages/ingestion}/
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=${PACKAGE:-@posthog/ingestion} build
 
+# Record the Django and sqlx migrations this build reads, so the deploy-time schema check can wait for them
+# (nodejs/packages/common/src/schema-check). Bind mounts give the generator the migration files without adding
+# the Python trees to any layer, and BuildKit reruns this step when any mounted file changes.
+ARG RUNTIME_PACKAGES
+ARG COMMIT_HASH
+RUN --mount=type=bind,source=posthog,target=/schema-src/posthog \
+    --mount=type=bind,source=ee,target=/schema-src/ee \
+    --mount=type=bind,source=products,target=/schema-src/products \
+    --mount=type=bind,source=common/hogvm/typescript,target=/schema-src/common/hogvm/typescript \
+    --mount=type=bind,source=nodejs/packages,target=/schema-src/nodejs/packages \
+    --mount=type=bind,source=ingestion/node/packages,target=/schema-src/ingestion/node/packages \
+    --mount=type=bind,source=ingestion/rust/persons_migrations,target=/schema-src/rust/persons_migrations \
+    --mount=type=bind,source=rust/cyclotron-node-migrations,target=/schema-src/rust/cyclotron-node-migrations \
+    --mount=type=bind,source=rust/behavioral_cohorts_migrations,target=/schema-src/rust/behavioral_cohorts_migrations \
+    roots=""; for pkg in ${RUNTIME_PACKAGES}; do roots="${roots} --source-root ${pkg}/src"; done && \
+    node nodejs/packages/common/dist/schema-check/generate.js \
+    --repo-root /schema-src \
+    ${roots} \
+    --output ingestion/node/schema-requirements.json \
+    --source-commit "${COMMIT_HASH:-unknown}"
+
 #
 # Runtime stage: Minimal image with only nodejs runtime dependencies
 #
@@ -125,12 +149,12 @@ COPY --from=build --chown=posthog:posthog /code/rust/ai-research/replay-core-v4-
 COPY --from=build --chown=posthog:posthog /code/rust/ai-research/replay-core-v4-node/package.json /code/rust/ai-research/replay-core-v4-node/package.json
 COPY --from=build --chown=posthog:posthog /code/rust/ai-research/replay-core-v4-node/index.node /code/rust/ai-research/replay-core-v4-node/index.node
 ARG PACKAGE_DIR
-# Every workspace package the service loads at runtime: its own and its dependencies.
 ARG RUNTIME_PACKAGES
 RUN --mount=type=bind,from=build,source=/code,target=/build \
-    for pkg in ${RUNTIME_PACKAGES:-common/hogvm/typescript nodejs/packages/hog-engine nodejs/packages/common nodejs/packages/replay-storage ingestion/node/packages/common ingestion/node/packages/ingestion}; do \
+    for pkg in ${RUNTIME_PACKAGES}; do \
         mkdir -p "/code/${pkg}" && cp -r "/build/${pkg}/dist" "/build/${pkg}/node_modules" "/build/${pkg}/package.json" "/code/${pkg}/"; \
     done && chown -R posthog:posthog /code
+COPY --from=build --chown=posthog:posthog /code/ingestion/node/schema-requirements.json /code/ingestion/node/schema-requirements.json
 
 USER posthog
 

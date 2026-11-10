@@ -1,3 +1,6 @@
 version: 1
 owners: [team-ingestion, team-workflows]
-rules: []
+rules:
+    - match:
+          - '/src/schema-check/*.test.*'
+      owners: team-devex

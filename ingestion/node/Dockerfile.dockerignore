@@ -15,8 +15,14 @@
 !nodejs/packages/hog-engine
 !nodejs/packages/common
 !nodejs/packages/replay-storage
+# Read by the schema-check generator through bind mounts; never copied into a layer.
+!posthog
+!ee
+!products
 rust/target
 rust/.env
 **/node_modules
 **/dist
 **/*.test.ts
+**/__pycache__
+**/*.pyc

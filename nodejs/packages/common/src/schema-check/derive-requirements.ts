@@ -17,7 +17,6 @@ export const SQLX_MIGRATION_DIRS: Record<SqlxDatabase, string> = {
     'cyclotron-node': 'rust/cyclotron-node-migrations',
     'behavioral-cohorts': 'rust/behavioral_cohorts_migrations',
 }
-const NODEJS_SOURCE_DIR = 'nodejs/src'
 
 const SKIPPED_DIR_NAMES = new Set(['node_modules', '__pycache__', 'dist', 'frontend'])
 
@@ -173,11 +172,14 @@ export function collectTableOwners(apps: DjangoApp[]): Map<string, Set<string>> 
 // The scan does not know which database a query uses. Node writes posthog_cohortpeople through the persons
 // database, but the match still puts the cohorts app in scope, so a new cohorts migration holds Node deploys
 // until Django applies it. This is a known false positive and it only adds wait time.
-export function collectNodeIdentifiers(nodeSourceDir: string): Set<string> {
-    const sourceFiles = listFilesRecursively(
-        nodeSourceDir,
-        (name) => name.endsWith('.ts') && !name.includes('.test.')
-    ).filter((file) => !file.split(path.sep).includes('__tests__'))
+function listNodeSourceFiles(sourceDirs: string[]): string[] {
+    return sourceDirs
+        .flatMap((dir) => listFilesRecursively(dir, (name) => name.endsWith('.ts') && !name.includes('.test.')))
+        .filter((file) => !file.split(path.sep).includes('__tests__'))
+}
+
+export function collectNodeIdentifiers(sourceDirs: string[]): Set<string> {
+    const sourceFiles = listNodeSourceFiles(sourceDirs)
 
     const identifiers = new Set<string>()
     for (const file of sourceFiles) {
@@ -194,11 +196,8 @@ export interface NodeSqlTables {
     postgres: Set<string>
 }
 
-export function collectNodeSqlTables(nodeSourceDir: string): NodeSqlTables {
-    const sourceFiles = listFilesRecursively(
-        nodeSourceDir,
-        (name) => name.endsWith('.ts') && !name.includes('.test.')
-    ).filter((file) => !file.split(path.sep).includes('__tests__'))
+export function collectNodeSqlTables(sourceDirs: string[]): NodeSqlTables {
+    const sourceFiles = listNodeSourceFiles(sourceDirs)
 
     const tables: NodeSqlTables = { all: new Set(), postgres: new Set() }
     for (const file of sourceFiles) {
@@ -294,17 +293,16 @@ export function readSqlxMigrationDir(repoRoot: string, database: SqlxDatabase): 
     return { database, versions: [...versions].sort((a, b) => a - b), tables }
 }
 
-export function deriveSchemaRequirements(repoRoot: string): DerivedSchemaRequirements {
+/** sourceRoots are the Node source directories the image carries, relative to repoRoot. */
+export function deriveSchemaRequirements(repoRoot: string, sourceRoots: string[]): DerivedSchemaRequirements {
     const routedLabels = readProductRoutedLabels(repoRoot)
     const allApps = findDjangoApps(repoRoot)
     const apps = allApps.filter((app) => !routedLabels.has(app.label))
     const tableOwners = collectTableOwners(apps)
-    const nodeSqlTables = collectNodeSqlTables(path.join(repoRoot, NODEJS_SOURCE_DIR))
+    const sourceDirs = sourceRoots.map((root) => path.join(repoRoot, root))
+    const nodeSqlTables = collectNodeSqlTables(sourceDirs)
     // Postgres folds unquoted names to lowercase, so `FROM POSTHOG_TEAM` reads posthog_team too.
-    const nodeIdentifiers = new Set([
-        ...collectNodeIdentifiers(path.join(repoRoot, NODEJS_SOURCE_DIR)),
-        ...nodeSqlTables.all,
-    ])
+    const nodeIdentifiers = new Set([...collectNodeIdentifiers(sourceDirs), ...nodeSqlTables.all])
 
     const tablesByRequirement = new Map<string, string[]>()
     for (const table of [...tableOwners.keys()].sort()) {

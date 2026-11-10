@@ -95,18 +95,28 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/replay
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs build
 
 # Record the Django and sqlx migrations this build reads, so the deploy-time schema check can wait for them
-# (nodejs/src/schema-check). Bind mounts give the generator the migration files without adding the
-# Python and Rust trees to any layer, and BuildKit reruns this step when any mounted file changes.
+# (nodejs/packages/common/src/schema-check). Bind mounts give the generator the migration files without adding
+# the Python and Rust trees to any layer, and BuildKit reruns this step when any mounted file changes.
+# The source roots are every workspace package this image runs; the ingestion package leaves once charts
+# runs the ingestion apps from ingestion-node.
 ARG COMMIT_HASH
 RUN --mount=type=bind,source=posthog,target=/schema-src/posthog \
     --mount=type=bind,source=ee,target=/schema-src/ee \
     --mount=type=bind,source=products,target=/schema-src/products \
     --mount=type=bind,source=nodejs/src,target=/schema-src/nodejs/src \
+    --mount=type=bind,source=nodejs/packages,target=/schema-src/nodejs/packages \
+    --mount=type=bind,source=ingestion/node/packages,target=/schema-src/ingestion/node/packages \
     --mount=type=bind,source=rust/persons_migrations,target=/schema-src/rust/persons_migrations \
     --mount=type=bind,source=rust/cyclotron-node-migrations,target=/schema-src/rust/cyclotron-node-migrations \
     --mount=type=bind,source=rust/behavioral_cohorts_migrations,target=/schema-src/rust/behavioral_cohorts_migrations \
-    node nodejs/dist/schema-check/generate.js \
+    node nodejs/packages/common/dist/schema-check/generate.js \
     --repo-root /schema-src \
+    --source-root nodejs/src \
+    --source-root nodejs/packages/common/src \
+    --source-root nodejs/packages/hog-engine/src \
+    --source-root nodejs/packages/replay-storage/src \
+    --source-root ingestion/node/packages/common/src \
+    --source-root ingestion/node/packages/ingestion/src \
     --output nodejs/schema-requirements.json \
     --source-commit "${COMMIT_HASH:-unknown}"
 
