@@ -97,11 +97,23 @@ class TestWorkflowFolders(APIBaseTest):
         self.client.force_login(viewer)
 
         placed = self.client.post(files_url, {**copy, "path": "Viewer/Shared email"}, format="json")
+        shortcut = self.client.post(files_url, {**copy, "path": "Viewer/Shortcut", "shortcut": True}, format="json")
+        promoted = self.client.patch(f"{files_url}{shortcut.json()['id']}/", {"shortcut": False}, format="json")
+        folder = self.client.post(files_url, {"path": "Viewer/Folder", "type": "folder"}, format="json")
+        retyped = self.client.patch(
+            f"{files_url}{folder.json()['id']}/", {"type": "message_template", "ref": template["id"]}, format="json"
+        )
         unlinked = self.client.delete(f"{files_url}{entry['id']}/")
 
-        self.assertEqual((placed.status_code, unlinked.status_code), (403, 403), (placed.content, unlinked.content))
+        self.assertEqual(
+            [placed.status_code, promoted.status_code, retyped.status_code, unlinked.status_code],
+            [403, 403, 403, 403],
+            [placed.content, promoted.content, retyped.content, unlinked.content],
+        )
         rows = self.client.get(files_url, {"type": "message_template", "ref": template["id"]}).json()["results"]
-        self.assertEqual(sorted(row["path"] for row in rows), sorted([entry["path"], "Copies/Shared email"]))
+        self.assertEqual(
+            sorted(row["path"] for row in rows if not row["shortcut"]), sorted([entry["path"], "Copies/Shared email"])
+        )
 
     def test_private_workflow_files_follow_member_grants(self) -> None:
         self.organization.available_product_features = [
