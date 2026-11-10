@@ -24,10 +24,11 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.integrations import IntegrationManager
 from posthog.models import Team, User
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.client import async_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -47,8 +48,6 @@ from products.signals.backend.activity_summary.read import (
 from products.signals.backend.activity_summary.search import (
     ActivitySummarySearchResult as ActivitySummarySearchResult,
     MatchKind as MatchKind,
-    SearchMode as SearchMode,
-    SemanticSearchUnavailable as SemanticSearchUnavailable,
     search_summaries,
 )
 from products.signals.backend.anomaly_scores import search as anomaly_search
@@ -78,6 +77,10 @@ from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalS
 from products.signals.backend.facade.source_scouts import (
     SOURCE_TEMPLATE_HASH_METADATA_KEY,
     SOURCE_TEMPLATE_METADATA_KEY,
+)
+from products.signals.backend.hybrid_search import (
+    SearchMode as SearchMode,
+    SemanticSearchUnavailable as SemanticSearchUnavailable,
 )
 from products.signals.backend.inbox_summary import (
     INBOX_SUMMARY_PERIOD as INBOX_SUMMARY_PERIOD,
@@ -137,16 +140,13 @@ from products.signals.backend.scout_harness.workflow_runs import (
     start_workflow_scout_run as start_workflow_scout_run,
 )
 from products.signals.backend.signal_metadata import SourceSliceSignalStats, fetch_signal_stats_for_source_slice
-from products.signals.backend.spend import (
-    begin_signal_spend,
-    complete_signal_pipeline,
-    finalized_signal_ids,
-    signal_id_for,
-)
+from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids, signal_id_for
 from products.signals.backend.spend_billing import system_source_exempt
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
+from products.signals.backend.trial.policy import TrialRefused
+from products.signals.backend.trial.signals import admit_signal
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import is_sandbox_run_request
 
@@ -1032,8 +1032,14 @@ async def emit_signal(
     if await database_sync_to_async(finalized_signal_ids)(team_id=team.id, signal_ids=[signal_id]):
         return False
 
-    if system_source_exempt(source_product):
-        await database_sync_to_async(begin_signal_spend)(team_id=team.id, signal_id=signal_id, billing_exempt=True)
+    try:
+        await database_sync_to_async_pool(admit_signal)(
+            team=team, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
+        )
+    except (QuotaLimitExceeded, TrialRefused) as error:
+        reason = error.reason if isinstance(error, TrialRefused) else "quota_limited"
+        capture_emission_event("signal_data_source_filtered", {"filter_reason": reason})
+        return False
 
     # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
     # counted against, so a steering drop reads apart from a dispatch failure rather than as one.
