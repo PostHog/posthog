@@ -11,13 +11,16 @@ from rest_framework.exceptions import PermissionDenied, Throttled
 
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
+from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.signals.backend.models import SignalReport
 from products.tasks.backend.access import PostHogAIAccessDecision
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR
-from products.tasks.backend.facade.profiles import WarmPolicy, WarmQuota, get_task_profile
+from products.tasks.backend.facade.profiles import TaskProfile, WarmPolicy, WarmQuota, get_task_profile
+from products.tasks.backend.facade.warm import warm_task_run
 from products.tasks.backend.logic.services.warm import ActiveSessionCaps, SandboxWarmer, WarmSourceChanged
 from products.tasks.backend.models import SandboxSession, Task, TaskRun
+from products.tasks.backend.temporal.oauth import dispatched_run_scopes
 
 WARM = "products.tasks.backend.logic.services.warm"
 _CAPS = SandboxWarmer.ORIGIN_PRODUCT_CAPS[Task.OriginProduct.POSTHOG_AI]
@@ -77,17 +80,46 @@ class TestSandboxWarmerWarm(APIBaseTest):
         task = self._task(created_by=created_by)
         return task.create_run(mode="interactive", extra_state={"await_user_message": True})
 
-    def test_provisions_warm_run_when_task_has_no_runs(self):
+    @parameterized.expand(
+        [
+            ("legacy", None, None, "full"),
+            ("profile_read_only", "read_only", None, "read_only"),
+            ("profile_full", "full", None, "full"),
+            ("narrowed", "full", "read_only", "read_only"),
+            ("custom", "read_only", ["query:read"], ["query:read"]),
+            ("no_mcp", "read_only", [], []),
+        ]
+    )
+    def test_provisions_warm_run_when_task_has_no_runs(
+        self,
+        _name: str,
+        ceiling: PosthogMcpScopes | None,
+        requested: PosthogMcpScopes | None,
+        expected: PosthogMcpScopes,
+    ) -> None:
         task = self._task()
+        profiles: dict[str, TaskProfile] = {}
+        if ceiling is not None:
+            profile = replace(get_task_profile("posthog_ai"), key="test.warm", mcp_scopes=ceiling)
+            profiles[profile.key] = profile
+            task.profile = profile.key
+            task.save(update_fields=["profile"])
         with (
+            patch.dict("products.tasks.backend.facade.profiles._profiles", profiles),
             patch(f"{WARM}.execute_task_processing_workflow") as m_workflow,
             patch(f"{WARM}.is_team_limited", return_value=False),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            result = SandboxWarmer(task, user=self.user).warm(extra_state={"systemPrompt": "SYS"})
+            result = warm_task_run(
+                task.id,
+                self.team.id,
+                self.user.id,
+                extra_state={"systemPrompt": "SYS", "pending_dispatch": {"posthog_mcp_scopes": "full"}},
+                posthog_mcp_scopes=requested,
+            )
 
         assert result.just_created is True
-        run = result.run
+        run = task.runs.get(id=result.run_id)
         assert run.state["await_user_message"] is True
         assert run.state["initial_permission_mode"] == "default"
         assert run.state["systemPrompt"] == "SYS"
@@ -98,7 +130,40 @@ class TestSandboxWarmerWarm(APIBaseTest):
         _, kwargs = m_workflow.call_args
         assert kwargs["run_id"] == str(run.id)
         assert kwargs["create_pr"] is False
-        assert kwargs["posthog_mcp_scopes"] == "full"
+        assert kwargs["posthog_mcp_scopes"] == expected
+        assert dispatched_run_scopes(task, run.state) == expected
+
+    @parameterized.expand([(False,), (True,)])
+    def test_refuses_scopes_above_the_profile(self, existing: bool) -> None:
+        profile = replace(get_task_profile("posthog_ai"), key="test.read_only", mcp_scopes="read_only")
+        task = self._task()
+        task.profile = profile.key
+        task.save(update_fields=["profile"])
+        if existing:
+            task.create_run(mode="interactive", extra_state={"await_user_message": True})
+
+        with (
+            patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}),
+            patch(f"{WARM}.is_team_limited", return_value=False),
+            self.assertRaises(PermissionDenied),
+        ):
+            SandboxWarmer(task, user=self.user).warm(posthog_mcp_scopes="full")
+
+        assert task.runs.count() == int(existing)
+
+    @parameterized.expand([("full", "read_only"), ("read_only", "full")])
+    def test_refuses_reusing_a_run_with_different_scopes(
+        self, existing_scopes: PosthogMcpScopes, requested_scopes: PosthogMcpScopes
+    ) -> None:
+        task = self._task()
+        task.create_run(
+            mode="interactive",
+            extra_state={"await_user_message": True, "pending_dispatch": {"posthog_mcp_scopes": existing_scopes}},
+        )
+        with patch(f"{WARM}.is_team_limited", return_value=False), self.assertRaises(WarmSourceChanged):
+            SandboxWarmer(task, user=self.user).warm(posthog_mcp_scopes=requested_scopes)
+
+        assert task.runs.count() == 1
 
     @parameterized.expand([("empty_pool", 0), ("full_pool", _CAPS.per_user)])
     def test_idempotent_when_non_terminal_run_exists(self, _name, other_warm_runs):
@@ -119,13 +184,15 @@ class TestSandboxWarmerWarm(APIBaseTest):
         assert task.runs.count() == 1
         m_workflow.assert_not_called()
 
-    def test_rewarms_with_resume_after_terminal_run(self):
+    @parameterized.expand([("full",), ("read_only",), (["query:read"],)])
+    def test_rewarms_with_resume_after_terminal_run(self, scopes: PosthogMcpScopes) -> None:
         task = self._task()
         terminal = task.create_run(
             mode="interactive",
             extra_state={
                 "snapshot_external_id": "snap-1",
                 "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+                "pending_dispatch": {"posthog_mcp_scopes": scopes},
             },
         )
         terminal.status = TaskRun.Status.COMPLETED
@@ -137,6 +204,7 @@ class TestSandboxWarmerWarm(APIBaseTest):
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = SandboxWarmer(task, user=self.user).warm()
+            repeated = SandboxWarmer(task, user=self.user).warm()
 
         assert result.just_created is True
         assert result.run.id != terminal.id
@@ -144,6 +212,9 @@ class TestSandboxWarmerWarm(APIBaseTest):
         assert result.run.state["resume_from_run_id"] == str(terminal.id)
         # Snapshot carried forward so the warm session reuses the prior Run's filesystem.
         assert result.run.state["snapshot_external_id"] == "snap-1"
+        assert repeated.run.id == result.run.id
+        assert dispatched_run_scopes(task, result.run.state) == scopes
+        assert m_workflow.call_args.kwargs["posthog_mcp_scopes"] == scopes
         m_workflow.assert_called_once()
 
     def test_expected_resume_source_is_idempotent_and_rejects_a_stale_selection(self):
