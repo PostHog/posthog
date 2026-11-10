@@ -1064,6 +1064,7 @@
          AND "posthog_filesystem"."type" = 'dashboard'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.12
@@ -2436,6 +2437,7 @@
          AND "posthog_filesystem"."type" = 'insight'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.146
@@ -3279,6 +3281,7 @@
          AND "posthog_filesystem"."type" = 'dashboard'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.166
@@ -4982,6 +4985,7 @@
          AND "posthog_filesystem"."type" = 'dashboard'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.33
@@ -6220,6 +6224,7 @@
          AND "posthog_filesystem"."type" = 'insight'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.53
@@ -7079,6 +7084,7 @@
          AND "posthog_filesystem"."type" = 'dashboard'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.74
@@ -8162,6 +8168,7 @@
          AND "posthog_filesystem"."type" = 'dashboard'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.90
@@ -8536,6 +8543,7 @@
          AND "posthog_filesystem"."type" = 'insight'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1
