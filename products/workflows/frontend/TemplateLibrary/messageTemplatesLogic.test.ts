@@ -1,5 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -77,5 +83,39 @@ describe('messageTemplatesLogic', () => {
 
         await expect(saveTemplateTags(template('a', 'Welcome', []), ['growth'])).rejects.toThrow()
         expect(logic.values.templates.find((t) => t.id === 'a')?.tags).toEqual(['growth', 'onboarding'])
+    })
+
+    it('removes a deleted template from the project tree and puts it back on undo', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const treeEntry = { id: 'file-a', path: 'Unfiled/Email templates/Welcome', type: 'message_template', ref: 'a' }
+        useMocks({
+            get: {
+                '/api/environments/:team_id/file_system/': ({ request }) =>
+                    new URL(request.url).searchParams.get('ref') === 'a'
+                        ? [200, { results: [treeEntry], count: 1 }]
+                        : [200, { results: [], count: 0 }],
+            },
+            patch: {
+                '/api/environments/:team_id/messaging_templates/:id/': template('a', 'Welcome', []),
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        projectTreeDataLogic.mount()
+        projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry] } as any)
+        const toast = jest.spyOn(lemonToast, 'info')
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteTemplate(template('a', 'Welcome', []))
+        }).toFinishAllListeners()
+        expect(projectTreeDataLogic.values.itemsByRef['message_template::a']).toBeUndefined()
+
+        await toast.mock.calls[0][1]?.button?.action?.()
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        expect(projectTreeDataLogic.values.itemsByRef['message_template::a']?.path).toBe(
+            'Unfiled/Email templates/Welcome'
+        )
+
+        toast.mockRestore()
+        projectTreeDataLogic.unmount()
     })
 })

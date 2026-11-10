@@ -17,6 +17,8 @@ import { EDITOR_MODE_PARAM, EDITOR_MODE_VALUE } from 'scenes/max/aiFirstCreate/a
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { deleteFromTree, isTreeItemLoaded, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+
 import {
     messagingTemplatesMakeTransactionalCreate,
     messagingTemplatesPartialUpdate,
@@ -1008,6 +1010,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             lemonToast.error('Failed to save template. Please try again.')
         },
         saveTemplateSuccess: async ({ template }) => {
+            if (template.id && isTreeItemLoaded('message_template', template.id)) {
+                refreshTreeItem('message_template', template.id)
+            }
             lemonToast.success(
                 props.id === 'new' ? 'Template created' : values.draftsEnabled ? 'Published' : 'Template saved'
             )
@@ -1061,6 +1066,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             if (!template || template.id === 'new') {
                 return
             }
+            const wasInTree = isTreeItemLoaded('message_template', template.id)
             await deleteWithUndo({
                 endpoint: `environments/${values.currentTeamIdStrict}/messaging_templates`,
                 object: {
@@ -1068,7 +1074,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     name: template.name,
                 },
                 callback: (undo) => {
-                    if (!undo) {
+                    if (undo) {
+                        if (wasInTree) {
+                            refreshTreeItem('message_template', template.id)
+                        }
+                    } else {
+                        deleteFromTree('message_template', template.id)
                         router.actions.push(values.listUrl)
                     }
                 },
