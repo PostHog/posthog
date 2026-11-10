@@ -10,6 +10,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
+import { withEmailEditorOpen } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -494,6 +495,9 @@ export interface broadcastWizardLogicActions {
     duplicateBroadcastFinished: () => {
         value: true
     }
+    editEmailContent: () => {
+        value: true
+    }
     ensureDraft: () => {
         value: true
     }
@@ -884,6 +888,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
 
     actions({
         setStep: (step: BroadcastWizardStep) => ({ step }),
+        editEmailContent: true,
         landOnStep: (step: BroadcastWizardStep) => ({ step }),
         landOnPrefilledStep: true,
         nextStep: true,
@@ -1874,6 +1879,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // Debounce so each filter keystroke doesn't fire a preview query.
             await breakpoint(500)
             actions.loadBlastRadius()
+        },
+        editEmailContent: () => {
+            // The content step's templater opens its editor on mount when the URL asks, as a deep link does.
+            const { pathname, searchParams, hashParams } = router.values.currentLocation
+            router.actions.push(pathname, withEmailEditorOpen(searchParams), hashParams)
+            actions.setStep('content')
         },
         setStep: ({ step }) => {
             if (step === 'review') {

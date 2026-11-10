@@ -26,9 +26,12 @@ function PreviewRow({ label, children }: { label: string; children: React.ReactN
 export function BroadcastEmailPreview({
     intro = 'Preview and test before this reaches the audience.',
     showTestButton = true,
+    onModifyContent,
 }: {
     intro?: string
     showTestButton?: boolean
+    /** Adds the content step's hover overlay, so the email opens for editing from the preview. */
+    onModifyContent?: () => void
 }): JSX.Element {
     const { email } = useValues(broadcastWizardLogic)
     const {
@@ -103,16 +106,34 @@ export function BroadcastEmailPreview({
             </div>
 
             {hasContent ? (
-                email.html ? (
-                    <iframe
-                        srcDoc={previewHtml}
-                        sandbox=""
-                        title="Email preview"
-                        className="h-96 w-full rounded border border-border bg-white"
-                    />
-                ) : (
-                    <div className="text-muted max-h-96 overflow-y-auto whitespace-pre-wrap text-sm">{previewText}</div>
-                )
+                <div className="group/email-preview relative">
+                    {email.html ? (
+                        <iframe
+                            srcDoc={previewHtml}
+                            sandbox=""
+                            title="Email preview"
+                            className="block h-96 w-full rounded border border-border bg-white"
+                        />
+                    ) : (
+                        <div className="text-muted max-h-96 overflow-y-auto whitespace-pre-wrap text-sm">
+                            {previewText}
+                        </div>
+                    )}
+                    {onModifyContent ? (
+                        <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-2 opacity-0 transition-opacity focus-within:opacity-100 group-hover/email-preview:opacity-100">
+                            <div className="absolute inset-0 rounded bg-surface-primary opacity-50" />
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                className="pointer-events-auto"
+                                onClick={onModifyContent}
+                                data-attr="broadcast-review-modify-content"
+                            >
+                                Click to modify content
+                            </LemonButton>
+                        </div>
+                    ) : null}
+                </div>
             ) : (
                 <span className="text-muted">No content yet</span>
             )}

@@ -504,6 +504,16 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.searchParams).toEqual({ step: 'content' })
     })
 
+    it('opens the email editor on the content step when the review preview asks to modify content', () => {
+        router.actions.push('/broadcasts/broadcast-1', { utm_source: 'test' })
+        logic.actions.setStep('review')
+
+        logic.actions.editEmailContent()
+
+        expect(logic.values.currentStep).toBe('content')
+        expect(router.values.searchParams).toEqual({ utm_source: 'test', editor: 'email' })
+    })
+
     it.each([
         {
             edit: 'an email edit',
