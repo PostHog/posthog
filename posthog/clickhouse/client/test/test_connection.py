@@ -420,9 +420,9 @@ def test_logs_workload_uses_a_named_user_only_when_registered(
     "ch_user,expected_user,expected_password",
     [
         (ClickHouseUser.ALERTS_PLATFORM_METRICS, "alerts_platform_metrics", "metrics-token"),
-        # These users exist on the logs cluster only, so a metrics connection must not present them.
+        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, "alerts_platform_insight", "metrics-token"),
+        # This user exists on the logs cluster only, so a metrics connection must not present it.
         (ClickHouseUser.ALERTS_PLATFORM_LOGS, "metrics-user", "metrics-static"),
-        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, "metrics-user", "metrics-static"),
         (ClickHouseUser.APP, "metrics-user", "metrics-static"),
     ],
 )

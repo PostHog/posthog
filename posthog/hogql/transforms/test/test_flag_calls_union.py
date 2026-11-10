@@ -1797,7 +1797,6 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 "SELECT event, toJSONString(properties.$sdk_debug_probe), properties.$sdk_debug_probe = 'text' "
                 f"FROM events WHERE {MIXED} AND distinct_id = 'json' ORDER BY timestamp, event",
                 restriction="$sdk_debug_probe.hidden",
-                json_null_read="null",
             ),
         ]
     )
@@ -1808,7 +1807,6 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         persons_on_events: PersonsOnEventsMode | None = None,
         kept: list | None = None,
         restriction: str | None = None,
-        json_null_read: str | None = None,
     ):
         if restriction is not None:
             _restrict(self.organization, self.team, restriction)
@@ -1819,7 +1817,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             ([1, 2], [1, 2]),
             ("text", "text"),
             ({}, None),
-            (None, json_null_read),
+            (None, None),
             (missing, None),
         ]
         # The first key makes a read by position differ from a read of the key "1".
