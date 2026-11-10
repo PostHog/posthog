@@ -92,7 +92,7 @@ CATEGORY_WEIGHT: dict[str, float] = {"failure": 1.0, "revenue": 1.0, "struggle":
 HIGHLIGHT_PICK_MIN_PERCENTILE = 0.8
 HIGHLIGHT_PICK_MIN_SCANNER_ROWS = 10
 HIGHLIGHT_PICK_SEEN_PENALTY = 0.3
-# Views and impressions this recent do not dock a pick yet, so a card the reader just opened is still there when they go back.
+# Views this recent do not dock a pick yet, so a card the reader just opened is still there when they go back.
 HIGHLIGHT_PICK_SEEN_GRACE = timedelta(hours=1)
 # Each earlier impression keeps this share of a pick's score, so a pick shown three times without a
 # click sinks below a fresh one.
@@ -388,8 +388,8 @@ def _group_reach(
 
 
 def views_by(viewer_id: int, as_of: datetime) -> QuerySet[ReplayObservationView]:
-    """The viewer's observation views up to `as_of`, so later views wait for the next feed load."""
-    return ReplayObservationView.objects.filter(user_id=viewer_id, created_at__lte=as_of)
+    """The viewer's observation views older than the seen grace at `as_of`, so a load and its later pages agree."""
+    return ReplayObservationView.objects.filter(user_id=viewer_id, created_at__lte=as_of - HIGHLIGHT_PICK_SEEN_GRACE)
 
 
 def select_embedding_picks(
@@ -446,7 +446,7 @@ def select_embedding_picks(
     if not window_values:
         return []
     viewed = set(
-        views_by(viewer_id, window.as_of - HIGHLIGHT_PICK_SEEN_GRACE)
+        views_by(viewer_id, window.as_of)
         .filter(observation_id__in=list(window_values))
         .values_list("observation_id", flat=True)
     )

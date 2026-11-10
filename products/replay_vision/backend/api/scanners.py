@@ -196,7 +196,6 @@ from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOU
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
 from products.replay_vision.backend.temporal.read_meter_types import current_sweep_throttle_factor
 from products.replay_vision.backend.watch_rank import (
-    HIGHLIGHT_PICK_SEEN_GRACE,
     ISSUE_CATEGORIES,
     feed_window,
     rank_highlight_feed_by_embedding,
@@ -2686,13 +2685,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         viewer_id = cast(User, request.user).id
         # Before ranking, so a row the viewer marked not useful never takes a slot.
         # Views and dismissals after `as_of` wait for the next load, so later pages of this one do not shift.
-        # Views and impressions also wait out the seen grace, so going back to the feed does not drop the card just opened.
+        # Views also wait out the seen grace, so going back to the feed does not drop the card just opened.
         dismissed_ids = list(
             ReplayObservationFeedDismissal.objects.filter(user_id=viewer_id, created_at__lte=as_of).values_list(
                 "observation_id", flat=True
             )
         )
-        viewed = Exists(views_by(viewer_id, as_of - HIGHLIGHT_PICK_SEEN_GRACE).filter(observation_id=OuterRef("id")))
+        viewed = Exists(views_by(viewer_id, as_of).filter(observation_id=OuterRef("id")))
         categories = params.get("categories") or ISSUE_CATEGORIES
         candidate_rows = select_embedding_picks(
             feed_window(
@@ -2730,7 +2729,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             team_id=self.team_id,
             user_id=viewer_id,
             observation_ids=[row["id"] for row in candidate_rows],
-            as_of=as_of - HIGHLIGHT_PICK_SEEN_GRACE,
+            as_of=as_of,
         )
         for row in candidate_rows:
             row["feed_impressions"] = impressions.get(row["id"], 0)
