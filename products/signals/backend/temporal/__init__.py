@@ -95,7 +95,12 @@ from products.signals.backend.temporal.grouping import (
     match_signal_to_report_activity,
     verify_match_specificity_activity,
 )
-from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow, read_signals_from_s3_activity
+from products.signals.backend.temporal.grouping_v2 import (
+    TeamSignalGroupingV2Workflow,
+    check_signals_ai_consent_activity,
+    discard_signal_batches_activity,
+    read_signals_from_s3_activity,
+)
 from products.signals.backend.temporal.inbox_notification import (
     SignalReportInboxNotificationWorkflow,
     get_inbox_notification_state_activity,
@@ -179,6 +184,8 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    check_signals_ai_consent_activity,
+    discard_signal_batches_activity,
     poll_monitoring_assessment_activity,
     exhaust_monitoring_assessment_activity,
     update_signal_spend_activity,

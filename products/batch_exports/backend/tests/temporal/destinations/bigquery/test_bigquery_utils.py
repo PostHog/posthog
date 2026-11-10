@@ -1,6 +1,7 @@
 """Test module covering utilities used for batch exporting to BigQuery."""
 
 import os
+import uuid
 import datetime as dt
 
 import pytest
@@ -17,12 +18,15 @@ from posthog.models.integration import GoogleCloudServiceAccountIntegration
 
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryField,
+    BigQueryInsertInputs,
+    BigQueryIntegrationNotFoundError,
     Boto3CredentialsSupplier,
     GoogleCloudCredentialsError,
     ServiceAccountOwnershipError,
     ensure_our_google_cloud_credentials_are_valid,
     get_our_google_cloud_credentials,
     get_service_account_description,
+    insert_into_bigquery_activity_from_stage,
     verify_impersonated_service_account_ownership,
 )
 from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils import (
@@ -201,3 +205,21 @@ async def test_ensure_our_google_cloud_credentials_are_valid():
     with override_settings(BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT="garbage"):
         with pytest.raises(GoogleCloudCredentialsError):
             await ensure_our_google_cloud_credentials_are_valid()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_insert_activity_fails_when_export_has_no_integration(activity_environment):
+    inputs = BigQueryInsertInputs(
+        team_id=1,
+        batch_export_id=str(uuid.uuid4()),
+        data_interval_start="2023-12-31T23:00:00+00:00",
+        data_interval_end="2024-01-01T00:00:00+00:00",
+        dataset_id="dataset",
+        table_id="events",
+    )
+
+    result = await activity_environment.run(insert_into_bigquery_activity_from_stage, inputs)
+
+    assert result.error is not None
+    assert result.error.type == BigQueryIntegrationNotFoundError.__name__

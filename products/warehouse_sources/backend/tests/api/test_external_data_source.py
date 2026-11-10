@@ -3,6 +3,7 @@ import uuid
 import typing as t
 from datetime import date, timedelta
 from typing import Any, cast
+from urllib.parse import parse_qs, urlparse
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -6587,6 +6588,50 @@ class TestExternalDataSource(APIBaseTest):
         Project.objects.filter(id__in=[1, 2]).delete()
         Team.objects.filter(id__in=[1, 2]).delete()
 
+        expected = [
+            {
+                "table": "table_1",
+                "label": None,
+                "should_sync": False,
+                "should_sync_default": True,
+                "description": None,
+                "rows": None,
+                "incremental_fields": [
+                    {
+                        "label": "id",
+                        "type": "integer",
+                        "field": "id",
+                        "field_type": "integer",
+                        "nullable": True,
+                        # Index lookup raises against the mocked pg_connection (object())
+                        # and falls back to the no-warning default (is_indexed=True).
+                        "is_indexed": True,
+                        "recommended": True,
+                        "notes": [
+                            "Only marks new rows. Edits to existing rows don't sync.",
+                            "Can be empty. Rows where it's empty never sync.",
+                        ],
+                    }
+                ],
+                "incremental_available": True,
+                "append_available": True,
+                "cdc_available": None,
+                "xmin_available": False,
+                "incremental_field": "id",
+                "sync_type": None,
+                "supports_webhooks": False,
+                "webhook_only": False,
+                "prefers_full_refresh": False,
+                "available_columns": [
+                    {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
+                ],
+                "detected_primary_keys": ["id"],
+                "primary_key_detection_supported": True,
+                "permission_error": None,
+                "rls_warning": None,
+            }
+        ]
+
         with override_settings(CLOUD_DEPLOYMENT="US"):
             team_2 = Team.objects.create(id=2, organization=self.team.organization)
             response = self.client.post(
@@ -6602,44 +6647,7 @@ class TestExternalDataSource(APIBaseTest):
                 },
             )
             assert response.status_code == 200
-            assert response.json() == [
-                {
-                    "table": "table_1",
-                    "label": None,
-                    "should_sync": False,
-                    "should_sync_default": True,
-                    "description": None,
-                    "rows": None,
-                    "incremental_fields": [
-                        {
-                            "label": "id",
-                            "type": "integer",
-                            "field": "id",
-                            "field_type": "integer",
-                            "nullable": True,
-                            # Index lookup raises against the mocked pg_connection (object())
-                            # and falls back to the no-warning default (is_indexed=True).
-                            "is_indexed": True,
-                        }
-                    ],
-                    "incremental_available": True,
-                    "append_available": True,
-                    "cdc_available": None,
-                    "xmin_available": False,
-                    "incremental_field": "id",
-                    "sync_type": None,
-                    "supports_webhooks": False,
-                    "webhook_only": False,
-                    "prefers_full_refresh": False,
-                    "available_columns": [
-                        {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
-                    ],
-                    "detected_primary_keys": ["id"],
-                    "primary_key_detection_supported": True,
-                    "permission_error": None,
-                    "rls_warning": None,
-                }
-            ]
+            assert response.json() == expected
 
             new_team = Team.objects.create(id=984961485, name="new_team", organization=self.team.organization)
 
@@ -6682,44 +6690,7 @@ class TestExternalDataSource(APIBaseTest):
             )
 
             assert response.status_code == 200
-            assert response.json() == [
-                {
-                    "table": "table_1",
-                    "label": None,
-                    "should_sync": False,
-                    "should_sync_default": True,
-                    "description": None,
-                    "rows": None,
-                    "incremental_fields": [
-                        {
-                            "label": "id",
-                            "type": "integer",
-                            "field": "id",
-                            "field_type": "integer",
-                            "nullable": True,
-                            # Index lookup raises against the mocked pg_connection (object())
-                            # and falls back to the no-warning default (is_indexed=True).
-                            "is_indexed": True,
-                        }
-                    ],
-                    "incremental_available": True,
-                    "append_available": True,
-                    "cdc_available": None,
-                    "xmin_available": False,
-                    "incremental_field": "id",
-                    "sync_type": None,
-                    "supports_webhooks": False,
-                    "webhook_only": False,
-                    "prefers_full_refresh": False,
-                    "available_columns": [
-                        {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
-                    ],
-                    "detected_primary_keys": ["id"],
-                    "primary_key_detection_supported": True,
-                    "permission_error": None,
-                    "rls_warning": None,
-                }
-            ]
+            assert response.json() == expected
 
             new_team = Team.objects.create(id=984961486, name="new_team", organization=self.team.organization)
 
@@ -13279,6 +13250,19 @@ class TestExternalDataSourceConnectLink(APIBaseTest):
         assert "data-warehouse-stored-credentials-list" in data["instructions"]
         assert "credential_id" in data["instructions"]
 
+    @parameterized.expand(
+        [
+            ("browser_session", {}, "web"),
+            ("wizard", {"HTTP_USER_AGENT": "posthog/wizard; version: 2.0.0"}, "wizard"),
+        ]
+    )
+    def test_connect_link_names_the_surface_that_made_it(self, _name, headers, expected_source):
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/connect_link?source_type=Postgres", **headers
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert parse_qs(urlparse(response.json()["connect_url"]).query)["utm_source"] == [expected_source]
+
     def test_connect_link_missing_source_type(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connect_link")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -13941,6 +13925,55 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         results = response.json()
         assert [result["credential_id"] for result in results] == [str(stripe_credential.pk)]
+
+    @parameterized.expand(
+        [
+            ("none_stored", [], "Postgres", 0, [], 0),
+            ("one_match", [("Postgres", False)], "Postgres", 1, [], 0),
+            ("several_matches", [("Postgres", False), ("Postgres", False)], "Postgres", 2, [], 0),
+            ("other_spelling", [("Postgres", False)], "postgres", 0, ["Postgres"], 0),
+            ("other_kind", [("Supabase", False), ("Postgres", False)], "Postgres", 1, ["Supabase"], 0),
+            ("teammate_stored_it", [("Postgres", True)], "Postgres", 0, [], 1),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.credential_store.report_user_action"
+    )
+    def test_stored_credentials_list_reports_what_the_lookup_found(
+        self,
+        _name,
+        stored,
+        requested_source_type,
+        expected_count,
+        expected_other_source_types,
+        expected_other_user_count,
+        mock_report,
+    ):
+        teammate = self._create_user("teammate@posthog.com")
+        for source_type, by_teammate in stored:
+            PendingSourceCredential.objects.for_team(self.team.pk).create(
+                team=self.team,
+                source_type=source_type,
+                payload={"password": "hunter2"},
+                created_by=teammate if by_teammate else self.user,
+            )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/stored_credentials/",
+            {"source_type": requested_source_type},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()) == expected_count
+        mock_report.assert_called_once()
+        assert mock_report.call_args.args[1] == "data warehouse stored credentials listed"
+        properties = mock_report.call_args.args[2]
+        assert properties == {
+            "source_type": requested_source_type,
+            "credential_count": expected_count,
+            "other_source_types": expected_other_source_types,
+            "other_user_credential_count": expected_other_user_count,
+        }
 
     def test_stored_credentials_list_orders_newest_first(self):
         older = PendingSourceCredential.objects.for_team(self.team.pk).create(

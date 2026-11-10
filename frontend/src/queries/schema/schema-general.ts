@@ -3872,6 +3872,10 @@ export interface MCPToolFailureItem {
     last_seen: string
     /** Resolved harness labels seen for this failure, deduped and sorted. */
     harnesses: string[]
+    /** $mcp_error_message with ids and numbers masked; the grouping key within a type. Empty when no message was captured. */
+    cause: string
+    /** Newest raw error message in this group. */
+    sample_message: string
 }
 
 export interface MCPToolFailuresQueryResponse extends AnalyticsQueryResponseBase {
@@ -3919,6 +3923,8 @@ export interface MCPToolFailureOccurrencesQuery extends DataNode<MCPToolFailureO
     errorType: string
     /** When set, only events with this HTTP status match; when unset, only events without a status match. */
     errorStatus?: string
+    /** When set, only events whose masked message equals this failures-table `cause` match; "" selects events without a message. */
+    cause?: string
     dateRange?: DateRange
     properties?: MCPAnalyticsPropertyFilter[]
     filterTestAccounts?: boolean
