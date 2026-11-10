@@ -69,6 +69,7 @@ pub async fn process_batch(
     context: &mut Context,
     batch: Batch,
 ) -> Result<BatchResponse, Error> {
+    context.legacy_property_splice = state.capture_v1_legacy_property_splice;
     let (batch, duplicates_dropped) = drop_duplicate_uuids(batch);
     if !duplicates_dropped.is_empty() {
         observe_duplicate_drops(state, context, &duplicates_dropped);
@@ -1519,14 +1520,32 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn event_malformed_properties() {
-        let mut event = valid_event();
-        event.properties = raw_obj("[1,2,3]");
-        assert!(matches!(
-            validate_event(&event),
-            Err(Error::MalformedEventProperties)
-        ));
+    #[rstest]
+    #[case::empty_object("{}", true)]
+    #[case::padded_object(" \n\t{\"a\":1} \r\n", true)]
+    #[case::null("null", false)]
+    #[case::array("[1,2,3]", false)]
+    #[case::string(r#""{}""#, false)]
+    #[case::number("0", false)]
+    #[case::bool("true", false)]
+    fn event_properties_must_decode_to_an_object(#[case] properties: &str, #[case] ok: bool) {
+        let body = format!(
+            r#"{{"created_at":"c","batch":[{{"event":"$pageview","uuid":"{}","distinct_id":"d","timestamp":"2026-03-19T14:29:58.123Z","properties":{properties}}}]}}"#,
+            Uuid::new_v4()
+        );
+        let event = crate::v1::analytics::lenient::parse_batch(body.as_bytes())
+            .unwrap()
+            .batch
+            .remove(0);
+        let result = validate_event(&event);
+        if ok {
+            assert!(result.is_ok(), "{properties:?}: {result:?}");
+        } else {
+            assert!(
+                matches!(result, Err(Error::MalformedEventProperties)),
+                "{properties:?}: {result:?}"
+            );
+        }
     }
 
     #[test]
@@ -1973,6 +1992,7 @@ mod tests {
             capture_internal: false,
             historical_migration: false,
             gateway_signature: None,
+            legacy_property_splice: true,
         }
     }
 
@@ -3973,6 +3993,72 @@ mod tests {
             "forged marker must be stripped before publish"
         );
         assert!(payload.contains("$ai_model"));
+    }
+
+    #[tokio::test]
+    async fn process_batch_applies_legacy_property_splice_switch() {
+        for splice in [true, false] {
+            let ts = TestStateBuilder::new()
+                .with_legacy_property_splice(splice)
+                .build();
+            let mut ctx = test_utils::test_analytics_context();
+            let mut events: Vec<Event> = (0..8)
+                .map(|_| Event {
+                    session_id: Some("sess-1".to_string()),
+                    properties: test_utils::raw_obj(r#"{"custom":1}"#),
+                    ..valid_event()
+                })
+                .collect();
+            let non_objects: Vec<Event> = ["null", "[1]", r#""s""#, "0", "true"]
+                .into_iter()
+                .map(|p| Event {
+                    properties: test_utils::raw_obj(p),
+                    ..valid_event()
+                })
+                .collect();
+            let non_object_uuids: HashSet<Uuid> = non_objects
+                .iter()
+                .map(|e| Uuid::parse_str(&e.uuid).unwrap())
+                .collect();
+            events.extend(non_objects);
+
+            let resp = process_batch(&ts.state, &mut ctx, valid_batch(events))
+                .await
+                .unwrap();
+
+            let dropped: Vec<_> = resp
+                .entries()
+                .iter()
+                .filter(|(uuid, _)| non_object_uuids.contains(uuid))
+                .collect();
+            assert_eq!(dropped.len(), non_object_uuids.len(), "splice={splice}");
+            for (_, entry) in dropped {
+                assert_eq!(entry.result, EventResult::Drop, "splice={splice}");
+                assert_eq!(
+                    entry.details,
+                    Some("malformed_event_properties"),
+                    "splice={splice}"
+                );
+            }
+            let records = ts.mock_producer.get_records();
+            assert_eq!(records.len(), 8, "splice={splice}");
+            for record in records {
+                let captured: common_types::CapturedEvent =
+                    serde_json::from_slice(&record.payload).unwrap();
+                let data: serde_json::Value = serde_json::from_str(&captured.data).unwrap();
+                assert_eq!(
+                    data["properties"].get("$session_id").is_some(),
+                    splice,
+                    "splice={splice}"
+                );
+                assert_eq!(captured.options.unwrap()["session_id"], "sess-1");
+                assert_eq!(
+                    record.headers.legacy_property_splice,
+                    splice.then_some(true),
+                    "splice={splice}"
+                );
+            }
+        }
     }
 
     /// process_batch wiring: an AI event lands on the AI topic.

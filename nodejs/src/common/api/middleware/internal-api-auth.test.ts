@@ -194,6 +194,7 @@ describe('createInternalApiAuthMiddleware', () => {
             ['/api/projects/1/hog_flows/some-uuid/batch_jobs/some-job-id/cancel'],
             ['/api/projects/1/hog_flows/some-uuid/transactional_email'],
             ['/api/projects/1/hog_flows/some-uuid/transactional_email/send'],
+            ['/api/projects/1/hog_flows/some-uuid/manual_invocations'],
             ['/api/projects/1/sandbox_email/test_send'],
         ])('should skip auth for scoped-JWT route %s, which authenticates in its handler', (path) => {
             const middleware = createInternalApiAuthMiddleware({ secret: 'test-secret' })
@@ -214,6 +215,7 @@ describe('createInternalApiAuthMiddleware', () => {
             ['/api/some/other/route/cancel'],
             ['/api/projects/1/hog_flows/some-uuid/reschedule_parked/extra'],
             ['/api/projects/1/hog_flows/some-uuid/transactional_email/send/extra'],
+            ['/api/projects/1/hog_flows/some-uuid/manual_invocations/extra'],
             ['/api/projects/1/sandbox_email/test_send/extra'],
         ])('should still require the secret for %s despite resembling a scoped route', (path) => {
             const middleware = createInternalApiAuthMiddleware({ secret: 'test-secret' })

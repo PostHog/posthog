@@ -18,7 +18,6 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { tagsModel } from '~/models/tagsModel'
 import { examples } from '~/queries/examples'
 import { DataTableNode, type InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -146,7 +145,6 @@ describe('insightLogic', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/:team/tags': [],
                 '/api/environments/:team_id/quick_filters/': {
                     results: [],
                 },
@@ -1504,7 +1502,7 @@ describe('insightLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setInsightMetadata({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
             })
-                .toDispatchActions([tagsModel.actionTypes.loadTags, 'setInsightMetadataSuccess'])
+                .toDispatchActions(['setInsightMetadataSuccess'])
                 .toMatchValues({
                     savedInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
                     insightChanged: false,
@@ -1553,7 +1551,6 @@ describe('insightLogic', () => {
                 logic.actions.setInsightMetadata({ favorited: true })
             })
                 .toDispatchActions(['setInsightMetadataSuccess'])
-                .toNotHaveDispatchedActions([tagsModel.actionTypes.loadTags])
                 .toMatchValues({
                     savedInsight: partial({ favorited: true }),
                 })

@@ -230,7 +230,7 @@ describe('SandboxEmailService', () => {
         const deps = fakeDeps({
             checkRecipient: (check) =>
                 checkSandboxRecipient(
-                    { suppression: { lookupSuppression: () => Promise.resolve(false) }, recipients },
+                    { suppression: { isSuppressed: () => Promise.resolve(false) }, recipients },
                     check
                 ),
         })

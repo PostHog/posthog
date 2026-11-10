@@ -7,7 +7,7 @@ import { isValidTeamId } from '~/common/utils/team-manager'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
-    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint; `global_hard_bounce` = an address added to the global hard-bounce list; `global_hard_bounce_cleared` = an address removed from that list after a delivery; `global_hard_bounce_hit` = a send skipped because of that list; `global_hard_bounce_shadow_hit` = a send that list would skip once enforced.',
+    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `lookup_failed` = a lookup could not read the list, once per address checked; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint; `global_hard_bounce` = an address added to the global hard-bounce list; `global_hard_bounce_cleared` = an address removed from that list after a delivery; `global_hard_bounce_hit` = a send skipped because of that list; `global_hard_bounce_shadow_hit` = a send that list would skip once enforced.',
     labelNames: ['result'],
 })
 
@@ -33,6 +33,13 @@ export function emailSuppressionConfigFromEnv(): EmailSuppressionConfig {
     }
 }
 
+export class SuppressionLookupError extends Error {
+    constructor() {
+        super('Could not check the suppression list')
+        this.name = 'SuppressionLookupError'
+    }
+}
+
 export type SuppressionCheckOptions = {
     // Transactional email (invoices, login codes, password resets) is blocked only by a hard bounce, because
     // only then is the address proven dead. A complaint, a manual entry or a full inbox (soft bounces) lets it through.
@@ -50,9 +57,6 @@ type GlobalCandidate = {
 
 // An active suppression. It blocks transactional email only when the address hard-bounced.
 type SuppressionEntry = { blocksTransactional: boolean; global?: 'shadow' | 'enforce' }
-// `globalUnread`: the global hard-bounce read failed, so only the team's own list decided `entry`.
-type LoadedSuppression = { entry: SuppressionEntry | false; globalUnread: boolean }
-type SuppressionRead = { key: string | null; suppressed: boolean; globalUnread: boolean }
 
 const HARD_BOUNCE_REASON = 'Auto-suppressed after a hard bounce'
 
@@ -97,7 +101,8 @@ const LEGACY_HARD_BOUNCE_REASONS = [
 export class EmailSuppressionService {
     private readonly threshold: number
     private readonly globalHardBounceEnforce: boolean
-    private readonly lazyLoader: LazyLoader<LoadedSuppression>
+    // A key's active suppression, or false when it has none.
+    private readonly lazyLoader: LazyLoader<SuppressionEntry | false>
 
     constructor(
         private postgres: PostgresRouter,
@@ -105,7 +110,7 @@ export class EmailSuppressionService {
     ) {
         this.threshold = config.transientBounceThreshold
         this.globalHardBounceEnforce = config.globalHardBounceEnforce ?? false
-        this.lazyLoader = new LazyLoader<LoadedSuppression>({
+        this.lazyLoader = new LazyLoader<SuppressionEntry | false>({
             name: 'email_suppression',
             loader: async (keys) => await this.loadSuppressed(keys),
         })
@@ -121,48 +126,45 @@ export class EmailSuppressionService {
         email: string,
         { transactional = false }: SuppressionCheckOptions = {}
     ): Promise<boolean> {
-        try {
-            return (await this.readSuppression(teamId, email, transactional)).suppressed
-        } catch (error) {
-            // Fail open: a lookup error must never block a legitimate send.
-            logger.error('[EmailSuppression] Failed to check suppression', { teamId, error })
+        const identifier = normalizeIdentifier(email)
+        if (!identifier) {
             return false
         }
-    }
-
-    /** Pre-send check that throws when a read fails, for callers that retry instead of sending. */
-    public async lookupSuppression(
-        teamId: number,
-        email: string,
-        { transactional = false }: SuppressionCheckOptions = {}
-    ): Promise<boolean> {
-        const { key, suppressed, globalUnread } = await this.readSuppression(teamId, email, transactional)
-        if (!suppressed && globalUnread && key) {
-            this.lazyLoader.markForRefresh(key)
-            throw new Error('[EmailSuppression] Could not read the global hard-bounce list')
+        let entry: SuppressionEntry | false
+        try {
+            entry = (await this.lazyLoader.get(toKey(teamId, identifier))) ?? false
+        } catch (error) {
+            cdpEmailSuppressionTotal.inc({ result: 'lookup_failed' })
+            logger.error('[EmailSuppression] Failed to check suppression', { teamId, error })
+            throw new SuppressionLookupError()
+        }
+        if (entry === false) {
+            return false
+        }
+        if (entry.global === 'shadow') {
+            cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce_shadow_hit' })
+            return false
+        }
+        const suppressed = !transactional || entry.blocksTransactional
+        if (suppressed) {
+            cdpEmailSuppressionTotal.inc({ result: entry.global ? 'global_hard_bounce_hit' : 'suppressed_hit' })
         }
         return suppressed
     }
 
-    private async readSuppression(teamId: number, email: string, transactional: boolean): Promise<SuppressionRead> {
-        const identifier = normalizeIdentifier(email)
-        if (!identifier) {
-            return { key: null, suppressed: false, globalUnread: false }
+    /**
+     * For checks before an email is queued. The send path checks again and holds the email while the
+     * list cannot be read, so here an unreadable list counts as not suppressed.
+     */
+    public async isKnownSuppressed(teamId: number, email: string, options?: SuppressionCheckOptions): Promise<boolean> {
+        try {
+            return await this.isSuppressed(teamId, email, options)
+        } catch (error) {
+            if (error instanceof SuppressionLookupError) {
+                return false
+            }
+            throw error
         }
-        const key = toKey(teamId, identifier)
-        const { entry, globalUnread } = (await this.lazyLoader.get(key)) ?? {
-            entry: false,
-            globalUnread: false,
-        }
-        if (entry !== false && entry.global === 'shadow') {
-            cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce_shadow_hit' })
-            return { key, suppressed: false, globalUnread }
-        }
-        const suppressed = entry !== false && (!transactional || entry.blocksTransactional)
-        if (suppressed) {
-            cdpEmailSuppressionTotal.inc({ result: entry.global ? 'global_hard_bounce_hit' : 'suppressed_hit' })
-        }
-        return { key, suppressed, globalUnread }
     }
 
     /**
@@ -505,7 +507,7 @@ export class EmailSuppressionService {
         }
     }
 
-    private async loadSuppressed(keys: string[]): Promise<Record<string, LoadedSuppression>> {
+    private async loadSuppressed(keys: string[]): Promise<Record<string, SuppressionEntry | false>> {
         // keys are `${teamId}:${identifier}`. Identifiers may contain ':' only in exotic cases; the
         // stored identifier is an email so split on the first ':' only.
         const parsed = keys.map((key) => {
@@ -520,7 +522,8 @@ export class EmailSuppressionService {
         // always a single query regardless of batch size.
         const byTeam = new Map<number, string[]>()
         for (const p of parsed) {
-            if (!isValidTeamId(p.teamId)) {
+            // Postgres text cannot hold a NUL byte, so no row matches it, and sending one would fail the whole load.
+            if (!isValidTeamId(p.teamId) || p.identifier.includes('\u0000')) {
                 continue
             }
             const list = byTeam.get(p.teamId) ?? []
@@ -575,21 +578,18 @@ export class EmailSuppressionService {
             }
         }
 
-        const globalUnread = new Set<string>()
-        if (candidates.length > 0 && !(await this.applyGlobalHardBounces(candidates, entries))) {
-            candidates.forEach((candidate) => globalUnread.add(candidate.key))
+        if (candidates.length > 0) {
+            await this.applyGlobalHardBounces(candidates, entries)
         }
 
         // Default every requested key to false so the LazyLoader caches negatives too.
-        return Object.fromEntries(
-            parsed.map((p) => [p.key, { entry: entries.get(p.key) ?? false, globalUnread: globalUnread.has(p.key) }])
-        )
+        return Object.fromEntries(parsed.map((p) => [p.key, entries.get(p.key) ?? false]))
     }
 
     private async applyGlobalHardBounces(
         candidates: GlobalCandidate[],
         entries: Map<string, SuppressionEntry>
-    ): Promise<boolean> {
+    ): Promise<void> {
         let bounced: Set<string>
         try {
             const result = await this.postgres.query<{ email: string }>(
@@ -600,9 +600,13 @@ export class EmailSuppressionService {
             )
             bounced = new Set(result.rows.map((row) => row.email))
         } catch (error) {
-            // Fail open, like the rest of the pre-send check, and keep the team's own list.
             logger.error('[EmailSuppression] Failed to check global hard bounces', { error })
-            return false
+            if (this.globalHardBounceEnforce) {
+                // An enforced list blocks sends, so a failed read holds them like a failed team-list read.
+                throw error
+            }
+            // A shadow list never blocks a send, so a failed read changes nothing.
+            return
         }
 
         const hitsByTeam = new Map<number, string[]>()
@@ -669,6 +673,5 @@ export class EmailSuppressionService {
                 logger.error('[EmailSuppression] Failed to release copied global hard bounces', { teamId, error })
             }
         }
-        return true
     }
 }

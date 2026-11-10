@@ -9,6 +9,8 @@ rules:
       owners: team-feature-flags
     - match: ['/email.py', '/email_utils.py']
       owners: team-platform-features
+    - match: ['/event_definitions.py', '/test/test_event_definitions.py']
+      owners: team-product-analytics
     - match: '/split_person.py'
       owners: team-ingestion
     - match: '/stop_surveys_reached_target.py'

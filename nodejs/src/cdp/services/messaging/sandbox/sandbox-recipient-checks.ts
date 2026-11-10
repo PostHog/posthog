@@ -6,7 +6,7 @@ import { EmailSuppressionService } from '../email-suppression.service'
 import { FrequencyCapCheck } from '../recipient-preferences.service'
 
 export type SandboxRecipientCheckDependencies = {
-    suppression: Pick<EmailSuppressionService, 'lookupSuppression'>
+    suppression: Pick<EmailSuppressionService, 'isSuppressed'>
     recipients: Pick<RecipientsManagerService, 'get' | 'getPreference' | 'getAllMarketingMessagingPreference'>
 }
 
@@ -30,7 +30,7 @@ export async function checkSandboxRecipient(
 ): Promise<SandboxRecipientCheck> {
     const transactional = categoryType === 'transactional'
     try {
-        if (await suppression.lookupSuppression(teamId, address, { transactional })) {
+        if (await suppression.isSuppressed(teamId, address, { transactional })) {
             return { ok: false, reason: 'suppressed' }
         }
         if (transactional) {

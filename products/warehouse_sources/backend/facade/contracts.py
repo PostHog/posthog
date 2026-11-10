@@ -63,7 +63,8 @@ class UnusableCredentialsReferenceError(ValueError):
 class SharedCredentialsEdit(StrEnum):
     """What a write of a source's inputs does when other sources or products also use its credentials row."""
 
-    # Keep the shared row as it is. Internal writes use this, so they never change credentials of other users.
+    # The default of internal writes. The row is the only storage of the credentials, so a change to a shared row
+    # raises `SharedCredentialsError` as with REFUSE. A skipped write would lose the change.
     SKIP = "skip"
     # Raise `SharedCredentialsError`, so the API can ask the person for a confirmation.
     REFUSE = "refuse"
@@ -73,6 +74,19 @@ class SharedCredentialsEdit(StrEnum):
 
 class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
+
+
+HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE = (
+    "You need to be able to manage access to this table and its history table to copy its access rules."
+)
+
+
+class HistoryAccessRulesNotAllowedError(Exception):
+    """The user may not set the access rules of a table or of its history table."""
+
+
+class NoHistoryTableError(Exception):
+    """The table has no registered history table."""
 
 
 class HistoryTableDropRefusedError(Exception):
@@ -98,8 +112,8 @@ SOURCE_CREDENTIALS_MISSING_ERROR = "The credentials of this source are missing o
 
 
 class SourceCredentialsMissingError(UnreadableSourceInputsError):
-    """The connection fields of a stripped source are not in its credentials row. `job_inputs` holds no copy,
-    so nothing can replace them: the user must enter the credentials again."""
+    """The credentials row or the reference column that a source needs is missing or unreadable. `job_inputs` is
+    never a copy of the credentials, so the user must enter the credentials again or reconnect the account."""
 
     def __init__(self) -> None:
         super().__init__(
@@ -124,6 +138,16 @@ class ConfigValueError(ValueError):
     opaque, value-leaking builtin error such as ``invalid literal for int() with base 10: 'lakjsd'``.
     We name the field but never its value, so nothing a user typed reaches logs or error tracking.
     """
+
+
+@dataclass(frozen=True)
+class HistoryTableRef:
+    """A table's history table, as the table's access dialog shows it."""
+
+    id: UUID
+    # The name the history table is queried by in HogQL.
+    name: str
+    user_can_manage_access: bool
 
 
 @dataclass(frozen=True)
@@ -475,8 +499,36 @@ class WarehouseMigrationBusyError(ValueError):
     """The migration is already reading the vendor account."""
 
 
+class WarehouseMigrationUploadedError(ValueError):
+    """An agent uploaded this migration, so PostHog has no vendor key to read the account again."""
+
+
+class WarehouseMigrationUploadTooLargeError(ValueError):
+    """The uploaded migration would grow past the size PostHog stores for an upload."""
+
+
+class WarehouseMigrationHasVendorKeyError(ValueError):
+    """PostHog reads this migration's vendor account with an API key, so it takes no uploads."""
+
+
 class WarehouseMigrationItemClaimedError(ValueError):
     """An apply has already claimed or finished this migration item."""
+
+
+class WarehouseMigrationEmptySourceError(ValueError):
+    """An earlier apply left a source with no tables behind. The message says how to recover."""
+
+
+class WarehouseMigrationTableOverrideError(ValueError):
+    """The table overrides do not fit the item's plan. The message says why."""
+
+
+@dataclass(frozen=True)
+class MigrationTableOverride:
+    """Map one Fivetran table to a PostHog table at apply, or drop it with `posthog_table=None`."""
+
+    vendor_table: str
+    posthog_table: str | None
 
 
 class WarehouseMigrationUnknownItemsError(ValueError):
@@ -515,6 +567,13 @@ class WarehouseMigration:
     latest_error: str
     created_at: datetime
     item_counts: WarehouseMigrationItemCounts
+    has_vendor_key: bool
+
+
+@dataclass(frozen=True)
+class WarehouseMigrationCreator:
+    first_name: str
+    email: str
 
 
 @dataclass(frozen=True)
@@ -531,6 +590,56 @@ class WarehouseMigrationItem:
     status: str
     external_data_source_id: UUID | None
     error: str
+    # Who prepared the migration, so whoever types a password for this item can see who chose its server.
+    created_by: WarehouseMigrationCreator | None = None
+
+
+@dataclass(frozen=True)
+class MigrationConnectionUpload:
+    """One vendor connection as the vendor API returned it, secrets included until PostHog removes them."""
+
+    connection: dict[str, Any]
+    # None when the vendor has no table list for the connection.
+    schema_config: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class WarehouseMigrationUpload:
+    items: list[WarehouseMigrationItem]
+    # One message per uploaded destination or connection that could not be read. Each names it.
+    errors: list[str]
+
+
+@dataclass(frozen=True)
+class ClaimedWarehouseMigrationItem:
+    """A migration item that one apply request now owns."""
+
+    id: UUID
+    caveats: list[str]
+    source_type: str
+    # The prefix this attempt creates the source with: the caller's override, else the planned one.
+    prefix: str | None
+    description: str
+    sync_frequency: str
+    start_paused: bool
+    # The stored plan, passed back to `plan_migration_schemas`.
+    proposal: dict[str, Any]
+    # Set when an earlier attempt already created the source: the claim linked it and applied the item.
+    recovered_source_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class PlannedMigrationSchemas:
+    # The `schemas` payload for source creation, one entry per discovered table.
+    schemas: list[dict[str, Any]]
+    # Planned tables that PostHog did not find or cannot sync with these credentials.
+    unavailable: list[str]
+    # Planned tables that only sync through a webhook.
+    webhook_only: list[str]
+    # Discovered tables the plan covers.
+    planned: list[str]
+    # Planned tables that skip columns PostHog would still read, so they stay off.
+    kept_off: list[str]
 
 
 @dataclass(frozen=True)

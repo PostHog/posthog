@@ -2,6 +2,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { MessageOptOutRecord } from '../../../types'
 import { PreferenceStatus, RecipientsManagerService } from '../../managers/recipients-manager.service'
+import { SuppressionLookupError } from '../email-suppression.service'
 import { FrequencyCapCheck } from '../recipient-preferences.service'
 import { SandboxRecipientCheckRequest, checkSandboxRecipient } from './sandbox-recipient-checks'
 
@@ -17,9 +18,9 @@ describe('checkSandboxRecipient', () => {
         checkSandboxRecipient(
             {
                 suppression: {
-                    lookupSuppression: (_teamId, _email, { transactional = false } = {}) =>
+                    isSuppressed: (_teamId, _email, { transactional = false } = {}) =>
                         suppressed === 'unreadable'
-                            ? Promise.reject(new Error('connection lost'))
+                            ? Promise.reject(new SuppressionLookupError())
                             : Promise.resolve(
                                   suppressed === 'hard_bounce' || (suppressed === 'complaint' && !transactional)
                               ),

@@ -91,7 +91,10 @@ impl RawJSFrame {
             location.line.saturating_sub(1),
             location.column.saturating_sub(1),
         );
-        let Some(location) = smc.lookup(generated_position) else {
+        let resolved = smc
+            .lookup(generated_position)
+            .or_else(|| sourcemap.dart2js_lookback(&smc, generated_position));
+        let Some(location) = resolved else {
             return Err(JsResolveErr::TokenNotFound(
                 self.fn_name.clone(),
                 location.line,
@@ -368,7 +371,9 @@ fn is_dependency_source(source: &str) -> bool {
 mod test {
     use crate::{
         langs::CommonFrameMetadata,
-        symbolication::symbol_store::sourcemap::test_support::source_map_catalog,
+        symbolication::symbol_store::sourcemap::test_support::{
+            source_map_catalog, source_map_catalog_from,
+        },
     };
 
     use super::{is_dependency_source, FrameLocation, RawJSFrame};
@@ -420,6 +425,126 @@ mod test {
             assert_eq!(frame.source.as_deref(), Some(expected_source), "{column}");
             assert_eq!((frame.line, frame.column), (Some(1), Some(1)), "{column}");
             assert_eq!(frame.context.as_ref().unwrap().line.number, 1, "{column}");
+        }
+    }
+
+    #[tokio::test]
+    async fn dart2js_frames_look_back_to_the_nearest_earlier_mapping() {
+        // Line 1 (0-based) has one token, at `A.err`, after the `throw`.
+        let unmapped_line_start = ("function main(){\n  throw A.err()}", "AAAA;QACQ");
+        // Line 1 starts with a token at the same location as the last token of line 0.
+        let repeated_location = ("function main(){throw A.err(\n1)}", "AAAA,iBACE;AAAA");
+        // Line 1 has a token and line 2 has none, so the walk passes line 2 and stops at line 1.
+        let nearest_of_two_mappings = (
+            "function main(){\n  x();\n\n  throw A.err()}",
+            "AAAA;EACA;;QAAQ",
+        );
+        let five_lines_back = (
+            "function main(){\n\n\n\n\n  throw A.err()}",
+            "AAAA;;;;;QACQ",
+        );
+        let six_lines_back = (
+            "function main(){\n\n\n\n\n\n  throw A.err()}",
+            "AAAA;;;;;;QACQ",
+        );
+        // A column-only segment at the start of line 1 ends the mapping of line 0.
+        let unmapped_segment_between = ("function main(){\n}\n\n  throw A.err()", "AAAA;A;;");
+        // The only earlier token is in function `a`, and the frame's line has a token in `b`.
+        let token_in_other_function = (
+            "function a(){x()}\nfunction b(){\n  throw y(); z()}",
+            "aAAA;;aACQ",
+        );
+
+        let cases = [
+            (
+                "unmapped line start",
+                unmapped_line_start,
+                true,
+                (2, 3),
+                Some((1, 1)),
+            ),
+            (
+                "own line token wins",
+                unmapped_line_start,
+                true,
+                (2, 9),
+                Some((2, 9)),
+            ),
+            (
+                "repeated location",
+                repeated_location,
+                true,
+                (2, 1),
+                Some((2, 3)),
+            ),
+            ("not dart2js", repeated_location, false, (2, 1), None),
+            (
+                "nearest of two earlier mappings",
+                nearest_of_two_mappings,
+                true,
+                (4, 3),
+                Some((2, 1)),
+            ),
+            (
+                "five lines back",
+                five_lines_back,
+                true,
+                (6, 3),
+                Some((1, 1)),
+            ),
+            ("six lines back", six_lines_back, true, (7, 3), None),
+            (
+                "unmapped segment between",
+                unmapped_segment_between,
+                true,
+                (4, 3),
+                None,
+            ),
+            (
+                "frame on a column-only segment",
+                unmapped_segment_between,
+                true,
+                (2, 1),
+                None,
+            ),
+            (
+                "token in other function",
+                token_in_other_function,
+                true,
+                (3, 3),
+                None,
+            ),
+        ];
+
+        for (label, (minified_source, mappings), dart2js, (line, column), expected) in cases {
+            let mut sourcemap = serde_json::json!({
+                "version": 3,
+                "sources": ["main.dart"],
+                "sourcesContent": ["void main() {\n  throw StateError('x');\n}"],
+                "names": [],
+                "mappings": mappings,
+            });
+            if dart2js {
+                sourcemap["x_org_dartlang_dart2js"] = serde_json::json!({});
+            }
+            let catalog = source_map_catalog_from(minified_source, &sourcemap.to_string());
+
+            let frame = RawJSFrame {
+                location: Some(FrameLocation { line, column }),
+                ..resolvable_frame(column)
+            }
+            .resolve_frame(1, &catalog, 0)
+            .await
+            .unwrap();
+
+            let resolved_to = frame
+                .resolved
+                .then(|| (frame.line.unwrap(), frame.column.unwrap()));
+            assert_eq!(
+                resolved_to, expected,
+                "{label}: {:?}",
+                frame.resolve_failure
+            );
         }
     }
 
