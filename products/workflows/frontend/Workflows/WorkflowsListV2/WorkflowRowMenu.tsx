@@ -14,7 +14,7 @@ import { WorkflowListRow } from './workflowListRows'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
 
 export function WorkflowRowMenu({ row }: { row: WorkflowListRow }): JSX.Element {
-    const { pendingRowActions, projectFilesEnabled } = useValues(workflowsListV2Logic)
+    const { pendingRowActions } = useValues(workflowsListV2Logic)
     const { movingWorkflowId } = useValues(workflowFoldersLogic)
     const { moveWorkflowToFolder } = useActions(workflowFoldersLogic)
     const { toggleWorkflowStatus, duplicateWorkflow, archiveWorkflow, restoreWorkflow, deleteWorkflow } =
@@ -23,27 +23,25 @@ export function WorkflowRowMenu({ row }: { row: WorkflowListRow }): JSX.Element 
         <More
             overlay={
                 <>
-                    {projectFilesEnabled && (
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Workflow}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={(row.workflow.user_access_level as AccessControlLevel | null) ?? undefined}
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Workflow}
+                        minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={(row.workflow.user_access_level as AccessControlLevel | null) ?? undefined}
+                    >
+                        <LemonButton
+                            fullWidth
+                            onClick={() => moveWorkflowToFolder(row.id)}
+                            loading={movingWorkflowId === row.id}
+                            disabledReason={
+                                movingWorkflowId && movingWorkflowId !== row.id
+                                    ? 'Wait for the current move'
+                                    : undefined
+                            }
+                            data-attr="workflow-move-to"
                         >
-                            <LemonButton
-                                fullWidth
-                                onClick={() => moveWorkflowToFolder(row.id)}
-                                loading={movingWorkflowId === row.id}
-                                disabledReason={
-                                    movingWorkflowId && movingWorkflowId !== row.id
-                                        ? 'Wait for the current move'
-                                        : undefined
-                                }
-                                data-attr="workflow-move-to"
-                            >
-                                Move to…
-                            </LemonButton>
-                        </AccessControlAction>
-                    )}
+                            Move to…
+                        </LemonButton>
+                    </AccessControlAction>
                     <WorkflowRowMenuOverlay
                         status={row.workflow.status}
                         userAccessLevel={(row.workflow.user_access_level as AccessControlLevel | null) ?? undefined}

@@ -392,7 +392,7 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual([file["path"] for file in files], ["Campaigns/Retention/Renewal"])
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_folder_files_nothing_while_project_files_are_off(self, _reload: MagicMock) -> None:
+    def test_folder_files_nothing_while_list_v2_is_off(self, _reload: MagicMock) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=False):
             created = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/",

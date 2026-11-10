@@ -86,11 +86,8 @@ describe('AI workflow folder handoff', () => {
             },
         })
         initKeaTests()
-        // The folder handoff exists only behind these flags, and the tree shows workflow files only with them on.
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
-            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: true,
-        })
+        // The folder handoff exists only behind this flag, and the tree shows workflow files only with it on.
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         const unmountTree = projectTreeDataLogic.mount()
         projectTreeDataLogic.actions.loadFolderSuccess(
             'Unfiled/Workflows',

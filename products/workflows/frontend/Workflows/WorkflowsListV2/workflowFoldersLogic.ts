@@ -17,7 +17,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -37,6 +36,7 @@ import type { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-
 
 import { createFacetMatcher, type FacetDefinition, type MatchesText } from './FacetSearchBar/facetQuery'
 import type { FacetSearchValue } from './FacetSearchBar/facetQuery'
+import { WORKFLOW_FILES_DRAG_SCOPE } from './workflowFolderDragScopes'
 import { displayedFolder, folderScopes } from './workflowListFacets'
 import type { WorkflowListRow } from './workflowListRows'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
@@ -57,7 +57,6 @@ export interface workflowFoldersLogicValues {
     facets: FacetDefinition<WorkflowListRow>[] // workflowsListV2Logic
     filesByRef: Record<string, FileSystemEntry> // workflowsListV2Logic
     matchesText: MatchesText<WorkflowListRow> // workflowsListV2Logic
-    projectFilesEnabled: boolean // workflowsListV2Logic
     rows: WorkflowListRow[] // workflowsListV2Logic
     value: FacetSearchValue // workflowsListV2Logic
     browserLoadFailed: boolean
@@ -444,7 +443,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
     connect({
         values: [
             workflowsListV2Logic,
-            ['value', 'rows', 'facets', 'matchesText', 'projectFilesEnabled', 'filesByRef'],
+            ['value', 'rows', 'facets', 'matchesText', 'filesByRef'],
             projectTreeDataLogic,
             ['savedItems', 'folders', 'folderStates'],
             teamLogic,
@@ -546,7 +545,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             false,
             {
                 loadBrowser: async (_: void, breakpoint) => {
-                    if (!values.projectFilesEnabled || !values.currentTeamId) {
+                    if (!values.currentTeamId) {
                         return false
                     }
                     const teamId = String(values.currentTeamId)
@@ -591,7 +590,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             false,
             {
                 loadOtherFiles: async (_: void, breakpoint) => {
-                    if (!values.projectFilesEnabled || !values.currentTeamId) {
+                    if (!values.currentTeamId) {
                         return false
                     }
                     for (let attempt = 0; attempt < MAX_INDEX_LOADS; attempt++) {
@@ -982,7 +981,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 return isValidMove ? [{ item, newPath }] : []
             })
             if (moves.length) {
-                await projectTreeDataLogic.asyncActions.moveItems(moves, false, 'workflow-project-files')
+                await projectTreeDataLogic.asyncActions.moveItems(moves, false, WORKFLOW_FILES_DRAG_SCOPE)
                 actions.clearSelectedFiles()
             }
         },
@@ -1022,9 +1021,6 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
         },
         restoreFileIndex: () => {
-            if (!values.projectFilesEnabled) {
-                return
-            }
             const present = new Set(Object.values(values.folders).flatMap((files) => files.map((entry) => entry.id)))
             const missing = [...fileIndex(cache).values()].filter((entry) => !present.has(entry.id))
             const evicted = missing.filter((entry) => !(parentPath(entry.path) in values.folders))
@@ -1045,14 +1041,9 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 projectTreeDataLogic.actions.loadFolder(folder)
             }
         },
-        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
-            if (values.projectFilesEnabled && !values.browserReady && !values.browserReadyLoading) {
-                actions.loadBrowser()
-            }
-        },
         setValue: ({ value }) => {
             const scopes = value.filters.filter((filter) => filter.facet === 'in' && !filter.negated)
-            if (values.projectFilesEnabled && scopes.length > 1) {
+            if (scopes.length > 1) {
                 // The view opens one folder, so a newer folder pill replaces the older one.
                 const newest = scopes[scopes.length - 1]
                 actions.setValue({
@@ -1073,7 +1064,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             })
         },
         createFolder: async ({ name, parent }) => {
-            if (values.creatingFolder || !values.currentTeamId || !values.projectFilesEnabled) {
+            if (values.creatingFolder || !values.currentTeamId) {
                 return
             }
             actions.setCreatingFolder(true)

@@ -1,4 +1,4 @@
-export const WORKFLOW_FILES_DRAG_SCOPE = 'workflow-project-files'
+export const WORKFLOW_FILES_DRAG_SCOPE = 'workflow-files'
 
 // The sidebar, the folder view and the breadcrumbs can show the same folder at once. Each surface gets its own
 // scope so their drop target ids stay distinct, because dnd-kit keeps only one droppable per id.
