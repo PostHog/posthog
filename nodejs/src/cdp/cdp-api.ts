@@ -119,7 +119,7 @@ import {
     sanitizeLogMessage,
 } from './utils'
 import { recordRequestOrigins } from './utils/cdp-fetch'
-import { deadlineAfter } from './utils/deadline'
+import { deadlineAfter, throwIfDeadlinePassed } from './utils/deadline'
 import { dualRead, dualWrite } from './utils/dual-store'
 import { isHogLimitError, isHogVMError } from './utils/hog-error-classification'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
@@ -1630,7 +1630,7 @@ export class CdpApi {
         return {
             bodyBytes: [
                 typeof email.html === 'string' && email.html
-                    ? this.sesHtmlMaxBytes(rendered, email.html, email.preheader)
+                    ? this.sesHtmlMaxBytes(rendered, email.html, email.preheader, deadline)
                     : 0,
                 typeof email.text === 'string' ? Buffer.byteLength(email.text) : 0,
             ],
@@ -1638,9 +1638,16 @@ export class CdpApi {
         }
     }
 
-    private sesHtmlMaxBytes(rendered: CyclotronJobInvocationHogFunction, html: string, preheader: unknown): number {
+    private sesHtmlMaxBytes(
+        rendered: CyclotronJobInvocationHogFunction,
+        html: string,
+        preheader: unknown,
+        deadline: AbortSignal
+    ): number {
+        const utmTags = utmTagsFor(rendered, () => undefined, deadline)
+        throwIfDeadlinePassed(deadline)
         return sesHtmlMaxBytes(html, {
-            utmTags: utmTagsFor(rendered, () => undefined),
+            utmTags,
             invocation: rendered,
             signer: this.emailTrackingCodeSigner,
             preheader: typeof preheader === 'string' ? preheader : undefined,

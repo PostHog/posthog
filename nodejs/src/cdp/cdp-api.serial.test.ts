@@ -79,6 +79,7 @@ import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watch
 import { template as emailTemplate } from './templates/_destinations/email/email.template'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
+import { LIQUID_RENDER_LIMIT_MS } from './utils/liquid'
 
 // Email MX validation runs on every email send, so without a mock the test-panel
 // email tests would do live DNS lookups for their fixture recipients (and
@@ -3402,6 +3403,45 @@ describe('CDP API', () => {
                         const distinctId = await aPersonWithTheDistinctId()
                         void caught(personsDb.hold(queriesFor(distinctId)), expireTheVerificationDeadline)
                         return { options: { distinctId } }
+                    },
+                ],
+                [
+                    'the custom UTM tags of the email step render past the deadline',
+                    async () => {
+                        const distinctId = await aPersonWithTheDistinctId()
+                        const flow = transactionalFlow('api', 'active', 'transactional', storedEmail({ html: 'x' }))
+                        const emailStep = flow.actions.find((action) => action.type === 'function_email')!
+                        const slowUtmTag = renderThatOutlastsTheLiquidLimit
+                        Object.assign(emailStep.config, {
+                            utm_tags_enabled: true,
+                            utm_params: {
+                                utm_source: slowUtmTag,
+                                utm_medium: slowUtmTag,
+                                utm_campaign: slowUtmTag,
+                                utm_content: slowUtmTag,
+                            },
+                        })
+                        const { id: flowId } = await insertHogFlow(flow)
+                        const realNow = performance.now.bind(performance)
+                        let skippedMs = 0
+                        let skippedAt = Infinity
+                        const clock = jest.spyOn(performance, 'now').mockImplementation(() => realNow() + skippedMs)
+                        void personsDb.hold(queriesFor(distinctId)).then((held) => {
+                            skippedAt = realNow()
+                            skippedMs = ATTACHMENT_VERIFICATION_DEADLINE_MS - 2 * LIQUID_RENDER_LIMIT_MS
+                            held.release()
+                        })
+                        return {
+                            options: {
+                                flowId,
+                                distinctId,
+                                acceptedSend: { tracking: { captureEngagement: false } },
+                            },
+                            fix: () => {
+                                clock.mockRestore()
+                                expect(realNow() - skippedAt).toBeLessThan(3 * LIQUID_RENDER_LIMIT_MS)
+                            },
+                        }
                     },
                 ],
             ])(

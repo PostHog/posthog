@@ -1,7 +1,7 @@
 import { getDomain } from 'tldts'
 
 import { HogFunctionInvocationGlobalsWithInputs } from '~/cdp/types'
-import { LiquidRenderer } from '~/cdp/utils/liquid'
+import { LiquidRenderBudget, LiquidRenderer } from '~/cdp/utils/liquid'
 
 import { decodeHtmlEntitiesInHref } from '../email-tracking.service'
 import { escapeHtml } from './escape-html'
@@ -57,7 +57,8 @@ const isOptedOutOfUtmTags = ({ attributes }: Anchor): boolean =>
 export const renderUtmOverrides = (
     raw: unknown,
     globals: HogFunctionInvocationGlobalsWithInputs,
-    onError: (key: string, message: string) => void
+    onError: (key: string, message: string) => void,
+    deadline?: AbortSignal
 ): Record<string, string> => {
     const rendered: Record<string, string> = {}
     if (!raw || typeof raw !== 'object') {
@@ -70,7 +71,9 @@ export const renderUtmOverrides = (
         }
         try {
             // Liquid escapes HTML in what it renders, and a URL needs the plain text.
-            rendered[key] = decodeHtmlEntitiesInHref(LiquidRenderer.renderWithHogFunctionGlobals(value, globals))
+            rendered[key] = decodeHtmlEntitiesInHref(
+                LiquidRenderer.renderWithHogFunctionGlobals(value, globals, new LiquidRenderBudget(deadline))
+            )
         } catch (error) {
             onError(key, error instanceof Error ? error.message : String(error))
         }
