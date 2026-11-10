@@ -2240,8 +2240,7 @@ describe('CDP API', () => {
         const transactionalFlow = (
             trigger: 'api' | 'schedule',
             status: HogFlow['status'],
-            category: 'transactional' | 'marketing' = 'transactional',
-            categoryId?: string
+            category: 'transactional' | 'marketing' = 'transactional'
         ): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
@@ -2258,7 +2257,6 @@ describe('CDP API', () => {
                                     email: { value: { html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>' } },
                                 },
                                 message_category_type: category,
-                                ...(categoryId && { message_category_id: categoryId }),
                             },
                         },
                     },
@@ -2308,20 +2306,11 @@ describe('CDP API', () => {
         ) => supertest(app).post(`/api/projects/${team.id}/hog_flows/${flowId}/${route}`).set(headers).send(payload)
 
         const codeSend = {
-            content: {
-                subject: 'Reset your password',
-                html: '<p>Hi {{ variables.name }}</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
-                text: 'Hi',
-            },
+            content: { subject: 'Reset your password', html: '<p>Hi {{ variables.name }}</p>', text: 'Hi' },
             from: { integrationId: 12, email: 'security@example.com', name: 'Example' },
             replyTo: ['help@example.com'],
             tracking: { captureEngagement: true },
         }
-        // Message categories have UUIDT ids, which are not RFC 4122 UUIDs.
-        const newsletterId = '0195d6b4-6c3e-0000-1a2b-3c4d5e6f7a8b'
-        const newsletter = { id: newsletterId, type: 'marketing' } as const
-        const receipts = { id: '0195d6b4-6c3e-0002-9a8b-7c6d5e4f3a2b', type: 'transactional' } as const
-        const newsletterSend = { ...codeSend, messageCategory: newsletter }
 
         beforeEach(async () => {
             produceOutput = jest.spyOn(api['emailStatusService']['outputs'], 'produce')
@@ -2613,9 +2602,6 @@ describe('CDP API', () => {
                 'a tracking field this version does not know',
                 { ...codeSend, tracking: { captureEngagement: true, pixel: false } },
             ],
-            ['a category that is not an id', { ...codeSend, messageCategory: { id: 'newsletter', type: 'marketing' } }],
-            ['a category of an unknown type', { ...codeSend, messageCategory: { id: newsletterId, type: 'promo' } }],
-            ['a category id with no type', { ...codeSend, messageCategory: { id: newsletterId } }],
             ['content without a body', { ...codeSend, content: { subject: 'Hi', html: '', text: '' } }],
             ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
             ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
@@ -2734,132 +2720,18 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
-        it.each([
-            ['a marketing email', 'marketing', 'transactional_email', {}],
-            [
-                'a code send in a marketing category',
-                'transactional',
-                'transactional_email/send',
-                { send: newsletterSend },
-            ],
-        ] as const)(
-            'refuses a send of %s when the team is over its email quota',
-            async (_desc, category, route, extra) => {
-                jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
-                const flow = await insertHogFlow(transactionalFlow('api', 'active', category))
-                const limitedBefore = await outcomeCount('quota_limited')
+        it('refuses a send of a marketing email when the team is over its email quota', async () => {
+            jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+            const marketingFlow = await insertHogFlow(transactionalFlow('api', 'active', 'marketing'))
+            const limitedBefore = await outcomeCount('quota_limited')
 
-                const res = await sendOn(
-                    route,
-                    flow.id,
-                    { Authorization: `Bearer ${tokenFor(route, team.id, flow.id)}` },
-                    { ...body, ...extra }
-                )
-
-                expect(res.status).toEqual(429)
-                expect(await outcomeCount('quota_limited')).toEqual(limitedBefore + 1)
-                expect(mockQueueInvocations).not.toHaveBeenCalled()
-            }
-        )
-
-        it.each([
-            ['a cc', 'cc', 'transactional', newsletterSend],
-            ['a bcc', 'bcc', 'transactional', newsletterSend],
-            ['a cc, when the workflow step is marketing', 'cc', 'marketing', codeSend],
-        ] as const)('refuses a marketing code send with %s', async (_desc, field, category, acceptedSend) => {
-            const flow = await insertHogFlow(transactionalFlow('api', 'active', category))
-            const refusedBefore = await outcomeCount('copies_not_allowed')
-
-            const res = await sendAccepted(flow.id, {
-                ...body,
-                send: { ...acceptedSend, [field]: ['copy@example.com'] },
+            const res = await send(marketingFlow.id, {
+                Authorization: `Bearer ${mintToken(team.id, marketingFlow.id)}`,
             })
 
-            expect(res.status).toEqual(400)
-            expect(res.body).toEqual({ error: 'copies_not_allowed' })
-            expect(await outcomeCount('copies_not_allowed')).toEqual(refusedBefore + 1)
-        })
-
-        describe('to a recipient who opted out', () => {
-            const recipientOptedOutOf = async (categoryId: string): Promise<string> => {
-                const to = `opted-out-${new UUIDT().toString()}@example.com`
-                await hub.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    `INSERT INTO posthog_messagerecipientpreference
-                        (id, team_id, identifier, preferences, created_at, updated_at, deleted)
-                     VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)`,
-                    [team.id, to, JSON.stringify({ [categoryId]: 'OPTED_OUT' })],
-                    'test-insert-opt-out'
-                )
-                return to
-            }
-
-            it.each([
-                [
-                    'a code send to a recipient opted out of its category',
-                    'transactional',
-                    'transactional_email/send',
-                    { send: newsletterSend },
-                    newsletterId,
-                ],
-                [
-                    'a code send to a recipient opted out of all marketing',
-                    'transactional',
-                    'transactional_email/send',
-                    { send: newsletterSend },
-                    '$all',
-                ],
-                [
-                    'a marketing email to a recipient opted out of its category',
-                    'marketing',
-                    'transactional_email',
-                    {},
-                    newsletterId,
-                ],
-                [
-                    'a template send whose category is now marketing, to a recipient opted out of it',
-                    'transactional',
-                    'transactional_email',
-                    { message_category: newsletter },
-                    newsletterId,
-                ],
-            ] as const)('refuses %s', async (_desc, category, route, extra, optedOutOf) => {
-                const flow = await insertHogFlow(
-                    transactionalFlow('api', 'active', category, category === 'marketing' ? newsletterId : undefined)
-                )
-                const refusedBefore = await outcomeCount('recipient_opted_out')
-                const keyed = {
-                    ...body,
-                    ...extra,
-                    to: await recipientOptedOutOf(optedOutOf),
-                    idempotency_key: `key-${new UUIDT().toString()}`,
-                }
-                const headers = { Authorization: `Bearer ${tokenFor(route, team.id, flow.id)}` }
-
-                const res = await sendOn(route, flow.id, headers, keyed)
-
-                expect(res.status).toEqual(422)
-                expect(res.body).toEqual({ error: 'recipient_opted_out' })
-                expect(await outcomeCount('recipient_opted_out')).toEqual(refusedBefore + 1)
-            })
-
-            it.each([
-                ['a transactional code send', { send: codeSend }, '$all'],
-                [
-                    'a code send in a transactional category',
-                    { send: { ...codeSend, messageCategory: receipts } },
-                    '$all',
-                ],
-                ['a code send in another category', { send: newsletterSend }, '0195d6b4-6c3e-0001-5e6f-7a8b9c0d1e2f'],
-            ])('accepts %s', async (_desc, extra, optedOutOf) => {
-                const res = await sendAccepted(hogFlow.id, {
-                    ...body,
-                    ...extra,
-                    to: await recipientOptedOutOf(optedOutOf),
-                })
-
-                expect(res.status).toEqual(202)
-            })
+            expect(res.status).toEqual(429)
+            expect(await outcomeCount('quota_limited')).toEqual(limitedBefore + 1)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
         describe.each([
@@ -3050,41 +2922,23 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
-        it.each([
-            ['sends a transactional email', 'transactional_email', {}, 202, 1],
-            [
-                'refuses a code send in a marketing category',
-                'transactional_email/send',
-                { send: newsletterSend },
-                422,
-                0,
-            ],
-        ])(
-            '%s to a recipient whose only suppression is a spam complaint',
-            async (_desc, route, extra, status, queued) => {
-                const to = `complained-${new UUIDT().toString()}@example.com`
-                await hub.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    `INSERT INTO posthog_messagesuppression
-                        (id, team_id, identifier, source, reason, transient_bounce_count,
-                         suppressed, suppressed_at, deleted, created_at, updated_at)
-                     VALUES (gen_random_uuid(), $1, $2, 'COMPLAINT', 'test row', 0,
-                         true, NOW(), false, NOW(), NOW())`,
-                    [team.id, to],
-                    'test-insert-suppression'
-                )
+        it('sends to a recipient whose only suppression is a spam complaint', async () => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_messagesuppression
+                    (id, team_id, identifier, source, reason, transient_bounce_count,
+                     suppressed, suppressed_at, deleted, created_at, updated_at)
+                 VALUES (gen_random_uuid(), $1, $2, 'COMPLAINT', 'test row', 0,
+                     true, NOW(), false, NOW(), NOW())`,
+                [team.id, body.to],
+                'test-insert-suppression'
+            )
 
-                const res = await sendOn(
-                    route,
-                    hogFlow.id,
-                    { Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` },
-                    { ...body, ...extra, to }
-                )
+            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
 
-                expect(res.status).toEqual(status)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(queued)
-            }
-        )
+            expect(res.status).toEqual(202)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
 
         it.each([
             ['a workflow with another trigger', 'schedule', 'active'],

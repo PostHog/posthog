@@ -1394,8 +1394,6 @@ export class EmailService {
         }
     }
 
-    // A code send brings its own body, so nothing rendered its unsubscribe placeholder. It is filled here, for the
-    // recipient the email goes to, and the queued send keeps the placeholder so a retry or a rerun signs a new link.
     private withCodeSendUnsubscribeUrl(
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersEmailType
@@ -1415,7 +1413,6 @@ export class EmailService {
         }
     }
 
-    // The API checks the template source, which a Liquid condition can still render without the link.
     private lacksMarketingUnsubscribeLink(
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersEmailType

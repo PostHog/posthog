@@ -50,16 +50,26 @@ import { RERUN_QUEUE_NAME } from './rerun-job.types'
 
 const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
-// Every domain has a mail server, so email validation never skips a send. The lookup is a network boundary.
-jest.mock('node:dns/promises', () => ({
-    Resolver: jest.fn().mockImplementation(() => ({
-        resolveMx: jest.fn().mockResolvedValue([{ exchange: 'mx.example.com', priority: 10 }]),
-        resolve4: jest.fn().mockResolvedValue(['1.2.3.4']),
-        resolve6: jest.fn().mockResolvedValue([]),
-    })),
-}))
+// A resolver for one zone, so email validation never leaves the machine: example.com has a mail server, and
+// every other name is NXDOMAIN.
+jest.mock('node:dns/promises', () => {
+    const lookup =
+        <T>(records: Record<string, T>) =>
+        (name: string): Promise<T> =>
+            name in records
+                ? Promise.resolve(records[name])
+                : Promise.reject(Object.assign(new Error(`queryMx ENOTFOUND ${name}`), { code: 'ENOTFOUND' }))
+    return {
+        Resolver: jest.fn().mockImplementation(() => ({
+            resolveMx: lookup({ 'example.com': [{ exchange: 'mx.example.com', priority: 10 }] }),
+            resolve4: lookup({ 'example.com': ['192.0.2.1'], 'mx.example.com': ['192.0.2.1'] }),
+            resolve6: lookup<string[]>({}),
+        })),
+    }
+})
 
-const NODE_DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
+const NODE_DB_URL =
+    process.env.CYCLOTRON_NODE_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 
 interface PersistedRow {
     invocation_id: string
@@ -716,8 +726,8 @@ describe('CDP hog invocation rerun e2e', () => {
                     provider: 'maildev',
                 },
             })
-            // Django publishes this reload when it saves an integration.
-            hub.integrationManager['onIntegrationsReloaded']([senderId])
+            await hub.pubSub.publish('reload-integrations', JSON.stringify({ integrationIds: [senderId] }))
+            await waitForExpect(async () => expect(await hub.integrationManager.get(senderId)).not.toBeNull())
             await hub.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_messagerecipientpreference

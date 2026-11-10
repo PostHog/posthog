@@ -15,7 +15,6 @@ const CopyRecipientsSchema = z
     .readonly()
     .optional()
 
-// The id is a UUIDT, which z.uuid() refuses.
 const SendCategorySchema = z
     .object({ id: z.guid(), type: z.enum(['marketing', 'transactional']) })
     .strict()
@@ -59,7 +58,6 @@ export type QueuedSend = AcceptedSend & { attachments?: readonly EmailAttachment
 
 type EmailStep = Extract<HogFlowAction, { type: 'function_email' }>
 
-// A worker can hold a cached workflow whose email step predates a change to its category.
 export const emailStepForApiSend = <Action extends HogFlowAction>(
     action: Action,
     category: SendCategory | undefined
@@ -97,8 +95,6 @@ const hasAddresses = (value: unknown): boolean =>
 
 export type MarketingSendRefusal = 'unsubscribe_link_required' | 'copies_not_allowed'
 
-// The preferences link and List-Unsubscribe are signed for `to`, so a copy would hand its reader control of
-// `to`'s preferences.
 export const marketingSendRefusal = (
     action: HogFlowAction,
     send: AcceptedSend | undefined
