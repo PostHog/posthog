@@ -127,10 +127,6 @@ def _ok(msg: str) -> str:
     return f"  \033[32m✓\033[0m {msg}"
 
 
-def _check_identities(attestations: list[Attestation]) -> list[dict[str, object]]:
-    return [{"check": attestation.check, "app_id": attestation.app_id} for attestation in attestations]
-
-
 def _warn(msg: str) -> str:
     return f"  \033[33m⚠\033[0m {msg}"
 
@@ -458,12 +454,8 @@ class Pipeline:
         cc = parse_conventional_commit(pr.title)
         reviewed = ReviewedHead(pr_number=pr.number, head_sha=pr.head_sha, merge_base_sha=pr.merge_base_sha)
         lifted = lifted_files(POLICY.attestations, pr.check_runs, file_paths, reviewed)
-        # The server polls GitHub for these checks after a WAIT, so the list names each one by the
-        # check name and App id that a check run carries.
-        attestation_checks = {
-            "pending": _check_identities(pending_attestations(POLICY.attestations, pr.check_runs, file_paths)),
-        }
-        deny = detect_deny_categories(pr.deny_paths, lifted)
+        pending = pending_attestations(POLICY.attestations, pr.check_runs, file_paths)
+        deny =detect_deny_categories(pr.deny_paths, lifted)
         exception_lifted = bool(POLICY.deny_exceptions) and (
             detect_deny_categories(pr.deny_paths, lifted, apply_exceptions=False) != deny
         )
@@ -547,7 +539,9 @@ class Pipeline:
             "deny_categories": deny,
             "title_scrutiny_flags": title_flags,
             "lifted_files": {category: sorted(files) for category, files in sorted(lifted.items())},
-            "attestations": attestation_checks,
+            # The server polls GitHub for these checks after a WAIT, so the list names each one by the
+            # check name and App id that a check run carries.
+            "attestations": {"pending": [{"check": a.check, "app_id": a.app_id} for a in pending]},
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
             "has_dep_changes": has_dependency_changes(file_paths),
