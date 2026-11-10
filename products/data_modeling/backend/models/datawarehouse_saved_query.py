@@ -48,6 +48,7 @@ from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.logic.incremental_filter import bind_window_start_sql
+from products.data_modeling.backend.models.view_engine import ViewEngine
 from products.warehouse_sources.backend.facade.hogql import (
     LEGACY_CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
@@ -119,16 +120,6 @@ class NoSchedulableDagError(Exception):
 class SchedulingUnavailableError(Exception):
     """Raised when Temporal is unreachable, so the schedule state of a saved query is unknown.
     The caller decides what to keep, because the saved query itself is not at fault."""
-
-
-def is_raw_managed_trino_query(query: object) -> bool:
-    """A raw Trino view stores Trino SQL that only hosted Trino can run, so ClickHouse and lineage skip it."""
-    return (
-        isinstance(query, dict)
-        and query.get("executionTarget") == "managed_trino"
-        # The list endpoint matches JSON `true` in SQL, so a truthy string must not count here either.
-        and query.get("sendRawQuery") is True
-    )
 
 
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
@@ -311,8 +302,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         return self.name.split(".")
 
     @property
-    def is_raw_managed_trino(self) -> bool:
-        return is_raw_managed_trino_query(self.query)
+    def engine(self) -> ViewEngine:
+        # The list defers `query` and annotates its engine keys, so reading `query` there would load it once per row.
+        return ViewEngine.from_annotated(self) or ViewEngine.from_query(self.query)
 
     def schedule_materialization(
         self, reconcile: bool = True, trigger_immediate_run: bool = False, triggered_by_id: int | None = None

@@ -1,4 +1,5 @@
-import { apiJson, projectPath } from './client'
+import { apiJson, scopedPath } from './client'
+import type { ProjectScope } from './reports'
 
 // Shapes follow `products/today/backend/presentation/serializers.py`. The page returns 404 when the project or person
 // has no Today (flag off, no AI data processing approval, no AI credits); the report screen then shows signals instead.
@@ -52,6 +53,10 @@ export interface ReportPageApi {
     last_seen: string | null
 }
 
-export function fetchReportPage(reportId: string, signal?: AbortSignal): Promise<ReportPageApi> {
-    return apiJson<ReportPageApi>(projectPath(`today/reports/${encodeURIComponent(reportId)}/page/`), { signal })
+export function fetchReportPage(
+    scope: ProjectScope | null,
+    reportId: string,
+    signal?: AbortSignal
+): Promise<ReportPageApi> {
+    return apiJson<ReportPageApi>(scopedPath(scope, `today/reports/${encodeURIComponent(reportId)}/page/`), { signal })
 }

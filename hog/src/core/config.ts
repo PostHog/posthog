@@ -77,6 +77,12 @@ export const PostHogConfig = z
             .describe(
                 'The PostHog host for this project, like https://eu.posthog.com. `hog auth login` uses it, and other commands stop when your credentials are for another host. --host and HOG_HOST override it.'
             ),
+        projectId: z
+            .union([z.int().positive(), z.string().regex(/^\d+$/)])
+            .optional()
+            .describe(
+                'The PostHog project ID, like the 2 in https://us.posthog.com/project/2. HOG_PROJECT_ID overrides it. Never put a personal API key here.'
+            ),
         errorTracking: ErrorTracking.optional(),
         cli: z
             .strictObject({

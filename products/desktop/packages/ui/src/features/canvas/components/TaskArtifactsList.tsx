@@ -34,8 +34,10 @@ import type { Task, TaskThreadMessage } from "@posthog/shared/domain-types";
 import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import {
+  type ArtifactRow,
   buildRows,
   commentTargets,
+  orderRows,
   type RunFile,
 } from "@posthog/ui/features/canvas/components/taskArtifactRows";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
@@ -51,10 +53,8 @@ import { useCompletedArtifactUploads } from "@posthog/ui/features/sessions/compo
 import { useCommentsForTargetsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
-import {
-  ArtifactCard,
-  stopCardOpen,
-} from "@posthog/ui/primitives/ArtifactCard";
+import { stopCardOpen } from "@posthog/ui/primitives/ArtifactCard";
+import { ArtifactListRow } from "@posthog/ui/primitives/ArtifactListRow";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
@@ -107,8 +107,8 @@ function PrRow({
     );
 
   return (
-    <ArtifactCard
-      icon={<Icon size={16} weight="bold" style={{ color: iconColor }} />}
+    <ArtifactListRow
+      icon={<Icon size={14} weight="bold" style={{ color: iconColor }} />}
       title={title}
       meta={meta}
       onHoverStart={() => setCountsWanted(true)}
@@ -120,23 +120,21 @@ function PrRow({
                 : openExternalUrl(safeUrl)
           : undefined
       }
+      badges={<CommentCountBadge count={prCommentCount} />}
       actions={
-        <>
-          <CommentCountBadge count={prCommentCount} />
-          {safeUrl && (
-            <Button
-              variant="default"
-              size="icon-sm"
-              aria-label={`Open ${title} externally`}
-              onClick={(event) => {
-                stopCardOpen(event);
-                openExternalUrl(safeUrl);
-              }}
-            >
-              <ArrowSquareOutIcon size={14} />
-            </Button>
-          )}
-        </>
+        safeUrl && (
+          <Button
+            variant="default"
+            size="icon-xs"
+            aria-label={`Open ${title} externally`}
+            onClick={(event) => {
+              stopCardOpen(event);
+              openExternalUrl(safeUrl);
+            }}
+          >
+            <ArrowSquareOutIcon size={14} />
+          </Button>
+        )
       }
     />
   );
@@ -156,12 +154,12 @@ function CanvasRow({
   const open = canvasArtifactOpenHandler(url);
   const meta = ts ? `Canvas · ${formatRelativeTimeShort(ts)}` : "Canvas";
   return (
-    <ArtifactCard
-      icon={iconForTemplate("", { size: 16, className: "text-amber-11" })}
+    <ArtifactListRow
+      icon={iconForTemplate("", { size: 14, className: "text-amber-11" })}
       title={name}
       meta={meta}
       onOpen={open}
-      actions={<CommentCountBadge count={commentCount} />}
+      badges={<CommentCountBadge count={commentCount} />}
     />
   );
 }
@@ -253,17 +251,18 @@ function FileRow({
         });
       }
     : undefined;
+  const uploader = uploaderLabel(selected, currentUser);
   const metaText = [
-    uploaderLabel(selected, currentUser),
-    selected.uploaded_at ? formatRelativeTimeShort(selected.uploaded_at) : null,
+    uploader === "Agent" ? null : uploader,
     formatFileSize(selected.size),
+    selected.uploaded_at ? formatRelativeTimeShort(selected.uploaded_at) : null,
   ]
     .filter(Boolean)
     .join(" · ");
 
   return (
-    <ArtifactCard
-      icon={<FileIcon filename={group.name} size={18} />}
+    <ArtifactListRow
+      icon={<FileIcon filename={group.name} size={14} />}
       title={group.name}
       meta={
         <>
@@ -311,31 +310,29 @@ function FileRow({
         </>
       }
       onOpen={onOpen}
+      badges={<CommentCountBadge count={commentCount} />}
       actions={
-        <>
-          <CommentCountBadge count={commentCount} />
-          {onDownload && (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="default"
-                    size="icon-sm"
-                    aria-label={`Download ${group.name}`}
-                    disabled={downloadingId === selected.id}
-                    onClick={(event) => {
-                      stopCardOpen(event);
-                      onDownload();
-                    }}
-                  />
-                }
-              >
-                <DownloadSimpleIcon size={14} />
-              </TooltipTrigger>
-              <TooltipContent>Download</TooltipContent>
-            </Tooltip>
-          )}
-        </>
+        onDownload && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="default"
+                  size="icon-xs"
+                  aria-label={`Download ${group.name}`}
+                  disabled={downloadingId === selected.id}
+                  onClick={(event) => {
+                    stopCardOpen(event);
+                    onDownload();
+                  }}
+                />
+              }
+            >
+              <DownloadSimpleIcon size={14} />
+            </TooltipTrigger>
+            <TooltipContent>Download</TooltipContent>
+          </Tooltip>
+        )
       }
     />
   );
@@ -375,8 +372,8 @@ function PostHogObjectRow({
     .join(" · ");
 
   return (
-    <ArtifactCard
-      icon={<ObjectIcon size={16} color={POSTHOG_OBJECT_ICON_COLOR} />}
+    <ArtifactListRow
+      icon={<ObjectIcon size={14} color={POSTHOG_OBJECT_ICON_COLOR} />}
       title={name}
       meta={meta}
       onOpen={() => {
@@ -386,7 +383,7 @@ function PostHogObjectRow({
         }
         openArtifactTab(taskId, { runId, artifactId, name, objectKind });
       }}
-      actions={<CommentCountBadge count={commentCount} />}
+      badges={<CommentCountBadge count={commentCount} />}
     />
   );
 }
@@ -420,6 +417,7 @@ export function TaskArtifactsList({
     () => buildRows(task, timeline, runs),
     [task, timeline, runs],
   );
+  const { pullRequests, others } = useMemo(() => orderRows(rows), [rows]);
   // One query for every row's badge, so N resources cost one request rather
   // than one per row. The threads themselves live in the Comments tab.
   const targets = useMemo(() => commentTargets(rows), [rows]);
@@ -454,72 +452,78 @@ export function TaskArtifactsList({
     );
   }
 
+  const renderRow = (row: ArtifactRow) =>
+    row.kind === "pr" ? (
+      <PrRow
+        key={row.key}
+        url={row.url}
+        ts={row.ts}
+        openInPlaceTaskId={canOpenInPlace ? task.id : undefined}
+      />
+    ) : row.kind === "canvas" ? (
+      <CanvasRow
+        key={row.key}
+        name={row.name}
+        url={row.url}
+        ts={row.ts}
+        commentCount={
+          row.dashboardId ? (openCountByItem.get(row.dashboardId) ?? 0) : 0
+        }
+      />
+    ) : row.kind === "file" ? (
+      <FileRow
+        key={row.key}
+        taskId={task.id}
+        group={row.group}
+        commentCount={
+          row.artifactId ? (openCountByItem.get(row.artifactId) ?? 0) : 0
+        }
+        currentUser={currentUser}
+      />
+    ) : row.kind === "posthog_object" ? (
+      <PostHogObjectRow
+        key={row.key}
+        taskId={task.id}
+        artifactId={row.artifactId}
+        runId={row.runId}
+        name={row.name}
+        objectKind={row.metadata.object_kind}
+        objectId={row.metadata.object_id}
+        occurrenceCount={row.metadata.occurrence_count}
+        uploadedAt={row.uploadedAt}
+        commentCount={openCountByItem.get(row.artifactId) ?? 0}
+      />
+    ) : (
+      <ArtifactListRow
+        key={row.key}
+        icon={<SlackLogoIcon size={14} className="text-gray-11" />}
+        title="Slack thread"
+        meta="External"
+        onOpen={() => openExternalUrl(row.url)}
+        actions={
+          <Button
+            variant="default"
+            size="icon-xs"
+            aria-label="Open Slack thread externally"
+            onClick={(event) => {
+              stopCardOpen(event);
+              openExternalUrl(row.url);
+            }}
+          >
+            <ArrowSquareOutIcon size={14} />
+          </Button>
+        }
+      />
+    );
+
   return (
-    <div className="flex flex-col gap-1.5 p-2">
-      {rows.map((row) =>
-        row.kind === "pr" ? (
-          <PrRow
-            key={row.key}
-            url={row.url}
-            ts={row.ts}
-            openInPlaceTaskId={canOpenInPlace ? task.id : undefined}
-          />
-        ) : row.kind === "canvas" ? (
-          <CanvasRow
-            key={row.key}
-            name={row.name}
-            url={row.url}
-            ts={row.ts}
-            commentCount={
-              row.dashboardId ? (openCountByItem.get(row.dashboardId) ?? 0) : 0
-            }
-          />
-        ) : row.kind === "file" ? (
-          <FileRow
-            key={row.key}
-            taskId={task.id}
-            group={row.group}
-            commentCount={
-              row.artifactId ? (openCountByItem.get(row.artifactId) ?? 0) : 0
-            }
-            currentUser={currentUser}
-          />
-        ) : row.kind === "posthog_object" ? (
-          <PostHogObjectRow
-            key={row.key}
-            taskId={task.id}
-            artifactId={row.artifactId}
-            runId={row.runId}
-            name={row.name}
-            objectKind={row.metadata.object_kind}
-            objectId={row.metadata.object_id}
-            occurrenceCount={row.metadata.occurrence_count}
-            uploadedAt={row.uploadedAt}
-            commentCount={openCountByItem.get(row.artifactId) ?? 0}
-          />
-        ) : (
-          <ArtifactCard
-            key={row.key}
-            icon={<SlackLogoIcon size={16} className="text-gray-11" />}
-            title="Slack thread"
-            meta="External"
-            onOpen={() => openExternalUrl(row.url)}
-            actions={
-              <Button
-                variant="default"
-                size="icon-sm"
-                aria-label="Open Slack thread externally"
-                onClick={(event) => {
-                  stopCardOpen(event);
-                  openExternalUrl(row.url);
-                }}
-              >
-                <ArrowSquareOutIcon size={14} />
-              </Button>
-            }
-          />
-        ),
+    <div className="flex flex-col">
+      {pullRequests.length > 0 && (
+        <div className="sticky top-0 z-10 flex flex-col gap-px border-border border-b bg-gray-1 p-1">
+          {pullRequests.map(renderRow)}
+        </div>
       )}
+      <div className="flex flex-col gap-px p-1">{others.map(renderRow)}</div>
     </div>
   );
 }

@@ -94,10 +94,12 @@
             position: absolute;
             bottom: 0;
             left: 0;
-            width: 0;
+            width: 100%;
             height: 2px;
             content: '';
             background: var(--c);
+            transform: scaleX(0);
+            transform-origin: left;
         }
 
         &[aria-selected='true'] {
@@ -112,7 +114,7 @@
     }
 
     &__diagram--done &__tab[aria-selected='true']::after {
-        width: 100%;
+        transform: scaleX(1);
     }
 
     &__tab-num {
@@ -231,20 +233,24 @@
         background: var(--mcp-how-line);
     }
 
+    // Spans the whole first-to-last-step line and scales, so the walk animates a transform, not layout.
     &__fill {
         left: var(--x1);
-        width: 0;
+        width: calc(var(--x3) - var(--x1));
         background: linear-gradient(90deg, var(--mcp-how-blue), var(--mcp-how-yellow), var(--mcp-how-green));
-        transition: width 1.3s cubic-bezier(0.6, 0, 0.2, 1);
+        transition: transform 1.3s cubic-bezier(0.6, 0, 0.2, 1);
+        transform: scaleX(0);
+        transform-origin: left;
     }
 
+    // Step 2 sits halfway along the line, because the steps are evenly spaced.
     &__diagram[data-hog='2'] &__fill {
-        width: calc(var(--x2) - var(--x1));
         background: linear-gradient(90deg, var(--mcp-how-blue), var(--mcp-how-yellow));
+        transform: scaleX(0.5);
     }
 
     &__diagram[data-hog='3'] &__fill {
-        width: calc(var(--x3) - var(--x1));
+        transform: scaleX(1);
     }
 
     &__dot {
@@ -286,18 +292,18 @@
         border-color: var(--c-dot);
     }
 
+    // As wide as the track, so a percentage translate moves the hedgehog by a share of the track.
     &__hog {
         position: absolute;
         bottom: -2px;
-        left: var(--x1);
-        width: 104px;
-        margin-left: -52px;
+        left: 0;
+        width: 100%;
         pointer-events: none;
-        transition: left 1.3s cubic-bezier(0.6, 0, 0.2, 1);
+        transition: transform 1.3s cubic-bezier(0.6, 0, 0.2, 1);
+        transform: translateX(var(--x1));
 
         img {
             display: block;
-            width: 100%;
             height: auto;
             filter: var(--mcp-how-halo);
             transform-origin: 50% 95%;
@@ -308,12 +314,17 @@
         }
     }
 
+    &__hog-body {
+        width: 104px;
+        margin-left: -52px;
+    }
+
     &__diagram[data-hog='2'] &__hog {
-        left: var(--x2);
+        transform: translateX(var(--x2));
     }
 
     &__diagram[data-hog='3'] &__hog {
-        left: var(--x3);
+        transform: translateX(var(--x3));
     }
 
     // Under reduced motion and in Storybook the sidebar opens on the last step and stays still.
@@ -337,7 +348,7 @@
             height: 272px;
         }
 
-        &__hog {
+        &__hog-body {
             width: 92px;
             margin-left: -46px;
         }
@@ -367,6 +378,6 @@
 
 @keyframes MCPHowItWorks__progress {
     to {
-        width: 100%;
+        transform: scaleX(1);
     }
 }

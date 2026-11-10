@@ -3578,15 +3578,71 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("saved_workflow_real_requests", True, False),
-            ("new_workflow_real_requests", False, False),
-            ("mocked_requests", True, True),
+            (
+                "saved_workflow_real_requests",
+                True,
+                False,
+                {"request_origins": ["https://slack.com"]},
+                ["https://slack.com"],
+            ),
+            (
+                "new_workflow_real_requests",
+                False,
+                False,
+                {"request_origins": ["https://slack.com"]},
+                ["https://slack.com"],
+            ),
+            ("mocked_requests", True, True, {"request_origins": []}, None),
+            ("reply_is_not_json", True, False, None, None),
+            ("reply_origins_not_a_list", True, False, {"request_origins": "https://slack.com"}, None),
+            (
+                "reply_origins_hold_full_urls",
+                True,
+                False,
+                {
+                    "request_origins": [
+                        "https://user:fake-pass@hooks.example.com:443/services/fake-token?api_key=fake-key",
+                        "HTTP://[::1]:8080/path",
+                        "https://hooks.example.com",
+                        "not a url",
+                    ]
+                },
+                ["https://hooks.example.com", "http://[::1]:8080"],
+            ),
+            (
+                "reply_origins_hold_stored_secrets",
+                True,
+                False,
+                {
+                    "request_origins": [
+                        "https://STORED-SECRET.one.example.com",
+                        "https://xoxb-fake-workspace-token.two.example.com",
+                        "https://123456789.three.example.com",
+                    ]
+                },
+                [
+                    "https://***REDACTED***.one.example.com",
+                    "https://***REDACTED***.two.example.com",
+                    "https://***REDACTED***.three.example.com",
+                ],
+            ),
         ]
     )
     def test_test_invocation_with_real_requests_is_logged_without_input_values(
-        self, _name: str, saved: bool, mock_async_functions: bool
+        self,
+        _name: str,
+        saved: bool,
+        mock_async_functions: bool,
+        reply: Optional[dict[str, Any]],
+        expected_origins: Optional[list[str]],
     ):
-        workspace = Integration.objects.create(team=self.team, kind="slack", config={}, created_by=self.user)
+        workspace = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            config={},
+            sensitive_config={"access_token": "xoxb-fake-workspace-token"},
+            created_by=self.user,
+        )
         hog_flow, _ = self._create_hog_flow_with_action(
             {
                 "template_id": "template-slack",
@@ -3608,7 +3664,7 @@ class TestHogFlowAPI(APIBaseTest):
             assert created.status_code == 201, created.json()
             flow_id = created.json()["id"]
             HogFlow.objects.filter(id=flow_id).update(
-                encrypted_inputs={"action_1": {"api_token": {"value": "stored-secret"}}}
+                encrypted_inputs={"action_1": {"api_token": {"value": "stored-secret"}, "pin": {"value": 123456789}}}
             )
         else:
             data["configuration"] = hog_flow
@@ -3616,9 +3672,17 @@ class TestHogFlowAPI(APIBaseTest):
         with patch(
             "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
         ) as mock_invoke:
-            mock_invoke.return_value = MagicMock(status_code=500, json=lambda: {"error": "Worker failed"})
-            self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/", data, format="json")
+            mock_invoke.return_value = MagicMock(status_code=500 if reply is None else 200)
+            if reply is None:
+                mock_invoke.return_value.json.side_effect = ValueError("not JSON")
+            else:
+                mock_invoke.return_value.json.return_value = {"error": "Worker failed", **reply}
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/", data, format="json"
+            )
         assert mock_invoke.call_count == 1
+        if reply is not None:
+            assert "request_origins" not in response.json()
 
         rows = list(ActivityLog.objects.filter(team_id=self.team.id, scope="HogFlow", activity="tested"))
         if mock_async_functions:
@@ -3634,10 +3698,11 @@ class TestHogFlowAPI(APIBaseTest):
             "action_id": "action_1",
             "action_type": "function",
             "template_id": "template-slack",
-            "input_keys": ["api_token", "channel", "slack_workspace", "text"]
+            "input_keys": ["api_token", "channel", "pin", "slack_workspace", "text"]
             if saved
             else ["channel", "slack_workspace", "text"],
             "integration_ids": [workspace.id],
+            "request_origins": expected_origins,
         }
         assert "sent-by-the-test" not in json.dumps(detail)
         assert "stored-secret" not in json.dumps(detail)

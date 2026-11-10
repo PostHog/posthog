@@ -24,6 +24,8 @@ from products.tasks.backend.models import Task
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import (
     POSTHOG_MCP_DESCRIPTION,
+    PUSH_SANDBOX_GITHUB_PERMISSIONS,
+    READONLY_SANDBOX_GITHUB_PERMISSIONS,
     GitHubCredentialSource,
     McpServerConfig,
     PrAuthorshipMode,
@@ -73,17 +75,17 @@ class TestRuntimeModelCapabilities(SimpleTestCase):
         assert "moonshotai/kimi-k3" in get_models_for_runtime_adapter("claude")
         assert get_supported_reasoning_efforts("claude", "moonshotai/kimi-k3") == ()
 
-    def test_fable_models_support_all_public_reasoning_efforts(self) -> None:
-        for model in ("claude-fable-5", "claude-fable-5-1"):
-            assert model in get_models_for_runtime_adapter("claude")
-            assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", model)) == (
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max",
-                "ultracode",
-            )
+    @parameterized.expand([("claude-fable-5",), ("claude-fable-5-1",), ("claude-fable-5-2",)])
+    def test_fable_models_support_all_public_reasoning_efforts(self, model: str) -> None:
+        assert model in get_models_for_runtime_adapter("claude")
+        assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", model)) == (
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode",
+        )
 
 
 class TestRunStateModelAccess(SimpleTestCase):
@@ -954,30 +956,6 @@ class TestGetGithubToken(TestCase):
 
     @parameterized.expand(
         [
-            ("readable", 200, False),
-            ("not_found", 404, True),
-            ("forbidden", 403, True),
-            ("unauthorized", 401, False),
-            ("upstream_error", 503, False),
-            ("probe_raises", None, False),
-        ]
-    )
-    def test_installation_confirms_repository_denied_only_on_a_clear_refusal(self, _name, status, expected):
-        from posthog.models.integration import GitHubIntegration
-
-        from products.tasks.backend.temporal.process_task.utils import installation_confirms_repository_denied
-
-        github = MagicMock(spec=GitHubIntegration)
-        if status is None:
-            github.api_request.side_effect = RuntimeError("probe failed")
-        else:
-            github.api_request.return_value = MagicMock(status_code=status)
-
-        assert installation_confirms_repository_denied(github, "acme/api") is expected
-        github.api_request.assert_called_once_with("GET", "/repos/acme/api", endpoint="/repos/{owner}/{repo}")
-
-    @parameterized.expand(
-        [
             ("renamed_account", "OldAcme", ["acme/api"], ["api"], "ghs_scoped"),
             ("dedupes_owner_and_case", "Acme", ["Acme/API", "acme/api", "acme/web"], ["api", "web"], "ghs_scoped"),
             ("drops_public_bootstrap_repo", "Acme", ["acme/web", "PostHog/.github"], ["web"], "ghs_scoped"),
@@ -1402,6 +1380,38 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
 
         assert result == "ghs_bot"
         mock_get_github_token.assert_called_once_with(123, repositories=expected_repositories)
+
+    @parameterized.expand(
+        [
+            ("bot_authored_push", "bot", "push", PUSH_SANDBOX_GITHUB_PERMISSIONS, 123),
+            ("user_authored_push", "user", "push", PUSH_SANDBOX_GITHUB_PERMISSIONS, 123),
+            ("bot_authored_read", "bot", "read", READONLY_SANDBOX_GITHUB_PERMISSIONS, 123),
+            ("no_attached_installation", "bot", "push", PUSH_SANDBOX_GITHUB_PERMISSIONS, None),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_scoped_github_token")
+    def test_scoped_run_mints_only_from_the_attached_installation(
+        self, _name, authorship, scope, permissions, integration_id, mock_scoped, mock_full, mock_user_install
+    ) -> None:
+        mock_scoped.return_value = "ghs_scoped"
+
+        result = get_sandbox_github_token(
+            integration_id,
+            run_id="run-1",
+            state={"pr_authorship_mode": authorship, "github_token_scope": scope, "repositories": ["acme/api"]},
+            github_user_integration_id="user-install",
+        )
+
+        if integration_id is None:
+            assert result is None
+            mock_scoped.assert_not_called()
+        else:
+            assert result == "ghs_scoped"
+            mock_scoped.assert_called_once_with(integration_id, ["acme/api"], permissions)
+        mock_full.assert_not_called()
+        mock_user_install.assert_not_called()
 
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
     def test_no_state_falls_through_to_installation_token(self, mock_get_github_token) -> None:

@@ -94,7 +94,7 @@ from posthog.hogql.database.schema.experiment_exposures_preaggregated import Exp
 from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
     ExperimentMetricEventsPreaggregatedTable,
 )
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable, join_persons_to_flag_evaluations
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
@@ -142,7 +142,7 @@ from posthog.hogql.database.schema.session_replay_features import SessionReplayF
 from posthog.hogql.database.schema.sessions_v1 import RawSessionsTableV1, SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2, SessionsTableV2
 from posthog.hogql.database.schema.sessions_v3 import RawSessionsTableV3, SessionsTableV3
-from posthog.hogql.database.schema.spans import TraceAttributesTable, TraceSpansTable
+from posthog.hogql.database.schema.spans import TraceAttributesTable, TraceSpansKafkaMetricsTable, TraceSpansTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
@@ -627,6 +627,9 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "flag_evaluations": TableNode(name="flag_evaluations", table=FlagEvaluationsTable()),
                     "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
+                    "trace_spans_kafka_metrics": TableNode(
+                        name="trace_spans_kafka_metrics", table=TraceSpansKafkaMetricsTable()
+                    ),
                     "session_replay_features": TableNode(
                         name="session_replay_features", table=SessionReplayFeaturesTable()
                     ),
@@ -2237,11 +2240,11 @@ class Database(BaseModel):
                         .select_related("table", "managed_viewset")
                     )
                     all_saved_queries = list(queryset)
-                    # Raw Trino views hold Trino SQL, which HogQL cannot expand.
                     saved_queries = [
                         sq
                         for sq in all_saved_queries
-                        if (is_managed_viewset_enabled or sq.managed_viewset_id is None) and not sq.is_raw_managed_trino
+                        if (is_managed_viewset_enabled or sq.managed_viewset_id is None)
+                        and sq.engine.referenceable_from_clickhouse.available
                     ]
 
         with timings.measure("endpoint_saved_query", emit_span=True):
@@ -2531,6 +2534,8 @@ class Database(BaseModel):
                         join_table=database.get_table("persons"),
                         resolver=PERSONS,
                     )
+                    if database.has_table(["posthog", "flag_evaluations"]):
+                        join_persons_to_flag_evaluations(database)
 
                 _add_error_tracking_fields(database)
 
