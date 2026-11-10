@@ -61,6 +61,9 @@ def get_keyword(team_id: int, keyword_id: str) -> Keyword:
 def create_keywords(team_id: int, texts: Iterable[str]) -> KeywordCreateResult:
     """Add keywords to the list. Blank entries, entries longer than the column, and keywords the list
     already has are skipped. Raises KeywordLimitError when the new ones would pass the cap."""
+    # bulk_create skips RootTeamMixin.save(), so a child environment's id has to become its parent's here or
+    # the rows land under an id that for_team() never reads.
+    team_id = resolve_effective_team_id(team_id)
     texts = list(texts)
     wanted = list(
         dict.fromkeys(keyword for text in texts if 0 < len(keyword := normalize_keyword(text)) <= KEYWORD_MAX_LENGTH)
@@ -121,6 +124,9 @@ def _window(timezone_name: str, days: int) -> _Window:
 # `answered` lowercases each answered check once, so the keyword cross join only runs strpos. A check's
 # searches are joined with newlines, which a keyword can't contain, so no match spans two searches. A null
 # brand pattern (no target domain) leaves `mentioned` to the citation alone and `mention_depth` null.
+# `matched` keeps only the pairs where the keyword occurs, since every aggregate below filters on a match.
+# It is MATERIALIZED because Postgres otherwise inlines it and evaluates the `uses` replace() once for each
+# aggregate that reads it.
 _KEYWORD_REPORT_SQL = """
     WITH answered AS MATERIALIZED (
         SELECT check_row.prompt_id, check_row.cited, check_row.target_best_position,
@@ -139,7 +145,7 @@ _KEYWORD_REPORT_SQL = """
         WHERE check_row.team_id = %(team_id)s AND check_row.created_at >= %(since)s
             AND check_row.created_at < %(until)s AND check_row.check_failed = false
     ),
-    matched AS (
+    matched AS MATERIALIZED (
         SELECT keyword, answered.prompt_id, answered.cited, answered.mentioned, answered.target_best_position,
             answered.mention_depth,
             strpos(answered.prompt_text, keyword) > 0 AS in_prompt,
@@ -149,6 +155,8 @@ _KEYWORD_REPORT_SQL = """
                 ELSE 0
             END AS uses
         FROM answered CROSS JOIN unnest(%(keywords)s::text[]) AS keyword
+        WHERE strpos(answered.prompt_text, keyword) > 0 OR strpos(answered.searches, keyword) > 0
+            OR strpos(answered.answer_text, keyword) > 0
     )
     SELECT keyword,
         count(DISTINCT prompt_id) FILTER (WHERE in_prompt),
@@ -348,6 +356,7 @@ def competitor_names(team_id: int) -> frozenset[str]:
         AEOBrand.objects.for_team(team_id).filter(kind=BrandKind.COMPETITOR).values_list("name", "domain", "aliases")
     ):
         names.add(normalize_keyword(name))
+        names.add(domain.lower())
         if label := _DOMAIN_PARTS(domain).domain:
             names.add(label.lower())
         if isinstance(aliases, list):
@@ -356,31 +365,57 @@ def competitor_names(team_id: int) -> frozenset[str]:
     return frozenset(names)
 
 
-class _ModifierCounts:
-    """Modifier counts across checks. Each modifier counts once per check, so every number reads as answers."""
+# Bounds the distinct terms held in memory while counting, which the window and chunked reads do not. Diverse
+# searches give most terms a single answer, and those rarely reach the top MAX_KEYWORD_MODIFIERS.
+MAX_TRACKED_MODIFIER_TERMS = 20_000
 
-    def __init__(self) -> None:
+
+class _ModifierCounts:
+    """Modifier counts across checks. Each modifier counts once per check, so every number reads as answers.
+
+    Past `max_terms` distinct terms, only the most used half is kept. A dropped term that comes back counts
+    again from zero, so a term that was rare early in the window can read low."""
+
+    def __init__(self, max_terms: int = MAX_TRACKED_MODIFIER_TERMS) -> None:
         self.answers = 0
         self.cited = 0
+        self._max_terms = max_terms
         self._checks: Counter[str] = Counter()
         self._cited: Counter[str] = Counter()
-        self._engines: defaultdict[str, Counter[str]] = defaultdict(Counter)
+        self._engines: Counter[tuple[str, str]] = Counter()
         self._examples: defaultdict[str, dict[str, None]] = defaultdict(dict)
 
     def add(self, *, engine: str, cited: bool, modifiers: dict[str, str]) -> None:
+        # Each search comes in with its whitespace already collapsed, so the examples hold references to the
+        # check's search strings instead of a new copy per term.
         self.answers += 1
         self.cited += cited
         for term, search in modifiers.items():
             self._checks[term] += 1
             self._cited[term] += cited
-            self._engines[term][engine] += 1
+            self._engines[term, engine] += 1
             examples = self._examples[term]
             if len(examples) < MAX_MODIFIER_EXAMPLES:
-                examples[" ".join(search.split())] = None
+                examples[search] = None
+        if len(self._checks) > self._max_terms:
+            self._drop_least_used()
+
+    def _drop_least_used(self) -> None:
+        kept = {term for term, _ in self._checks.most_common(self._max_terms // 2)}
+        self._checks = Counter({term: count for term, count in self._checks.items() if term in kept})
+        self._cited = Counter({term: count for term, count in self._cited.items() if term in kept})
+        self._engines = Counter({key: count for key, count in self._engines.items() if key[0] in kept})
+        self._examples = defaultdict(dict, {term: ex for term, ex in self._examples.items() if term in kept})
 
     def ranked(self, competitors: frozenset[str]) -> tuple[KeywordModifier, ...]:
         absorbed = self._absorbed_words()
         terms = sorted((term for term in self._checks if term not in absorbed), key=lambda t: (-self._checks[t], t))
+        terms = terms[:MAX_KEYWORD_MODIFIERS]
+        engines: defaultdict[str, list[tuple[str, int]]] = defaultdict(list)
+        shown = set(terms)
+        for (term, engine), count in self._engines.items():
+            if term in shown:
+                engines[term].append((engine, count))
         return tuple(
             KeywordModifier(
                 term=term,
@@ -390,11 +425,11 @@ class _ModifierCounts:
                 cited_rate=self._cited[term] / self._checks[term],
                 engines=tuple(
                     ModifierEngineCount(engine=engine, answers=count)
-                    for engine, count in sorted(self._engines[term].items(), key=lambda item: (-item[1], item[0]))
+                    for engine, count in sorted(engines[term], key=lambda item: (-item[1], item[0]))
                 ),
                 example_searches=tuple(self._examples[term]),
             )
-            for term in terms[:MAX_KEYWORD_MODIFIERS]
+            for term in terms
         )
 
     def _absorbed_words(self) -> set[str]:
@@ -421,7 +456,9 @@ def get_keyword_modifiers(
         .values_list("engine", "cited", "prompt_text", "search_queries")
     )
     for engine, cited, prompt_text, search_queries in rows.iterator(chunk_size=2000):
-        searches = [str(search) for search in search_queries] if isinstance(search_queries, list) else []
+        searches = (
+            [" ".join(str(search).split()) for search in search_queries] if isinstance(search_queries, list) else []
+        )
         if keyword and not any(keyword in search.lower() for search in searches):
             continue
         counts.add(engine=engine, cited=cited, modifiers=check_modifiers(prompt_text, searches))

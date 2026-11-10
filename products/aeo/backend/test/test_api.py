@@ -7,6 +7,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -19,9 +20,10 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
+from posthog.rate_limit import AEOKeywordReportBurstRateThrottle
 
 from products.aeo.backend.engines import top_domains
-from products.aeo.backend.facade.api import RECOMPUTE_DEBOUNCE_SECONDS, get_prompt_set_overview
+from products.aeo.backend.facade.api import RECOMPUTE_DEBOUNCE_SECONDS, create_keywords, get_prompt_set_overview
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOKeyword, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.test.factories import create_citation_check, create_own_brand
 
@@ -1259,6 +1261,10 @@ class TestAEOKeywordAPI(APIBaseTest):
         assert self.client.delete(f"{self.url}{keyword_id}/").status_code == status.HTTP_204_NO_CONTENT
         assert self._keywords() == ["pricing", "session replay"]
 
+        child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
+        assert create_keywords(child.id, ["roadmap", "pricing"]).created == 1
+        assert self._keywords() == ["pricing", "roadmap", "session replay"]
+
     @parameterized.expand(
         [
             ("at_the_cap", 195, 5, status.HTTP_201_CREATED, 200),
@@ -1365,6 +1371,7 @@ class TestAEOKeywordAPI(APIBaseTest):
                     ("acme", "competitor", 2, 0.0),
                     ("self hosted", "other", 2, 0.5),
                     ("2026", "freshness", 1, 1.0),
+                    ("acme.io", "competitor", 1, 0.0),
                     ("example", "other", 1, 0.0),
                     ("pricing", "pricing", 1, 1.0),
                     ("site:example.com", "site", 1, 0.0),
@@ -1399,7 +1406,7 @@ class TestAEOKeywordAPI(APIBaseTest):
             cited=True,
         )
         self._record("analytics for startups", searches=["self hosted analytics", "acme"])
-        self._record("web analytics", searches=["site:example.com analytics", "example com vs acme"])
+        self._record("web analytics", searches=["site:example.com analytics", "example com vs acme", "acme.io"])
         self._record("privacy analytics", engine="exa-answer", cited=True)
         self._record("web analytics", searches=["acme pricing"], check_failed=True)
 
@@ -1416,3 +1423,16 @@ class TestAEOKeywordAPI(APIBaseTest):
             {"engine": "openai-web-search", "answers": 1},
         ]
         assert self_hosted["example_searches"] == ["self hosted analytics 2026", "self hosted analytics"]
+
+    @parameterized.expand([("report",), ("modifiers",)])
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_report_endpoints_are_throttled_for_the_session_authenticated_ui(
+        self, endpoint: str, _rate_limit_enabled: MagicMock
+    ) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+        with patch.object(AEOKeywordReportBurstRateThrottle, "rate", "2/minute"):
+            statuses = [self.client.get(f"{self.url}{endpoint}/").status_code for _ in range(3)]
+
+        assert statuses == [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]

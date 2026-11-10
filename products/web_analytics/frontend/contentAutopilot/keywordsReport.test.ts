@@ -47,6 +47,7 @@ describe('keywordsReport', () => {
 
     it.each([
         [0.2, 0.5, true],
+        [0.4, 0.5, true],
         [0.45, 0.5, false],
         [null, 0.5, false],
         [0.2, null, false],

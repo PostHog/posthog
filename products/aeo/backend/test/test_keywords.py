@@ -1,7 +1,7 @@
 import pytest
 
 from products.aeo.backend.facade.contracts import ModifierKind
-from products.aeo.backend.keywords import check_modifiers, modifier_kind, tokenize
+from products.aeo.backend.keywords import _ModifierCounts, check_modifiers, modifier_kind, tokenize
 
 
 @pytest.mark.parametrize(
@@ -52,3 +52,17 @@ def test_check_modifiers_are_new_words_and_phrases_of_new_words(
 )
 def test_modifier_kind(term: str, expected: ModifierKind) -> None:
     assert modifier_kind(term, frozenset({"acme"})) == expected
+
+
+def test_modifier_counts_drop_rare_terms_past_the_cap_and_keep_frequent_ones() -> None:
+    counts = _ModifierCounts(max_terms=10)
+    for i in range(30):
+        search = f"pricing rare{i}"
+        counts.add(engine="exa-answer", cited=i % 2 == 0, modifiers={"pricing": search, f"rare{i}": search})
+
+    ranked = counts.ranked(frozenset())
+
+    assert len(ranked) <= 10
+    assert (ranked[0].term, ranked[0].answers, ranked[0].cited_rate) == ("pricing", 30, 0.5)
+    assert ranked[0].engines[0].answers == 30
+    assert ranked[0].example_searches == ("pricing rare0", "pricing rare1", "pricing rare2")

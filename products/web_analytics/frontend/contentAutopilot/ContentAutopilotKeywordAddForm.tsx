@@ -7,14 +7,14 @@ import { pluralize } from 'lib/utils/strings'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
 
 export const ContentAutopilotKeywordAddForm = (): JSX.Element => {
-    const { keywordsDraft, draftKeywords, keywordsLeft, addKeywordsSubmitting } =
+    const { keywordsDraft, draftKeywords, newDraftKeywords, keywordsLeft, addKeywordsSubmitting } =
         useValues(contentAutopilotKeywordsLogic)
     const { setKeywordsDraft, addKeywords } = useActions(contentAutopilotKeywordsLogic)
 
     const disabledReason =
         draftKeywords.length === 0
             ? 'Type or paste at least one keyword'
-            : draftKeywords.length > keywordsLeft
+            : newDraftKeywords.length > keywordsLeft
               ? `You can add ${pluralize(keywordsLeft, 'more keyword')}`
               : undefined
 
@@ -23,7 +23,7 @@ export const ContentAutopilotKeywordAddForm = (): JSX.Element => {
             <LemonTextArea
                 value={keywordsDraft}
                 onChange={setKeywordsDraft}
-                onPressCmdEnter={() => !disabledReason && addKeywords()}
+                onPressCmdEnter={() => !disabledReason && !addKeywordsSubmitting && addKeywords()}
                 placeholder="session replay, feature flags, self-hosted analytics"
                 minRows={2}
                 maxRows={8}

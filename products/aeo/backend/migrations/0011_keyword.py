@@ -34,9 +34,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "created_at",
-                    models.DateTimeField(
-                        auto_now_add=True, help_text="When the keyword was added."
-                    ),
+                    models.DateTimeField(auto_now_add=True, help_text="When the keyword was added."),
                 ),
                 (
                     "team",

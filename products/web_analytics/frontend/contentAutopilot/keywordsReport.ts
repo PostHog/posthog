@@ -5,6 +5,8 @@ export const KEYWORDS_DAYS = 7
 export const MAX_KEYWORDS = 200
 // A modifier whose answers cite the site this many points less often than all answers is a content gap.
 export const CITATION_GAP_POINTS = 0.1
+// Rates are floats, so 0.5 - 0.4 comes out a hair under 0.1 and would miss the threshold it sits on.
+const RATE_EPSILON = 1e-9
 
 /** Splits pasted text on commas and new lines into keywords, normalized the way the API stores them. */
 export const keywordLines = (text: string): string[] => {
@@ -61,4 +63,4 @@ export const isCitationGap = (
 ): boolean =>
     modifier.cited_rate !== null &&
     baselineCitedRate !== null &&
-    baselineCitedRate - modifier.cited_rate >= CITATION_GAP_POINTS
+    baselineCitedRate - modifier.cited_rate >= CITATION_GAP_POINTS - RATE_EPSILON

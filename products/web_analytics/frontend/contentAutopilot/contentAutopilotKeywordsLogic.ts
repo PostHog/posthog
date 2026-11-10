@@ -43,6 +43,7 @@ export interface contentAutopilotKeywordsLogicValues {
     modifiers: AEOKeywordModifierReportApi | null
     modifiersError: ContentAutopilotPromptsError | null
     modifiersLoading: boolean
+    newDraftKeywords: string[]
     report: AEOKeywordReportApi | null
     reportError: ContentAutopilotPromptsError | null
     reportLoading: boolean
@@ -144,6 +145,7 @@ export interface contentAutopilotKeywordsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         draftKeywords: (keywordsDraft: string) => string[]
         keywordsLeft: (keywords: AEOKeywordApi[] | null) => number
+        newDraftKeywords: (draftKeywords: string[], keywords: AEOKeywordApi[] | null) => string[]
     }
 }
 
@@ -193,6 +195,9 @@ export const contentAutopilotKeywordsLogic = kea<contentAutopilotKeywordsLogicTy
             null as AEOKeywordReportApi | null,
             {
                 loadReport: async (_, breakpoint) => {
+                    // Every add and removal reloads the report, and each request runs the whole keyword query,
+                    // so a quick run of removals waits here and sends only the last one.
+                    await breakpoint(300)
                     try {
                         const report = await aeoKeywordsReport(String(values.currentTeamIdStrict), {
                             days: KEYWORDS_DAYS,
@@ -285,6 +290,14 @@ export const contentAutopilotKeywordsLogic = kea<contentAutopilotKeywordsLogicTy
         keywordsLeft: [
             (s) => [s.keywords],
             (keywords: AEOKeywordApi[] | null): number => MAX_KEYWORDS - (keywords?.length ?? 0),
+        ],
+        // The API skips keywords the list already has, so only the others count against the cap.
+        newDraftKeywords: [
+            (s) => [s.draftKeywords, s.keywords],
+            (draftKeywords: string[], keywords: AEOKeywordApi[] | null): string[] => {
+                const tracked = new Set(keywords?.map(({ keyword }) => keyword))
+                return draftKeywords.filter((keyword) => !tracked.has(keyword))
+            },
         ],
     }),
     listeners(({ actions, values }) => ({

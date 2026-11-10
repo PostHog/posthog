@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.rate_limit import AEOKeywordReportBurstRateThrottle, AEOKeywordReportSustainedRateThrottle
 
 from products.aeo.backend.facade.api import (
     create_keywords,
@@ -300,7 +301,11 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         responses={200: OpenApiResponse(response=AEOKeywordReportSerializer)},
         tags=["web_analytics"],
     )
-    @action(detail=False, methods=["get"])
+    @action(
+        detail=False,
+        methods=["get"],
+        throttle_classes=[AEOKeywordReportBurstRateThrottle, AEOKeywordReportSustainedRateThrottle],
+    )
     def report(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         report = get_keyword_report(
             self.team_id, timezone_name=self.team.timezone, days=request.validated_query_data["days"]
@@ -321,7 +326,11 @@ class AEOKeywordViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         responses={200: OpenApiResponse(response=AEOKeywordModifierReportSerializer)},
         tags=["web_analytics"],
     )
-    @action(detail=False, methods=["get"])
+    @action(
+        detail=False,
+        methods=["get"],
+        throttle_classes=[AEOKeywordReportBurstRateThrottle, AEOKeywordReportSustainedRateThrottle],
+    )
     def modifiers(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         report = get_keyword_modifiers(
             self.team_id,
