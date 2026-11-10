@@ -1,6 +1,7 @@
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_EVENTS_DLQ,
+    KAFKA_CDP_SES_WEBHOOKS,
     KAFKA_EMAIL_STATUS,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
@@ -161,6 +162,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_DLQ_BATCH_FAIL_RATIO: number
     CDP_EVENTS_DLQ_TOPIC: string
     CDP_EVENTS_DLQ_PRODUCER: CdpProducerName
+    CDP_SES_WEBHOOKS_TOPIC: string
+    CDP_SES_WEBHOOKS_PRODUCER: CdpProducerName
+    // On, the webhook only queues, so it stays off until the topic and the cdp-ses-webhooks consumer exist.
+    CDP_SES_WEBHOOKS_QUEUE_ENABLED: boolean
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string
 
@@ -215,6 +220,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: number
     CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: number
     CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: number
+    CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: string
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -427,6 +433,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Same cyclotron Warpstream cluster as every other CDP topic — the replay worker
         // consumes from there, and no ClickHouse table reads these topics.
         CDP_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        CDP_SES_WEBHOOKS_TOPIC: KAFKA_CDP_SES_WEBHOOKS,
+        CDP_SES_WEBHOOKS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        CDP_SES_WEBHOOKS_QUEUE_ENABLED: false,
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
@@ -466,6 +475,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: 10_000,
         CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: 4,
         CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: 0.5,
+        CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: '',
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
