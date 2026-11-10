@@ -3,6 +3,8 @@ from uuid import UUID
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.schema import TestBasicQueryResponse as TheTestBasicQueryResponse
@@ -17,7 +19,7 @@ from posthog.hogql_queries.test.test_query_runner import (
     _shared_link_user,
     setup_test_query_runner_class,
 )
-from posthog.hogql_queries.warehouse_suggestion_notes import MAX_READ_VIEWS
+from posthog.hogql_queries.warehouse_suggestion_notes import MAX_READ_VIEWS, CredentialAccess, credential_access
 
 from products.warehouse_suggestions.backend.facade.contracts import WarehouseSuggestionNote
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionKind
@@ -84,6 +86,33 @@ class TestWarehouseSuggestionNotes(BaseTest):
 
     @parameterized.expand(
         [
+            ("web app session", {}, True),
+            ("token with warehouse write scope", {"warehouse_suggestion_access": "write"}, True),
+            ("token with warehouse read scope", {"warehouse_suggestion_access": "read"}, False),
+        ]
+    )
+    def test_only_a_write_scope_lets_the_note_offer_actions(self, _name: str, tags: dict, can_write: bool) -> None:
+        with tags_context(source=EventSource.MCP, **tags), mock.patch(FACADE, return_value=[NOTE]) as facade:
+            self._run(self.user)
+
+        assert facade.call_args.kwargs["can_write"] is can_write
+
+    @parameterized.expand(
+        [
+            ("token without warehouse scope", {"warehouse_suggestion_access": "none"}),
+            ("token the request never checked", {"access_method": AccessMethod.OAUTH}),
+        ]
+    )
+    def test_a_token_without_warehouse_read_scope_gets_no_notes(self, _name: str, tags: dict) -> None:
+        with tags_context(source=EventSource.MCP, **tags), mock.patch(FACADE, return_value=[NOTE]) as facade:
+            response, props = self._run(self.user)
+
+        assert response.warehouse_suggestions is None
+        assert props["warehouse_suggestions_skipped_reason"] == "no_scope"
+        facade.assert_not_called()
+
+    @parameterized.expand(
+        [
             ("failed lookup", {"side_effect": RuntimeError("suggestions unavailable")}, "failed"),
             ("flag off", {"return_value": None}, "flag_off"),
         ]
@@ -119,3 +148,21 @@ class TestWarehouseSuggestionNotes(BaseTest):
 
         assert report.call_args.args[1]["warehouse_suggestions_skipped_reason"] == "too_many_views"
         facade.assert_not_called()
+
+
+class TestCredentialAccess(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("session", None, CredentialAccess.WRITE),
+            ("all scopes", ["*"], CredentialAccess.WRITE),
+            ("query only", ["query:read"], CredentialAccess.NONE),
+            ("view read", ["query:read", "warehouse_view:read"], CredentialAccess.READ),
+            ("warehouse read", ["warehouse_objects:read"], CredentialAccess.READ),
+            ("view write", ["warehouse_view:write"], CredentialAccess.WRITE),
+            ("table write only", ["warehouse_table:write"], CredentialAccess.NONE),
+        ]
+    )
+    def test_matches_the_warehouse_suggestions_api_scopes(
+        self, _name: str, scopes: list[str] | None, expected: CredentialAccess
+    ) -> None:
+        assert credential_access(scopes) == expected

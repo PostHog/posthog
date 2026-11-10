@@ -76,8 +76,10 @@ from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filter
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_failure_handling import captured_elsewhere
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
+from posthog.hogql_queries.warehouse_suggestion_notes import credential_access
 from posthog.models.user import User
 from posthog.models.utils import uuid7
+from posthog.permissions import get_authenticator_scopes
 from posthog.query_scan import slot as query_scan_slot
 from posthog.query_scan.flag import QueryScanMode, get_query_scan_flag
 from posthog.query_scan.serve import analysis_with_prompt
@@ -349,6 +351,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 _mark_explicit_date_boundaries(query)
 
             self._tag_client_query_id(client_query_id)
+            tag_queries(
+                warehouse_suggestion_access=credential_access(
+                    get_authenticator_scopes(request.successful_authenticator)
+                )
+            )
             analytics_props = get_query_request_analytics_properties(request)
             query_dict = query.model_dump()
 

@@ -1,3 +1,4 @@
+import dataclasses
 from pathlib import Path
 from uuid import UUID
 
@@ -30,6 +31,7 @@ from products.warehouse_suggestions.backend.logic.query_notes import (
     DISMISS_TOOL,
     MCP_SHARE_STEP,
     materialize_summary,
+    unmaterialize_summary,
 )
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 
@@ -78,6 +80,23 @@ class TestMaterializeSummary(SimpleTestCase):
         assert expected in summary
         assert "stripe_charges" not in summary
 
+    @parameterized.expand(
+        [
+            ("refresh time", {}, "would save about 2 hours of background work a month"),
+            (
+                "scanned bytes when the time saving is small",
+                {"refresh_seconds_per_month": 630.0, "refresh_bytes_per_month": 5 * 10**12},
+                "would save about 5.0 TB of scanning a month",
+            ),
+        ]
+    )
+    def test_unmaterialize_leads_with_the_saving_that_qualified(
+        self, _name: str, overrides: dict, expected: str
+    ) -> None:
+        payload = dataclasses.replace(UNMATERIALIZE_PAYLOAD, **overrides)
+
+        assert expected in unmaterialize_summary(payload, "orders")
+
     def test_omits_read_time_when_unknown(self) -> None:
         assert "Reading it" not in materialize_summary(materialize_payload(read_seconds=None), "orders")
 
@@ -113,9 +132,9 @@ class TestSuggestionsForReadViews(BaseTest):
             access_level=access_level,
         )
 
-    def _notes(self, *view_ids: UUID, is_mcp_run: bool = True) -> list | None:
+    def _notes(self, *view_ids: UUID, is_mcp_run: bool = True, can_write: bool = True) -> list | None:
         return api.suggestions_for_read_views(
-            self.team, self.user, [str(view_id) for view_id in view_ids], is_mcp_run=is_mcp_run
+            self.team, self.user, [str(view_id) for view_id in view_ids], is_mcp_run=is_mcp_run, can_write=can_write
         )
 
     def test_returns_open_surfaced_suggestions_on_views_the_user_can_read(self) -> None:
@@ -162,23 +181,25 @@ class TestSuggestionsForReadViews(BaseTest):
 
     @parameterized.expand(
         [
-            ("agent that can edit", True, None, "warehouse-suggestions-accept-prepare (id {id})"),
-            ("caller without tools", False, None, "Review it at http"),
-            ("mcp viewer", True, "viewer", MCP_SHARE_STEP),
-            ("posthog ai viewer", False, "viewer", "Accepting it needs edit access to the view, so share http"),
+            ("agent that can edit", True, None, True, "warehouse-suggestions-accept-prepare (id {id})"),
+            ("caller without tools", False, None, True, "Review it at http"),
+            ("mcp viewer", True, "viewer", True, MCP_SHARE_STEP),
+            ("mcp read-only token", True, None, False, MCP_SHARE_STEP),
+            ("posthog ai viewer", False, "viewer", True, "Accepting it needs edit access to the view, so share http"),
         ]
     )
     def test_next_step_follows_the_caller(
-        self, _name: str, is_mcp_run: bool, access_level: str | None, expected: str
+        self, _name: str, is_mcp_run: bool, access_level: str | None, can_write: bool, expected: str
     ) -> None:
         suggestion = make_surfaced_suggestion(self.team.id, self.orders.id)
         if access_level:
             self._restrict(self.orders, access_level)
 
-        notes = self._notes(self.orders.id, is_mcp_run=is_mcp_run)
+        notes = self._notes(self.orders.id, is_mcp_run=is_mcp_run, can_write=can_write)
 
         assert notes is not None
         assert expected.format(id=suggestion.id) in notes[0].message
+        assert notes[0].can_act is (access_level is None and can_write)
 
     @parameterized.expand(
         [

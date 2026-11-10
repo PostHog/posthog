@@ -60,9 +60,11 @@ __all__ = [
 
 
 def suggestions_for_read_views(
-    team: "Team", user: "User", saved_query_ids: Collection[str], *, is_mcp_run: bool
+    team: "Team", user: "User", saved_query_ids: Collection[str], *, is_mcp_run: bool, can_write: bool
 ) -> list[WarehouseSuggestionNote] | None:
-    return query_notes.suggestions_for_read_views(team, user, saved_query_ids, is_mcp_run=is_mcp_run)
+    return query_notes.suggestions_for_read_views(
+        team, user, saved_query_ids, is_mcp_run=is_mcp_run, can_write=can_write
+    )
 
 
 def upsert_suggestions(team_id: int, drafts: Sequence[SuggestionDraft]) -> None:

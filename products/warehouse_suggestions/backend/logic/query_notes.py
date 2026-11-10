@@ -37,13 +37,13 @@ logger = structlog.get_logger(__name__)
 NOTE_KINDS = frozenset({WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestionKind.UNMATERIALIZE})
 MAX_NOTES = 3
 MAX_VIEW_NAME_CHARS = 60
+MIN_SECONDS_WORTH_NAMING = 60
 ACCEPT_TOOL = "warehouse-suggestions-accept"
 DISMISS_TOOL = "warehouse-suggestions-dismiss"
 CONFIRMED_ACTION_PREPARE_SUFFIX = "-prepare"
-VIEW_SUBJECT_KINDS = SubjectKinds(
-    readable=frozenset({WarehouseSuggestionSubjectKind.SAVED_QUERY}),
-    actionable=frozenset({WarehouseSuggestionSubjectKind.SAVED_QUERY}),
-)
+VIEWS = frozenset({WarehouseSuggestionSubjectKind.SAVED_QUERY})
+VIEW_SUBJECT_KINDS = SubjectKinds(readable=VIEWS, actionable=VIEWS)
+READ_ONLY_VIEW_SUBJECT_KINDS = SubjectKinds(readable=VIEWS, actionable=frozenset())
 SECONDS_UNITS = ((86400, "day"), (3600, "hour"), (60, "minute"), (1, "second"))
 BYTE_UNITS = ((10**12, "TB"), (10**9, "GB"), (10**6, "MB"))
 MCP_SHARE_STEP = (
@@ -53,9 +53,9 @@ MCP_SHARE_STEP = (
 
 
 def suggestions_for_read_views(
-    team: "Team", user: "User", saved_query_ids: Collection[str], *, is_mcp_run: bool
+    team: "Team", user: "User", saved_query_ids: Collection[str], *, is_mcp_run: bool, can_write: bool
 ) -> list[WarehouseSuggestionNote] | None:
-    if not is_warehouse_suggestions_enabled(team):
+    if not is_warehouse_suggestions_enabled(team, only_evaluate_locally=True):
         return None
     view_ids = _parse_ids(saved_query_ids)
     if not view_ids:
@@ -70,7 +70,7 @@ def suggestions_for_read_views(
         UserAccessControl(user, team),
         status=WarehouseSuggestionStatus.PROPOSED,
         subject_ids=view_ids,
-        subject_kinds=VIEW_SUBJECT_KINDS,
+        subject_kinds=VIEW_SUBJECT_KINDS if can_write else READ_ONLY_VIEW_SUBJECT_KINDS,
     )
     rows = list(visible.filter(kind__in=NOTE_KINDS)[:MAX_NOTES])
     names = all_saved_query_names(team.pk, ids=[row.subject_id for row in rows])
@@ -150,12 +150,18 @@ def materialize_summary(payload: MaterializePayload, view_name: str) -> str:
 
 
 def unmaterialize_summary(payload: UnmaterializePayload, view_name: str) -> str:
-    background = max(0.0, payload.refresh_seconds_per_month - payload.live_seconds_per_month)
     return (
-        f"Stopping the refreshes of `{view_name}` would save about {_about_duration(background)} "
-        f"of background work a month (estimated). Each read would then take about "
-        f"{_about_duration(payload.read_seconds)}."
+        f"Stopping the refreshes of `{view_name}` would save {_unmaterialize_saving(payload)} a month "
+        f"(estimated). Each read would then take about {_about_duration(payload.read_seconds)}."
     )
+
+
+def _unmaterialize_saving(payload: UnmaterializePayload) -> str:
+    seconds_saved = payload.refresh_seconds_per_month - payload.live_seconds_per_month
+    if seconds_saved < MIN_SECONDS_WORTH_NAMING:
+        bytes_saved = max(0.0, payload.refresh_bytes_per_month - payload.live_bytes_per_month)
+        return f"about {_about_bytes(bytes_saved)} of scanning"
+    return f"about {_about_duration(payload.refresh_seconds_per_month)} of background work"
 
 
 def _materialize_saving(payload: MaterializePayload) -> str:
