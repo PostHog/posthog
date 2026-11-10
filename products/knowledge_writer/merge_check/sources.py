@@ -14,6 +14,8 @@ NULL_COMMIT_SHA = "0" * 40
 GITHUB_API_URL = "https://api.github.com"
 GITHUB_EGRESS_SOURCE = "knowledge_writer"
 DIFF_FILE_HEADER_PATTERN = re.compile(r"^diff --git a/\S+ b/(\S+)$")
+MAX_READ_PAGES = 8
+MAX_PAGE_SOURCE_CHARACTERS = 20_000
 GENERATED_ATTRIBUTES = frozenset({"linguist-generated", "linguist-generated=true"})
 TEST_PATH_PATTERN = re.compile(
     r"(^|/)(tests?|__tests__|__snapshots__)/|(^|/)test_[^/]+\.py$|\.(test|spec|stories)\.[jt]sx?$"
@@ -219,3 +221,22 @@ def is_generated_path(path: str, generated_path_patterns: list[str]) -> bool:
         fnmatch.fnmatchcase(path, pattern) or ("/" not in pattern and fnmatch.fnmatchcase(file_name, pattern))
         for pattern in generated_path_patterns
     )
+
+
+def read_page_sources(
+    github: GitHubReader, docs_repository: str, source_path_by_key: Mapping[str, str]
+) -> dict[str, str]:
+    page_text_by_key: dict[str, str] = {}
+    for page_key, source_path in list(source_path_by_key.items())[:MAX_READ_PAGES]:
+        response = github.api_request(
+            "GET",
+            f"/repos/{docs_repository}/contents/{source_path}",
+            endpoint="/repos/{owner}/{repo}/contents/{path}",
+            headers={"Accept": "application/vnd.github.raw"},
+            priority=Priority.NORMAL,
+        )
+        if response.status_code == 404:
+            continue
+        response.raise_for_status()
+        page_text_by_key[page_key] = response.text[:MAX_PAGE_SOURCE_CHARACTERS]
+    return page_text_by_key

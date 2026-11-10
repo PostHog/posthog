@@ -2,13 +2,20 @@ import httpx
 from anthropic import Anthropic, APIError
 
 from ..backend.facade.contracts import CriterionResult, MergeCheckReport
-from ..backend.facade.enums import CriterionEffect, DocsChangeKind
+from ..backend.facade.enums import CriterionEffect
 from ..backend.settings import DocsSource
 from .facts import extract_facts, verify_quotes
-from .gates import fact_gates, release_line_text, rule_gates, with_existing_docs_pull_requests
+from .gates import decide_with_rules, fact_gates, release_line_text, rule_gates, with_existing_docs_pull_requests
 from .gather import gather_merge
-from .judge import JUDGE_MODEL, judge_merge
-from .sources import GitHubReader, LandedChange, merged_pull_request, reached_default_branch, read_numbered_pull_request
+from .judge import Variant, decide_with_judge
+from .sources import (
+    GitHubReader,
+    LandedChange,
+    merged_pull_request,
+    reached_default_branch,
+    read_numbered_pull_request,
+    read_page_sources,
+)
 
 
 class MergeNotConfirmed(Exception):
@@ -28,6 +35,7 @@ def run_merge_check(
     anthropic_client: Anthropic,
     source: DocsSource | None,
     writer_login: str | None,
+    variant: Variant = Variant.JUDGE,
 ) -> MergeCheckReport:
     commit_sha = change.after
     listed = read_numbered_pull_request(github, change)
@@ -52,10 +60,8 @@ def run_merge_check(
             criteria=gates.rows,
             low_confidence=gates.low_confidence,
         )
-    page_url_by_key = {
-        page.url.removeprefix(source.docs_url_prefix).strip("/"): page.url for page in evidence.editable_pages
-    }
-    docs_page_paths = list(page_url_by_key)
+    page_by_key = {page.url.removeprefix(source.docs_url_prefix).strip("/"): page for page in evidence.editable_pages}
+    docs_page_paths = list(page_by_key)
     release_text = release_line_text(evidence)
     try:
         extracted_facts = extract_facts(
@@ -83,45 +89,45 @@ def run_merge_check(
             criteria=gate_rows,
             low_confidence=low_confidence,
         )
-    verdict = judge_merge(
-        anthropic_client,
-        title=pull_request.title,
-        judged_diff=evidence.judged_diff,
-        docs_page_paths=docs_page_paths,
-    )
-    is_flagged_by_judge = verdict.needs_docs and verdict.change_kind is not None
-    judge_row = CriterionResult(
-        criterion="judge",
-        value=str(verdict.change_kind) if is_flagged_by_judge else "no_docs",
-        source=f"model:{JUDGE_MODEL}",
-        evidence=verdict.reason,
-        effect=CriterionEffect.SUPPORTS if is_flagged_by_judge else CriterionEffect.BLOCKS,
-    )
-    criteria = (*gate_rows, judge_row)
-    if not is_flagged_by_judge:
-        return no_docs_report(
-            change,
-            title=pull_request.title,
-            reason=verdict.reason or "judge",
-            criteria=criteria,
-            low_confidence=low_confidence,
+    named_page_keys = [page.page_path for page in facts.changed_pages] if facts is not None else []
+    source_path_by_key = {
+        key: page.source_path
+        for key, page in page_by_key.items()
+        if key in named_page_keys and page.source_path is not None
+    }
+    page_text_by_key = read_page_sources(github, source.docs_repository, source_path_by_key)
+    decision = (
+        decide_with_rules(
+            anthropic_client,
+            evidence,
+            facts=facts,
+            page_text_by_key=page_text_by_key,
+            is_final_attempt=is_final_attempt,
         )
-    named_page_keys = tuple(dict.fromkeys(path.strip("/") for path in verdict.page_urls))
-    listed_page_urls = tuple(page_url_by_key[key] for key in named_page_keys if key in page_url_by_key)
-    has_nothing_to_update = verdict.change_kind == DocsChangeKind.UPDATE and not listed_page_urls
+        if variant == Variant.RULES
+        else decide_with_judge(
+            anthropic_client, evidence, docs_page_paths=docs_page_paths, page_text_by_key=page_text_by_key
+        )
+    )
+    criteria = (*gate_rows, *decision.rows)
+    low_confidence = low_confidence or decision.low_confidence
+    if not decision.needs_docs or decision.change_kind is None:
+        return no_docs_report(
+            change, title=pull_request.title, reason=decision.reason, criteria=criteria, low_confidence=low_confidence
+        )
     report = MergeCheckReport(
         commit_sha=commit_sha,
         commit_url=commit_url_for(change),
         title=pull_request.title,
         needs_docs=True,
-        reason="judge",
+        reason=decision.reason,
         repository=change.repository,
         pull_request_number=change.pull_request_number,
         low_confidence=low_confidence,
         criteria=criteria,
-        change_kind=DocsChangeKind.CREATE if has_nothing_to_update else verdict.change_kind,
-        page_urls=listed_page_urls,
-        evidence=f"{pull_request.url}\n{verdict.reason}",
+        change_kind=decision.change_kind,
+        page_urls=tuple(page_by_key[key].url for key in decision.page_keys if key in page_by_key),
+        evidence=f"{pull_request.url}\n{decision.reason}",
     )
     return with_existing_docs_pull_requests(report, evidence)
 

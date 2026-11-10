@@ -17,14 +17,17 @@ from products.knowledge_writer.merge_check.check import MergeNotConfirmed, Merge
 from products.knowledge_writer.merge_check.facts import (
     Audience,
     AudienceFact,
+    ChangedPage,
     DocImpact,
     DocImpactFact,
     MergeFacts,
+    PageCheck,
+    PageFinding,
     ReleaseState,
     ReleaseStateFact,
     YesNoFact,
 )
-from products.knowledge_writer.merge_check.judge import JudgeVerdict
+from products.knowledge_writer.merge_check.judge import JudgeVerdict, Variant
 from products.knowledge_writer.merge_check.sources import LandedChange
 
 COMPONENT_PATH = "products/feature_flags/frontend/FlagBanner.tsx"
@@ -60,6 +63,7 @@ class FakePostHogGitHub:
         docs_page_paths: tuple[str, ...] = tuple(FLAGS_PATHS),
         docs_pull_requests: tuple[dict[str, object], ...] = (),
         docs_pull_request_comments: tuple[str, ...] = (),
+        page_text_by_path: dict[str, str] | None = None,
     ) -> None:
         self.commit_sha = commit_sha
         self.merged_commit_sha = merged_commit_sha or commit_sha
@@ -68,6 +72,7 @@ class FakePostHogGitHub:
         self.docs_page_paths = docs_page_paths
         self.docs_pull_requests = docs_pull_requests
         self.docs_pull_request_comments = docs_pull_request_comments
+        self.page_text_by_path = page_text_by_path or {}
 
     def merged_pull_request(self) -> dict[str, object]:
         return {
@@ -95,6 +100,11 @@ class FakePostHogGitHub:
             return github_response(json.dumps(list(self.docs_pull_requests)))
         if path == "/repos/PostHog/posthog.com/issues/41/comments":
             return github_response(json.dumps([{"body": comment} for comment in self.docs_pull_request_comments]))
+        if path.startswith("/repos/PostHog/posthog.com/contents/contents/docs/"):
+            page_path = path.removeprefix("/repos/PostHog/posthog.com/contents/contents/docs/").removesuffix(".mdx")
+            if page_path not in self.page_text_by_path:
+                return github_response("", status_code=404)
+            return github_response(self.page_text_by_path[page_path])
         if path.endswith("/releases"):
             return github_response("", status_code=404)
         raise AssertionError(f"unexpected GitHub request {path}")
@@ -122,7 +132,12 @@ def docs_pull_request(
 
 
 def check_merge(
-    commit_sha: str, github: FakePostHogGitHub, anthropic_client: Anthropic, *, is_final_attempt: bool = False
+    commit_sha: str,
+    github: FakePostHogGitHub,
+    anthropic_client: Anthropic,
+    *,
+    is_final_attempt: bool = False,
+    variant: Variant = Variant.JUDGE,
 ) -> MergeCheckReport:
     return run_merge_check(
         landed(commit_sha),
@@ -132,6 +147,7 @@ def check_merge(
         anthropic_client=anthropic_client,
         source=DOCS_SOURCE,
         writer_login=WRITER_LOGIN,
+        variant=variant,
     )
 
 
@@ -160,6 +176,7 @@ def merge_facts(
     release_quote: str = "",
     *,
     rests_only_on_release_marker: bool = False,
+    changed_page_paths: tuple[str, ...] = (),
 ) -> MergeFacts:
     return MergeFacts(
         release_state=ReleaseStateFact(
@@ -169,14 +186,24 @@ def merge_facts(
         doc_impact=DocImpactFact(value=DocImpact.CHANGED_BEHAVIOR, quote="drop legacy rollout"),
         generated_only=YesNoFact(value=False, quote=""),
         no_public_page_fits=YesNoFact(value=False, quote=""),
-        changed_pages=[],
+        changed_pages=[
+            ChangedPage(page_path=page_path, change_kind=DocsChangeKind.UPDATE, quote="drop legacy rollout")
+            for page_path in changed_page_paths
+        ],
     )
 
 
-def judge_recording(verdict: JudgeVerdict, judge_requests: list[dict], facts: MergeFacts | None = None) -> Anthropic:
+def judge_recording(
+    verdict: JudgeVerdict,
+    judge_requests: list[dict],
+    facts: MergeFacts | None = None,
+    page_findings: tuple[PageFinding, ...] = (),
+) -> Anthropic:
     def parse(**request: object) -> object:
         if request["output_format"] is MergeFacts:
             return SimpleNamespace(stop_reason="end_turn", parsed_output=facts or merge_facts())
+        if request["output_format"] is PageCheck:
+            return SimpleNamespace(stop_reason="end_turn", parsed_output=PageCheck(findings=list(page_findings)))
         judge_requests.append(request)
         return SimpleNamespace(stop_reason="end_turn", parsed_output=verdict)
 
@@ -220,6 +247,7 @@ def test_merge_judged_on_non_generated_diff_yields_every_listed_sitemap_page_onc
         ("generated_only", "false"),
         ("no_public_page_fits", "false"),
         ("judge", "update"),
+        ("outdated_sentence", "false"),
     ]
 
 
@@ -378,6 +406,92 @@ def test_a_docs_pull_request_from_a_trusted_person_asks_to_review_it(
     assert (str(person_docs_pull_request["html_url"]) in report.evidence) == (
         change_kind == DocsChangeKind.REVIEW_EXISTING
     )
+
+
+FLAGS_PAGE_TEXT = "# Rollouts\n\nLegacy rollout lets you release a flag to a percentage of users.\n"
+ONE_NAMED_PAGE = (FLAGS_PATHS[0],)
+OUTDATED_SENTENCE = "Legacy rollout lets you release a flag to a percentage of users."
+
+
+@pytest.mark.parametrize(
+    "variant, judged_sentences, page_findings, named_page_paths, expected",
+    [
+        pytest.param(
+            Variant.JUDGE,
+            [OUTDATED_SENTENCE],
+            (),
+            ONE_NAMED_PAGE,
+            (True, (FLAGS_PAGES[0],), False),
+            id="judge_quotes_page_sentence",
+        ),
+        pytest.param(
+            Variant.JUDGE,
+            ["Rollouts are great."],
+            (),
+            ONE_NAMED_PAGE,
+            (True, (FLAGS_PAGES[0],), True),
+            id="judge_unquoted_sentence",
+        ),
+        pytest.param(
+            Variant.RULES,
+            [],
+            (
+                PageFinding(
+                    page_path=FLAGS_PATHS[0], outdated_sentence=OUTDATED_SENTENCE, missing_detail="", diff_quote=""
+                ),
+            ),
+            ONE_NAMED_PAGE,
+            (True, (FLAGS_PAGES[0],), False),
+            id="rules_verified_outdated_sentence",
+        ),
+        pytest.param(
+            Variant.RULES,
+            [],
+            (
+                PageFinding(
+                    page_path=FLAGS_PATHS[0], outdated_sentence="Rollouts are great.", missing_detail="", diff_quote=""
+                ),
+            ),
+            ONE_NAMED_PAGE,
+            (False, (), False),
+            id="rules_unverified_finding_means_page_still_accurate",
+        ),
+        pytest.param(Variant.RULES, [], (), ONE_NAMED_PAGE, (False, (), False), id="rules_page_still_accurate"),
+        pytest.param(
+            Variant.RULES,
+            [],
+            (),
+            (FLAGS_PATHS[0], FLAGS_PATHS[1]),
+            (True, (FLAGS_PAGES[1],), True),
+            id="rules_unread_named_page_stays_flagged",
+        ),
+    ],
+)
+def test_the_decision_reads_named_pages_and_trusts_only_quoted_sentences(
+    variant: Variant,
+    judged_sentences: list[str],
+    page_findings: tuple[PageFinding, ...],
+    named_page_paths: tuple[str, ...],
+    expected: tuple[bool, tuple[str, ...], bool],
+) -> None:
+    commit_sha = "9" * 40
+    judge_requests: list[dict] = []
+    verdict = JudgeVerdict(
+        needs_docs=True,
+        change_kind=DocsChangeKind.UPDATE,
+        page_urls=[FLAGS_PATHS[0]],
+        outdated_sentences=judged_sentences,
+        reason="rollout removed",
+    )
+    github = FakePostHogGitHub(commit_sha, page_text_by_path={FLAGS_PATHS[0]: FLAGS_PAGE_TEXT})
+    facts = merge_facts(changed_page_paths=named_page_paths)
+
+    report = check_merge(
+        commit_sha, github, judge_recording(verdict, judge_requests, facts, page_findings), variant=variant
+    )
+
+    assert (report.needs_docs, report.page_urls, report.low_confidence) == expected
+    assert all(OUTDATED_SENTENCE in request["messages"][0]["content"] for request in judge_requests)
 
 
 def test_malformed_judge_output_declines_instead_of_raising() -> None:

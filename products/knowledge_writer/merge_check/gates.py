@@ -2,10 +2,22 @@ import dataclasses
 from collections import Counter
 from dataclasses import dataclass
 
+from anthropic import Anthropic, APIError
+
 from ..backend.facade.contracts import CriterionResult, MergeCheckReport
 from ..backend.facade.enums import CriterionEffect, DocsChangeKind
-from .facts import DOCS_DOC_IMPACTS, FACTS_MODEL, Audience, MergeFacts, ReleaseState
+from .facts import (
+    DOCS_DOC_IMPACTS,
+    FACTS_MODEL,
+    Audience,
+    DocImpact,
+    MergeFacts,
+    ReleaseState,
+    check_named_pages,
+    is_verified_finding,
+)
 from .gather import MergeEvidence
+from .judge import Decision
 
 FACTS_SOURCE = f"model:{FACTS_MODEL}"
 GATHER_SOURCE = "gather"
@@ -132,6 +144,94 @@ def fact_gates(facts: MergeFacts | None, *, are_quotes_verified: bool) -> GateRe
         blocking_reason=first_blocking_criterion(rows),
         low_confidence=is_flag_only_on_marker or not are_quotes_verified,
         rows=tuple(rows),
+    )
+
+
+def decide_with_rules(
+    anthropic_client: Anthropic,
+    evidence: MergeEvidence,
+    *,
+    facts: MergeFacts | None,
+    page_text_by_key: dict[str, str],
+    is_final_attempt: bool,
+) -> Decision:
+    if facts is None:
+        return rules_decision(False, None, (), reason="facts_unavailable", low_confidence=True)
+    is_removal = facts.doc_impact.value == DocImpact.REMOVED
+    change_kind = DocsChangeKind.REMOVE if is_removal else DocsChangeKind.UPDATE
+    named_page_keys = tuple(dict.fromkeys(page.page_path for page in facts.changed_pages))
+    if not named_page_keys:
+        if is_removal:
+            return rules_decision(False, None, (), reason="removed_with_no_page")
+        return rules_decision(True, DocsChangeKind.CREATE, (), reason="no_page_covers_change")
+    readable_pages = {key: page_text_by_key[key] for key in named_page_keys if key in page_text_by_key}
+    if not readable_pages:
+        return rules_decision(True, change_kind, named_page_keys, reason="named_pages_unread", low_confidence=True)
+    unread_page_keys = tuple(key for key in named_page_keys if key not in readable_pages)
+    try:
+        findings = check_named_pages(anthropic_client, evidence, page_text_by_key=readable_pages)
+    except APIError:
+        if not is_final_attempt:
+            raise
+        findings = None
+    if findings is None:
+        return rules_decision(True, change_kind, named_page_keys, reason="page_check_unavailable", low_confidence=True)
+    verified_findings = [finding for finding in findings if is_verified_finding(finding, evidence, readable_pages)]
+    page_check_row = CriterionResult(
+        criterion="page_check",
+        value=str(bool(verified_findings)).lower(),
+        source=FACTS_SOURCE,
+        evidence="\n".join(
+            f"{finding.page_path}: {finding.outdated_sentence or finding.missing_detail}"
+            for finding in verified_findings
+        ),
+        effect=CriterionEffect.SUPPORTS if verified_findings else CriterionEffect.BLOCKS,
+    )
+    if not verified_findings and unread_page_keys:
+        return rules_decision(
+            True,
+            change_kind,
+            unread_page_keys,
+            reason="named_pages_unread",
+            low_confidence=True,
+            rows=(page_check_row,),
+        )
+    if not verified_findings:
+        return rules_decision(False, None, (), reason="named_pages_still_accurate", rows=(page_check_row,))
+    flagged_page_keys = tuple(dict.fromkeys(finding.page_path for finding in verified_findings))
+    return rules_decision(
+        True,
+        change_kind,
+        flagged_page_keys,
+        reason="page_check",
+        low_confidence=bool(unread_page_keys),
+        rows=(page_check_row,),
+    )
+
+
+def rules_decision(
+    needs_docs: bool,
+    change_kind: DocsChangeKind | None,
+    page_keys: tuple[str, ...],
+    *,
+    reason: str,
+    low_confidence: bool = False,
+    rows: tuple[CriterionResult, ...] = (),
+) -> Decision:
+    rule_row = CriterionResult(
+        criterion="rules",
+        value=str(change_kind) if needs_docs else "no_docs",
+        source=RULE_GATE_SOURCE,
+        evidence=reason,
+        effect=CriterionEffect.SUPPORTS if needs_docs else CriterionEffect.BLOCKS,
+    )
+    return Decision(
+        needs_docs=needs_docs,
+        change_kind=change_kind,
+        page_keys=page_keys,
+        low_confidence=low_confidence,
+        reason=reason,
+        rows=(*rows, rule_row),
     )
 
 
