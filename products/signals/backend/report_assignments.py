@@ -44,8 +44,8 @@ from products.signals.backend.report_claims import (
     actor_works_under_claim,
     claim_from_artefact,
     get_active_claim,
-    is_user_claim_of,
-    is_user_claim_of_task_creator,
+    is_claim_of_person,
+    is_claim_of_task_creator,
 )
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.tasks.backend.facade import api as tasks_facade
@@ -209,7 +209,7 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str, for_tas
         import_report_pull_requests(report)
         claim = get_active_claim(team_id=team_id, report_id=report_id)
         actor = ArtefactAttribution.from_task(task_id)
-        if claim is not None and is_user_claim_of_task_creator(claim, task_id):
+        if claim is not None and is_claim_of_task_creator(claim, task_id):
             # The person who claimed the report started this task, so the task works under their
             # claim. Replacing it would remove the person from the report while they still own the work.
             claim_artefact = SignalReportArtefact.objects.filter(team_id=team_id, id=claim.claim_id).first()
@@ -247,7 +247,7 @@ def hand_off_task_claims(*, team_id: int, task_id: str, previous_user_id: int) -
         with transaction.atomic():
             report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
             claim = get_active_claim(team_id=team_id, report_id=str(report_id)) if report is not None else None
-            if report is None or claim is None or not is_user_claim_of(claim, previous_user_id):
+            if report is None or claim is None or not is_claim_of_person(claim, previous_user_id):
                 continue
             tasks_under_claim = {
                 str(other)
