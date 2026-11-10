@@ -28,7 +28,7 @@ from products.warehouse_suggestions.backend.facade.enums import (
 from products.warehouse_suggestions.backend.logic.query_notes import (
     ACCEPT_TOOL,
     DISMISS_TOOL,
-    SHARE_STEP,
+    MCP_SHARE_STEP,
     materialize_summary,
 )
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
@@ -164,7 +164,8 @@ class TestSuggestionsForReadViews(BaseTest):
         [
             ("agent that can edit", True, None, "warehouse-suggestions-accept-prepare (id {id})"),
             ("caller without tools", False, None, "Review it at http"),
-            ("viewer", True, "viewer", SHARE_STEP),
+            ("mcp viewer", True, "viewer", MCP_SHARE_STEP),
+            ("posthog ai viewer", False, "viewer", "Accepting it needs edit access to the view, so share http"),
         ]
     )
     def test_next_step_follows_the_caller(
@@ -181,7 +182,7 @@ class TestSuggestionsForReadViews(BaseTest):
 
     @parameterized.expand(
         [
-            ("no views read", False, (), None),
+            ("no views read", False, (), []),
             ("flag off", True, ("orders",), None),
             ("no open suggestion", False, ("sessions",), []),
         ]

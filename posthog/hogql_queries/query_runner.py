@@ -155,7 +155,13 @@ from posthog.api_queries_budget import (
     refill_and_read,
     seconds_until_positive,
 )
-from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
+from posthog.caching.utils import (
+    WARMING_TRIGGER_PREFIX,
+    ThresholdMode,
+    cache_target_age,
+    is_stale,
+    last_refresh_from_cached_result,
+)
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
@@ -2836,7 +2842,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # which can take the field off the response.
         cached_query_scan = getattr(results, "query_scan", None)
         if isinstance(results, self.cached_response_type):
-            if (not query_run.trigger or not query_run.trigger.startswith("warming")) and results.query_metadata:
+            if (
+                not query_run.trigger or not query_run.trigger.startswith(WARMING_TRIGGER_PREFIX)
+            ) and results.query_metadata:
                 log_event_usage_from_query_metadata(
                     results.query_metadata,
                     team_id=self.team.id,
@@ -3008,7 +3016,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 fresh_response_dict["query_metadata"] = query_metadata
 
                 # Don't log usage for warming queries
-                if not query_run.trigger or not query_run.trigger.startswith("warming"):
+                if not query_run.trigger or not query_run.trigger.startswith(WARMING_TRIGGER_PREFIX):
                     log_event_usage_from_query_metadata(
                         query_metadata,
                         team_id=self.team.id,

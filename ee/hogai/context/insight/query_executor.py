@@ -350,10 +350,10 @@ class AssistantQueryExecutor:
                 # Fallback to raw JSON if formatting fails - ensures robustness
                 fallback_start = time.time()
                 fallback_results = json.dumps(response_dict["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
-                suggestions = self._warehouse_suggestions_within(response_dict, self._max_sql_result_chars)
+                suggestions = self._suggestions_that_fit_budget(response_dict, self._max_sql_result_chars)
                 if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode):
                     fallback_results = SQLResultsFormatter.bound_fallback(
-                        fallback_results, _without(self._max_sql_result_chars, suggestions)
+                        fallback_results, _budget_left_after(self._max_sql_result_chars, suggestions)
                     )
                 fallback_results += suggestions
                 fallback_elapsed = time.time() - fallback_start
@@ -699,9 +699,9 @@ class AssistantQueryExecutor:
                     "[SQL result preview omitted because query warnings exceed the preview budget.]\n" + warning_prefix,
                     self._max_sql_result_chars,
                 )
-        suggestions = self._warehouse_suggestions_within(response, result_budget if is_sql else None)
+        suggestions = self._suggestions_that_fit_budget(response, result_budget if is_sql else None)
         if is_sql:
-            result_budget = _without(result_budget, suggestions)
+            result_budget = _budget_left_after(result_budget, suggestions)
 
         try:
             # Handle assistant-specific query types with direct formatting
@@ -773,7 +773,9 @@ class AssistantQueryExecutor:
             if warning_prefix:
                 result = warning_prefix + result
             if is_sql:
-                result = SQLResultsFormatter.bound_fallback(result, _without(self._max_sql_result_chars, suggestions))
+                result = SQLResultsFormatter.bound_fallback(
+                    result, _budget_left_after(self._max_sql_result_chars, suggestions)
+                )
             return result + suggestions
         except Exception:
             elapsed = time.time() - start_time
@@ -782,14 +784,14 @@ class AssistantQueryExecutor:
             raise
 
     @staticmethod
-    def _warehouse_suggestions_within(response: dict[str, Any], result_budget: int | None) -> str:
+    def _suggestions_that_fit_budget(response: dict[str, Any], result_budget: int | None) -> str:
         suggestions = format_warehouse_suggestions(response)
         if result_budget is None or result_budget - len(suggestions) >= SQLResultsFormatter.MIN_RESULT_CHARS:
             return suggestions
         return ""
 
 
-def _without(budget: int | None, text: str) -> int | None:
+def _budget_left_after(budget: int | None, text: str) -> int | None:
     return None if budget is None else budget - len(text)
 
 

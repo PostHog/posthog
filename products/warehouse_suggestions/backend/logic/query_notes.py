@@ -3,8 +3,6 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import QuerySet
-
 import structlog
 
 from posthog.utils import absolute_uri
@@ -27,7 +25,7 @@ from ..facade.enums import (
     WarehouseSuggestionSubjectKind,
 )
 from ..models import WarehouseSuggestion
-from .access import visible_suggestions
+from .access import shown_suggestions, visible_suggestions
 from .flags import is_warehouse_suggestions_enabled
 from .payloads import payload_from_json
 
@@ -37,7 +35,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 NOTE_KINDS = frozenset({WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestionKind.UNMATERIALIZE})
-MAX_NOTES = 10
+MAX_NOTES = 3
 MAX_VIEW_NAME_CHARS = 60
 ACCEPT_TOOL = "warehouse-suggestions-accept"
 DISMISS_TOOL = "warehouse-suggestions-dismiss"
@@ -48,7 +46,7 @@ VIEW_SUBJECT_KINDS = SubjectKinds(
 )
 SECONDS_UNITS = ((86400, "day"), (3600, "hour"), (60, "minute"), (1, "second"))
 BYTE_UNITS = ((10**12, "TB"), (10**9, "GB"), (10**6, "MB"))
-SHARE_STEP = (
+MCP_SHARE_STEP = (
     "Accepting or dismissing it needs edit access to the view and an API key with write scope, "
     "so share it with someone who has both."
 )
@@ -57,10 +55,15 @@ SHARE_STEP = (
 def suggestions_for_read_views(
     team: "Team", user: "User", saved_query_ids: Collection[str], *, is_mcp_run: bool
 ) -> list[WarehouseSuggestionNote] | None:
-    view_ids = _parse_ids(saved_query_ids)
-    if not view_ids or not is_warehouse_suggestions_enabled(team):
+    if not is_warehouse_suggestions_enabled(team):
         return None
-    if not _open_suggestions(team.pk, view_ids).exists():
+    view_ids = _parse_ids(saved_query_ids)
+    if not view_ids:
+        return []
+    open_suggestions = shown_suggestions(
+        team.pk, subject_kinds=VIEW_SUBJECT_KINDS, status=WarehouseSuggestionStatus.PROPOSED, subject_ids=view_ids
+    )
+    if not open_suggestions.filter(kind__in=NOTE_KINDS).exists():
         return []
     visible, access = visible_suggestions(
         team.pk,
@@ -89,16 +92,6 @@ def _parse_ids(saved_query_ids: Collection[str]) -> set[UUID]:
         except ValueError:
             continue
     return view_ids
-
-
-def _open_suggestions(team_id: int, view_ids: Collection[UUID]) -> QuerySet[WarehouseSuggestion]:
-    return WarehouseSuggestion.objects.for_team(team_id).filter(
-        subject_kind=WarehouseSuggestionSubjectKind.SAVED_QUERY,
-        subject_id__in=view_ids,
-        status=WarehouseSuggestionStatus.PROPOSED,
-        surfaced_at__isnull=False,
-        kind__in=NOTE_KINDS,
-    )
 
 
 def _payload(row: WarehouseSuggestion) -> SuggestionPayload | None:
@@ -183,15 +176,21 @@ def _freshness(payload: MaterializePayload, cadence: str) -> str:
 
 
 def _next_step(suggestion_id: UUID, url: str, *, can_act: bool, is_mcp_run: bool) -> str:
-    if not can_act:
-        return SHARE_STEP
     if not is_mcp_run:
-        return f"Review it at {url}"
+        return _app_step(url, can_act=can_act)
+    if not can_act:
+        return MCP_SHARE_STEP
     accept_tool = f"{ACCEPT_TOOL}{CONFIRMED_ACTION_PREPARE_SUFFIX}"
     return (
         f"If the person wants it, accept it with {accept_tool} (id {suggestion_id}) "
         f"or dismiss it with {DISMISS_TOOL}. Both need warehouse write scopes."
     )
+
+
+def _app_step(url: str, *, can_act: bool) -> str:
+    if can_act:
+        return f"Review it at {url}"
+    return f"Accepting it needs edit access to the view, so share {url} with someone who has it."
 
 
 def _about_duration(seconds: float) -> str:

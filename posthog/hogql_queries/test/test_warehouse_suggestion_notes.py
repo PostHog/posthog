@@ -5,13 +5,19 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.schema import TestBasicQueryResponse as TheTestBasicQueryResponse
+
+from posthog.hogql.query_stats import get_active
+
 from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.test.test_query_runner import (
     _calculate_recording_clickhouse_stats,
     _shared_link_user,
     setup_test_query_runner_class,
 )
+from posthog.hogql_queries.warehouse_suggestion_notes import MAX_READ_VIEWS
 
 from products.warehouse_suggestions.backend.facade.contracts import WarehouseSuggestionNote
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionKind
@@ -43,7 +49,7 @@ class TestWarehouseSuggestionNotes(BaseTest):
 
     @parameterized.expand(
         [
-            ("personal api key", {"access_method": AccessMethod.PERSONAL_API_KEY}),
+            ("mcp", {"source": EventSource.MCP}),
             ("posthog ai", {"product": Product.MAX_AI}),
         ]
     )
@@ -61,8 +67,10 @@ class TestWarehouseSuggestionNotes(BaseTest):
     @parameterized.expand(
         [
             ("web app session", {}, False),
-            ("shared link", {"access_method": AccessMethod.PERSONAL_API_KEY}, True),
-            ("endpoint", {"access_method": AccessMethod.PERSONAL_API_KEY, "product": Product.ENDPOINTS}, False),
+            ("personal api key script", {"access_method": AccessMethod.PERSONAL_API_KEY}, False),
+            ("shared link", {"product": Product.MAX_AI}, True),
+            ("endpoint", {"source": EventSource.MCP, "product": Product.ENDPOINTS}, False),
+            ("cache warming", {"product": Product.MAX_AI, "trigger": "warmingV2"}, False),
         ]
     )
     def test_non_agent_callers_get_no_notes(self, _name: str, tags: dict, shared_link: bool) -> None:
@@ -74,13 +82,40 @@ class TestWarehouseSuggestionNotes(BaseTest):
         assert props["warehouse_suggestions_skipped_reason"] == "not_agent"
         facade.assert_not_called()
 
-    def test_a_failed_lookup_keeps_the_query_and_reports_it(self) -> None:
-        with (
-            tags_context(access_method=AccessMethod.PERSONAL_API_KEY),
-            mock.patch(FACADE, side_effect=RuntimeError("suggestions unavailable")),
-        ):
+    @parameterized.expand(
+        [
+            ("failed lookup", {"side_effect": RuntimeError("suggestions unavailable")}, "failed"),
+            ("flag off", {"return_value": None}, "flag_off"),
+        ]
+    )
+    def test_a_lookup_without_notes_keeps_the_query_and_reports_why(
+        self, _name: str, facade_behavior: dict, reason: str
+    ) -> None:
+        with tags_context(product=Product.MAX_AI), mock.patch(FACADE, **facade_behavior):
             response, props = self._run(self.user)
 
         assert response.results == []
         assert response.warehouse_suggestions is None
-        assert props["warehouse_suggestions_skipped_reason"] == "failed"
+        assert props["warehouse_suggestions_skipped_reason"] == reason
+
+    def test_too_many_views_skips_the_lookup(self) -> None:
+        many_views = {f"view-{index}" for index in range(MAX_READ_VIEWS + 1)}
+
+        def calculate_reading_many_views(_self):
+            stats = get_active()
+            assert stats is not None
+            stats.add_reads(warehouse_table_ids=set(), saved_query_ids=many_views)
+            return TheTestBasicQueryResponse(results=[])
+
+        runner_class = setup_test_query_runner_class()
+        runner = runner_class(query={"some_attr": "bla"}, team=self.team)
+        with (
+            tags_context(product=Product.MAX_AI),
+            mock.patch(FACADE) as facade,
+            mock.patch.object(runner_class, "_calculate", autospec=True, side_effect=calculate_reading_many_views),
+            mock.patch(REPORT) as report,
+        ):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+
+        assert report.call_args.args[1]["warehouse_suggestions_skipped_reason"] == "too_many_views"
+        facade.assert_not_called()

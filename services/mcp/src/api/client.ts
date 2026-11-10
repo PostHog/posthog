@@ -183,15 +183,6 @@ export interface AccessControlFilterWarning {
     message: string
 }
 
-export interface WarehouseSuggestionNote {
-    id: string
-    kind: 'materialize' | 'unmaterialize'
-    view_name: string
-    message: string
-    url: string
-    can_act: boolean
-}
-
 export interface QueryEndpointResponse {
     results: unknown
     columns?: unknown
@@ -200,7 +191,7 @@ export interface QueryEndpointResponse {
     // serializes the field explicitly rather than omitting it. Carries both warehouse-sync
     // warnings and object-level access control warnings.
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
-    warehouse_suggestions?: WarehouseSuggestionNote[] | null
+    warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
 }
 
 export interface ApiConfig {
@@ -1705,7 +1696,7 @@ export class ApiClient {
                 columns?: unknown[] | null
                 formatted_results?: string
                 warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
-                warehouse_suggestions?: WarehouseSuggestionNote[] | null
+                warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
                 has_next?: boolean
                 next_cursor?: string | null
             }> => {
@@ -1714,7 +1705,7 @@ export class ApiClient {
                     columns?: unknown[] | null
                     formatted_results?: string
                     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
-                    warehouse_suggestions?: WarehouseSuggestionNote[] | null
+                    warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
                     has_next?: boolean
                     next_cursor?: string | null
                 }>({

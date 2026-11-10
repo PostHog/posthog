@@ -96,7 +96,7 @@ class TestSQLResultBudgets(SimpleTestCase):
             "results": [["x" * 2000] for _ in range(100)],
             "warehouse_suggestions": [
                 {"message": f"Materializing `view_{index}` would save time.", "url": f"https://example.com/{index}"}
-                for index in range(4)
+                for index in range(3)
             ],
         }
         if kind != "fallback":
@@ -122,8 +122,7 @@ class TestSQLResultBudgets(SimpleTestCase):
         if kind == "warnings":
             self.assertNotIn("Warehouse suggestions", result)
         else:
-            self.assertTrue(result.endswith("- +1 more: https://example.com/3"))
-            self.assertIn("`view_2`", result)
+            self.assertTrue(result.endswith("- Materializing `view_2` would save time."))
 
     def test_synchronous_execution_keeps_sql_budget(self) -> None:
         runner = AssistantQueryExecutor(

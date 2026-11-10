@@ -28,7 +28,7 @@ Its `evidence` has the read counts behind it.
 
 A query that reads a view can return its open suggestions without a separate call.
 The `/query` response, `execute-sql` and the typed query tools carry them in `warehouse_suggestions`, on fresh runs only.
-A cached result has none; run the query with `refresh: "force_blocking"` to see them again.
+A cached result has none. To see them again, call `warehouse-suggestions-list` with `status=proposed`, which runs no query.
 
 - Each item has `id`, `kind` (`materialize` or `unmaterialize`), `view_name`, `message`, `url` and `can_act`.
 - Mention them to the person. Do not accept or dismiss one unless the person asks.
