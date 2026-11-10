@@ -11,7 +11,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { Experiment, ExperimentStatus } from '~/types'
+import { AccessControlLevel, Experiment, ExperimentStatus } from '~/types'
 
 import type { ExperimentMetricsRecalculationRunApi } from 'products/experiments/frontend/generated/api.schemas'
 
@@ -461,6 +461,26 @@ describe('experimentMetricsLogic', () => {
             expect(capturedBody).toEqual({ trigger: 'cold_run' })
         })
 
+        it('starts no run and shows no error for a user without edit access who has no run to show', async () => {
+            const createMock = jest.fn(() => [201, completedRecalculation2])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+            logic = experimentMetricsLogic({
+                experiment: { ...EXPERIMENT, user_access_level: AccessControlLevel.Viewer } as Experiment,
+            })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['triggerRecalculation']).toFinishAllListeners()
+
+            expect(createMock).not.toHaveBeenCalled()
+            expect(logic.values.isRecalculating).toBe(false)
+            expect(lemonToast.error).not.toHaveBeenCalled()
+        })
+
         // Derive the extra metric from a real fixture metric so it stays fully typed; only the uuid differs.
         const experimentWithExtraMetric: Experiment = {
             ...EXPERIMENT,
@@ -722,10 +742,25 @@ describe('experimentMetricsLogic', () => {
             },
             {
                 name: 'refreshes a stopped experiment whose results stop well before the end date',
-                experiment: { ...EXPERIMENT, end_date: hoursAgo(24) } as Experiment,
+                experiment: {
+                    ...EXPERIMENT,
+                    end_date: hoursAgo(24),
+                    user_access_level: AccessControlLevel.Editor,
+                } as Experiment,
                 latest: { ...completedRecalculation, query_to: hoursAgo(40) },
                 loads: 1,
                 expectedTriggers: ['stale_refresh'],
+            },
+            {
+                name: 'does not refresh stale results for a user without edit access',
+                experiment: {
+                    ...EXPERIMENT,
+                    end_date: hoursAgo(24),
+                    user_access_level: AccessControlLevel.Viewer,
+                } as Experiment,
+                latest: { ...completedRecalculation, query_to: hoursAgo(40) },
+                loads: 1,
+                expectedTriggers: [],
             },
             {
                 name: 'does not refresh stale results on a paused experiment',

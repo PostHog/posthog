@@ -6,10 +6,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
-import { Experiment, ExperimentStatus } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Experiment, ExperimentStatus } from '~/types'
 import type { ExperimentIdType } from '~/types'
 
 import { getExperimentStatus, isLaunched } from 'products/experiments/frontend/experimentStatus'
@@ -200,6 +201,20 @@ const HEAL_TRIGGER_BY_RESULT_SOURCE = {
     recalculation: 'heal_latest_run',
     timeseries_fallback: 'cold_run',
 } as const satisfies Record<ResultSourceEnumApi, ExperimentMetricsRecalculationRequestTriggerEnumApi>
+
+/**
+ * The page starts these runs without a click. The recalculation endpoint requires edit access, so for a reader
+ * without it the request can only fail.
+ */
+const AUTOMATIC_TRIGGERS: ReadonlySet<ExperimentMetricsRecalculationRequestTriggerEnumApi> = new Set([
+    'cold_run',
+    'heal_latest_run',
+    'stale_refresh',
+])
+
+const userCanEdit = (experiment: Experiment): boolean =>
+    !experiment.user_access_level ||
+    accessLevelSatisfied(AccessControlResourceType.Experiment, experiment.user_access_level, AccessControlLevel.Editor)
 
 const recalculationHasGap = (experiment: Experiment, recalculation: RecalculationPayload): boolean => {
     if (
@@ -918,6 +933,9 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                  * run. Stopped experiments are allowed — they still need their final results computed.
                  */
                 if (!experimentIsLaunched()) {
+                    return
+                }
+                if (AUTOMATIC_TRIGGERS.has(trigger) && !userCanEdit(props.experiment)) {
                     return
                 }
                 /**
