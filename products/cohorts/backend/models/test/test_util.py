@@ -39,7 +39,7 @@ from posthog.settings import CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
 from posthog.test.persons import create_person
 
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
-from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortPopulationMode
 from products.cohorts.backend.models.util import (
     COHORT_QUERY_TIMEOUT_SECONDS,
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
@@ -1136,6 +1136,7 @@ class TestCohortUtils(BaseTest):
             name="replace",
             is_static=True,
             query={"kind": "HogQLQuery", "query": "SELECT id FROM persons WHERE properties.tag = 'in'"},
+            pending_population_mode=CohortPopulationMode.REPLACE,
         )
         cohort.insert_users_list_by_uuid([str(kept.uuid), str(stale.uuid)], team_id=self.team.pk)
         # A member whose person can't be resolved, as a person not yet on a replica would be.
@@ -1206,7 +1207,12 @@ class TestCohortUtils(BaseTest):
         self.assertEqual((removed, list_cohort_member_ids(self.team.pk, cohort.pk)), (0, [late.id]))
 
     def test_mint_population_marker_loses_to_a_newer_attempt(self):
-        cohort = Cohort.objects.create(team=self.team, name="replace", is_static=True)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="replace",
+            is_static=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+        )
         newer = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
         Cohort.objects.filter(pk=cohort.pk).update(population_marker=newer)
 
@@ -1215,7 +1221,12 @@ class TestCohortUtils(BaseTest):
         self.assertEqual(Cohort.objects.get(pk=cohort.pk).population_marker, newer)
 
     def test_mint_population_marker_refuses_rows_stamped_ahead_of_the_clock(self):
-        cohort = Cohort.objects.create(team=self.team, name="replace", is_static=True)
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="replace",
+            is_static=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+        )
         sync_execute(
             f"INSERT INTO {PERSON_STATIC_COHORT_TABLE} (id, person_id, cohort_id, team_id, _timestamp, _offset) VALUES",
             [
@@ -1232,6 +1243,18 @@ class TestCohortUtils(BaseTest):
 
         with self.assertRaises(PopulationMarkerClockSkew):
             mint_population_marker(cohort, team_id=self.team.pk)
+        self.assertIsNone(Cohort.objects.get(pk=cohort.pk).population_marker)
+
+    def test_mint_population_marker_refuses_cohort_whose_mode_is_no_longer_replace(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="replace",
+            is_static=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+        )
+        Cohort.objects.filter(pk=cohort.pk).update(pending_population_mode=None)
+
+        self.assertIsNone(mint_population_marker(cohort, team_id=self.team.pk))
         self.assertIsNone(Cohort.objects.get(pk=cohort.pk).population_marker)
 
     def test_insert_cohort_filter_actors_into_ch_sends_the_native_read_settings_for_a_switched_team(self):

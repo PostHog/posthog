@@ -62,7 +62,7 @@ from posthog.schema_enums import ChartDisplayType, ProductKey
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
-from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortPopulationMode
 from products.cohorts.backend.models.dependencies import get_cohort_dependents
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 from products.cohorts.backend.models.sql import GET_COHORT_SIZE_SQL, RECALCULATE_COHORT_BY_ID
@@ -129,7 +129,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.INCOMPATIBLE_TYPES: UNEXPECTED_ERROR_MESSAGE,
     CohortErrorCode.FLAG_CHANGED: "The feature flag changed while this cohort was being calculated. Please run the calculation again.",
     CohortErrorCode.FLAG_EVALUATION_FAILED: "We couldn't evaluate the feature flag for some people, so this cohort may be missing people who match it. Create a new cohort from the flag to try again.",
-    CohortErrorCode.EMPTY_REPLACE: "The replace was stopped because the query matched no persons. The cohort kept its existing members.",
+    CohortErrorCode.EMPTY_REPLACE: "The replace was stopped because the query matched no persons, so the cohort kept its existing members. Check the query for a typo, such as a misspelled property name.",
     CohortErrorCode.UNKNOWN: UNEXPECTED_ERROR_MESSAGE,
 }
 
@@ -1566,7 +1566,7 @@ class PopulationMarkerClockSkew(Exception):
 class PopulationEmptyResult(Exception):
     """A replace query matched nobody, so the run stops before the prune and the cohort keeps its members.
 
-    It's the user's outcome, not a fault: the run isn't retried, because the same query matches nobody again.
+    A refused run, not a system fault, so not sent to error tracking: the run isn't retried, because the same query matches nobody again.
     """
 
 
@@ -1619,7 +1619,7 @@ def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
         if marker <= floor:
             raise PopulationMarkerClockSkew(f"Cohort {cohort.pk} could not mint a marker after {floor.isoformat()}")
 
-    owned = Cohort.objects.filter(pk=cohort.pk)
+    owned = Cohort.objects.filter(pk=cohort.pk, pending_population_mode=CohortPopulationMode.REPLACE)
     owned = (
         owned.filter(population_marker=stored) if stored is not None else owned.filter(population_marker__isnull=True)
     )

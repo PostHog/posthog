@@ -545,80 +545,6 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             self.assertEqual(len(dynamic_reset_calls[0][1]["cohort_ids"]), MAX_STUCK_COHORTS_TO_RESET)
             self.assertEqual(dynamic_reset_calls[0][1]["count"], MAX_STUCK_COHORTS_TO_RESET)
 
-        @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
-        @patch("posthog.tasks.calculate_cohort.logger")
-        def test_reset_stuck_static_cohorts_retriggers_query(
-            self, mock_logger: MagicMock, mock_insert_cohort_from_query: MagicMock
-        ) -> None:
-            now = timezone.now()
-
-            # Create a stuck static cohort with a query, null last_calculation, created > 1 hour ago
-            stuck_static_cohort = Cohort.objects.create(
-                team_id=self.team.pk,
-                name="stuck_static_with_query",
-                last_calculation=None,
-                deleted=False,
-                is_calculating=True,
-                errors_calculating=0,
-                is_static=True,
-                query={
-                    "kind": "HogQLQuery",
-                    "query": "SELECT person_id FROM cohort_people WHERE cohort_id = 123",
-                },
-                pending_population_mode=CohortPopulationMode.REPLACE,
-                population_marker=now - relativedelta(hours=2),
-            )
-            # Set created_at to more than 1 hour ago (auto_now_add prevents setting on create)
-            Cohort.objects.filter(pk=stuck_static_cohort.pk).update(created_at=now - relativedelta(hours=2))
-
-            reset_stuck_cohorts()
-
-            stuck_static_cohort.refresh_from_db()
-            self.assertFalse(stuck_static_cohort.is_calculating)
-            self.assertEqual(stuck_static_cohort.errors_calculating, 1)
-            # The redispatched population needs the run fields to replace again.
-            self.assertEqual(stuck_static_cohort.pending_population_mode, CohortPopulationMode.REPLACE)
-            self.assertIsNotNone(stuck_static_cohort.population_marker)
-
-            # Verify insert_cohort_from_query was re-dispatched
-            mock_insert_cohort_from_query.delay.assert_called_with(stuck_static_cohort.pk, self.team.pk)
-
-        @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
-        @patch("posthog.tasks.calculate_cohort.logger")
-        def test_reset_stuck_static_cohorts_stops_after_max_errors(
-            self, mock_logger: MagicMock, mock_insert_cohort_from_query: MagicMock
-        ) -> None:
-            now = timezone.now()
-
-            # Create a stuck static cohort that has already hit MAX_ERRORS_CALCULATING
-            stuck_static_cohort = Cohort.objects.create(
-                team_id=self.team.pk,
-                name="stuck_static_max_errors",
-                last_calculation=None,
-                deleted=False,
-                is_calculating=True,
-                errors_calculating=MAX_ERRORS_CALCULATING,
-                is_static=True,
-                query={
-                    "kind": "HogQLQuery",
-                    "query": "SELECT person_id FROM cohort_people WHERE cohort_id = 123",
-                },
-                pending_population_mode=CohortPopulationMode.REPLACE,
-                population_marker=now - relativedelta(hours=2),
-            )
-            # Set created_at to more than 1 hour ago
-            Cohort.objects.filter(pk=stuck_static_cohort.pk).update(created_at=now - relativedelta(hours=2))
-
-            reset_stuck_cohorts()
-
-            stuck_static_cohort.refresh_from_db()
-            self.assertFalse(stuck_static_cohort.is_calculating)
-            mock_insert_cohort_from_query.delay.assert_not_called()
-            # Nothing will run the replace now, so a later edit must not inherit it.
-            self.assertEqual(
-                (stuck_static_cohort.pending_population_mode, stuck_static_cohort.population_marker), (None, None)
-            )
-
         @patch("posthog.tasks.calculate_cohort.increment_version_and_enqueue_calculate_cohort")
         @patch("posthog.tasks.calculate_cohort.logger")
         def test_enqueue_cohorts_logs_correctly(self, mock_logger: MagicMock, mock_increment: MagicMock) -> None:
@@ -1787,6 +1713,9 @@ class TestCohortCalculationTasks(APIBaseTest):
             ("replace_superseded_mid_run", CohortPopulationMode.REPLACE),
             # A redispatched replace took the cohort over just before this append finalized.
             ("append_overtaken_before_finalize", CohortPopulationMode.APPEND),
+            # The sweep reset took the cohort mid-run: it cleared the marker and released is_calculating,
+            # but preserved the mode for the redispatch. The old worker must finalize nothing and leave the mode.
+            ("sweep_reset_mid_run", CohortPopulationMode.REPLACE),
         ]
     )
     def test_query_population_overtaken_mid_run_finalizes_nothing(self, _name: str, mode: CohortPopulationMode) -> None:
@@ -1800,20 +1729,33 @@ class TestCohortCalculationTasks(APIBaseTest):
         )
         newer_marker = timezone.now().replace(microsecond=0) + timedelta(minutes=5)
 
-        def newer_attempt_takes_over(*args: Any, **kwargs: Any) -> int:
-            Cohort.objects.filter(pk=cohort.pk).update(
-                pending_population_mode=CohortPopulationMode.REPLACE, population_marker=newer_marker
-            )
+        def attempt_takes_over(*args: Any, **kwargs: Any) -> int:
+            if _name == "sweep_reset_mid_run":
+                with (
+                    time_machine.travel(timezone.now() + relativedelta(hours=2), tick=False),
+                    patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay") as mock_delay,
+                ):
+                    reset_stuck_cohorts()
+                    mock_delay.assert_called_once_with(cohort.pk, self.team.pk)
+            else:
+                Cohort.objects.filter(pk=cohort.pk).update(
+                    pending_population_mode=CohortPopulationMode.REPLACE, population_marker=newer_marker
+                )
             return 1
 
-        with patch(QUERY_CH_INSERT_PATH, return_value=1), patch(PG_SYNC_PATH, side_effect=newer_attempt_takes_over):
+        with patch(QUERY_CH_INSERT_PATH, return_value=1), patch(PG_SYNC_PATH, side_effect=attempt_takes_over):
             insert_cohort_from_query(cohort.id, self.team.pk)
 
         cohort.refresh_from_db()
-        # The newer attempt still holds the cohort: nothing was released or cleared under it.
+        expected = (
+            (False, CohortPopulationMode.REPLACE, None)
+            if _name == "sweep_reset_mid_run"
+            else (True, CohortPopulationMode.REPLACE, newer_marker)
+        )
+        # The overtaking attempt or sweep still holds the cohort: nothing was released or cleared under it.
         self.assertEqual(
             (cohort.is_calculating, cohort.pending_population_mode, cohort.population_marker),
-            (True, CohortPopulationMode.REPLACE, newer_marker),
+            expected,
         )
         # And no error row is left to show a failure banner on a cohort that never failed.
         self.assertFalse(CohortCalculationHistory.objects.filter(cohort=cohort, error_code__isnull=False).exists())
@@ -1902,13 +1844,23 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort.refresh_from_db()
         history = CohortCalculationHistory.objects.filter(cohort=cohort).latest("started_at")
         self.assertEqual(list_cohort_member_ids(team_id=self.team.pk, cohort_id=cohort.pk), [member.id])
-        # Refused, not retried: the run ends, and the user sees why on the cohort.
+        # Refused, not retried: the run ends, counts as a failed calculation so the user sees why on the cohort,
+        # but does not send to error tracking.
         self.assertEqual(
-            (cohort.is_calculating, cohort.pending_population_mode, cohort.population_marker, history.error_code),
-            (False, None, None, "empty_replace"),
+            (
+                cohort.is_calculating,
+                cohort.pending_population_mode,
+                cohort.population_marker,
+                cohort.errors_calculating,
+                history.error_code,
+            ),
+            (False, None, None, 1, "empty_replace"),
         )
-        assert history.error is not None
-        self.assertIn("kept its existing members", history.error)
+        self.assertEqual(
+            history.error,
+            "The replace was stopped because the query matched no persons, so the cohort kept its existing members. "
+            "Check the query for a typo, such as a misspelled property name.",
+        )
 
     @parameterized.expand(
         [
@@ -1932,6 +1884,81 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort.refresh_from_db()
         self.assertTrue(cohort.is_calculating)
         self.assertIsNone(cohort.last_calculation)
+
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
+    @patch("posthog.tasks.calculate_cohort.logger")
+    def test_reset_stuck_static_cohorts_retriggers_query(
+        self, mock_logger: MagicMock, mock_insert_cohort_from_query: MagicMock
+    ) -> None:
+        now = timezone.now()
+
+        # Create a stuck static cohort with a query, null last_calculation, created > 1 hour ago
+        stuck_static_cohort = Cohort.objects.create(
+            team_id=self.team.pk,
+            name="stuck_static_with_query",
+            last_calculation=None,
+            deleted=False,
+            is_calculating=True,
+            errors_calculating=0,
+            is_static=True,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT person_id FROM cohort_people WHERE cohort_id = 123",
+            },
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_marker=now - relativedelta(hours=2),
+        )
+        # Set created_at to more than 1 hour ago (auto_now_add prevents setting on create)
+        Cohort.objects.filter(pk=stuck_static_cohort.pk).update(created_at=now - relativedelta(hours=2))
+
+        reset_stuck_cohorts()
+
+        stuck_static_cohort.refresh_from_db()
+        self.assertFalse(stuck_static_cohort.is_calculating)
+        self.assertEqual(stuck_static_cohort.errors_calculating, 1)
+        # The sweep clears the marker so a stale in-flight worker's finalize loses the fence,
+        # but preserves the mode so the redispatched run still replaces and mints a fresh marker.
+        self.assertEqual(stuck_static_cohort.pending_population_mode, CohortPopulationMode.REPLACE)
+        self.assertIsNone(stuck_static_cohort.population_marker)
+
+        # Verify insert_cohort_from_query was re-dispatched
+        mock_insert_cohort_from_query.delay.assert_called_with(stuck_static_cohort.pk, self.team.pk)
+
+    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
+    @patch("posthog.tasks.calculate_cohort.logger")
+    def test_reset_stuck_static_cohorts_stops_after_max_errors(
+        self, mock_logger: MagicMock, mock_insert_cohort_from_query: MagicMock
+    ) -> None:
+        now = timezone.now()
+
+        # Create a stuck static cohort that has already hit MAX_ERRORS_CALCULATING
+        stuck_static_cohort = Cohort.objects.create(
+            team_id=self.team.pk,
+            name="stuck_static_max_errors",
+            last_calculation=None,
+            deleted=False,
+            is_calculating=True,
+            errors_calculating=MAX_ERRORS_CALCULATING,
+            is_static=True,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT person_id FROM cohort_people WHERE cohort_id = 123",
+            },
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_marker=now - relativedelta(hours=2),
+        )
+        # Set created_at to more than 1 hour ago
+        Cohort.objects.filter(pk=stuck_static_cohort.pk).update(created_at=now - relativedelta(hours=2))
+
+        reset_stuck_cohorts()
+
+        stuck_static_cohort.refresh_from_db()
+        self.assertFalse(stuck_static_cohort.is_calculating)
+        mock_insert_cohort_from_query.delay.assert_not_called()
+        # Nothing will run the replace now, so a later edit must not inherit it.
+        self.assertEqual(
+            (stuck_static_cohort.pending_population_mode, stuck_static_cohort.population_marker), (None, None)
+        )
 
     @parameterized.expand(
         [
