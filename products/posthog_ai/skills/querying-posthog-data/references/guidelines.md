@@ -167,6 +167,16 @@ SELECT type_name, description FROM system.information_schema.data_types
 
 `information_schema` covers table and column **structure**. To verify which events, properties, and property values actually exist in captured data, use `read-data-schema` (see **Schema verification** below).
 
+#### Late certified views
+
+A `certified` mark says that a table or view is correct. It does not say that the data is current. A materialized view stores its result and refreshes on a schedule, so a query reads the stored result, not the view's sources.
+
+When a materialized view is more than twice its refresh interval behind, or its latest refresh failed, the query result carries a `warehouse_sync` warning. The warning names the view and gives its last successful refresh. The view stays certified. Do not drop it for that reason alone:
+
+- If the question covers a period that ends before the last refresh, use the view.
+- If the question needs data newer than the last refresh, tell the user. Query the view's sources instead when the user needs current numbers.
+- In both cases, tell the user that the view is certified and when it last refreshed, for example "certified, last refreshed 3 days ago".
+
 #### Querying guidelines
 
 ##### Schema verification

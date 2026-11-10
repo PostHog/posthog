@@ -6,11 +6,13 @@ function. Every seeder returns the identities and trust signals its scorers grad
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from unittest.mock import patch
 
 from django.db import transaction
+from django.utils import timezone
 
 from posthog.hogql.query import execute_hogql_query
 
@@ -85,6 +87,15 @@ from products.data_catalog.evals.constants import (
     INVOICE_LINES_ROWS,
     INVOICE_LINES_SCHEMA_NAME,
     INVOICE_LINES_TABLE_NAME,
+    LATE_VIEW_BACKING_SCHEMA_NAME,
+    LATE_VIEW_BACKING_TABLE_NAME,
+    LATE_VIEW_HISTORY_DAYS,
+    LATE_VIEW_NAME,
+    LATE_VIEW_REFRESHED_DAYS_AGO,
+    LATE_VIEW_SOURCE_SCHEMA_NAME,
+    LATE_VIEW_SOURCE_TABLE_NAME,
+    LATE_VIEW_SQL,
+    LATE_VIEW_YESTERDAY_SIGNUPS,
     LONG_SERIES_METRIC_DEFINITION,
     LONG_SERIES_METRIC_DESCRIPTION,
     LONG_SERIES_METRIC_DISPLAY_NAME,
@@ -145,9 +156,13 @@ from products.data_catalog.evals.constants import (
     YOY_MRR_GROWTH_METRIC_DESCRIPTION,
     YOY_MRR_GROWTH_METRIC_DISPLAY_NAME,
     YOY_MRR_GROWTH_METRIC_NAME,
+    late_view_signups_on,
 )
 from products.data_modeling.backend.facade import api as modeling_api
 from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobStatus,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
 )
@@ -181,6 +196,7 @@ __all__ = [
     "seed_failing_top_customers_metric",
     "seed_instruction_like_column_annotation",
     "seed_instruction_like_relationship_context",
+    "seed_late_certified_view",
     "seed_metric_listing_catalog",
     "seed_mcp_tool_call_fail_pct_metric",
     "seed_mismatched_drifted_metric",
@@ -843,6 +859,88 @@ def seed_instruction_like_column_annotation(context: CustomPromptSandboxContext)
         descriptions={"status": INJECTION_LEDGER_STATUS_DESCRIPTION},
     )
     return {"annotated_view": {"name": INJECTION_LEDGER_VIEW_NAME}}
+
+
+def seed_late_certified_view(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    today = timezone.now().date()
+
+    def day(days_ago: int) -> str:
+        return (today - timedelta(days=days_ago)).isoformat()
+
+    _synced_table(
+        team,
+        user,
+        source_type=ExternalDataSourceType.POSTGRES,
+        schema_name=LATE_VIEW_SOURCE_SCHEMA_NAME,
+        table_name=LATE_VIEW_SOURCE_TABLE_NAME,
+        columns={"signup_id": _INTEGER_COLUMN, "signup_date": _STRING_COLUMN},
+        rows=tuple(
+            (days_ago * 100 + n, day(days_ago))
+            for days_ago in range(1, LATE_VIEW_HISTORY_DAYS + 1)
+            for n in range(late_view_signups_on(days_ago))
+        ),
+        descriptions={},
+    )
+    backing = _synced_table(
+        team,
+        user,
+        source_type=ExternalDataSourceType.POSTGRES,
+        schema_name=LATE_VIEW_BACKING_SCHEMA_NAME,
+        table_name=LATE_VIEW_BACKING_TABLE_NAME,
+        columns={"day": _STRING_COLUMN, "signups": _INTEGER_COLUMN},
+        rows=tuple(
+            (day(days_ago), late_view_signups_on(days_ago))
+            for days_ago in range(LATE_VIEW_REFRESHED_DAYS_AGO + 1, LATE_VIEW_HISTORY_DAYS + 1)
+        ),
+        descriptions={},
+    )
+    # A materialized view's table belongs to the view, not to a source, so it must not carry source sync state.
+    backing_table = DataWarehouseTable.objects.get(team=team, id=backing.table_id)
+    backing_source = backing_table.external_data_source
+    backing_table.external_data_source = None
+    backing_table.save(update_fields=["external_data_source"])
+    if backing_source is not None:
+        backing_source.schemas.all().delete()
+        backing_source.delete()
+
+    view = DataWarehouseSavedQuery.objects.create(
+        team=team,
+        created_by=user,
+        name=LATE_VIEW_NAME,
+        columns={"day": _STRING_COLUMN, "signups": _INTEGER_COLUMN},
+        query={"kind": "HogQLQuery", "query": LATE_VIEW_SQL},
+        table=backing_table,
+        is_materialized=True,
+        status=DataWarehouseSavedQuery.Status.COMPLETED,
+    )
+    # No reconcile: a real refresh schedule could refresh the view mid-case and make it current.
+    with transaction.atomic():
+        node = modeling_api.sync_saved_query_to_dag(view, reconcile=False)
+    if node is None:
+        raise RuntimeError(f"Seeded view '{LATE_VIEW_NAME}' did not get a DAG node.")
+    modeling_api.set_declared_target(node, timedelta(days=1))
+    DataModelingJob.objects.create(
+        team=team,
+        saved_query=view,
+        status=DataModelingJobStatus.COMPLETED,
+        engine=DataModelingJobEngine.CLICKHOUSE,
+        last_run_at=timezone.now() - timedelta(days=LATE_VIEW_REFRESHED_DAYS_AGO),
+    )
+    certify(propose_certification(team=team, user=user, saved_query_id=str(view.id)), user)
+
+    # Without the warning the case cannot tell an agent that ignored it from one that never got it.
+    response = execute_hogql_query(f"SELECT count() FROM {LATE_VIEW_NAME}", team=team, user=user)
+    if not any(w.type == "warehouse_sync" and w.table_name == LATE_VIEW_NAME for w in response.warnings or []):
+        raise RuntimeError(f"Seeded view '{LATE_VIEW_NAME}' did not raise a freshness warning.")
+    return {
+        "late_certified_view": {
+            "view": LATE_VIEW_NAME,
+            "source_table": LATE_VIEW_SOURCE_TABLE_NAME,
+            "refreshed_days_ago": LATE_VIEW_REFRESHED_DAYS_AGO,
+            "yesterday_signups": LATE_VIEW_YESTERDAY_SIGNUPS,
+        }
+    }
 
 
 def seed_synced_invoices_table(context: CustomPromptSandboxContext) -> dict[str, Any]:
