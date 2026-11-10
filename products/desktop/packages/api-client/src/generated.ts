@@ -10170,6 +10170,7 @@ export namespace Schemas {
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
      * * `flag_shared` - Flag Shared
+     * * `stale_experiment` - Stale Experiment
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -10197,7 +10198,8 @@ export namespace Schemas {
         | "new_flag_no_traffic"
         | "early_significance"
         | "metrics_not_matured"
-        | "flag_shared";
+        | "flag_shared"
+        | "stale_experiment";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -10216,6 +10218,8 @@ export namespace Schemas {
      * * `add_secondary_metric` - Add Secondary Metric
      * * `edit_exposure_criteria` - Edit Exposure Criteria
      * * `edit_release_conditions` - Edit Release Conditions
+     * * `end_experiment` - End Experiment
+     * * `freeze_exposure` - Freeze Exposure
      */
     export type ExperimentHealthFindingActionKindEnum =
         | "open_feature_flag"
@@ -10225,7 +10229,9 @@ export namespace Schemas {
         | "add_primary_metric"
         | "add_secondary_metric"
         | "edit_exposure_criteria"
-        | "edit_release_conditions";
+        | "edit_release_conditions"
+        | "end_experiment"
+        | "freeze_exposure";
     /**
      * * `flag_state` - Flag State
      * * `flag_shared` - Flag Shared
@@ -10245,6 +10251,7 @@ export namespace Schemas {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `stale_experiment` - Stale Experiment
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
@@ -10271,6 +10278,7 @@ export namespace Schemas {
         | "exposure_filters"
         | "early_significance"
         | "metrics_not_matured"
+        | "stale_experiment"
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
         | "srm"
@@ -10307,6 +10315,7 @@ export namespace Schemas {
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
          * * `flag_shared` - Flag Shared
+         * * `stale_experiment` - Stale Experiment
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -10366,6 +10375,7 @@ export namespace Schemas {
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `stale_experiment` - Stale Experiment
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `srm` - Srm
@@ -10547,6 +10557,7 @@ export namespace Schemas {
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `stale_experiment` - Stale Experiment
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `srm` - Srm
