@@ -599,6 +599,8 @@ def _get_action_step_properties(action_id: int, project_id: int) -> list[list[di
 def extract_query_metadata(
     query: dict[str, Any] | BaseModel | None,
     team: Team,
+    *,
+    include_properties: bool = True,
 ) -> InsightQueryMetadata:
     """
     Extracts metadata from a given query: the events and the properties it references.
@@ -606,6 +608,7 @@ def extract_query_metadata(
     Args:
         query (dict) | BaseModel | None: The query to extract metadata from. If None, returns an empty metadata object.
         team (Team): The team associated with the query.
+        include_properties (bool): Whether to extract the referenced properties. When False, properties is empty.
 
     Returns:
         InsightQueryMetadata: An object containing the query metadata
@@ -616,6 +619,10 @@ def extract_query_metadata(
     hogql_references = HogQLReferenceExtractor()
     events_extractor = QueryEventsExtractor(team=team, hogql_references=hogql_references)
     events = sorted(events_extractor.extract_events(query=query))[:MAX_EVENTS_PER_QUERY_METADATA]
-    properties = QueryPropertiesExtractor(team=team, hogql_references=hogql_references).extract_properties(query=query)
+    properties = (
+        QueryPropertiesExtractor(team=team, hogql_references=hogql_references).extract_properties(query=query)
+        if include_properties
+        else []
+    )
 
     return InsightQueryMetadata(events=events, properties=properties, updated_at=now())

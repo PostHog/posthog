@@ -9,6 +9,10 @@ from posthog.utils import cast_timestamp_or_now
 EVENT_USAGE_APP_SOURCE = "event_usage"
 PROPERTY_USAGE_APP_SOURCE = "property_usage"
 
+# Turns property extraction and logging on the query path on and off per team, so it can roll out
+# gradually and be switched off without a deploy. Event usage logging does not depend on it.
+PROPERTY_USAGE_TRACKING_FLAG = "property-usage-tracking"
+
 # A single query can reference very many events or properties (wide HogQL selects, long `event IN (...)`
 # lists). Cap what one execution logs so a pathological query can't flood app_metrics2.
 MAX_EVENTS_LOGGED_PER_QUERY = 50
@@ -97,6 +101,7 @@ def log_event_usage_from_query_metadata(
     query_metadata: dict[str, Any],
     team_id: int,
     user_id: Optional[int] = None,
+    log_properties: bool = True,
 ):
     """
     Logs event and property usage from query metadata.
@@ -105,6 +110,7 @@ def log_event_usage_from_query_metadata(
         query_metadata: The query metadata containing events and properties.
         team_id: The ID of the team.
         user_id: The ID of the user. If not provided, defaults to "anonymous".
+        log_properties: Whether to log the property references. Events are always logged.
     """
     if not query_metadata or not isinstance(query_metadata, dict):
         return
@@ -125,6 +131,8 @@ def log_event_usage_from_query_metadata(
             # fail silently
             capture_exception(e)
 
+    if not log_properties:
+        return
     properties = query_metadata.get("properties") or []
     if not isinstance(properties, list):
         return
