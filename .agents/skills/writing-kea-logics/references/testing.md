@@ -63,10 +63,23 @@ await expectLogic(logic, () => {
     fooLoading: false,
   })
 
-// Assert an action did NOT fire
+// Assert a no-op: no request reached the MSW fake and the values did not change
+let requests = 0
+useMocks({
+  get: {
+    '/api/projects/:team_id/foos/': () => {
+      requests += 1
+      return [200, { results: [] }]
+    },
+  },
+})
+const { results } = logic.values
 await expectLogic(logic, () => {
   logic.actions.setQuery(logic.values.query) // same value, should be a no-op
-}).toNotHaveDispatchedActions(['loadResults'])
+})
+  .toFinishAllListeners()
+  .toMatchValues({ results })
+expect(requests).toBe(0)
 
 // Router-driven action
 import { router } from 'kea-router'
@@ -124,18 +137,18 @@ describe.each([
 })
 ```
 
-## Mocking non-HTTP async work
+## Loaders behind a helper
 
-For loaders backed by code that isn't an HTTP call (e.g. `performQuery`,
-`api.foos.bar` helpers that wrap multiple calls), use `jest.mock` at the top of the
-file — jest hoists these above imports:
+Helpers such as `performQuery`, or an `api.foos.bar` helper that wraps several calls, still end in HTTP requests.
+Serve those requests from MSW with the response shape the endpoint returns.
+Don't `jest.mock` the helper: the test then skips the request the logic builds, so it passes when that request is wrong.
 
 ```ts
-jest.mock('~/queries/query', () => ({
-  __esModule: true,
-  ...jest.requireActual('~/queries/query'),
-  performQuery: jest.fn().mockResolvedValue({ result: [] }),
-}))
+useMocks({
+  post: {
+    '/api/environments/:team_id/query/:kind': () => [200, { results: [['2026-01-01', 3]], columns: ['day', 'count'] }],
+  },
+})
 ```
 
 ## Intentional loader failures
