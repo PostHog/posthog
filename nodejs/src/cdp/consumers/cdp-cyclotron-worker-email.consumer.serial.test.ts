@@ -4,7 +4,7 @@ import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
 import { AddressInfo, Socket, connect, createServer } from 'node:net'
-import { Pool } from 'pg'
+import { Client, Pool } from 'pg'
 import { Histogram, register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -20,7 +20,6 @@ import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { CyclotronV2Manager } from '~/cdp/services/cyclotron-v2'
 import { createHogFlowInvocation } from '~/cdp/services/hogflows/hogflow-executor.service'
-import { HogFlowManagerService } from '~/cdp/services/hogflows/hogflow-manager.service'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { CONSUMER_STOP_DEADLINE_MS, CyclotronJobQueuePostgresV2 } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { LONGEST_WAIT_FOR_ROOM_MS } from '~/cdp/services/messaging/attachment-horizon'
@@ -34,6 +33,7 @@ import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueue
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresRouter } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -251,7 +251,9 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     let integration: { id: number }
     let template: { template_id: string }
     let backToRealClock: () => void = () => undefined
-    let workflowLookupSpy: jest.SpyInstance | undefined
+    let posthogDb: Pool
+    let workflowTableHolders: Client[]
+    let routers: PostgresRouter[]
 
     const roomFor = (sends: number): InFlightLimits => ({
         budgetBytes: sends * estimateSend(invoice.metadata.sizeBytes).reservedBytes,
@@ -262,10 +264,11 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     beforeAll(async () => {
         hub = await createHub()
         db = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+        posthogDb = new Pool({ connectionString: hub.DATABASE_URL })
     })
 
     afterAll(async () => {
-        await db.end()
+        await Promise.all([db.end(), posthogDb.end()])
         await closeHub(hub)
     })
 
@@ -273,6 +276,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         queueName = `email-worker-test-${randomUUID()}`
         recipient = `${randomUUID()}@example.com`
         workers = []
+        workflowTableHolders = []
+        routers = []
         team = (await createTestTeamFixture(hub.postgres)).team
         ses = await SesV2Fake.start()
         bucket = await BucketProxy.start()
@@ -315,11 +320,11 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
 
     afterEach(async () => {
         backToRealClock()
-        workflowLookupSpy?.mockRestore()
-        workflowLookupSpy = undefined
+        await Promise.all(workflowTableHolders.map((holder) => holder.end()))
         cyclotron.releaseAll()
         bucket.release('refuse')
         await Promise.all(workers.map((worker) => worker.stop()))
+        await Promise.all(routers.map((router) => router.end()))
         await producer.stopProducer()
         await Promise.all([bucket.close(), ses.close(), cyclotron.close()])
         await db.query('DELETE FROM cyclotron_jobs WHERE queue_name = $1 OR queue_name LIKE $2', [
@@ -375,7 +380,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
 
     async function startWorker(
         limits: InFlightLimits | null,
-        sesClient: SESv2Client = ses.client()
+        sesClient: SESv2Client = ses.client(),
+        postgres: PostgresRouter = hub.postgres
     ): Promise<CdpCyclotronWorkerEmail> {
         const config = {
             ...hub,
@@ -388,7 +394,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         }
         const worker = new CdpCyclotronWorkerEmail(
             config,
-            createCdpConsumerDeps(hub),
+            { ...createCdpConsumerDeps(hub), postgres },
             new EmailQueueOfOneTest(queueName, config),
             new InFlightRegistry(limits, () => 0)
         )
@@ -563,14 +569,14 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             send: 'an admitted send with files',
             wait: 'its result write',
             room: 1,
-            hold: (id: string) => cyclotron.hold(writeOf(completes, id)),
+            hold: (id: string) => Promise.resolve({ caught: cyclotron.hold(writeOf(completes, id)) }),
             after: 'completed',
         },
         {
             send: 'a deferred send with files',
             wait: 'its deferral write',
             room: 0,
-            hold: (id: string) => cyclotron.hold(writeOf(defers, id)),
+            hold: (id: string) => Promise.resolve({ caught: cyclotron.hold(writeOf(defers, id)) }),
             after: 'available',
         },
         {
@@ -582,18 +588,18 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         },
     ])('renews the lease of $send while $wait waits', async ({ room, hold, after }) => {
         const send = transactionalSend([invoice.metadata])
-        const held = hold(send.id)
+        const { caught } = await hold(send.id)
         await enqueue(send)
         await startWorker(roomFor(room))
 
-        const write = await held
+        const write = await caught
         const { lease } = await jobRow(send.id)
         expect(lease).not.toBeNull()
         await waitForExpect(async () => expect((await jobRow(send.id)).lease).toBeGreaterThan(lease!))
         const renewed = (await jobRow(send.id)).lease!
         await waitForExpect(async () => expect((await jobRow(send.id)).lease).toBeGreaterThan(renewed))
 
-        write.release()
+        await write.release()
         await waitForExpect(async () => expect((await jobRow(send.id)).status).toBe(after))
     })
 
@@ -780,24 +786,41 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         })
     })
 
-    function holdWorkflowLookup(): Promise<{ release: () => void }> {
-        const lookup = HogFlowManagerService.prototype.getHogFlowsCheckingPrimaryOnMiss
-        return new Promise((held) => {
-            workflowLookupSpy = jest
-                .spyOn(HogFlowManagerService.prototype, 'getHogFlowsCheckingPrimaryOnMiss')
-                .mockImplementationOnce(function (this: HogFlowManagerService, ids) {
-                    return new Promise((resolve) => held({ release: () => resolve(lookup.call(this, ids)) }))
-                })
-        })
+    async function lockWorkflowTable(): Promise<Client> {
+        const holder = new Client({ connectionString: hub.DATABASE_URL })
+        await holder.connect()
+        workflowTableHolders.push(holder)
+        await holder.query('BEGIN')
+        await holder.query('LOCK TABLE posthog_hogflow IN ACCESS EXCLUSIVE MODE')
+        return holder
     }
 
-    const failWorkflowLookups = (): void => {
-        const lookup = HogFlowManagerService.prototype.getHogFlowsCheckingPrimaryOnMiss
-        workflowLookupSpy = jest
-            .spyOn(HogFlowManagerService.prototype, 'getHogFlowsCheckingPrimaryOnMiss')
-            .mockImplementation(function (this: HogFlowManagerService, ids) {
-                return ids.length > 0 ? Promise.reject(new Error('workflow lookup failed')) : lookup.call(this, ids)
-            })
+    const workflowLookupWaits = (): Promise<void> =>
+        waitForExpect(async () => {
+            const { rows } = await posthogDb.query(
+                `SELECT count(*)::int AS waiting FROM pg_locks WHERE relation = 'posthog_hogflow'::regclass AND NOT granted`
+            )
+            expect(rows[0].waiting).toBeGreaterThan(0)
+        })
+
+    async function holdWorkflowLookup(): Promise<{ caught: Promise<{ release: () => Promise<unknown> }> }> {
+        const holder = await lockWorkflowTable()
+        return { caught: workflowLookupWaits().then(() => ({ release: () => holder.query('COMMIT') })) }
+    }
+
+    function postgresThatStopsWaitingOnLocks(): PostgresRouter {
+        const withLockTimeout = (connection: string): string => {
+            const url = new URL(connection)
+            url.searchParams.set('options', '-c lock_timeout=100')
+            return url.toString()
+        }
+        const router = new PostgresRouter({
+            ...hub,
+            DATABASE_URL: withLockTimeout(hub.DATABASE_URL),
+            DATABASE_READONLY_URL: hub.DATABASE_READONLY_URL && withLockTimeout(hub.DATABASE_READONLY_URL),
+        })
+        routers.push(router)
+        return router
     }
 
     const waitedTooLong = (): Partial<CyclotronJobInvocation> => ({
@@ -851,7 +874,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         async ({ room, overrides, cancel, lookupsFail, status, emailStatus }) => {
             const [id] = await enqueue(transactionalSend([invoice.metadata], overrides()))
             if (lookupsFail) {
-                failWorkflowLookups()
+                await lockWorkflowTable()
             }
             if (cancel) {
                 const manager = new CyclotronV2Manager({ pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! } })
@@ -859,7 +882,11 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 await manager.cancelJobs({ teamId: team.id, functionId: hogFlow.id, jobIds: [id] })
                 await manager.disconnect()
             }
-            await startWorker(room === null ? null : roomFor(room))
+            await startWorker(
+                room === null ? null : roomFor(room),
+                ses.client(),
+                lookupsFail ? postgresThatStopsWaitingOnLocks() : hub.postgres
+            )
 
             expect(await ended(id)).toBe(status)
             await waitForExpect(() => expect(emailStatusOf(id)).toEqual(emailStatus))
