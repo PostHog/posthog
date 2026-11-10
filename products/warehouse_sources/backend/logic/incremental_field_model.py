@@ -8,14 +8,15 @@ keeps the rule-based order.
 """
 
 import json
+import asyncio
 import hashlib
 from collections.abc import Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 from django.core.cache import cache
 
 import structlog
+from asgiref.sync import async_to_sync
 
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import team_distinct_id
@@ -31,7 +32,8 @@ from posthog.llm.system_one import (
 from posthog.llm.system_one_client import (
     GATEWAY_MAX_CHOICE_OPTIONS,
     GATEWAY_MAX_QUESTIONS,
-    SystemOneClient,
+    GatewaySystemOneClient,
+    TypeSafeSystemOneClient,
     build_system_one_client,
     system_one_configured,
 )
@@ -50,7 +52,8 @@ FEATURE_FLAG = "warehouse-incremental-field-model"
 AI_PRODUCT = "warehouse_sources"
 MODEL = DEFAULT_DECISION_MODEL
 PROMPT_VERSION = 1
-# Both endpoints block a person's screen, so a late answer is worth less than the rule-based one.
+# Both endpoints block a person's screen, so a late answer is worth less than the rule-based one. The
+# client timeout applies per connect or read, so the same value also caps all requests together.
 TIMEOUT_SECONDS = 3.0
 MIN_CONFIDENCE = 0.6
 MAX_REQUESTS = 4
@@ -101,10 +104,10 @@ def _recommend(schemas: Sequence[SourceSchema], team: "Team") -> None:
             timeout=TIMEOUT_SECONDS,
             privacy_mode=True,
         )
-        answers: dict[int, str] = {}
-        with ThreadPoolExecutor(max_workers=len(batches)) as executor:
-            for answered in executor.map(lambda batch: _ask(client, [(i, pending[i]) for i in batch]), batches):
-                answers.update(answered or {})
+        # No TypeSafe fallback is passed, so the client is always the gateway one.
+        if isinstance(client, TypeSafeSystemOneClient):
+            return
+        answers = async_to_sync(_ask_all)(client, [[(i, pending[i]) for i in batch] for batch in batches])
         picks.update({index: field_name for index, field_name in answers.items() if field_name})
         _cache_set_many({keys[index]: field_name for index, field_name in answers.items()})
 
@@ -172,7 +175,22 @@ def _table_state(schema: SourceSchema) -> dict[str, JsonValue]:
     }
 
 
-def _ask(client: SystemOneClient, tables: list[tuple[int, SourceSchema]]) -> Mapping[int, str] | None:
+async def _ask_all(client: GatewaySystemOneClient, batches: list[list[tuple[int, SourceSchema]]]) -> dict[int, str]:
+    """Run every batch under one deadline. A request still open at the deadline is cancelled."""
+    tasks = [asyncio.create_task(_ask(client, batch)) for batch in batches]
+    done, late = await asyncio.wait(tasks, timeout=TIMEOUT_SECONDS)
+    for task in late:
+        task.cancel()
+    if late:
+        await asyncio.gather(*late, return_exceptions=True)
+        logger.warning("incremental_field_model_deadline_reached", late_requests=len(late))
+    answers: dict[int, str] = {}
+    for task in done:
+        answers.update(task.result() or {})
+    return answers
+
+
+async def _ask(client: GatewaySystemOneClient, tables: list[tuple[int, SourceSchema]]) -> Mapping[int, str] | None:
     """The confident pick per table index, or None when the request failed. An unsure table maps to ''."""
     state: dict[str, JsonValue] = {"tables": {f"t{index}": _table_state(schema) for index, schema in tables}}
     questions: dict[str, Question] = {
@@ -186,7 +204,7 @@ def _ask(client: SystemOneClient, tables: list[tuple[int, SourceSchema]]) -> Map
         for index, schema in tables
     }
     try:
-        result = client.decide(state=state, questions=questions)
+        result = await client.adecide(state=state, questions=questions)
     except (SystemOneRequestFailed, SystemOneNotConfigured) as error:
         logger.warning("incremental_field_model_failed", error_type=type(error).__name__)
         return None

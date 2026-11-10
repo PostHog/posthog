@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import Any
@@ -54,13 +55,21 @@ def _open_schema(name: str = "orders") -> SourceSchema:
 
 
 class _FakeClient:
-    def __init__(self, answer: Any = None, error: Exception | None = None) -> None:
+    def __init__(self, answer: Any = None, error: Exception | None = None, hang: bool = False) -> None:
         self.answer = answer
         self.error = error
+        self.hang = hang
+        self.cancelled = False
         self.calls: list[tuple[JsonValue, Mapping[str, Question]]] = []
 
-    def decide(self, *, state: JsonValue, questions: Mapping[str, Question]) -> SystemOneResult:
+    async def adecide(self, *, state: JsonValue, questions: Mapping[str, Question]) -> SystemOneResult:
         self.calls.append((state, questions))
+        if self.hang:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
         if self.error is not None:
             raise self.error
         return SystemOneResult(model="jeeves-0.1", answers=dict.fromkeys(questions, self.answer), input_tokens=10)
@@ -169,6 +178,16 @@ class TestRecommendIncrementalFields(SimpleTestCase):
         self._run([_open_schema()], client)
 
         assert client.calls == []
+
+    def test_request_past_the_deadline_is_cancelled(self) -> None:
+        schema = _open_schema()
+        client = _FakeClient(_pick("c2"), hang=True)
+
+        with patch(f"{MODULE}.TIMEOUT_SECONDS", 0.01):
+            self._run([schema], client)
+
+        assert client.cancelled
+        assert schema.incremental_fields[0]["field"] == "created_at"
 
     def test_spent_team_budget_keeps_the_rule_based_order(self) -> None:
         consume(f"{incremental_field_model.TEAM_BUDGET_KEY_PREFIX}:7", incremental_field_model.TEAM_BUDGET, cost=12)
