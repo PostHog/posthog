@@ -5,7 +5,7 @@ The two implementations are kept in step: a change to one lands with the same ch
 
 ## File map
 
-| Node (`ingestion/node/packages/common/src/`)      | Rust (`rust/ingestion-framework/src/`)                                                     |
+| Node (`ingestion/node/packages/common/src/framework/`)      | Rust (`rust/ingestion-framework/src/`)                                           |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `results.ts`                                  | `results.rs`                                                                               |
 | `pipeline.interface.ts`                       | `context.rs` (types), `pipeline.rs` (`Pipeline` trait)                                     |

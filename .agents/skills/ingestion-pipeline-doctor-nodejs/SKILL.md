@@ -38,10 +38,10 @@ See `ingestion/node/packages/ingestion/src/ingestion/pipelines/analytics/joined-
 | ----------------- | -------------------------------------------------------------------------------------------------- |
 | Step type         | `ingestion/node/packages/common/src/framework/steps.ts`                                            |
 | Result types      | `ingestion/node/packages/common/src/framework/results.ts`                                          |
-| Doc-test chapters | `ingestion/node/packages/common/src/framework/*.test.ts`                                           |
+| Doc-test chapters | `ingestion/node/packages/common/src/framework/docs/*.test.ts`                                      |
 | Joined pipeline   | `ingestion/node/packages/ingestion/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` |
 | Doctor agents     | `.claude/agents/ingestion/`                                                                        |
-| Test helpers      | `ingestion/node/packages/common/src/framework/helpers.ts`                                          |
+| Test helpers      | `ingestion/node/packages/common/src/framework/docs/helpers.ts`                                     |
 
 ## Which agent to use
 

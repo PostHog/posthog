@@ -14,7 +14,7 @@ Never invent env vars or hand-roll OTel providers — every environment below al
 | Where you are                                          | First choice                                                                                           | Fallback                                                                                                 |
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
 | Monorepo Python (web, Celery, Temporal)                | SDK: `posthoganalytics.default_client.metrics` — IF the pinned version supports it (see version gates) | `OtelInstrumentFactory` in `posthog/otel_metrics.py`                                                     |
-| Monorepo Node services (`nodejs/`)                     | — (services don't run posthog-node)                                                                    | internal twin: `nodejs/packages/replay-storage/src/otel-metrics.ts`                                      |
+| Monorepo Node services (`nodejs/`)                     | — (services don't run posthog-node)                                                                    | internal twin: `nodejs/packages/common/src/metrics/otel-metrics.ts`                                      |
 | PostHog-owned standalone service / script / other repo | SDK per public docs: `posthog.metrics.count/gauge/histogram`                                           | OTLP env vars per docs (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=<host>/i/v1/metrics`, Bearer project token) |
 
 > [!WARNING]

@@ -85,7 +85,7 @@ END
 ## Metric inventory — discover live, don't trust lists
 
 Metrics are defined inline in the ingestion pipelines (grep `topHog(` /
-`timer(` / `sum(` in `ingestion/node/packages/ingestion/src/ingestion/pipelines/`), so the set
+`timer(` / `sum(` in `ingestion/node/packages/ingestion/src/ingestion/pipelines/analytics/`), so the set
 evolves. Always start with discovery:
 
 ```sql

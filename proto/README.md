@@ -28,10 +28,10 @@ proto/
 | ------------------ | ---------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------- |
 | `cymbal/`          | `rust/cymbal-proto` (auto via tonic)           | —                                        | —                                                                            |
 | `ingestion/`       | `rust/ingestion-worker-proto` (auto via tonic) | —                                        | `ingestion/node/packages/common/src/generated/ingestion-worker` (checked in) |
-| `personhog/`       | `rust/personhog-proto` (auto via tonic)        | `packages/personhog-proto/` (checked in) | `ingestion/node/packages/common/src/personhog` (checked in)                  |
+| `personhog/`       | `rust/personhog-proto` (auto via tonic)        | `packages/personhog-proto/` (checked in) | `ingestion/node/packages/common/src/generated/personhog` (checked in)        |
 | `kafka_assigner/`  | `rust/kafka-assigner-proto` (auto via tonic)   | —                                        | —                                                                            |
 | `prometheus/`      | `rust/prometheus-rw-proto` (auto via tonic)    | —                                        | —                                                                            |
-| `usage_ingestion/` | `rust/usage-ingestion-proto` (auto via tonic)  | —                                        | `nodejs/packages/common/src/usage-ingestion` (checked in)                    |
+| `usage_ingestion/` | `rust/usage-ingestion-proto` (auto via tonic)  | —                                        | `nodejs/packages/common/src/generated/usage-ingestion` (checked in)          |
 
 ## Updating protos
 

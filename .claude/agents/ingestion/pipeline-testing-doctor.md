@@ -42,7 +42,7 @@ You review, suggest, and implement test code that follows the pipeline testing c
 
 Before reviewing or writing any code, read:
 
-- `ingestion/node/packages/common/src/framework/helpers.ts` — test helper functions
+- `ingestion/node/packages/common/src/framework/docs/helpers.ts` — test helper functions
 - `ingestion/node/packages/common/src/framework/docs/13-conventions.test.ts` — convention examples as tests
 - The specific doc-test chapter(s) relevant to the code under test
 

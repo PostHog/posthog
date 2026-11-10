@@ -30,7 +30,7 @@ products/warehouse_sources/sources/*/_config.py linguist-generated
 posthog/temporal/proxy_service/proto/*_pb2*.py linguist-generated
 
 ingestion/node/packages/ingestion/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts linguist-generated
-ingestion/node/packages/common/src/** linguist-generated
+ingestion/node/packages/common/src/generated/personhog/** linguist-generated
 
 rust/**/.sqlx/*.json linguist-generated
 
