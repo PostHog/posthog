@@ -92,7 +92,6 @@ ZERO_VARIANCE_ERROR = "Quantile has zero variance"
 TIED_VALUES_ERROR = "Quantile variance is unreliable - too many events tie with the quantile value"
 DOMINANT_USERS_ERROR = "Quantile variance is unreliable - a few users produce most of the events"
 
-# (name, treatment, control, error) cases in which the treatment quantile has no usable variance.
 DEGENERATE_QUANTILE_CASES = [
     (
         "collapsed_bounds",

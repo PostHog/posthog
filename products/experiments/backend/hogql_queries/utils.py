@@ -355,9 +355,7 @@ def validate_variant_result(
 
     if isinstance(metric, ExperimentQuantileMetric):
         quantile_stat = quantile_statistic(metric, variant_result)
-        # The statistical tests refuse a quantile whose variance is zero or unreliable: too few events, too many
-        # tied values, or a few users with most of the events. Flag it here, so the result shows why the variant
-        # has no inference.
+        # The statistical tests refuse these quantiles, so flag them here to show why the variant has no inference.
         if quantile_stat is None or validate_statistic_inputs(quantile_stat):
             validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
         # sum holds the count of events at or below the quantile, so the baseline check reads the quantile instead.
