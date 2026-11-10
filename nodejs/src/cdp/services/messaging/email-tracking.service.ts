@@ -413,6 +413,32 @@ export class EmailTrackingService {
             }
         }
 
+        // SNS retries a failed SES notification, and the metric queue outlives the request, so a metric queued
+        // before a throw would count twice. The direct pixel and redirect are never retried, so for them a lost
+        // engagement event beats a lost metric.
+        try {
+            await this.captureEngagementEvent({
+                teamId,
+                appSourceId,
+                actionId,
+                invocationId,
+                distinctId,
+                metricName,
+                properties,
+                timestamp,
+                workflowVersion,
+            })
+        } catch (error) {
+            if (source === 'ses') {
+                throw error
+            }
+            logger.error('[EmailTrackingService] trackMetric: engagement event not captured', { error })
+            emailTrackingErrorsCounter.inc({ error_type: 'engagement_event_not_captured', source })
+        }
+        const engagedPeople = parentRunId
+            ? await this.newEngagedPeople(parentRunId, invocationId, metricName, source)
+            : []
+
         this.hogFunctionMonitoringService.queueAppMetric(
             {
                 team_id: teamId,
@@ -432,43 +458,18 @@ export class EmailTrackingService {
             hogFlow ? 'hog_flow' : 'hog_function'
         )
 
-        if (parentRunId) {
-            for (const { metric, count } of await this.newEngagedPeople(
-                parentRunId,
-                invocationId,
-                metricName,
-                source
-            )) {
-                this.hogFunctionMonitoringService.queueAppMetric(
-                    {
-                        team_id: teamId,
-                        app_source_id: parentRunId,
-                        instance_id: instanceIdOverride || actionId || invocationId,
-                        metric_name: metric,
-                        metric_kind: 'email',
-                        count,
-                    },
-                    hogFlow ? 'hog_flow' : 'hog_function'
-                )
-            }
-        }
-
-        const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
-        if (eventName && distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))) {
-            await this.capturedEventsService.queueEvent({
-                team_id: teamId,
-                event: eventName,
-                distinct_id: distinctId,
-                timestamp,
-                properties: {
-                    $workflow_id: appSourceId,
-                    $workflow_action_id: actionId,
-                    $workflow_invocation_id: invocationId,
-                    ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
-                    ...properties,
+        for (const { metric, count } of engagedPeople) {
+            this.hogFunctionMonitoringService.queueAppMetric(
+                {
+                    team_id: teamId,
+                    app_source_id: parentRunId ?? appSourceId,
+                    instance_id: instanceIdOverride || actionId || invocationId,
+                    metric_name: metric,
+                    metric_kind: 'email',
+                    count,
                 },
-            })
-            await this.capturedEventsService.flush()
+                hogFlow ? 'hog_flow' : 'hog_function'
+            )
         }
 
         if (!deferFlush) {
@@ -481,6 +482,51 @@ export class EmailTrackingService {
             invocationId,
             metricName,
         })
+    }
+
+    private async captureEngagementEvent({
+        teamId,
+        appSourceId,
+        actionId,
+        invocationId,
+        distinctId,
+        metricName,
+        properties,
+        timestamp,
+        workflowVersion,
+    }: {
+        teamId: number
+        appSourceId: string
+        actionId?: string
+        invocationId: string
+        distinctId?: string
+        metricName: MinimalAppMetric['metric_name']
+        properties?: Record<string, unknown>
+        timestamp?: string
+        workflowVersion?: number
+    }): Promise<void> {
+        const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
+        if (
+            !eventName ||
+            !distinctId ||
+            !(await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))
+        ) {
+            return
+        }
+        await this.capturedEventsService.queueEvent({
+            team_id: teamId,
+            event: eventName,
+            distinct_id: distinctId,
+            timestamp,
+            properties: {
+                $workflow_id: appSourceId,
+                $workflow_action_id: actionId,
+                $workflow_invocation_id: invocationId,
+                ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
+                ...properties,
+            },
+        })
+        await this.capturedEventsService.flush()
     }
 
     public async trackLogs(
@@ -733,17 +779,20 @@ export class EmailTrackingService {
         })
         let timer: NodeJS.Timeout | undefined
         const grew = await Promise.race([
-            this.engagementRedis.useClient(
-                { name: 'email-engagement-people', failOpen: true },
-                (client) =>
-                    client.eval(
-                        ENGAGEMENT_PEOPLE_SCRIPT,
-                        keys.length,
-                        ...keys,
-                        invocationId,
-                        ENGAGEMENT_PEOPLE_TTL_SECONDS
-                    ) as Promise<number[]>
-            ),
+            this.engagementRedis
+                .useClient(
+                    { name: 'email-engagement-people', failOpen: true },
+                    (client) =>
+                        client.eval(
+                            ENGAGEMENT_PEOPLE_SCRIPT,
+                            keys.length,
+                            ...keys,
+                            invocationId,
+                            ENGAGEMENT_PEOPLE_TTL_SECONDS
+                        ) as Promise<number[]>
+                )
+                // useClient rethrows a pool failure despite failOpen, and a throw makes SNS capture the event again.
+                .catch(() => null),
             new Promise<null>((resolve) => {
                 timer = setTimeout(() => resolve(null), ENGAGEMENT_REDIS_TIMEOUT_MS)
             }),
