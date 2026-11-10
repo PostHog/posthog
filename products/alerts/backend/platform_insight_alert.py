@@ -1,18 +1,25 @@
 """The insight alert a platform alert stands for: its insight row for a copy, or one built from the
 platform alert's settings when insight keeps no row for it."""
 
+from collections.abc import Collection
 from typing import Any, Final
 from uuid import UUID
 
-from django.db.models import prefetch_related_objects
+from django.db.models import Prefetch, prefetch_related_objects
 
+from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval, InsightThresholdType
 
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
-from products.alerts_platform.backend.facade.api import get_configuration
+from products.alerts_platform.backend.facade.api import (
+    get_configuration,
+    list_configurations,
+    native_configuration_matches,
+)
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
+    NativeConfigurationMatch,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationView,
     SourceKind,
@@ -107,13 +114,75 @@ def native_insight_alert_view(team_id: int, alert_id: UUID) -> PlatformAlertConf
     return configuration if configuration is not None and configuration.legacy_configuration_id is None else None
 
 
+def native_insight_alert_matches(team_id: int, *, search: str | None) -> tuple[NativeConfigurationMatch, ...]:
+    """Every insight alert with no insight row, or with `search` the ones whose name matches it."""
+    return native_configuration_matches(team_id=team_id, source_kind=SourceKind.INSIGHT, search=search)
+
+
+def native_insight_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tuple[PlatformAlertConfigurationView, ...]:
+    """The named insight alerts with no insight row, as the platform keeps them, in no particular order."""
+    if not alert_ids:
+        return ()
+    page = list_configurations(
+        team_id=team_id,
+        source_kinds=[SourceKind.INSIGHT.value],
+        limit=len(alert_ids),
+        offset=0,
+        configuration_ids=alert_ids,
+    )
+    return tuple(
+        configuration for configuration in page.configurations if configuration.legacy_configuration_id is None
+    )
+
+
 def presented_alert(configuration: PlatformAlertConfigurationView, *, team_id: int) -> AlertConfiguration | None:
     """An unsaved alert that presents an insight alert with no insight row the way the API shows a
     row. Its `save` and `delete` raise, because every write goes to the platform. None when its
     insight is gone."""
     alert = alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
-    if alert is None:
-        return None
+    return _presented(alert, configuration) if alert is not None else None
+
+
+def presented_alerts(
+    configurations: Collection[PlatformAlertConfigurationView], *, team_id: int
+) -> dict[UUID, AlertConfiguration]:
+    """`presented_alert` for a page of alerts, keyed by id, loading their insights and creators in
+    one query each. An alert whose insight is gone is left out."""
+    insight_ids = {
+        insight_id
+        for configuration in configurations
+        if isinstance(insight_id := configuration.source_config.get("insight_id"), int)
+    }
+    insights = {
+        insight.id: insight
+        for insight in insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
+        if not insight.deleted
+    }
+    prefetch_related_objects(
+        list(insights.values()),
+        "team__organization",
+        # Where the alert serializer reads an insight's tags, as the viewset prefetches them for rows.
+        Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"),
+    )
+    creator_ids = {configuration.created_by_id for configuration in configurations} - {None}
+    creators = {user.id: user for user in User.objects.filter(id__in=creator_ids)}
+    presented: dict[UUID, AlertConfiguration] = {}
+    for configuration in configurations:
+        insight_id = configuration.source_config.get("insight_id")
+        insight = insights.get(insight_id) if isinstance(insight_id, int) else None
+        if insight is None:
+            continue
+        alert = _built_alert(
+            configuration,
+            insight=insight,
+            created_by=creators.get(configuration.created_by_id) if configuration.created_by_id is not None else None,
+            enabled=configuration.enabled,
+        )
+        presented[configuration.id] = _presented(alert, configuration)
+    return presented
+
+
+def _presented(alert: AlertConfiguration, configuration: PlatformAlertConfigurationView) -> AlertConfiguration:
     alert.created_at = configuration.created_at
     # The platform checked the alert from its creation, so its whole history is the platform's.
     alert.owner_changed_at = configuration.created_at
@@ -128,6 +197,9 @@ def presented_alert(configuration: PlatformAlertConfigurationView, *, team_id: i
     alert.threshold.created_at = configuration.created_at
     # What the viewset annotates on a row. The platform's last check replaces it when there is one.
     alert.last_value = None  # type: ignore[attr-defined]
+    # An alert with no insight row has no subscriptions. Cached as the viewset prefetches them for
+    # rows, so the serializer does not query for each alert.
+    alert._prefetched_objects_cache = {"subscribed_users": User.objects.none()}  # type: ignore[attr-defined]
     for method in ("save", "delete"):
         setattr(alert, method, _no_insight_row)
     return alert
@@ -148,15 +220,26 @@ def alert_from_platform(
 ) -> AlertConfiguration | None:
     """An unsaved insight alert with the platform alert's settings, so the insight evaluation and
     its investigations run it unchanged. None when its insight is gone."""
-    source_config = configuration.source_config
-    insight = insight_of(team_id, source_config)
+    insight = insight_of(team_id, configuration.source_config)
     if insight is None:
         return None
     # Prefetched for the same reason as `legacy_alert`'s.
     prefetch_related_objects([insight], "team__organization", "tagged_items__tag")
+    created_by_id = configuration.created_by_id
+    created_by = User.objects.filter(id=created_by_id).first() if created_by_id is not None else None
+    return _built_alert(configuration, insight=insight, created_by=created_by, enabled=enabled)
+
+
+def _built_alert(
+    configuration: PlatformAlertCheckInput | PlatformAlertConfigurationView,
+    *,
+    insight: Insight,
+    created_by: User | None,
+    enabled: bool,
+) -> AlertConfiguration:
+    source_config = configuration.source_config
     condition = source_config.get(SOURCE_CONDITION_KEY) or {}
     threshold_config = condition.get("threshold")
-    created_by_id = configuration.created_by_id
     return AlertConfiguration(
         id=configuration.id,
         team=insight.team,
@@ -178,7 +261,7 @@ def alert_from_platform(
         schedule_restriction=configuration.schedule_restriction,
         snoozed_until=configuration.snooze_until,
         owner=PlatformAlertOwner.PLATFORM,
-        created_by=User.objects.filter(id=created_by_id).first() if created_by_id is not None else None,
+        created_by=created_by,
     )
 
 

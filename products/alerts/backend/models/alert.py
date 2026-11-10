@@ -7,6 +7,9 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 if TYPE_CHECKING:
+    from collections.abc import Collection
+    from uuid import UUID
+
     from posthog.event_usage import AnalyticsProps
     from posthog.models.organization import Organization
     from posthog.models.user import User
@@ -258,6 +261,18 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         )
 
         return presented_alert(view, team_id=team_id)
+
+    @classmethod
+    def from_platform_views(
+        cls, views: Collection[PlatformAlertConfigurationView], *, team_id: int
+    ) -> dict[UUID, AlertConfiguration]:
+        """`from_platform_view` for a page of alerts, keyed by id, with one query for their insights
+        and one for their creators. An alert whose insight is gone is left out."""
+        from products.alerts.backend.platform_insight_alert import (  # noqa: PLC0415 — it imports this model
+            presented_alerts,
+        )
+
+        return presented_alerts(views, team_id=team_id)
 
     @property
     def has_no_insight_row(self) -> bool:

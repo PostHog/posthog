@@ -13,7 +13,11 @@ from products.alerts.backend.platform_alert_reads import (
     moved_alert_fired_checks,
     moved_alert_statuses,
 )
-from products.alerts.backend.platform_insight_alert import native_insight_alert_view
+from products.alerts.backend.platform_insight_alert import (
+    native_insight_alert_matches,
+    native_insight_alert_view,
+    native_insight_alert_views,
+)
 from products.alerts.backend.platform_ownership import (
     close_moved_alert_firings,
     delete_moved_alert_copy,
@@ -39,7 +43,9 @@ __all__ = [
     "moved_alert_check_page",
     "moved_alert_fired_checks",
     "moved_alert_statuses",
+    "native_insight_alert_matches",
     "native_insight_alert_view",
+    "native_insight_alert_views",
     "platform_takes_new_alert_with",
     "write_moved_alert_edit",
 ]
