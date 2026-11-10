@@ -1,8 +1,8 @@
-import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
+import { KafkaConsumer, Message, Metadata, TopicPartitionOffset } from 'node-rdkafka'
 import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { AddressInfo } from 'node:net'
@@ -38,6 +38,7 @@ import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensi
 import { v2JobToInvocation } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -46,6 +47,7 @@ import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 
@@ -1634,6 +1636,9 @@ describe('EmailService', () => {
             let logo: StoredFile
             let recipient: string
             let emailStatus: EmailStatusService
+            let statusProducer: KafkaProducerWrapper
+            let statusReader: KafkaConsumer
+            let statusOffsetsBeforeSend: TopicPartitionOffset[]
 
             const send = (files: StoredFile[], integrationId = 1): void => {
                 invocation.queueParameters = createEmailParams({
@@ -1650,11 +1655,60 @@ describe('EmailService', () => {
                 invocation.id = new UUIDT().toString()
                 invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
             }
+            const statusTopicEndOffsets = async (): Promise<TopicPartitionOffset[]> => {
+                const metadata = await new Promise<Metadata>((resolve, reject) =>
+                    statusReader.getMetadata({ topic: KAFKA_EMAIL_STATUS, timeout: 10_000 }, (error, data) =>
+                        error ? reject(error) : resolve(data)
+                    )
+                )
+                const partitions = metadata.topics.find((topic) => topic.name === KAFKA_EMAIL_STATUS)!.partitions
+                return await Promise.all(
+                    partitions.map(
+                        ({ id: partition }) =>
+                            new Promise<TopicPartitionOffset>((resolve, reject) =>
+                                statusReader.queryWatermarkOffsets(
+                                    KAFKA_EMAIL_STATUS,
+                                    partition,
+                                    10_000,
+                                    (error, offsets) =>
+                                        error
+                                            ? reject(error)
+                                            : resolve({
+                                                  topic: KAFKA_EMAIL_STATUS,
+                                                  partition,
+                                                  offset: offsets.highOffset,
+                                              })
+                                )
+                            )
+                    )
+                )
+            }
             const recordedEmailStatuses = async (): Promise<Record<string, any>[]> => {
                 await emailStatus.flush()
-                return mockProducerObserver
-                    .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
-                    .map((message) => message.value as Record<string, any>)
+                await statusProducer.flush()
+                const endOffsets = await statusTopicEndOffsets()
+                const nextOffsets = new Map(statusOffsetsBeforeSend.map(({ partition, offset }) => [partition, offset]))
+                const consumed: Message[] = []
+                const deadline = Date.now() + 10_000
+                statusReader.assign(statusOffsetsBeforeSend)
+                try {
+                    while (endOffsets.some(({ partition, offset }) => (nextOffsets.get(partition) ?? 0) < offset)) {
+                        if (Date.now() > deadline) {
+                            throw new Error(`email status rows up to ${JSON.stringify(endOffsets)} never arrived`)
+                        }
+                        const batch = await new Promise<Message[]>((resolve, reject) =>
+                            statusReader.consume(100, (error, messages) => (error ? reject(error) : resolve(messages)))
+                        )
+                        for (const message of batch) {
+                            nextOffsets.set(message.partition, message.offset + 1)
+                            consumed.push(message)
+                        }
+                    }
+                } finally {
+                    statusReader.unassign()
+                }
+                return consumed
+                    .map((message) => parseJSON(message.value!.toString()) as Record<string, any>)
                     .filter((row) => row.message_id === invocation.id)
             }
             const failedEmailStatus = (reason: string): Record<string, any> =>
@@ -1724,21 +1778,38 @@ describe('EmailService', () => {
                 await new Promise((resolve) => setTimeout(resolve, Math.max(0, due.toMillis() - Date.now() + 50)))
             }
 
+            beforeAll(async () => {
+                await ensureKafkaTopics([KAFKA_EMAIL_STATUS])
+            })
             beforeEach(async () => {
                 ses = await SesV2Fake.start()
                 bucket = await BucketProxy.start()
-                mockProducerObserver.resetKafkaProducer()
+                statusProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+                statusReader = new KafkaConsumer(
+                    {
+                        'group.id': `email-status-reader-${randomUUID()}`,
+                        'metadata.broker.list': hub.KAFKA_HOSTS,
+                        'enable.auto.commit': false,
+                    },
+                    {}
+                )
+                await new Promise((resolve, reject) =>
+                    statusReader.connect({}, (error, data) => (error ? reject(error) : resolve(data)))
+                )
+                statusReader.setDefaultConsumeTimeout(100)
+                statusOffsetsBeforeSend = await statusTopicEndOffsets()
                 const cdpConfig = getDefaultCdpConfig()
                 emailStatus = new EmailStatusService(
                     createCdpOutputsRegistry().build(
                         new KafkaProducerRegistry<CdpProducerName>({
-                            [WARPSTREAM_INGESTION_PRODUCER]: mockProducer,
-                            [WARPSTREAM_CYCLOTRON_PRODUCER]: mockProducer,
-                            [WAREHOUSE_PRODUCER]: mockProducer,
+                            [WARPSTREAM_INGESTION_PRODUCER]: statusProducer,
+                            [WARPSTREAM_CYCLOTRON_PRODUCER]: statusProducer,
+                            [WAREHOUSE_PRODUCER]: statusProducer,
                         }),
                         cdpConfig
                     ),
-                    cdpConfig
+                    cdpConfig,
+                    10_000
                 )
                 recipient = `${randomUUID()}@example.com`
                 pdf = await uploadAttachment(team.id, { filename: 'report.pdf', contentType: 'application/pdf' })
@@ -1752,6 +1823,10 @@ describe('EmailService', () => {
             afterEach(async () => {
                 await ses.close()
                 await bucket.close()
+                await statusProducer.disconnect()
+                await new Promise((resolve, reject) =>
+                    statusReader.disconnect((error, data) => (error ? reject(error) : resolve(data)))
+                )
             })
 
             it.each([
