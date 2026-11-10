@@ -68,7 +68,7 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ github.token }}
                   SECTION_ID: call-assertions
-                  AVAILABLE: ${{ steps.diff.outputs.available }}
+                  AVAILABLE: ${{ steps.call-assertions.outcome == 'success' }}
                   STATUS: ${{ steps.call-assertions.outputs.status }}
                   SUMMARY: ${{ steps.call-assertions.outputs.summary }}
                   BODY: ${{ steps.call-assertions.outputs.body }}

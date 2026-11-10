@@ -25,7 +25,7 @@ async function markUnmeasured(sectionId) {
         id: sectionId,
         status: 'info',
         summary: 'not measured on this push',
-        body: 'The PR diff could not be fetched for this push (usually because it is too large for the API), so this check did not run. The previous result no longer applies.',
+        body: 'This check could not run on this push, usually because the PR diff is too large for the API to return. The previous result no longer applies.',
     })
 }
 

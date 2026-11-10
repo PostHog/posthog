@@ -27,7 +27,7 @@ TOP_FILES = 8
 
 TEST_FILE = re.compile(
     r"(?:^|/)(?:tests?|__tests__)/.*\.(?:py|[cm]?[jt]sx?)$"
-    r"|(?:^|/)(?:test_[^/]*|[^/]*_test|conftest)\.py$"
+    r"|(?:^|/)(?:test_[^/]*|[^/]*_test|tests|conftest)\.py$"
     r"|\.(?:test|spec)\.[cm]?[jt]sx?$"
 )
 CALL_ASSERTION = re.compile(
