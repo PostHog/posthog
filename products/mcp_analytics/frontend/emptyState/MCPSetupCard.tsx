@@ -1,74 +1,42 @@
-import { useActions, useValues } from 'kea'
-import type { ReactNode } from 'react'
+import { useActions } from 'kea'
 
-import { IconCopy } from '@posthog/icons'
+import { IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-
-import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
-import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-
-import { ProductKey } from '~/queries/schema/schema-general'
 
 import { MCPListeningIndicator } from '../onboarding/MCPAnalyticsInstall'
 import { MCPSetupMode } from '../setupMode/MCPSetupMode'
-import { mcpAnalyticsSetupLogic } from './mcpAnalyticsSetupLogic'
+import { mcpSetupModeLogic } from '../setupMode/mcpSetupModeLogic'
 
 const COPY = {
     title: 'Step 1: Wrap your MCP server',
-    wizard: 'Run the Wizard',
-    agent: 'Or ask your agent',
+    lead: 'Install with the Wizard or your own coding agent, then call a tool. Setup guides you through each step.',
+    start: 'Start setup',
 }
 
 /**
- * The setup screen's install card while setup mode is on: the wizard command the shared empty state
- * renders as `children`, the agent prompt as the second route, and the listening status. Copying either
- * one opens setup mode.
+ * The setup screen's install card while setup mode is on. The install commands live in setup mode's
+ * connect step, so the card only starts setup and shows whether the server has connected yet.
  */
-export function MCPSetupCard({
-    mode,
-    preview,
-    children,
-}: {
-    mode: ProductEmptyStateMode
-    preview: boolean
-    children: ReactNode
-}): JSX.Element {
-    const { agentPrompt } = useValues(mcpAnalyticsSetupLogic)
-    const { reportSetupInteraction } = useActions(productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }))
+export function MCPSetupCard({ preview }: { preview: boolean }): JSX.Element {
+    const { openSetupMode } = useActions(mcpSetupModeLogic)
 
     return (
         <div className="mt-2 flex flex-col overflow-hidden rounded border border-primary bg-surface-primary">
-            <span className="px-4 pb-1 pt-3.5 text-base font-semibold">{COPY.title}</span>
-            {children ? (
-                <div className="flex flex-col gap-2 px-4 py-2.5">
-                    <span className="text-xs font-semibold text-secondary">{COPY.wizard}</span>
-                    {children}
+            <div className="flex flex-col items-start gap-3 px-4 pb-4 pt-3.5">
+                <div className="flex flex-col gap-1">
+                    <span className="text-base font-semibold">{COPY.title}</span>
+                    <span className="text-sm text-secondary">{COPY.lead}</span>
                 </div>
-            ) : null}
-            {agentPrompt ? (
-                <div className="flex flex-col gap-2 px-4 pb-4 pt-2.5">
-                    <span className="text-xs font-semibold text-secondary">{COPY.agent}</span>
-                    <div className="flex min-w-0 items-center gap-2 rounded border border-primary bg-surface-primary py-1 pl-3 pr-1">
-                        <span className="min-w-0 flex-1 truncate font-mono text-xs text-secondary">{agentPrompt}</span>
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconCopy />}
-                            onClick={() =>
-                                void copyToClipboard(agentPrompt, 'installation prompt').then((copied) => {
-                                    if (copied) {
-                                        reportSetupInteraction('agent prompt copied', mode, 'agent', preview)
-                                    }
-                                })
-                            }
-                            data-attr="mcp-analytics-copy-agent-prompt"
-                        >
-                            Copy prompt
-                        </LemonButton>
-                    </div>
-                </div>
-            ) : null}
+                <LemonButton
+                    type="primary"
+                    sideIcon={<IconArrowRight />}
+                    disabledReason={preview ? 'Setup starts from the live setup screen' : undefined}
+                    onClick={() => openSetupMode('start_button')}
+                    data-attr="mcp-analytics-start-setup"
+                >
+                    {COPY.start}
+                </LemonButton>
+            </div>
             <div className="border-t border-primary px-4 py-2.5 text-xs">
                 <MCPListeningIndicator />
             </div>

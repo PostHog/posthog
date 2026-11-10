@@ -7,7 +7,15 @@ import { ApiError } from 'lib/api-error'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
-import { aeoPromptsList, aeoPromptsOverview, aeoPromptsPartialUpdate, aeoPromptsTopics } from '../generated/api'
+import {
+    aeoPromptsList,
+    aeoPromptsOverview,
+    aeoPromptsPartialUpdate,
+    aeoPromptsRetrieve,
+    aeoPromptsTopics,
+} from '../generated/api'
+import { contentAutopilotLogic } from './contentAutopilotLogic'
+import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { OVERVIEW_DAYS, contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
 import { EXAMPLE_PROMPT_SET_OVERVIEW, EXAMPLE_PROMPT_TOPICS, EXAMPLE_PROMPTS } from './contentAutopilotStoryFixtures'
@@ -17,6 +25,9 @@ jest.mock('../generated/api', () => ({
     aeoPromptsTopics: jest.fn(),
     aeoPromptsPartialUpdate: jest.fn(),
     aeoPromptsOverview: jest.fn(),
+    aeoPromptsRetrieve: jest.fn(),
+    aeoPromptsStats: jest.fn(),
+    aeoPromptsChecks: jest.fn(),
 }))
 
 const mockOverview = jest.mocked(aeoPromptsOverview)
@@ -101,6 +112,18 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
         await expectLogic(contentAutopilotPromptsLogic)
             .toDispatchActions(['setPromptsTopic'])
             .toMatchValues({ promptsTopic: 'Session replay' })
+    })
+
+    it('opens a prompt picked from the searches on the prompts tab', async () => {
+        jest.mocked(aeoPromptsRetrieve).mockResolvedValue(EXAMPLE_PROMPTS[1])
+        logic = contentAutopilotPromptsOverviewLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openOverviewSearchPrompt(EXAMPLE_PROMPTS[1].id)
+        await expectLogic(logic).toDispatchActions(['setWorkspaceTab', 'openPromptDetail'])
+        expect(contentAutopilotLogic.values.workspaceTab).toEqual('prompts')
+        expect(contentAutopilotPromptDetailLogic.values.promptId).toEqual(EXAMPLE_PROMPTS[1].id)
     })
 
     it('reloads the overview after a prompt is turned off', async () => {

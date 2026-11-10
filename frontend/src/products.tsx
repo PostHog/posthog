@@ -185,6 +185,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
     '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
+    '/data-warehouse/migrate/connect': ['DataWarehouseMigrationConnect', 'dataWarehouseMigrationConnect'],
     '/data-warehouse/connect-destination': ['WarehouseDestinationConnect', 'warehouseDestinationConnect'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
@@ -929,6 +930,7 @@ export const productConfiguration: Record<string, any> = {
     DataWarehouseSource: { projectBased: true, name: 'Data warehouse source' },
     DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
     DataWarehouseSourceConnect: { projectBased: true, name: 'Connect data warehouse source' },
+    DataWarehouseMigrationConnect: { projectBased: true, name: 'Import from Fivetran' },
     DataWarehouseSourceSchema: { projectBased: true, name: 'Data warehouse schema' },
     WarehouseDestinations: {
         projectBased: true,
@@ -1175,6 +1177,7 @@ export const productConfiguration: Record<string, any> = {
     ReplayVision: {
         name: 'Replay vision',
         projectBased: true,
+        cloudOnly: true,
         description:
             'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
         iconType: 'replay_vision',
@@ -1184,18 +1187,21 @@ export const productConfiguration: Record<string, any> = {
     ReplayVisionScanner: {
         name: 'Replay vision scanner',
         projectBased: true,
+        cloudOnly: true,
         iconType: 'replay_vision',
         layout: 'app-container',
     },
     ReplayVisionScannerEditor: {
         name: 'Replay vision scanner editor',
         projectBased: true,
+        cloudOnly: true,
         iconType: 'replay_vision',
         layout: 'app-container',
     },
     ReplayVisionObservation: {
         name: 'Replay vision observation',
         projectBased: true,
+        cloudOnly: true,
         iconType: 'replay_vision',
         layout: 'app-container',
     },
@@ -1616,6 +1622,7 @@ export const productUrls = {
         `/data-management/warehouse-destinations?destination=${encodeURIComponent(id)}`,
     dataWarehouseSourceConnect: (kind?: string): string =>
         `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
+    dataWarehouseMigrationConnect: (): string => '/data-warehouse/migrate/connect',
     warehouseDestinationConnect: (kind?: string): string =>
         `/data-warehouse/connect-destination${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     earlyAccessFeatures: (): string => '/early_access_features',
@@ -1874,10 +1881,10 @@ export const productUrls = {
             }).url
         }
         if (isHogQLQuery(query)) {
-            return urls.sqlEditor({ query: query.query })
+            return urls.sqlEditor({ query: query.query, dashboard: dashboardId ?? undefined, tileGroupKey })
         }
         if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-            return urls.sqlEditor({ query })
+            return urls.sqlEditor({ query, dashboard: dashboardId ?? undefined, tileGroupKey })
         }
         return combineUrl(
             '/insights/new',
@@ -2714,6 +2721,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'DataWarehouseSource',
             'DataWarehouseSourceNew',
             'DataWarehouseSourceConnect',
+            'DataWarehouseMigrationConnect',
             'DataWarehouseSourceSchema',
             'WarehouseDestinations',
             'WarehouseDestinationConnect',
@@ -2929,7 +2937,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Settings', href: urls.inbox('settings') },
         ],
         flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
-        tags: ['beta'],
         sceneKey: 'Inbox',
         sceneKeys: ['Inbox'],
     },
@@ -3644,6 +3651,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             'DataWarehouseSource',
             'DataWarehouseSourceNew',
             'DataWarehouseSourceConnect',
+            'DataWarehouseMigrationConnect',
             'DataWarehouseSourceSchema',
             'WarehouseDestinations',
             'WarehouseDestinationConnect',

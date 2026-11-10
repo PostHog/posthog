@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import models, transaction
+from django.db import IntegrityError, connection, models, transaction
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -34,6 +34,14 @@ logger = structlog.get_logger(__name__)
 EMAIL_DOMAIN_STATUS_CACHE_SECONDS = 10
 
 
+def _duplicate_sender_error(email_address: str) -> ValidationError:
+    return ValidationError(f"A sender for {email_address} already exists. Edit that sender instead of adding it again.")
+
+
+def lock_sender_domain(cursor: Any, domain: str) -> None:
+    cursor.execute("SELECT pg_advisory_xact_lock(hashtext('email_sender_domain'), hashtext(%s))", [domain])
+
+
 @frozen
 class EmailDomainStatusReport:
     check: "EmailDomainCheck"
@@ -50,6 +58,7 @@ class EmailIntegration:
         self.integration = model.integration_model(integration)
 
     @classmethod
+    @transaction.atomic
     def create_native_integration(
         cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
     ) -> model.Integration:
@@ -64,6 +73,12 @@ class EmailIntegration:
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
             raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
 
+        with connection.cursor() as cursor:
+            lock_sender_domain(cursor, domain)
+
+        if model.Integration.objects.filter(team_id=team_id, kind="email", integration_id=email_address).exists():
+            raise _duplicate_sender_error(email_address)
+
         # Check if any other integration already exists in a different team with the same domain,
         # if so, ensure this team is part of the same organization. If not, we block creation.
         same_domain_integrations = model.Integration.objects.filter(kind="email", config__domain=domain)
@@ -75,9 +90,13 @@ class EmailIntegration:
 
         # Create domain in the appropriate provider
         if provider == "ses":
-            from products.workflows.backend.facade.api import (
-                create_ses_email_domain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+            from products.workflows.backend.facade.api import (  # noqa: PLC0415 — keeps the workflows facade off the model import path
+                create_ses_email_domain,
+                get_ses_mail_from_subdomain,
             )
+
+            if same_domain_integrations.exists():
+                mail_from_subdomain = get_ses_mail_from_subdomain(domain) or mail_from_subdomain
 
             org_team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
             create_ses_email_domain(
@@ -91,27 +110,25 @@ class EmailIntegration:
         else:
             raise ValueError(f"Invalid provider: must be 'ses'")
 
-        integration, created = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="email",
-            integration_id=email_address,
-            defaults={
-                "config": {
-                    "email": email_address,
-                    "domain": domain,
-                    "mail_from_subdomain": mail_from_subdomain,
-                    "reply_to": config.get("reply_to", ""),
-                    "name": name,
-                    "provider": provider,
-                    "verified": True if provider == "maildev" else False,
-                },
-                "created_by": created_by,
-            },
-        )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
+        try:
+            with transaction.atomic():
+                integration = model.Integration.objects.create(
+                    team_id=team_id,
+                    kind="email",
+                    integration_id=email_address,
+                    config={
+                        "email": email_address,
+                        "domain": domain,
+                        "mail_from_subdomain": mail_from_subdomain,
+                        "reply_to": config.get("reply_to", ""),
+                        "name": name,
+                        "provider": provider,
+                        "verified": True if provider == "maildev" else False,
+                    },
+                    created_by=created_by,
+                )
+        except IntegrityError:
+            raise _duplicate_sender_error(email_address)
 
         return integration
 

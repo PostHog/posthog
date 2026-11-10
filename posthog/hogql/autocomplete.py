@@ -1082,7 +1082,12 @@ def _suggest_from_schema(
         # Handle table names
         with timings.measure("table_name"):
             _suggest_table_names(node=node, database=database, context=context, response=response)
-    elif isinstance(node, ast.Field) and isinstance(parent_node, ast.Placeholder):
+    elif (
+        isinstance(node, ast.Field)
+        and isinstance(parent_node, ast.Placeholder)
+        # Only full SQL queries replace {variables.*}, so an expression that uses one fails when it runs
+        and query.language == HogLanguage.HOG_QL
+    ):
         _suggest_insight_variables(node=node, team=team, response=response)
 
     return _VariantFlow.PROCEED
