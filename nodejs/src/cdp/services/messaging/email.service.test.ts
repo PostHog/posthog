@@ -1,7 +1,9 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
+import http from 'http'
 import { DateTime } from 'luxon'
+import { AddressInfo } from 'net'
 import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -2217,16 +2219,39 @@ describe('EmailService', () => {
                 invocation.hogFunction.metadata = { tracking_enabled: false }
             })
 
-            it('skips pixel and link rewriting and uses the untracked configuration set when tracking is off', async () => {
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.ConfigurationSetName).toEqual('posthog-messaging-untracked')
-                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(trackableHtml)
-                // Delivery/bounce attribution must survive tracking-off: the untracked configuration
-                // set still emits delivery events, and the webhook needs this header to attribute them.
-                const headerNames = sentCommand.input.Content.Simple.Headers.map((h: { Name: string }) => h.Name)
-                expect(headerNames).toContain('X-PostHog-Tracking-Code')
+            it('sends through the untracked configuration set with the HTML untouched when tracking is off', async () => {
+                const sesRequests: any[] = []
+                const ses = http.createServer((req, res) => {
+                    let body = ''
+                    req.on('data', (chunk) => (body += chunk))
+                    req.on('end', () => {
+                        sesRequests.push(parseJSON(body))
+                        res.writeHead(200, { 'content-type': 'application/json' })
+                        res.end(JSON.stringify({ MessageId: 'ses-stub-message-id' }))
+                    })
+                })
+                await new Promise<void>((resolve) => ses.listen(0, '127.0.0.1', resolve))
+                try {
+                    const { port } = ses.address() as AddressInfo
+                    const sesService = createService({ sesEndpoint: `http://127.0.0.1:${port}` })
+                    // The default AWS credential chain loads its providers with a dynamic import, which
+                    // Jest's VM refuses, so the stubbed endpoint gets static credentials instead.
+                    sesService.sesV2Client!.config.credentials = () =>
+                        Promise.resolve({ accessKeyId: 'test', secretAccessKey: 'test' })
+
+                    const result = await sesService.executeSendEmail(invocation)
+
+                    expect(result.error).toBeUndefined()
+                    expect(sesRequests).toHaveLength(1)
+                    expect(sesRequests[0].ConfigurationSetName).toEqual('posthog-messaging-untracked')
+                    expect(sesRequests[0].Content.Simple.Body.Html.Data).toEqual(trackableHtml)
+                    // Delivery/bounce attribution must survive tracking-off: the untracked configuration
+                    // set still emits delivery events, and the webhook needs this header to attribute them.
+                    const headerNames = sesRequests[0].Content.Simple.Headers.map((h: { Name: string }) => h.Name)
+                    expect(headerNames).toContain('X-PostHog-Tracking-Code')
+                } finally {
+                    await new Promise((resolve) => ses.close(resolve))
+                }
             })
 
             it.each([
