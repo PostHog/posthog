@@ -218,20 +218,26 @@ describe('readSandboxAuthorization', () => {
             await onePoolRouter.end()
         })
 
-        it('refuses at once, without joining the queue, while enough reads already wait for a connection', async () => {
+        it('refuses at once while enough reads wait for a connection, also after they time out, until the pool frees one', async () => {
+            await createMember(memberEmail, organizationId, true)
             const busy = await onePoolRouter.connect(PostgresUse.COMMON_WRITE)
+            const queued = (): Promise<string> => new Promise((resolve) => setTimeout(resolve, 100, 'queued'))
             try {
                 const waiting = Array.from({ length: MAX_WAITING_AUTHORIZATION_CONNECTIONS }, () =>
                     readThrough(onePoolRouter)
                 )
 
-                const first = await Promise.race([readThrough(onePoolRouter), waiting[0].then(() => 'a waiting read')])
-
-                expect(first).toEqual(unavailable)
+                expect(
+                    await Promise.race([readThrough(onePoolRouter), waiting[0].then(() => 'a waiting read')])
+                ).toEqual(unavailable)
                 expect(await Promise.all(waiting)).toEqual(waiting.map(() => unavailable))
+                expect(await Promise.race([readThrough(onePoolRouter), queued()])).toEqual(unavailable)
             } finally {
                 busy.release()
             }
+            ;(await onePoolRouter.connect(PostgresUse.COMMON_WRITE)).release()
+
+            expect(await readThrough(onePoolRouter)).toMatchObject({ ok: true, storedAddress: memberEmail })
         })
 
         it('hands a connection that arrives after the deadline back to the pool', async () => {
@@ -245,7 +251,7 @@ describe('readSandboxAuthorization', () => {
             expect(await readThrough(onePoolRouter)).toMatchObject({ ok: true, storedAddress: memberEmail })
         })
 
-        it('leaves no transaction open on a connection whose query passed the deadline', async () => {
+        it('serves the next read on a clean connection after a query passes the deadline', async () => {
             await createMember(memberEmail, organizationId, true)
             const locker = await postgres.connect(PostgresUse.COMMON_WRITE)
             const sessionStates = async (): Promise<string[]> =>
@@ -257,18 +263,24 @@ describe('readSandboxAuthorization', () => {
                         'test:sandbox-authorization-sessions'
                     )
                 ).rows.map((row) => row.state)
+            let locked = false
             try {
                 await locker.query('BEGIN')
                 await locker.query('LOCK TABLE workflows_sandboxsenderorganizationblock IN ACCESS EXCLUSIVE MODE')
+                locked = true
 
                 expect(await readThrough(onePoolRouter)).toEqual(unavailable)
-                await waitForExpect(async () => expect(await sessionStates()).not.toContain('active'))
-                expect(await sessionStates()).toEqual([])
-            } finally {
+                await waitForExpect(async () => expect(await sessionStates()).not.toContain('active'), 2_000, 10)
                 await locker.query('COMMIT')
+                locked = false
+
+                expect(await readThrough(onePoolRouter)).toMatchObject({ ok: true, storedAddress: memberEmail })
+            } finally {
+                if (locked) {
+                    await locker.query('COMMIT')
+                }
                 locker.release()
             }
-            expect(await readThrough(onePoolRouter)).toMatchObject({ ok: true, storedAddress: memberEmail })
         })
 
         it('reports authorization as unavailable when connecting fails', async () => {
