@@ -330,13 +330,12 @@ class ReviewMeta:
     review_design_reason: str = ""
     # Recorded here, so a replay fans out over the same lens parts. Older histories decode as no lens sessions.
     lens_chunk_count: int = 0
+    devex_lens: bool = False
     # True when the PR passed the lens part cap, so the status comment or the Standard review says it ran in larger parts.
     lens_chunks_capped: bool = False
     # A single-agent turn that runs its sessions as sub-agents of one coordinator session. Recorded here
     # so a replay takes the same branch. Older histories decode as separate sessions.
     coordinator: bool = False
-    # Recorded here, so a replay fans out over the same sessions. Older histories decode as no devex lens.
-    devex_lens: bool = False
     # The PR's arms in the zero-change and delta splits. Recorded here so a replay takes the same branch.
     # Older histories decode as the control arms.
     zero_change_skip: bool = False
@@ -492,7 +491,7 @@ class ReviewChunkInput(SandboxStageInput):
 
 @dataclass(frozen=False)
 class LensReviewInput(SandboxStageInput):
-    # A key of `FLASH_LENSES`, and the 1-based index of the lens part in `plan_lens_chunks`.
+    # A key of `FLASH_LENSES` and the 1-based index of its lens part in `plan_lens_chunks`, or `DEVEX_LENS_NAME` and 1.
     lens: str
     chunk_id: int
 
@@ -844,7 +843,6 @@ def _devex_lens_files(team_id: int, repository: str, pr_files: list[PRFile]) -> 
     try:
         files = fetcher_for_team(team_id, repository, priority=Priority.BATCH)
     except GitHubIntegrationError:
-        # The lens is optional, so a failed installation probe must not fail the review.
         logger.warning("Could not read ownership for the devex lens; reviewing without it", exc_info=True)
         return []
     ownership = resolve_path_owners(repository, paths, files=files)

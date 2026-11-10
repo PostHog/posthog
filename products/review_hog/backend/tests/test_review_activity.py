@@ -489,7 +489,6 @@ async def test_reused_single_agent_session_reports_whether_its_result_fell_back(
 
 @pytest.mark.parametrize("devex_lens", [False, True])
 def test_combine_reads_a_persisted_devex_lens_result_only_on_a_turn_that_runs_the_lens(devex_lens: bool) -> None:
-    # A retry at the same head after the lens goes off would otherwise publish lens findings in the control cohort.
     done = SingleAgentResults(
         reviews={
             (2000, 1): IssuesReview(issues=[_wave_issue("main finding")]),

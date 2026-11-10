@@ -128,8 +128,6 @@ class TestRecordTurnMarker(BaseTest):
         assert changed.fingerprint != original.fingerprint
 
     def test_only_a_turn_with_the_devex_lens_carries_its_prompt(self) -> None:
-        # A turn without the lens must keep its cohort when the lens ships or its prompt changes,
-        # or every earlier Standard evaluation stops being comparable.
         without_lens = self._record_single_agent(run_index=1)
         with_lens = self._record_single_agent(run_index=2, devex_lens=True)
         self._edit_single_agent_prompt(DEVEX_LENS.prompt_file)
