@@ -11,7 +11,7 @@ export interface QuillAnnotationCardProps {
     emoji?: string | null
     content: string
     isSystemAnnotation: boolean
-    author: { name: string; email?: string }
+    author: { name: string; email?: string; label: string }
     createdAt: string
     onEdit?: () => void
     onDelete?: () => void
@@ -29,13 +29,13 @@ export function QuillAnnotationCard({
 }: QuillAnnotationCardProps): JSX.Element {
     return (
         <Item variant={isSystemAnnotation ? 'muted' : 'outline'} size="sm" role="listitem" className="AnnotationCard">
-            <ItemHeader>
-                <ItemTitle className="min-w-0 text-muted-foreground">
+            <ItemHeader className="min-w-0">
+                <ItemTitle className="w-auto min-w-0 flex-1 text-xs font-normal text-muted-foreground">
                     {emoji && <span className="shrink-0 text-base leading-none">{emoji}</span>}
                     <span className="truncate">{heading}</span>
                 </ItemTitle>
                 {(onEdit || onDelete) && (
-                    <ItemActions className="gap-0">
+                    <ItemActions className="shrink-0 gap-0">
                         {onEdit && (
                             <Button
                                 size="icon-sm"
@@ -72,7 +72,7 @@ export function QuillAnnotationCard({
                     <div className="flex items-center gap-2">
                         <QuillPersonAvatar name={author.name} email={author.email} size="xs" />
                         <Text size="xs" variant="muted" className="m-0 truncate">
-                            {author.name} • {createdAt}
+                            {author.label} • {createdAt}
                         </Text>
                     </div>
                 )}

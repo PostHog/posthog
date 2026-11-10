@@ -20,6 +20,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { fullName, pluralize } from 'lib/utils/strings'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationType, DatedAnnotationType, IntervalType } from '~/types'
@@ -494,6 +495,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
     const { deleteAnnotation } = useActions(annotationsModel)
     const { openModalToEditAnnotation } = useActions(annotationModalLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { user: currentUser } = useValues(userLogic)
 
     const isSystemAnnotation = annotation.id === -1 || annotation.id === -2
     const heading = `${annotation.date_marker?.format('MMM DD, YYYY h:mm A')} (${shortTimeZone(timezone)}) – ${
@@ -501,6 +503,10 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
     }-level`
     const author =
         annotation.creation_type === 'GIT' ? { first_name: 'GitHub automation' } : (annotation.created_by ?? undefined)
+    const authorName = fullName(author)
+    const authorEmail = author && 'email' in author ? author.email : undefined
+    const authorLabel =
+        authorEmail && currentUser?.email === authorEmail ? 'you' : authorName || authorEmail || 'an unknown user'
     const createdAt = humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')
     const editable = !isSystemAnnotation && !readOnly
     const handleEdit = (): void => openModalToEditAnnotation(annotation, insightId, annotationsOverlayProps.dashboardId)
@@ -513,7 +519,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                 emoji={annotation.emoji}
                 content={annotation.content ?? ''}
                 isSystemAnnotation={isSystemAnnotation}
-                author={{ name: fullName(author), email: author && 'email' in author ? author.email : undefined }}
+                author={{ name: authorName, email: authorEmail, label: authorLabel }}
                 createdAt={createdAt}
                 onEdit={editable ? handleEdit : undefined}
                 onDelete={editable ? handleDelete : undefined}

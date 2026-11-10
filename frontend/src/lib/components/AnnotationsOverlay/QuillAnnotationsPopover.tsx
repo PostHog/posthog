@@ -68,7 +68,7 @@ export function QuillAnnotationsPopover({
                 onMouseEnter={onMouseEnter}
                 onMouseLeave={onMouseLeave}
                 data-hog-charts-interactive-overlay
-                className="AnnotationsPopover--quill w-80 max-h-(--available-height) gap-0 p-0"
+                className="AnnotationsPopover--quill w-[22rem] max-h-(--available-height) gap-0 p-0"
             >
                 <div className="flex items-center gap-2 border-b px-3 py-2">
                     <Heading size="sm" render={<h3 className="m-0" />} className="min-w-0 flex-1 truncate">
