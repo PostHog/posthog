@@ -212,6 +212,15 @@ Loading, failed requests, refresh failures, and missing definitions remain disti
 
 ## The expanded row
 
+`AccountAutomationsExpansion` and its keyed `accountAutomationsLogic` render the Automations system tab and view widget.
+`customer-analytics-automations-widget` gates the system tab, widget picker, and saved widgets through the shared component registry.
+The generated `accountsAutomationsList` client loads distinct runs from the account-scoped endpoint, with ten rows per page.
+Customer analytics reads retained run records and step logs, using existing Workflows facade reads for access and definitions.
+Four table columns show the workflow with inline status, trigger time, last completed step name and time, and expected resume time.
+Step names come from the current workflow definition when the retained logs identify the completed action.
+The empty state explains that older runs may no longer be available.
+`AutomationsViewed`, `AutomationsLoaded`, `AutomationsLoadFailed`, and `AutomationWorkflowOpened` track entry, loading, failure, and workflow navigation without account data.
+
 `AccountsTable.useExpandable()` makes expansion **controlled** by `accountsExpansionLogic`: `isRowExpanded` reads `expandedAccountIds`, `onRowExpand`/`onRowCollapse` dispatch `toggleAccountExpanded`. With `CUSTOMER_ANALYTICS_ACCOUNT_SCENE` enabled, the body is `AccountPinnedPropertiesExpansion`.
 With the flag disabled, the body is `AccountNotebooksExpansion`: the Useful links and active-relationships sidebar plus the shared `AccountDetailTabs` over `notes` / `tasks` / `users` / `relationships` / `feature_requests` / `usage` / `spend` / `opportunities` / `conversations` / `meetings` / `event_stream` (`AccountExpansionTab`; the `tasks` tab is gated by the `CUSTOMER_ANALYTICS_CUSTOMER_TASKS` flag and the `event_stream` tab is gated by the `CUSTOMER_ANALYTICS_CSP` flag). `AccountNotesExpansion` owns the shared Notes body. Active tab comes from `activeTabFor(accountId)` (defaults to `notes`). Pagination inside these tabs keeps its page state out of the URL so changing pages does not rerun deep-link restoration and replace the active tab.
 
