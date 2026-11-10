@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use futures::future::join_all;
 use personhog_property_store::reader::PropertyReader;
-use personhog_property_store::{PropertyStoreError, StoredProperties};
+use personhog_property_store::{PropertyStoreError, StoredProperties, STUB_VERSION};
 use tokio::sync::Semaphore;
 use tonic::Status;
 
@@ -46,8 +46,7 @@ pub(crate) fn resolve(
     row_created_at: i64,
 ) -> (Resolved, &'static str) {
     match read {
-        // A delete marker below the live version is an identity revival, which has empty properties.
-        Ok(Some(stored)) if stored.deleted && stored.version < row_version => {
+        Ok(Some(stored)) if stored.is_revival(row_version) => {
             (Resolved::Served("{}".to_string()), "revived")
         }
         Ok(Some(stored)) if stored.deleted => (Resolved::Gone, "deleted"),
@@ -65,8 +64,7 @@ pub(crate) fn resolve(
                 Err(_) => (Resolved::Unavailable, "undecodable"),
             }
         }
-        // Identity creates stubs at version 0 without a changelog record.
-        Ok(None) if row_version == 0 => (Resolved::Served("{}".to_string()), "stub"),
+        Ok(None) if row_version == STUB_VERSION => (Resolved::Served("{}".to_string()), "stub"),
         Ok(None) => (Resolved::Unavailable, "missing"),
         Err(PropertyStoreError::Timeout) => (Resolved::Unavailable, "timeout"),
         Err(e) => {

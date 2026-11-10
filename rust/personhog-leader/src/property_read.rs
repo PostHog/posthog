@@ -2,7 +2,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use metrics::{counter, histogram};
-use personhog_property_store::{PropertyReader, PropertyStoreError, StoredProperties};
+use personhog_property_store::{
+    PropertyReader, PropertyStoreError, StoredProperties, STUB_VERSION,
+};
 use sqlx::PgPool;
 
 use crate::cache::{CachedPerson, PersonCacheKey};
@@ -79,8 +81,7 @@ fn judge(read: Result<Option<StoredProperties>, PropertyStoreError>, stub: &Cach
             Read::Settled(Resolved::Unserved("ahead"))
         }
         Ok(Some(_)) => unsettled("behind"),
-        // Identity creates stubs at version 0 without a changelog record.
-        Ok(None) if stub.version == 0 => Read::Settled(Resolved::Served(b"{}".to_vec())),
+        Ok(None) if stub.version == STUB_VERSION => Read::Settled(Resolved::Served(b"{}".to_vec())),
         Ok(None) => unsettled("missing"),
         Err(PropertyStoreError::Timeout) => unsettled("timeout"),
         Err(e) => {
@@ -99,10 +100,9 @@ async fn resolve(read: &PropertyRead, stub: &CachedPerson) -> Resolved {
     if let Read::Settled(resolved) = judge(read.reader.get(stub.team_id, stub.id).await, stub) {
         return resolved;
     }
-    // A delete marker below the live version is an identity revival, which has empty properties.
     let fresh = read.reader.get_fresh(stub.team_id, stub.id).await;
     if let Ok(Some(stored)) = &fresh {
-        if stored.deleted && stored.version < stub.version {
+        if stored.is_revival(stub.version) {
             return Resolved::Served(b"{}".to_vec());
         }
     }
