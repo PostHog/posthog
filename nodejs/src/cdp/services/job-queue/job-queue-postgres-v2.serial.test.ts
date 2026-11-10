@@ -37,39 +37,50 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     }
 
     const CYCLOTRON_DB = { host: 'localhost', port: 5432, database: 'test_cyclotron_node' }
-    const dbUrl = (host: string, port: number): string =>
-        `postgres://posthog:posthog@${host}:${port}/${CYCLOTRON_DB.database}`
+    const CYCLOTRON_TABLES = ['cyclotron_jobs', 'cyclotron_email_team_seq', 'conversion_watchers']
 
     type Lock = { client: PoolClient; pid: number }
     type StallableProxy = { url: string; stall: () => void; close: () => Promise<void> }
 
+    let admin: Pool
+    let schema: string
     let db: Pool
     let queueName: string
     let teamId: number
-    let jobIds: string[]
     let queues: CyclotronJobQueuePostgresV2[]
     let locks: Lock[]
     let proxies: StallableProxy[]
-    let schemas: string[]
+
+    // Other suites and runs share this database and consume the literal email queue, so every test gets the
+    // Cyclotron tables in a schema of its own.
+    const dbUrl = (host: string, port: number): string => {
+        const url = new URL(`postgres://posthog:posthog@${host}:${port}/${CYCLOTRON_DB.database}`)
+        url.searchParams.set('options', `-c search_path=${schema},public`)
+        return url.toString()
+    }
 
     beforeAll(() => {
-        db = new Pool({ connectionString: dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port) })
+        admin = new Pool({
+            connectionString: `postgres://posthog:posthog@${CYCLOTRON_DB.host}:${CYCLOTRON_DB.port}/${CYCLOTRON_DB.database}`,
+        })
     })
 
     afterAll(async () => {
-        await db.end()
+        await admin.end()
     })
 
-    // The database is shared with other suites and runs, so each test owns its queue name,
-    // team and jobs, and cleans up only those.
-    beforeEach(() => {
+    beforeEach(async () => {
+        schema = `job_queue_test_${uuidv4().replace(/-/g, '')}`
+        await admin.query(`CREATE SCHEMA ${schema}`)
+        for (const table of CYCLOTRON_TABLES) {
+            await admin.query(`CREATE TABLE ${schema}.${table} (LIKE public.${table} INCLUDING ALL)`)
+        }
+        db = new Pool({ connectionString: dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port) })
         queueName = `job-queue-v2-test-${uuidv4()}`
         teamId = 1_000_000 + Math.floor(Math.random() * 1_000_000_000)
-        jobIds = []
         queues = []
         locks = []
         proxies = []
-        schemas = []
     })
 
     afterEach(async () => {
@@ -83,26 +94,9 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             await queue.stopConsumer()
             await queue.stopProducer()
         }
-        await db.query('DELETE FROM cyclotron_jobs WHERE id = ANY($1)', [jobIds])
-        await db.query('DELETE FROM cyclotron_email_team_seq WHERE team_id = $1', [teamId])
-        for (const schema of schemas) {
-            await db.query(`DROP SCHEMA ${schema} CASCADE`)
-        }
+        await db.end()
+        await admin.query(`DROP SCHEMA ${schema} CASCADE`)
     })
-
-    // Other suites and runs share the literal email queue in this database, so a test that needs it gets the
-    // Cyclotron tables in a schema of its own.
-    async function cyclotronOfThisTestOnly(): Promise<{ url: string; schema: string }> {
-        const schema = `job_queue_test_${uuidv4().replace(/-/g, '')}`
-        schemas.push(schema)
-        await db.query(`CREATE SCHEMA ${schema}`)
-        for (const table of ['cyclotron_jobs', 'cyclotron_email_team_seq', 'conversion_watchers']) {
-            await db.query(`CREATE TABLE ${schema}.${table} (LIKE public.${table} INCLUDING ALL)`)
-        }
-        const url = new URL(dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port))
-        url.searchParams.set('options', `-c search_path=${schema},public`)
-        return { url: url.toString(), schema }
-    }
 
     async function startQueue(url = dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port)) {
         const queue = new CyclotronJobQueuePostgresV2(10, {
@@ -123,7 +117,6 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         overrides: Partial<CyclotronJobInvocation> = {}
     ): Promise<string> {
         const id = uuidv7()
-        jobIds.push(id)
         await queue.queueInvocations([
             { ...baseInvocation, id, teamId, queue: queueName as CyclotronJobQueueKind, ...overrides },
         ])
@@ -161,14 +154,8 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             invocation: { ...invocation, queue: 'email', queueScheduledAt: DateTime.now().plus({ hours: 1 }) },
         })
 
-    async function jobRow(
-        id: string,
-        schema = 'public'
-    ): Promise<{ status: string; queue_name: string; priority: number }> {
-        const { rows } = await db.query(
-            `SELECT status, queue_name, priority FROM ${schema}.cyclotron_jobs WHERE id = $1`,
-            [id]
-        )
+    async function jobRow(id: string): Promise<{ status: string; queue_name: string; priority: number }> {
+        const { rows } = await db.query('SELECT status, queue_name, priority FROM cyclotron_jobs WHERE id = $1', [id])
         return rows[0]
     }
 
@@ -298,8 +285,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         async ({ from, to, persisted }) => {
             const on = (name: string): CyclotronJobQueueKind =>
                 (name === 'email' ? 'email' : queueName) as CyclotronJobQueueKind
-            const cyclotron = await cyclotronOfThisTestOnly()
-            const queue = await startQueue(cyclotron.url)
+            const queue = await startQueue()
             const id = await enqueue(queue, { queue: on(from), queuePriority: 1 })
             const [claimed] = await (await consume(queue, on(from))).claimed()
 
@@ -314,7 +300,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
                 }),
             ])
 
-            expect(await jobRow(id, cyclotron.schema)).toMatchObject({
+            expect(await jobRow(id)).toMatchObject({
                 queue_name: on(to),
                 priority: persisted ? 3 : 1,
             })
