@@ -22,7 +22,7 @@ describe('sesHtmlMaxBytes', () => {
     const maxBytes = (html: string, utm: typeof UTM | null): number =>
         sesHtmlMaxBytes(html, { utmTags: utm?.tags ?? null, invocation, signer, preheader: PREHEADER })
 
-    it.each<{ case: string; html: string; utm?: null }>([
+    it.each<{ case: string; html: string; utm?: typeof UTM | null }>([
         { case: 'a plain link', html: '<body><a href="https://example.com/p">x</a></body>' },
         { case: 'an unquoted href', html: '<body><a href=https://example.com/p>x</a></body>' },
         { case: 'raw ampersands', html: "<a href='https://example.com/?a=1&b=2&c=3&d=4'>x</a>" },
@@ -51,6 +51,19 @@ describe('sesHtmlMaxBytes', () => {
             html: `<body>${'<a ses:tags="k:v" href="https://example.com/?x=\'">y</a>'.repeat(12)}</body>`,
         },
         { case: 'many anchors that never close', html: unclosedAnchors(1_000) },
+        {
+            case: 'UTM values with apostrophes, reserved and multi-byte characters',
+            html: '<body><a href="https://example.com/p">x</a><a href="https://example.com/q">y</a></body>',
+            utm: {
+                ...UTM,
+                tags: {
+                    utm_source: "it's & <ok>",
+                    utm_medium: 'é😀中',
+                    utm_campaign: 'a b/c?d=e#f',
+                    utm_content: "'()*!~-_.",
+                },
+            },
+        },
     ])('bounds the bytes SES gets for $case', ({ html, utm = UTM }) => {
         const sent = htmlForSes(
             tagEmailLinks(html, utm, { runId: invocation.id, senderEmail: 'hi@example.com', siteUrl: SITE_URL }),
