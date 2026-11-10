@@ -119,6 +119,7 @@ class TestLintTestOwners:
         [
             pytest.param("gap/test_x\n::error::forged.py", id="after_a_newline"),
             pytest.param("::error::forged/test_x.py", id="at_the_start_of_the_path"),
+            pytest.param("gap/##[error]forged/test_x.py", id="in_the_form_that_counts_anywhere_in_a_line"),
         ],
     )
     def test_a_path_cannot_forge_a_workflow_command(self, add: Add, path: str) -> None:
@@ -127,4 +128,4 @@ class TestLintTestOwners:
         result = CliRunner().invoke(ownership_lint.cmd_lint_test_owners, ["--against", "HEAD"])
 
         assert result.exit_code == 1
-        assert not any(line.startswith("::") for line in result.output.splitlines())
+        assert not any(line.startswith("::") or "##[" in line for line in result.output.splitlines())

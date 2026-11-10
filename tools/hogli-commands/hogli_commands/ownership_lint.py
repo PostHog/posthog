@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import subprocess
-from pathlib import PurePosixPath
 
 import click
 from hogli.manifest import REPO_ROOT
-from owners_yaml import OwnersResolver, runner_for_path
+from owners_yaml import runner_for_path
 
 from hogli_commands.preflight_checks import Outcome, Scope
 
@@ -27,14 +26,11 @@ def _teamless_tests(against: str, committed_only: bool) -> list[str]:
 
 
 def check_test_owners(scope: Scope) -> Outcome:
-    ownership_filenames = OwnersResolver(REPO_ROOT).ownership_filenames()
-    if not any(runner_for_path(path) or PurePosixPath(path).name in ownership_filenames for path in scope.changed):
-        return "pass", "no test or ownership file changed"
     tests = _teamless_tests(scope.merge_base, scope.committed_only)
     if not tests:
         return "pass", "the branch leaves no test file without a team owner"
     more = f" and {len(tests) - 1} more" if len(tests) > 1 else ""
-    return "fail", f"the branch leaves {tests[0]}{more} with no team owner. {HINT}"
+    return "fail", f"the branch leaves {tests[0]!r}{more} with no team owner. {HINT}"
 
 
 @click.command(name="lint:test-owners", help="Fail when the branch leaves a test file with no team owner.")
@@ -44,12 +40,14 @@ def cmd_lint_test_owners(against: str, committed: bool) -> None:
     try:
         tests = _teamless_tests(against, committed)
     except subprocess.CalledProcessError as error:
-        raise click.ClickException(f"could not compare with {against!r}: {error.stderr.strip()}") from error
+        reason = error.stderr.strip() or "no merge base"
+        raise click.ClickException(f"could not compare with {against!r}: {reason}") from error
     if not tests:
         return
-    # The pull request author controls each path, and CI reads a line that starts with `::` as a
-    # workflow command. The prefix and the quoting keep a path, and a newline in it, off a line start.
+    # The pull request author controls each path, and the GitHub Actions runner reads `::` at the
+    # start of a line and `##[` anywhere in a line as a workflow command. The prefix and the quoting
+    # keep a path, and a newline in it, off a line start, and the space breaks up each `##[`.
     for path in tests:
-        click.echo(f"no team owner: {path!r}")
+        click.echo(f"no team owner: {path!r}".replace("##[", "## ["))
     click.echo(HINT)
     raise SystemExit(1)
