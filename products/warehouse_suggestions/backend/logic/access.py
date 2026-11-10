@@ -114,6 +114,25 @@ def _subjects_q(subject_ids_by_kind: Mapping[WarehouseSuggestionSubjectKind, fro
     return subjects
 
 
+def shown_suggestions(
+    team_id: int,
+    *,
+    subject_kinds: SubjectKinds,
+    status: WarehouseSuggestionStatus | None = None,
+    subject_ids: Collection[UUID] | None = None,
+) -> QuerySet[WarehouseSuggestion]:
+    suggestions = (
+        WarehouseSuggestion.objects.for_team(team_id)
+        .filter(subject_kind__in=subject_kinds.readable)
+        .exclude(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True)
+    )
+    if status is not None:
+        suggestions = suggestions.filter(status=status)
+    if subject_ids is not None:
+        suggestions = suggestions.filter(subject_id__in=subject_ids)
+    return suggestions
+
+
 def visible_suggestions(
     team_id: int,
     user_access_control: "UserAccessControl",
@@ -122,23 +141,18 @@ def visible_suggestions(
     kind: WarehouseSuggestionKind | None = None,
     status: WarehouseSuggestionStatus | None = None,
     subject_id: UUID | None = None,
+    subject_ids: Collection[UUID] | None = None,
     assignee_id: int | None = None,
     surface: WarehouseSuggestionSurface | None = None,
     subject_kinds: SubjectKinds,
 ) -> tuple[QuerySet[WarehouseSuggestion], SubjectAccess]:
-    suggestions = (
-        WarehouseSuggestion.objects.for_team(team_id)
-        .filter(subject_kind__in=subject_kinds.readable)
-        .exclude(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True)
-    )
+    suggestions = shown_suggestions(team_id, subject_kinds=subject_kinds, status=status, subject_ids=subject_ids)
     if surface is not None:
         suggestions = suggestions.filter(surface_q(surface))
     if suggestion_id is not None:
         suggestions = suggestions.filter(id=suggestion_id)
     if kind is not None:
         suggestions = suggestions.filter(kind=kind)
-    if status is not None:
-        suggestions = suggestions.filter(status=status)
     if subject_id is not None:
         suggestions = suggestions.filter(subject_id=subject_id)
     if assignee_id is not None:
