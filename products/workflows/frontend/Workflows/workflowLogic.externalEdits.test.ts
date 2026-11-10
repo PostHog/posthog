@@ -439,6 +439,7 @@ describe('workflowLogic external edits', () => {
         },
     ])('when the reload fails and $case, shows the banner: $banner', async ({ run, keepLocalEdits, edit, banner }) => {
         silenceKeaLoadersErrors()
+        jest.useFakeTimers()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS]: keepLocalEdits })
         useMocks({
             get: {
