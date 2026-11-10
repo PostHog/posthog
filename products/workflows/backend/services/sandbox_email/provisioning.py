@@ -29,12 +29,14 @@ def organization_blocked(team: Team) -> bool:
     return SandboxSenderOrganizationBlock.objects.filter(organization_id=team.organization_id).exists()
 
 
-def provision_sandbox_sender(team: Team, user: User) -> IntegrationRecord:
+def provision_sandbox_sender(team: Team, user: User | None) -> IntegrationRecord:
     accessor = IntegrationManager.email_sandbox.credentials
     existing = accessor.find(team.id, external_id=SANDBOX_SENDER_INTEGRATION_ID)
     if existing is not None:
         return existing
-    row, _created = accessor.upsert(team.id, SANDBOX_SENDER_INTEGRATION_ID, config={}, created_by_id=user.id)
+    row, _created = accessor.upsert(
+        team.id, SANDBOX_SENDER_INTEGRATION_ID, config={}, created_by_id=user.id if user is not None else None
+    )
     return row
 
 

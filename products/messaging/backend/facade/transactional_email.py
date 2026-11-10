@@ -8,6 +8,8 @@ from products.messaging.backend.facade.contracts import (
     EmailStatus,
     FieldNotAccepted,
     QueuedEmail,
+    SendWarning,
+    SendWarningCode,
     TransactionalEmailError,
 )
 from products.messaging.backend.services.transactional_email import (
@@ -40,6 +42,8 @@ __all__ = [
     "EmailDeliveryStatus",
     "EmailStatus",
     "QueuedEmail",
+    "SendWarning",
+    "SendWarningCode",
     "TransactionalEmailError",
     "TransactionalEmailStage",
     "check_transactional_update",

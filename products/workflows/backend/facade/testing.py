@@ -5,7 +5,7 @@ from asgiref.sync import sync_to_async
 from posthog.models.team import Team
 
 from products.workflows.backend.facade.contracts import WorkflowSummary
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.models import HogFlow, SandboxSenderOrganizationBlock
 from products.workflows.backend.services.account_audience import get_account_audience_count, get_account_audience_page
 
 
@@ -39,3 +39,7 @@ def count_account_audience_for_test(*, team_id: int, filters: dict[str, Any]) ->
 
 def list_account_audience_page_for_test(*, team_id: int, filters: dict[str, Any], cursor: str | None) -> list[str]:
     return get_account_audience_page(Team.objects.get(pk=team_id), filters, cursor)
+
+
+def block_sandbox_sender_for_test(*, organization_id: Any) -> None:
+    SandboxSenderOrganizationBlock.objects.create(organization_id=organization_id, reason="test")

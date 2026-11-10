@@ -721,6 +721,14 @@ class TransactionalEmailContent:
     reply_to: str = ""
 
 
+@frozen
+class SendingDomainSetup:
+    """Where a team verifies a sending domain: the page of its unverified sender, or a new one."""
+
+    setup_url: str
+    unverified_sender_id: int | None
+
+
 class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
 

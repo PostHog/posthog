@@ -139,6 +139,24 @@ class InvalidRequest(TransactionalEmailError):
     code = "invalid_request"
 
 
+class SandboxFieldsUnsupported(TransactionalEmailError):
+    """The email would go out from the sandbox sender, which can't send copies, attachments or a custom sender."""
+
+    code = "sandbox_fields_unsupported"
+
+    def __init__(self, message: str, attr: str | None = None) -> None:
+        super().__init__(message)
+        self.attr = attr
+
+
+class SandboxRecipientNotMember(TransactionalEmailError):
+    code = "sandbox_recipient_not_member"
+
+
+class SandboxSenderNotAvailable(TransactionalEmailError):
+    code = "sandbox_sender_unavailable"
+
+
 @frozen
 class CodeEmail:
     key: str
@@ -157,11 +175,26 @@ class DeliveryUnavailable(Exception):
     """The email pipeline did not accept the send. Safe to retry."""
 
 
+class SendWarningCode(LabeledStrEnum):
+    SANDBOX_SENDER = "sandbox_sender", "Sent from the sandbox sender"
+
+
+@frozen
+class SendWarning:
+    code: SendWarningCode
+    message: str
+    # Where the team verifies a sending domain.
+    setup_url: str
+    # The next step for an AI agent that made the send.
+    agent_action: str
+
+
 @frozen
 class QueuedEmail:
     message_id: str
     # True when an earlier request with the same idempotency key already queued this email.
     replayed: bool = False
+    warnings: tuple[SendWarning, ...] = ()
 
 
 class SupabaseEmailActionType(LabeledStrEnum):

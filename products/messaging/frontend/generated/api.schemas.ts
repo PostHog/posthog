@@ -157,11 +157,35 @@ export interface SendEmailApi {
     from?: string
 }
 
+/**
+ * * `sandbox_sender` - Sent from the sandbox sender
+ */
+export type SendWarningCodeEnumApi = (typeof SendWarningCodeEnumApi)[keyof typeof SendWarningCodeEnumApi]
+
+export const SendWarningCodeEnumApi = {
+    SandboxSender: 'sandbox_sender',
+} as const
+
+export interface SendWarningApi {
+    /** What the warning is about. `sandbox_sender`: the email went out from PostHog's sandbox sender because the project has no verified sending domain, so it only reaches members of the organization.
+     *
+     * * `sandbox_sender` - Sent from the sandbox sender */
+    code: SendWarningCodeEnumApi
+    /** What happened and what to do next, in words a person can read. */
+    message: string
+    /** Absolute URL of the page where the project verifies a sending domain: the page of its unverified sender when it has one, otherwise the page that adds a new one. */
+    setup_url: string
+    /** The next step for an AI agent that made the send: what to tell the user, and which PostHog MCP tool starts the domain setup. */
+    agent_action: string
+}
+
 export interface SendTransactionalEmailResponseApi {
     /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
     message_id: string
     /** True when an earlier request with the same `Idempotency-Key` already queued this email. No new email was sent, and `message_id` is the earlier send's ID. */
     replayed: boolean
+    /** Things the caller should act on although the email was queued. Left out when there are none. */
+    warnings?: SendWarningApi[]
 }
 
 /**

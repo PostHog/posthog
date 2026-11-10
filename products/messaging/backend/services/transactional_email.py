@@ -41,11 +41,16 @@ from products.messaging.backend.facade.contracts import (
     QuotaLimited,
     RecipientSuppressed,
     RecipientUnreachable,
+    SandboxFieldsUnsupported,
+    SandboxRecipientNotMember,
+    SandboxSenderNotAvailable,
     SenderNotVerified,
     SenderRequired,
     SenderUnavailable,
     SendingPaused,
     SendingSuspended,
+    SendWarning,
+    SendWarningCode,
     TemplateNotSendable,
     TemplateNotTransactional,
     TooManyKeys,
@@ -61,10 +66,13 @@ from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContentInvalid,
     TransactionalEmailSenderRequired,
     TransactionalEmailSenderUnavailable,
+    code_send_sandbox_sender_available,
     code_send_sender_id,
     create_code_email_workflow,
     create_transactional_email_workflow,
     resolve_transactional_email_sender,
+    sending_domain_setup,
+    set_up_code_send_sandbox_sender,
     update_transactional_email_workflow,
 )
 
@@ -140,6 +148,12 @@ def _observe_cdp_call(seconds: float) -> None:
     observe_transactional_email_stage("cdp_call", seconds)
 
 
+SANDBOX_FIELDS_UNSUPPORTED = (
+    "This project has no verified sending domain, so this email would go out from PostHog's sandbox sender, which "
+    "can't send `cc`, `bcc`, `reply_to`, `attachments` or a custom `from`. Remove those fields, or verify a sending "
+    "domain at {setup_url}."
+)
+
 # The CDP service names the reason it refused a send in the body's `error`. A retry of the same request gets the
 # same refusal, so each of these reaches the caller as a 4xx and not as a retryable 503.
 PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
@@ -177,7 +191,27 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
         "The email pipeline couldn't accept a field of this email, so it wasn't sent. Check the addresses and "
         "fields, then send it again.",
     ),
+    "sandbox_recipient_not_member": (
+        SandboxRecipientNotMember,
+        "PostHog's sandbox sender only sends to members of your organization until this project verifies a sending "
+        "domain, so this email wasn't sent. Verify a sending domain at {setup_url} to send to anyone.",
+    ),
+    "sandbox_fields_unsupported": (SandboxFieldsUnsupported, SANDBOX_FIELDS_UNSUPPORTED),
+    "sandbox_sender_unavailable": (
+        SandboxSenderNotAvailable,
+        "The sandbox sender isn't available for this organization, so this email wasn't sent. Verify a sending "
+        "domain at {setup_url} to send email.",
+    ),
 }
+# These refusals name the page where the team verifies a sending domain.
+SANDBOX_REFUSAL_CODES = frozenset(code for code in PIPELINE_REFUSALS if code.startswith("sandbox_"))
+
+SANDBOX_SENDER_KIND = "email_sandbox"
+SANDBOX_SENDER_WARNING = (
+    "This email went out from PostHog's sandbox sender, because this project has no verified sending domain. The "
+    "sandbox sender only sends to members of your organization. Verify a sending domain to send to anyone from your "
+    "own address."
+)
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
 
@@ -520,7 +554,7 @@ def send_code_email(
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key, (*email.cc, *email.bcc))
     with transactional_email_stage("workflow_lookup"):
-        accepted_send = _accepted_send(team.id, email)
+        accepted_send = _accepted_send(team, email)
         hog_flow_id = _code_email_workflow_id(team.id, email.key)
     payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
     return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email)
@@ -553,12 +587,12 @@ def _send_payload(
     return payload
 
 
-def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
+def _accepted_send(team: Team, email: CodeEmail) -> dict[str, Any]:
     accepted: dict[str, Any] = {
         "content": _without_empty(
             {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
         ),
-        "from": _without_empty(_code_send_sender(team_id, email.sender)),
+        "from": _without_empty(_code_send_sender(team, email)),
         "tracking": {"captureEngagement": email.capture_engagement},
     }
     if email.reply_to:
@@ -583,19 +617,35 @@ def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:
     )
 
 
-def _code_send_sender(team_id: int, address: str | None) -> dict[str, Any]:
-    name, email = parseaddr(address) if address else ("", "")
+def _code_send_sender(team: Team, email: CodeEmail) -> dict[str, Any]:
+    name, address = parseaddr(email.sender) if email.sender else ("", "")
     try:
-        sender_id = code_send_sender_id(team_id=team_id, email=email or None)
+        sender_id = code_send_sender_id(team_id=team.id, email=address or None)
     except TransactionalEmailSenderRequired as e:
         raise SenderRequired(
             "This project has more than one verified sender and no default sender. Send `from` to choose one."
         ) from e
     except TransactionalEmailSenderUnavailable as e:
-        if address:
-            raise NamedSenderNotVerified(f"No verified sender in this project can send from `{email}`.") from e
-        raise SenderNotVerified("This project has no verified email sender. Verify a sender domain first.") from e
-    return {"integrationId": sender_id, "email": email, "name": name}
+        if not code_send_sandbox_sender_available(team):
+            if email.sender:
+                raise NamedSenderNotVerified(f"No verified sender in this project can send from `{address}`.") from e
+            raise SenderNotVerified("This project has no verified email sender. Verify a sender domain first.") from e
+        if field := _field_the_sandbox_sender_cannot_send(email):
+            setup_url = sending_domain_setup(team.id).setup_url
+            raise SandboxFieldsUnsupported(SANDBOX_FIELDS_UNSUPPORTED.format(setup_url=setup_url), attr=field) from e
+        return {"integrationId": set_up_code_send_sandbox_sender(team)}
+    return {"integrationId": sender_id, "email": address, "name": name}
+
+
+def _field_the_sandbox_sender_cannot_send(email: CodeEmail) -> str | None:
+    fields = {
+        "cc": email.cc,
+        "bcc": email.bcc,
+        "reply_to": email.reply_to,
+        "attachments": email.attachments,
+        "from": email.sender,
+    }
+    return next((field for field, value in fields.items() if value), None)
 
 
 def _without_empty(fields: dict[str, Any]) -> dict[str, Any]:
@@ -655,10 +705,40 @@ def _queue(
         if refusal is None:
             raise DeliveryUnavailable()
         error_class, message = refusal
+        if refusal_code in SANDBOX_REFUSAL_CODES:
+            message = message.format(setup_url=sending_domain_setup(team_id).setup_url)
         raise error_class(message)
 
     body = response.json()
-    return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
+    return QueuedEmail(
+        message_id=str(body["invocation_id"]),
+        replayed=bool(body.get("replayed", False)),
+        # The pipeline names the sender it used, so a replay warns the same way as the send it repeats.
+        warnings=(_sandbox_sender_warning(team_id),) if body.get("sender_kind") == SANDBOX_SENDER_KIND else (),
+    )
+
+
+def _sandbox_sender_warning(team_id: int) -> SendWarning:
+    setup = sending_domain_setup(team_id)
+    if setup.unverified_sender_id is None:
+        agent_action = (
+            "Tell the user this project can only email members of their organization until it has a verified "
+            f"sending domain, and ask them to verify one at {setup.setup_url}. With the PostHog MCP tools, start "
+            "with integrations-email-create for the domain they send from."
+        )
+    else:
+        agent_action = (
+            "Tell the user this project can only email members of their organization until its sending domain is "
+            f"verified, and ask them to finish verifying it at {setup.setup_url}. With the PostHog MCP tools, call "
+            f"integrations-email-status-retrieve for integration {setup.unverified_sender_id} to get the DNS records "
+            "to publish."
+        )
+    return SendWarning(
+        code=SendWarningCode.SANDBOX_SENDER,
+        message=SANDBOX_SENDER_WARNING,
+        setup_url=setup.setup_url,
+        agent_action=agent_action,
+    )
 
 
 def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
