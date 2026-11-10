@@ -697,7 +697,10 @@ When a report has a linked task run, the View task button opens it in the PostHo
 The button fits its label, including when it appears below the Solution section.
 
 Trial-funded background runs require the PostHog AI gateway.
-Pi and own-subscription model access are refused before a run is created, with instructions to choose Claude Code or Codex with PostHog model access.
+Pi scouts, including the first-report DeepSeek arm, use the scoped gateway path and retain trial spend accounting.
+They cannot start without a scoped gateway token; a transient mint failure retries provisioning without falling back to unaccounted execution.
+Pi runs outside scouts and own-subscription model access are refused before a run is created, with instructions to choose Claude Code or Codex with PostHog model access.
 The check uses the effective runtime and model access after defaults are applied, including for a prepared trial admission.
 The provisioning guard also treats this refusal as an expected failure, so an incompatible run already queued before the admission check fails without reporting an exception to error tracking.
 Other funding modes keep their existing runtime and model access rules.
+First-report completion returns an incomplete outcome without a notification when admission failed before the scout run was created.
