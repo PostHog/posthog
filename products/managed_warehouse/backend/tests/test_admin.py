@@ -168,6 +168,7 @@ class TestManagedWarehouseConsolePanel(BaseTest):
 
         assert "Deprovisioned" in content
         assert "Enable backfill for a team" not in content and "Deprovision warehouse" in content
+        assert "Provision warehouse" in content
 
     def _provision(self, team_id: int, **extra: str):
         url = f"{self.organization_url}managed-warehouse/provision/"

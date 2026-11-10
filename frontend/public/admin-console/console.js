@@ -37,15 +37,18 @@ document.addEventListener('click', (event) => {
     if (!(field instanceof HTMLInputElement)) {
         return
     }
-    navigator.clipboard.writeText(field.value).then(
-        () => {
-            button.textContent = 'Copied'
-        },
-        () => {
-            field.select()
-            button.textContent = 'Selected. Copy with the keyboard'
-        }
-    )
+    const selectForKeyboardCopy = () => {
+        field.select()
+        button.textContent = 'Selected. Copy with the keyboard'
+    }
+    // Browsers leave navigator.clipboard undefined on a page served over plain HTTP outside localhost.
+    if (!navigator.clipboard) {
+        selectForKeyboardCopy()
+        return
+    }
+    navigator.clipboard.writeText(field.value).then(() => {
+        button.textContent = 'Copied'
+    }, selectForKeyboardCopy)
 })
 
 document.querySelector('form[data-autofocus]')?.querySelector('input:not([type=hidden]), textarea, select')?.focus()

@@ -334,9 +334,10 @@ class ManagedWarehousePanel(Panel):
             ),
             undo_hint="This cannot be undone. The connection record stays in Django admin. Delete it there if needed.",
         )
-        # Deprovision stays on offer after teardown so staff can retry a run whose SQL connection cleanup failed.
+        # After teardown staff can provision again, for example to change internal testing mode, and can retry a
+        # deprovision whose SQL connection cleanup failed.
         if server.deprovisioned:
-            return [deprovision_operation]
+            return [provision_operation, deprovision_operation]
         return [
             provision_operation,
             *_view_translation_operations(get_view_translation_summary(obj.pk)),
