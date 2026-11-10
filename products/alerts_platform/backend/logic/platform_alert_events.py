@@ -22,7 +22,7 @@ from uuid import UUID
 import structlog
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.client.connection import ClickHouseUser, get_pool
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 
@@ -47,6 +47,10 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
 logger = structlog.get_logger(__name__)
+
+# The `alert_id` of a history row that belongs to the check rather than to a group. The column is in
+# the table's sort key, which rejects Nullable, so the nil UUID stands in for "no instance".
+CONFIGURATION_ROW_ALERT_ID: Final = UUID(int=0)
 
 
 @frozen
@@ -137,8 +141,11 @@ def _execute(query: str, args: Any, *, team_id: int, settings: dict[str, Any] | 
     return sync_execute(query, args, team_id=team_id, settings=settings, ch_user=ClickHouseUser.ALERTS_PLATFORM)
 
 
-def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
-    """Records a batch's history. Returns how many rows it wrote.
+def insert_events(
+    team_id: int, rows: Sequence[PlatformAlertEventRow], *, send_receive_timeout: int | None = None
+) -> int:
+    """Records a batch's history. Returns how many rows it wrote. With `send_receive_timeout`, a
+    stalled socket fails the insert after that many seconds, as the shared pool's never does.
 
     Never raises. History is a record of what the platform decided, not a step in deciding it, so
     a ClickHouse outage must not fail a batch whose state and schedule are already written. The
@@ -150,12 +157,20 @@ def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
         # `sync_execute` requires both tags. The platform product rather than a source's, because
         # the table serves every source and the write is the platform's own bookkeeping.
         tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
-        _execute(
-            _INSERT_SQL,
-            [row.as_row() for row in rows],
-            settings={"insert_deduplication_token": _deduplication_token(team_id, rows)},
-            team_id=team_id,
-        )
+        insert_settings = {"insert_deduplication_token": _deduplication_token(team_id, rows)}
+        if send_receive_timeout is None:
+            _execute(_INSERT_SQL, [row.as_row() for row in rows], settings=insert_settings, team_id=team_id)
+        else:
+            pool = get_pool(ch_user=ClickHouseUser.ALERTS_PLATFORM, send_receive_timeout=send_receive_timeout)
+            with pool.get_client() as client:
+                sync_execute(
+                    _INSERT_SQL,
+                    [row.as_row() for row in rows],
+                    settings=insert_settings,
+                    team_id=team_id,
+                    ch_user=ClickHouseUser.ALERTS_PLATFORM,
+                    sync_client=client,
+                )
     except Exception as error:
         logger.exception(
             "Failed to record platform alert check history",
@@ -627,6 +642,7 @@ FROM (
     FROM {PLATFORM_ALERT_EVENTS_TABLE}
     WHERE team_id = %(team_id)s
       AND configuration_id = %(configuration_id)s
+      AND alert_id = %(alert_id)s
       AND kind IN %(kinds)s
     ORDER BY occurred_at, evaluation_key
     LIMIT 1 BY evaluation_key
@@ -642,6 +658,7 @@ SELECT min(occurred_at), count()
 FROM {PLATFORM_ALERT_EVENTS_TABLE}
 WHERE team_id = %(team_id)s
   AND configuration_id = %(configuration_id)s
+  AND alert_id = %(alert_id)s
   AND kind IN %(kinds)s
 """
 
@@ -655,7 +672,7 @@ def control_changes(
     Raises on a ClickHouse failure, because only the caller knows what it can show instead.
     """
     tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
-    parameters = {"team_id": team_id, "configuration_id": configuration_id}
+    parameters = {"team_id": team_id, "configuration_id": configuration_id, "alert_id": CONFIGURATION_ROW_ALERT_ID}
     # Not `_execute`, for the same reason as `history`.
     [(oldest_at, kept)] = sync_execute(
         _OLDEST_CONTROL_CHANGE_SQL,
@@ -703,6 +720,7 @@ FROM (
     FROM {PLATFORM_ALERT_EVENTS_TABLE}
     WHERE team_id = %(team_id)s
       AND configuration_id IN %(configuration_ids)s
+      AND alert_id = %(alert_id)s
       AND kind IN %(kinds)s
     ORDER BY configuration_id, occurred_at, evaluation_key
     LIMIT 1 BY configuration_id, evaluation_key
@@ -728,6 +746,7 @@ def control_history(
         {
             "team_id": team_id,
             "configuration_ids": list(configuration_ids),
+            "alert_id": CONFIGURATION_ROW_ALERT_ID,
             "kinds": [kind.value for kind in ControlChangeKind],
             "toggles": [ControlChangeKind.ENABLE.value, ControlChangeKind.DISABLE.value],
             "since": _microseconds(since),

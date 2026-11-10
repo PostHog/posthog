@@ -52,7 +52,11 @@ from products.alerts_platform.backend.facade.scheduling import (
     validate_and_normalize_schedule_start_time,
 )
 from products.alerts_platform.backend.logic import delivery_holds
-from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
+from products.alerts_platform.backend.logic.platform_alert_events import (
+    CONFIGURATION_ROW_ALERT_ID,
+    PlatformAlertEventRow,
+    insert_events,
+)
 from products.alerts_platform.backend.models import (
     PlatformAlert,
     PlatformAlertConfiguration,
@@ -361,11 +365,6 @@ def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, 
     }
 
 
-# The `alert_id` of a history row that belongs to the check rather than to a group. The column is in
-# the table's sort key, which rejects Nullable, so the nil UUID stands in for "no instance".
-CONFIGURATION_ROW_ALERT_ID: Final = UUID(int=0)
-
-
 def _event_row(
     configuration: PlatformAlertConfiguration,
     outcome: PlatformAlertOutcome,
@@ -485,14 +484,24 @@ def control_change_row(
     )
 
 
+# A request waits for this insert after its change commits, so a stalled ClickHouse costs it this
+# long at most, and the row is dropped as any failed insert is.
+_AFTER_COMMIT_INSERT_TIMEOUT_SECONDS: Final = 5
+
+
 def record_history_after_commit(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
     """Records rows once the change they describe commits, so a rolled-back change leaves none."""
     if rows:
-        transaction.on_commit(lambda: record_history(team_id, rows), robust=True)
+        transaction.on_commit(
+            lambda: record_history(team_id, rows, send_receive_timeout=_AFTER_COMMIT_INSERT_TIMEOUT_SECONDS),
+            robust=True,
+        )
 
 
-def record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
-    recorded = insert_events(team_id, rows)
+def record_history(
+    team_id: int, rows: Sequence[PlatformAlertEventRow], *, send_receive_timeout: int | None = None
+) -> int:
+    recorded = insert_events(team_id, rows, send_receive_timeout=send_receive_timeout)
     if recorded < len(rows):
         # One batch holds one source's checks.
         safe_record(increment_history_rows_dropped, rows[0].source_kind, len(rows) - recorded)

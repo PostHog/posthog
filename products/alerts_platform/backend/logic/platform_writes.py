@@ -368,6 +368,7 @@ def update_owned_copy(
     snooze_changed: bool,
     cadence: PlatformAlertUpsert | None = None,
     rescheduled: bool = False,
+    at: datetime | None = None,
 ) -> None:
     """Applies an edit the source made to its own row onto the platform's copy. Nothing is mirrored
     back, because the source already wrote its row. A snooze the edit set or cleared becomes the
@@ -376,7 +377,7 @@ def update_owned_copy(
         configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         if configuration is None:
             return
-        now = django_timezone.now()
+        now = at or django_timezone.now()
         current, previous_state = edit_of(configuration), platform_lifecycle.shown_state(configuration, now=now)
         # A snooze ends the firing, as on the logs stack. A firing after it opens a new incident.
         snoozing = snooze_changed and snooze_until is not None and snooze_until > now

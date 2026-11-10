@@ -448,10 +448,12 @@ def update_owned_copy(
     snooze_changed: bool = False,
     cadence: PlatformAlertUpsert | None = None,
     rescheduled: bool = False,
+    at: datetime | None = None,
 ) -> None:
     """Applies an edit a source made to its own row onto the copy the platform owns. When `cadence`
     changes the copy's cadence, or `rescheduled` says the source moved its own due time, the copy is
-    next due at the cadence's `next_check_at`.
+    next due at the cadence's `next_check_at`. `at` is when the source made the edit, taken before
+    it wrote any history row of its own, so the platform's row of the same change is no later.
 
     Raises `InvalidPlatformAlertEdit` for an edit the source kind's schema rejects.
     """
@@ -463,6 +465,7 @@ def update_owned_copy(
         snooze_changed=snooze_changed,
         cadence=cadence,
         rescheduled=rescheduled,
+        at=at,
     )
 
 

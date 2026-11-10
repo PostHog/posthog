@@ -864,6 +864,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         if "name" in validated_data and not validated_data.get("name", "").strip():
             validated_data["name"] = "Untitled alert"
 
+        # Before the edit writes its logs history row, so the platform's row of the same change is no
+        # later and the events list counts that logs row as a copy of it.
+        edited_at = timezone.now()
         snooze_data = validated_data.pop("snooze_until", _SENTINEL)
         grouping: Grouping | None = validated_data.pop("grouping", None)
         if instance.has_no_logs_row:
@@ -952,6 +955,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     alert_id=updated.id,
                     snooze_changed=snooze_data is not _SENTINEL,
                     grouping=grouping,
+                    at=edited_at,
                 )
             )
             if not updated.platform_owned and enabled_change is True:

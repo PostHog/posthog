@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -386,12 +387,13 @@ class TestLogsAlertControlPlaneHistory(ClickhouseTestMixin, APIBaseTest):
     def _take_steps(self, alert_id: str, configuration_id: str) -> None:
         for minute, (action, body, _) in enumerate(_CONTROL_STEPS, start=1):
             with (
-                time_machine.travel(_NOW + timedelta(minutes=minute), tick=False),
+                # A running clock, so the logs row and the platform row of one edit get different times.
+                time_machine.travel(_NOW + timedelta(minutes=minute), tick=True),
                 self.captureOnCommitCallbacks(execute=True),
             ):
                 if action == "reset":
                     with team_scope(self.team.id):
-                        platform_testing.set_check_status(configuration_id, "broken")
+                        platform_testing.set_check_status(UUID(configuration_id), "broken")
                     response = self.client.post(f"{self.base_url}{alert_id}/reset/")
                 else:
                     response = self.client.patch(f"{self.base_url}{alert_id}/", body, format="json")
@@ -413,7 +415,7 @@ class TestLogsAlertControlPlaneHistory(ClickhouseTestMixin, APIBaseTest):
         else:
             alert_id = configuration_id = self._create_without_logs_row()
         older = [("enable", "broken", "not_firing")] if has_logs_row else []
-        older_interval = [("2026-11-06T11:00:00Z", "not_firing", True)] if has_logs_row else []
+        older_interval = [("2026-11-06T11:00", "not_firing", True)] if has_logs_row else []
 
         self._take_steps(alert_id, configuration_id)
 
@@ -425,13 +427,13 @@ class TestLogsAlertControlPlaneHistory(ClickhouseTestMixin, APIBaseTest):
         assert retrieved["last_checked_at"] is None
         assert listed["state_timeline"] == retrieved["state_timeline"]
         first, *rest = retrieved["state_timeline"]
-        assert ((first["state"], first["enabled"]), [(i["start"], i["state"], i["enabled"]) for i in rest]) == (
+        assert ((first["state"], first["enabled"]), [(i["start"][:16], i["state"], i["enabled"]) for i in rest]) == (
             ("not_firing", not has_logs_row),
             [
                 *older_interval,
-                ("2026-11-06T12:01:00Z", "not_firing", False),
-                ("2026-11-06T12:02:00Z", "not_firing", True),
-                ("2026-11-06T12:03:00Z", "snoozed", True),
-                ("2026-11-06T12:04:00Z", "not_firing", True),
+                ("2026-11-06T12:01", "not_firing", False),
+                ("2026-11-06T12:02", "not_firing", True),
+                ("2026-11-06T12:03", "snoozed", True),
+                ("2026-11-06T12:04", "not_firing", True),
             ],
         )
