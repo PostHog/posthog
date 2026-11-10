@@ -95,12 +95,12 @@ export interface earlyAccessFeatureLogicValues {
     isEarlyAccessFeatureValid: boolean
     isEditingFeature: boolean
     optedInCount: number | null
-    saveDisabledReason: string | undefined
     optedOutCount: number | null
     originalEarlyAccessFeatureStage: EarlyAccessFeatureStage | null
     personsCount: [number, number] | null
     personsCountLoading: boolean
     projectTreeRef: ProjectTreeRef
+    saveDisabledReason: string | undefined
     showEarlyAccessFeatureErrors: boolean
     sidePanelContext: SidePanelSceneContext | null
 }
@@ -177,9 +177,6 @@ export interface earlyAccessFeatureLogicActions {
     setEarlyAccessFeatureMissing: () => {
         value: true
     }
-    setImageUploading: (uploading: boolean) => {
-        uploading: boolean
-    }
     setEarlyAccessFeatureValue: (
         key: FieldName,
         value: any
@@ -189,6 +186,9 @@ export interface earlyAccessFeatureLogicActions {
     }
     setEarlyAccessFeatureValues: (values: DeepPartial<EarlyAccessFeatureType | NewEarlyAccessFeatureType>) => {
         values: DeepPartial<EarlyAccessFeatureType | NewEarlyAccessFeatureType>
+    }
+    setImageUploading: (uploading: boolean) => {
+        uploading: boolean
     }
     setOriginalStage: (stage: EarlyAccessFeatureStage) => {
         stage: EarlyAccessFeatureStage
