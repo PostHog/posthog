@@ -367,7 +367,7 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             try:
                 gitlab = GitLabIntegration(integration)
                 hostname = gitlab.hostname
-                token = gitlab.integration.sensitive_config.get("access_token")
+                token = gitlab.credentials.access_token().token
 
                 if token:
                     return get_gitlab_file_url(

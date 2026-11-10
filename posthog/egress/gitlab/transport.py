@@ -54,7 +54,7 @@ def gitlab_request(
         method,
         url,
         source=source,
-        headers={"PRIVATE-TOKEN": token} if token else {},
+        headers={"Authorization": f"Bearer {token}"} if token else {},
         scope=token_scope(url, token) if token and scoped else None,
         endpoint=endpoint,
         timeout=timeout,
