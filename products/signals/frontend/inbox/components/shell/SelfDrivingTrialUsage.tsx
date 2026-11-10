@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { selfDrivingTrialLogic } from '../../logics/selfDrivingTrialLogic'
+import { formatCredits, usdToCredits } from '../../utils/credits'
 
 export function SelfDrivingTrialUsage(): JSX.Element | null {
     const { currentTeamId } = useValues(teamLogic)
@@ -88,7 +89,7 @@ export function SelfDrivingTrialUsage(): JSX.Element | null {
                         aria-label="Trial allowance used"
                     />
                     <p className="m-0">
-                        {`$${(trial.used_microusd / 1_000_000).toFixed(2)} of $${trial.allowance_microusd / 1_000_000} trial allowance used.`}
+                        {`Trial allowance used: ${formatCredits(usdToCredits(trial.used_microusd / 1_000_000))} of ${formatCredits(usdToCredits(trial.allowance_microusd / 1_000_000))}.`}
                     </p>
                     {exhausted && (
                         <p className="m-0">

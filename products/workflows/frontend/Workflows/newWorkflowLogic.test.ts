@@ -34,7 +34,7 @@ describe('newWorkflowLogic', () => {
     })
 
     it('keeps normal unfiled creation when no project folder is open', async () => {
-        setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2, FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES])
+        setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2])
         const logic = newWorkflowLogic()
         logic.mount()
         router.actions.push('/workflows', {}, {})
@@ -45,7 +45,7 @@ describe('newWorkflowLogic', () => {
     })
 
     it('keeps the default workflow location when browsing Unfiled', async () => {
-        setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2, FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES])
+        setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2])
         const logic = newWorkflowLogic()
         logic.mount()
         router.actions.push('/workflows', { q: 'in:Unfiled' }, {})
@@ -56,7 +56,7 @@ describe('newWorkflowLogic', () => {
     })
 
     it('carries the open project folder through the new workflow picker', async () => {
-        setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2, FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES])
+        setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2])
         const logic = newWorkflowLogic()
         logic.mount()
         router.actions.push('/workflows', { q: 'in:"Campaigns/Annual plans"' }, {})
@@ -72,7 +72,7 @@ describe('newWorkflowLogic', () => {
         it.each(['007', '1.50'])(
             'keeps the number-like folder %s when switching from the composer to the editor',
             async (folder) => {
-                setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2, FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES, ...AI_FIRST_FLAGS])
+                setFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2, ...AI_FIRST_FLAGS])
                 const logic = newWorkflowLogic()
                 logic.mount()
                 router.actions.push('/workflows', { q: `in:${folder}` }, {})

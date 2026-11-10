@@ -9,6 +9,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { joinPath, parentPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
+import { WORKFLOW_FILES_DRAG_SCOPE } from './workflowFolderDragScopes'
 import { folderNameError, workflowFoldersLogic } from './workflowFoldersLogic'
 import { WorkflowNewFolderButton } from './WorkflowNewFolderButton'
 
@@ -59,7 +60,7 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
                                         entry,
                                         joinPath([...splitPath(parentPath(path)), next.trim()]),
                                         false,
-                                        'workflow-project-files'
+                                        WORKFLOW_FILES_DRAG_SCOPE
                                     ),
                             }),
                     },

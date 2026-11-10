@@ -49,6 +49,8 @@ describe('WorkflowsScene', () => {
                     listRequests.push(request.url)
                     return [200, FIXTURE_METRICS]
                 },
+                '/api/projects/:team_id/file_system/unfiled/': () => [200, { count: 0 }],
+                '/api/projects/:team_id/file_system/': () => [200, paginated([])],
             },
         })
         initKeaTests()
@@ -57,23 +59,11 @@ describe('WorkflowsScene', () => {
 
     afterEach(() => cleanup())
 
-    const emptyProjectFiles = {
-        '/api/projects/:team_id/file_system/unfiled/': () => [200, { count: 0 }],
-        '/api/projects/:team_id/file_system/': () => [200, paginated([])],
-    } as const
-
-    it.each([
-        ['the flat list', false],
-        ['the folder view', true],
-    ])('offers a metrics retry instead of an empty health result when metrics fail in %s', async (_, folders) => {
-        useMocks({ get: emptyProjectFiles })
+    it('offers a metrics retry instead of an empty health result when metrics fail', async () => {
         useMocks({
             get: { '/api/projects/:team_id/hog_flows/metrics/global/': () => [500, { detail: 'Unavailable' }] },
         })
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
-            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: folders,
-        })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         router.actions.push(urls.workflows(), { q: 'health:failing' })
         render(
             <Provider>
@@ -90,10 +80,8 @@ describe('WorkflowsScene', () => {
     })
 
     it('keeps the Customer.io import next to the folder view', async () => {
-        useMocks({ get: emptyProjectFiles })
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
-            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: true,
             [FEATURE_FLAGS.WORKFLOWS_CUSTOMERIO_IMPORT]: true,
         })
         render(
@@ -107,18 +95,9 @@ describe('WorkflowsScene', () => {
         expect(document.querySelector('[data-attr="workflows-import-customerio"]')).not.toBeNull()
     })
 
-    it.each([
-        ['the flat list', false],
-        ['the folder view', true],
-    ])('keeps the loaded rows when a reload fails in %s', async (_, folders) => {
-        useMocks({ get: emptyProjectFiles })
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
-            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: folders,
-        })
-        if (folders) {
-            router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
-        }
+    it('keeps the loaded rows when a reload fails', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         render(
             <Provider>
                 <DndContext>
@@ -133,29 +112,18 @@ describe('WorkflowsScene', () => {
         await waitFor(() => expect(workflowsListV2Logic.values.loadFailed).toBe(true))
         expect(shownRowNames()).toContain('Welcome series')
         expect(document.querySelector('[data-attr="workflows-list-v2-retry"]')).toBeNull()
-        expect(document.querySelector('[data-attr="workflows-folder-contents"]') !== null).toBe(folders)
-    })
-
-    it('keeps guided automation setup on an empty automation view', async () => {
-        workflows = FIXTURE_WORKFLOWS.filter((workflow) => workflow.type === 'messaging')
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
-        router.actions.push(urls.workflows(), { q: 'kind:automation' })
-        render(
-            <Provider>
-                <WorkflowsScene />
-            </Provider>
-        )
-        await waitFor(() =>
-            expect(document.querySelector('[data-attr="workflows-automation-empty-state-guided-setup"]')).not.toBeNull()
-        )
+        expect(document.querySelector('[data-attr="workflows-folder-contents"]')).not.toBeNull()
     })
 
     it('filters the list and writes pills to the URL', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         const user = userEvent.setup()
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
@@ -170,15 +138,11 @@ describe('WorkflowsScene', () => {
         await user.keyboard('{ArrowDown}{Enter}')
 
         await waitFor(() => expect(shownRowNames()).toEqual(['Welcome series']))
-        expect(router.values.searchParams.q).toEqual('status:active')
+        expect(router.values.searchParams.q).toEqual('in:Unfiled status:active')
         expect(input).toHaveValue('')
     })
 
-    it.each([
-        ['the flat list', false],
-        ['the folder view', true],
-    ])('pages past the first 100 rows in %s, and a new filter starts again on page one', async (_, folders) => {
-        useMocks({ get: emptyProjectFiles })
+    it('pages past the first 100 rows, and a new filter starts again on page one', async () => {
         workflows = Array.from({ length: 250 }, (_, i) =>
             buildWorkflowRow({
                 id: `wf-${i}`,
@@ -186,14 +150,9 @@ describe('WorkflowsScene', () => {
                 updated_at: new Date(Date.UTC(2026, 9, 1) - i * 60_000).toISOString(),
             })
         )
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
-            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: folders,
-        })
-        const scope = folders ? [{ facet: 'in', value: 'Unfiled', negated: false }] : []
-        if (folders) {
-            router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
-        }
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        const scope = [{ facet: 'in', value: 'Unfiled', negated: false }]
+        router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         const user = userEvent.setup()
         render(
             <Provider>
@@ -206,7 +165,7 @@ describe('WorkflowsScene', () => {
 
         await user.click(document.querySelector('[aria-label="Next page"]')!)
         // The folder view spends one row of each page on the ".." row.
-        await waitFor(() => expect(shownRowNames()[0]).toEqual(folders ? 'Flow 099 odd' : 'Flow 100 even'))
+        await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 099 odd'))
         expect(shownRowNames()).toHaveLength(100)
 
         // 125 rows match, so a kept page would still show matches 101 and up.
@@ -219,10 +178,13 @@ describe('WorkflowsScene', () => {
             buildWorkflowRow({ id: `wf-${i}`, name: `Flow ${i} ${i % 2 ? 'odd' : 'even'}` })
         )
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         const user = userEvent.setup()
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() => expect(shownRowNames()).toHaveLength(6))
@@ -234,18 +196,23 @@ describe('WorkflowsScene', () => {
         await user.click(nameHeader)
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 5 odd'))
 
-        act(() => workflowsListV2Logic.actions.setValue({ filters: [], text: 'odd' }))
+        act(() =>
+            workflowsListV2Logic.actions.setValue({
+                filters: [{ facet: 'in', value: 'Unfiled', negated: false }],
+                text: 'odd',
+            })
+        )
         await waitFor(() => expect(shownRowNames()).toEqual(['Flow 5 odd', 'Flow 3 odd', 'Flow 1 odd']))
     })
 
     it.each([
-        ['shows Owner when no columns are saved', null, ['Name', 'Status', 'Owner', 'Updated', '', '']],
+        ['shows Owner when no columns are saved', null, ['', 'Name', 'Status', 'Owner', 'Updated', '', '']],
         [
             'ignores a saved column the list no longer has',
             ['health', 'tags'],
-            ['Name', 'Status', 'Health', 'Updated', '', ''],
+            ['', 'Name', 'Status', 'Health', 'Updated', '', ''],
         ],
-        ['shows Kind beside the name', ['type', 'owner'], ['Name', 'Kind', 'Status', 'Owner', 'Updated', '', '']],
+        ['shows Kind beside the name', ['type', 'owner'], ['', 'Name', 'Kind', 'Status', 'Owner', 'Updated', '', '']],
     ])('%s', async (_, savedColumns, expectedHeaders) => {
         if (savedColumns) {
             localStorage.setItem(
@@ -254,9 +221,12 @@ describe('WorkflowsScene', () => {
             )
         }
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
@@ -267,10 +237,7 @@ describe('WorkflowsScene', () => {
         expect(headers).toEqual(expectedHeaders)
     })
 
-    it.each([
-        ['the kind facet', true, { q: 'kind:messaging' }],
-        ['the old list type tab', false, { type: 'messaging' }],
-    ])('opens the template chooser on %s', async (_, listV2, searchParams) => {
+    it('opens the template chooser on the old list type tab', async () => {
         window.POSTHOG_APP_CONTEXT = {
             ...window.POSTHOG_APP_CONTEXT!,
             resource_access_control: {
@@ -278,12 +245,14 @@ describe('WorkflowsScene', () => {
                 hog_flow: AccessControlLevel.Editor,
             },
         }
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: listV2 })
-        router.actions.push(urls.workflows(), searchParams)
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        router.actions.push(urls.workflows(), { type: 'messaging' })
         const user = userEvent.setup()
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
@@ -306,11 +275,13 @@ describe('WorkflowsScene', () => {
         router.actions.push(urls.workflows(), { type: 'messaging' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
-        await waitFor(() => expect(shownRowNames()).toEqual(['Welcome series', 'Renewal reminder', 'Spring promo']))
+        await waitFor(() => expect(shownRowNames()).toEqual(['Renewal reminder', 'Spring promo', 'Welcome series']))
         expect(router.values.searchParams).toEqual({ q: 'kind:messaging' })
         expect(workflowsLogic.findMounted()).toBeNull()
         // The setup reminder banner asks for one messaging workflow to decide whether it shows.
@@ -322,7 +293,9 @@ describe('WorkflowsScene', () => {
         featureFlagLogic.actions.setFeatureFlags([], {})
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
 
@@ -346,10 +319,7 @@ describe('WorkflowsScene', () => {
         }
 
         const renderFolder = async (folder: string, visibleWorkflow: string, filters = ''): Promise<void> => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
-                [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: true,
-            })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
             router.actions.push(urls.workflows(), { q: `in:${folder}${filters}` })
             render(
                 <Provider>

@@ -7,11 +7,11 @@ import {
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
-import { Skeleton } from '@posthog/quill-primitives'
 
 import { useChartConfig } from 'lib/charts/hooks'
 
 import { Card, CardState } from '../dashboard/Card'
+import { ChartSkeleton } from '../dashboard/ChartSkeleton'
 import { LoadErrorMessage } from './LoadErrorMessage'
 import { NoDataMessage } from './NoDataMessage'
 
@@ -69,7 +69,8 @@ export function TrendLineCard({
             <CardState
                 loading={loading}
                 isEmpty={isEmpty}
-                skeleton={<Skeleton className="min-h-[240px] flex-1" />}
+                className="min-h-[240px]"
+                skeleton={<ChartSkeleton kind="line" />}
                 empty={failed ? <LoadErrorMessage /> : <NoDataMessage />}
             >
                 <div className="flex min-h-[240px] flex-1 flex-col">

@@ -85,6 +85,11 @@ REVIEW_CPA_MULTIPLE = 3
 BRAND_OVERLAP_MIN_SPEND_SHARE = 0.0025
 # From this many non-brand conversions a campaign's own CPA is stable enough to judge its search terms by.
 MIN_CAMPAIGN_BENCHMARK_CONVERSIONS = 15
+# Below this many Google Ads sessions, a missing utm_term can be a few visits from links shared without it.
+MIN_KEYWORD_TRACKING_SESSIONS = 30
+# Performance Max and Display clicks have no keyword, so even a configured account leaves some sessions without it.
+MAX_KEYWORD_TRACKING_SHARE = 0.05
+KEYWORD_PARAMETER = "utm_term={keyword}"
 BENCHMARK_LABELS = {
     BenchmarkSource.TARGET_CPA: "the campaign's target CPA",
     BenchmarkSource.CAMPAIGN: "the campaign's non-brand CPA",
@@ -108,6 +113,7 @@ class CampaignStats:
     lost_to_rank: float | None
     budget_id: str | None = None
     target_cpa: float | None = None
+    tracking_url_template: str | None = None
 
 
 @frozen
@@ -146,6 +152,15 @@ class TermKeywordStats:
 
 
 @frozen
+class KeywordTracking:
+    account_name: str
+    sessions: int
+    sessions_with_keyword: int
+    account_tracking_url_template: str | None = None
+    account_final_url_suffix: str | None = None
+
+
+@frozen
 class RecommendationInputs:
     campaigns: tuple[CampaignStats, ...]
     search_terms: tuple[SearchTermStats, ...]
@@ -155,6 +170,7 @@ class RecommendationInputs:
     days: int
     term_keywords: tuple[TermKeywordStats, ...] = ()
     ranking_pages: tuple[RankingPage, ...] = ()
+    keyword_tracking: KeywordTracking | None = None
 
 
 @frozen
@@ -284,7 +300,64 @@ class _Recommender:
 
     def run(self) -> list[MarketingAnalyticsRecommendation]:
         campaign_rules = sorted(self._campaign_rules(), key=lambda rec: -(rec.impact or 0))
-        return campaign_rules + self._search_term_rules()
+        return campaign_rules + self._account_rules() + self._search_term_rules()
+
+    # Account rules
+
+    def _account_rules(self) -> list[MarketingAnalyticsRecommendation]:
+        tracking = self.inputs.keyword_tracking
+        return [self._keyword_tracking(tracking)] if tracking and self._lacks_keyword_tracking(tracking) else []
+
+    def _lacks_keyword_tracking(self, tracking: KeywordTracking) -> bool:
+        if (
+            tracking.sessions < MIN_KEYWORD_TRACKING_SESSIONS
+            or tracking.sessions_with_keyword > MAX_KEYWORD_TRACKING_SHARE * tracking.sessions
+        ):
+            return False
+        # Only Search ads have a keyword to pass.
+        serving = [
+            campaign
+            for campaign in self.campaigns.values()
+            if campaign.channel_type == "SEARCH" and campaign.primary_status not in INACTIVE_STATUSES
+        ]
+        # The settings are read as they are now, so an account that just added the parameter drops out at once,
+        # while the sessions in the selected dates still lack it.
+        if not serving or _passes_keyword(tracking.account_final_url_suffix):
+            return False
+        # A campaign's tracking template replaces the account's, while the suffix is a separate setting.
+        return not all(
+            _passes_keyword(campaign.tracking_url_template or tracking.account_tracking_url_template)
+            for campaign in serving
+        )
+
+    def _keyword_tracking(self, tracking: KeywordTracking) -> MarketingAnalyticsRecommendation:
+        missing = 1 - tracking.sessions_with_keyword / tracking.sessions
+        return self._recommendation(
+            MarketingAnalyticsRecommendationRule.KEYWORD_TRACKING,
+            "account",
+            tracking.account_name,
+            f"Add {KEYWORD_PARAMETER} to the account's Final URL suffix",
+            f"{missing:.0%} of the project's {tracking.sessions:,} Google Ads sessions in the selected dates have no "
+            "utm_term, so PostHog conversion goals cannot be tied to the keyword that brought each visitor.",
+            None,
+            "gain",
+            "measured",
+            steps=(
+                Step(text="In Google Ads, open Admin, then Account settings, and expand Tracking."),
+                Step(
+                    text="Add this parameter to the Final URL suffix and save. If the field already has parameters, "
+                    "add & before it. Google replaces {keyword} with the keyword that matched the search.",
+                    copyValue=KEYWORD_PARAMETER,
+                ),
+                Step(
+                    text="Open Campaigns and, in each Search campaign's settings, expand Campaign URL options. If it "
+                    "has a Final URL suffix, add the parameter there too, because a campaign suffix replaces the "
+                    "account's. Ad group and keyword suffixes replace it the same way.",
+                    url=ADS_CAMPAIGNS_URL,
+                    linkText="Campaigns",
+                ),
+            ),
+        )
 
     # Campaign rules
 
@@ -1108,7 +1181,7 @@ class _Recommender:
     def _recommendation(
         self,
         rule: MarketingAnalyticsRecommendationRule,
-        level: Literal["campaign", "search_term"],
+        level: Literal["account", "campaign", "search_term"],
         subject: str,
         action: str,
         reason: str,
@@ -1192,6 +1265,10 @@ class _Recommender:
     def _money(self, amount: float) -> str:
         currency = self.inputs.currency or ""
         return f"${amount:,.0f}" if currency in ("USD", "") else f"{amount:,.0f} {currency}"
+
+
+def _passes_keyword(url_option: str | None) -> bool:
+    return url_option is not None and KEYWORD_PARAMETER in url_option.lower()
 
 
 def _round_money(amount: float | None) -> float | None:
