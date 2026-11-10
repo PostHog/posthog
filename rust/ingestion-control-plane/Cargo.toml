@@ -13,7 +13,7 @@ assignment-coordination = { path = "../common/assignment-coordination" }
 axum = { workspace = true }
 chrono = { workspace = true }
 common-alloc = { path = "../common/alloc" }
-etcd-client = "0.21"
+etcd-client = "0.18"
 common-database = { path = "../common/database" }
 common-metrics = { path = "../common/metrics" }
 common-types = { path = "../common/types" }

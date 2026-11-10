@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 assignment-coordination = { path = "../common/assignment-coordination" }
 async-trait = { workspace = true }
-etcd-client = "0.21"
+etcd-client = "0.18"
 futures = { workspace = true }
 k8s-awareness = { path = "../common/k8s-awareness" }
 metrics = { workspace = true }
