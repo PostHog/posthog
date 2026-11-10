@@ -587,12 +587,36 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             expect(sentTo).toEqual([])
         })
 
+        it.each([
+            [
+                'no member has verified their email',
+                { results: [member('Cy', false)], next: null },
+                'No one in your organization has verified their email address yet. Verify yours to send a sandbox test.',
+            ],
+            [
+                'the member lookup failed',
+                () => [500, { detail: 'Unavailable' }],
+                "Couldn't load your organization's members. Refresh the page to try again.",
+            ],
+        ])('explains why a sandbox step test cannot run when %s', async (_, membersResponse, reason) => {
+            useMocks({ get: { '/api/organizations/@current/members/': membersResponse } })
+
+            await openSandboxTest('lead@example.com')
+
+            expect(logic.values.testRecipientDisabledReason).toEqual(reason)
+        })
+
         it('records a sandbox test send for the tested step after the selection moves on', async () => {
+            const events: { event: string; properties: unknown }[] = []
+            jest.mocked(posthog.capture).mockImplementation((event, properties) => {
+                events.push({ event, properties })
+                return undefined
+            })
             let answer: () => void = () => {}
             const answered = new Promise<void>((resolve) => {
                 answer = resolve
             })
-            await openSandboxTest({ chosen: 'ana@example.com', members: MEMBERS })
+            await openSandboxTest('ana@example.com')
             logic.actions.setTestInvocationValue('mock_async_functions', false)
             useMocks({
                 post: {
@@ -608,10 +632,9 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             answer()
             await expectLogic(logic).toDispatchActions(['submitTestInvocationSuccess'])
 
-            expect(posthog.capture).toHaveBeenCalledWith('workflows sandbox test sent', {
-                status: 'accepted',
-                reason: null,
-            })
+            expect(events.filter(({ event }) => event.startsWith('workflows sandbox'))).toEqual([
+                { event: 'workflows sandbox test sent', properties: { status: 'accepted', reason: null } },
+            ])
         })
     })
 })

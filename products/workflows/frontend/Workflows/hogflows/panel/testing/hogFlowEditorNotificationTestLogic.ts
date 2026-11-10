@@ -45,6 +45,7 @@ export interface hogFlowEditorNotificationTestLogicValues {
     emailAddressOverride: string | null
     isTestInvocationSubmitting: boolean
     isTestInvocationValid: boolean
+    membersLoadFailed: boolean
     nextActionId: string | null
     personSearchResults: PersonType[]
     personSearchResultsLoading: boolean
@@ -77,6 +78,26 @@ export interface hogFlowEditorNotificationTestLogicActions {
     setSelectedNodeId: (selectedNodeId: string | null) => {
         selectedNodeId: string | null
     } // hogFlowEditorLogic
+    loadAllMembersFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // membersLogic
+    loadAllMembersSuccess: (
+        members: OrganizationMemberType[],
+        payload?:
+            | {
+                  value: true
+              }
+            | undefined
+    ) => {
+        members: OrganizationMemberType[]
+        payload?: {
+            value: true
+        }
+    } // membersLogic
     clearPersonSearch: () => {
         value: true
     }
@@ -206,14 +227,19 @@ export interface hogFlowEditorNotificationTestLogicMeta {
         sandboxTestMembers: (
             workflow: HogFlow,
             selectedNodeId: string | null,
-            meFirstMembers: any
+            meFirstMembers: OrganizationMemberType[]
         ) => OrganizationMemberType[] | null
         testRecipient: (
-            sandboxTestMembers: any,
+            sandboxTestMembers: OrganizationMemberType[] | null,
             emailAddressOverride: string | null,
             sampleGlobals: CyclotronJobInvocationGlobals | null
         ) => string | null
-        testRecipientDisabledReason: (sandboxTestMembers: any, membersLoading: any, testRecipient: any) => string | null
+        testRecipientDisabledReason: (
+            sandboxTestMembers: OrganizationMemberType[] | null,
+            membersLoading: boolean,
+            membersLoadFailed: any,
+            testRecipient: string | null
+        ) => string | null
     }
 }
 
@@ -247,7 +273,12 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             membersLogic,
             ['meFirstMembers', 'membersLoading'],
         ],
-        actions: [hogFlowEditorLogic, ['setSelectedNodeId']],
+        actions: [
+            hogFlowEditorLogic,
+            ['setSelectedNodeId'],
+            membersLogic,
+            ['loadAllMembersFailure', 'loadAllMembersSuccess'],
+        ],
     })),
     actions({
         setPersonSelectorOpen: (open: boolean) => ({ open }),
@@ -271,6 +302,13 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         setSelectedPersonDistinctId: (distinctId: string | null) => ({ distinctId }),
     }),
     reducers({
+        membersLoadFailed: [
+            false,
+            {
+                loadAllMembersFailure: () => true,
+                loadAllMembersSuccess: () => false,
+            },
+        ],
         personSelectorOpen: [
             false as boolean,
             {
@@ -370,14 +408,21 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             },
         ],
         testRecipientDisabledReason: [
-            (s) => [s.sandboxTestMembers, s.membersLoading, s.testRecipient],
+            (s) => [s.sandboxTestMembers, s.membersLoading, s.membersLoadFailed, s.testRecipient],
             (
                 sandboxTestMembers: OrganizationMemberType[] | null,
                 membersLoading: boolean,
+                membersLoadFailed: boolean,
                 testRecipient: string | null
             ): string | null => {
                 if (sandboxTestMembers && membersLoading) {
                     return 'Loading verified members'
+                }
+                if (sandboxTestMembers && membersLoadFailed) {
+                    return "Couldn't load your organization's members. Refresh the page to try again."
+                }
+                if (sandboxTestMembers?.length === 0) {
+                    return 'No one in your organization has verified their email address yet. Verify yours to send a sandbox test.'
                 }
                 if (sandboxTestMembers && !testRecipient) {
                     return 'Choose a verified member of your organization'
