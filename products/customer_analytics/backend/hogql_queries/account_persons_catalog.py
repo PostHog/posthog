@@ -47,6 +47,14 @@ class AccountPersonsCatalog:
         if isinstance(expression, ast.Constant):
             return True
         if isinstance(expression, ast.Call) and expression.name in {"coalesce", "nullIf", "toString"}:
+            if (
+                expression.params is not None
+                or expression.filter_expr is not None
+                or expression.order_by is not None
+                or expression.within_group is not None
+                or expression.distinct
+            ):
+                return False
             return all(AccountPersonsCatalog.supports_expression(arg) for arg in expression.args)
         return False
 
@@ -73,7 +81,10 @@ class AccountPersonsCatalog:
             for order in query.orderBy or []:
                 if order.split("--")[0].strip().removesuffix(" DESC").removesuffix(" ASC") == "person_display_name":
                     continue
-                if not AccountPersonsCatalog.supports_expression(parse_order_expr(order).expr):
+                order_expression = parse_order_expr(order)
+                if order_expression.with_fill is not None or not AccountPersonsCatalog.supports_expression(
+                    order_expression.expr
+                ):
                     return False
         except ExposedHogQLError:
             return False
