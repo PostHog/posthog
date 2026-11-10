@@ -153,6 +153,7 @@ const errorTrackingIssueActionsMapping: Record<
     first_seen: () => null,
     external_issues: () => null,
     cohort: () => null,
+    tags: () => null,
 }
 
 function describeIssueMergeOrSplit(logItem: ActivityLogItem): HumanizedChange {
