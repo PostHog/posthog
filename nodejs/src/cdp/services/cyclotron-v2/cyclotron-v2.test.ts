@@ -801,32 +801,26 @@ describe('Cyclotron V2', () => {
                 const m = createManager({ backgroundDepthCheck: true, depthLimit: 1, depthCheckIntervalMs: intervalMs })
                 await m.connect()
                 cleanups.push(() => m.disconnect())
-                const pool = (m as unknown as { pool: Pool }).pool
-                const passThrough = pool.query.bind(pool) as (...args: unknown[]) => Promise<unknown>
-                let lastDepthQuery: Promise<unknown> = Promise.resolve()
-                pool.query = ((text: unknown, ...rest: unknown[]) => {
-                    const run = passThrough(text, ...rest)
-                    if (typeof text === 'string' && text.endsWith(QUEUE_DEPTH_SQL)) {
-                        lastDepthQuery = run
+                const enqueueNotRefusedAsFull = async (): Promise<{ enqueue: Promise<unknown> } | null> => {
+                    for (let attempt = 0; attempt < 36; attempt++) {
+                        const enqueue = m.createJob({ teamId: 1, queueName: QUEUE })
+                        const refusedAsFull = await Promise.race([
+                            enqueue.then(
+                                () => false,
+                                (e: Error) => /queue is full/i.test(e.message)
+                            ),
+                            sleep(100).then(() => false),
+                        ])
+                        if (!refusedAsFull) {
+                            return { enqueue }
+                        }
+                        await sleep(50)
                     }
-                    return run
-                }) as Pool['query']
-                const depthQuerySettled = async (): Promise<boolean> => {
-                    const settled = await Promise.race([
-                        lastDepthQuery.then(
-                            () => true,
-                            () => true
-                        ),
-                        sleep(intervalMs * 10).then(() => false),
-                    ])
-                    await new Promise((resolve) => setImmediate(resolve))
-                    return settled
+                    return null
                 }
 
                 await m.createJob({ teamId: 1, queueName: QUEUE })
-                now += intervalMs + 1
-                await m.createJob({ teamId: 1, queueName: QUEUE })
-                expect(await depthQuerySettled()).toBe(true)
+                now += 2 * intervalMs + 1
                 await expect(m.createJob({ teamId: 1, queueName: QUEUE })).rejects.toThrow(/queue is full/i)
 
                 await assertPool.query('DELETE FROM cyclotron_jobs WHERE queue_name = $1', [QUEUE])
@@ -843,11 +837,12 @@ describe('Cyclotron V2', () => {
                 }
                 cleanups.push(releaseLock)
 
-                now += intervalMs + 1
+                now += intervalMs + intervalMs / 2
                 await expect(m.createJob({ teamId: 1, queueName: QUEUE })).rejects.toThrow(/queue is full/i)
 
-                expect(await depthQuerySettled()).toBe(true)
-                const afterStall = m.createJob({ teamId: 1, queueName: QUEUE })
+                const notRefused = await enqueueNotRefusedAsFull()
+                expect(notRefused).not.toBeNull()
+                const afterStall = notRefused!.enqueue
                 expect(await stillPendingAfter(afterStall, 200)).toBe(true)
 
                 await releaseLock()
