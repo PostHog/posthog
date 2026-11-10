@@ -1530,9 +1530,13 @@ class PostgresSource(
             # OS-level dependencies: `could not load library "...": libgeos_c.so.1: cannot open
             # shared object file: No such file or directory`. The missing library lives in the
             # server's own package install, not anything in our query, so every retry dlopens the
-            # same absent file. Match the stable dynamic-linker phrase and exclude the volatile
-            # library path, which embeds the server's build/version.
-            "cannot open shared object file": (
+            # same absent file. `dlerror()` reports the same "cannot open shared object file:"
+            # prefix for any errno, including transient `EMFILE`/`ENFILE` ("Too many open files")
+            # when the server has exhausted file descriptors for an otherwise-installed library —
+            # the sibling trap the file-descriptor-exhaustion case above guards against. Match the
+            # specific "No such file or directory" (`ENOENT`) reason so that case stays retryable,
+            # and exclude the volatile library path, which embeds the server's build/version.
+            "cannot open shared object file: No such file or directory": (
                 "Your PostgreSQL server failed to load a native extension library it needs to read "
                 'this data ("could not load library ... cannot open shared object file"). This '
                 "usually means the extension (for example PostGIS) is missing one of its own "

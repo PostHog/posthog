@@ -1172,6 +1172,16 @@ class TestPostgresSourceNonRetryableErrors:
         assert friendly, "Missing extension native library error should surface an actionable message"
         assert "OS-level dependencies" in friendly[0]
 
+    def test_extension_library_fd_exhaustion_on_dlopen_is_retryable(self, source):
+        # Same "cannot open shared object file" prefix as the missing-library case above, but a
+        # different errno reason: dlopen() reports this for EMFILE/ENFILE too, and file-descriptor
+        # exhaustion clears once load on the source drops, unlike a genuinely absent library.
+        error_msg = 'could not load library "/usr/lib/postgresql/16/lib/postgis-3.so": cannot open shared object file: Too many open files'
+        non_retryable = source.get_non_retryable_errors()
+        assert not error_message_matches(error_msg, non_retryable.keys()), (
+            f"Transient file-descriptor exhaustion on dlopen should be retryable: {error_msg}"
+        )
+
     @pytest.mark.parametrize(
         "error_msg",
         [
