@@ -69,6 +69,7 @@ from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
     FileSystem,
     create_or_update_file,
+    escape_path,
     join_path,
     split_path,
     surface_q,
@@ -138,6 +139,15 @@ def validate_file_system_path(path: Any) -> str:
     if len(split_path(path)) > MAX_PATH_SEGMENTS:
         raise serializers.ValidationError(f"Path can be at most {MAX_PATH_SEGMENTS} levels deep.")
     return path
+
+
+def validate_file_system_placement(folder: str | None, name: str | None) -> None:
+    if not folder:
+        return
+    try:
+        validate_file_system_path(f"{folder}/{escape_path(name or '')}")
+    except serializers.ValidationError as error:
+        raise serializers.ValidationError({"_create_in_folder": error.detail})
 
 
 class FileSystemListQuerySerializer(serializers.Serializer):

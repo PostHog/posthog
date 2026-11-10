@@ -1666,10 +1666,6 @@ class UserAccessControl:
         object's primary key. Keyed by team_id, like the rest of this method, because the queryset
         can span every environment in a project - a denial made in one team must not hide a
         same-valued ref that happens to belong to a different team.
-
-        `resolved_types` names file system types the caller already filtered with full object
-        access resolution. This method skips its denial for them, because it treats any matching
-        `none` row as a denial, even when a member grant overrides it.
         """
         user = self._user
 
