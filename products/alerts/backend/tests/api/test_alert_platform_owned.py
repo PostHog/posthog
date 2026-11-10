@@ -289,6 +289,8 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
     def test_an_alert_insight_keeps_no_row_for_shows_from_the_platform(self) -> None:
         threshold = self.alert.threshold
         assert threshold is not None
+        scheduled = self.client.patch(f"{self.url}/{self.alert.id}/", {"schedule_start_time": "09:30"}, format="json")
+        assert scheduled.status_code == status.HTTP_200_OK, scheduled.json()
         with team_scope(self.team.id):
             platform_testing.forget_source_row(self.copy_id)
             platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=self._at(30))
@@ -313,6 +315,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             threshold.configuration,
         )
         assert (row["state"], row["last_value"], row["checks_total"]) == ("Firing", 160.0, 2)
+        assert (row["schedule_start_time"], row["threshold"]["created_at"] is not None) == ("09:30", True)
         assert [check["notification_suppressed_by_agent"] for check in row["checks"]] == [False, True]
         assert not AlertConfiguration.objects.filter(team=self.team).exists()
         # An alert with no insight row passes the same insight access gate as one with a row.
