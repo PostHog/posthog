@@ -551,6 +551,15 @@ class TestErrorTracking(APIBaseTest):
         self.client.patch(f"/api/environments/{self.team.id}/error_tracking/{path}", data=data, format="json")
         return method, path, data
 
+    def _issue_tag_first_answer(self) -> tuple[str, str, dict]:
+        self._enable_issue_tags()
+        issue = self.create_issue(["fingerprint"])
+        return "patch", f"issues/{issue.id}/tag", {"key": BLOCKS_CHECKOUT.key, "value": True}
+
+    def _issue_tag_confirmation(self) -> tuple[str, str, dict]:
+        method, path, data = self._issue_tag_correction()
+        return method, path, {**data, "value": True}
+
     @parameterized.expand(
         [
             ("update_without_change", _issue_noop_update, None),
@@ -580,6 +589,22 @@ class TestErrorTracking(APIBaseTest):
                 },
             ),
             ("tag_with_the_same_answer", _issue_tag_repeated_correction, None),
+            (
+                "tag_without_a_previous_answer",
+                _issue_tag_first_answer,
+                {
+                    "action": "tag",
+                    "previous_tag_source": None,
+                    "previous_tag_value": None,
+                    "previous_tag_probability": None,
+                    "tag_value": True,
+                },
+            ),
+            (
+                "tag_confirming_jev",
+                _issue_tag_confirmation,
+                {"action": "tag", "previous_tag_source": "jev", "previous_tag_value": True, "tag_value": True},
+            ),
         ]
     )
     def test_issue_changed_event_counts_actual_changes(
