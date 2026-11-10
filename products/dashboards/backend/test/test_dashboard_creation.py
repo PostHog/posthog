@@ -14,6 +14,7 @@ from products.dashboards.backend.facade.dashboard_creation import (
     NewTextTile,
     TileLayout,
     create_dashboard_with_tiles,
+    read_dashboard_tiles,
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -84,3 +85,4 @@ class TestCreateDashboardWithTiles(APIBaseTest):
         )
 
         assert DashboardTile.objects.get(id=created.tile_ids[0]).show_description is show
+        assert read_dashboard_tiles(team_id=self.team.id, dashboard_id=created.id)[0].show_description is show
