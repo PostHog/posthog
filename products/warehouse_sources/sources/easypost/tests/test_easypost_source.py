@@ -65,7 +65,7 @@ class TestSourceForPipeline:
         )
         response = result.response
         assert result.raised is None
-        assert min(result.params("start_datetime")) == "2024-01-01T00:00:00Z"
+        assert result.params("start_datetime")[-1] == "2024-01-01T00:00:00Z"
         assert response is not None
         assert response.name == "shipments"
         assert response.sort_mode == "desc"
@@ -79,6 +79,6 @@ class TestSourceForPipeline:
         )
         response = result.response
         assert result.raised is None
-        assert min(result.params("start_datetime")) == "2010-01-01T00:00:00Z"
+        assert result.params("start_datetime")[-1] == "2010-01-01T00:00:00Z"
         assert response is not None
         assert response.name == "addresses"

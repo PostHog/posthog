@@ -157,7 +157,7 @@ class TestGetRows:
         result = _driver().run("shipments", _easypost_list_api(records, inclusive_bounds=inclusive_bounds))
         assert result.raised is None
         assert sorted(row["id"] for row in result.rows) == sorted(record["id"] for record in records)
-        assert min(result.params("start_datetime")) == "2010-01-01T00:00:00Z"
+        assert result.params("start_datetime")[-1] == "2010-01-01T00:00:00Z"
 
 
 class TestChildUsers:

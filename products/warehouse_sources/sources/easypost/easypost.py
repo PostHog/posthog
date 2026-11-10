@@ -114,11 +114,34 @@ def _redact(items: list[dict[str, Any]], redacted_fields: tuple[str, ...]) -> li
     return _strip_fields(items, redacted_fields)
 
 
-def _date_windows(upper: datetime, lower: datetime) -> Iterator[tuple[datetime, datetime]]:
+@frozen
+class _DateWindow:
+    # Rows in (start, end] belong to the window, so a boundary record lands in exactly one window.
+    # A side set to None has no bound.
+    start: datetime | None
+    end: datetime | None
+
+    def request_params(self) -> dict[str, str]:
+        if self.start is None or self.end is None:
+            return {}
+        return {
+            "start_datetime": _format_datetime(self.start),
+            # Padded so a record at `end` comes back whether EasyPost treats the bound as inclusive or not.
+            "end_datetime": _format_datetime(self.end + timedelta(seconds=1)),
+        }
+
+    def is_after_end(self, created: datetime | None) -> bool:
+        return created is not None and self.end is not None and created > self.end
+
+    def is_at_or_before_start(self, created: datetime | None) -> bool:
+        return created is not None and self.start is not None and created <= self.start
+
+
+def _date_windows(upper: datetime, lower: datetime) -> Iterator[_DateWindow]:
     window_end = upper
     while window_end > lower:
         window_start = max(window_end - DATE_WINDOW, lower)
-        yield window_start, window_end
+        yield _DateWindow(start=window_start, end=window_end)
         window_end = window_start
 
 
@@ -170,22 +193,18 @@ def get_rows(
     for path_value in path_values[start_index:]:
         url = f"{EASYPOST_BASE_URL}{config.path.format(path_value) if path_value else config.path}"
 
-        windows: Iterable[tuple[datetime | None, datetime | None]]
+        windows: Iterable[_DateWindow]
         if config.supports_start_datetime:
             windows = _date_windows(resume_window_end or run_end, last_value_dt or EARLIEST_START_DATETIME)
         else:
-            windows = [(last_value_dt, None)]
+            windows = [_DateWindow(start=last_value_dt, end=None)]
         resume_window_end = None
 
-        for window_start, window_end in windows:
+        for window in windows:
             while True:
-                params: dict[str, Any] = {"page_size": PAGE_SIZE}
+                params: dict[str, Any] = {"page_size": PAGE_SIZE, **window.request_params()}
                 if cursor_id:
                     params[cursor_param] = cursor_id
-                if window_start is not None and window_end is not None:
-                    params["start_datetime"] = _format_datetime(window_start)
-                    # Padded so a record at `window_end` comes back whether the bound is inclusive or not.
-                    params["end_datetime"] = _format_datetime(window_end + timedelta(seconds=1))
 
                 data = _fetch_page(session, url, params, logger)
                 items = data.get(collection_key, [])
@@ -194,18 +213,15 @@ def get_rows(
 
                 has_more = bool(data.get("has_more", False))
 
-                # Keep (window_start, window_end] so a boundary record lands in exactly one window.
                 reached_window_start = False
                 rows: list[dict[str, Any]] = []
                 for item in items:
                     created = _parse_datetime(item.get(incremental_field_name))
-                    if created is not None:
-                        if window_end is not None and created > window_end:
-                            continue
-                        if window_start is not None and created <= window_start:
-                            reached_window_start = True
-                            break
-                    rows.append(item)
+                    if window.is_at_or_before_start(created):
+                        reached_window_start = True
+                        break
+                    if not window.is_after_end(created):
+                        rows.append(item)
 
                 if rows:
                     yield _redact(rows, config.redacted_fields)
@@ -216,7 +232,7 @@ def get_rows(
                         EasypostResumeConfig(
                             **cursor_fields,
                             path_value=path_value,
-                            window_end=_format_datetime(window_end) if window_end is not None else None,
+                            window_end=_format_datetime(window.end) if window.end is not None else None,
                         )
                     )
 
