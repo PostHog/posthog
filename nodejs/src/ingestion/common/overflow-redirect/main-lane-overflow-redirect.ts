@@ -72,8 +72,7 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         return `${type}:${key}`
     }
 
-    // lru-cache removes an expired entry only on read or at `max`. One scan per TTL costs less
-    // than `ttlAutopurge`, which replaces a timer per entry on every write.
+    // lru-cache drops expired entries only on read; ttlAutopurge would reset a timer per entry on every write.
     private purgeExpired(now: number): void {
         if (now < this.nextPurgeAt) {
             return
