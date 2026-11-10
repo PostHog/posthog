@@ -42,6 +42,15 @@ SEVERITY_INFERENCE_RETRY_POLICY = common.RetryPolicy(
 SEVERITY_INFERENCE_START_TO_CLOSE_TIMEOUT = timedelta(seconds=35)
 # Alerts wait for inference, so a model outage must not hold them past this bound, retries included.
 SEVERITY_INFERENCE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=45)
+ISSUE_TAGS_PATCH = "error-tracking-issue-tags"
+ISSUE_TAGS_RETRY_POLICY = common.RetryPolicy(
+    initial_interval=timedelta(seconds=2),
+    maximum_interval=timedelta(seconds=30),
+    maximum_attempts=3,
+)
+ISSUE_TAGS_START_TO_CLOSE_TIMEOUT = timedelta(seconds=35)
+# The alert waits for the taggers too, so a model outage must not hold it past this bound, retries included.
+ISSUE_TAGS_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=45)
 SUMMARY_ON_WRITE_PATCH = "error-tracking-summary-on-write-activity"
 EMBEDDING_ACTIVITY_RETRY_POLICY = common.RetryPolicy(
     initial_interval=timedelta(seconds=1),
@@ -125,6 +134,8 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
 
         # Runs before the alert and the side effects so that they carry the inferred severity.
         inputs = await self._with_inferred_severity(inputs)
+        if workflow.patched(ISSUE_TAGS_PATCH):
+            await self._tag_issue(inputs)
 
         # Patched: executions in flight when this activity shipped replay the old sequence.
         # Dispatch runs alongside the other side effects and is always awaited, so a
@@ -207,6 +218,26 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
         if not result.resolved or result.stored_severity == inputs.issue.severity:
             return inputs
         return dataclasses.replace(inputs, issue=dataclasses.replace(inputs.issue, severity=result.stored_severity))
+
+    async def _tag_issue(self, inputs: IssueCreatedWorkflowInputs) -> None:
+        try:
+            await workflow.execute_activity(
+                "tag_issue_created_activity",
+                inputs,
+                schedule_to_close_timeout=ISSUE_TAGS_SCHEDULE_TO_CLOSE_TIMEOUT,
+                start_to_close_timeout=ISSUE_TAGS_START_TO_CLOSE_TIMEOUT,
+                retry_policy=ISSUE_TAGS_RETRY_POLICY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Issue tagging failed; notifying without tags")
+            (
+                workflow.metric_meter()
+                .create_counter(
+                    "error_tracking_issue_created_tags_fail_open",
+                    "Issue-created workflows that went on without tags after the tag activity failed",
+                )
+                .add(1)
+            )
 
 
 def _reopened_inputs(

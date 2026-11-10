@@ -33,9 +33,13 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
 )
-from products.error_tracking.backend.temporal.lifecycle.event_properties import fetch_event_properties
+from products.error_tracking.backend.temporal.lifecycle.event_properties import (
+    IssueCreatedEventNotFoundError,
+    fetch_event_properties,
+)
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
+    ISSUE_TAGS_UNAVAILABLE_ERROR_TYPE,
     SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE,
     GeneratedIssueEmbedding,
     IssueCreatedWorkflowInputs,
@@ -59,6 +63,7 @@ from products.ml_inference.backend.facade.contracts import (
 
 if TYPE_CHECKING:
     from products.error_tracking.backend.logic.issue_summaries import IssueSummaryOutcome
+    from products.error_tracking.backend.logic.issue_tags.runner import TaggerRun
 
 logger = structlog.get_logger(__name__)
 
@@ -71,6 +76,11 @@ ERROR_TRACKING_SEVERITY_INFERENCE_OUTCOMES = Counter(
     "error_tracking_issue_created_severity_inference_total",
     "Issue-created severity inference attempts by outcome and by the severity stored afterwards",
     labelnames=("outcome", "severity"),
+)
+ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES = Counter(
+    "error_tracking_issue_created_tagger_total",
+    "Issue-created tagger runs by tagger and outcome. Runs skipped before any tagger starts have tagger none",
+    labelnames=("tagger", "outcome"),
 )
 ERROR_TRACKING_EMBEDDING_UNAVAILABLE = Counter(
     "error_tracking_issue_created_embedding_unavailable_total",
@@ -281,6 +291,62 @@ def infer_issue_created_severity_activity(inputs: IssueCreatedWorkflowInputs) ->
     return result
 
 
+def _tagger_outcome(inputs: IssueCreatedWorkflowInputs, run: "TaggerRun") -> str:
+    """Name the outcome of one tagger run. `unavailable` is a transient gateway failure that a retry can fix."""
+    match run.error:
+        case None:
+            return "answered"
+        case DecisionsDisabledError() | GatewayNotConfiguredError():
+            return "decisions_unavailable"
+        case DecisionGatewayUnreachableError():
+            return "unavailable"
+        case DecisionGatewayError(status_code=status_code) if status_code == 429 or status_code >= 500:
+            return "unavailable"
+        case DecisionGatewayError(status_code=status_code):
+            logger.warning(
+                "error_tracking_issue_tagger_rejected",
+                team_id=inputs.team_id,
+                issue_id=inputs.issue_id,
+                tagger=run.source,
+                status_code=status_code,
+            )
+            return "gateway_rejected"
+    return "failed"
+
+
+@activity.defn
+@posthoganalytics.scoped(capture_exceptions=False)
+@close_db_connections
+def tag_issue_created_activity(inputs: IssueCreatedWorkflowInputs) -> None:
+    # The runner imports the lifecycle rendering module, whose package imports this module.
+    from products.error_tracking.backend.logic.issue_tags.runner import (  # noqa: PLC0415
+        IssueTaggingSkipReason,
+        run_issue_taggers,
+    )
+
+    try:
+        result = run_issue_taggers(inputs.team_id, inputs.issue_id, lambda team: fetch_event_properties(team, inputs))
+    except IssueCreatedEventNotFoundError:
+        # The alert waits for this activity, so a missing event skips tags instead of retrying.
+        ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES.labels(tagger="none", outcome="event_missing").inc()
+        return
+    if isinstance(result, IssueTaggingSkipReason):
+        ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES.labels(tagger="none", outcome=result).inc()
+        return
+
+    outcomes = [(run, _tagger_outcome(inputs, run)) for run in result]
+    for run, outcome in outcomes:
+        ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES.labels(tagger=run.source, outcome=outcome).inc()
+    # A retry runs every tagger again. The writer logs no activity for an answer that did not change.
+    for run, outcome in outcomes:
+        if outcome == "unavailable":
+            raise NonReportableApplicationError(
+                "Tag model is unavailable", type=ISSUE_TAGS_UNAVAILABLE_ERROR_TYPE
+            ) from run.error
+        if outcome == "failed" and run.error is not None:
+            raise run.error
+
+
 def _generate_issue_created_summary(inputs: IssueCreatedWorkflowInputs) -> "IssueSummaryOutcome":
     # issue_summaries imports the lifecycle rendering module, whose package imports this module.
     from products.error_tracking.backend.logic.issue_summaries import (  # noqa: PLC0415
@@ -402,6 +468,7 @@ ACTIVITIES = [
     persist_issue_created_embedding_activity,
     merge_issue_created_fingerprint_activity,
     infer_issue_created_severity_activity,
+    tag_issue_created_activity,
     emit_issue_created_internal_event_activity,
     emit_issue_created_signal_activity,
     generate_issue_created_summary_activity,

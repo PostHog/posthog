@@ -6,6 +6,7 @@ from products.error_tracking.backend.temporal.lifecycle.types import LifecycleIs
 
 EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE = "EmbeddingServiceUnavailable"
 SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE = "SeverityInferenceUnavailable"
+ISSUE_TAGS_UNAVAILABLE_ERROR_TYPE = "IssueTagsUnavailable"
 
 
 IssueCreatedSnapshot = LifecycleIssueSnapshot
