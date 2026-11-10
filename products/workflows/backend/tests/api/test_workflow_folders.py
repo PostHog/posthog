@@ -314,12 +314,16 @@ class TestWorkflowFolders(APIBaseTest):
         paths = {row["path"] for row in self.client.get(files_url).json()["results"]}
         self.assertTrue({"Campaigns", "Campaigns/Hidden workflow", "Campaigns/Hidden email"} <= paths)
 
-    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_deleting_workflow_through_the_project_tree_records_activity(self, _reload: MagicMock) -> None:
+    def _workflow_file_in_folder(self, status: str) -> tuple[str, dict[str, Any]]:
+        folder = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/", {"path": "Campaigns", "type": "folder"}, format="json"
+        )
+        self.assertEqual(folder.status_code, 201, folder.content)
         created = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/",
             {
                 "name": "Welcome",
+                "_create_in_folder": "Campaigns",
                 "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
                 "edges": [],
             },
@@ -327,11 +331,34 @@ class TestWorkflowFolders(APIBaseTest):
         )
         self.assertEqual(created.status_code, 201, created.content)
         workflow_id = created.json()["id"]
+        HogFlow.objects.filter(id=workflow_id).update(status=status)
         files = self.client.get(
             f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": workflow_id}
         ).json()["results"]
+        return workflow_id, files[0]
+
+    @parameterized.expand([("draft", "file"), ("active", "file"), ("draft", "folder"), ("active", "folder")])
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_project_tree_refuses_to_delete_a_workflow_that_is_not_archived(
+        self, status: str, target: str, _reload: MagicMock
+    ) -> None:
+        workflow_id, file = self._workflow_file_in_folder(status)
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        folder = self.client.get(files_url, {"path": "Campaigns"}).json()["results"][0]
+
+        target_id = file["id"] if target == "file" else folder["id"]
+        refused = self.client.delete(f"{files_url}{target_id}/?recursive=true")
+
+        self.assertEqual(refused.status_code, 409, refused.content)
+        self.assertEqual(refused.json()["detail"], "Archive this workflow before you delete it.")
+        self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/").status_code, 200)
+        self.assertEqual(self.client.get(f"{files_url}{file['id']}/").json()["path"], "Campaigns/Welcome")
+
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_deleting_workflow_through_the_project_tree_records_activity(self, _reload: MagicMock) -> None:
+        workflow_id, file = self._workflow_file_in_folder("archived")
         with self.captureOnCommitCallbacks(execute=True):
-            deleted = self.client.delete(f"/api/projects/{self.team.id}/file_system/{files[0]['id']}/")
+            deleted = self.client.delete(f"/api/projects/{self.team.id}/file_system/{file['id']}/")
         self.assertEqual(deleted.status_code, 200, deleted.content)
         activity = self.client.get(f"/api/projects/{self.team.id}/activity_log", {"scope": "HogFlow"}).json()["results"]
         self.assertTrue(any(entry["item_id"] == workflow_id and entry["activity"] == "deleted" for entry in activity))
