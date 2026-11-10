@@ -45,14 +45,6 @@ jobs:
                   ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   token: ${{ steps.app-token.outputs.token }}
-                  sparse-checkout: |
-                      .github/actions/setup-uv
-                      .github/scripts/depot_backend_runs.py
-                      .github/scripts/optimize_test_durations.py
-                      .python-version
-                      products
-                      uv.lock
-                  sparse-checkout-cone-mode: false
 
             - name: Install uv
               uses: ./.github/actions/setup-uv
@@ -71,8 +63,8 @@ jobs:
                   BACKEND_RUNS_TO_AVERAGE: ${{ vars.BACKEND_RUNS_TO_AVERAGE }}
               run: |
                   if [ -n "$INPUT_RUN_ID" ]; then
-                      echo "run_id=$INPUT_RUN_ID" >> $GITHUB_OUTPUT
-                      echo "run_ids=$INPUT_RUN_ID" >> $GITHUB_OUTPUT
+                      echo "run_id=$INPUT_RUN_ID" >> "$GITHUB_OUTPUT"
+                      echo "run_ids=$INPUT_RUN_ID" >> "$GITHUB_OUTPUT"
                       echo "Using provided Backend CI run: $INPUT_RUN_ID"
                       exit 0
                   fi
@@ -100,9 +92,9 @@ jobs:
                       exit 1
                   fi
 
-                  echo "run_id=$primary" >> $GITHUB_OUTPUT
-                  echo "run_ids=$(echo $run_ids | tr '\n' ' ')" >> $GITHUB_OUTPUT
-                  echo "Found Backend CI runs (newest first): $(echo $run_ids | tr '\n' ' ')"
+                  echo "run_id=$primary" >> "$GITHUB_OUTPUT"
+                  echo "run_ids=$(echo "$run_ids" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+                  echo "Found Backend CI runs (newest first): $(echo "$run_ids" | tr '\n' ' ')"
 
             - name: Find Dagster CI run to use
               id: find-dagster-run
@@ -111,7 +103,7 @@ jobs:
                   INPUT_RUN_ID: ${{ inputs.dagster_run_id }}
               run: |
                   if [ -n "$INPUT_RUN_ID" ]; then
-                      echo "run_id=$INPUT_RUN_ID" >> $GITHUB_OUTPUT
+                      echo "run_id=$INPUT_RUN_ID" >> "$GITHUB_OUTPUT"
                       echo "Using provided Dagster CI run: $INPUT_RUN_ID"
                       exit 0
                   fi
@@ -128,7 +120,7 @@ jobs:
                       --jq '.workflow_runs[] | select(
                           (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
                       ) | .id' | head -5 | \
-                      while read id; do
+                      while read -r id; do
                           count=$(gh api "repos/${{ github.repository }}/actions/runs/$id/artifacts?per_page=100" \
                               --jq '[.artifacts[] | select(.name | startswith("timing_data-Dagster-")) | select(.expired == false)] | length' 2>/dev/null)
                           echo "Run $id has $count Dagster timing artifacts" >&2
@@ -141,9 +133,9 @@ jobs:
 
                   if [ -z "$run_id" ]; then
                       echo "::warning::No suitable Dagster CI run found with timing artifacts - skipping Dagster"
-                      echo "run_id=" >> $GITHUB_OUTPUT
+                      echo "run_id=" >> "$GITHUB_OUTPUT"
                   else
-                      echo "run_id=$run_id" >> $GITHUB_OUTPUT
+                      echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
                       echo "Found Dagster CI run: $run_id"
                   fi
 
@@ -285,7 +277,13 @@ jobs:
                       if [ -f /tmp/previous_durations ]; then
                           # Only entries the fresh slices do not carry: the outlier merge would
                           # otherwise let a stale value here beat a fresh one for the same test.
-                          jq -s 'add' $(ls /tmp/core_durations /tmp/temporal_durations /tmp/dagster_durations 2>/dev/null) > /tmp/fresh_durations
+                          fresh_files=()
+                          for file in /tmp/core_durations /tmp/temporal_durations /tmp/dagster_durations; do
+                              if [ -f "$file" ]; then
+                                  fresh_files+=("$file")
+                              fi
+                          done
+                          jq -s 'add' "${fresh_files[@]}" > /tmp/fresh_durations
                           jq --slurpfile fresh /tmp/fresh_durations \
                               'with_entries(select((.key | startswith("products/")) and ($fresh[0][.key] == null)))' \
                               /tmp/previous_durations > /tmp/products_durations
@@ -302,17 +300,17 @@ jobs:
                       # as the per-segment plans below. Each older run goes through the same drift
                       # check as the newest one, and a run that fails it stays out of the average.
                       # The newest slice goes first because it anchors which tests the average keeps.
-                      products_files="/tmp/products_durations"
+                      products_files=(/tmp/products_durations)
                       for rid in $BACKEND_RUN_IDS; do
                           if [ "$rid" = "$BACKEND_RUN_ID" ]; then
                               continue
                           fi
                           if uv run .github/scripts/optimize_test_durations.py "runs/$rid/timing" "/tmp/products_$rid" \
                               --segment Products --junit-dir "runs/$rid/junit" --fail-on-drift; then
-                              products_files="$products_files /tmp/products_$rid"
+                              products_files+=("/tmp/products_$rid")
                           fi
                       done
-                      if uv run .github/scripts/optimize_test_durations.py /tmp/products_averaged --average-files $products_files; then
+                      if uv run .github/scripts/optimize_test_durations.py /tmp/products_averaged --average-files "${products_files[@]}"; then
                           mv /tmp/products_averaged /tmp/products_durations
                       else
                           echo "::warning::Products multi-run average failed, keeping the newest run's slice"
@@ -355,27 +353,27 @@ jobs:
                   # the newest run is passed first so it anchors membership (a test deleted since
                   # an older run never lingers). Non-fatal throughout: a run with no JUnit is
                   # skipped, and if none survive ci-backend falls back to scoping the union.
-                  core_files=""
-                  temporal_files=""
+                  core_files=()
+                  temporal_files=()
                   for rid in $BACKEND_RUN_IDS; do
                       if uv run .github/scripts/optimize_test_durations.py "runs/$rid/timing" "/tmp/core_$rid" \
                           --segment Core --junit-dir "runs/$rid/junit" --scope-to-junit; then
-                          core_files="$core_files /tmp/core_$rid"
+                          core_files+=("/tmp/core_$rid")
                       fi
                       if uv run .github/scripts/optimize_test_durations.py "runs/$rid/timing" "/tmp/temporal_$rid" \
                           --segment Temporal --junit-dir "runs/$rid/junit" --scope-to-junit; then
-                          temporal_files="$temporal_files /tmp/temporal_$rid"
+                          temporal_files+=("/tmp/temporal_$rid")
                       fi
                   done
 
-                  if [ -n "$core_files" ]; then
-                      uv run .github/scripts/optimize_test_durations.py .test_durations.core --average-files $core_files \
+                  if [ "${#core_files[@]}" -gt 0 ]; then
+                      uv run .github/scripts/optimize_test_durations.py .test_durations.core --average-files "${core_files[@]}" \
                           || echo "::warning::Core multi-run average failed — file-mode falls back to union scoping"
                   else
                       echo "::warning::Core per-segment durations skipped (no JUnit in any run?) — file-mode falls back to union scoping"
                   fi
-                  if [ -n "$temporal_files" ]; then
-                      uv run .github/scripts/optimize_test_durations.py .test_durations.temporal --average-files $temporal_files \
+                  if [ "${#temporal_files[@]}" -gt 0 ]; then
+                      uv run .github/scripts/optimize_test_durations.py .test_durations.temporal --average-files "${temporal_files[@]}" \
                           || echo "::warning::Temporal multi-run average failed — file-mode falls back to union scoping"
                   else
                       echo "::warning::Temporal per-segment durations skipped (no JUnit in any run?) — file-mode falls back to union scoping"
