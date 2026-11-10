@@ -4,7 +4,7 @@ import threading
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -792,10 +792,11 @@ class CosmeticWriteFailOpenTests(SimpleTestCase):
 
 
 class CommitGraphqlTests(SimpleTestCase):
-    def _blame(self, response: fakes.FakeResponse) -> list[dict]:
-        def fake_request(method: str, url: str, **kwargs: object) -> fakes.FakeResponse:
+    def _call(self, response: fakes.FakeResponse, call: Callable[[StamphogGitHubClient], Any]) -> Any:
+        def fake_request(method: str, url: str, **kwargs: Any) -> fakes.FakeResponse:
             if url.endswith("/access_tokens"):
                 return fakes.FakeResponse(201, json_data={"token": "t", "expires_at": "2999-01-01T00:00:00Z"})
+            self.graphql_variables = kwargs["json"]["variables"]
             return response
 
         with (
@@ -804,7 +805,25 @@ class CommitGraphqlTests(SimpleTestCase):
             patch(f"{_GH}.remember_observed_core_limit", lambda *a, **k: None),
             patch(f"{_GH}.raise_if_github_rate_limited", lambda *a, **k: None),
         ):
-            return StamphogGitHubClient("123").get_blame_ranges("acme/widgets", "abc", "src/a.py", timeout=5)
+            return call(StamphogGitHubClient("123"))
+
+    def _blame(self, response: fakes.FakeResponse) -> list[dict]:
+        return self._call(response, lambda c: c.get_blame_ranges("acme/widgets", "abc", "src/a.py", timeout=5))
+
+    def test_default_branch_blobs_read_a_missing_path_as_absent(self) -> None:
+        # A proof pins a settings file that does not exist as null. The read must answer null for it
+        # and keep the other paths, because one failed read would mark every proof stale.
+        response = fakes.FakeResponse(200, json_data={"data": {"repository": {"p0": {"oid": "a" * 40}, "p1": None}}})
+
+        blobs = self._call(response, lambda c: c.get_default_branch_blob_shas("acme/widgets", ["prover.py", ".npmrc"]))
+
+        assert blobs == {"prover.py": "a" * 40, ".npmrc": None}
+        assert self.graphql_variables == {
+            "owner": "acme",
+            "name": "widgets",
+            "p0": "HEAD:prover.py",
+            "p1": "HEAD:.npmrc",
+        }
 
     @parameterized.expand(
         [
@@ -862,13 +881,22 @@ class AttestationPinTests(SimpleTestCase):
         assert check_run["pinned_blobs_current"] is expected
 
     def test_only_a_bounded_number_of_pinning_check_runs_is_read(self) -> None:
+        # A job of any PR can post as GitHub Actions, so its check runs must not use up the budget
+        # that the real publisher's run needs.
         pinning = [_pinning_check_run({"prover.py": "a" * 40}) for _ in range(7)]
-        client = _PinClient([{"output": {"summary": '<!-- stamphog:v1 ["a.py"] -->'}}, *pinning], self._DEFAULT_BRANCH)
+        unread = [
+            {"output": {"summary": '<!-- stamphog:v1 ["a.py"] -->'}},
+            {**pinning[0], "app": {"id": 15368}},
+            {"output": {"summary": pinning[0]["output"]["summary"] * 2}},
+        ]
+        client = _PinClient([*unread, *pinning], self._DEFAULT_BRANCH)
 
-        unpinned, *marked = get_check_runs_with_pins(cast(StamphogGitHubClient, client), "acme/widgets", "sha")
+        *unmarked, a, b, c, d, e, f, g = get_check_runs_with_pins(
+            cast(StamphogGitHubClient, client), "acme/widgets", "sha"
+        )
 
-        assert "pinned_blobs_current" not in unpinned
-        assert [check_run["pinned_blobs_current"] for check_run in marked] == [True] * 5 + [False] * 2
+        assert all("pinned_blobs_current" not in check_run for check_run in unmarked)
+        assert [check_run["pinned_blobs_current"] for check_run in (a, b, c, d, e, f, g)] == [True] * 5 + [False] * 2
         assert client.blob_reads == 5
 
 

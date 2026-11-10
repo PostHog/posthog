@@ -968,8 +968,13 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
         context, policy_files = _engine_gate_inputs(run)
         context["files"] = pinned_files
         # A deny lift depends on a check run, and a newer run of the same check may have failed since
-        # the context fetch. The lift must hold at posting time.
-        context["check_runs"] = get_check_runs_with_pins(client, repo, run.head_sha)
+        # the context fetch. The lift must hold at posting time. Without the check runs nothing is
+        # lifted, so a failed read refuses only the approvals that need a lift.
+        try:
+            context["check_runs"] = get_check_runs_with_pins(client, repo, run.head_sha)
+        except Exception:
+            activity.logger.exception(f"Run {run.id}: check runs unreadable for the gate attestation")
+            context["check_runs"] = []
         attestation = run_engine_attest(context, policy_files)
         if attestation.reason == "dependency_manifest" and 0 < len(attestation.manifests) <= _MAX_ATTESTED_MANIFESTS:
             manifest_contents = fetch_manifest_contents(
@@ -1834,6 +1839,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
                         "attested": attestation.attested,
                         "reason": attestation.reason,
                         "gates": attestation.gates,
+                        "lifted": attestation.lifted,
                     }
                 },
             )

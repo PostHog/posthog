@@ -287,6 +287,8 @@ Never read them through the contents API, which follows an in-repo symlink to it
 Every input the worker cannot confirm fails the check: a file list GitHub may have cut short, one that differs from the stored list, unread folder files or manifests, or an engine error.
 A retry of `post_verdict` reuses a stored answer that did not attest, because a second check that attests would post an approval over a delivered escalation. A stored answer that attested is checked again, because a deny lift can stop holding between attempts.
 The check reads the head's check runs again, so a lift that a policy `attestations` entry grants holds at posting time, and an approval such a lift made possible gets no approval retention.
+The worker records whether a lift was used as `gate_attestation.lifted`, and retention reads only that record, never the sandbox's report. An approval without the record is not retained.
+A failed read of the check runs at posting time counts as no check runs, so it refuses only an approval that needs a lift.
 A new path to an approval must go through this check too.
 
 A pending `Migration risk` check returns WAIT rather than falling through to a refusal, because a

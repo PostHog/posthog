@@ -436,31 +436,85 @@ def test_the_worker_attests_from_the_reviewed_commits(
     )
 
 
+_MIGRATION_RISK_APP_ID = 2492437
+# The repository names the check that may lift `migrations`. The engine's shipped policy names none.
+_MIGRATION_RISK_POLICY = (
+    "version: 1\n"
+    "attestations:\n"
+    "    - name: migration_risk\n"
+    "      check: 'Migration risk'\n"
+    f"      app_id: {_MIGRATION_RISK_APP_ID}\n"
+    "      lifts: [migrations]\n"
+    "      paths: ['(?:^|/)migrations/[^/]+\\.py$']\n"
+)
+
+
+def _migration_risk_check(files: list[str]) -> dict:
+    return {
+        "id": 1,
+        "name": "Migration risk",
+        "app": {"id": _MIGRATION_RISK_APP_ID},
+        "status": "completed",
+        "conclusion": "success",
+        "output": {"summary": f"<!-- stamphog:v1 {json.dumps(files)} -->"},
+    }
+
+
+_MIGRATION = "posthog/migrations/0999_x.py"
+_UNREADABLE = StamphogGitHubError("check runs unavailable", status_code=502)
+
+
+@pytest.mark.parametrize(
+    "path, checks_at_posting, expect_reason, expect_lifted",
+    [
+        pytest.param(_MIGRATION, [_migration_risk_check([_MIGRATION])], "", True, id="lift-still-holds"),
+        pytest.param(_MIGRATION, [], "gate_failed", False, id="lift-gone"),
+        pytest.param(_MIGRATION, _UNREADABLE, "gate_failed", False, id="lift-unreadable"),
+        pytest.param("src/util.py", _UNREADABLE, "", False, id="no-lift-needed-and-checks-unreadable"),
+    ],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_the_worker_attests_against_the_checks_at_posting_time(team, stamphog_chain: StamphogChain) -> None:
-    # The sandbox approved because the Migration risk check lifted the deny when the context was
-    # fetched. By posting time that result is gone, so the lift no longer holds and the worker's own
-    # gate run refuses the approval.
+def test_the_worker_attests_against_the_checks_at_posting_time(
+    team,
+    stamphog_chain: StamphogChain,
+    path: str,
+    checks_at_posting: list[dict] | Exception,
+    expect_reason: str,
+    expect_lifted: bool,
+) -> None:
+    # The sandbox approved on the checks that the context fetch saw. A lift must still hold at
+    # posting time, so a result that is gone or unreadable by then refuses the approval. An approval
+    # that needs no lift does not depend on that read. The worker also records whether a lift was
+    # used, because that record decides approval retention.
     repo_config = _repo_config(team.id)
     recorder = stamphog_chain.recorder
-    author, head_sha, migration = "devex-dev", "sha104a", "posthog/migrations/0999_x.py"
+    author, head_sha = "devex-dev", "sha104a"
     recorder.policy_files[".stamphog/policy.yml"] = _MIGRATION_RISK_POLICY
-    recorder.register_pr(REPO, 104, _pr_object(104, author, head_sha), [_api_file(migration)])
-    recorder.compare_files = [_api_file(migration)]
+    recorder.register_pr(REPO, 104, _pr_object(104, author, head_sha), [_api_file(path)])
+    recorder.compare_files = [_api_file(path)]
     stamphog_chain.attest_gates.side_effect = _attest_gates
-    check_runs = [[_migration_risk_check([migration])], []]
+    answers = [[_migration_risk_check([_MIGRATION])], checks_at_posting]
+
+    def check_runs(*args: object, **kwargs: object) -> list[dict]:
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
 
     with (
         patch.object(activities, "fetch_folder_policy_files", return_value={}),
-        patch.object(StamphogGitHubClient, "get_check_runs", side_effect=lambda *a, **k: check_runs.pop(0)),
+        patch.object(StamphogGitHubClient, "get_check_runs", side_effect=check_runs),
     ):
         stamphog_chain.post_webhook(_opened_event(104, author, head_sha), delivery_id=str(uuid.uuid4()))
 
     pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=104)
     run = ReviewRun.objects.for_team(team.id).filter(pull_request=pr).latest("created_at")
-    assert run.output["gate_attestation"]["reason"] == "gate_failed"
-    assert run.verdict == ReviewVerdict.ESCALATE
-    assert [w for w in recorder.github_writes if w["kind"] == "approve_review"] == []
+    assert run.output["gate_attestation"]["reason"] == expect_reason
+    assert run.output["gate_attestation"]["lifted"] is expect_lifted
+    approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
+    assert (run.verdict, len(approvals)) == (
+        (ReviewVerdict.APPROVED, 1) if not expect_reason else (ReviewVerdict.ESCALATE, 0)
+    )
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -496,28 +550,6 @@ def _big_api_file(filename: str, additions: int) -> dict:
 
 
 _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1500\n---\nTall PRs are normal here.\n"
-_MIGRATION_RISK_APP_ID = 2492437
-# The repository names the check that may lift `migrations`. The engine's shipped policy names none.
-_MIGRATION_RISK_POLICY = (
-    "version: 1\n"
-    "attestations:\n"
-    "    - name: migration_risk\n"
-    "      check: 'Migration risk'\n"
-    f"      app_id: {_MIGRATION_RISK_APP_ID}\n"
-    "      lifts: [migrations]\n"
-    "      paths: ['(?:^|/)migrations/[^/]+\\.py$']\n"
-)
-
-
-def _migration_risk_check(files: list[str]) -> dict:
-    return {
-        "id": 1,
-        "name": "Migration risk",
-        "app": {"id": _MIGRATION_RISK_APP_ID},
-        "status": "completed",
-        "conclusion": "success",
-        "output": {"summary": f"<!-- stamphog:v1 {json.dumps(files)} -->"},
-    }
 
 
 @pytest.mark.parametrize(
