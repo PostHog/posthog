@@ -438,6 +438,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         )
 
     def list_all_repositories(self, *, priority: Priority | None = None) -> list[dict]:
+        cache.delete(self._scoped_access_token_cache_key())
         try:
             return super().list_all_repositories(priority=priority)
         except NoAccessibleRepositories:
@@ -465,13 +466,13 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         try:
             if not self.user_can_open_repository(repository):
                 return False
+            return super().installation_can_access_repository(repository, raise_on_transient=raise_on_transient)
         except (ReauthorizationRequired, NoAccessibleRepositories):
             return False
         except GitHubIntegrationError:
             if raise_on_transient:
                 raise
             return False
-        return super().installation_can_access_repository(repository, raise_on_transient=raise_on_transient)
 
     def refresh_access_token(self) -> None:
         super().refresh_access_token()

@@ -3441,6 +3441,65 @@ class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
 
     @parameterized.expand(
         [
+            ("access_added", ["visible-a", "visible-b", "visible-c"], None),
+            ("access_removed", ["visible-a"], None),
+            ("all_access_removed", [], None),
+            ("refresh_cooldown", ["visible-a", "visible-b", "visible-c"], 60),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.github_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_repository_refresh_uses_the_current_user_scope(
+        self,
+        _name: str,
+        current_names: list[str],
+        min_refresh_interval_seconds: int | None,
+        mock_user_request: MagicMock,
+        mock_client_request: MagicMock,
+        mock_installation_request: MagicMock,
+    ) -> None:
+        initial_names = ["visible-a", "visible-b"]
+        repositories = {
+            name: {"id": index, "name": name, "full_name": f"example/{name}"}
+            for index, name in enumerate(["visible-a", "visible-b", "visible-c"], start=1)
+        }
+        self._store_user_scoped_snapshot([repositories[name] for name in initial_names], days_old=0)
+        mock_user_request.side_effect = [
+            self._user_repositories(initial_names),
+            self._user_repositories(current_names),
+        ]
+        mock_client_request.side_effect = [
+            self._response(201, {"token": "INITIAL_TOKEN"}),
+            self._response(201, {"token": "REFRESHED_TOKEN"}),
+        ]
+        mock_installation_request.side_effect = lambda method, url, **kwargs: self._response(
+            200,
+            {
+                "repositories": [
+                    repositories[name]
+                    for name in (
+                        initial_names if kwargs["headers"]["Authorization"] == "Bearer INITIAL_TOKEN" else current_names
+                    )
+                ]
+            },
+        )
+        github = self._github()
+        assert github.get_access_token() == "INITIAL_TOKEN"
+
+        refreshed = github.sync_repository_cache(min_refresh_interval_seconds=min_refresh_interval_seconds)
+
+        expected_names = initial_names if min_refresh_interval_seconds is not None else current_names
+        assert [repo["name"] for repo in refreshed] == expected_names
+        self.integration.refresh_from_db()
+        assert self.integration.repository_cache == [repositories[name] for name in expected_names]
+        if min_refresh_interval_seconds is not None:
+            assert github.get_access_token() == "INITIAL_TOKEN"
+        elif current_names:
+            assert github.get_access_token() == "REFRESHED_TOKEN"
+
+    @parameterized.expand(
+        [
             ("network_error", requests.ConnectionError("reset")),
             ("bad_gateway", "502"),
         ]
@@ -3519,11 +3578,13 @@ class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
 
     @parameterized.expand(
         [
-            ("user_can_open_it", "acme/visible-a", 200, {"full_name": "acme/visible-a"}, True),
-            ("dots_inside_a_name", "acme/release..archive", 200, {"full_name": "acme/release..archive"}, True),
-            ("traversal_segment", "acme/..", 200, {"full_name": "acme/visible-a"}, False),
-            ("user_cannot_open_it", "acme/visible-a", 404, {"message": "Not Found"}, False),
-            ("user_must_reconnect", "acme/visible-a", 401, {"message": "Bad credentials"}, False),
+            ("user_can_open_it", "acme/visible-a", 200, {"full_name": "acme/visible-a"}, 200, True),
+            ("dots_inside_a_name", "acme/release..archive", 200, {"full_name": "acme/release..archive"}, 200, True),
+            ("traversal_segment", "acme/..", 200, {"full_name": "acme/visible-a"}, 200, False),
+            ("user_cannot_open_it", "acme/visible-a", 404, {"message": "Not Found"}, 200, False),
+            ("user_must_reconnect", "acme/visible-a", 401, {"message": "Bad credentials"}, 200, False),
+            ("token_needs_reconnection", "acme/visible-a", 200, {"full_name": "acme/visible-a"}, 401, False),
+            ("token_has_no_repositories", "acme/visible-a", 200, {"full_name": "acme/visible-a"}, 404, False),
         ]
     )
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
@@ -3537,6 +3598,7 @@ class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
         repository: str,
         repository_status: int,
         repository_body: dict[str, Any],
+        listing_status: int,
         expected: bool,
         mock_user_request: MagicMock,
         mock_client_request: MagicMock,
@@ -3544,7 +3606,7 @@ class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
         mock_oauth_post: MagicMock,
     ) -> None:
         mock_user_request.side_effect = lambda method, url, **kwargs: (
-            self._user_repositories(["visible-a"])
+            self._response(listing_status, {"total_count": 1, "repositories": [{"name": "visible-a"}]})
             if "/user/installations/" in url
             else self._response(repository_status, repository_body)
         )
