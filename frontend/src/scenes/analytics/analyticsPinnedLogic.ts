@@ -60,8 +60,8 @@ export interface analyticsPinnedLogicActions {
         shortcutId: string,
         overShortcutId: string
     ) => {
-        shortcutId: string
         overShortcutId: string
+        shortcutId: string
     }
     togglePinned: (target: PinTarget) => {
         target: PinTarget
