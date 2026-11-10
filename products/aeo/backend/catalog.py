@@ -10,7 +10,7 @@ import tldextract
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.aeo.backend.engines import is_target_url, target_position
+from products.aeo.backend.engines import is_target_url, own_domains_key, target_position
 from products.aeo.backend.facade.contracts import (
     BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
@@ -42,6 +42,8 @@ PUBLISHER_DOMAINS = frozenset(
     }
 )
 RECOMPUTE_BATCH_SIZE = 1000
+# Each pass scans the team's stale checks; edits that keep landing are left to the next reconcile.
+RECOMPUTE_MAX_PASSES = 3
 # Offline: the bundled public suffix list, so a sync never fetches anything.
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 
@@ -80,54 +82,77 @@ def counts_as_own(kind: str, status: str) -> bool:
 
 
 def recompute_own_citations(team_id: int) -> int:
-    """Recompute `cited`, `target_urls` and `target_best_position` of the team's answered checks from
-    their stored citations and the team's current own domains, the same way the runner sets them.
+    """Recompute `cited`, `target_urls` and `target_best_position` of the team's answered checks whose
+    own domains key is not the current one, from their stored citations, the same way the runner sets them.
     Returns how many checks changed.
 
-    Two overlapping passes can each read a different set of own domains. A pass re-reads the domains
-    when it ends and goes again if they moved, so the pass that writes last always used the current set.
+    A pass re-reads the domains when it ends and goes again if they moved, up to `RECOMPUTE_MAX_PASSES`.
+    Whatever a pass leaves stale keeps its old key, so the reconcile after the next citation run repairs it.
     """
     team_id = resolve_effective_team_id(team_id)
     changed = 0
     domains = own_domains(team_id)
-    while True:
+    for _ in range(RECOMPUTE_MAX_PASSES):
         changed += _recompute_with(team_id, domains)
         current = own_domains(team_id)
         if current == domains:
-            return changed
+            break
         domains = current
+    return changed
 
 
 def _recompute_with(team_id: int, domains: list[str]) -> int:
+    key = own_domains_key(domains)
     checks = AEOCitationCheck.objects.for_team(team_id, canonical=True)
-    rows = checks.filter(check_failed=False).only("id", "cited_urls", "cited", "target_urls", "target_best_position")
-    pending: list[AEOCitationCheck] = []
+    # exclude() keeps the null keys of checks recorded before the key existed.
+    stale = (
+        checks.filter(check_failed=False)
+        .exclude(own_domains_key=key)
+        .only("id", "cited_urls", "cited", "target_urls", "target_best_position", "own_domains_key")
+    )
+    rescored: list[AEOCitationCheck] = []
+    kept: list[AEOCitationCheck] = []
     changed = 0
-    for check in rows.iterator(chunk_size=RECOMPUTE_BATCH_SIZE):
+    for check in stale.iterator(chunk_size=RECOMPUTE_BATCH_SIZE):
         cited_urls = [url for url in check.cited_urls or [] if isinstance(url, str)]
         target_urls = [url for url in cited_urls if is_target_url(url, domains)]
         position = target_position(cited_urls, domains)
-        if (check.cited, check.target_urls, check.target_best_position) == (bool(target_urls), target_urls, position):
-            continue
+        citations_moved = (check.cited, check.target_urls, check.target_best_position) != (
+            bool(target_urls),
+            target_urls,
+            position,
+        )
         check.cited = bool(target_urls)
         check.target_urls = target_urls
         check.target_best_position = position
-        # The score was taken for the brand as it was then. The next sentiment run scores a cleared row
-        # again when it names the current brand and falls inside the run's backlog window.
-        check.brand_sentiment = None
-        check.brand_sentiment_score = None
-        pending.append(check)
-        if len(pending) >= RECOMPUTE_BATCH_SIZE:
-            changed += _write_recomputed(checks, pending)
-            pending = []
-    return changed + _write_recomputed(checks, pending)
+        # A keyed check was scored for a different set of own brands, even when its citations match both.
+        # A check from before the key existed was scored for the domains it was cited against.
+        if check.own_domains_key is not None or citations_moved:
+            # The next sentiment run scores a cleared check again when it names the current brand and
+            # falls inside the run's backlog window.
+            check.brand_sentiment = None
+            check.brand_sentiment_score = None
+            rescored.append(check)
+        else:
+            kept.append(check)
+        check.own_domains_key = key
+        changed += citations_moved
+        if len(rescored) + len(kept) >= RECOMPUTE_BATCH_SIZE:
+            _write_recomputed(checks, rescored, kept)
+            rescored, kept = [], []
+    _write_recomputed(checks, rescored, kept)
+    return changed
 
 
-def _write_recomputed(checks: QuerySet[AEOCitationCheck], rows: list[AEOCitationCheck]) -> int:
-    checks.bulk_update(
-        rows, ["cited", "target_urls", "target_best_position", "brand_sentiment", "brand_sentiment_score"]
-    )
-    return len(rows)
+_CITATION_FIELDS = ["cited", "target_urls", "target_best_position", "own_domains_key"]
+
+
+def _write_recomputed(
+    checks: QuerySet[AEOCitationCheck], rescored: list[AEOCitationCheck], kept: list[AEOCitationCheck]
+) -> None:
+    checks.bulk_update(rescored, [*_CITATION_FIELDS, "brand_sentiment", "brand_sentiment_score"])
+    # Sentiment is left out, so a score written meanwhile for these checks survives.
+    checks.bulk_update(kept, _CITATION_FIELDS)
 
 
 # A newly cited domain is never the team's own: own brands are added by people before the first run.

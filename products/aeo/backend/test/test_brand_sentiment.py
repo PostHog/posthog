@@ -14,7 +14,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 
-from products.aeo.backend.engines import CitationCheck
+from products.aeo.backend.engines import CitationCheck, own_domains_key
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks
 from products.aeo.backend.seeding import PromptCandidate, upsert_prompts
@@ -22,6 +22,7 @@ from products.aeo.backend.temporal.brand_sentiment import AEOBrandSentimentInput
 from products.aeo.backend.test.factories import create_own_brand
 
 _MODULE = "products.aeo.backend.temporal.brand_sentiment"
+_CURRENT_KEY = own_domains_key(["example.com"])
 
 
 def _team() -> Team:
@@ -30,6 +31,7 @@ def _team() -> Team:
 
 
 def _check(team: Team, prompt: AEOPrompt, run_id: uuid.UUID, answer_text: str | None, **fields) -> AEOCitationCheck:
+    fields.setdefault("own_domains_key", _CURRENT_KEY)
     with team_scope(team.pk):
         return AEOCitationCheck.objects.create(
             team=team,
@@ -60,6 +62,8 @@ def _seed_run(team: Team) -> tuple[uuid.UUID, dict[str, AEOCitationCheck]]:
         "other_run": _check(team, prompt, uuid.uuid4(), "Example elsewhere."),
         "no_brand_backlog": _check(team, prompt, uuid.uuid4(), "Rival elsewhere."),
         "too_old": _check(team, prompt, uuid.uuid4(), "Example long ago."),
+        # Waits for the own-citation reconcile, which re-keys it.
+        "stale_key": _check(team, prompt, run_id, "Example is stale.", own_domains_key=own_domains_key(["old.com"])),
     }
 
 
@@ -123,7 +127,33 @@ async def test_activity_scores_the_runs_answers_then_the_recent_unscored_backlog
         "other_run": ("neutral", 0.85),
         "no_brand_backlog": (None, None),
         "too_old": (None, None),
+        "stale_key": (None, None),
     }
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_activity_drops_scores_of_checks_re_keyed_while_the_model_ran(settings) -> None:
+    team = await sync_to_async(_team)()
+    await sync_to_async(create_own_brand)(team, "example.com")
+    run_id, checks = await sync_to_async(_seed_run)(team)
+    re_keyed = checks["praise"]
+
+    def reconcile_meanwhile(texts: list[str]) -> list[SentimentResult]:
+        with team_scope(team.pk):
+            AEOCitationCheck.objects.filter(id=re_keyed.id).update(own_domains_key=own_domains_key(["new.com"]))
+        return [_result(positive=0.9, neutral=0.08, negative=0.02) for _ in texts]
+
+    with patch("posthog.temporal.ai_observability.sentiment.model.classify", reconcile_meanwhile):
+        result = await ActivityEnvironment().run(
+            classify_aeo_brand_sentiment, AEOBrandSentimentInputs(team_id=team.id, run_id=str(run_id))
+        )
+
+    assert result["scored"] == result["answers"] - 1
+    scored = await sync_to_async(
+        lambda: AEOCitationCheck.objects.for_team(team.id).values_list("brand_sentiment", flat=True).get(id=re_keyed.id)
+    )()
+    assert scored is None
 
 
 @pytest.mark.django_db(transaction=True)

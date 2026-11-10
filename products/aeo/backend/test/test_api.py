@@ -20,7 +20,7 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 
 from products.aeo.backend.engines import top_domains
-from products.aeo.backend.facade.api import get_prompt_set_overview
+from products.aeo.backend.facade.api import RECOMPUTE_DEBOUNCE_SECONDS, get_prompt_set_overview
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.test.factories import create_citation_check, create_own_brand
 
@@ -977,6 +977,9 @@ class TestAEOPromptAPI(APIBaseTest):
                 {"domain": "example.org", "name": "Rival", "kind": "competitor", "aliases": []},
             ),
             ("invalid_domain", {"domain": "not a domain", "kind": "own"}, status.HTTP_400_BAD_REQUEST, None),
+            ("space_in_a_label", {"domain": "not a domain.com", "kind": "own"}, status.HTTP_400_BAD_REQUEST, None),
+            ("underscore_in_a_label", {"domain": "my_site.com", "kind": "own"}, status.HTTP_400_BAD_REQUEST, None),
+            ("label_ends_with_a_hyphen", {"domain": "example-.com", "kind": "own"}, status.HTTP_400_BAD_REQUEST, None),
             ("missing_kind", {"domain": "example.com"}, status.HTTP_400_BAD_REQUEST, None),
         ]
     )
@@ -1004,7 +1007,9 @@ class TestAEOPromptAPI(APIBaseTest):
             ("relabel_to_own", "competitor", {"kind": "own"}, 1),
             ("relabel_own_to_competitor", "own", {"kind": "competitor"}, 1),
             ("ignore_own", "own", {"status": "ignored"}, 1),
-            ("confirm_own", "own", {"status": "confirmed"}, 0),
+            # Any kind or status edit, since concurrent edits can each look like no change.
+            ("confirm_own", "own", {"status": "confirmed"}, 1),
+            ("relabel_competitor_as_competitor", "competitor", {"kind": "competitor"}, 1),
             ("rename_own", "own", {"name": "Example Inc", "aliases": ["Example"]}, 0),
         ]
     )
@@ -1024,9 +1029,35 @@ class TestAEOPromptAPI(APIBaseTest):
                 response = self.client.patch(f"{url}{brand_id}/", body, format="json")
 
         assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.json()
-        assert task.delay.call_count == expected_calls
+        assert task.apply_async.call_count == expected_calls
         if expected_calls:
-            task.delay.assert_called_with(self.team.id)
+            task.apply_async.assert_called_with((self.team.id,), countdown=RECOMPUTE_DEBOUNCE_SECONDS)
+
+    def test_a_burst_of_own_brand_edits_queues_one_recompute(self) -> None:
+        brand_id = self._brand(self.team, "example.com", kind="competitor")
+        url = f"/api/projects/{self.team.id}/aeo_brands/{brand_id}/"
+
+        with (
+            patch("products.aeo.backend.facade.api.recompute_aeo_own_citations_task") as task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            for kind in ("own", "competitor", "own"):
+                assert self.client.patch(url, {"kind": kind}, format="json").status_code == status.HTTP_200_OK
+
+        assert task.apply_async.call_count == 1
+
+    def test_a_failed_recompute_enqueue_keeps_the_brand_change(self) -> None:
+        with (
+            patch("products.aeo.backend.facade.api.recompute_aeo_own_citations_task") as task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            task.apply_async.side_effect = ConnectionError("broker unavailable")
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/aeo_brands/", {"domain": "example.com", "kind": "own"}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert AEOBrand.objects.for_team(self.team.id).filter(domain="example.com", kind="own").exists()
 
     def test_brands_create_rejects_a_known_domain_with_a_pointer_to_update(self) -> None:
         self._brand(self.team, "example.com")

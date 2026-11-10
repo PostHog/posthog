@@ -155,7 +155,10 @@ def _site_hosts(origin: str, *, include_unknown: bool = False) -> list[str]:
 
 
 def _is_aeo_target(team_id: int, origin: str) -> bool:
-    return site_host(origin) in {site_host(f"https://{domain}") for domain in list_own_domains(team_id)}
+    # Own brands are registrable domains, and citations count on their subdomains too, so docs.example.com
+    # matches example.com.
+    host = site_host(origin)
+    return bool(host) and any(host == domain or host.endswith(f".{domain}") for domain in list_own_domains(team_id))
 
 
 def _being_drafted(opportunity: ContentAutopilotOpportunity) -> bool:

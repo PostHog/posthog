@@ -13,7 +13,7 @@ from posthog.models.team import Team
 from posthog.redis import get_client
 
 from products.aeo.backend.tasks import tasks
-from products.aeo.backend.tasks.tasks import run_aeo_citation_checks_for_team_task
+from products.aeo.backend.tasks.tasks import recompute_aeo_own_citations_task, run_aeo_citation_checks_for_team_task
 
 
 @pytest.fixture
@@ -55,6 +55,40 @@ def test_a_run_that_outlived_its_lease_still_finishes_cleanly(team: Team, settin
         run_aeo_citation_checks_for_team_task(team.id)
 
     assert run.call_count == 1
+
+
+@pytest.mark.parametrize("reconcile_fails", [False, True])
+def test_a_recorded_run_reconciles_own_citations_without_failing_on_it(
+    team: Team, settings, reconcile_fails: bool
+) -> None:
+    settings.AEO_CITATION_TEAM_IDS = [str(team.id)]
+
+    with (
+        patch.object(tasks, "feature_enabled_or_false", return_value=True),
+        patch.object(tasks, "run_citation_checks", return_value=(Mock(run_id="run-1"), [])),
+        patch.object(tasks, "sync_brands_from_run", return_value=Mock(domains=0, created=0)),
+        patch.object(
+            tasks, "recompute_own_citations", side_effect=RuntimeError("db gone") if reconcile_fails else None
+        ) as recompute,
+    ):
+        run_aeo_citation_checks_for_team_task(team.id)
+
+    recompute.assert_called_once_with(team.id)
+    assert get_client().lock(f"aeo_own_citations_recompute:{team.id}").acquire(blocking=False)
+
+
+def test_a_recompute_retries_while_another_one_holds_the_team(team: Team) -> None:
+    held = get_client().lock(f"aeo_own_citations_recompute:{team.id}", timeout=60)
+    assert held.acquire(blocking=False)
+
+    with (
+        patch.object(tasks, "recompute_own_citations") as recompute,
+        pytest.raises(tasks.RecomputeAlreadyRunning),
+    ):
+        recompute_aeo_own_citations_task(team.id)
+
+    recompute.assert_not_called()
+    held.release()
 
 
 def test_lease_renewal_survives_a_redis_blip_and_stops_the_run_once_the_lease_is_lost(monkeypatch) -> None:

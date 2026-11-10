@@ -20,8 +20,10 @@ from django.db.models import Aggregate, Avg, Count, Exists, Max, Min, OuterRef, 
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
+from posthog.redis import get_client
 
 from products.aeo.backend import catalog, gaps, rankings, suggestions
 from products.aeo.backend.brand import brand_names, mention_filter
@@ -634,10 +636,16 @@ def get_brand(team_id: int, brand_id: str) -> Brand:
     return _to_brand(_get_brand_row(team_id, brand_id))
 
 
+# A burst of catalog edits shares one recompute, and each edit waits at most this long for it.
+RECOMPUTE_DEBOUNCE_SECONDS = 60
+# One DNS label: letters, digits and inner hyphens, at most 63 characters.
+_DNS_LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
+
+
 def create_brand(team_id: int, new: BrandCreate) -> Brand:
     raw = new.domain.strip()
     domain = catalog.registrable_domain(raw if "//" in raw else f"//{raw}")
-    if domain is None:
+    if domain is None or not _is_dns_name(domain):
         raise BrandCreateError(f"'{new.domain}' is not a valid domain. Use a domain such as example.com.")
     duplicate = BrandCreateError(
         f"The catalog already has {domain}. Update the existing brand instead of adding it again."
@@ -665,7 +673,6 @@ def create_brand(team_id: int, new: BrandCreate) -> Brand:
 
 def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
     brand = _get_brand_row(team_id, brand_id)
-    was_own = catalog.counts_as_own(brand.kind, brand.status)
     # Only the fields sent are written, so two people editing different fields do not undo each other.
     changed: list[str] = []
     if change.name is not None:
@@ -682,15 +689,35 @@ def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
         changed.append("aliases")
     if changed:
         brand.save(update_fields=[*changed, "updated_at"])
-    if catalog.counts_as_own(brand.kind, brand.status) != was_own:
+    # Any kind or status edit, not only one that flips this row: two concurrent edits can each look
+    # like no change and still make the brand own together. A recompute with nothing stale writes nothing.
+    if "kind" in changed or "status" in changed:
         _recompute_own_citations_on_commit(brand.team_id)
     return _to_brand(brand)
 
 
 def _recompute_own_citations_on_commit(team_id: int) -> None:
     """Past checks were scored against the own domains of their run day, so a change to the own
-    domains recomputes them in the background, once the brand change is visible to the task."""
-    transaction.on_commit(lambda: recompute_aeo_own_citations_task.delay(team_id))
+    domains recomputes them in the background, once the brand change is visible to the task.
+
+    Edits within the debounce window share one task, which reads the domains when it starts. When the
+    enqueue fails, the brand change stands and the reconcile after the next citation run catches up."""
+
+    def enqueue() -> None:
+        try:
+            if get_client().set(
+                f"aeo_own_citations_recompute_queued:{team_id}", 1, nx=True, ex=RECOMPUTE_DEBOUNCE_SECONDS
+            ):
+                recompute_aeo_own_citations_task.apply_async((team_id,), countdown=RECOMPUTE_DEBOUNCE_SECONDS)
+        except Exception as error:
+            capture_exception(error, {"team_id": team_id})
+
+    transaction.on_commit(enqueue)
+
+
+def _is_dns_name(domain: str) -> bool:
+    labels = domain.split(".")
+    return len(domain) <= 253 and len(labels) >= 2 and all(_DNS_LABEL.match(label) for label in labels)
 
 
 def _clean_aliases(aliases: tuple[str, ...]) -> list[str]:

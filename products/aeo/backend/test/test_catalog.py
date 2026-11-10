@@ -8,6 +8,7 @@ from parameterized import parameterized
 from posthog.models.team import Team
 
 from products.aeo.backend.catalog import recompute_own_citations, registrable_domain, sync_brands_from_run
+from products.aeo.backend.engines import own_domains_key
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
 
@@ -147,6 +148,45 @@ class TestSyncBrandsFromRun(BaseTest):
         assert AEOCitationCheck.objects.for_team(other_team.id).filter(id=other.id).values(*fields).get() == {
             **stale,
             **sentiment,
+        }
+
+    @parameterized.expand(
+        [
+            ("keyed_for_other_own_domains", ["posthog.com"], True),
+            ("recorded_before_the_key", None, False),
+            ("keyed_for_the_current_own_domains", ["example.com"], False),
+        ]
+    )
+    def test_recompute_clears_sentiment_scored_for_other_own_domains_even_when_citations_match(
+        self, _name: str, stored_domains: list[str] | None, expect_cleared: bool
+    ) -> None:
+        AEOBrand.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Example",
+            domain="example.com",
+            kind=BrandKind.OWN,
+            status=BrandStatus.CONFIRMED,
+            source=BrandSource.MANUAL,
+        )
+        sentiment: dict[str, Any] = {"brand_sentiment": "positive", "brand_sentiment_score": 0.9}
+        check = self._check(
+            str(uuid.uuid4()),
+            ["https://rival.example.org/a"],
+            cited=False,
+            target_urls=[],
+            target_best_position=None,
+            own_domains_key=own_domains_key(stored_domains) if stored_domains is not None else None,
+            **sentiment,
+        )
+
+        changed = recompute_own_citations(self.team.id)
+
+        assert changed == 0
+        assert AEOCitationCheck.objects.for_team(self.team.id).filter(id=check.id).values(
+            "brand_sentiment", "brand_sentiment_score", "own_domains_key"
+        ).get() == {
+            **({"brand_sentiment": None, "brand_sentiment_score": None} if expect_cleared else sentiment),
+            "own_domains_key": own_domains_key(["example.com"]),
         }
 
     @parameterized.expand(

@@ -105,6 +105,20 @@ class TestRefreshOpportunities(ClickhouseTestMixin, BaseTest):
         assert self._refresh([_gap("What is the best CRM?")], profile_id=str(other.id)) == []
         assert len(self._refresh([_gap("What is the best CRM?")])) == 1
 
+    @parameterized.expand(
+        [
+            ("subdomain", "https://docs.example.com", 1),
+            ("www_subdomain", "https://www.docs.example.com", 1),
+            ("lookalike_domain", "https://notexample.com", 0),
+        ]
+    )
+    def test_a_site_on_a_subdomain_of_an_own_brand_gets_opportunities(
+        self, _name: str, domain: str, expected: int
+    ) -> None:
+        site = create_content_autopilot_profile(self.team, domain=domain)
+
+        assert len(self._refresh([_gap("What is the best CRM?")], profile_id=str(site.id), page_urls=[])) == expected
+
     def test_an_empty_sitemap_still_limits_cited_pages_to_the_site_boundaries(self) -> None:
         self.profile.content_boundaries = ["/docs"]
         self.profile.save()
