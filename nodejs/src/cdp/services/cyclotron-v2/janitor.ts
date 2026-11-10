@@ -7,6 +7,7 @@ import { captureException } from '~/common/utils/posthog'
 
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
+import { QUEUE_DEPTHS_SQL } from './due-rows-sql'
 import { v2JobToInvocation } from './job-codec'
 import { createCyclotronPool } from './pg-pool'
 import { CYCLOTRON_COUNTER_MAX, CyclotronV2CleanupResult, CyclotronV2JanitorConfig } from './types'
@@ -512,11 +513,7 @@ export class CyclotronV2Janitor {
 
     async measureQueueDepths(): Promise<Map<string, number>> {
         const result = await this.pool.query<{ queue_name: string; count: string; oldest_due_age_ms: number }>(
-            `SELECT queue_name, COUNT(*) as count,
-                    EXTRACT(EPOCH FROM NOW() - MIN(scheduled))::float8 * 1000 as oldest_due_age_ms
-             FROM cyclotron_jobs
-             WHERE status = 'available' AND scheduled <= NOW()
-             GROUP BY queue_name`
+            QUEUE_DEPTHS_SQL
         )
 
         const depths = new Map<string, number>()

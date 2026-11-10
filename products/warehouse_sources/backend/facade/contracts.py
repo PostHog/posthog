@@ -41,6 +41,8 @@ CREDENTIALS_REFERENCE_INPUT_KEY = "credentials_integration_id"
 WAREHOUSE_SOURCE_USAGE_TYPE = "warehouse_source"
 # A source whose inputs do not decode, so it may use the row. It blocks a delete of the row only.
 UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE = "unreadable_warehouse_source"
+# The `IntegrationUsage.type` of a warehouse destination that writes through an integration row.
+WAREHOUSE_DESTINATION_USAGE_TYPE = "warehouse_destination"
 
 
 class SharedCredentialsError(Exception):
@@ -751,3 +753,9 @@ class RepartitionRequest:
 class StaffActionResult:
     ok: bool
     message: str
+
+
+@dataclass(frozen=True)
+class DestinationReferencingIntegration:
+    id: UUID
+    name: str
