@@ -7,10 +7,10 @@ import {
     CyclotronJobInvocationResult,
     CyclotronJobQueueKind,
 } from '@posthog/hog-engine/cdp/types'
+import type { CommonConfig } from '@posthog/node-common/config'
 import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'
-import type { CommonConfig } from '@posthog/node-common/config'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'

@@ -12,11 +12,11 @@ import {
     CyclotronJobInvocationResult,
     CyclotronJobQueueKind,
 } from '@posthog/hog-engine/cdp/types'
+import type { CommonConfig } from '@posthog/node-common/config'
 import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'
-import type { CommonConfig } from '@posthog/node-common/config'
 
 import { HealthCheckResult, HealthCheckResultError } from '../../../types'
 import { JobQueue } from './job-queue.interface'

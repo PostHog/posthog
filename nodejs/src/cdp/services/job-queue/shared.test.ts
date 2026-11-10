@@ -1,17 +1,16 @@
 import { CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
-import { createInvocation } from '@posthog/hog-engine/cdp/utils/invocation-utils'
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
-import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { CyclotronJobInvocation } from '@posthog/hog-engine/cdp/types'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
-import {
-    markServerResolvedIntegration,
-    signIntegrationRef,
-} from '@posthog/hog-engine/cdp/utils/integration-input-refs'
+import { markServerResolvedIntegration, signIntegrationRef } from '@posthog/hog-engine/cdp/utils/integration-input-refs'
+import { createInvocation } from '@posthog/hog-engine/cdp/utils/invocation-utils'
 
 import { serializeInvocation } from '~/cdp/services/job-queue/job-queue-kafka'
 import { invocationToV2JobInit } from '~/cdp/services/job-queue/job-queue-postgres-v2'
+
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
+import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createInvocationSanitizer, sanitizeInvocationForPersistence } from './shared'
+
 const ENCRYPTION_SALT_KEYS = '00beef0000beef0000beef0000beef00'
 
 describe('sanitizeInvocationForPersistence', () => {

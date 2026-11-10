@@ -2,8 +2,9 @@ pnpm-lock.yaml
 providers.json
 dist/
 node_modules/
+# The packages format themselves.
+packages/
 coverage/
 .tmp/
-bin/ingestion-boundaries.baseline.json
 tests/fixtures/hog-bytecode/
 src/logs/parity/fixtures/

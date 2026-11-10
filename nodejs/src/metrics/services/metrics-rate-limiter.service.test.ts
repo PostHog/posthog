@@ -2,13 +2,22 @@ import { Message } from 'node-rdkafka'
 
 import { RedisV2 } from '@posthog/node-common/redis/redis-v2'
 import { killGracefully } from '@posthog/node-common/utils/utils'
+
 import { getDefaultMetricsIngestionConsumerConfig } from '~/metrics/config'
+import {
+    MetricsRateLimiterService,
+    metricsRateLimiterRedisErrorsCounter,
+} from '~/metrics/services/metrics-rate-limiter.service'
+import {
+    METRICS_LIMITER_FAIL_OPEN_REDIS_TIMEOUT_MS,
+    createMetricsRateLimiterRedis,
+} from '~/metrics/services/metrics-redis'
 import { MetricsIngestionMessage } from '~/metrics/types'
 
-import { MetricsRateLimiterService, metricsRateLimiterRedisErrorsCounter } from '~/metrics/services/metrics-rate-limiter.service'
-import { METRICS_LIMITER_FAIL_OPEN_REDIS_TIMEOUT_MS, createMetricsRateLimiterRedis } from '~/metrics/services/metrics-redis'
-
-jest.mock('@posthog/node-common/utils/utils', () => ({ ...jest.requireActual('@posthog/node-common/utils/utils'), killGracefully: jest.fn() }))
+jest.mock('@posthog/node-common/utils/utils', () => ({
+    ...jest.requireActual('@posthog/node-common/utils/utils'),
+    killGracefully: jest.fn(),
+}))
 
 const message = (teamId: number): MetricsIngestionMessage => ({
     token: `token-${teamId}`,
