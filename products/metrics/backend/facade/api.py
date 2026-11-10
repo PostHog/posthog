@@ -144,7 +144,7 @@ def _units_by_fingerprint(team: Team, metric_names: set[str]) -> dict[int, str]:
         query_type="MetricUnitsLookup",
         query=query,
         team=team,
-        workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+        workload=Workload.METRICS,
         # Same byte cap as the data queries: without it a high-cardinality name set
         # would make this metadata scan the most expensive read of the request.
         settings=HogQLGlobalSettings(
@@ -266,7 +266,7 @@ def _labels_by_fingerprint(team: Team, metric_name: str, fingerprints: set[int])
         query_type="MetricSeriesLabelsLookup",
         query=query,
         team=team,
-        workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+        workload=Workload.METRICS,
         settings=HogQLGlobalSettings(
             max_execution_time=30,
             max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,

@@ -1212,6 +1212,38 @@ class TestQuotaLimiting(BaseTest):
             assert self.redis_client.get(billing_key) == b"central"
         self.redis_client.delete(billing_key)
 
+    @parameterized.expand(
+        [("missing", None, False), ("expired", -1, False), ("boundary", 0, True), ("active", 1, True)]
+    )
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    def test_update_org_billing_quotas_honors_existing_limit_expiry(
+        self, _name: str, score_offset: int | None, expected_limited: bool
+    ) -> None:
+        other_team = create_team(organization=self.organization)
+        now_ts = int(timezone.now().timestamp())
+        tokens = {"phc_unrelated_limited_team": now_ts + 60}
+        if score_offset is not None:
+            tokens[self.team.api_token] = now_ts + score_offset
+        add_limited_team_tokens(QuotaResource.EVENTS, tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+        self.organization.usage = {
+            "events": {"usage": 200, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = {"events": 10}
+        self.organization.save()
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            update_org_billing_quotas(self.organization)
+
+        self.organization.refresh_from_db()
+        assert bool(self.organization.usage["events"].get("quota_limited_until")) is expected_limited
+        assert bool(self.organization.usage["events"].get("quota_limiting_suspended_until")) is not expected_limited
+        for team in (self.team, other_team):
+            assert (
+                is_team_limited(team.api_token, QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+                is expected_limited
+            )
+
     def test_update_org_billing_quotas(self):
         with time_machine.travel("2021-01-01T12:59:59Z", tick=False):
             other_team = create_team(organization=self.organization)
@@ -1248,7 +1280,11 @@ class TestQuotaLimiting(BaseTest):
                 "survey_responses": {"usage": 10, "limit": 100},
             }
 
-            update_org_billing_quotas(self.organization)
+            with (
+                patch.object(self.redis_client, "zrangebyscore", side_effect=AssertionError("Global quota list read")),
+                patch.object(self.redis_client, "zrange", side_effect=AssertionError("Global quota list read")),
+            ):
+                update_org_billing_quotas(self.organization)
             assert list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY) == [
                 "1234"
             ]
@@ -2425,6 +2461,12 @@ class TestQuotaLimiting(BaseTest):
             (
                 "expired_member_becomes_unlimited",
                 -10_000,
+                {"events": {"usage": 1, "limit": 100}, "recordings": {"usage": 1, "limit": 5_000}},
+                1,
+            ),
+            (
+                "boundary_member_becomes_unlimited",
+                0,
                 {"events": {"usage": 1, "limit": 100}, "recordings": {"usage": 1, "limit": 5_000}},
                 1,
             ),

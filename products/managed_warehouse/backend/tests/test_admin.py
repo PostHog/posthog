@@ -7,7 +7,7 @@ from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.db import connection
 from django.forms.models import model_to_dict
-from django.http import Http404, HttpRequest
+from django.http import HttpRequest
 from django.test import RequestFactory
 from django.urls import reverse
 
@@ -25,6 +25,7 @@ from products.managed_warehouse.backend.admin.view_translation_admin import (
 )
 from products.managed_warehouse.backend.models import (
     DuckgresServer,
+    ManagedWarehouseSourceLifecycle,
     ManagedWarehouseViewTranslationJob,
     ManagedWarehouseViewTranslationResult,
 )
@@ -160,12 +161,6 @@ class TestDuckgresServerAdminProvision(BaseTest):
 
     def _get(self, url: str) -> HttpRequest:
         request = self.factory.get(url)
-        request.user = self.user
-        _attach_messages(request)
-        return request
-
-    def _head(self, url: str) -> HttpRequest:
-        request = self.factory.head(url)
         request.user = self.user
         _attach_messages(request)
         return request
@@ -311,17 +306,67 @@ class TestDuckgresServerAdminProvision(BaseTest):
 
         assert any("Failed (status 400): boom" in m for m in _messages(request))
 
-    def test_enable_backfill_post_calls_helper_bypassing_flag(self) -> None:
+    def test_change_form_links_to_the_console_panel(self) -> None:
         server = self._server()
-        request = self._post(
-            f"/admin/posthog/duckgresserver/{server.pk}/enable-backfill/",
-            {"team_id": str(self.team.id), "schema_name": "env_b"},
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("admin:managed_warehouse_duckgresserver_change", args=[server.pk]))
+
+        assert response.status_code == 200
+        assert (
+            f"/admin/console/organizations/{self.organization.id}/#panel-managed-warehouse" in response.content.decode()
         )
+
+
+class TestManagedWarehouseConsolePanel(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+        self.organization_url = f"/admin/console/organizations/{self.organization.id}/"
+
+    def _server(self) -> DuckgresServer:
+        return DuckgresServer.objects.create(
+            organization=self.organization,
+            host="duckgres.example.com",
+            port=5432,
+            database="ducklake",
+            username="root",
+            password="example-password",
+        )
+
+    def test_panel_status_and_operations_follow_the_warehouse_lifecycle(self) -> None:
+        response = self.client.get(self.organization_url)
+        assert "Not provisioned" in response.content.decode()
+        assert "Deprovision warehouse" not in response.content.decode()
+
+        self._server()
+        response = self.client.get(self.organization_url)
+        content = response.content.decode()
+
+        assert "Managed warehouse" in content
+        assert "duckgres.example.com" in content
+        assert "Enable backfill for a team" in content and "Deprovision warehouse" in content
+        assert "example-password" not in content
+
+        ManagedWarehouseSourceLifecycle.objects.create(organization=self.organization, desired_active=False)
+        content = self.client.get(self.organization_url).content.decode()
+
+        assert "Deprovisioned" in content
+        assert "Enable backfill for a team" not in content and "Deprovision warehouse" in content
+
+    def test_enable_backfill_calls_helper_bypassing_flag(self) -> None:
+        self._server()
         with patch(
             f"{MW}.onboard_team", return_value=Response({"onboarded": True, "schema_name": "env_b"}, status=200)
         ) as mock_onboard:
-            self.admin.enable_backfill_view(request, str(server.pk))
+            response = self.client.post(
+                f"{self.organization_url}managed-warehouse/enable-backfill/",
+                {"team_id": str(self.team.id), "schema_name": "env_b", "reason": "Customer asked"},
+            )
 
+        assert response.status_code == 302
         mock_onboard.assert_called_once_with(
             self.organization.id,
             self.team.id,
@@ -329,51 +374,55 @@ class TestDuckgresServerAdminProvision(BaseTest):
             require_enabled=False,
             triggered_by=f"django-admin:{self.user.email}",
         )
+        assert any("Onboarded team" in m for m in _messages(response.wsgi_request))
 
-    def test_enable_backfill_invalid_server_returns_404(self) -> None:
-        request = self._get("/admin/posthog/duckgresserver/999999/enable-backfill/")
+    def test_enable_backfill_refuses_a_team_of_another_organization(self) -> None:
+        self._server()
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))
+        with patch(f"{MW}.onboard_team") as mock_onboard:
+            response = self.client.post(
+                f"{self.organization_url}managed-warehouse/enable-backfill/",
+                {"team_id": str(other_team.id), "schema_name": "env_b", "reason": "Customer asked"},
+            )
 
-        with self.assertRaises(Http404):
-            self.admin.enable_backfill_view(request, "999999")
+        assert response.status_code == 400
+        mock_onboard.assert_not_called()
+        assert "does not belong to organization" in response.content.decode()
 
-    def test_deprovision_post_calls_helper_bypassing_flag(self) -> None:
-        server = self._server()
-        request = self._post(f"/admin/posthog/duckgresserver/{server.pk}/deprovision/", {})
+    def test_deprovision_calls_helper_bypassing_flag(self) -> None:
+        self._server()
         with patch(f"{MW}.deprovision", return_value=Response({"status": "ok"}, status=200)) as mock_deprovision:
-            self.admin.deprovision_view(request, str(server.pk))
+            response = self.client.post(
+                f"{self.organization_url}managed-warehouse/deprovision/", {"reason": "Customer churned"}
+            )
 
+        assert response.status_code == 302
         mock_deprovision.assert_called_once_with(
             self.organization.id, require_enabled=False, triggered_by=f"django-admin:{self.user.email}"
         )
 
-    def test_deprovision_invalid_server_returns_404(self) -> None:
-        request = self._get("/admin/posthog/duckgresserver/999999/deprovision/")
-
-        with self.assertRaises(Http404):
-            self.admin.deprovision_view(request, "999999")
-
-    def test_deprovision_head_does_not_call_helper(self) -> None:
-        server = self._server()
-        request = self._head(f"/admin/posthog/duckgresserver/{server.pk}/deprovision/")
-
+    def test_deprovision_needs_a_reason_and_get_does_not_call_helper(self) -> None:
+        self._server()
         with patch(f"{MW}.deprovision") as mock_deprovision:
-            response = self.admin.deprovision_view(request, str(server.pk))
+            form = self.client.get(f"{self.organization_url}managed-warehouse/deprovision/")
+            refused = self.client.post(f"{self.organization_url}managed-warehouse/deprovision/", {})
 
-        assert response.status_code == 405
+        assert form.status_code == 200
+        assert refused.status_code == 400
         mock_deprovision.assert_not_called()
 
-    def test_deprovision_failure_returns_to_change_page_and_logs(self) -> None:
-        server = self._server()
-        request = self._post(f"/admin/posthog/duckgresserver/{server.pk}/deprovision/", {})
-
+    def test_deprovision_failure_shows_the_error_and_logs(self) -> None:
+        self._server()
         with (
             patch(f"{MW}.deprovision", return_value=Response({"error": "still running"}, status=409)),
-            patch("products.managed_warehouse.backend.admin.duckgres_server_admin.logger.warning") as mock_warning,
+            patch("products.managed_warehouse.backend.logic.staff_actions.logger.warning") as mock_warning,
         ):
-            response = self.admin.deprovision_view(request, str(server.pk))
+            response = self.client.post(
+                f"{self.organization_url}managed-warehouse/deprovision/", {"reason": "Customer churned"}
+            )
 
-        assert response["Location"] == reverse("admin:managed_warehouse_duckgresserver_change", args=[server.pk])
-        assert any("Failed (status 409): still running" in message for message in _messages(request))
+        assert response.status_code == 409
+        assert "Failed (status 409): still running" in response.content.decode()
         mock_warning.assert_called_once_with(
             "admin_managed_warehouse_action_failed",
             action=f"Deprovisioned managed warehouse for org {self.organization.id}",
@@ -381,3 +430,19 @@ class TestDuckgresServerAdminProvision(BaseTest):
             status_code=409,
             error="still running",
         )
+
+    @parameterized.expand([("enable-backfill",), ("deprovision",)])
+    def test_old_action_urls_redirect_to_the_organization_panel(self, action: str) -> None:
+        server = self._server()
+
+        response = self.client.get(f"/admin/managed_warehouse/duckgresserver/{server.pk}/{action}/?from=bookmark")
+
+        assert response.status_code == 302
+        assert response["Location"] == f"{self.organization_url}managed-warehouse/{action}/?from=bookmark"
+
+    def test_old_action_url_of_an_unknown_server_is_a_404(self) -> None:
+        response = self.client.get(
+            "/admin/managed_warehouse/duckgresserver/019f98c1-0000-0000-0000-000000000000/deprovision/"
+        )
+
+        assert response.status_code == 404

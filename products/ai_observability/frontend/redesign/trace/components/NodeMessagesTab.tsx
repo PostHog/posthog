@@ -1,14 +1,14 @@
+import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { MessagesOpening, NodeContent } from '../types'
+import { MessagesOpening, NodeContent, NodeSideContent } from '../types'
 import { ErrorCallout } from './ErrorCallout'
 import { firstOpenIndex } from './firstOpenIndex'
-import { IOPanel } from './IOPanel'
-import { MessageSection } from './MessageSection'
 import { NodeContentGate } from './NodeContentGate'
+import { NodeSideSection } from './NodeSideSection'
 import { revealFirstOpenMessage } from './revealFirstOpenMessage'
 
 export interface NodeMessagesTabProps {
@@ -31,19 +31,22 @@ export function NodeMessagesTab({
     highlightQuery = null,
 }: NodeMessagesTabProps): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
-    const hasMessages = content.kind === 'messages'
+    const inputIsMessages = content.kind === 'loaded' && content.input.kind === 'messages'
     const isSearching = useRef(false)
     isSearching.current = !!highlightQuery
     const [resetCount, setResetCount] = useState(0)
     const listKey = `${opening}-${resetCount}`
     const previousListKey = useRef(listKey)
+    // A new key remounts message sides, which drops what was opened or closed by hand. JSON sides keep their state.
+    const sideKey = (id: string, side: 'input' | 'output', content: NodeSideContent): string =>
+        content.kind === 'messages' ? `${id}-${side}-${listKey}` : `${id}-${side}`
 
     useEffect(() => {
         // A search scrolls to its own first highlight, which must win over the opening position.
-        if (hasMessages && !isSearching.current) {
+        if (inputIsMessages && !isSearching.current) {
             revealFirstOpenMessage(containerRef.current, 'align')
         }
-    }, [stepId, hasMessages])
+    }, [stepId, inputIsMessages])
 
     useEffect(() => {
         if (previousListKey.current !== listKey && opening === 'lastTurn') {
@@ -68,59 +71,57 @@ export function NodeMessagesTab({
             <NodeContentGate content={content}>
                 {(loaded) => (
                     <>
-                        {loaded.kind === 'messages' ? (
-                            <>
-                                <div className="flex justify-end">
-                                    <LemonSegmentedButton
-                                        size="xsmall"
-                                        value={opening}
-                                        onChange={selectOpening}
-                                        data-attr="trace-view-messages-opening"
-                                        options={[
-                                            {
-                                                value: 'lastTurn',
-                                                label: 'Last turn',
-                                                tooltip: tooltip(
-                                                    'lastTurn',
-                                                    'Open messages from the last user message on'
-                                                ),
-                                                'data-attr': 'trace-view-messages-opening-last-turn',
-                                            },
-                                            {
-                                                value: 'everything',
-                                                label: 'Everything',
-                                                tooltip: tooltip('everything', 'Open every message'),
-                                                'data-attr': 'trace-view-messages-opening-everything',
-                                            },
-                                        ]}
-                                    />
-                                </div>
-                                {/* A new key remounts the messages, which drops what was opened or closed by hand. */}
-                                <div key={listKey} className="flex flex-col gap-3">
-                                    <MessageSection
-                                        title="Input"
-                                        messages={loaded.input}
-                                        emptyText="No input captured."
-                                        openFrom={firstOpenIndex(loaded.input, opening)}
-                                        highlightQuery={highlightQuery}
-                                    />
-                                    <MessageSection
-                                        title="Output"
-                                        messages={loaded.output}
-                                        emptyText="No output captured."
-                                        openFrom={0}
-                                        highlightQuery={highlightQuery}
-                                    />
-                                </div>
-                            </>
-                        ) : (
-                            <IOPanel
-                                key={stepId}
-                                input={loaded.input}
-                                output={loaded.output}
+                        {inputIsMessages ? (
+                            <div className="flex justify-end">
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    value={opening}
+                                    onChange={selectOpening}
+                                    data-attr="trace-view-messages-opening"
+                                    options={[
+                                        {
+                                            value: 'lastTurn',
+                                            label: 'Last turn',
+                                            tooltip: tooltip('lastTurn', 'Open messages from the last user message on'),
+                                            'data-attr': 'trace-view-messages-opening-last-turn',
+                                        },
+                                        {
+                                            value: 'everything',
+                                            label: 'Everything',
+                                            tooltip: tooltip('everything', 'Open every message'),
+                                            'data-attr': 'trace-view-messages-opening-everything',
+                                        },
+                                    ]}
+                                />
+                            </div>
+                        ) : null}
+                        <div
+                            className={clsx(
+                                'flex flex-col',
+                                loaded.input.kind === 'json' && loaded.output.kind === 'json' ? 'gap-2' : 'gap-3'
+                            )}
+                        >
+                            <NodeSideSection
+                                key={sideKey(stepId, 'input', loaded.input)}
+                                title="Input"
+                                side={loaded.input}
+                                emptyText="No input captured."
+                                openFrom={
+                                    loaded.input.kind === 'messages'
+                                        ? firstOpenIndex(loaded.input.messages, opening)
+                                        : 0
+                                }
                                 highlightQuery={highlightQuery}
                             />
-                        )}
+                            <NodeSideSection
+                                key={sideKey(stepId, 'output', loaded.output)}
+                                title="Output"
+                                side={loaded.output}
+                                emptyText="No output captured."
+                                openFrom={0}
+                                highlightQuery={highlightQuery}
+                            />
+                        </div>
                         {onViewInThread ? (
                             <LemonButton
                                 type="secondary"
