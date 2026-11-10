@@ -45,6 +45,15 @@ const cases = {
     Legend: { items: [{ key: 'a', label: 'A', color: '#1d4aff' }] },
 }
 
+// React 18 logs this for every `useLayoutEffect` it meets on the server, which buries a real failure.
+const logError = console.error
+console.error = (...args) => {
+    if (typeof args[0] === 'string' && args[0].includes('useLayoutEffect does nothing on the server')) {
+        return
+    }
+    logError(...args)
+}
+
 const failures = []
 for (const [name, props] of Object.entries(cases)) {
     try {
