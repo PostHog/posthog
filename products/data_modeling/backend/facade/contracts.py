@@ -145,6 +145,10 @@ class MaterializationFailedError(Exception):
     pass
 
 
+class UnknownSavedQueryError(Exception):
+    """The saved query id does not name a live (not deleted) saved query in the team."""
+
+
 @dataclass(frozen=True)
 class NodeDescriptionTarget:
     """What a node stands for, which decides where its description lives."""

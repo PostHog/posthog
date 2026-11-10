@@ -75,6 +75,7 @@ _LAZY = {
     "ManagedWarehouseUnavailableError": "facade.contracts",
     "MaterializationRunDirection": "facade.contracts",
     "MaterializationRefusedError": "facade.contracts",
+    "UnknownSavedQueryError": "facade.contracts",
     "IncrementalConfigRefusedError": "facade.contracts",
     "SchedulingUnavailableError": "models.datawarehouse_saved_query",
     "enable_saved_query_materialization": "logic.saved_query_materialization",
@@ -144,6 +145,9 @@ _LAZY = {
     "check_incremental_eligibility": "logic.incremental_eligibility",
     "propose_incremental_config": "logic.incremental_eligibility",
     "definition_database": "logic.incremental_eligibility",
+    "set_watching": "logic.watchers",
+    "watched_saved_query_ids": "logic.watchers",
+    "watcher_user_ids": "logic.watchers",
 }
 
 __all__ = sorted(_LAZY)
