@@ -72,6 +72,14 @@ filters:
     genericWorker:
         - 'products/batch_exports/backend/**'
         - posthog/settings/batch_exports.py
+        - posthog/settings/access.py
+        - posthog/settings/data_stores.py
+        - posthog/settings/integrations.py
+        - posthog/settings/kafka.py
+        - posthog/settings/object_storage.py
+        - posthog/settings/utils.py
+        - posthog/settings/__init__.py
+        - posthog/settings/base_variables.py
         - 'posthog/hogql*/**'
         - 'posthog/clickhouse/**'
         - 'posthog/temporal/common/**'
@@ -85,20 +93,45 @@ filters:
         - 'products/access_control/backend/**'
         - posthog/user_permissions.py
         - posthog/organization_caching.py
+        - posthog/scopes.py
+        - 'products/event_definitions/backend/models/**'
         - 'products/data_modeling/backend/models/**'
         - 'products/warehouse_sources/backend/models/**'
         - products/warehouse_sources/backend/logic/source_inputs.py
+        - products/warehouse_sources/backend/facade/api.py
+        - 'products/data_tools/backend/models/**'
+        - 'products/revenue_analytics/backend/views/**'
+        - 'products/mcp_analytics/backend/facade/**'
+        - products/mcp_analytics/backend/custom_harnesses.py
+        - products/mcp_analytics/backend/mcp_harness.py
+        - products/web_analytics/backend/hogql_queries/custom_bot_definitions.py
+        - products/actions/backend/facade/api.py
+        - products/actions/backend/logic/actions.py
+        - 'products/actions/backend/models/**'
+        - products/cohorts/backend/models/cohort.py
         - 'products/notifications/backend/**'
         - products/cdp/backend/internal_events.py
         - ee/billing/quota_limiting.py
         - posthog/tasks/email.py
+        - posthog/email.py
         - 'posthog/usage_ingestion/**'
         - 'posthog/kafka_client/**'
         - posthog/credentials.py
         - 'posthog/credentials_service/**'
+        - 'posthog/integrations/**'
         - 'posthog/security/**'
         - posthog/psycopg_helpers.py
         - posthog/helpers/encrypted_fields.py
+        - posthog/__init__.py
+        - posthog/apps.py
+        - posthog/dataclasses.py
+        - posthog/enums.py
+        - posthog/helpers/__init__.py
+        - posthog/paging.py
+        - posthog/queryset_paging.py
+        - posthog/sync.py
+        - posthog/tasks/__init__.py
+        - posthog/utils.py
         - 'common/hogvm/**'
         - pyproject.toml
         - uv.lock
@@ -124,4 +157,4 @@ images:
             generic:
                 repository: posthog-temporal-workers/generic
                 filter: genericWorker
-                bootstrapPolicyDigest: 116d1244519a4cbaf4221d87bf510a7a530283112c9d2952dd167f460e4c681f
+                bootstrapPolicyDigest: d3dd271d8508e62c38629d64d9906b87659d4ac9b949b012cbe6dc9e69566161
