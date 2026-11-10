@@ -15,6 +15,10 @@ use crate::encoding::{decode_value, encode_key, version_of, StoredProperties};
 use crate::engine::{self, KeepNewest, ShardMetrics};
 use crate::{shard_for, shard_path, PropertyStoreConfig, PropertyStoreError};
 
+/// SlateDB retries without limit by default, and a cache load outlives the read that started it,
+/// so an outage would leave loads retrying forever. A reader's failed poll only logs.
+const READER_OBJECT_STORE_RETRIES: u32 = 5;
+
 struct OpenReader {
     reader: Arc<DbReader>,
     metrics: ShardMetrics,
@@ -67,6 +71,7 @@ impl PropertyReader {
                     manifest_poll_interval: config.reader_poll_interval(),
                     max_memtable_bytes: config.reader_memtable_bytes,
                     skip_wal_replay: config.reader_skip_wal,
+                    object_store_max_retries: Some(READER_OBJECT_STORE_RETRIES),
                     ..DbReaderOptions::default()
                 },
                 cache: engine::shared_cache(config),

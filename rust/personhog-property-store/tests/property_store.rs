@@ -839,3 +839,120 @@ async fn one_off_reads_against_a_hung_store_are_bounded() {
     );
     assert!(started.elapsed() < Duration::from_millis(50));
 }
+
+/// Compacted table reads fail with an error SlateDB retries once `failing` is set, and every one is counted.
+#[derive(Debug)]
+struct FailingTables {
+    inner: Arc<dyn ObjectStore>,
+    failing: std::sync::atomic::AtomicBool,
+    table_reads: std::sync::atomic::AtomicUsize,
+}
+
+impl std::fmt::Display for FailingTables {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FailingTables")
+    }
+}
+
+#[async_trait::async_trait]
+impl ObjectStore for FailingTables {
+    async fn put_opts(
+        &self,
+        location: &ObjectPath,
+        payload: PutPayload,
+        opts: PutOptions,
+    ) -> object_store::Result<PutResult> {
+        self.inner.put_opts(location, payload, opts).await
+    }
+
+    async fn put_multipart_opts(
+        &self,
+        location: &ObjectPath,
+        opts: PutMultipartOptions,
+    ) -> object_store::Result<Box<dyn MultipartUpload>> {
+        self.inner.put_multipart_opts(location, opts).await
+    }
+
+    async fn get_opts(
+        &self,
+        location: &ObjectPath,
+        options: GetOptions,
+    ) -> object_store::Result<GetResult> {
+        use std::sync::atomic::Ordering;
+        if location.as_ref().contains("/compacted/") && self.failing.load(Ordering::SeqCst) {
+            self.table_reads.fetch_add(1, Ordering::SeqCst);
+            return Err(object_store::Error::Generic {
+                store: "FailingTables",
+                source: "unavailable".into(),
+            });
+        }
+        self.inner.get_opts(location, options).await
+    }
+
+    fn delete_stream(
+        &self,
+        locations: BoxStream<'static, object_store::Result<ObjectPath>>,
+    ) -> BoxStream<'static, object_store::Result<ObjectPath>> {
+        self.inner.delete_stream(locations)
+    }
+
+    fn list(
+        &self,
+        prefix: Option<&ObjectPath>,
+    ) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
+        self.inner.list(prefix)
+    }
+
+    async fn list_with_delimiter(
+        &self,
+        prefix: Option<&ObjectPath>,
+    ) -> object_store::Result<ListResult> {
+        self.inner.list_with_delimiter(prefix).await
+    }
+
+    async fn copy_opts(
+        &self,
+        from: &ObjectPath,
+        to: &ObjectPath,
+        options: CopyOptions,
+    ) -> object_store::Result<()> {
+        self.inner.copy_opts(from, to, options).await
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_read_abandoned_during_an_outage_stops_retrying() {
+    use std::sync::atomic::Ordering;
+    let dir = tempfile::tempdir().unwrap();
+    let writer = assigned_writer(&dir, 1).await;
+    writer
+        .put(&sole_partition(), 1, &[record(1, 1, "{}")])
+        .await
+        .unwrap();
+    writer.flush_memtables().await;
+    writer.close().await;
+    let tables = Arc::new(FailingTables {
+        inner: store(&dir),
+        failing: std::sync::atomic::AtomicBool::new(false),
+        table_reads: std::sync::atomic::AtomicUsize::new(0),
+    });
+    let reader = PropertyReader::new(
+        &PropertyStoreConfig {
+            read_timeout_ms: 200,
+            ..config()
+        },
+        tables.clone(),
+    );
+    reader.open_partition(0, 1).await.unwrap();
+    tables.failing.store(true, Ordering::SeqCst);
+
+    let read = reader.get(7, 1).await;
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    let settled = tables.table_reads.load(Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    assert!(matches!(read, Err(PropertyStoreError::Timeout)), "{read:?}");
+    assert!(settled > 0, "the read never reached the failing tables");
+    assert_eq!(tables.table_reads.load(Ordering::SeqCst), settled);
+    reader.close().await;
+}
