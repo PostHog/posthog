@@ -10,6 +10,7 @@ import { Query } from '~/queries/Query/Query'
 
 import type { MetricsTableWidgetConfig } from '../../generated/widget-configs.zod'
 import { buildMetricsTableDrilldown, type MetricsTableDrilldownDashboardFilters } from './metricsTableDrilldown'
+import { metricsTableGroupByLabels } from './metricsTableWidgetConfigValidation'
 
 const INTERVAL_LABELS: Record<string, string> = {
     minute: 'minute',
@@ -37,18 +38,26 @@ export function MetricsTableDrilldownModal({
     config,
     keys,
     dashboardFilters,
+    labelValues,
     onClose,
 }: {
     config: MetricsTableWidgetConfig
     keys: string[]
     dashboardFilters?: MetricsTableDrilldownDashboardFilters | null
+    /** The label values of each row in `keys`, in the order of the config's group-by labels. */
+    labelValues: string[][]
     onClose: () => void
 }): JSX.Element | null {
     const { timezone } = useValues(teamLogic)
     if (keys.length === 0) {
         return null
     }
-    const { dateFrom, dateTo, interval, charts } = buildMetricsTableDrilldown(config, keys, dashboardFilters, timezone)
+    const { dateFrom, dateTo, interval, charts } = buildMetricsTableDrilldown(
+        config,
+        labelValues,
+        dashboardFilters,
+        timezone
+    )
     const rangeText = dateFilterToText(dateFrom, dateTo, 'Last hour')
     const intervalLabel = interval ? INTERVAL_LABELS[interval] : undefined
     return (
@@ -56,7 +65,11 @@ export function MetricsTableDrilldownModal({
             isOpen
             onClose={onClose}
             width={1200}
-            title={keys.length === 1 ? keys[0] : `${keys.length} ${config.groupBy} values`}
+            title={
+                keys.length === 1
+                    ? keys[0]
+                    : `${keys.length} ${metricsTableGroupByLabels(config.groupBy).join(' · ')} values`
+            }
             description={keys.length === 1 ? undefined : keys.join(', ')}
         >
             <div className="flex flex-col gap-3" data-attr="metrics-table-widget-drilldown">

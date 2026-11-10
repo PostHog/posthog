@@ -18,7 +18,7 @@ import {
     metricsTableSparklineDomains,
 } from './metricsTableColumnScales'
 import { MetricsTableDrilldownModal } from './MetricsTableDrilldownModal'
-import { parseMetricsTableWidgetConfig } from './metricsTableWidgetConfigValidation'
+import { metricsTableGroupByLabels, parseMetricsTableWidgetConfig } from './metricsTableWidgetConfigValidation'
 
 export type MetricsTableResultColumn = {
     label: string
@@ -27,14 +27,18 @@ export type MetricsTableResultColumn = {
 }
 
 export type MetricsTableResultRow = {
+    /** The label values joined with ` · `, e.g. `POST · upload`. */
     key: string
+    /** The value of each group-by label. */
+    labels?: string[]
     values: (number | null)[]
     sparklines: (number | null)[][]
 }
 
 export type MetricsTableWidgetResult = {
     needsConfiguration?: boolean
-    groupBy?: string | null
+    /** A string in results from before multi-label grouping. */
+    groupBy?: string | string[] | null
     columns?: MetricsTableResultColumn[]
     rows?: MetricsTableResultRow[]
     totalCount?: number
@@ -92,7 +96,7 @@ export function MetricsTableView({
     rows,
     selection,
 }: {
-    groupBy: string
+    groupBy: string[]
     columns: MetricsTableResultColumn[]
     rows: MetricsTableResultRow[]
     /** Without it, the table is read-only, as in the add-widget preview. */
@@ -118,7 +122,7 @@ export function MetricsTableView({
             : []),
         {
             key: 'key',
-            title: groupBy,
+            title: groupBy.join(' · '),
             render: (_, row) =>
                 selection ? (
                     <LemonButton
@@ -204,8 +208,8 @@ export function MetricsTableWidget({
                     <div className="flex max-w-sm flex-col items-center gap-1 px-2 text-balance">
                         <p className="m-0 text-base font-semibold text-primary">Pick a label and metrics</p>
                         <p className="m-0 text-sm text-muted">
-                            Open the widget settings. Choose a label, such as http.route, and up to 4 metrics. The table
-                            shows one row for each value of the label.
+                            Open the widget settings. Choose one or more labels, such as http.route, and up to 6
+                            metrics. The table shows one row for each value of the labels.
                         </p>
                     </div>
                 </WidgetCardBodyMessage>
@@ -229,6 +233,7 @@ export function MetricsTableWidget({
         )
     }
 
+    const groupBy = metricsTableGroupByLabels(payload.groupBy)
     const rows = payload.rows ?? []
     if (rows.length === 0) {
         return (
@@ -237,8 +242,10 @@ export function MetricsTableWidget({
                     <div className="flex max-w-sm flex-col items-center gap-1 px-2 text-balance">
                         <p className="m-0 text-base font-semibold text-primary">No metrics found</p>
                         <p className="m-0 text-sm text-muted">
-                            No series had the {payload.groupBy} label in this date range. Check the metric names or try
-                            a longer date range.
+                            {groupBy.length > 1
+                                ? `No series had all of the labels ${groupBy.join(', ')} in this date range.`
+                                : `No series had the ${groupBy[0]} label in this date range.`}{' '}
+                            Check the metric names or try a longer date range.
                         </p>
                     </div>
                 </WidgetCardBodyMessage>
@@ -249,12 +256,7 @@ export function MetricsTableWidget({
     return (
         <>
             <WidgetCardContent>
-                <MetricsTableView
-                    groupBy={payload.groupBy ?? ''}
-                    columns={payload.columns ?? []}
-                    rows={rows}
-                    selection={selection}
-                />
+                <MetricsTableView groupBy={groupBy} columns={payload.columns ?? []} rows={rows} selection={selection} />
             </WidgetCardContent>
             <WidgetContentFooter className="items-center gap-2">
                 {selected.length > 0 ? (
@@ -284,6 +286,7 @@ export function MetricsTableWidget({
                 config={parseMetricsTableWidgetConfig(config)}
                 keys={openKeys}
                 dashboardFilters={dashboardFilters}
+                labelValues={openKeys.map((key) => rows.find((row) => row.key === key)?.labels ?? [key])}
                 onClose={() => setOpenKeys([])}
             />
         </>

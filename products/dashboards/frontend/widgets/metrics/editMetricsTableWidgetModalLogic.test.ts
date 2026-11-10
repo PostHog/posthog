@@ -35,10 +35,10 @@ describe('editMetricsTableWidgetModalLogic', () => {
         return { logic, onSave }
     }
 
-    it('saves the label and the columns that the user builds', async () => {
+    it('saves the labels and the columns that the user builds', async () => {
         const { logic, onSave } = mountLogic({})
 
-        logic.actions.setGroupBy('http.route')
+        logic.actions.setGroupBy([' view ', 'method', 'view'])
         logic.actions.addColumn()
         logic.actions.updateColumn(0, REQUESTS)
         logic.actions.setInterval('minute_5')
@@ -46,10 +46,18 @@ describe('editMetricsTableWidgetModalLogic', () => {
 
         expect(onSave).toHaveBeenCalledTimes(1)
         expect(onSave.mock.calls[0][0]).toMatchObject({
-            groupBy: 'http.route',
+            groupBy: ['view', 'method'],
             columns: [REQUESTS],
             interval: 'minute_5',
         })
+    })
+
+    it('loads a tile saved with one label as a string', async () => {
+        const { logic, onSave } = mountLogic({ groupBy: 'http.route', columns: [REQUESTS] })
+
+        expect(logic.values.groupBy).toEqual(['http.route'])
+        await expectLogic(logic, () => logic.actions.submit()).toFinishAllListeners()
+        expect(onSave.mock.calls[0][0]).toMatchObject({ groupBy: ['http.route'] })
     })
 
     it('blocks the save until every column has a metric', () => {
