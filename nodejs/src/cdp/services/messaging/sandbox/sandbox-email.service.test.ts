@@ -226,15 +226,18 @@ describe('SandboxEmailService', () => {
             return Promise.resolve(recipient)
         })
         const mailbox: string[] = []
-        const claimedFor: string[] = []
+        let dailyAllowance = 1
         const deps = fakeDeps({
             checkRecipient: (check) =>
                 checkSandboxRecipient(
                     { suppression: { isSuppressed: () => Promise.resolve(false) }, recipients },
                     check
                 ),
-            claimCaps: ({ storedAddress }) => {
-                claimedFor.push(storedAddress)
+            claimCaps: () => {
+                if (dailyAllowance === 0) {
+                    return Promise.resolve({ ok: false, reason: 'daily_cap_reached' })
+                }
+                dailyAllowance -= 1
                 return Promise.resolve({ ok: true })
             },
             ses: {
@@ -244,7 +247,7 @@ describe('SandboxEmailService', () => {
                 },
             },
         })
-        return { deps, mailbox, claimedFor }
+        return { deps, mailbox }
     }
 
     it.each([
@@ -252,20 +255,24 @@ describe('SandboxEmailService', () => {
         ['the padded address its unsubscribe link carried', ' member@example.com '],
         ['the stored member spelling', 'Member@Example.com'],
     ])('refuses a padded recipient who opted out under %s', async (_name, optedOutIdentifier) => {
-        const { deps, mailbox, claimedFor } = withRecipientChecks({ [optedOutIdentifier]: { news: 'OPTED_OUT' } })
+        const { deps, mailbox } = withRecipientChecks({ [optedOutIdentifier]: { news: 'OPTED_OUT' } })
+        const service = new SandboxEmailService(deps)
+        const toPaddedMember = (categoryId: string) =>
+            request({
+                email: { to: { email: ' member@example.com ' }, subject: 'Hi', text: 'Hello' },
+                categoryId,
+                categoryType: 'marketing',
+                frequencyCap: () => Promise.resolve({ capped: false }),
+            })
 
-        await expect(
-            new SandboxEmailService(deps).send(
-                request({
-                    email: { to: { email: ' member@example.com ' }, subject: 'Hi', text: 'Hello' },
-                    categoryId: 'news',
-                    categoryType: 'marketing',
-                    frequencyCap: () => Promise.resolve({ capped: false }),
-                })
-            )
-        ).resolves.toEqual({ status: 'skipped', reason: 'opted_out' })
+        await expect(service.send(toPaddedMember('news'))).resolves.toEqual({ status: 'skipped', reason: 'opted_out' })
         expect(mailbox).toEqual([])
-        expect(claimedFor).toEqual([])
+
+        await expect(service.send(toPaddedMember('product'))).resolves.toEqual({
+            status: 'accepted',
+            messageId: 'ses-1',
+        })
+        expect(mailbox).toEqual(['Member@Example.com'])
     })
 
     it('reuses a cap claim held after an SES throttle only for the recipient it was claimed for', async () => {
