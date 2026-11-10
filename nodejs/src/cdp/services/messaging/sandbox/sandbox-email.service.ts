@@ -11,7 +11,13 @@ import {
     queryPrimaryBeforeDeadline,
     readSandboxAuthorization,
 } from './sandbox-authorization'
-import { SandboxCapClaim, SandboxCaps, claimSandboxCaps } from './sandbox-caps'
+import {
+    SandboxCapClaim,
+    SandboxCapClaimRequest,
+    SandboxCaps,
+    claimSandboxCaps,
+    markSandboxCapsClaimSent,
+} from './sandbox-caps'
 import { SandboxRenderedEmailSchema, buildSandboxMessage } from './sandbox-message'
 import {
     SandboxRecipientCheck,
@@ -53,12 +59,8 @@ export type SandboxEmailServiceDeps = {
     isProvisioned: (teamId: number) => Promise<boolean>
     authorize: (request: { teamId: number; recipient: string; tenantName: string }) => Promise<SandboxAuthorization>
     checkRecipient: (request: SandboxRecipientCheckRequest) => Promise<SandboxRecipientCheck>
-    claimCaps: (claim: {
-        organizationId: string
-        teamId: number
-        storedAddress: string
-        claimId: string
-    }) => Promise<SandboxCapClaim>
+    claimCaps: (claim: SandboxCapClaimRequest) => Promise<SandboxCapClaim>
+    markCapsClaimSent: (claim: SandboxCapClaimRequest) => Promise<boolean>
     ses: Pick<SandboxSesClient, 'send'>
     now?: () => Date
 }
@@ -134,12 +136,13 @@ export class SandboxEmailService {
         if (!tenant.ok) {
             return refusal(tenant.reason)
         }
-        const caps = await this.deps.claimCaps({
+        const capClaim = {
             organizationId: authorization.organizationId,
             teamId: request.teamId,
             storedAddress: authorization.storedAddress,
             claimId: request.capClaimId,
-        })
+        }
+        const caps = await this.deps.claimCaps(capClaim)
         if (!caps.ok) {
             return refusal(caps.reason)
         }
@@ -151,7 +154,7 @@ export class SandboxEmailService {
             recipient: authorization.storedAddress,
         })
         const { teamId, hogFlowId, invocationId, actionId, flowVersion, isTest, parentRunId } = request
-        return await this.deps.ses.send(message, {
+        const sent = await this.deps.ses.send(message, {
             teamId,
             hogFlowId,
             invocationId,
@@ -160,6 +163,10 @@ export class SandboxEmailService {
             isTest,
             ...(parentRunId ? { parentRunId } : {}),
         })
+        if (sent.status === 'accepted') {
+            await this.deps.markCapsClaimSent(capClaim).catch(() => false)
+        }
+        return sent
     }
 
     private async checkRecipient(request: SandboxSendRequest, spellings: string[]): Promise<SandboxRecipientCheck> {
@@ -232,6 +239,7 @@ export function createSandboxEmailService({
         authorize: (request) => readSandboxAuthorization(db, request),
         checkRecipient: (request) => checkSandboxRecipient(recipientChecks, request),
         claimCaps: (claim) => claimSandboxCaps(limiter, caps, claim),
+        markCapsClaimSent: (claim) => markSandboxCapsClaimSent(limiter, claim),
         ses,
     })
 }

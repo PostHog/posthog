@@ -3160,6 +3160,7 @@ describe('Hogflow Executor', () => {
                                         tenant: { sendingStatus: 'ENABLED', syncedAt: new Date(Date.now()) },
                                     }),
                                 claimCaps: () => Promise.resolve({ ok: true }),
+                                markCapsClaimSent: () => Promise.resolve(true),
                                 ses: sandboxSes,
                                 now: () => new Date(Date.now()),
                             }),

@@ -233,6 +233,15 @@ describe('SandboxEmailService', () => {
         expect(recipients()).toEqual([member()])
     })
 
+    it('charges a step visit again when it is replayed after SES accepted it', async () => {
+        const service = world.service({ caps: { team: 5, recipient: 2 } })
+
+        await expect(service.send(request())).resolves.toMatchObject({ status: 'accepted' })
+        await expect(service.send(request())).resolves.toMatchObject({ status: 'accepted' })
+        await expect(service.send(request())).resolves.toEqual({ status: 'skipped', reason: 'daily_cap_reached' })
+        expect(recipients()).toEqual([member(), member()])
+    })
+
     it.each([
         ['suppression', 'posthog_messagesuppression'],
         ['preference', 'posthog_messagerecipientpreference'],

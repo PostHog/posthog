@@ -16,7 +16,7 @@ import { RecipientsManagerService } from '../../../managers/recipients-manager.s
 import { RateLimiterService } from '../../../rate-limiter/rate-limiter.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../../email-suppression.service'
 import { readSandboxAuthorization } from '../sandbox-authorization'
-import { SandboxCaps, claimSandboxCaps } from '../sandbox-caps'
+import { SandboxCaps, claimSandboxCaps, markSandboxCapsClaimSent } from '../sandbox-caps'
 import { SANDBOX_INTEGRATION_ID, SandboxEmailService, hasSandboxSenderRow } from '../sandbox-email.service'
 import { checkSandboxRecipient, sandboxRecipientReads } from '../sandbox-recipient-checks'
 import { SandboxSesClient, createSandboxSesV2Client } from '../sandbox-ses-client'
@@ -250,6 +250,7 @@ export function useSandboxWorld(): SandboxWorld {
             authorize: (request) => readSandboxAuthorization(faults.authorizationDb ?? world.postgres, request),
             checkRecipient: (request) => checkSandboxRecipient(recipientReads, request),
             claimCaps: (claim) => claimSandboxCaps(limiter, caps, claim),
+            markCapsClaimSent: (claim) => markSandboxCapsClaimSent(limiter, claim),
             ses: world.sesClient,
         })
     }
