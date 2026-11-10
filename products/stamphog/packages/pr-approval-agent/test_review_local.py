@@ -1059,7 +1059,8 @@ _DOCS_MIGRATION = "docs/migrations/0999_add_col.py"
         pytest.param(
             (_RENOVATE,),
             _bot_context(
-                [_DOCS_MIGRATION], [_docs_proof([_DOCS_MIGRATION]), _proof("Migration risk", 2492437, [_DOCS_MIGRATION])]
+                [_DOCS_MIGRATION],
+                [_docs_proof([_DOCS_MIGRATION]), _proof("Migration risk", 2492437, [_DOCS_MIGRATION])],
             ),
             "REFUSED",
             "deny-list",
