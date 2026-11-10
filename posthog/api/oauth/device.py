@@ -100,8 +100,8 @@ def resolve_device_scopes(raw_scope: str | None, application: OAuthApplication) 
     """Return the scopes that a device grant asks the person to approve.
 
     The device grant does not accept `*`, which is different from `/authorize`.
-    The result always includes the application's required scopes. The device grant has no consent form,
-    so the person cannot remove them.
+    The result always includes the application's required scopes. The approval page never lets the
+    person remove them.
     """
     requested = resolve_requested_scopes((raw_scope or "").split(), application.ceiling_scopes)
     return sorted({*requested, *(scope for scope in application.required_scopes if ":" in scope)})
@@ -249,9 +249,10 @@ def device_token_response(create_token_response: Any, request: HttpRequest, devi
 class OAuthDeviceAuthorizationView(DeviceAuthorizationView):
     """`POST /oauth/device-authorization`: start a device grant (RFC 8628 section 3.1).
 
-    oauthlib checks the client and creates the codes. This view adds two checks that oauthlib does not do:
+    oauthlib checks the client and creates the codes. This view adds checks that oauthlib does not do:
     - The client must be registered for the device grant.
     - The requested scopes are clamped to the client's ceiling and stored.
+    - The scopes in `required_scopes` must be among those clamped scopes.
     Thus the token can only get the scopes that the person saw and approved.
     """
 
@@ -314,11 +315,23 @@ class OAuthDeviceAuthorizationView(DeviceAuthorizationView):
                 rfc6749_errors.UnauthorizedClientError(description="This client can't use the device grant.")
             )
 
+        scopes = resolve_device_scopes(request.POST.get("scope"), application)
+        # Checked after the ceiling clamp, so a client can't lock a scope the approval page won't show.
+        required = sorted(set(request.POST.get("required_scopes", "").split()))
+        if not_requested := [scope for scope in required if scope not in scopes]:
+            return _error_response(
+                rfc6749_errors.InvalidScopeError(
+                    description="These required scopes aren't among the requested scopes this client can get: "
+                    + " ".join(not_requested)
+                )
+            )
+
         OAuthDeviceGrant.objects.create(
             client_id=application.client_id,
             device_code=response["device_code"],
             user_code=response["user_code"],
-            scope=" ".join(resolve_device_scopes(request.POST.get("scope"), application)),
+            scope=" ".join(scopes),
+            required_scope=" ".join(required) or None,
             interval=response["interval"],
             expires=timezone.now() + timedelta(seconds=response["expires_in"]),
         )
@@ -393,13 +406,14 @@ class DeviceGrantDetailsSerializer(serializers.Serializer):
     )
     required_scopes = serializers.ListField(
         child=serializers.CharField(),
-        help_text="The requested scopes the person can't leave out: the client's required scopes and identity "
+        help_text="The requested scopes the person can't leave out: the client's required scopes, the scopes the "
+        "client marked as required when it started the grant, such as the new scopes of a step-up, and identity "
         "scopes such as `openid`.",
     )
     granted_scopes = GrantedScopesSerializer(
         many=True,
         help_text="The scopes the person already gave this client, per project. A step-up in a project asks for "
-        "these plus new ones, and the page lists only the new ones.",
+        "these plus new ones.",
     )
     expires_at = serializers.DateTimeField(help_text="When the code expires.")
 
@@ -415,11 +429,11 @@ class DeviceDecisionSerializer(serializers.Serializer):
     )
 
 
-def _required_scopes(requested: list[str], application: OAuthApplication) -> list[str]:
-    """Return the requested scopes that approval always keeps: the client's required scopes, and the
-    identity scopes, which grant no access to data."""
-    required = set(application.required_scopes)
-    return [scope for scope in requested if scope in required or ":" not in scope]
+def _required_scopes(grant: OAuthDeviceGrant, application: OAuthApplication) -> list[str]:
+    """Return the requested scopes that approval always keeps: the client's required scopes, the scopes
+    the client marked as required for this grant, and the identity scopes, which grant no access to data."""
+    required = {*application.required_scopes, *(grant.required_scope or "").split()}
+    return [scope for scope in (grant.scope or "").split() if scope in required or ":" not in scope]
 
 
 def _invalid_code() -> Response:
@@ -506,6 +520,7 @@ def _pending_grant(user_code: str, *, lock: bool = False) -> OAuthDeviceGrant | 
 class OAuthDeviceViewSet(viewsets.ViewSet):
     """The approval page's API for device grants. Session only: a token can never approve one."""
 
+    _ip_restrictions_use_view_scope = True
     include_in_api_docs = True
     authentication_classes = [SessionAuthentication]
     permission_classes = [IsAuthenticated]
@@ -535,7 +550,7 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
                     "logo_uri": application.logo_uri or None,
                     "is_verified": application.is_verified,
                     "scopes": (grant.scope or "").split(),
-                    "required_scopes": _required_scopes((grant.scope or "").split(), application),
+                    "required_scopes": _required_scopes(grant, application),
                     "granted_scopes": _granted_scopes(cast(User, request.user), application),
                     "expires_at": grant.expires,
                 }
@@ -604,7 +619,7 @@ class OAuthDeviceViewSet(viewsets.ViewSet):
                 # A requested `x:write` also covers `x:read`, so the person can lower write access to read.
                 if scopes_not_covered(requested, kept):
                     return _invalid_scope("You can only keep scopes the app asked for.")
-                if scopes_not_covered(kept, _required_scopes(requested, application)):
+                if scopes_not_covered(kept, _required_scopes(grant, application)):
                     return _invalid_scope("The app needs some of the scopes you removed. Keep those to approve.")
                 grant.scope = " ".join(sorted(set(kept)))
             if block := _gateway_blocklist_block(

@@ -100,6 +100,11 @@ export const getNodeJSEventStep = (ctx: OnboardingComponentsContext): StepDefini
                                         property2: 'value',
                                     },
                                 })
+
+                                // The client sends events in batches. Call shutdown() before the process
+                                // exits so that queued events are sent. In a long-running server, call it
+                                // once when the server stops.
+                                await client.shutdown()
                             `,
                         },
                     ]}

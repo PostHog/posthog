@@ -7,7 +7,7 @@ so import-linter's strict-mode contract holds.
 
 import math
 import datetime as dt
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from functools import partial
@@ -29,10 +29,20 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models import Team, User
+from posthog.scopes import APIScopeObject
 
 from products.error_tracking.backend.facade.api import list_latest_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.date_range import metrics_query_date_range
+from products.metrics.backend.derived import (
+    DerivedMetric,
+    DerivedMetricQueryRunner,
+    derived_metric_resources as _derived_metric_resources,
+    derived_metrics_enabled,
+    get_derived_metric,
+    is_derived_metric_name as _is_derived_metric_name,
+    list_derived_metric_names,
+)
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
     DashboardImportRequest,
@@ -134,7 +144,7 @@ def _units_by_fingerprint(team: Team, metric_names: set[str]) -> dict[int, str]:
         query_type="MetricUnitsLookup",
         query=query,
         team=team,
-        workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+        workload=Workload.METRICS,
         # Same byte cap as the data queries: without it a high-cardinality name set
         # would make this metadata scan the most expensive read of the request.
         settings=HogQLGlobalSettings(
@@ -187,13 +197,16 @@ def _assemble_series(
     grid: list[str],
     units_by_fingerprint: dict[int, str],
     zero_fill: bool = True,
+    ingested_unit: str | None = None,
 ) -> list[MetricSeries]:
     """Split bucketed rows into one series per label-set, zero-filled onto
     the shared grid so every series (and later, every clause of a formula)
     has identical timestamps.
 
     A row with a `series_key` stays apart from rows of another key, even when
-    their labels match: two physical series can share a label-set."""
+    their labels match: two physical series can share a label-set.
+
+    `ingested_unit` sets the unit of a clause whose rows carry no fingerprints, such as a derived metric."""
     by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], dict[str, float | None]] = {}
     fingerprints_by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], set[int]] = {}
     bounds_by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], set[float]] = {}
@@ -217,7 +230,12 @@ def _assemble_series(
             points=tuple(MetricPoint(time=time, value=values.get(time, 0.0 if zero_fill else None)) for time in grid),
             metric_name=clause.metric_name,
             clause=clause.name,
-            unit=_output_unit(_unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint), clause),
+            unit=_output_unit(
+                ingested_unit
+                if ingested_unit is not None
+                else _unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint),
+                clause,
+            ),
             histogram_bounds=tuple(sorted(bounds_by_labels[key])) if key in bounds_by_labels else None,
         )
         for key, values in ranked[:MAX_SERIES_PER_CLAUSE]
@@ -248,7 +266,7 @@ def _labels_by_fingerprint(team: Team, metric_name: str, fingerprints: set[int])
         query_type="MetricSeriesLabelsLookup",
         query=query,
         team=team,
-        workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+        workload=Workload.METRICS,
         settings=HogQLGlobalSettings(
             max_execution_time=30,
             max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
@@ -378,8 +396,23 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         else None
     )
     record_metric_queries(team, (clause.metric_name for clause in request.clauses))
-    runners: list[tuple[MetricQueryClause, MetricQueryRunner, bool]] = []
+    runners: list[tuple[MetricQueryClause, MetricQueryRunner | DerivedMetricQueryRunner, bool]] = []
+    derived_units: dict[str, str] = {}
+    derived_enabled = any(_is_derived_metric_name(c.metric_name) for c in request.clauses) and derived_metrics_enabled(
+        team
+    )
     for clause in request.clauses:
+        if derived_enabled and _is_derived_metric_name(clause.metric_name):
+            derived_runner = DerivedMetricQueryRunner(
+                team=team,
+                clause=clause,
+                date_from=request.date_from,
+                date_to=request.date_to,
+                interval=request.interval,
+            )
+            derived_units[clause.name] = derived_runner.unit
+            runners.append((clause, derived_runner, False))
+            continue
         runner_aggregation = _resolve_runner_aggregation(clause)
         runner = build_metric_query_runner(
             team=team,
@@ -398,7 +431,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     rows_by_clause: dict[str, list[dict[str, Any]]] = {clause.name: [] for clause in request.clauses}
     units_by_fingerprint: dict[int, str] = {}
 
-    def run_clause(clause: MetricQueryClause, runner: MetricQueryRunner, raw: bool) -> None:
+    def run_clause(clause: MetricQueryClause, runner: MetricQueryRunner | DerivedMetricQueryRunner, raw: bool) -> None:
         rows = runner.run()
         if raw:
             _attach_series_labels(team, clause.metric_name, rows)
@@ -434,6 +467,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             grid=grid,
             units_by_fingerprint=units_by_fingerprint,
             zero_fill=request.zero_fill,
+            ingested_unit=derived_units.get(clause.name),
         )
         for clause in request.clauses
     }
@@ -505,11 +539,36 @@ def list_metric_names(
     Raises `ValueError` for an out-of-range limit or too many services.
 
     The unsearched list is cached per team and service scope for a minute;
-    searches are not.
+    searches are not. Behind the derived series flag, the derived metrics the
+    team can query follow the ingested names, within `limit`.
     """
     if names:
-        return MetricNamesQueryRunner(team=team, services=services, names=names, limit=len(names)).run()
-    return cached_metric_names(team=team, search=search, limit=limit, services=services)
+        derived_names = [name for name in names if _is_derived_metric_name(name)]
+        ingested_names = [name for name in names if not _is_derived_metric_name(name)]
+        ingested = (
+            MetricNamesQueryRunner(team=team, services=services, names=ingested_names, limit=len(ingested_names)).run()
+            if ingested_names
+            else []
+        )
+        if not derived_names or not derived_metrics_enabled(team):
+            return ingested
+        available = {metric.name for metric in list_derived_metric_names(team)}
+        return [*ingested, *(_derived_name_row(get_derived_metric(n)) for n in derived_names if n in available)]
+    ingested = cached_metric_names(team=team, search=search, limit=limit, services=services)
+    if not derived_metrics_enabled(team):
+        return ingested
+    derived = [_derived_name_row(metric) for metric in list_derived_metric_names(team, search=search)]
+    return [*ingested, *derived][:limit]
+
+
+def _derived_name_row(metric: DerivedMetric) -> dict[str, Any]:
+    return {
+        "name": metric.name,
+        "metric_type": metric.metric_type.value,
+        "unit": metric.unit,
+        "last_seen": None,
+        "sparkline": [],
+    }
 
 
 def list_metric_picker_names(
@@ -520,7 +579,27 @@ def list_metric_picker_names(
     services: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     """List current metric names and types for the viewer picker, without sparklines or caching."""
-    return MetricNamesQueryRunner(team=team, search=search, limit=limit, services=services).run_picker()
+    ingested = MetricNamesQueryRunner(team=team, search=search, limit=limit, services=services).run_picker()
+    if not derived_metrics_enabled(team):
+        return ingested
+    derived: list[dict[str, Any]] = [
+        {"name": metric.name, "metric_type": metric.metric_type.value}
+        for metric in list_derived_metric_names(team, search=search)
+    ]
+    return [*ingested, *derived][:limit]
+
+
+def is_derived_metric_name(name: str) -> bool:
+    """True for a name that the query computes from spans and logs instead of reading ingested samples."""
+    return _is_derived_metric_name(name)
+
+
+def derived_metric_resources(names: Iterable[str]) -> list[APIScopeObject]:
+    """The access-control resources (`logs`, `tracing`) that the derived metrics among `names` read.
+
+    A caller that queries these names must also hold read access to each resource.
+    """
+    return _derived_metric_resources(names)
 
 
 def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) -> MetricsOverview:

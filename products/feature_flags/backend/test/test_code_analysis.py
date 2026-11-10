@@ -15,7 +15,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models import FeatureFlag, FeatureFlagCodeAnalysis
-from products.tasks.backend.facade import api as tasks_facade
+from products.feature_flags.backend.task_profiles import CODE
 
 GITHUB = "products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration"
 FLAG_GATE = "products.feature_flags.backend.api.code_analysis.posthog_feature_flag_enabled"
@@ -157,13 +157,13 @@ class TestFeatureFlagCodeAnalysis(APIBaseTest):
         kwargs = mock_create.call_args.kwargs
         self.assertEqual(
             (
-                kwargs["origin_product"],
+                kwargs["profile"],
                 kwargs["repository"],
                 kwargs["create_pr"],
                 kwargs["github_read_access"],
                 kwargs["posthog_mcp_scopes"],
             ),
-            (tasks_facade.TaskOriginProduct.FEATURE_FLAGS, "acme/web", False, True, "read_only"),
+            (CODE, "acme/web", False, True, "read_only"),
         )
         self.assertEqual(response.json()["task_id"], str(task_id))
         self.assertEqual(
@@ -541,8 +541,8 @@ class TestFeatureFlagCodeAnalysis(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
         kwargs = mock_create.call_args.kwargs
         self.assertEqual(
-            (kwargs["origin_product"], kwargs["repository"], kwargs["create_pr"]),
-            (tasks_facade.TaskOriginProduct.FEATURE_FLAGS, "acme/web", True),
+            (kwargs["profile"], kwargs["repository"], kwargs["create_pr"]),
+            (CODE, "acme/web", True),
         )
         description_lines = kwargs["description"].splitlines()
         self.assertIn(expected_keep_line, description_lines)

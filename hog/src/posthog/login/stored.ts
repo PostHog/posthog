@@ -42,7 +42,12 @@ export function loginStorage(runtime: Runtime, login: StoredLogin): AccessKeySto
     const { host } = login.key
     return {
         reread: async () => (await readLogin(runtime, await readSettings(runtime), host))?.key,
-        save: (key) => writeLogin(runtime, login.store, key),
+        // A step-up can move the login to another store while this command runs, so a renewal saves
+        // where settings.json says the login is now.
+        save: async (key) => {
+            const record = loginFor(await readSettings(runtime), host)
+            await writeLogin(runtime, record ? openStore(runtime, record.store) : login.store, key)
+        },
     }
 }
 

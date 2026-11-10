@@ -513,14 +513,40 @@ class TestOAuthDeviceGrant(APIBaseTest):
             redirect_uris="",
             algorithm="RS256",
             scopes=["insight:read"],
-            optional_scopes=["dashboard:write"],
+            optional_scopes=["dashboard:write", "cohort:read"],
         )
-        started = self._start(client_id="required-scopes-client", scope="dashboard:write")
+        started = self._start(
+            client_id="required-scopes-client", scope="dashboard:write cohort:read", required_scopes="cohort:read"
+        )
 
         lookup = self.client.post("/api/oauth_device/lookup/", {"user_code": started["user_code"]})
 
-        self.assertEqual(lookup.json()["scopes"], ["dashboard:write", "insight:read"])
-        self.assertEqual(lookup.json()["required_scopes"], ["insight:read"])
+        self.assertEqual(lookup.json()["scopes"], ["cohort:read", "dashboard:write", "insight:read"])
+        self.assertEqual(lookup.json()["required_scopes"], ["cohort:read", "insight:read"])
+
+    @parameterized.expand(
+        [
+            ("a scope missing from scope", "insight:read dashboard:write", "dashboard:write"),
+            ("a scope outside the client's ceiling", "insight:read llm_gateway:read", "llm_gateway:read"),
+        ]
+    )
+    def test_a_client_cannot_mark_as_required(self, _name: str, required_scopes: str, refused: str) -> None:
+        response = self.client.post(
+            "/oauth/device-authorization/",
+            urlencode(
+                {
+                    "client_id": "hog-device-client",
+                    "scope": "insight:read llm_gateway:read",
+                    "required_scopes": required_scopes,
+                }
+            ),
+            content_type=FORM,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_scope")
+        self.assertTrue(response.json()["error_description"].endswith(f": {refused}"))
+        self.assertFalse(OAuthDeviceGrant.objects.exists())
 
     @patch("posthog.api.oauth.device.posthoganalytics.capture")
     def test_the_token_carries_only_the_scopes_the_person_kept(self, capture) -> None:
@@ -549,11 +575,20 @@ class TestOAuthDeviceGrant(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a scope the client never asked for", ["insight:read", "feature_flag:read"], "only keep scopes"),
-            ("without a scope the client requires", ["dashboard:write"], "needs some of the scopes"),
+            ("a scope the client never asked for", "", ["insight:read", "feature_flag:read"], "only keep scopes"),
+            ("without a scope the client requires", "", ["dashboard:write"], "needs some of the scopes"),
+            ("without a scope the grant marks required", "dashboard:write", ["insight:read"], "needs some of the"),
+            (
+                "with read for a write the grant marks required",
+                "dashboard:write",
+                ["insight:read", "dashboard:read"],
+                "needs some of the",
+            ),
         ]
     )
-    def test_approval_refuses_a_scope_list(self, _name: str, kept: list[str], description: str) -> None:
+    def test_approval_refuses_a_scope_list(
+        self, _name: str, required_scopes: str, kept: list[str], description: str
+    ) -> None:
         OAuthApplication.objects.create(
             name="required",
             client_id="required-scopes-client",
@@ -565,7 +600,9 @@ class TestOAuthDeviceGrant(APIBaseTest):
             scopes=["insight:read"],
             optional_scopes=["dashboard:write"],
         )
-        started = self._start(client_id="required-scopes-client", scope="dashboard:write")
+        started = self._start(
+            client_id="required-scopes-client", scope="dashboard:write", required_scopes=required_scopes
+        )
 
         response = self.client.post(
             "/api/oauth_device/approve/",

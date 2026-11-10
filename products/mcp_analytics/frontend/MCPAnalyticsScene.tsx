@@ -30,6 +30,7 @@ import { MCPAnalyticsNotifications } from './notifications/MCPAnalyticsNotificat
 import { mcpAnalyticsNotificationsLogic } from './notifications/mcpAnalyticsNotificationsLogic'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
 import { MCPSetupMode } from './setupMode/MCPSetupMode'
+import { SetupGuideButton } from './setupMode/SetupGuideButton'
 
 export const scene: SceneExport = {
     component: MCPAnalyticsScene,
@@ -145,13 +146,19 @@ function MCPAnalyticsSceneBody(): JSX.Element {
                 resourceType={{ type: 'mcp_analytics' }}
                 actions={
                     todayRailNav ? (
-                        <Button variant="outline" render={<LinkPrimitive to={MCP_DOCS_URL} target="_blank" />}>
-                            Documentation
-                        </Button>
+                        <>
+                            <SetupGuideButton quill />
+                            <Button variant="outline" render={<LinkPrimitive to={MCP_DOCS_URL} target="_blank" />}>
+                                Documentation
+                            </Button>
+                        </>
                     ) : (
-                        <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
-                            Documentation
-                        </LemonButton>
+                        <>
+                            <SetupGuideButton quill={false} />
+                            <LemonButton to={MCP_DOCS_URL} type="secondary" targetBlank size="small">
+                                Documentation
+                            </LemonButton>
+                        </>
                     )
                 }
             />

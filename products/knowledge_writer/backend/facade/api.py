@@ -1,12 +1,12 @@
 from collections.abc import Mapping
 from typing import Any
 
-from posthog.github.installations import installation_team_ids
+from posthog.github.installations import installation_id
 
-from ...merge_check.sources import POSTHOG_REPOSITORY, merged_mainline_commit
+from ...merge_check.sources import merged_pull_request_change
 from ..adapters.registry import REGISTRY
 from ..logic import intake
-from ..settings import writer_settings
+from ..settings import configured_writer_team_id, source_repositories, writer_settings
 from .contracts import DocsCommandRequest, IntakeOutcome
 from .enums import DocsRequestSource
 
@@ -24,14 +24,9 @@ def request_docs_for_pull_request(command: DocsCommandRequest, *, team_id: int) 
 def record_merged_pull_request(payload: Mapping[str, Any]) -> None:
     from ..temporal.client import start_merge_check  # noqa: PLC0415 — keeps temporalio off the facade import path
 
-    if payload.get("action") != "closed":
+    change = merged_pull_request_change(payload, source_repositories())
+    team_id = configured_writer_team_id()
+    delivery_installation_id = installation_id(dict(payload))
+    if change is None or team_id is None or delivery_installation_id is None:
         return
-    if (payload.get("repository") or {}).get("full_name") != POSTHOG_REPOSITORY:
-        return
-    commit_sha = merged_mainline_commit(payload.get("pull_request") or {})
-    if commit_sha is None:
-        return
-    team_id = writer_team_id()
-    if team_id is None or team_id not in installation_team_ids(dict(payload)):
-        return
-    start_merge_check(commit_sha, team_id=team_id)
+    start_merge_check(change, team_id=team_id, installation_id=delivery_installation_id)

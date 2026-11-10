@@ -45,7 +45,7 @@ function stored(
 }
 
 function sessionFor(runtime: FakeRuntime, credentials: Credentials): KeySession {
-    return new KeySession(runtime, credentials.key, credentials.source === 'store' ? credentials.storage : null)
+    return new KeySession(runtime, credentials.key, credentials.storage)
 }
 
 const OK = { name: 'Hedgebox' }

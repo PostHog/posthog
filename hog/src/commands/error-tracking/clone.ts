@@ -26,6 +26,9 @@ export default defineCommand({
 
     human({ result, out }) {
         renderRelease(out, result.release)
+        for (const warning of result.warnings) {
+            out.line(out.style(warning, 'yellow'))
+        }
         const what = result.chunkId ? `chunk ID ${out.style(result.chunkId, 'bold')}` : 'no chunk ID'
         out.line(`${result.dryRun ? 'Would copy' : 'Copied'} ${what} to ${result.to}.`)
     },

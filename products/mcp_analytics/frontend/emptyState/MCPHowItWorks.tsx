@@ -7,7 +7,7 @@ import * as docBrownPng from '@posthog/brand/hoggies/png/doc-brown'
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { ProductEmptyStateMode } from 'lib/components/ProductEmptyState/types'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 import { MCPHowItWorksAskStage } from './MCPHowItWorksAskStage'
 import { MCPHowItWorksDashboardStage } from './MCPHowItWorksDashboardStage'
@@ -32,11 +32,11 @@ const STEPS: { step: Step; title: string; Stage: ComponentType<MCPHowItWorksProp
 const LAST_STEP: Step = STEPS.length
 
 const STEP_MS = 4300
-// Covers the hedgehog's walk between two steps (`left` transition and three hops in the stylesheet).
+// Covers the hedgehog's walk between two steps (`transform` transition and three hops in the stylesheet).
 const WALK_MS = 1300
 
 function isStatic(): boolean {
-    return inStorybook() || inStorybookTestRunner() || !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    return inStorybook() || !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 }
 
 /**
@@ -208,7 +208,9 @@ export function MCPHowItWorks({ mode, preview }: MCPHowItWorksProps): JSX.Elemen
                         <span key={step} className={`MCPHowItWorks__dot MCPHowItWorks__dot--${step}`} />
                     ))}
                     <div className={cn('MCPHowItWorks__hog', walking && 'MCPHowItWorks__hog--walking')}>
-                        <HedgehogDocBrown loading="eager" />
+                        <div className="MCPHowItWorks__hog-body">
+                            <HedgehogDocBrown loading="eager" />
+                        </div>
                     </div>
                 </div>
             </section>

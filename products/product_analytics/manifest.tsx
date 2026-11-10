@@ -63,13 +63,13 @@ export const manifest: ProductManifest = {
             }
             // Redirect HogQL queries to SQL editor
             if (isHogQLQuery(query)) {
-                return urls.sqlEditor({ query: query.query })
+                return urls.sqlEditor({ query: query.query, dashboard: dashboardId ?? undefined, tileGroupKey })
             }
 
             // Redirect DataNode and DataViz queries with HogQL source to SQL editor,
             // passing the whole node so display/chartSettings/filters survive the trip
             if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-                return urls.sqlEditor({ query })
+                return urls.sqlEditor({ query, dashboard: dashboardId ?? undefined, tileGroupKey })
             }
 
             return combineUrl(

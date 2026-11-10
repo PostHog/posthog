@@ -11,6 +11,8 @@ if TYPE_CHECKING:
     from django.db.models import Model
     from django.http import HttpRequest, HttpResponse
 
+    from posthog.admin.console.tools import Page
+
 
 class Tone(StrEnum):
     DEFAULT = "default"
@@ -25,6 +27,8 @@ class Owner:
     name: str
     # Slug of a mini crest from @posthog/brand, for example "workflows". The build ships only the crests named here.
     crest: str
+    # The Django group whose members may run this team's operations gated with Gate.owner().
+    staff_group: str | None = None
 
 
 # A card with more facts than this is a report. Put the detail in a tool and link to it.
@@ -50,21 +54,48 @@ class Fact:
             raise ValueError(f"Fact {self.label!r} links to {self.href!r}. Link to a PostHog path that starts with /.")
 
 
+def _unresolved_owner_gate(request: "HttpRequest") -> bool:
+    # The shell resolves Gate.owner() against the panel or tool owner before it checks anything. Code that checks
+    # the unresolved gate is a bug, and letting nobody through keeps that bug from opening the operation.
+    return False
+
+
 @frozen
 class Gate:
     """Who may run an operation, on top of the staff check that every console page has.
 
-    Use a Django group or a reviewed rule. Not a Django model permission: `User.is_superuser` mirrors
-    `is_staff` in PostHog, so every staff member has every permission and such a gate would let everyone in.
+    Use `Gate.owner()`, or a Django group or a reviewed rule for the rare case across teams. Not a Django model
+    permission: `User.is_superuser` mirrors `is_staff` in PostHog, so every staff member has every permission and
+    such a gate would let everyone in.
     """
 
-    # Who passes, shown next to the disabled button so staff know whom to ask, for example "the Billing Team group".
+    # Who passes, shown next to the disabled button so staff know whom to ask, for example
+    # "members of the Billing Team group".
     label: str
     check: Callable[["HttpRequest"], bool]
+    # Set by Gate.owner(). The shell replaces the gate with the staff group of the panel or tool owner.
+    from_owner: bool = False
 
     @staticmethod
     def group(name: str) -> "Gate":
-        return Gate(label=f"the {name} group", check=lambda request: request.user.groups.filter(name=name).exists())
+        return Gate(
+            label=f"members of the {name} group",
+            check=lambda request: request.user.groups.filter(name=name).exists(),
+        )
+
+    @staticmethod
+    def owner() -> "Gate":
+        return Gate(label="members of the owning team's staff group", check=_unresolved_owner_gate, from_owner=True)
+
+    def resolve(self, owner: Owner) -> "Gate":
+        if not self.from_owner:
+            return self
+        if owner.staff_group is None:
+            raise ValueError(
+                f"An operation of {owner.name} uses Gate.owner(), but Owner {owner.name!r} has no staff_group. "
+                "Set staff_group on the Owner to the Django group whose members may run it."
+            )
+        return Gate.group(owner.staff_group)
 
     def allows(self, request: "HttpRequest") -> bool:
         return self.check(request)
@@ -86,6 +117,15 @@ class OperationHandler(Protocol):
     def __call__(self, request: "HttpRequest", obj: "Model", form: forms.Form | None) -> "HttpResponse | None": ...
 
 
+class RecordPreviewHandler(Protocol):
+    """Shows what an operation would change on the record before it runs, as a `Page`. It must not change anything.
+
+    To refuse the input, add an error to the form; the console then shows the form again.
+    """
+
+    def __call__(self, request: "HttpRequest", obj: "Model", form: forms.Form) -> "Page": ...
+
+
 @frozen
 class Operation:
     """An action on a record. The handler returns None when it is done, and the console sends staff back to the record.
@@ -103,9 +143,13 @@ class Operation:
     description: str = ""
     undo_hint: str = ""
     gate: Gate | None = None
+    # Staff confirm on a page that shows what will change, for an action that is hard to take back.
+    preview: RecordPreviewHandler | None = None
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)
+        if self.preview is not None and self.form_class is None:
+            raise ValueError(f"Operation {self.key!r} has a preview, so it needs a form for the preview to read")
 
 
 class ReasonForm(forms.Form):

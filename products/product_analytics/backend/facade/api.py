@@ -370,6 +370,14 @@ def viewable_insight_definitions(
     }
 
 
+def viewable_insights_are_trends(*, team: Team, user: User, short_ids: Collection[str]) -> dict[str, bool]:
+    """Whether each insight the person can view is a trends insight, by short ID. Other insights are left out."""
+    return {
+        short_id: (definition.query.get("source") or {}).get("kind") == "TrendsQuery"
+        for short_id, definition in viewable_insight_definitions(team=team, user=user, short_ids=short_ids).items()
+    }
+
+
 def insight_query_complete(*, team: Team, query_id: str) -> bool:
     from products.product_analytics.backend import insight_series
 

@@ -36,7 +36,13 @@
                 {% for error in form.non_field_errors %}
                     <p class="quill-field__error m-0" role="alert">{{ error }}</p>
                 {% endfor %}
-                {% for field in form %}
+                {% for field in form.hidden_fields %}
+                    {{ field }}
+                    {% for error in field.errors %}
+                        <p class="quill-field__error m-0" role="alert">{{ error }}</p>
+                    {% endfor %}
+                {% endfor %}
+                {% for field in form.visible_fields %}
                     {% include "admin_console/_form_field.html" %}
                 {% endfor %}
             </div>

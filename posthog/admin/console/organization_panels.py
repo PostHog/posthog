@@ -17,7 +17,7 @@ from ee.billing.quota_limiting import QuotaResource
 
 logger = structlog.get_logger(__name__)
 
-BILLING = Owner(name="Billing", crest="billing")
+BILLING = Owner(name="Billing", crest="billing", staff_group="Billing Team")
 
 
 @console.register_panel

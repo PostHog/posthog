@@ -24,7 +24,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
 from products.exports.backend.models.exported_asset import (
     DATASET_EXPORT_KIND as DATASET_EXPORT_KIND,
     ExportedAsset,
@@ -58,6 +58,7 @@ def create_export_asset_async(
     export_format: str,
     export_context: dict[str, object],
     expires_after: datetime | None = None,
+    is_system: bool = False,
 ) -> ExportedAsset:
     if export_format not in ExportedAsset.get_supported_format_values():
         raise ValueError(f"Unsupported export format: {export_format}")
@@ -67,6 +68,7 @@ def create_export_asset_async(
         created_by=created_by,
         export_format=export_format,
         export_context=export_context,
+        is_system=is_system,
         # None keeps the model's format-default TTL (see ExportedAsset.save).
         expires_after=ExportedAsset.round_up_expiry(expires_after) if expires_after is not None else None,
     )
@@ -286,9 +288,9 @@ def _create_png_export_asset(
             raise ValueError("Insight not found")
         insight_id = insight.id
     if dashboard_id is not None:
-        dashboard = Dashboard.objects.filter(team_id=team.id, id=dashboard_id, deleted=False).first()
-        if dashboard is None or not UserAccessControl(user=created_by, team=team).check_access_level_for_object(
-            dashboard, "viewer"
+        dashboard = dashboards_api.get_dashboard(team_id=team.id, dashboard_id=dashboard_id)
+        if dashboard is None or not dashboards_api.can_access_dashboard(
+            dashboard, user_access_control=UserAccessControl(user=created_by, team=team)
         ):
             raise ValueError("Dashboard not found")
     if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:

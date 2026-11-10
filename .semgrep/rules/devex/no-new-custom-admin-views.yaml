@@ -6,7 +6,8 @@ rules:
           check and OAuth step-up apply, and its pages do not break when Django changes admin
           internals. Add a Panel in products/<product>/backend/console.py; see
           posthog/admin/console/AGENTS.md. Django admin stays for plain CRUD: list_display,
-          search_fields, readonly_fields, inlines and simple actions are fine.
+          search_fields, readonly_fields and inlines are fine. For a changelist action,
+          see /extending-the-admin-console.
           Pre-existing findings are grandfathered; only newly introduced findings block CI.
       languages: [python]
       severity: WARNING

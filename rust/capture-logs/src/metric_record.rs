@@ -321,7 +321,7 @@ fn build_number_row(
         })
         .collect();
 
-    // Identity is assigned once, here. Computed before the synthetic $originalTimestamp
+    // Identity is assigned once, here. Computed before the synthetic original timestamp attribute
     // is added so an overridden timestamp never splits a series.
     let series_fingerprint = compute_series_fingerprint(
         metric_name,
@@ -332,7 +332,10 @@ fn build_number_row(
     );
 
     if let Some(original) = original_timestamp {
-        attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
+        attributes.insert(
+            crate::log_record::ORIGINAL_TIMESTAMP_ATTRIBUTE.to_string(),
+            original.to_rfc3339(),
+        );
     }
 
     let observed_timestamp = Utc::now();
@@ -498,7 +501,7 @@ fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> S
     }
 }
 
-fn extract_resource_attributes(resource: Option<&Resource>) -> HashMap<String, String> {
+pub(crate) fn extract_resource_attributes(resource: Option<&Resource>) -> HashMap<String, String> {
     let Some(resource) = resource else {
         return HashMap::new();
     };
@@ -638,7 +641,7 @@ mod tests {
         row.attributes = HashMap::from([("r".repeat(100), "v".repeat(100))]);
         assert_eq!(compute_kafka_metric_row_bytes(&row), 24 + 2 * 8 + 3 * 8);
 
-        // The second row's overridden timestamp adds a `$originalTimestamp` label.
+        // The second row's overridden timestamp adds a `posthog.original_timestamp` label.
         assert_eq!(
             sum_kafka_metric_row_bytes(&[row, build_test_row(&[])]),
             (24 + 2 * 8 + 3 * 8) + (24 + 8)
@@ -1002,7 +1005,7 @@ mod tests {
 
     #[test]
     fn test_series_fingerprint_ignores_timestamp_override() {
-        // $originalTimestamp is a synthetic attribute added only when a point's timestamp
+        // posthog.original_timestamp is a synthetic attribute added only when a point's timestamp
         // falls outside the ±24h window, and it is inserted AFTER the fingerprint is
         // computed. A stale point and a fresh one for the same series must therefore share
         // a fingerprint. Guards the compute-before-insert ordering in build_number_row.
@@ -1017,8 +1020,8 @@ mod tests {
         // The override must actually fire for the stale point, else the test is vacuous.
         assert!(!fresh_overridden);
         assert!(stale_overridden);
-        assert!(!fresh.attributes.contains_key("$originalTimestamp"));
-        assert!(stale.attributes.contains_key("$originalTimestamp"));
+        assert!(!fresh.attributes.contains_key("posthog.original_timestamp"));
+        assert!(stale.attributes.contains_key("posthog.original_timestamp"));
         // Despite that attribute difference, both map to one series.
         assert_eq!(fresh.series_fingerprint, stale.series_fingerprint);
     }

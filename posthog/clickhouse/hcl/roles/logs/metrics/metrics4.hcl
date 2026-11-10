@@ -4,6 +4,38 @@
 # The other tables store series, name, and attribute data.
 # posthog/clickhouse/metrics/metrics4.py defines the source schema.
 database "posthog" {
+  table "metrics_kafka_metrics" {
+    order_by = ["_topic", "_partition"]
+    settings = {
+      index_granularity = "8192"
+    }
+    column "_partition" {
+      type = "UInt32"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "max_offset" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "max_observed_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(9))"
+    }
+    column "max_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(9))"
+    }
+    column "max_created_at" {
+      type = "SimpleAggregateFunction(max, DateTime64(9))"
+    }
+    column "max_lag" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics_kafka_metrics"
+      replica_name = "{replica}"
+    }
+  }
+
   table "metrics4_attributes" {
     order_by     = ["team_id", "metric_name", "attribute_type", "time_bucket", "attribute_key", "attribute_value", "service_name", "original_expiry_time_bucket"]
     partition_by = "toDate(original_expiry_time_bucket)"
@@ -109,7 +141,8 @@ database "posthog" {
   }
 
   table "metrics4_samples" {
-    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint"]
+    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint", "histogram_bounds_hash"]
+    primary_key  = ["team_id", "metric_name", "time_bucket", "series_fingerprint"]
     partition_by = "original_expiry_date"
     ttl          = "original_expiry_date"
     settings = {
@@ -159,6 +192,9 @@ database "posthog" {
     }
     column "histogram_bounds" {
       type = "SimpleAggregateFunction(anyLast, Array(Float64))"
+    }
+    column "histogram_bounds_hash" {
+      type = "UInt64"
     }
     column "_topic" {
       type = "SimpleAggregateFunction(any, LowCardinality(String))"

@@ -37,6 +37,7 @@ export function OAuthDeviceAuthorize(): JSX.Element {
         adjustableScopeRows,
         scopeGroups,
         allScopesRequired,
+        requiredScopesNote,
         scopeSummary,
         keptScopes,
     } = useValues(oauthDeviceAuthorizeLogic)
@@ -186,6 +187,11 @@ export function OAuthDeviceAuthorize(): JSX.Element {
                                 ),
                                 content: (
                                     <div className="flex flex-col gap-3">
+                                        {requiredScopesNote && (
+                                            <p className="m-0 text-secondary" data-attr="oauth-device-required-note">
+                                                {requiredScopesNote}
+                                            </p>
+                                        )}
                                         <OAuthScopeList
                                             appName={deviceGrant.client_name}
                                             identityScopeDescriptions={identityScopeDescriptions}

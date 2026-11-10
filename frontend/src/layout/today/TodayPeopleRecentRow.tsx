@@ -2,7 +2,8 @@ import { useMemo } from 'react'
 
 import { IconBuilding, IconPeople, IconPerson, IconSupport } from '@posthog/icons'
 
-import { TodayPaneRow } from './TodayPaneRow'
+import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
+
 import { TodayPeopleRecent, TodayPeopleRecentType, peopleRecentRowKey } from './todayPeople'
 import { TodayExplainerPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
@@ -36,7 +37,7 @@ export function TodayPeopleRecentRow({ recent, active }: { recent: TodayPeopleRe
     )
     return (
         <TodayPreviewTrigger payload={preview}>
-            <TodayPaneRow
+            <SidebarRow
                 value={peopleRecentRowKey(recent.href)}
                 label={recent.name}
                 icon={RECENT_ICONS[recent.type]}

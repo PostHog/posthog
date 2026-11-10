@@ -158,4 +158,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "daily_stats": "Per-day warmup counts for the last 7 days: date, sent, spam, delivered, opened, and replied.",
         },
     },
+    "day_wise_overall_stats": {
+        "description": "Account-wide email engagement totals for one day (UTC), with each metric counted on the day its event happened.",
+        "docs_url": "https://api.smartlead.ai/api-reference/analytics/day-wise-stats",
+        "columns": {
+            "date": "Day the counts cover, in YYYY-MM-DD format.",
+            "sent": "Emails sent that day.",
+            "opened": "Opens that happened that day. A lead opening twice counts twice.",
+            "replied": "Replies that arrived that day.",
+            "bounced": "Always 0 on this endpoint.",
+            "unsubscribed": "Always 0 on this endpoint.",
+        },
+    },
 }
