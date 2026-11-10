@@ -10,7 +10,6 @@ from django.db import close_old_connections, connection, transaction
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
-from posthog.api.file_system import deletion
 from posthog.api.file_system.access_levels import filter_workflow_files_by_access_level
 from posthog.constants import AvailableFeature
 from posthog.models.file_system.file_system import FileSystem
@@ -548,9 +547,7 @@ class TestWorkflowTreeDeleteDuringSave(NonAtomicBaseTest):
 
     def test_template_tree_delete_keeps_a_save_that_commits_after_the_delete_read_the_template(self) -> None:
         created = self.client.post(
-            f"/api/projects/{self.team.id}/messaging_templates/",
-            {"name": "Welcome", "type": "email"},
-            format="json",
+            f"/api/projects/{self.team.id}/messaging_templates/", {"name": "Welcome", "type": "email"}, format="json"
         )
         self.assertEqual(created.status_code, 201, created.content)
         template_id = created.json()["id"]
@@ -558,8 +555,9 @@ class TestWorkflowTreeDeleteDuringSave(NonAtomicBaseTest):
         file_id = self.client.get(files_url, {"type": "message_template", "ref": template_id}).json()["results"][0][
             "id"
         ]
+        saves: list[str] = []
 
-        def rename_in_another_transaction() -> None:
+        def save_from_another_connection() -> None:
             close_old_connections()
             try:
                 with connection.cursor() as cursor:
@@ -569,15 +567,17 @@ class TestWorkflowTreeDeleteDuringSave(NonAtomicBaseTest):
             finally:
                 close_old_connections()
 
-        read_template = deletion._get_object
+        def commit_a_save_after_the_first_template_read(
+            execute: Any, sql: str, params: Any, many: bool, context: Any
+        ) -> Any:
+            result = execute(sql, params, many, context)
+            if not saves and sql.startswith('SELECT "posthog_messagetemplate"."id"') and "FOR UPDATE" not in sql:
+                saves.append(sql)
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    executor.submit(save_from_another_connection).result(timeout=10)
+            return result
 
-        def read_then_let_a_save_commit(*args: Any, **kwargs: Any) -> Any:
-            template = read_template(*args, **kwargs)
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                executor.submit(rename_in_another_transaction).result(timeout=10)
-            return template
-
-        with patch.object(deletion, "_get_object", side_effect=read_then_let_a_save_commit):
+        with connection.execute_wrapper(commit_a_save_after_the_first_template_read):
             deleted = self.client.delete(f"{files_url}{file_id}/")
 
         self.assertEqual(deleted.status_code, 200, deleted.content)
