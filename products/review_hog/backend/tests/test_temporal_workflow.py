@@ -938,7 +938,7 @@ async def test_review_pr_workflow_runs_a_delta_turn_only_when_the_gate_plans_one
     assert recorded["gate_arms"] == [(True, True)]
     assert recorded["main_delta"] == [baseline]
     assert set(recorded["lens_delta"]) == {baseline}
-    # The marker and dedup must follow the session: a delta turn that claimed the lens would join its cohort.
+    # The marker and dedup must follow the session, because a delta turn that claimed the lens would join its cohort.
     assert len(recorded["lens"]) == (2 if expect_delta else 7)
     assert (("devex", 1) in recorded["lens"]) is not expect_delta
     assert recorded["devex_lens"] == [("marker", not expect_delta), ("dedup", not expect_delta)]

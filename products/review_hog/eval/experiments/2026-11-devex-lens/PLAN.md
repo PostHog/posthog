@@ -9,7 +9,7 @@ The unit tests prove routing, cohort separation, and fan-out. They say nothing a
 ## Step 1: is there a gap at all
 
 Run Standard as it is today on the case set, twice.
-If it finds 70% or more of the labelled issues, stop: the lens has nothing to add, and the code should be removed.
+If it finds 70% or more of the labelled issues, stop. The lens has nothing to add, and the code should be removed.
 
 ## Case set
 

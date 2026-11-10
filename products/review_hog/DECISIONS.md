@@ -201,14 +201,14 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
 ### 🧪 BUILT 2026-11-10 — devex lens: a Standard session routed by `owners.yaml` (flag off, not measured)
 
 - **What.** A Standard turn adds one lens session, `DEVEX_LENS` (`lens_devex.md`, pass 2003), when the PR changes a file the devex team owns and `reviewhog-devex-lens` is on for the PR.
-  `_devex_lens_files` (`temporal/activities.py`) is the router: it asks `posthog/ownership` which changed files `owners.yaml` on the default branch gives to `team-devex`, with no model call.
+  `_devex_lens_files` (`temporal/activities.py`) is the router. It asks `posthog/ownership` which changed files `owners.yaml` on the default branch gives to `team-devex`, with no model call.
   The repository already keeps this map for review requests, so the lens has no path list of its own.
 - **Why a routed session and not text in every prompt.** The 2026-10 prompt experiments showed that text added to a running session moves what it finds without finding more, and loses established hits.
   A separate session leaves the main session and the two lenses byte-identical.
 - **Cohorts.** The lens is outside `FLASH_LENSES`, because that table feeds every single-agent fingerprint.
   A turn hashes `lens_devex.md` only when it runs the lens.
-  This amends "No team slot" in the 2026-10-06 entry: there is one slot, it is DevEx-owned, and it is routed by ownership.
-- **Where the rules live.** The prompt holds the review method: read the `AGENTS.md` files above the changed paths, and for a CI file identify the execution engine, read the CI guides, and trace five areas.
+  This amends "No team slot" in the 2026-10-06 entry. There is one slot, it is DevEx-owned, and it is routed by ownership.
+- **Where the rules live.** The prompt holds the review method. The session reads the `AGENTS.md` files above the changed paths. For a CI file it also identifies the execution engine, reads the CI guides, and traces five areas.
   The rules stay in those guides, and the session reads them from the checkout.
   A guide that the PR edits is read at the merge base.
 - **Left out.** Coordinated turns (the coordinator has no sub-agent slot for it), delta turns (the session has no part of a delta), and the Deep pipeline.
