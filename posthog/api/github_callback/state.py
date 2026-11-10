@@ -1,8 +1,10 @@
+from functools import partial
 from typing import cast
 from urllib.parse import parse_qsl
 
 from django.core.cache import cache
 
+import structlog
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
@@ -18,6 +20,8 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.user_permissions import UserPermissions
+
+logger = structlog.get_logger(__name__)
 
 
 def parse_github_authorize_state_param(state_raw: str | None) -> tuple[str | None, str | None]:
@@ -95,7 +99,10 @@ def resolve_github_setup_callback_context(
     cached_team_id: int | None = None
 
     pending_token = cache.get(unified_authorize_pending_cache_key(user.id))
-    if pending_token:
+    if callback_state := callback_authorize_state(user.id, state_raw):
+        cached_next = callback_state.next_url
+        cached_team_id = callback_state.team_id
+    elif pending_token:
         cached = cache.get(unified_authorize_cache_key(str(pending_token)))
         if isinstance(cached, dict):
             token = str(cached.get("token") or "") or None
@@ -190,6 +197,20 @@ class ConsumedAuthorizeState:
     team_id: int | None
 
 
+def _rejected_authorize_state(
+    reason: str, *, user_id: int, state_raw: str | None, setup_action: str, code: str | None
+) -> ValidationError:
+    logger.warning(
+        "github_authorize_state: callback state rejected",
+        reason=reason,
+        user_id=user_id,
+        setup_action=setup_action or None,
+        has_state=bool(state_raw),
+        has_code=code is not None,
+    )
+    return ValidationError("Invalid or expired state token", code="invalid_state")
+
+
 def consume_github_authorize_state(
     request: Request,
     state_raw: str | None,
@@ -199,37 +220,39 @@ def consume_github_authorize_state(
     installation_id: str | None = None,
 ) -> ConsumedAuthorizeState:
     user_id = authenticated_user_id(request)
-    pending_token = cache.get(unified_authorize_pending_cache_key(user_id))
-    cached = cache.get(unified_authorize_cache_key(str(pending_token))) if pending_token else None
-    if not isinstance(cached, dict):
-        raise ValidationError("Invalid or expired state token", code="invalid_state")
+    reject = partial(
+        _rejected_authorize_state, user_id=user_id, state_raw=state_raw, setup_action=setup_action, code=code
+    )
 
-    expected_token = str(cached.get("token") or "")
-    cached_next = str(cached.get("next") or "")
-
-    if not state_raw:
-        # State-less update callbacks must consume a TEAM_UPDATE pending record — otherwise an
-        # attacker could seed any pending state (e.g. TEAM_INSTALL) and trigger a silent link.
-        if code is not None or setup_action != "update" or cached.get("flow") != FlowKind.TEAM_UPDATE.value:
-            raise ValidationError("Invalid or expired state token", code="invalid_state")
-        param_next = None
+    # The pending slot holds only the user's latest authorize token, so a callback that carries its
+    # own token is looked up by that token. Otherwise a second connect click, in this tab or another,
+    # would invalidate the first.
+    if state_raw:
+        token, param_next = parse_github_authorize_state_param(state_raw)
     else:
-        param_token, param_next = parse_github_authorize_state_param(state_raw)
-        if param_token is not None and param_token != expected_token:
-            raise ValidationError("Invalid or expired state token", code="invalid_state")
+        pending_token = cache.get(unified_authorize_pending_cache_key(user_id))
+        token, param_next = (str(pending_token) if pending_token else None), None
 
-    cached_state = GitHubAuthorizeState.try_from_cache(expected_token, cached)
+    authorize_state = load_authorize_state(token, user_id=user_id) if token else None
+    if not token or authorize_state is None:
+        raise reject("not_found")
+
+    # State-less update callbacks must consume a TEAM_UPDATE pending record — otherwise an
+    # attacker could seed any pending state (e.g. TEAM_INSTALL) and trigger a silent link.
+    if not state_raw and (code is not None or setup_action != "update" or authorize_state.flow != FlowKind.TEAM_UPDATE):
+        raise reject("stateless_flow_mismatch")
 
     # Bind the callback to the installation the seeded state intended. The callback's
     # `installation_id` is taken from the user-controlled query string, so without this a member
     # who learns a sibling installation ID could swap it in and have an admin's pending update flow
     # link that installation into this team. Raise before consuming so a genuine callback still works.
-    if cached_state is not None and cached_state.installation_id is not None:
-        if installation_id is None or str(installation_id) != str(cached_state.installation_id):
-            raise ValidationError("Invalid or expired state token", code="invalid_state")
+    if authorize_state.installation_id is not None:
+        if installation_id is None or str(installation_id) != str(authorize_state.installation_id):
+            raise reject("installation_mismatch")
 
-    team_id = cached_state.team_id if cached_state is not None else team_id_from_next_url(cached_next)
-
-    cache.delete(unified_authorize_cache_key(expected_token))
-    cache.delete(unified_authorize_pending_cache_key(user_id))
-    return ConsumedAuthorizeState(state_token=expected_token, next_url=param_next or cached_next, team_id=team_id)
+    consume_authorize_state(token, user_id=user_id)
+    return ConsumedAuthorizeState(
+        state_token=token,
+        next_url=param_next or authorize_state.next_url or "",
+        team_id=authorize_state.team_id,
+    )

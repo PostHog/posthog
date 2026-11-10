@@ -4341,6 +4341,44 @@ class TestGitHubTeamIntegrationComplete:
         assert "github_setup_error=invalid_state" in response["Location"]
         assert not Integration.objects.filter(team=self.team, kind="github").exists()
 
+    @pytest.mark.parametrize("later_flow", [FlowKind.TEAM_INSTALL, FlowKind.PERSONAL_INSTALL])
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
+    @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
+    @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
+    @patch("posthog.api.github_callback.team_services.user_github_integration_from_installation")
+    def test_team_install_completes_after_a_later_authorize_replaces_the_pending_state(
+        self, mock_user_integration, mock_from_install, mock_from_code, mock_verify, later_flow, client: HttpClient
+    ):
+        client.force_login(self.user)
+        for token, flow in (("first-click-token", FlowKind.TEAM_INSTALL), ("second-click-token", later_flow)):
+            store_unified_authorize_state(
+                GitHubAuthorizeState(
+                    token=token,
+                    flow=flow,
+                    user_id=self.user.id,
+                    team_id=self.team.pk if flow == FlowKind.TEAM_INSTALL else None,
+                ),
+            )
+        mock_from_code.return_value = self._github_user_authorization()
+        mock_verify.return_value = True
+        mock_from_install.side_effect = lambda *args, **kwargs: self._team_github_integration()
+
+        # No `next` in the state, so the team can only come from the first click's own record.
+        response = client.get(
+            "/integrations/github/callback/",
+            {
+                "installation_id": "12345",
+                "code": "oauth-code-abc",
+                "setup_action": "install",
+                "state": urlencode({"token": "first-click-token"}),
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response["Location"].startswith(f"/project/{self.team.pk}/integrations/github")
+        assert "github_setup_error" not in response["Location"]
+        assert Integration.objects.filter(team=self.team, kind="github", integration_id="12345").exists()
+
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.github.GitHubIntegration.github_user_from_code")
     @patch("posthog.models.integration.github.GitHubIntegration.integration_from_installation_id")
@@ -5073,7 +5111,7 @@ class TestGitHubTeamIntegrationComplete:
         assert mock_from_install.call_args.args[0] == "222"
 
     def test_cross_user_state_rejected_on_unified_callback(self, client: HttpClient):
-        # State tokens are bound to a user via the pending-pointer cache key.
+        # State tokens are bound to the user who started the flow.
         # Another admin in the same team must not be able to finish a callback
         # by submitting the victim's state token.
         attacker = User.objects.create_and_join(

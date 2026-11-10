@@ -799,6 +799,13 @@ def finish_team_setup(http_request) -> FinishResult:
             team_id = user_install.team_id
 
     if team_id is None:
+        logger.warning(
+            "github_team_setup: could not resolve a team for the callback",
+            user_id=user.id,
+            setup_action=setup_action or None,
+            has_state=bool(state_raw),
+            has_code=code is not None,
+        )
         return FinishResult(
             redirect_kind="team_setup",
             next_url=next_url,
