@@ -334,6 +334,7 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
             warnings=[],
         )
     probe_base = f"https://{proxy_record.domain}"
+    errors: list[str] = []
 
     # send dummy event to check the proxy is working
     try:
@@ -363,26 +364,11 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
 
         response.raise_for_status()
 
-        # Mobile SDK majors (posthog-ios 4, posthog-android 4, posthog-flutter 6) send every event to
-        # /i/v1/analytics/events with no fallback, so a proxy that forwards /i/v0 but not /i/v1 drops
-        # all of their data. The probe carries no Authorization header, so capture rejects it with its
-        # own 4xx before ingesting anything; only a 404, 3xx or 5xx means the route doesn't reach it.
-        v1_response = requests.post(
-            f"{probe_base}/i/v1/analytics/events",
-            headers={"Content-Type": "application/json"},
-            data="{}",
-            timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
-            allow_redirects=False,
-        )
-        v1_status = v1_response.status_code
-        reached_capture = 200 <= v1_status < 300 or (400 <= v1_status < 500 and v1_status != 404)
-        if not reached_capture:
-            return CheckActivityOutput(
-                errors=[
-                    f"Proxy does not forward /i/v1/analytics/events (got {v1_status}); mobile SDKs send events there"
-                ],
-                warnings=[],
-            )
+        # A missing v1 route doesn't stop the certificate check below, so an expiring certificate
+        # is still reported alongside it.
+        v1_error = _check_capture_v1_route(probe_base)
+        if v1_error is not None:
+            errors.append(v1_error)
 
         # fetch the cert info to see how far away the expiry is - if less than 2 weeks we have a problem.
         # create_connection carries PROXY_LIVE_CHECK_TIMEOUT_S into the connect and the TLS handshake so
@@ -397,7 +383,7 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
         verdict = validate_url_and_pin_ips(f"{probe_base}/")
         if not verdict.allowed:
             return CheckActivityOutput(
-                errors=["Proxy domain does not resolve to a public address"],
+                errors=[*errors, "Proxy domain does not resolve to a public address"],
                 warnings=[],
             )
         chosen_ip = select_pinned_ip(verdict.pinned_ips)
@@ -415,10 +401,7 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
         assert isinstance(cert["notAfter"], str)
         expires_at = dt.datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
         if expires_at - dt.datetime.now(dt.UTC).replace(tzinfo=None) < dt.timedelta(days=14):
-            return CheckActivityOutput(
-                errors=["Live proxy certificate is expiring soon"],
-                warnings=[],
-            )
+            errors.append("Live proxy certificate is expiring soon")
     except requests.exceptions.Timeout:
         return CheckActivityOutput(
             errors=["Proxy did not respond within the timeout"],
@@ -461,14 +444,38 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
         # Raw-socket cert fetch failed (timeout, refused connection, TLS error). requests exceptions
         # are handled above; this catches the stdlib socket/ssl errors the cert probe can raise.
         return CheckActivityOutput(
-            errors=[f"Failed to fetch proxy certificate: {e.__class__.__name__}"],
+            errors=[*errors, f"Failed to fetch proxy certificate: {e.__class__.__name__}"],
             warnings=[],
         )
 
     return CheckActivityOutput(
-        errors=[],
+        errors=errors,
         warnings=[],
     )
+
+
+def _check_capture_v1_route(probe_base: str) -> str | None:
+    """Return an error if the proxy doesn't forward capture v1, or None if it does.
+
+    Mobile SDK majors (posthog-ios 4, posthog-android 4, posthog-flutter 6) send every event to
+    /i/v1/analytics/events with no fallback, so a proxy that forwards /i/v0 but not /i/v1 drops
+    all of their data. The probe carries no Authorization header, so capture rejects it with its
+    own 4xx before ingesting anything; only a 404, 3xx or 5xx means the route doesn't reach it.
+    """
+    try:
+        response = requests.post(
+            f"{probe_base}/i/v1/analytics/events",
+            headers={"Content-Type": "application/json"},
+            data="{}",
+            timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
+            allow_redirects=False,
+        )
+    except requests.exceptions.RequestException as e:
+        return f"Proxy does not forward /i/v1/analytics/events ({e.__class__.__name__}); mobile SDKs send events there"
+    status = response.status_code
+    if 200 <= status < 300 or (400 <= status < 500 and status != 404):
+        return None
+    return f"Proxy does not forward /i/v1/analytics/events (got {status}); mobile SDKs send events there"
 
 
 @dataclass

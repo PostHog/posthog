@@ -26,6 +26,15 @@ from posthog.temporal.proxy_service.monitor import (
 )
 
 
+def _serve_cert(mock_ssl_context: Mock, not_after: str) -> None:
+    mock_socket = Mock()
+    mock_socket.getpeercert.return_value = {"notAfter": not_after}
+    mock_wrapped_socket = Mock()
+    mock_wrapped_socket.__enter__ = Mock(return_value=mock_socket)
+    mock_wrapped_socket.__exit__ = Mock(return_value=None)
+    mock_ssl_context.return_value.wrap_socket.return_value = mock_wrapped_socket
+
+
 class TestCheckProxyIsLive(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Org")
@@ -109,25 +118,31 @@ class TestCheckProxyIsLive(TestCase):
 
     @parameterized.expand([("not_routed", 404), ("upstream_error", 502), ("redirect", 301)])
     @pytest.mark.asyncio
+    @time_machine.travel("2024-01-16 10:00:00", tick=False)
     @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
+    @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
     @patch("posthog.temporal.proxy_service.monitor.requests.post")
     @patch("posthog.temporal.proxy_service.monitor.get_record")
-    async def test_check_proxy_is_live_reports_unrouted_v1_capture(
-        self, _name, v1_status, mock_get_record, mock_post, mock_create_connection
+    async def test_check_proxy_is_live_reports_unrouted_v1_capture_and_still_checks_cert(
+        self, _name, v1_status, mock_get_record, mock_post, mock_ssl_context, mock_create_connection
     ):
         mock_get_record.return_value = self.proxy_record
         mock_post.side_effect = [
             Mock(status_code=200, raise_for_status=Mock(return_value=None)),
             Mock(status_code=v1_status),
         ]
+        mock_create_connection.return_value = MagicMock()
+        _serve_cert(mock_ssl_context, not_after="Jan 25 10:00:00 2024 GMT")
 
         result = await check_proxy_is_live(self.input)
 
         self.assertEqual(
             result.errors,
-            [f"Proxy does not forward /i/v1/analytics/events (got {v1_status}); mobile SDKs send events there"],
+            [
+                f"Proxy does not forward /i/v1/analytics/events (got {v1_status}); mobile SDKs send events there",
+                "Live proxy certificate is expiring soon",
+            ],
         )
-        mock_create_connection.assert_not_called()
 
     @parameterized.expand(
         [
