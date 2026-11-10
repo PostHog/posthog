@@ -268,6 +268,11 @@ export function editorDesignForEmail(value: Pick<EmailTemplate, 'html' | 'design
 const EMAIL_EDITOR_URL_PARAM = 'editor'
 const EMAIL_EDITOR_URL_VALUE = 'email'
 
+// For a host that navigates to a templater and wants its editor open on arrival.
+export function withEmailEditorOpen(searchParams: Record<string, any>): Record<string, any> {
+    return { ...searchParams, [EMAIL_EDITOR_URL_PARAM]: EMAIL_EDITOR_URL_VALUE }
+}
+
 // A property name reads back as `person.properties.foo` only when it is a bare identifier. Anything
 // else (spaces, a leading $, punctuation) needs bracket access. Use single quotes, never double: a
 // double quote inside an HTML attribute like a link href ends the attribute and breaks the tag, and
