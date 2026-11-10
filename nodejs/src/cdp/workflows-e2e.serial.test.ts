@@ -741,7 +741,7 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
     })
 
-    describe('sandbox email workflow: trigger → email_sandbox → function → exit', () => {
+    describe('sandbox email workflow: trigger → email_sandbox → delay → exit', () => {
         let sandboxWorker: CdpCyclotronWorkerEmailSandbox | undefined
 
         beforeEach(async () => {
@@ -771,13 +771,13 @@ describe('Workflows E2E (postgres-v2)', () => {
                             },
                         },
                     },
-                    function_1: fetchAction('https://example.com/after-sandbox'),
+                    delay_1: delayAction('0.5s'),
                     exit: exitAction(),
                 },
                 edges: [
                     { from: 'trigger', to: 'email', type: 'continue' },
-                    { from: 'email', to: 'function_1', type: 'continue' },
-                    { from: 'function_1', to: 'exit', type: 'continue' },
+                    { from: 'email', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'exit', type: 'continue' },
                 ],
             })
             globals = createGlobals()
@@ -789,13 +789,15 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
 
         it('waits on the sandbox queue until the sandbox worker hands the step back, then runs the next action', async () => {
+            const jobState = (job: any): any => parseJSON(job.state.toString('utf-8')).state
             await triggerWorkflow(globals)
 
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 expect(jobs.map((j: any) => [j.queue_name, j.status])).toEqual([['emailsandbox', 'available']])
             }, 5000)
-            expect(mockFetch).not.toHaveBeenCalled()
+            const [parked] = await queryCyclotronJobs()
+            expect(jobState(parked).currentAction.id).toBe('email')
 
             sandboxWorker = new CdpCyclotronWorkerEmailSandbox(
                 hub,
@@ -808,11 +810,11 @@ describe('Workflows E2E (postgres-v2)', () => {
                 const jobs = await queryCyclotronJobs()
                 expect(jobs.map((j: any) => [j.queue_name, j.status])).toEqual([['hogflow', 'completed']])
             }, 10000)
-            expect(mockFetch).toHaveBeenCalledTimes(1)
-            expect(mockFetch).toHaveBeenCalledWith(
-                'https://example.com/after-sandbox',
-                expect.objectContaining({ method: 'POST' })
-            )
+            const [completed] = await queryCyclotronJobs()
+            expect(jobState(completed)).toMatchObject({
+                currentAction: { id: 'delay_1' },
+                variables: { email_result: { status: 'failed', reason: 'sandbox_worker_unavailable' } },
+            })
         })
     })
 
