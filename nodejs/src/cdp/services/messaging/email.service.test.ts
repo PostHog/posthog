@@ -735,19 +735,23 @@ describe('EmailService', () => {
 
             const parkedAt = (send: TimedSend): number => send.result.invocation.queueScheduledAt!.toMillis()
 
-            // The limiter refills on Redis's clock, which a test cannot freeze. A bucket that owes a
-            // minute of tokens denies every claim in the test, however slowly the test runs.
-            const oweAMinuteOfTokens = async (count: number): Promise<void> => {
-                await limiterRedis!.useClient({ name: 'owe-tokens' }, async (client) => {
+            // The limiter refills on Redis's clock, which a test cannot freeze. A bucket in debt denies
+            // every claim until the debt refills, however slowly the test runs up to that point.
+            const oweTokens = async (tokens: number): Promise<number> => {
+                const owedAt = await limiterRedis!.useClient({ name: 'owe-tokens' }, async (client) => {
                     const [seconds, micros] = (await client.time()).map(Number)
-                    await client.hset(
+                    return seconds * 1000 + Math.floor(micros / 1000)
+                })
+                await limiterRedis!.useClient({ name: 'owe-tokens' }, (client) =>
+                    client.hset(
                         `@posthog/workflow-email-rate/${invocation.teamId}/${invocation.functionId}`,
                         'ts',
-                        seconds * 1000 + Math.floor(micros / 1000),
+                        owedAt!,
                         'pool',
-                        -count
+                        -tokens
                     )
-                })
+                )
+                return owedAt!
             }
 
             it('reschedules a denied send with its email payload and no business metric', async () => {
@@ -773,7 +777,7 @@ describe('EmailService', () => {
                 ['sub-second slots at 120 a minute', 120, 500],
             ])('parks consecutive denials exactly one slot apart: %s', async (_name, count, slotMs) => {
                 limitTo(count, 'minute')
-                await oweAMinuteOfTokens(count)
+                await oweTokens(count)
 
                 const first = await timedSend()
                 const next = [await timedSend(), await timedSend()]
@@ -784,6 +788,20 @@ describe('EmailService', () => {
                     const callMs = first.after - first.before + (denied.after - denied.before)
                     expect(Math.abs(driftMs)).toBeLessThanOrEqual(callMs + 1)
                 })
+            })
+
+            it('parks on a sub-second slot as-is, with no one second floor', async () => {
+                limitTo(120, 'minute')
+
+                for (let attempt = 0; attempt < 5; attempt++) {
+                    const slotAt = (await oweTokens(0.6)) + 800
+                    const send = await timedSend()
+                    if (!send.result.finished) {
+                        expect(Math.abs(parkedAt(send) - slotAt)).toBeLessThanOrEqual(send.after - send.before + 1)
+                        return
+                    }
+                }
+                throw new Error('The workflow sending limit never denied a send')
             })
 
             it('scatters a backlog that overflows the reservation horizon', async () => {
@@ -843,7 +861,7 @@ describe('EmailService', () => {
                 limitTo(61, 'minute')
 
                 const burst = [await timedSend(), await timedSend()]
-                await oweAMinuteOfTokens(61)
+                await oweTokens(61)
                 const denied = await timedSend()
 
                 expect(burst.map((send) => send.result.finished)).toEqual([true, true])
