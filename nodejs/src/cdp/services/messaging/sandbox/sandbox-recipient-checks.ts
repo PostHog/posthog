@@ -8,7 +8,7 @@ import { FrequencyCapCheck } from '../recipient-preferences.service'
 import { readerBeforeDeadline } from './sandbox-authorization'
 
 export const RECIPIENT_READ_TIMEOUT_MS = 2_000
-export const MAX_LATE_FREQUENCY_CAP_CHECKS = 8
+export const MAX_RUNNING_FREQUENCY_CAP_CHECKS = 8
 
 type FrequencyCapRunner = (check: () => Promise<FrequencyCapCheck>) => Promise<FrequencyCapCheck>
 
@@ -32,35 +32,57 @@ export function sandboxRecipientReads(
 }
 
 function frequencyCapRunner(timeoutMs: number): FrequencyCapRunner {
-    let late = 0
-    return async (check) => {
-        if (late >= MAX_LATE_FREQUENCY_CAP_CHECKS) {
-            logger.warn('Skipped the sandbox frequency cap check', { reason: `${late} late checks are still running` })
-            return { capped: false }
+    let running = 0
+    const waiting: (() => void)[] = []
+    const release = (): void => {
+        const next = waiting.shift()
+        if (next) {
+            next()
+        } else {
+            running -= 1
         }
-        let settled = false
-        let countedLate = false
-        const running = Promise.resolve()
-            .then(check)
-            .finally(() => {
-                settled = true
-                if (countedLate) {
-                    late -= 1
+    }
+    const acquire = (): { granted: Promise<void>; abandon: () => void } => {
+        if (running < MAX_RUNNING_FREQUENCY_CAP_CHECKS) {
+            running += 1
+            return { granted: Promise.resolve(), abandon: release }
+        }
+        let grant: () => void = () => undefined
+        const granted = new Promise<void>((resolve) => {
+            grant = resolve
+        })
+        waiting.push(grant)
+        return {
+            granted,
+            abandon: () => {
+                const index = waiting.indexOf(grant)
+                if (index >= 0) {
+                    waiting.splice(index, 1)
+                } else {
+                    release()
                 }
-            })
+            },
+        }
+    }
+
+    return async (check) => {
         let timer: NodeJS.Timeout | undefined
-        const deadline = new Promise<FrequencyCapCheck>((resolve) => {
-            timer = setTimeout(() => {
-                if (!settled) {
-                    countedLate = true
-                    late += 1
-                }
-                logger.warn('Skipped the sandbox frequency cap check', { reason: `no answer in ${timeoutMs} ms` })
-                resolve({ capped: false })
-            }, timeoutMs)
+        const deadline = new Promise<'late'>((resolve) => {
+            timer = setTimeout(() => resolve('late'), timeoutMs)
         })
         try {
-            return await Promise.race([running, deadline])
+            const slot = acquire()
+            if ((await Promise.race([slot.granted, deadline])) === 'late') {
+                slot.abandon()
+                logger.warn('Skipped the sandbox frequency cap check', { reason: 'every check slot is busy' })
+                return { capped: false }
+            }
+            const answer = await Promise.race([Promise.resolve().then(check).finally(release), deadline])
+            if (answer === 'late') {
+                logger.warn('Skipped the sandbox frequency cap check', { reason: `no answer in ${timeoutMs} ms` })
+                return { capped: false }
+            }
+            return answer
         } catch (error) {
             logger.warn('Skipped the sandbox frequency cap check', { reason: String(error) })
             return { capped: false }

@@ -18,7 +18,7 @@ import { EmailSuppressionService } from '../email-suppression.service'
 import { createFrequencyCapValkeyPool } from '../frequency-cap-valkey-pool'
 import { FrequencyCapCheck, RecipientPreferencesService } from '../recipient-preferences.service'
 import {
-    MAX_LATE_FREQUENCY_CAP_CHECKS,
+    MAX_RUNNING_FREQUENCY_CAP_CHECKS,
     SandboxRecipientCheckDependencies,
     SandboxRecipientCheckRequest,
     checkSandboxRecipient,
@@ -62,12 +62,12 @@ describe('checkSandboxRecipient', () => {
         updated_at: 0,
     }
 
-    const realFrequencyCap = (): (() => Promise<FrequencyCapCheck>) => {
+    const realFrequencyCap = (configReader: PostgresRouter = postgres): (() => Promise<FrequencyCapCheck>) => {
         const preferences = new RecipientPreferencesService(
             new RecipientsManagerService(postgres),
             new EmailSuppressionService(postgres, suppressionConfig),
             {
-                teamWorkflowsConfig: new TeamWorkflowsConfigService(postgres, hub.pubSub),
+                teamWorkflowsConfig: new TeamWorkflowsConfigService(configReader, hub.pubSub),
                 valkey,
                 persons: {
                     getCyclotronPerson: () => Promise.reject(new Error('an email cap check reads the run person')),
@@ -208,11 +208,11 @@ describe('checkSandboxRecipient', () => {
         }
     )
 
-    it('lets sends through when the cap check throws, and still caps after more failures than the late-check limit', async () => {
+    it('lets sends through when the cap check throws, and still caps after more failures than there are check slots', async () => {
         const throwing = (): Promise<FrequencyCapCheck> => {
             throw new Error('frequency cap store is down')
         }
-        for (let attempt = 0; attempt <= MAX_LATE_FREQUENCY_CAP_CHECKS; attempt++) {
+        for (let attempt = 0; attempt <= MAX_RUNNING_FREQUENCY_CAP_CHECKS; attempt++) {
             expect(await check({ frequencyCap: throwing })).toEqual({ ok: true })
         }
 
@@ -222,7 +222,7 @@ describe('checkSandboxRecipient', () => {
 
     it('caps every concurrent send to a capped person, however many run at once', async () => {
         await capThePerson()
-        const sends = Array.from({ length: MAX_LATE_FREQUENCY_CAP_CHECKS + 2 }, () => check())
+        const sends = Array.from({ length: MAX_RUNNING_FREQUENCY_CAP_CHECKS + 2 }, () => check())
 
         expect(await Promise.all(sends)).toEqual(sends.map(() => ({ ok: false, reason: 'frequency_capped' })))
     })
@@ -269,20 +269,36 @@ describe('checkSandboxRecipient', () => {
             expect(await check({ frequencyCap: realFrequencyCap() })).toEqual({ ok: true })
         })
 
-        it('skips the cap check while earlier checks past their deadline still wait, and checks again once they finish', async () => {
-            const stalled = Array.from({ length: MAX_LATE_FREQUENCY_CAP_CHECKS }, () =>
-                check({ frequencyCap: realFrequencyCap() })
+        it('starts at most eight cap checks against a stalled store, and checks again once they finish', async () => {
+            const applicationName = `sandbox-frequency-cap-${teamId}`
+            const configReader = new PostgresRouter(
+                { ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 20 },
+                applicationName
             )
-            expect(await Promise.all(stalled)).toEqual(stalled.map(() => ({ ok: true })))
-            expect(await check()).toEqual({ ok: true })
+            try {
+                const stalled = Array.from({ length: MAX_RUNNING_FREQUENCY_CAP_CHECKS + 4 }, () =>
+                    check({ frequencyCap: realFrequencyCap(configReader) })
+                )
+                expect(await Promise.all(stalled)).toEqual(stalled.map(() => ({ ok: true })))
+                await waitForExpect(async () => {
+                    const { rows } = await postgres.query(
+                        PostgresUse.COMMON_READ,
+                        `SELECT count(*)::int AS waiting FROM pg_stat_activity
+                         WHERE application_name = $1 AND wait_event_type = 'Lock'`,
+                        [applicationName],
+                        'test:frequency-cap-reads-waiting-on-lock'
+                    )
+                    expect(rows).toEqual([{ waiting: MAX_RUNNING_FREQUENCY_CAP_CHECKS }])
+                }, 3_000)
+                expect(await check()).toEqual({ ok: true })
 
-            await lockHolder.query('COMMIT')
-            await waitForExpect(async () => {
-                expect(await check()).toEqual({
-                    ok: false,
-                    reason: 'frequency_capped',
-                })
-            }, 3_000)
+                await lockHolder.query('COMMIT')
+                await waitForExpect(async () => {
+                    expect(await check()).toEqual({ ok: false, reason: 'frequency_capped' })
+                }, 3_000)
+            } finally {
+                await configReader.end()
+            }
         })
     })
 })
