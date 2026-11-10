@@ -170,17 +170,16 @@ class EmailIntegration:
 
         return self.integration
 
-    def _adopt_mail_from_subdomain_ses_uses(self, stored_mail_from_subdomain: str) -> str:
+    def _adopt_mail_from_subdomain_ses_uses(self, stored_mail_from_subdomain: str) -> None:
         from products.workflows.backend.facade.api import (
             get_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
         )
 
         ses_mail_from_subdomain = get_ses_mail_from_subdomain(self.integration.config["domain"])
         if not ses_mail_from_subdomain or ses_mail_from_subdomain == stored_mail_from_subdomain:
-            return stored_mail_from_subdomain
+            return
         patch = IntegrationPatch(config_patch={"mail_from_subdomain": ses_mail_from_subdomain})
         self.integration = model.integration_model(row_writes.update_row(self.integration, patch))
-        return ses_mail_from_subdomain
 
     def verify(self, *, on_domain_verified: Callable[[], None] | None = None) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")
@@ -194,10 +193,10 @@ class EmailIntegration:
                 verify_ses_email_domain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
             )
 
-            mail_from_subdomain = self._adopt_mail_from_subdomain_ses_uses(mail_from_subdomain)
             verification_result = verify_ses_email_domain(
                 domain, mail_from_subdomain=mail_from_subdomain, team_id=self.integration.team_id
             )
+            self._adopt_mail_from_subdomain_ses_uses(mail_from_subdomain)
         elif provider == "maildev":
             from products.workflows.backend.facade.api import (
                 get_maildev_mock_dns_records,  # noqa: PLC0415 — keeps the workflows facade off the model import path

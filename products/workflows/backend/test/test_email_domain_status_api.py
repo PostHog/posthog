@@ -329,6 +329,7 @@ class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
             assert self.verify(sender).status_code == status.HTTP_200_OK
 
         assert self.world.ses.identities[DOMAIN].mail_from_domain == f"bounce.{DOMAIN}"
+        assert Integration.objects.get(id=sender).config["mail_from_subdomain"] == "bounce"
 
     def test_a_sender_of_another_organization_is_not_found(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
