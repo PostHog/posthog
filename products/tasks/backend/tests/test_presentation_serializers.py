@@ -22,6 +22,7 @@ from posthog.temporal.oauth import (
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.contracts import TaskRepositoryState
 from products.tasks.backend.facade.model_catalogue import GatewayModel
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES,
@@ -88,6 +89,55 @@ class TestRepositoryValidationWithoutTaskData(SimpleTestCase):
 
 
 class TestTaskWriteSerializerProviderUpdates(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("legacy_repository", "example/first", [], ["example/first"]),
+            (
+                "multiple_repositories",
+                "example/first",
+                ["example/first", "example/second"],
+                ["example/first", "example/second"],
+            ),
+        ]
+    )
+    def test_repository_state_preserves_effective_repositories(self, _name, repository, repositories, expected) -> None:
+        with patch("products.tasks.backend.facade.api._visible_task_qs") as visible_tasks:
+            visible_tasks.return_value.filter.return_value.values_list.return_value.first.return_value = (
+                repository,
+                repositories,
+                2,
+                None,
+                None,
+            )
+            state = tasks_facade.get_task_repository_state("task-id", 1, 1)
+        assert state is not None
+        assert state.repositories == expected
+        assert state.github_integration == 2
+
+    def test_gitlab_switch_validates_repositories_retained_by_update(self) -> None:
+        current = TaskRepositoryState(
+            repository="example/first",
+            repositories=["example/first", "example/second"],
+            repository_integration=None,
+            github_integration=2,
+            github_user_integration=None,
+        )
+        serializer = TaskWriteSerializer(
+            instance=current,
+            data={},
+            partial=True,
+            context={"team": SimpleNamespace(id=1), "request": SimpleNamespace(user=object())},
+        )
+        with patch("products.tasks.backend.facade.api.gitlab_tasks_enabled", return_value=True):
+            with self.assertRaisesRegex(ValidationError, "Choose one GitLab project"):
+                serializer.validate(
+                    {
+                        "repository": "example/new",
+                        "repository_integration": SimpleNamespace(id=1),
+                        "github_integration": None,
+                    }
+                )
+
     @parameterized.expand(
         [
             ("gitlab_to_github", 1, None, {"github_integration": SimpleNamespace(id=2)}),
