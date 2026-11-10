@@ -363,7 +363,7 @@ Web-only routes (the web deployment is the only one whose policy holds these ops
 - The feed orders by `(updated_at, id)` and uses the `integrations_updated_at_id` index.
   `updated_at` is the start time of the writing transaction, so a row can commit after a newer row.
   The feed therefore holds back changes younger than 30 seconds, so a reader never moves its cursor past a row that is not visible yet.
-  This is safe while no write transaction lasts 30 seconds. The by-external-id writes roll back after 20 seconds to keep that true.
+  This is safe while no write transaction lasts 30 seconds. Every integration write rolls back after 20 seconds to keep that true.
 
 Errors are `{error: {code, message, details}}`:
 

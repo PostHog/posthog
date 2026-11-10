@@ -335,8 +335,8 @@ interface ChangedDbRow extends DbRow {
  * started earlier can commit after a later one, so a reader that follows the cursor could pass
  * a row that is not visible yet and never see it. The feed therefore holds back rows younger than
  * `settleSeconds`: it is safe as long as no write transaction lasts that long. A statement timeout
- * and the short write paths bound them far below the default window, and the cross-team writes
- * roll back past `CROSS_TEAM_WRITE_DEADLINE_MS`. `statement_timestamp()` is stable within the
+ * and the short write paths bound them far below the default window, and every integration write
+ * rolls back past `WRITE_DEADLINE_MS`. `statement_timestamp()` is stable within the
  * query, so the cutoff is an upper bound of the index scan rather than a per-row filter.
  */
 export async function listChangedIntegrations(db: Queryable, request: ChangeRequest): Promise<ChangedRow[]> {

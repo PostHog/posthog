@@ -57,9 +57,9 @@ const DECRYPT_CONCURRENCY = 16
 const OWNER_DELETE_BATCH = 500
 // See `listChangedIntegrations`: the longest write transaction the change feed can wait out.
 const DEFAULT_CHANGES_SETTLE_SECONDS = 30
-// A cross-team write locks every matched row and may call KMS for each. It rolls back once it
-// runs this long, so it commits well inside the settle window and the change feed cannot skip it.
-const CROSS_TEAM_WRITE_DEADLINE_MS = 20_000
+// A write may wait for locks and call KMS. It rolls back once it runs this long, so it commits
+// well inside the settle window and the change feed cannot skip it.
+const WRITE_DEADLINE_MS = 20_000
 const IDEMPOTENT_CREATE = 'create'
 // The text form Postgres prints for a timestamptz, as the list cursor carries it.
 const CURSOR_TIMESTAMP = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2}){0,2}$/
@@ -125,11 +125,11 @@ function owner(caller: Caller): IntegrationOwner {
     return tokenOwner
 }
 
-function crossTeamWriteDeadline(): () => void {
-    const deadline = Date.now() + CROSS_TEAM_WRITE_DEADLINE_MS
+function writeDeadline(): () => void {
+    const deadline = Date.now() + WRITE_DEADLINE_MS
     return () => {
         if (Date.now() > deadline) {
-            throw new Error(`cross-team write ran past ${CROSS_TEAM_WRITE_DEADLINE_MS} ms and was rolled back`)
+            throw new Error(`write ran past ${WRITE_DEADLINE_MS} ms and was rolled back`)
         }
     }
 }
@@ -287,7 +287,7 @@ export class IntegrationsService {
                       .update(canonicalJson(body as unknown as JsonValue))
                       .digest()
 
-        const result = await withTransaction(this.deps.pool, async (tx) => {
+        const result = await this.writeTransaction(async (tx) => {
             if (idempotencyKey !== null && requestHash !== null) {
                 const claim = await claimIdempotencyKey(tx, teamOwner, IDEMPOTENT_CREATE, idempotencyKey, requestHash)
                 if (claim.status === 'mismatch') {
@@ -349,7 +349,7 @@ export class IntegrationsService {
         assertKindAllowed(caller.auth, body.kind)
         const blob = body.sensitive_config as JsonObject
 
-        return withTransaction(this.deps.pool, async (tx) => {
+        return this.writeTransaction(async (tx) => {
             const existing = await lockIntegrationByKey(tx, teamOwner, body.kind, body.integration_id)
             if (!existing) {
                 const id = randomUUID()
@@ -407,7 +407,7 @@ export class IntegrationsService {
         const teamOwner = owner(caller)
         const ref = parseRef(refText)
 
-        return withTransaction(this.deps.pool, async (tx) => {
+        return this.writeTransaction(async (tx) => {
             const row = await lockIntegration(tx, teamOwner, ref)
             if (!row) {
                 throw notFound(refText)
@@ -488,7 +488,7 @@ export class IntegrationsService {
     async delete(caller: Caller, refText: string, ifMatch: number | null): Promise<void> {
         const teamOwner = owner(caller)
         const ref = parseRef(refText)
-        await withTransaction(this.deps.pool, async (tx) => {
+        await this.writeTransaction(async (tx) => {
             const row = await lockIntegration(tx, teamOwner, ref)
             if (!row) {
                 throw notFound(refText)
@@ -628,8 +628,7 @@ export class IntegrationsService {
         body: PatchBody,
         sourceRows: SourceRows
     ): Promise<{ matched: number; updated: number }> {
-        const checkDeadline = crossTeamWriteDeadline()
-        return withTransaction(this.deps.pool, async (tx) => {
+        return this.writeTransaction(async (tx, checkDeadline) => {
             const rows = await lockIntegrationsByExternalId(tx, target.kind, target.externalId, sourceRows)
             const entries: AuditEntry[] = []
             let updated = 0
@@ -648,7 +647,6 @@ export class IntegrationsService {
                 )
             }
             await insertAuditRows(tx, entries)
-            checkDeadline()
             return { matched: rows.length, updated }
         })
     }
@@ -659,8 +657,7 @@ export class IntegrationsService {
         target: ExternalIdTarget,
         sourceRows: SourceRows
     ): Promise<{ deleted: number }> {
-        const checkDeadline = crossTeamWriteDeadline()
-        return withTransaction(this.deps.pool, async (tx) => {
+        return this.writeTransaction(async (tx, checkDeadline) => {
             const rows = await lockIntegrationsByExternalId(tx, target.kind, target.externalId, sourceRows)
             const entries: AuditEntry[] = []
             for (const row of rows) {
@@ -680,7 +677,6 @@ export class IntegrationsService {
                 rows.map((row) => row.id)
             )
             await insertAuditRows(tx, entries)
-            checkDeadline()
             return { deleted: rows.length }
         })
     }
@@ -701,7 +697,7 @@ export class IntegrationsService {
 
         let deleted = 0
         for (;;) {
-            const batch = await withTransaction(this.deps.pool, async (tx) => {
+            const batch = await this.writeTransaction(async (tx) => {
                 const rows = await softDeleteOwnerBatch(tx, teamOwner, OWNER_DELETE_BATCH)
                 await deleteSecrets(
                     tx,
@@ -811,6 +807,16 @@ export class IntegrationsService {
             }
             throw err
         }
+    }
+
+    /** A write transaction that rolls back once it runs past `WRITE_DEADLINE_MS`. See `listChangedIntegrations`. */
+    private writeTransaction<T>(fn: (tx: PoolClient, checkDeadline: () => void) => Promise<T>): Promise<T> {
+        const checkDeadline = writeDeadline()
+        return withTransaction(this.deps.pool, async (tx) => {
+            const result = await fn(tx, checkDeadline)
+            checkDeadline()
+            return result
+        })
     }
 
     private pageRequest(limit: number, newestFirst: boolean, after: string | null): PageRequest {
