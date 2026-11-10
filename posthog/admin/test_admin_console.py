@@ -393,6 +393,9 @@ class TestAdminConsoleMovedUrls(SimpleTestCase):
 
         def import_contribution(module_name: str) -> None:
             if module_name == "products.broken.backend.console":
+                registry.register_moved_page(
+                    old_path="admin/broken/", title="Broken", url="/admin/console/tools/broken/"
+                )
                 raise RuntimeError("a console.py raised")
             registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/report/")
 
@@ -408,6 +411,7 @@ class TestAdminConsoleMovedUrls(SimpleTestCase):
             urlconf = URLResolver(RegexPattern(r"^/"), moved_url_patterns(registry))
 
         assert urlconf.resolve("/admin/report/").route == "admin/report/"
+        assert [moved.old_path for moved in registry.moved()] == ["admin/report/"]
         assert [(log["event"], log["module"]) for log in logs] == [
             ("admin_console_contribution_failed", "products.broken.backend.console")
         ]

@@ -157,13 +157,18 @@ class ConsoleRegistry:
     def discover(self) -> None:
         if self._discovered:
             return
-        # Each module imports on its own, so one that raises drops only its own panels, tools and moved URLs. It
-        # stays out until the process restarts, and the error log names it.
+        # Each module imports on its own, so one that raises drops only its own panels, tools and moved URLs. What it
+        # registered before raising is rolled back, so no half-built panel reaches a record page. It stays out until
+        # the process restarts, and the error log names it.
         for module_name in self.contribution_modules():
+            panels = {record: dict(panels) for record, panels in self._panels.items()}
+            tools = dict(self._tools)
+            moved = dict(self._moved)
             try:
                 importlib.import_module(module_name)
             except Exception:
                 logger.exception("admin_console_contribution_failed", module=module_name)
+                self._panels, self._tools, self._moved = panels, tools, moved
         self._discovered = True
 
 
