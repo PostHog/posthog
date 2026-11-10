@@ -8,6 +8,7 @@ import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ErrorDetail
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -27,6 +28,7 @@ from products.messaging.backend.facade.transactional_email import (
     AttachmentUploadTarget,
     DeliveryUnavailable,
     FieldNotAccepted,
+    InvalidRequest,
     MessageTooLarge,
     UploadQuotaExceeded,
     prepare_attachment_uploads,
@@ -47,6 +49,8 @@ from products.messaging.backend.presentation.views.message_templates import (
 from products.messaging.backend.presentation.views.refusals import ExplainedRefusal, RequestBodyCapMixin, request_cap
 
 logger = structlog.get_logger(__name__)
+
+SIZE_CONFLICT = "size_conflict"
 
 
 class AttachmentUploadFileSerializer(serializers.Serializer):
@@ -72,6 +76,24 @@ class AttachmentUploadsRequestSerializer(serializers.Serializer):
         help_text=f"The files one email will carry: 1 to {MAX_ATTACHMENTS}, at most {MESSAGE_LIMIT} for the "
         "whole email.",
     )
+
+    def validate_files(self, files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        size_of: dict[str, int] = {}
+        for index, file in enumerate(files):
+            if size_of.setdefault(file["sha256"], file["size"]) != file["size"]:
+                raise serializers.ValidationError(
+                    {
+                        str(index): {
+                            "size": [
+                                ErrorDetail(
+                                    "Another file in this list has the same SHA-256 and a different size.",
+                                    code=SIZE_CONFLICT,
+                                )
+                            ]
+                        }
+                    }
+                )
+        return files
 
 
 class AttachmentUploadSlotSerializer(serializers.Serializer):
@@ -128,6 +150,10 @@ _BODY_REASON = Reason(
     why="The request body is a JSON object with a `files` list.",
     fix='Send `{"files": [{"sha256": ..., "size": ...}]}`.',
 )
+_SIZE_CONFLICT_REASON = Reason(
+    why="Files with the same SHA-256 have the same bytes, so they have one size.",
+    fix="Send each file's exact size in bytes, or list the file once.",
+)
 
 
 def with_upload_reason(body: dict[str, Any]) -> dict[str, Any]:
@@ -141,6 +167,8 @@ def with_upload_reason(body: dict[str, Any]) -> dict[str, Any]:
         reason = _BODY_REASON
     elif len(path) == 1 and body.get("code") == "max_length":
         code, reason = "too_many_attachments", TOO_MANY_FILES_REASON
+    elif body.get("code") == SIZE_CONFLICT:
+        reason = _SIZE_CONFLICT_REASON
     elif len(path) == 3:
         reason = _FILE_FIELD_REASONS.get(path[2], _UNKNOWN_FILE_FIELD_REASON)
     else:
@@ -172,6 +200,16 @@ def _message_too_large(attr: str | None) -> ExplainedRefusal:
         attr=attr,
         why=MESSAGE_TOO_LARGE_REASON.why,
         fix=MESSAGE_TOO_LARGE_REASON.fix,
+    )
+
+
+def _files_the_pipeline_refused() -> ExplainedRefusal:
+    return ExplainedRefusal(
+        "PostHog's email pipeline refused this file list, so PostHog didn't prepare the uploads.",
+        code="invalid_request",
+        attr="files",
+        why="The email pipeline checks each file's SHA-256 and size, and one of them didn't pass.",
+        fix="List each file once, as `{sha256, size}` with its exact size in bytes, then send the request again.",
     )
 
 
@@ -301,6 +339,8 @@ class MessagingAttachmentsViewSet(RequestBodyCapMixin, TeamAndOrgViewSetMixin, v
             raise _message_too_large(self._size_attr(files, e.largest_file_sha256)) from None
         except UploadQuotaExceeded:
             raise _upload_quota_exceeded() from None
+        except InvalidRequest:
+            raise _files_the_pipeline_refused() from None
         except DeliveryUnavailable:
             self._report_upload(requested, outcome="unavailable", error_code="delivery_unavailable")
             raise _storage_unavailable() from None
