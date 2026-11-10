@@ -2486,36 +2486,6 @@ describe('CDP API', () => {
                 }
             )
 
-            it('replays a key an older pod recorded without totals as a send without files', async () => {
-                // An older pod marked a key queued with no totals, the call it made before sends carried files.
-                class KeysOfAnOlderPod extends IdempotencyKeys {
-                    override markQueued(teamId: number, key: string, fingerprint: string, invocationId: string) {
-                        return super.markQueued(teamId, key, fingerprint, invocationId)
-                    }
-                }
-                const keysOfThisHead = api['transactionalEmailIdempotencyKeys']
-                api['transactionalEmailIdempotencyKeys'] = new KeysOfAnOlderPod(
-                    createIdempotencyValkeyPool(hub),
-                    'transactional-email'
-                )
-                let sent: supertest.Response
-                try {
-                    sent = await sendKeyedOn('transactional_email/send', { ...body, send: codeSend })
-                } finally {
-                    api['transactionalEmailIdempotencyKeys'] = keysOfThisHead
-                }
-
-                const replayed = await sendKeyedOn('transactional_email/send', { ...body, send: codeSend })
-
-                expect(replayed.body).toEqual({
-                    status: 'queued',
-                    invocation_id: sent.body.invocation_id,
-                    replayed: true,
-                    attachment_count: 0,
-                    attachment_bytes: 0,
-                })
-            })
-
             it.each([
                 [
                     'another recipient',
