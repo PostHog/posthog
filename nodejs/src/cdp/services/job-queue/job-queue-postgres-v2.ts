@@ -143,13 +143,15 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     }
 
     public async stopConsumer(): Promise<void> {
-        await this.worker?.disconnect()
+        const worker = this.worker
         this.worker = undefined
+        await worker?.disconnect()
     }
 
     public async stopProducer(): Promise<void> {
-        await this.manager?.disconnect()
+        const manager = this.manager
         this.manager = undefined
+        await manager?.disconnect()
     }
 
     public isHealthy(): HealthCheckResult {
