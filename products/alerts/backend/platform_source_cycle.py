@@ -71,6 +71,7 @@ from products.alerts.backend.logic.destinations import configured_destination_te
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
+from products.alerts.backend.platform_firing_signal import with_firing_signal
 from products.alerts.backend.platform_insight_alert import (
     RECURRENCE,
     evaluation_alert,
@@ -522,10 +523,15 @@ def evaluate_insight_check(
             release_evaluation_slot(configuration_id, held_until=held_until, key=INFLIGHT_KEY)
     # After the slot is free, because the investigation's reads need no ClickHouse slot.
     try:
-        return with_investigation(checks[0], evaluation)
+        evaluation = with_investigation(checks[0], evaluation)
     except Exception:
         # The firing still goes out, uninvestigated, rather than the check being lost as errored.
         logger.exception("Failed to decide a platform insight firing's investigation", check_id=configuration_id)
+    try:
+        return with_firing_signal(checks[0], evaluation)
+    except Exception:
+        # The signal is best effort, so the firing goes out without one.
+        logger.exception("Failed to decide a platform insight firing's signal", check_id=configuration_id)
         return evaluation
 
 
