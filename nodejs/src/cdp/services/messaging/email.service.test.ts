@@ -753,7 +753,6 @@ describe('EmailService', () => {
                 expect(result.invocation.queueMetadata).toEqual(invocation.queueMetadata)
                 expect(parkedAt(denied)).toBeGreaterThan(denied.before)
                 expect(parkedAt(denied)).toBeLessThanOrEqual(denied.after + 2000)
-                // No business metric on a pacing delay, because the eventual send produces email_sent.
                 expect(result.metrics ?? []).toEqual([])
             })
 
@@ -762,8 +761,6 @@ describe('EmailService', () => {
                 // Flooring a sub-second slot to 1s would push the wake off its slot and onto the slot behind.
                 ['sub-second slots at 120 a minute', 120, 500],
             ])('parks consecutive denials exactly one slot apart: %s', async (_name, count, slotMs) => {
-                // A reserved slot means "your turn is at this exact time". A wake even a little
-                // earlier finds no token yet, so the send is denied again and goes to the back of the line.
                 limitTo(count, 'minute')
 
                 const first = await sendUntilDenied()
@@ -780,8 +777,7 @@ describe('EmailService', () => {
             })
 
             it('scatters a backlog that overflows the reservation horizon', async () => {
-                // At 1 an hour only the first denial gets a slot inside the one hour horizon. The
-                // sends behind it would all wake together and pile up again, so each one spreads its wake.
+                // At 1 an hour every denial after the first lands past the one hour horizon.
                 limitTo(1, 'hour')
                 await sendUntilDenied()
 
@@ -836,10 +832,7 @@ describe('EmailService', () => {
             })
 
             it('sends a burst of one second of budget, then parks only the workflow over its limit', async () => {
-                // Burst capacity is about one second of budget, not the count, so the first period
-                // cannot send about twice the limit and an idle-expired bucket cannot burst again.
-                // 61 a minute still holds 2 tokens, and refills one only after about a second,
-                // which leaves both deliveries time to finish before the third claim.
+                // 61 a minute holds 2 tokens and refills one after about a second, so both deliveries finish first.
                 limitTo(61, 'minute')
 
                 const burst = [await timedSend(), await timedSend()]
@@ -976,11 +969,7 @@ describe('EmailService', () => {
             }
 
             it.each([
-                // 200 a day refills a token every 432s, inside the one hour horizon. A reserved slot
-                // is exclusive, and spreading it would collide it with the slot behind.
                 ['parks exactly on a reserved slot', 200, 432_000, 432_000],
-                // 10 a day refills a token every 2.4 hours, past the horizon, so every overflow caller
-                // gets the same wake back and must spread itself.
                 ['spreads an overflow wake across the horizon', 10, 60 * 60 * 1000, 2 * 60 * 60 * 1000],
             ])('%s', async (_name, dailyCap, minMs, maxMs) => {
                 const cappedService = createCappedService(dailyCap)
@@ -1117,7 +1106,6 @@ describe('EmailService', () => {
                 expect(transactional.finished).toBe(true)
                 expect(transactional.invocation.queueScheduledAt).toBeUndefined()
                 expect(ses.sent).toHaveLength(2)
-                // No cap was applied, so the customer must not be told one was.
                 expect(transactional.logs.map((log) => log.message).join(' ')).not.toContain(
                     'reached its email sending limit'
                 )
