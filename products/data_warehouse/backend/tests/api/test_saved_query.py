@@ -3401,9 +3401,12 @@ class TestSavedQueryRun(APIBaseTest):
         ]
     )
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    def test_run_is_refused_soon_after_the_last_run(
+    def test_run_with_an_api_key_is_refused_soon_after_the_last_run(
         self, _name, runs, query_edited_minutes_ago, expected_status, mock_sync_connect
     ):
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(['warehouse_view:write'])}"
+        )
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
         now = timezone.now()
@@ -3432,6 +3435,52 @@ class TestSavedQueryRun(APIBaseTest):
             mock_client.start_workflow.assert_not_called()
         else:
             mock_client.start_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("single_view_completed", {}, [DataModelingJob.Status.COMPLETED], 200),
+            ("with_direction_completed", {"direction": "upstream"}, [DataModelingJob.Status.COMPLETED], 200),
+            ("single_view_running", {}, [DataModelingJob.Status.RUNNING], 409),
+            ("full_refresh_running", {"full_refresh": True}, [DataModelingJob.Status.RUNNING], 409),
+            ("with_direction_running", {"direction": "upstream"}, [DataModelingJob.Status.RUNNING], 409),
+            (
+                "with_direction_running_then_skipped",
+                {"direction": "upstream"},
+                [DataModelingJob.Status.RUNNING, DataModelingJob.Status.SKIPPED],
+                409,
+            ),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_from_a_browser_session_is_refused_only_while_a_run_is_in_progress(
+        self, _name, body, job_statuses, expected_status, mock_sync_connect
+    ):
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+        saved_query, _dag, node = self._make_saved_query_with_node("floored_view")
+        saved_query.incremental_state = {"watermark": "2026-01-01T00:00:00+00:00"}
+        saved_query.save(update_fields=["incremental_state"])
+        node.type = NodeType.MAT_VIEW
+        node.save(update_fields=["type"])
+        for minutes_ago, job_status in zip((5, 3), job_statuses):
+            job = DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=job_status,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+            )
+            DataModelingJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+            body,
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertEqual(mock_client.start_workflow.call_count, 1 if expected_status == 200 else 0)
+        if expected_status == 409:
+            saved_query.refresh_from_db()
+            self.assertEqual(saved_query.incremental_state, {"watermark": "2026-01-01T00:00:00+00:00"})
 
     @parameterized.expand(
         [
@@ -3470,7 +3519,7 @@ class TestSavedQueryRun(APIBaseTest):
         ]
     )
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    def test_run_with_direction_is_refused_only_when_every_built_view_ran_recently(
+    def test_run_with_direction_and_an_api_key_is_refused_only_when_every_built_view_ran_recently(
         self,
         _name,
         related_started_minutes_ago,
@@ -3481,6 +3530,9 @@ class TestSavedQueryRun(APIBaseTest):
         expected_retry_after,
         mock_sync_connect,
     ):
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(['warehouse_view:write'])}"
+        )
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
         now = timezone.now()
