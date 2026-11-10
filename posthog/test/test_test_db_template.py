@@ -183,5 +183,5 @@ def test_postgres_server_connects_with_the_tls_settings_of_the_django_database(t
     tls = {"sslmode": "verify-full", "sslrootcert": str(tmp_path / "missing-ca.pem")}
     server = PostgresServer.from_django({**settings.DATABASES["default"], "OPTIONS": tls})
 
-    with pytest.raises(psycopg.OperationalError):
+    with pytest.raises(psycopg.OperationalError, match=r"(?i)ssl|certificate"):
         server.database_exists("postgres")
