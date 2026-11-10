@@ -1,22 +1,28 @@
 import { ChildProcess, spawn } from 'child_process'
 import { once } from 'events'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
+import { mkdtempSync, rmSync } from 'fs'
+import net from 'net'
 import os from 'os'
 import path from 'path'
 
 import { CdpRole } from '../cards'
-import { ProcEntry, planCleanup, readProcs, strangerConflict, terminate } from './processes'
+import { ProcEntry, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { roleSpecs, secretsOf } from './roles'
-import { membersOf, startStack } from './stack'
+import { eventsConsumerGroup, membersOf, phrocsSocketPath, pingRedis, stackCommands, stackIsLive } from './stack'
 
 const SELF = 100
+const REPO = '/work/posthog'
+const NODEJS = `${REPO}/nodejs`
 const MARKED_ENV = ['PATH=/usr/bin', 'SCENARIO_RUNNER=1']
 const PLAIN_ENV = ['PATH=/usr/bin']
+const modeEnv = (mode: string): string[] => [...PLAIN_ENV, `PLUGIN_SERVER_MODE=${mode}`]
+const NODEJS_DIR = path.resolve(__dirname, '..', '..', '..')
 
-const proc = (pid: number, pgid: number, cmdline: string, environ: string[] | null): ProcEntry => ({
+const proc = (pid: number, pgid: number, cmdline: string, environ: string[] | null, cwd = NODEJS): ProcEntry => ({
     pid,
     pgid,
     cmdline,
+    cwd,
     environ,
 })
 
@@ -34,14 +40,34 @@ describe('scenario environment', () => {
                 { groups: [200], pids: [], strangers: [] },
             ],
             [
-                'an unmarked posthog-node is a stranger',
-                [proc(300, 300, 'bash ./bin/posthog-node', PLAIN_ENV)],
+                'an unmarked combined posthog-node from the repo is a stranger',
+                [proc(300, 300, 'bash ./bin/posthog-node', PLAIN_ENV, REPO)],
                 { groups: [], pids: [], strangers: [300] },
             ],
             [
-                'an unmarked tsx src/index.ts is a stranger',
-                [proc(310, 310, 'node tsx src/index.ts', PLAIN_ENV)],
+                'an unmarked combined tsx src/index.ts in the nodejs dir is a stranger',
+                [proc(310, 310, `node ${NODEJS}/node_modules/.bin/tsx watch src/index.ts`, PLAIN_ENV)],
                 { groups: [], pids: [], strangers: [310] },
+            ],
+            [
+                'an unmarked CDP-mode process is a stranger',
+                [proc(311, 311, 'node tsx src/index.ts', modeEnv('cdp-processed-events'))],
+                { groups: [], pids: [], strangers: [311] },
+            ],
+            [
+                "the workflows stack's push-api posthog-node is not a stranger",
+                [proc(312, 312, 'bash ./bin/posthog-node', modeEnv('push-api'), REPO)],
+                { groups: [], pids: [], strangers: [] },
+            ],
+            [
+                "the workflows stack's ingestion process is not a stranger",
+                [proc(313, 313, 'node tsx watch src/index.ts', modeEnv('ingestion-v2-combined'))],
+                { groups: [], pids: [], strangers: [] },
+            ],
+            [
+                "another project's tsx src/index.ts is not a stranger",
+                [proc(314, 314, 'node tsx src/index.ts', PLAIN_ENV, '/work/other-app')],
+                { groups: [], pids: [], strangers: [] },
             ],
             [
                 'an unreadable environ on a CDP entry point is a stranger, never a leftover',
@@ -50,7 +76,7 @@ describe('scenario environment', () => {
             ],
             [
                 'an unreadable environ on anything else is ignored',
-                [proc(330, 330, 'postgres: checkpointer', null)],
+                [proc(330, 330, 'postgres: checkpointer', null, '/var/lib/postgresql')],
                 { groups: [], pids: [], strangers: [] },
             ],
             [
@@ -69,13 +95,13 @@ describe('scenario environment', () => {
                 { groups: [], pids: [500], strangers: [] },
             ],
         ])('%s', (_name, entries, expected) => {
-            const plan = planCleanup([runner, ...entries], SELF)
+            const plan = planCleanup([runner, ...entries], SELF, NODEJS)
 
             expect({ ...plan, strangers: plan.strangers.map((entry) => entry.pid) }).toEqual(expected)
         })
 
         it('never targets the runner itself, even when it carries the marker', () => {
-            const plan = planCleanup([proc(SELF, SELF, 'node scenarios run smoke', MARKED_ENV)], SELF)
+            const plan = planCleanup([proc(SELF, SELF, 'node scenarios run smoke', MARKED_ENV)], SELF, NODEJS)
 
             expect(plan).toEqual({ groups: [], pids: [], strangers: [] })
         })
@@ -83,7 +109,7 @@ describe('scenario environment', () => {
 
     it('names the stop command for every stranger', () => {
         const error = strangerConflict([
-            proc(41, 41, 'bash ./bin/posthog-node', PLAIN_ENV),
+            proc(41, 41, 'bash ./bin/posthog-node', PLAIN_ENV, REPO),
             proc(42, 41, 'node src/index.ts', PLAIN_ENV),
         ])
 
@@ -155,25 +181,120 @@ describe('scenario environment', () => {
         expect(membersOf(output)).toBe(members)
     })
 
-    it('starts the stack from its own config, without the combined Node process or the orphan sweep', async () => {
-        const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'scenario-repo-'))
-        const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
-        const calls = path.join(repoRoot, 'calls')
-        mkdirSync(path.join(repoRoot, 'bin'))
-        writeFileSync(
-            path.join(repoRoot, 'bin', 'hogli'),
-            `#!/bin/sh\necho "$HOGLI_MPROCS_PATH|$HOGLI_SKIP_ZOMBIE_CHECK|$*" >> ${calls}\n`,
-            { mode: 0o755 }
-        )
+    it.each<[string, NodeJS.ProcessEnv, string]>([
+        ['the default group', {}, 'cdp-processed-events-consumer'],
+        ['a group the runner env overrides', { CDP_EVENTS_CONSUMER_GROUP_ID: 'scenario-events' }, 'scenario-events'],
+    ])('checks the events role for %s', (_name, env, group) => {
+        expect(eventsConsumerGroup(roleSpecs(env, 'http://edge', secretsOf({})))).toBe(group)
+    })
 
-        await startStack(repoRoot, stateDir, process.env)
+    it.each<[string, boolean, string[]]>([
+        ['launches a stack when none is live', false, ['dev:generate', 'up', 'wait']],
+        ['reuses a live stack and only waits for it', true, ['wait']],
+    ])('%s', (_name, live, commands) => {
+        expect(stackCommands('/state/mprocs.yaml', live).map(([command]) => command)).toEqual(commands)
+    })
 
-        const config = path.join(stateDir, 'mprocs.yaml')
-        expect(readFileSync(calls, 'utf8').trim().split('\n')).toEqual([
-            `${config}|1|dev:generate --with workflows --without nodejs`,
-            `${config}|1|up -d --custom ${config}`,
-            `${config}|1|wait`,
-        ])
+    describe('detached stack liveness', () => {
+        const children: ChildProcess[] = []
+        const servers: net.Server[] = []
+        const sockets: string[] = []
+
+        afterEach(async () => {
+            children.splice(0).forEach((child) => child.kill('SIGKILL'))
+            sockets.splice(0).forEach((socket) => rmSync(socket, { force: true }))
+            await Promise.all(servers.splice(0).map((server) => new Promise((resolve) => server.close(resolve))))
+        })
+
+        const listenAt = async (socket: string): Promise<void> => {
+            const server = net.createServer()
+            servers.push(server)
+            await new Promise<void>((resolve) => server.listen(socket, resolve))
+        }
+
+        const leaveStaleSocketAt = async (socket: string): Promise<void> => {
+            const child = spawn(
+                process.execPath,
+                [
+                    '-e',
+                    `require('net').createServer().listen(${JSON.stringify(socket)}, () => process.stdout.write('up'))`,
+                ],
+                {
+                    stdio: ['ignore', 'pipe', 'ignore'],
+                }
+            )
+            children.push(child)
+            await once(child.stdout!, 'data')
+            child.kill('SIGKILL')
+            await once(child, 'exit')
+        }
+
+        it.each<[string, (socket: string) => Promise<void>, boolean]>([
+            ['a phrocs socket that answers is live', listenAt, true],
+            ['a socket file a killed phrocs left behind is not live', leaveStaleSocketAt, false],
+            ['no socket is not live', async () => {}, false],
+        ])('%s', async (_name, arrange, live) => {
+            const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'scenario-repo-'))
+            const socket = phrocsSocketPath(repoRoot)
+            sockets.push(socket)
+            await arrange(socket)
+
+            expect(await stackIsLive(repoRoot)).toBe(live)
+        })
+    })
+
+    it('reports a Redis that accepts but never answers as down instead of hanging', async () => {
+        const silent = net.createServer(() => {})
+        await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
+        const { port } = silent.address() as net.AddressInfo
+        try {
+            await expect(pingRedis({ host: '127.0.0.1', port })).rejects.toThrow()
+        } finally {
+            silent.close()
+        }
+    }, 4_000)
+
+    describe('run lock', () => {
+        const children: ChildProcess[] = []
+
+        afterEach(() => children.splice(0).forEach((child) => child.kill('SIGKILL')))
+
+        const lockFromAnotherRunner = async (stateDir: string): Promise<{ child: ChildProcess; said: string }> => {
+            const child = spawn(
+                process.execPath,
+                [
+                    '--import',
+                    'tsx',
+                    '-e',
+                    `try { require('./tests/scenarios/environment/processes').holdRunLock(${JSON.stringify(stateDir)}); process.stdout.write('held') }
+                     catch (error) { process.stdout.write(error.message) }
+                     setInterval(() => {}, 1000)`,
+                ],
+                { cwd: NODEJS_DIR, stdio: ['ignore', 'pipe', 'inherit'] }
+            )
+            children.push(child)
+            const [said] = await once(child.stdout!, 'data')
+            return { child, said: String(said) }
+        }
+
+        it('refuses a state dir a live runner holds, naming it, and takes it over once that runner dies', async () => {
+            const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
+            const other = await lockFromAnotherRunner(stateDir)
+            expect(other.said).toBe('held')
+
+            expect(() => holdRunLock(stateDir)).toThrow(`Scenario runner ${other.child.pid} is already running`)
+
+            other.child.kill('SIGKILL')
+            await once(other.child, 'exit')
+            expect(() => holdRunLock(stateDir)).not.toThrow()
+        }, 20_000)
+
+        it('frees the state dir for the next runner when released', async () => {
+            const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
+            holdRunLock(stateDir)()
+
+            expect((await lockFromAnotherRunner(stateDir)).said).toBe('held')
+        }, 20_000)
     })
 
     describe('leftover scan on real processes', () => {
@@ -211,7 +332,7 @@ describe('scenario environment', () => {
             const marked = await launch(roleEnv.env)
             const unmarked = await launch(plainEnv)
 
-            const plan = planCleanup(readProcs(), process.pid)
+            const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR)
             expect(plan.groups).toContain(marked.pid)
             expect([...plan.groups, ...plan.pids]).not.toContain(unmarked.pid)
 

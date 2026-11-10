@@ -1,13 +1,15 @@
 import { ChildProcess, spawn } from 'child_process'
-import { closeSync, existsSync, mkdirSync, openSync } from 'fs'
+import { closeSync, existsSync, mkdirSync, openSync, realpathSync } from 'fs'
 import os from 'os'
 import path from 'path'
 
+import { waitForExpect } from '~/tests/helpers/expectations'
+
 import { ROLE_RESTART_BACKOFF_MS } from '../cards'
 import { ProviderEdge, startProviderEdge } from '../provider-edge'
-import { StackConflictError, planCleanup, readProcs, strangerConflict, terminate } from './processes'
+import { StackConflictError, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ROLE_PORTS, Role, RoleSpec, roleSpecs, secretsOf } from './roles'
-import { STACK, downServices, eventsGroupMembers, missingTemplates, poll, startStack } from './stack'
+import { downServices, eventsConsumerGroup, groupMembers, missingTemplates, startStack } from './stack'
 
 export interface Environment {
     up(): Promise<void>
@@ -21,33 +23,28 @@ export type RoleHandle = { name: Role; metricsUrl: string }
 
 export type RoleExit = { role: Role; at: string; code: number | null; signal: string | null; byValve: boolean }
 
-export type EnvironmentOptions = {
-    repoRoot?: string
-    stateDir?: string
-    env?: NodeJS.ProcessEnv
-    edgePort?: number
-    templatesWithinMs?: number
-    groupDrainsWithinMs?: number
-    stopGraceMs?: number
-}
-
-const NODEJS_DIR = path.resolve(__dirname, '..', '..', '..')
+const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
+const REPO_ROOT = path.dirname(NODEJS_DIR)
 const TSX = path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx')
+const EDGE_PORT = 4566
+const TEMPLATES_WITHIN_MS = 120_000
+const GROUP_DRAINS_WITHIN_MS = 60_000
+const STOP_GRACE_MS = 10_000
+const PROBE_INTERVAL_MS = 1000
 
 export function defaultStateDir(env: NodeJS.ProcessEnv): string {
     return path.join(env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'posthog-scenarios')
 }
 
-export function createEnvironment(options: EnvironmentOptions = {}): Environment {
-    const env = options.env ?? process.env
-    const repoRoot = options.repoRoot ?? path.dirname(NODEJS_DIR)
-    const stateDir = options.stateDir ?? defaultStateDir(env)
-    const stopGraceMs = options.stopGraceMs ?? 10_000
+export function createEnvironment(): Environment {
+    const env = process.env
+    const stateDir = defaultStateDir(env)
     const secrets = secretsOf(env)
     const children = new Map<Role, ChildProcess>()
     const restarts = new Set<NodeJS.Timeout>()
     const recorded: RoleExit[] = []
     let edge: ProviderEdge | undefined
+    let releaseLock: (() => void) | undefined
     let stopping = false
 
     const start = (spec: RoleSpec): void => {
@@ -82,33 +79,44 @@ export function createEnvironment(options: EnvironmentOptions = {}): Environment
                 throw new Error(`No tsx at ${TSX}; install the nodejs package first.`)
             }
             mkdirSync(stateDir, { recursive: true })
+            releaseLock = holdRunLock(stateDir)
             stopping = false
-            const plan = planCleanup(readProcs(), process.pid)
+            const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR)
             if (plan.strangers.length > 0) {
                 throw strangerConflict(plan.strangers)
             }
-            await terminate(plan, stopGraceMs)
-            await startStack(repoRoot, stateDir, env)
+            await terminate(plan, STOP_GRACE_MS)
+            await startStack(REPO_ROOT, stateDir, env)
+            const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets)
+            const group = eventsConsumerGroup(specs)
             const killedLeftovers = plan.groups.length + plan.pids.length > 0
-            const drained = await poll(
-                async () => ((await eventsGroupMembers()) === 0 ? true : undefined),
-                killedLeftovers ? (options.groupDrainsWithinMs ?? 60_000) : 0
+            await waitForExpect(
+                async () => {
+                    if ((await groupMembers(group)) > 0) {
+                        throw new StackConflictError(
+                            `The CDP events consumer group ${group} has a member the runner did not start.`,
+                            'hogli down'
+                        )
+                    }
+                },
+                killedLeftovers ? GROUP_DRAINS_WITHIN_MS : 0,
+                PROBE_INTERVAL_MS
             )
-            if (!drained) {
-                throw new StackConflictError(
-                    `The CDP events consumer group ${STACK.eventsConsumerGroup} has a member the runner did not start.`,
-                    'hogli down'
-                )
-            }
-            const templates = await poll(
-                async () => ((await missingTemplates()).length === 0 ? true : undefined),
-                options.templatesWithinMs ?? 120_000
+            edge = await startProviderEdge({ port: EDGE_PORT, trackingKeys: secrets.encryptionSaltKeys })
+            specs.filter((spec) => spec.role === 'cdp-api').forEach(start)
+            await waitForExpect(
+                async () => {
+                    const missing = await missingTemplates()
+                    if (missing.length > 0) {
+                        throw new Error(
+                            `Django has not synced the templates ${missing.join(', ')}; run \`hogli dev:sync-hog-templates\`.`
+                        )
+                    }
+                },
+                TEMPLATES_WITHIN_MS,
+                PROBE_INTERVAL_MS
             )
-            if (!templates) {
-                throw new Error(`Django has not synced the templates ${(await missingTemplates()).join(', ')}.`)
-            }
-            edge = await startProviderEdge({ port: options.edgePort ?? 4566, trackingKeys: secrets.encryptionSaltKeys })
-            roleSpecs(env, edge.url, secrets).forEach(start)
+            specs.filter((spec) => spec.role !== 'cdp-api').forEach(start)
         },
 
         role: (name) => ({ name, metricsUrl: `http://127.0.0.1:${ROLE_PORTS[name]}/_metrics` }),
@@ -126,9 +134,11 @@ export function createEnvironment(options: EnvironmentOptions = {}): Environment
             restarts.clear()
             const groups = [...children.values()].flatMap((child) => (child.pid ? [child.pid] : []))
             children.clear()
-            await terminate({ groups, pids: [] }, stopGraceMs)
+            await terminate({ groups, pids: [] }, STOP_GRACE_MS)
             await edge?.close()
             edge = undefined
+            releaseLock?.()
+            releaseLock = undefined
         },
     }
 }
