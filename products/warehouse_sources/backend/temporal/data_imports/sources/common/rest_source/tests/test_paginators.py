@@ -246,15 +246,6 @@ class TestPageNumberPaginator:
         p.update_state(resp, data=[])
         assert p.has_next_page is False
 
-    def test_stops_on_short_page_when_page_size_set(self) -> None:
-        p = PageNumberPaginator(base_page=1, page=1, page_size=2)
-        resp = _make_response({})
-        p.update_state(resp, data=[{"id": 1}, {"id": 2}])
-        assert p.has_next_page is True
-        p.update_state(resp, data=[{"id": 3}])
-        assert p.page == 3
-        assert p.has_next_page is False
-
 
 class TestSingleEntityPath:
     @pytest.mark.parametrize(

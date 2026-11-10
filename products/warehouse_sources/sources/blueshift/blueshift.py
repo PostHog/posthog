@@ -126,7 +126,7 @@ class BlueshiftPagePaginator(PageNumberPaginator):
     def __init__(
         self, endpoint: str, primary_keys: list[str], emitted: _EmittedKeys, replay_page: Optional[int]
     ) -> None:
-        super().__init__(base_page=FIRST_PAGE, page_param="page", page_size=PAGE_SIZE)
+        super().__init__(base_page=FIRST_PAGE, page_param="page")
         self._endpoint = endpoint
         self._primary_keys = primary_keys
         self._seen: set[tuple[Any, ...]] = set()
@@ -147,6 +147,8 @@ class BlueshiftPagePaginator(PageNumberPaginator):
             self._has_next_page = False
             return
         super().update_state(response, data)
+        if data is not None and len(data) < PAGE_SIZE:
+            self._has_next_page = False
 
 
 def _first_sighting(primary_keys: list[str], emitted: _EmittedKeys) -> Callable[[dict[str, Any]], bool]:

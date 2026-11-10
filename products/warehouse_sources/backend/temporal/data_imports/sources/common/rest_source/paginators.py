@@ -349,7 +349,6 @@ class PageNumberPaginator(BasePaginator):
         maximum_page: Optional[int] = None,
         stop_after_empty_page: bool = True,
         param_location: ParamLocation = "query",
-        page_size: Optional[int] = None,
     ) -> None:
         super().__init__()
         self.base_page = base_page
@@ -361,8 +360,6 @@ class PageNumberPaginator(BasePaginator):
         self.maximum_page = maximum_page
         self.stop_after_empty_page = stop_after_empty_page
         self.param_location = param_location
-        # A short page is the last one, for APIs that never return an empty page.
-        self.page_size = page_size
 
     def init_request(self, request: Request) -> None:
         _inject_param(request, self.param_location, self.page_param, self.page)
@@ -373,10 +370,6 @@ class PageNumberPaginator(BasePaginator):
             return
 
         self.page += 1
-
-        if self.page_size is not None and data is not None and len(data) < self.page_size:
-            self._has_next_page = False
-            return
 
         if self.maximum_page is not None and self.page > self.maximum_page:
             self._has_next_page = False
