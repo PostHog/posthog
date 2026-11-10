@@ -1770,18 +1770,18 @@ describe('EmailService', () => {
             it.each(['preheader', 'subject'])(
                 'sends nothing and fails as message_too_large when the %s carries the final message past the size limit',
                 async (field) => {
-                    sesAccepts()
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
+                        to: { email: recipient, name: 'Test User' },
                         attachments: [pdf.metadata],
                         [field]: 'x'.repeat((MESSAGE_MAX_BYTES * 3) / 4),
                     })
 
-                    const result = await service.executeSendEmail(invocation)
+                    const result = await sender().executeSendEmail(invocation)
 
-                    expect(sendEmailSpy).not.toHaveBeenCalled()
                     expect(result.finished).toBe(true)
                     expect(result.error).toMatch(/^message_too_large: /)
+                    expect(ses.delivered).toEqual([])
                 }
             )
 

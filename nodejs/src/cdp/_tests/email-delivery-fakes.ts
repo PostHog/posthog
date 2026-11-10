@@ -1,11 +1,13 @@
 import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { IncomingMessage, Server, ServerResponse, createServer, request as httpRequest } from 'node:http'
-import { AddressInfo } from 'node:net'
+import { AddressInfo, Socket, connect, createServer as createTcpServer } from 'node:net'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
 import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
+import { CyclotronJobQueuePostgresV2 } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { AttachmentStore, buildAttachmentStore } from '~/cdp/services/messaging/attachment-store'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '~/cdp/types'
 import { parseJSON } from '~/common/utils/json-parse'
 
 export const attachmentStoreConfig = {
@@ -17,9 +19,9 @@ export const attachmentStore = buildAttachmentStore(attachmentStoreConfig)!
 export type StoredFile = { bytes: Buffer; metadata: EmailAttachmentMetadata }
 
 export const attachmentFile = (
-    ref: Omit<Partial<EmailAttachmentMetadata>, 'sha256' | 'sizeBytes'> = {}
+    ref: Omit<Partial<EmailAttachmentMetadata>, 'sha256' | 'sizeBytes'> = {},
+    bytes: Buffer = Buffer.from(`%PDF-1.4 ${randomBytes(16).toString('hex')}`)
 ): StoredFile => {
-    const bytes = Buffer.from(`%PDF-1.4 ${randomBytes(16).toString('hex')}`)
     return {
         bytes,
         metadata: {
@@ -33,9 +35,10 @@ export const attachmentFile = (
 
 export const uploadAttachment = async (
     teamId: number,
-    ref: Omit<Partial<EmailAttachmentMetadata>, 'sha256' | 'sizeBytes'>
+    ref: Omit<Partial<EmailAttachmentMetadata>, 'sha256' | 'sizeBytes'>,
+    bytes?: Buffer
 ): Promise<StoredFile> => {
-    const file = attachmentFile(ref)
+    const file = attachmentFile(ref, bytes)
     const [slot] = await attachmentStore.prepareUploads(teamId, [
         { sha256: file.metadata.sha256, size: file.bytes.length },
     ])
@@ -189,12 +192,15 @@ export class SesV2Fake {
     }
 }
 
-export type BucketAnswer = 'pass' | 'refuse' | 'hold' | 'holdFilesItHas' | 'stallFileBodies'
+export type BucketAnswer = 'pass' | 'refuse' | 'hold' | 'holdCopies' | 'holdFilesItHas' | 'stallFileBodies'
 
 // Sits between the attachment store and the real bucket to fail or hold its requests on demand, which the
 // shared bucket cannot do without disturbing everyone else using it.
 export class BucketProxy {
     answer: BucketAnswer = 'pass'
+    // The bucket cannot age a file it just stored, so HEAD answers report it last modified this long before.
+    lastModifiedAgeMs = 0
+    requests = 0
     abandonedRequests = 0
     downloads = 0
     endpoint = ''
@@ -239,6 +245,7 @@ export class BucketProxy {
                 this.abandonedRequests++
             }
         })
+        this.requests++
         if (request.method === 'GET') {
             this.downloads++
         }
@@ -253,7 +260,7 @@ export class BucketProxy {
             request.socket.destroy()
             return
         }
-        if (this.answer === 'hold') {
+        if (this.answer === 'hold' || (this.answer === 'holdCopies' && request.headers['x-amz-copy-source'])) {
             this.held.push(() => this.answerRequest(request, response))
             return
         }
@@ -275,6 +282,11 @@ export class BucketProxy {
                 if (fileItHas && this.answer === 'holdFilesItHas') {
                     answer.resume()
                     return
+                }
+                if (request.method === 'HEAD' && this.lastModifiedAgeMs && answer.headers['last-modified']) {
+                    answer.headers['last-modified'] = new Date(
+                        Date.parse(answer.headers['last-modified']) - this.lastModifiedAgeMs
+                    ).toUTCString()
                 }
                 response.writeHead(answer.statusCode!, answer.headers)
                 if (fileItHas && this.answer === 'stallFileBodies') {
@@ -299,3 +311,154 @@ export const sesClientWith = (overrides: Partial<ConstructorParameters<typeof SE
         credentials: { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' },
         ...overrides,
     })
+
+// The email worker sends a job only while it sits on the email queue, and other suites and runs share that
+// queue in this database. So each test's jobs live on queues only that test polls, and its worker sees them
+// as email jobs.
+export class EmailQueueOfOneTest extends CyclotronJobQueuePostgresV2 {
+    constructor(
+        private readonly queueName: string,
+        config: ConstructorParameters<typeof CyclotronJobQueuePostgresV2>[1]
+    ) {
+        super(10, config)
+    }
+
+    public override startAsConsumer(
+        _queue: CyclotronJobQueueKind,
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+    ): Promise<void> {
+        return super.startAsConsumer(this.queueName as CyclotronJobQueueKind, (invocations) =>
+            consumeBatch(invocations.map((invocation) => ({ ...invocation, queue: 'email' })))
+        )
+    }
+
+    public override queueInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
+        return super.queueInvocations(invocations.map((invocation) => this.onOwnQueue(invocation)))
+    }
+
+    public override queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
+        return super.queueInvocationResults(
+            results.map((result) => ({ ...result, invocation: this.onOwnQueue(result.invocation) }))
+        )
+    }
+
+    private onOwnQueue(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
+        const queue = invocation.queue === 'email' ? this.queueName : `${this.queueName}/${invocation.queue}`
+        return { ...invocation, queue: queue as CyclotronJobQueueKind }
+    }
+}
+
+export type HeldQuery = { release: () => void; drop: () => void }
+
+const SSL_REQUEST = 80877103
+const GSS_ENCRYPTION_REQUEST = 80877104
+const ENDS_A_REQUEST = new Set(['S', 'Q', 'X', 'p', 'H', 'c', 'f'])
+
+// Holds a query whose SQL and parameters match before Postgres sees it, so one query waits, or fails once
+// dropped, while every other query still runs. A lock inside Postgres would hold a job's heartbeat beside its
+// write, because both take the job's row.
+export class PostgresProxy {
+    url = ''
+    private readonly waiting: { matches: (request: string) => boolean; caught: (held: HeldQuery) => void }[] = []
+    private readonly holding = new Set<HeldQuery>()
+    private readonly sockets = new Set<Socket>()
+    private readonly server = createTcpServer((client) => this.forward(client))
+
+    static async start(upstream: URL): Promise<PostgresProxy> {
+        const proxy = new PostgresProxy(upstream)
+        await new Promise<void>((resolve) => proxy.server.listen(0, '127.0.0.1', resolve))
+        const url = new URL(upstream)
+        url.host = `127.0.0.1:${(proxy.server.address() as AddressInfo).port}`
+        proxy.url = url.toString()
+        return proxy
+    }
+
+    private constructor(private readonly upstream: URL) {}
+
+    hold(matches: (request: string) => boolean): Promise<HeldQuery> {
+        return new Promise((caught) => this.waiting.push({ matches, caught }))
+    }
+
+    releaseAll(): void {
+        this.waiting.splice(0)
+        for (const held of this.holding) {
+            held.release()
+        }
+    }
+
+    async close(): Promise<void> {
+        for (const socket of this.sockets) {
+            socket.destroy()
+        }
+        await new Promise((resolve) => this.server.close(resolve))
+    }
+
+    private forward(client: Socket): void {
+        const upstream = connect(Number(this.upstream.port || 5432), this.upstream.hostname)
+        for (const socket of [client, upstream]) {
+            this.sockets.add(socket)
+            socket.on('error', () => undefined)
+            socket.on('close', () => {
+                client.destroy()
+                upstream.destroy()
+            })
+        }
+        upstream.pipe(client)
+
+        let unread = Buffer.alloc(0)
+        let request: Buffer[] = []
+        let startedUp = false
+        let paused = false
+        const forwardRequests = (): void => {
+            while (!paused) {
+                const typeBytes = startedUp ? 1 : 0
+                if (unread.length < typeBytes + 4) {
+                    return
+                }
+                const length = typeBytes + unread.readInt32BE(typeBytes)
+                if (unread.length < length) {
+                    return
+                }
+                const message = unread.subarray(0, length)
+                unread = unread.subarray(length)
+                if (!startedUp) {
+                    const code = message.readInt32BE(4)
+                    startedUp = code !== SSL_REQUEST && code !== GSS_ENCRYPTION_REQUEST
+                    upstream.write(message)
+                    continue
+                }
+                request.push(message)
+                if (!ENDS_A_REQUEST.has(String.fromCharCode(message[0]))) {
+                    continue
+                }
+                const whole = Buffer.concat(request)
+                request = []
+                const index = this.waiting.findIndex(({ matches }) => matches(whole.toString('latin1')))
+                if (index === -1) {
+                    upstream.write(whole)
+                    continue
+                }
+                const [{ caught }] = this.waiting.splice(index, 1)
+                paused = true
+                const held: HeldQuery = {
+                    release: () => {
+                        this.holding.delete(held)
+                        upstream.write(whole)
+                        paused = false
+                        forwardRequests()
+                    },
+                    drop: () => {
+                        this.holding.delete(held)
+                        client.destroy()
+                    },
+                }
+                this.holding.add(held)
+                caught(held)
+            }
+        }
+        client.on('data', (chunk: Buffer) => {
+            unread = Buffer.concat([unread, chunk])
+            forwardRequests()
+        })
+    }
+}

@@ -2,11 +2,11 @@
 import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
-import { CopyObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
 import { DateTime } from 'luxon'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { Pool } from 'pg'
 import { Counter, register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
@@ -16,11 +16,12 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
-import { InternalPersonWithDistinctId } from '~/common/persons/repositories/person-repository'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { UUIDT } from '~/common/utils/utils'
@@ -31,6 +32,17 @@ import { forSnapshot } from '../../tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from './_tests/builders/hogflow.builder'
+import {
+    BucketProxy,
+    EmailQueueOfOneTest,
+    HeldQuery,
+    PostgresProxy,
+    SesV2Fake,
+    StoredFile,
+    attachmentFile,
+    attachmentStoreConfig,
+    uploadAttachment,
+} from './_tests/email-delivery-fakes'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import {
     insertHogFunction as _insertHogFunction,
@@ -42,6 +54,7 @@ import { insertHogFlow as _insertHogFlow, hideHogFlowsFromReplica } from './_tes
 import { CdpApi } from './cdp-api'
 import { getDefaultCdpConfig } from './config'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
+import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
 import {
@@ -51,17 +64,16 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { SEND_NEEDS_FILES_FOR_MS } from './services/messaging/attachment-horizon'
 import {
     ATTACHMENT_LIFETIME_MS,
-    AcceptedForSend,
+    DAY_MS,
     S3AttachmentStore,
     buildAttachmentStore,
 } from './services/messaging/attachment-store'
-import {
-    ATTACHMENT_VERIFICATION_DEADLINE_MS,
-    AttachmentUploads,
-} from './services/messaging/attachment-uploads'
+import { ATTACHMENT_VERIFICATION_DEADLINE_MS, AttachmentUploads } from './services/messaging/attachment-uploads'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
+import { InFlightRegistry } from './services/messaging/in-flight-registry'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './services/messaging/message-estimate'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { template as emailTemplate } from './templates/_destinations/email/email.template'
@@ -2329,54 +2341,10 @@ describe('CDP API', () => {
             tracking: { captureEngagement: true },
         }
 
-        type StoredFile = { bytes: Buffer; sha256: string; size: number }
-        const fileOf = (bytes: Buffer): StoredFile => ({
-            bytes,
-            sha256: createHash('sha256').update(bytes).digest('hex'),
-            size: bytes.length,
-        })
-        const freshFile = () => fileOf(Buffer.from(`%PDF-1.4 ${randomBytes(16).toString('hex')}`))
-        const invoice = fileOf(Buffer.from('%PDF-1.4 invoice fixture'))
-        const receipt = fileOf(Buffer.from('%PDF-1.4 receipt fixture'))
-        const reference = ({ sha256 }: StoredFile) => ({
-            sha256,
-            filename: 'invoice.pdf',
-            content_type: 'application/pdf',
-        })
-        let attachmentStore: S3AttachmentStore
-        const storeFile = async (teamId: number, file: StoredFile): Promise<void> => {
-            const [slot] = await attachmentStore.prepareUploads(teamId, [{ sha256: file.sha256, size: file.size }])
-            if (slot.status === 'upload') {
-                const put = await globalThis.fetch(slot.url, {
-                    method: slot.method,
-                    headers: slot.headers,
-                    body: new Uint8Array(file.bytes),
-                })
-                expect(put.status).toBe(200)
-            }
-        }
-        const attachmentsFor = (teams: string, store: S3AttachmentStore | null = attachmentStore) =>
-            new AttachmentUploads(store, null, { teams, maxBytesPerTeamDay: 1 })
-
-        beforeAll(async () => {
-            attachmentStore = buildAttachmentStore({
-                ...getDefaultCdpConfig(),
-                CDP_EMAIL_ATTACHMENTS_S3_PREFIX: `attachments-send-test/${Date.now()}`,
-            })!
-            await storeFile(team.id, invoice)
-            await storeFile(team.id, receipt)
-        })
-
-        afterAll(() => {
-            attachmentStore.s3.destroy()
-        })
-
         beforeEach(async () => {
-            api['attachmentUploads'] = attachmentsFor(`${team.id}`)
             produceOutput = jest.spyOn(api['emailStatusService']['outputs'], 'produce')
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
             api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
-            await insertHogFunctionTemplate(hub.postgres, emailTemplate)
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
             // The fixtures send to example.com, which publishes a null MX. Without this every send is refused.
             jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockResolvedValue(null)
@@ -2501,12 +2469,6 @@ describe('CDP API', () => {
                     { ...body, send: addresslessSend },
                     { ...body, send: addresslessSend },
                 ],
-                [
-                    'a code send with files',
-                    'transactional_email/send',
-                    { ...body, send: { ...codeSend, attachments: [reference(invoice)] } },
-                    { ...body, send: { ...codeSend, attachments: [reference(invoice)] } },
-                ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
                 async (_desc, route, first, retry) => {
@@ -2525,12 +2487,14 @@ describe('CDP API', () => {
             )
 
             it('replays a key an older pod recorded without totals as a send without files', async () => {
-                const keys = api['transactionalEmailIdempotencyKeys']
-                const recordLikeAnOlderPod = keys.markQueued.bind(keys)
-                jest.spyOn(keys, 'markQueued').mockImplementationOnce((teamId, key, fingerprint, invocationId) =>
-                    recordLikeAnOlderPod(teamId, key, fingerprint, invocationId)
-                )
                 const sent = await sendKeyedOn('transactional_email/send', { ...body, send: codeSend })
+                const keyHash = createHash('sha256').update(String(keyed.idempotency_key)).digest('hex')
+                const record = `@posthog/idempotency/transactional-email/${team.id}/${keyHash}`
+                await createIdempotencyValkeyPool(hub)!.useClient({ name: 'older-pod-record' }, async (client) => {
+                    const { replayFields, ...writtenByAnOlderPod } = parseJSON((await client.get(record))!)
+                    expect(replayFields).toEqual({ attachment_count: 0, attachment_bytes: 0 })
+                    await client.set(record, JSON.stringify(writtenByAnOlderPod), 'EX', await client.ttl(record))
+                })
 
                 const replayed = await sendKeyedOn('transactional_email/send', { ...body, send: codeSend })
 
@@ -2579,11 +2543,6 @@ describe('CDP API', () => {
                     'a changed cc',
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['manager@example.com'] } }],
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['someone-else@example.com'] } }],
-                ],
-                [
-                    'other files',
-                    ['transactional_email/send', { ...body, send: { ...codeSend, attachments: [reference(invoice)] } }],
-                    ['transactional_email/send', { ...body, send: { ...codeSend, attachments: [reference(receipt)] } }],
                 ],
             ] as const)(
                 'rejects the key for a request with %s',
@@ -2682,138 +2641,6 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
-        const withFile = (fields: Record<string, unknown>) => ({
-            ...codeSend,
-            attachments: [{ ...reference(invoice), ...fields }],
-        })
-        const filenameOf = (length: number) => `${'x'.repeat(length - '.pdf'.length)}.pdf`
-        const contentTypeOf = (length: number) => `application/${'x'.repeat(length - 'application/'.length)}`
-        const contentIdOf = (length: number) => 'x'.repeat(length)
-        const filenameReason = `filename can be at most ${ATTACHMENT_FILENAME_MAX_LENGTH} characters`
-        const contentTypeReason = `content_type needs 1 to ${ATTACHMENT_CONTENT_TYPE_MAX_LENGTH} characters`
-        const contentIdReason = `content_id needs 1 to ${ATTACHMENT_CONTENT_ID_MAX_LENGTH} characters`
-
-        it.each<[string, object, object, string]>([
-            ['a field this version does not know', { ...codeSend, priority: 'high' }, codeSend, '"priority"'],
-            [
-                'a content field this version does not know',
-                { ...codeSend, content: { ...codeSend.content, amp: '<p/>' } },
-                codeSend,
-                '"amp"',
-            ],
-            [
-                'a sender field this version does not know',
-                { ...codeSend, from: { ...codeSend.from, replyName: 'Ops' } },
-                codeSend,
-                '"replyName"',
-            ],
-            [
-                'a tracking field this version does not know',
-                { ...codeSend, tracking: { captureEngagement: true, pixel: false } },
-                codeSend,
-                '"pixel"',
-            ],
-            [
-                'content without a body',
-                { ...codeSend, content: { subject: 'Hi', html: '', text: '' } },
-                codeSend,
-                'content needs html or text',
-            ],
-            [
-                'content with an empty subject',
-                { ...codeSend, content: { subject: '', text: 'Hi' } },
-                codeSend,
-                '"subject"',
-            ],
-            [
-                'a sender without an integration',
-                { ...codeSend, from: { email: 'security@example.com' } },
-                codeSend,
-                '"integrationId"',
-            ],
-            ['no tracking choice', { content: codeSend.content }, codeSend, '"tracking"'],
-            [
-                'more than 10 cc addresses',
-                { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
-                codeSend,
-                '"cc"',
-            ],
-            [
-                'more than 10 files',
-                { ...codeSend, attachments: Array(11).fill(reference(invoice)) },
-                codeSend,
-                '"attachments"',
-            ],
-            [
-                'a file hash that is not 64 lowercase hex characters',
-                withFile({ sha256: invoice.sha256.toUpperCase() }),
-                codeSend,
-                '"sha256"',
-            ],
-            ['a file without a name', withFile({ filename: '' }), codeSend, '"filename"'],
-            ['a file field this version does not know', withFile({ disposition: 'inline' }), codeSend, '"disposition"'],
-            [
-                'an inline file instead of a reference',
-                {
-                    ...codeSend,
-                    attachments: [
-                        { filename: 'report.pdf', content: 'c2VjcmV0LWZpbGU=', contentType: 'application/pdf' },
-                    ],
-                },
-                codeSend,
-                '"sha256"',
-            ],
-            [
-                'a file name over the SES limit',
-                withFile({ filename: filenameOf(ATTACHMENT_FILENAME_MAX_LENGTH + 1) }),
-                withFile({ filename: filenameOf(ATTACHMENT_FILENAME_MAX_LENGTH) }),
-                filenameReason,
-            ],
-            [
-                'a content type over the SES limit',
-                withFile({ content_type: contentTypeOf(ATTACHMENT_CONTENT_TYPE_MAX_LENGTH + 1) }),
-                withFile({ content_type: contentTypeOf(ATTACHMENT_CONTENT_TYPE_MAX_LENGTH) }),
-                contentTypeReason,
-            ],
-            ['an empty content type', withFile({ content_type: '' }), withFile({}), contentTypeReason],
-            [
-                'a content id over the SES limit',
-                withFile({ content_id: contentIdOf(ATTACHMENT_CONTENT_ID_MAX_LENGTH + 1) }),
-                withFile({ content_id: contentIdOf(ATTACHMENT_CONTENT_ID_MAX_LENGTH) }),
-                contentIdReason,
-            ],
-            ['an empty content id', withFile({ content_id: '' }), withFile({}), contentIdReason],
-            [
-                'a file type SES does not send',
-                withFile({ filename: 'setup.exe' }),
-                withFile({ filename: 'setup.exe.pdf' }),
-                'SES does not send .exe files, so setup.exe cannot be attached',
-            ],
-            [
-                'a file type SES does not send, in upper case',
-                withFile({ filename: 'Invoice.PDF.JS' }),
-                withFile({ filename: 'Invoice.PDF.JSON' }),
-                'SES does not send .js files, so Invoice.PDF.JS cannot be attached',
-            ],
-        ])(
-            'refuses a code send with %s, naming it, and its key sends once it is fixed',
-            async (_desc, refused, fixed, reason) => {
-                const invalidBefore = await outcomeCount('invalid_request')
-                const idempotency_key = `key-${new UUIDT().toString()}`
-
-                const res = await sendAccepted(hogFlow.id, { ...body, idempotency_key, send: refused })
-                const queuedOnRefusal = mockQueueInvocations.mock.calls.length
-                const retried = await sendAccepted(hogFlow.id, { ...body, idempotency_key, send: fixed })
-
-                expect(res.status).toEqual(400)
-                expect(res.body.error).toContain(reason)
-                expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
-                expect(queuedOnRefusal).toEqual(0)
-                expect(retried.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-            }
-        )
-
         it.each([
             [
                 'a bcc address is suppressed',
@@ -2846,49 +2673,460 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
-        describe('with files', () => {
-            const large = fileOf(Buffer.alloc(28_800_000, 'a'))
-            const roomForBodies = MESSAGE_MAX_BYTES - estimateMessageBytes([large.size])
-            const bodyThatOverflows = 'x'.repeat(roomForBodies)
-            const chunkThatFitsOnceNotTwice = 'x'.repeat(Math.ceil(roomForBodies / 2))
-            const link = '<a href="https://example.com/">x</a>'
-            const linksThatFitUntilTracked = link.repeat(Math.floor((roomForBodies * 0.7) / link.length))
+        describe('queued on Cyclotron Postgres', () => {
+            let cyclotron: Pool
+            let posthogDb: PostgresProxy
+            let personsDb: PostgresProxy
+            let bucket: BucketProxy
+            let router: PostgresRouter
+            let queueName: string
+            let filesApi: CdpApi
+            let filesApp: express.Application
+            let filesServer: Server
+            let invoice: StoredFile
+            let receipt: StoredFile
+            let large: StoredFile
+
+            // CDP reads persons through personhog, which reads the same rows from the persons database.
+            const personsReadFrom = (persons: PostgresPersonRepository): PersonReadRepository => ({
+                fetchPerson: (teamId, distinctId, callerTag) => persons.fetchPerson(teamId, distinctId, { callerTag }),
+                fetchPersonsByDistinctIds: (teamPersons, callerTag) =>
+                    persons.fetchPersonsByDistinctIds(teamPersons, true, callerTag),
+                fetchPersonsByPersonIds: (teamPersons, callerTag) =>
+                    persons.fetchPersonsByPersonIds(teamPersons, true, callerTag),
+                fetchDistinctIdsForPersons: (teamId, personIntIds, options) =>
+                    persons.fetchDistinctIdsForPersons(teamId, personIntIds, options),
+            })
+            const apisOfOneTest: { cdpApi: CdpApi; server: Server }[] = []
+            const buildFilesApi = async (settings: Partial<Hub> = {}): Promise<CdpApi> => {
+                const producer = new EmailQueueOfOneTest(queueName, hub)
+                await producer.startAsProducer()
+                return new CdpApi(
+                    {
+                        ...hub,
+                        CDP_EMAIL_ATTACHMENTS_TEAMS: `${team.id}`,
+                        CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint,
+                        CDP_EMAIL_ATTACHMENTS_S3_PREFIX: attachmentStoreConfig.CDP_EMAIL_ATTACHMENTS_S3_PREFIX,
+                        ...settings,
+                    },
+                    {
+                        ...cdpDeps,
+                        postgres: router,
+                        personRepository: personsReadFrom(new PostgresPersonRepository(router)),
+                        idempotencyValkey: createIdempotencyValkeyPool(hub),
+                    },
+                    { hogQueue: createMockJobQueue(), hogflowQueue: producer }
+                )
+            }
+            const servedForOneTest = async (settings: Partial<Hub>): Promise<express.Application> => {
+                const cdpApi = await buildFilesApi(settings)
+                const served = serve(cdpApi)
+                apisOfOneTest.push({ cdpApi, server: served.listen(0, () => {}) })
+                return served
+            }
+            const serve = (cdpApi: CdpApi): express.Application => {
+                const served = setupExpressApp()
+                served.use('/', cdpApi.router())
+                return served
+            }
+
+            type QueuedJob = { id: string; status: string; send: Record<string, unknown>; stored: string }
+            const queuedJobs = async (): Promise<QueuedJob[]> => {
+                const { rows } = await cyclotron.query(
+                    'SELECT id, status, state FROM cyclotron_jobs WHERE queue_name = $1 ORDER BY created',
+                    [queueName]
+                )
+                return rows.map((row) => ({
+                    id: row.id,
+                    status: row.status,
+                    send: parseJSON(row.state.toString()).state.send,
+                    stored: row.state.toString('latin1'),
+                }))
+            }
+            const queuedIds = async (): Promise<string[]> => (await queuedJobs()).map((job) => job.id)
+
+            const reference = (file: StoredFile) => ({
+                sha256: file.metadata.sha256,
+                filename: 'invoice.pdf',
+                content_type: 'application/pdf',
+            })
             const newKey = () => `key-${new UUIDT().toString()}`
             type SendOptions = {
                 acceptedSend?: object
                 flowId?: string
                 variables?: Record<string, string>
                 distinctId?: string
+                to?: string
+                app?: express.Application
             }
+            const sendOnFilesApi = (
+                payload: Record<string, unknown>,
+                { flowId = hogFlow.id, app: served = filesApp }: SendOptions = {}
+            ) =>
+                supertest(served)
+                    .post(`/api/projects/${team.id}/hog_flows/${flowId}/transactional_email/send`)
+                    .set({ Authorization: `Bearer ${tokenFor('transactional_email/send', team.id, flowId)}` })
+                    .send(payload)
             const sendWithFiles = (
                 key: string,
                 attachments: object[],
                 {
                     acceptedSend = codeSend as object,
-                    flowId = hogFlow.id,
                     variables = body.variables as Record<string, string>,
                     distinctId = body.distinct_id,
+                    to = body.to,
+                    ...options
                 }: SendOptions = {}
             ) =>
-                sendAccepted(flowId, {
-                    ...body,
-                    distinct_id: distinctId,
-                    variables,
-                    idempotency_key: key,
-                    send: { ...acceptedSend, attachments },
-                })
+                sendOnFilesApi(
+                    {
+                        ...body,
+                        to,
+                        distinct_id: distinctId,
+                        variables,
+                        idempotency_key: key,
+                        send: { ...acceptedSend, attachments },
+                    },
+                    options
+                )
 
             beforeAll(async () => {
-                await storeFile(team.id, large)
+                cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+                posthogDb = await PostgresProxy.start(new URL(hub.DATABASE_URL))
+                personsDb = await PostgresProxy.start(new URL(hub.PERSONS_DATABASE_URL || hub.DATABASE_URL))
+                bucket = await BucketProxy.start()
+                router = new PostgresRouter({
+                    ...hub,
+                    DATABASE_URL: posthogDb.url,
+                    DATABASE_READONLY_URL: posthogDb.url,
+                    PERSONS_DATABASE_URL: personsDb.url,
+                    PERSONS_READONLY_DATABASE_URL: personsDb.url,
+                })
+                queueName = `transactional-email-test-${randomUUID()}`
+                filesApi = await buildFilesApi()
+                filesApp = serve(filesApi)
+                filesServer = filesApp.listen(0, () => {})
+                invoice = await uploadAttachment(team.id, { filename: 'invoice.pdf' })
+                receipt = await uploadAttachment(team.id, { filename: 'receipt.pdf' })
+                large = await uploadAttachment(team.id, { filename: 'large.pdf' }, Buffer.alloc(28_800_000, 'a'))
             })
 
-            const flowThrough = (
+            beforeEach(async () => {
+                await insertHogFunctionTemplate(hub.postgres, emailTemplate)
+            })
+
+            afterEach(async () => {
+                posthogDb.releaseAll()
+                personsDb.releaseAll()
+                bucket.lastModifiedAgeMs = 0
+                bucket.release('pass')
+                await Promise.all(
+                    apisOfOneTest.splice(0).map(({ cdpApi, server: served }) => {
+                        served.close()
+                        return cdpApi.stop()
+                    })
+                )
+                await cyclotron.query('DELETE FROM cyclotron_jobs WHERE queue_name = $1', [queueName])
+            })
+
+            afterAll(async () => {
+                filesServer.close()
+                await filesApi.stop()
+                await Promise.all([bucket.close(), posthogDb.close(), personsDb.close()])
+                await router.end()
+                await cyclotron.end()
+            })
+
+            const withFile = (fields: Record<string, unknown>) => ({
+                ...codeSend,
+                attachments: [{ ...reference(invoice), ...fields }],
+            })
+            const filenameOf = (length: number) => `${'x'.repeat(length - '.pdf'.length)}.pdf`
+            const contentTypeOf = (length: number) => `application/${'x'.repeat(length - 'application/'.length)}`
+            const contentIdOf = (length: number) => 'x'.repeat(length)
+            const filenameReason = `filename can be at most ${ATTACHMENT_FILENAME_MAX_LENGTH} characters`
+            const contentTypeReason = `content_type needs 1 to ${ATTACHMENT_CONTENT_TYPE_MAX_LENGTH} characters`
+            const contentIdReason = `content_id needs 1 to ${ATTACHMENT_CONTENT_ID_MAX_LENGTH} characters`
+
+            it.each<[string, () => object, () => object, string]>([
+                [
+                    'a field this version does not know',
+                    () => ({ ...codeSend, priority: 'high' }),
+                    () => codeSend,
+                    '"priority"',
+                ],
+                [
+                    'a content field this version does not know',
+                    () => ({ ...codeSend, content: { ...codeSend.content, amp: '<p/>' } }),
+                    () => codeSend,
+                    '"amp"',
+                ],
+                [
+                    'a sender field this version does not know',
+                    () => ({ ...codeSend, from: { ...codeSend.from, replyName: 'Ops' } }),
+                    () => codeSend,
+                    '"replyName"',
+                ],
+                [
+                    'a tracking field this version does not know',
+                    () => ({ ...codeSend, tracking: { captureEngagement: true, pixel: false } }),
+                    () => codeSend,
+                    '"pixel"',
+                ],
+                [
+                    'content without a body',
+                    () => ({ ...codeSend, content: { subject: 'Hi', html: '', text: '' } }),
+                    () => codeSend,
+                    'content needs html or text',
+                ],
+                [
+                    'content with an empty subject',
+                    () => ({ ...codeSend, content: { subject: '', text: 'Hi' } }),
+                    () => codeSend,
+                    '"subject"',
+                ],
+                [
+                    'a sender without an integration',
+                    () => ({ ...codeSend, from: { email: 'security@example.com' } }),
+                    () => codeSend,
+                    '"integrationId"',
+                ],
+                ['no tracking choice', () => ({ content: codeSend.content }), () => codeSend, '"tracking"'],
+                [
+                    'more than 10 cc addresses',
+                    () => ({ ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) }),
+                    () => codeSend,
+                    '"cc"',
+                ],
+                [
+                    'more than 10 files',
+                    () => ({ ...codeSend, attachments: Array(11).fill(reference(invoice)) }),
+                    () => codeSend,
+                    '"attachments"',
+                ],
+                [
+                    'a file hash that is not 64 lowercase hex characters',
+                    () => withFile({ sha256: invoice.metadata.sha256.toUpperCase() }),
+                    () => codeSend,
+                    '"sha256"',
+                ],
+                ['a file without a name', () => withFile({ filename: '' }), () => codeSend, '"filename"'],
+                [
+                    'a file field this version does not know',
+                    () => withFile({ disposition: 'inline' }),
+                    () => codeSend,
+                    '"disposition"',
+                ],
+                [
+                    'an inline file instead of a reference',
+                    () => ({
+                        ...codeSend,
+                        attachments: [
+                            { filename: 'report.pdf', content: 'c2VjcmV0LWZpbGU=', contentType: 'application/pdf' },
+                        ],
+                    }),
+                    () => codeSend,
+                    '"sha256"',
+                ],
+                [
+                    'a file name over the SES limit',
+                    () => withFile({ filename: filenameOf(ATTACHMENT_FILENAME_MAX_LENGTH + 1) }),
+                    () => withFile({ filename: filenameOf(ATTACHMENT_FILENAME_MAX_LENGTH) }),
+                    filenameReason,
+                ],
+                [
+                    'a content type over the SES limit',
+                    () => withFile({ content_type: contentTypeOf(ATTACHMENT_CONTENT_TYPE_MAX_LENGTH + 1) }),
+                    () => withFile({ content_type: contentTypeOf(ATTACHMENT_CONTENT_TYPE_MAX_LENGTH) }),
+                    contentTypeReason,
+                ],
+                ['an empty content type', () => withFile({ content_type: '' }), () => withFile({}), contentTypeReason],
+                [
+                    'a content id over the SES limit',
+                    () => withFile({ content_id: contentIdOf(ATTACHMENT_CONTENT_ID_MAX_LENGTH + 1) }),
+                    () => withFile({ content_id: contentIdOf(ATTACHMENT_CONTENT_ID_MAX_LENGTH) }),
+                    contentIdReason,
+                ],
+                ['an empty content id', () => withFile({ content_id: '' }), () => withFile({}), contentIdReason],
+                [
+                    'a file type SES does not send',
+                    () => withFile({ filename: 'setup.exe' }),
+                    () => withFile({ filename: 'setup.exe.pdf' }),
+                    'SES does not send .exe files, so setup.exe cannot be attached',
+                ],
+                [
+                    'a file type SES does not send, in upper case',
+                    () => withFile({ filename: 'Invoice.PDF.JS' }),
+                    () => withFile({ filename: 'Invoice.PDF.JSON' }),
+                    'SES does not send .js files, so Invoice.PDF.JS cannot be attached',
+                ],
+            ])(
+                'refuses a code send with %s, naming it, queues nothing, and its key sends once it is fixed',
+                async (_desc, refused, fixed, reason) => {
+                    const invalidBefore = await outcomeCount('invalid_request')
+                    const idempotency_key = newKey()
+
+                    const res = await sendOnFilesApi({ ...body, idempotency_key, send: refused() })
+                    const queuedOnRefusal = await queuedIds()
+                    const retried = await sendOnFilesApi({ ...body, idempotency_key, send: fixed() })
+
+                    expect(res.status).toEqual(400)
+                    expect(res.body.error).toContain(reason)
+                    expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
+                    expect(queuedOnRefusal).toEqual([])
+                    expect(retried.status).toEqual(202)
+                    expect(await queuedIds()).toEqual([retried.body.invocation_id])
+                }
+            )
+
+            it('queues the references of the files it verified, without their bytes, answers their totals, and the worker delivers those files', async () => {
+                const recipient = `${randomUUID()}@example.com`
+                await insertIntegration(hub.postgres, team.id, {
+                    id: codeSend.from.integrationId,
+                    kind: 'email',
+                    config: {
+                        email: codeSend.from.email,
+                        name: codeSend.from.name,
+                        domain: 'example.com',
+                        verified: true,
+                        provider: 'ses',
+                    },
+                })
+                const logo = {
+                    sha256: receipt.metadata.sha256,
+                    filename: 'logo.png',
+                    content_type: 'image/png',
+                    content_id: 'logo',
+                }
+
+                const generated = await flowThrough(
+                    { exit },
+                    [step('trigger', 'email'), step('email', 'exit')],
+                    'transactional',
+                    {
+                        email: {
+                            templating: 'liquid',
+                            value: {
+                                to: { email: '{{ event.properties.to | raw }}', name: '' },
+                                cc: '',
+                                bcc: '',
+                                from: { integrationId: null },
+                                replyTo: '',
+                                subject: '',
+                                preheader: '',
+                                text: '',
+                                html: '',
+                            },
+                        },
+                    }
+                )
+
+                const res = await sendWithFiles(newKey(), [reference(invoice), logo], {
+                    to: recipient,
+                    flowId: generated.id,
+                })
+
+                expect(res.status).toBe(202)
+                expect(res.body).toEqual({
+                    status: 'queued',
+                    invocation_id: expect.any(String),
+                    replayed: false,
+                    attachment_count: 2,
+                    attachment_bytes: invoice.bytes.length + receipt.bytes.length,
+                })
+                const [job] = await queuedJobs()
+                expect(job.id).toBe(res.body.invocation_id)
+                expect(job.send).toEqual({
+                    ...codeSend,
+                    attachments: [
+                        {
+                            sha256: invoice.metadata.sha256,
+                            filename: 'invoice.pdf',
+                            contentType: 'application/pdf',
+                            sizeBytes: invoice.bytes.length,
+                        },
+                        {
+                            sha256: receipt.metadata.sha256,
+                            filename: 'logo.png',
+                            contentType: 'image/png',
+                            contentId: 'logo',
+                            sizeBytes: receipt.bytes.length,
+                        },
+                    ],
+                })
+                for (const file of [invoice, receipt]) {
+                    expect(job.stored).not.toContain(file.bytes.toString('latin1'))
+                    expect(job.stored).not.toContain(file.bytes.toString('base64'))
+                }
+
+                const ses = await SesV2Fake.start()
+                const workerConfig = {
+                    ...hub,
+                    CDP_CYCLOTRON_BATCH_DELAY_MS: 10,
+                    CDP_EMAIL_ATTACHMENTS_S3_PREFIX: attachmentStoreConfig.CDP_EMAIL_ATTACHMENTS_S3_PREFIX,
+                }
+                const worker = new CdpCyclotronWorkerEmail(
+                    workerConfig,
+                    createCdpConsumerDeps(hub),
+                    new EmailQueueOfOneTest(queueName, workerConfig),
+                    new InFlightRegistry({ budgetBytes: 2 ** 40, heapLimitBytes: 2 ** 40, maxInFlight: 1 }, () => 0)
+                )
+                worker.emailService.sesV2Client = ses.client()
+                await worker.start()
+                try {
+                    const delivered = await waitForExpect(() => {
+                        expect(ses.deliveredTo(recipient)).toHaveLength(1)
+                        return ses.deliveredTo(recipient)[0]
+                    })
+                    expect(delivered.attachments).toEqual([
+                        {
+                            filename: 'invoice.pdf',
+                            contentType: 'application/pdf',
+                            contentId: undefined,
+                            inline: false,
+                            bytes: invoice.bytes,
+                        },
+                        {
+                            filename: 'logo.png',
+                            contentType: 'image/png',
+                            contentId: 'logo',
+                            inline: true,
+                            bytes: receipt.bytes,
+                        },
+                    ])
+                } finally {
+                    await worker.stop()
+                    await ses.close()
+                }
+            })
+
+            it.each([
+                ['the same files', () => [reference(invoice)], 202],
+                ['other files', () => [reference(receipt)], 422],
+            ])(
+                'answers a retry of a keyed send with files that names %s from its first send, and queues one job',
+                async (_name, retryFiles, status) => {
+                    const key = newKey()
+                    const sent = await sendWithFiles(key, [reference(invoice)])
+
+                    const retried = await sendWithFiles(key, retryFiles())
+
+                    expect(sent.status).toBe(202)
+                    expect(retried.status).toBe(status)
+                    expect(retried.body).toEqual(
+                        status === 202 ? { ...sent.body, replayed: true } : { error: 'idempotency_key_reused' }
+                    )
+                    expect(await queuedIds()).toEqual([sent.body.invocation_id])
+                }
+            )
+
+            const flowThrough = async (
                 steps: SimpleHogFlowRepresentation['actions'],
                 edges: SimpleHogFlowRepresentation['edges'],
                 category: 'transactional' | 'marketing' = 'transactional',
                 emailInputs: Record<string, CyclotronInputType> = {}
             ): Promise<HogFlow> =>
-                insertHogFlow(
+                await insertHogFlow(
                     new FixtureHogFlowBuilder()
                         .withTeamId(team.id)
                         .withStatus('active')
@@ -2928,13 +3166,16 @@ describe('CDP API', () => {
             ]
 
             it.each(shapesThatCannotCarryFiles)(
-                'refuses a send with files to a workflow with %s, and releases the key',
+                'refuses a send with files to a workflow with %s, queues nothing, and releases the key',
                 async (_name, arrange, code) => {
                     const flow = await arrange()
                     const key = newKey()
                     const stagesBefore = await stageCounts()
 
                     const res = await sendWithFiles(key, [reference(invoice)], { flowId: flow.id })
+                    const stagesOfTheRefusal = stageCountChanges(stagesBefore, await stageCounts())
+                    const queuedOnRefusal = await queuedIds()
+                    const retry = await sendWithFiles(key, [reference(invoice)])
 
                     expect(res.status).toBe(400)
                     expect(res.body).toEqual({
@@ -2942,7 +3183,7 @@ describe('CDP API', () => {
                         reason: expect.any(String),
                         fix: expect.any(String),
                     })
-                    expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({
+                    expect(stagesOfTheRefusal).toEqual({
                         auth: 1,
                         validate: 1,
                         load: 1,
@@ -2950,12 +3191,10 @@ describe('CDP API', () => {
                         idempotency: 1,
                         total: 1,
                     })
-                    expect(mockQueueInvocations).not.toHaveBeenCalled()
-
-                    const retry = await sendWithFiles(key, [reference(invoice)])
-
+                    expect(queuedOnRefusal).toEqual([])
                     expect(retry.status).toBe(202)
                     expect(retry.body).toMatchObject({ replayed: false })
+                    expect(await queuedIds()).toEqual([retry.body.invocation_id])
                 }
             )
 
@@ -2974,384 +3213,62 @@ describe('CDP API', () => {
                         [flow.id, changed.id],
                         'change-workflow-shape'
                     )
-                    api['hogFlowManager']['onHogFlowsReloaded'](team.id, [flow.id])
+                    filesApi['hogFlowManager']['onHogFlowsReloaded'](team.id, [flow.id])
 
                     const retry = await sendWithFiles(key, [reference(invoice)], { flowId: flow.id })
 
                     expect(retry.status).toBe(202)
                     expect(retry.body).toEqual({ ...first.body, replayed: true })
-                    expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                    expect(await queuedIds()).toEqual([first.body.invocation_id])
                 }
             )
 
-            it('queues the metadata of the files it verified, without their bytes, and answers their totals', async () => {
-                const logo = {
-                    sha256: receipt.sha256,
-                    filename: 'logo.png',
-                    content_type: 'image/png',
-                    content_id: 'logo',
-                }
-
-                const res = await sendWithFiles(newKey(), [reference(invoice), logo])
-
-                expect(res.status).toBe(202)
-                expect(res.body).toEqual({
-                    status: 'queued',
-                    invocation_id: expect.any(String),
-                    replayed: false,
-                    attachment_count: 2,
-                    attachment_bytes: invoice.size + receipt.size,
-                })
-                const [invocation] = mockQueueInvocations.mock.calls[0][0]
-                expect(invocation.state.send).toEqual({
-                    ...codeSend,
-                    attachments: [
-                        {
-                            sha256: invoice.sha256,
-                            filename: 'invoice.pdf',
-                            contentType: 'application/pdf',
-                            sizeBytes: invoice.size,
-                        },
-                        {
-                            sha256: receipt.sha256,
-                            filename: 'logo.png',
-                            contentType: 'image/png',
-                            contentId: 'logo',
-                            sizeBytes: receipt.size,
-                        },
-                    ],
-                })
-            })
-
-            it('refuses files from a team off the allowlist before it reserves the key', async () => {
-                api['attachmentUploads'] = attachmentsFor(`${team.id + 1}`)
+            it('refuses files from a team off the allowlist before it reserves the key, and queues nothing', async () => {
+                const offTheList = await servedForOneTest({ CDP_EMAIL_ATTACHMENTS_TEAMS: `${team.id + 1}` })
                 const stagesBefore = await stageCounts()
 
-                const res = await sendWithFiles(newKey(), [reference(invoice)])
+                const res = await sendWithFiles(newKey(), [reference(invoice)], { app: offTheList })
 
                 expect(res.status).toBe(400)
                 expect(res.body).toEqual({ error: 'field_not_accepted' })
                 expect(stageCountChanges(stagesBefore, await stageCounts())).toEqual({ auth: 1, validate: 1, total: 1 })
-                expect(mockQueueInvocations).not.toHaveBeenCalled()
+                expect(await queuedIds()).toEqual([])
             })
 
-            const restoreStore = () => {
-                api['attachmentUploads'] = attachmentsFor(`${team.id}`)
-                return Promise.resolve()
-            }
-            it.each<[string, () => Promise<{ file: StoredFile; fix: () => Promise<void> }>]>([
+            it.each<[string, () => Promise<{ file: StoredFile; fix: () => Promise<unknown> }>]>([
                 [
                     'a file that was never uploaded',
                     () => {
-                        const file = freshFile()
-                        return Promise.resolve({ file, fix: () => storeFile(team.id, file) })
+                        const file = attachmentFile()
+                        return Promise.resolve({ file, fix: () => uploadAttachment(team.id, {}, file.bytes) })
                     },
                 ],
                 [
                     'a file only another team uploaded',
                     async () => {
-                        const file = freshFile()
-                        await storeFile(await createTeam(hub.postgres, team.organization_id), file)
-                        return { file, fix: () => storeFile(team.id, file) }
-                    },
-                ],
-            ])('refuses a send with %s, and its key sends once that is fixed', async (_name, arrange) => {
-                const { file, fix } = await arrange()
-                const key = newKey()
-
-                const refused = await sendWithFiles(key, [reference(file)])
-                await fix()
-                const retried = await sendWithFiles(key, [reference(file)])
-
-                expect(refused.status).toBe(400)
-                expect(refused.body).toEqual({ error: 'attachment_not_uploaded', sha256: file.sha256 })
-                expect(retried.status).toBe(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-            })
-
-            const realAbortSignalTimeout = AbortSignal.timeout.bind(AbortSignal)
-            let verificationDeadline = new AbortController()
-            const expireTheVerificationDeadline = (): void =>
-                verificationDeadline.abort(new DOMException('The verification deadline passed', 'TimeoutError'))
-            const holdTheVerificationDeadline = (): jest.SpyInstance =>
-                jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
-                    if (ms !== ATTACHMENT_VERIFICATION_DEADLINE_MS) {
-                        return realAbortSignalTimeout(ms)
-                    }
-                    verificationDeadline = new AbortController()
-                    return verificationDeadline.signal
-                })
-            const storeCallsAfterTheDeadline: string[] = []
-            const abandonedWorkRan = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
-            const heldUntilReleased = <T>(): { held: Promise<T>; release: (value: T) => void } => {
-                let release!: (value: T) => void
-                const held = new Promise<T>((resolve) => (release = resolve))
-                return { held, release }
-            }
-            it.each<[string, () => Promise<{ options?: SendOptions; fix: () => void | Promise<void> }>]>([
-                [
-                    'no attachment store',
-                    () => {
-                        api['attachmentUploads'] = attachmentsFor(`${team.id}`, null)
-                        return Promise.resolve({ fix: restoreStore })
-                    },
-                ],
-                [
-                    'an attachment store that does not answer',
-                    () => {
-                        api['attachmentUploads'] = attachmentsFor(
-                            `${team.id}`,
-                            buildAttachmentStore({
-                                ...getDefaultCdpConfig(),
-                                CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: 'http://127.0.0.1:9',
-                                CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: 1_000,
-                            })
-                        )
-                        return Promise.resolve({ fix: restoreStore })
-                    },
-                ],
-                [
-                    'an attachment store whose COPY outlasts the deadline, on a file that needs keeping',
-                    () => {
-                        const { held, release } = heldUntilReleased<void>()
-                        const send = attachmentStore.s3.send.bind(attachmentStore.s3) as (
-                            ...args: unknown[]
-                        ) => Promise<Record<string, unknown>>
-                        const outlastingCopy = (
-                            jest.spyOn(attachmentStore.s3, 'send') as jest.SpyInstance
-                        ).mockImplementation(async (command: unknown, options: unknown) => {
-                            if (verificationDeadline.signal.aborted) {
-                                storeCallsAfterTheDeadline.push((command as object).constructor.name)
-                            }
-                            if (command instanceof CopyObjectCommand) {
-                                expireTheVerificationDeadline()
-                                await held
-                                return {}
-                            }
-                            const output = await send(command, options)
-                            return command instanceof HeadObjectCommand
-                                ? { ...output, LastModified: new Date(Date.now() - ATTACHMENT_LIFETIME_MS) }
-                                : output
-                        })
-                        return Promise.resolve({
-                            fix: async () => {
-                                release()
-                                await abandonedWorkRan()
-                                outlastingCopy.mockRestore()
-                            },
-                        })
-                    },
-                ],
-                [
-                    'an attachment store whose HEAD outlasts the deadline, on a file that needs keeping',
-                    () => {
-                        const { held, release } = heldUntilReleased<void>()
-                        const outlastingHead = (
-                            jest.spyOn(attachmentStore.s3, 'send') as jest.SpyInstance
-                        ).mockImplementation(async (command: unknown) => {
-                            if (command instanceof HeadObjectCommand) {
-                                expireTheVerificationDeadline()
-                                await held
-                                return {
-                                    ContentLength: invoice.size,
-                                    LastModified: new Date(Date.now() - ATTACHMENT_LIFETIME_MS),
-                                }
-                            }
-                            storeCallsAfterTheDeadline.push((command as object).constructor.name)
-                            return {}
-                        })
-                        return Promise.resolve({
-                            fix: async () => {
-                                release()
-                                await abandonedWorkRan()
-                                outlastingHead.mockRestore()
-                            },
-                        })
-                    },
-                ],
-                [
-                    'an attachment store that answers only after the deadline',
-                    () => {
-                        const { held, release } = heldUntilReleased<AcceptedForSend>()
-                        const answersLate = {
-                            acceptForSend: () => {
-                                expireTheVerificationDeadline()
-                                return held
-                            },
-                        } as unknown as S3AttachmentStore
-                        api['attachmentUploads'] = attachmentsFor(`${team.id}`, answersLate)
-                        return Promise.resolve({
-                            fix: async () => {
-                                release({
-                                    files: [
-                                        {
-                                            sha256: invoice.sha256,
-                                            filename: 'invoice.pdf',
-                                            contentType: 'application/pdf',
-                                            sizeBytes: invoice.size,
-                                        },
-                                    ],
-                                })
-                                await abandonedWorkRan()
-                                await restoreStore()
-                            },
-                        })
-                    },
-                ],
-                [
-                    'the checks before the files use up the deadline',
-                    () => {
-                        const recipientChecks = jest
-                            .spyOn(api['emailValidationService'], 'getRecipientSkipReason')
-                            .mockImplementation(() => {
-                                expireTheVerificationDeadline()
-                                return Promise.resolve(null)
-                            })
-                        return Promise.resolve({ fix: () => void recipientChecks.mockResolvedValue(null) })
-                    },
-                ],
-                [
-                    'the template lookup of the email step fails',
-                    async () => {
-                        const options = await storedTemplateRendering({ html: '<p>{{ variables.chunk }}</p>' }, 'x')
-                        const lookup = jest
-                            .spyOn(
-                                api['hogFlowFunctionsService']['hogFunctionTemplateManager'],
-                                'getHogFunctionTemplate'
-                            )
-                            .mockRejectedValue(new Error('Connection terminated unexpectedly'))
-                        return { options, fix: () => lookup.mockRestore() }
-                    },
-                ],
-                [
-                    'the template lookup of the email step outlasts the deadline',
-                    async () => {
-                        const options = await storedTemplateRendering({ html: '<p>{{ variables.chunk }}</p>' }, 'x')
-                        const templates = api['hogFlowFunctionsService']['hogFunctionTemplateManager']
-                        const loadTemplate = templates.getHogFunctionTemplate.bind(templates)
-                        const { held, release } = heldUntilReleased<void>()
-                        const lookup = jest
-                            .spyOn(templates, 'getHogFunctionTemplate')
-                            .mockImplementation(async (templateId: string) => {
-                                const template = await loadTemplate(templateId)
-                                expireTheVerificationDeadline()
-                                await held
-                                return template
-                            })
-                        return {
-                            options,
-                            fix: async () => {
-                                release()
-                                await abandonedWorkRan()
-                                lookup.mockRestore()
-                            },
-                        }
-                    },
-                ],
-                [
-                    'rendering the email step outlasts the deadline',
-                    async () => {
-                        const options = await storedTemplateRendering({ html: '<p>{{ variables.chunk }}</p>' }, 'x')
-                        const functions = api['hogFlowFunctionsService']
-                        const buildEmailStep = functions.buildHogFunctionInvocation.bind(functions)
-                        const { held, release } = heldUntilReleased<void>()
-                        const rendering = jest
-                            .spyOn(functions, 'buildHogFunctionInvocation')
-                            .mockImplementation(async (...args: Parameters<typeof buildEmailStep>) => {
-                                const rendered = await buildEmailStep(...args)
-                                expireTheVerificationDeadline()
-                                await held
-                                return rendered
-                            })
-                        return {
-                            options,
-                            fix: async () => {
-                                release()
-                                await abandonedWorkRan()
-                                rendering.mockRestore()
-                            },
-                        }
-                    },
-                ],
-                [
-                    'the person lookup fails',
-                    () => {
-                        const lookup = personLookups().mockRejectedValue(
-                            new Error('Connection terminated unexpectedly')
-                        )
-                        return Promise.resolve({
-                            options: { distinctId: `person-${new UUIDT().toString()}` },
-                            fix: () => lookup.mockRestore(),
-                        })
-                    },
-                ],
-                [
-                    'the person lookup outlasts the deadline',
-                    () => {
-                        const distinctId = `person-${new UUIDT().toString()}`
-                        const { held, release } = heldUntilReleased<InternalPersonWithDistinctId[]>()
-                        const lookup = personLookups().mockImplementation(() => {
-                            expireTheVerificationDeadline()
-                            return held
-                        })
-                        return Promise.resolve({
-                            options: { distinctId },
-                            fix: async () => {
-                                release([aPersonFor(distinctId)])
-                                await abandonedWorkRan()
-                                lookup.mockRestore()
-                            },
-                        })
+                        const file = await uploadAttachment(await createTeam(hub.postgres, team.organization_id), {})
+                        return { file, fix: () => uploadAttachment(team.id, {}, file.bytes) }
                     },
                 ],
             ])(
-                'answers 503 when %s without waiting on held work, warns, starts nothing after the answer, and its key sends once that is fixed',
+                'refuses a send with %s, queues nothing, and its key sends once that is fixed',
                 async (_name, arrange) => {
-                    const deadlines = holdTheVerificationDeadline()
-                    const warn = jest.spyOn(logger, 'warn')
-                    storeCallsAfterTheDeadline.length = 0
-                    const { options, fix } = await arrange()
+                    const { file, fix } = await arrange()
                     const key = newKey()
 
-                    const refused = await sendWithFiles(key, [reference(invoice)], options)
-                    const bodiesLoadedAfterTheAnswer = jest.spyOn(api as any, 'messageBodyBytes')
-                    const emailStepsRenderedAfterTheAnswer = jest.spyOn(api as any, 'emailStepBodies')
-                    const emailStepsBuiltAfterTheAnswer = jest.spyOn(
-                        api['hogFlowFunctionsService']['hogFunctionExecutor']['hogExecutor'],
-                        'buildInputsWithGlobals'
-                    )
-                    const htmlSizedAfterTheAnswer = jest.spyOn(api as any, 'sesHtmlMaxBytes')
-                    const warningsAtTheAnswer = warn.mock.calls.length
+                    const refused = await sendWithFiles(key, [reference(file)])
+                    const queuedOnRefusal = await queuedIds()
                     await fix()
-                    const warningsFromAbandonedWork = warn.mock.calls.slice(warningsAtTheAnswer)
-                    const bodiesLoadedBeforeTheRetry = bodiesLoadedAfterTheAnswer.mock.calls.length
-                    const emailStepsRenderedBeforeTheRetry = emailStepsRenderedAfterTheAnswer.mock.calls.length
-                    const emailStepsBuiltBeforeTheRetry = emailStepsBuiltAfterTheAnswer.mock.calls.length
-                    const htmlSizedBeforeTheRetry = htmlSizedAfterTheAnswer.mock.calls.length
-                    const retried = await sendWithFiles(key, [reference(invoice)], options)
-                    deadlines.mockRestore()
+                    const retried = await sendWithFiles(key, [reference(file)])
 
-                    expect(refused.status).toBe(503)
-                    expect(refused.body).toEqual({ error: 'delivery_unavailable' })
-                    expect(storeCallsAfterTheDeadline).toEqual([])
-                    expect(bodiesLoadedBeforeTheRetry).toBe(0)
-                    expect(emailStepsRenderedBeforeTheRetry).toBe(0)
-                    expect(emailStepsBuiltBeforeTheRetry).toBe(0)
-                    expect(htmlSizedBeforeTheRetry).toBe(0)
-                    expect(warningsFromAbandonedWork).toEqual([])
-                    expect(warn).toHaveBeenCalledWith(
-                        '⚠️',
-                        expect.any(String),
-                        expect.objectContaining({ team_id: team.id })
-                    )
+                    expect(refused.status).toBe(400)
+                    expect(refused.body).toEqual({ error: 'attachment_not_uploaded', sha256: file.metadata.sha256 })
+                    expect(queuedOnRefusal).toEqual([])
                     expect(retried.status).toBe(202)
-                    expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                    expect(await queuedIds()).toEqual([retried.body.invocation_id])
                 }
             )
 
-            const contentOf = (html: string): SendOptions => ({
-                acceptedSend: { ...codeSend, content: { subject: 'Your report', html } },
-            })
             const storedEmail = (email: Record<string, string>): Record<string, CyclotronInputType> => ({
                 email: {
                     templating: 'liquid',
@@ -3364,46 +3281,174 @@ describe('CDP API', () => {
                     },
                 },
             })
-            const storedTemplateSend = (flow: HogFlow, chunk: string): SendOptions => ({
-                flowId: flow.id,
-                variables: { chunk },
-                acceptedSend: { tracking: { captureEngagement: false } },
-            })
             const storedTemplateRendering = async (
                 email: Record<string, string>,
                 chunk: string
             ): Promise<SendOptions> => {
-                await insertHogFunctionTemplate(hub.postgres, emailTemplate)
                 const flow = await insertHogFlow(
                     transactionalFlow('api', 'active', 'transactional', storedEmail(email))
                 )
-                return storedTemplateSend(flow, chunk)
+                return {
+                    flowId: flow.id,
+                    variables: { chunk },
+                    acceptedSend: { tracking: { captureEngagement: false } },
+                }
             }
-            const personLookups = () =>
-                jest.spyOn(cdpDeps.personRepository, 'fetchPersonsByDistinctIds') as jest.SpyInstance
-            const aPersonFor = (distinctId: string): InternalPersonWithDistinctId => ({
-                id: '1',
-                uuid: new UUIDT().toString(),
-                team_id: team.id,
-                distinct_id: distinctId,
-                properties: {},
-                properties_last_updated_at: {},
-                properties_last_operation: null,
-                is_user_id: null,
-                is_identified: true,
-                created_at: DateTime.now(),
-                version: 1,
-                last_seen_at: null,
+            // A freshly started API has no template cached, so it looks the template up.
+            const storedTemplateOnAFreshApi = async (): Promise<HeldSend> => ({
+                options: await storedTemplateRendering({ html: '<p>{{ variables.chunk }}</p>' }, 'x'),
+                app: await servedForOneTest({}),
             })
-            const storedTemplateThatGrowsWithThePerson = async (): Promise<SendOptions> => {
-                const distinctId = `person-${new UUIDT().toString()}`
-                personLookups().mockResolvedValue([aPersonFor(distinctId)])
-                const options = await storedTemplateRendering(
-                    { html: '<p>Your report</p>{% if person.id %}{{ variables.chunk }}{% endif %}' },
-                    bodyThatOverflows
+            const aPersonWithTheDistinctId = async (): Promise<string> => {
+                const distinctId = `person-${randomUUID()}`
+                await hub.personRepository.createPerson(
+                    DateTime.now(),
+                    {},
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    true,
+                    new UUIDT().toString(),
+                    { distinctId }
                 )
-                return { ...options, distinctId }
+                return distinctId
             }
+
+            type HeldSend = { options?: SendOptions; app?: express.Application; fix?: () => void }
+            const caught = async (query: Promise<HeldQuery>, expire: () => void): Promise<HeldQuery> => {
+                const held = await query
+                expire()
+                return held
+            }
+            const realAbortSignalTimeout = AbortSignal.timeout.bind(AbortSignal)
+            let verificationDeadline = new AbortController()
+            const expireTheVerificationDeadline = (): void =>
+                verificationDeadline.abort(new DOMException('The verification deadline passed', 'TimeoutError'))
+            const queriesFor = (value: string) => (request: string) => request.includes(value)
+
+            it.each<[string, () => Promise<HeldSend>]>([
+                [
+                    'no attachment store',
+                    async () => ({ app: await servedForOneTest({ CDP_EMAIL_ATTACHMENTS_S3_BUCKET: '' }) }),
+                ],
+                [
+                    'an attachment store that does not answer',
+                    () => {
+                        bucket.answer = 'refuse'
+                        return Promise.resolve({ fix: () => bucket.release('pass') })
+                    },
+                ],
+                [
+                    'an attachment store whose HEAD outlasts the deadline, on a file that needs keeping',
+                    () => {
+                        bucket.answer = 'hold'
+                        bucket.lastModifiedAgeMs = ATTACHMENT_LIFETIME_MS - SEND_NEEDS_FILES_FOR_MS + DAY_MS
+                        void waitForExpect(() => expect(bucket.heldRequests).toBe(1)).then(
+                            expireTheVerificationDeadline
+                        )
+                        return Promise.resolve({ fix: () => bucket.release('pass') })
+                    },
+                ],
+                [
+                    'an attachment store whose COPY outlasts the deadline, on a file that needs keeping',
+                    () => {
+                        bucket.answer = 'holdCopies'
+                        bucket.lastModifiedAgeMs = ATTACHMENT_LIFETIME_MS - SEND_NEEDS_FILES_FOR_MS + DAY_MS
+                        void waitForExpect(() => expect(bucket.heldRequests).toBe(1)).then(
+                            expireTheVerificationDeadline
+                        )
+                        return Promise.resolve({ fix: () => bucket.release('pass') })
+                    },
+                ],
+                [
+                    'the recipient checks before the files use up the deadline',
+                    async () => {
+                        const to = `${randomUUID()}@example.com`
+                        const lookup = posthogDb.hold(
+                            (request) => request.includes('posthog_messagesuppression') && request.includes(to)
+                        )
+                        void lookup.then((held) => {
+                            expireTheVerificationDeadline()
+                            held.release()
+                        })
+                        return Promise.resolve({ options: { to } })
+                    },
+                ],
+                [
+                    'the template lookup of the email step fails',
+                    async () => {
+                        void posthogDb.hold(queriesFor('posthog_hogfunctiontemplate')).then((held) => held.drop())
+                        return await storedTemplateOnAFreshApi()
+                    },
+                ],
+                [
+                    'the template lookup of the email step outlasts the deadline',
+                    async () => {
+                        void caught(
+                            posthogDb.hold(queriesFor('posthog_hogfunctiontemplate')),
+                            expireTheVerificationDeadline
+                        )
+                        return await storedTemplateOnAFreshApi()
+                    },
+                ],
+                [
+                    'the person lookup fails',
+                    async () => {
+                        const distinctId = await aPersonWithTheDistinctId()
+                        void personsDb.hold(queriesFor(distinctId)).then((held) => held.drop())
+                        return { options: { distinctId } }
+                    },
+                ],
+                [
+                    'the person lookup outlasts the deadline',
+                    async () => {
+                        const distinctId = await aPersonWithTheDistinctId()
+                        void caught(personsDb.hold(queriesFor(distinctId)), expireTheVerificationDeadline)
+                        return { options: { distinctId } }
+                    },
+                ],
+            ])(
+                'answers 503 when %s without waiting on held work, queues nothing, asks the store for nothing after the answer, and its key sends once that is fixed',
+                async (_name, arrange) => {
+                    const deadlines = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+                        if (ms !== ATTACHMENT_VERIFICATION_DEADLINE_MS) {
+                            return realAbortSignalTimeout(ms)
+                        }
+                        verificationDeadline = new AbortController()
+                        return verificationDeadline.signal
+                    })
+                    const { options, app: refusingApp, fix } = await arrange()
+                    const key = newKey()
+
+                    const refused = await sendWithFiles(key, [reference(invoice)], { ...options, app: refusingApp })
+                    const bucketRequestsAtTheAnswer = bucket.requests
+                    posthogDb.releaseAll()
+                    personsDb.releaseAll()
+                    fix?.()
+                    await waitForExpect(() => expect(bucket.heldRequests).toBe(0))
+                    const queuedBeforeTheRetry = await queuedIds()
+                    const bucketRequestsBeforeTheRetry = bucket.requests
+                    deadlines.mockRestore()
+                    const retried = await sendWithFiles(key, [reference(invoice)], options)
+
+                    expect(refused.status).toBe(503)
+                    expect(refused.body).toEqual({ error: 'delivery_unavailable' })
+                    expect(queuedBeforeTheRetry).toEqual([])
+                    expect(bucketRequestsBeforeTheRetry).toBe(bucketRequestsAtTheAnswer)
+                    expect(retried.status).toBe(202)
+                    expect(await queuedIds()).toEqual([retried.body.invocation_id])
+                }
+            )
+
+            const roomForBodies = MESSAGE_MAX_BYTES - estimateMessageBytes([28_800_000])
+            const bodyThatOverflows = 'x'.repeat(roomForBodies)
+            const chunkThatFitsOnceNotTwice = 'x'.repeat(Math.ceil(roomForBodies / 2))
+            const link = '<a href="https://example.com/">x</a>'
+            const linksThatFitUntilTracked = link.repeat(Math.floor((roomForBodies * 0.7) / link.length))
+            const contentOf = (html: string): SendOptions => ({
+                acceptedSend: { ...codeSend, content: { subject: 'Your report', html } },
+            })
             const chunkRenderedTwice = { html: '<p>{{ variables.chunk }}</p><p>{{ variables.chunk }}</p>' }
             const chunkAsPreheader = { html: '<p>Your report</p>', preheader: '{{ variables.chunk }}' }
             const renderThatOutlastsTheLiquidLimit =
@@ -3424,12 +3469,12 @@ describe('CDP API', () => {
                         flowId: (await flowThrough({ exit }, [step('trigger', 'email'), step('email', 'exit')])).id,
                     }),
                 ],
-            ])('accepts a send with files and %s fits beside them', async (_name, arrange) => {
+            ])('accepts a send with files and %s fits beside them, and queues it', async (_name, arrange) => {
                 const res = await sendWithFiles(newKey(), [reference(large)], await arrange())
 
                 expect(res.status).toBe(202)
-                expect(res.body).toMatchObject({ attachment_count: 1, attachment_bytes: large.size })
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                expect(res.body).toMatchObject({ attachment_count: 1, attachment_bytes: large.bytes.length })
+                expect(await queuedIds()).toEqual([res.body.invocation_id])
             })
 
             it.each<[string, () => Promise<SendOptions>]>([
@@ -3448,7 +3493,13 @@ describe('CDP API', () => {
                 ],
                 [
                     'a stored template whose body grows with the person it sends to',
-                    storedTemplateThatGrowsWithThePerson,
+                    async () => ({
+                        ...(await storedTemplateRendering(
+                            { html: '<p>Your report</p>{% if person.id %}{{ variables.chunk }}{% endif %}' },
+                            bodyThatOverflows
+                        )),
+                        distinctId: await aPersonWithTheDistinctId(),
+                    }),
                 ],
                 [
                     'a stored template whose body renders only once the worker supplies its groups',
@@ -3473,27 +3524,30 @@ describe('CDP API', () => {
                     () => storedTemplateRendering({ subject: '{{ variables.chunk }}' }, bodyThatOverflows),
                 ],
             ])(
-                'refuses a send with files and %s too large to fit beside them, and its key sends smaller files',
+                'refuses a send with files and %s too large to fit beside them, queues nothing, and its key sends smaller files',
                 async (_name, arrange) => {
                     const options = await arrange()
                     const key = newKey()
 
                     const res = await sendWithFiles(key, [reference(large)], options)
+                    const queuedOnRefusal = await queuedIds()
+                    const retried = await sendWithFiles(key, [reference(invoice)], options)
 
                     expect(res.status).toBe(400)
                     expect(res.body).toEqual({
                         error: 'message_too_large',
                         message_bytes: expect.any(Number),
                         max_message_bytes: MESSAGE_MAX_BYTES,
-                        attachment_bytes: large.size,
+                        attachment_bytes: large.bytes.length,
                     })
                     expect(res.body.message_bytes).toBeGreaterThan(MESSAGE_MAX_BYTES)
-                    expect(mockQueueInvocations).not.toHaveBeenCalled()
-                    expect((await sendWithFiles(key, [reference(invoice)], options)).status).toBe(202)
+                    expect(queuedOnRefusal).toEqual([])
+                    expect(retried.status).toBe(202)
+                    expect(await queuedIds()).toEqual([retried.body.invocation_id])
                 }
             )
 
-            it('refuses a send with files whose email step goes over a template limit, before it queues, and frees its key', async () => {
+            it('refuses a send with files whose email step goes over a template limit, queues nothing, and frees its key', async () => {
                 const options = await storedTemplateRendering({ html: renderThatOutlastsTheLiquidLimit }, 'x')
                 const key = newKey()
 
@@ -3507,7 +3561,7 @@ describe('CDP API', () => {
                     fix: expect.any(String),
                 })
                 expect(retried.body.error).toBe('email_render_limit_exceeded')
-                expect(mockQueueInvocations).not.toHaveBeenCalled()
+                expect(await queuedIds()).toEqual([])
             })
         })
 
