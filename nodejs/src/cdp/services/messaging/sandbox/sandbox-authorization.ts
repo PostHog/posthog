@@ -126,14 +126,7 @@ export async function queryPrimaryBeforeDeadline<Row extends QueryResultRow>(
     timeoutMs: number,
     tag: string = 'sandbox-email-authorization'
 ): Promise<Row[]> {
-    const { rows } = await queryBeforeDeadline<Row>(
-        db,
-        PostgresUse.COMMON_WRITE,
-        text,
-        values,
-        timeoutMs,
-        tag
-    )
+    const { rows } = await queryBeforeDeadline<Row>(db, PostgresUse.COMMON_WRITE, text, values, timeoutMs, tag)
     return rows
 }
 
