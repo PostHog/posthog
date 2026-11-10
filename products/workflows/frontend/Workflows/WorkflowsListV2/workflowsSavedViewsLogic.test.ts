@@ -891,6 +891,36 @@ describe('workflowsSavedViewsLogic', () => {
         }
     )
 
+    it.each([
+        ['a view-only link', viewOnlyLink],
+        ['a link that carries additions', linkWithAdditions],
+        ['a link that carries columns', { view: VIEW_ID, q: 'status:active', columns: 'health' }],
+    ])('keeps the columns changed on %s before the views load', async (_, link) => {
+        let release: () => void = () => {}
+        const pending = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/workflow_views/': async () => {
+                    await pending
+                    return [200, paginated(storedViews)]
+                },
+            },
+        })
+        router.actions.push(urls.workflows(), link)
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+
+        workflowsListV2Logic.actions.setVisibleColumns(['owner', 'trigger'])
+        release()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+
+        expect(logic.values.activeViewId).toEqual(VIEW_ID)
+        expect(workflowsListV2Logic.values.shownColumns).toEqual(['trigger', 'owner'])
+        expect(new URLSearchParams(router.values.location.search).get('columns')).toEqual('trigger,owner')
+    })
+
     it('comes back to the view, its additions and its columns after leaving the list', async () => {
         router.actions.push(urls.workflows(), { view: VIEW_ID })
         logic = workflowsSavedViewsLogic()

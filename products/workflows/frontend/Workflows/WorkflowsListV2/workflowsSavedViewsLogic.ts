@@ -583,6 +583,19 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             const keys = new Set(filters.map(pillKey))
             return [...filters, ...more.filter((filter) => !keys.has(pillKey(filter)))]
         }
+        const writeColumns = (): void => {
+            // Applying a view replaces the columns, so a change made before the views arrive is kept to
+            // apply again after the view.
+            if (values.enabled && !values.available) {
+                cache.columnsChangedWhileViewsLoaded = values.shownColumns
+            }
+            writeUrl()
+        }
+        const keepColumnsChangedWhileViewsLoaded = (columns: OptionalColumn[] | undefined): void => {
+            if (columns) {
+                actions.setVisibleColumns(columns)
+            }
+        }
         const filtersAddedSinceViewsStartedLoading = (): FacetFilter[] => {
             const before: FacetSearchValue | undefined = cache.valueBeforeViewsLoaded
             cache.valueBeforeViewsLoaded = undefined
@@ -756,9 +769,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 actions.setAddedText(null)
                 writeUrl()
             },
-            setVisibleColumns: writeUrl,
-            toggleColumn: writeUrl,
-            resetColumns: writeUrl,
+            setVisibleColumns: writeColumns,
+            toggleColumn: writeColumns,
+            resetColumns: writeColumns,
             applyView: ({ view }) => {
                 if (!values.available) {
                     return
@@ -847,6 +860,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 const viewOnlyLink: { id: string; baseline: FacetSearchValue } | undefined = cache.viewOnlyLink
                 cache.viewOnlyLink = undefined
                 const addedWhileViewsLoaded = filtersAddedSinceViewsStartedLoading()
+                const columnsChangedWhileViewsLoaded: OptionalColumn[] | undefined =
+                    cache.columnsChangedWhileViewsLoaded
+                cache.columnsChangedWhileViewsLoaded = undefined
                 if (view && viewOnlyLink?.id === id) {
                     const edited = values.value
                     const baselineKeys = new Set(viewOnlyLink.baseline.filters.map(pillKey))
@@ -856,12 +872,14 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     if (edited.text !== viewOnlyLink.baseline.text) {
                         actions.setValue({ ...values.value, text: edited.text })
                     }
+                    keepColumnsChangedWhileViewsLoaded(columnsChangedWhileViewsLoaded)
                     return
                 }
                 if (view && !explicit) {
                     actions.setAddedFilters([])
                     actions.setAddedText(null)
                     actions.applyView(view)
+                    keepColumnsChangedWhileViewsLoaded(columnsChangedWhileViewsLoaded)
                     return
                 }
                 cache.syncingUrl = true
@@ -913,6 +931,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         writeUrl()
                     }
                 }
+                keepColumnsChangedWhileViewsLoaded(columnsChangedWhileViewsLoaded)
             },
             saveViewAs: async ({ name, onFailure }) => {
                 const sourceViewId = values.activeViewId
