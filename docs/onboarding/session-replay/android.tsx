@@ -28,8 +28,8 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     />
                     <CalloutBox type="fyi" title="SDK version">
                         <Markdown>
-                            Session replay requires PostHog Android SDK version 3.4.0 or higher. We recommend always
-                            using the latest version.
+                            This setup requires PostHog Android SDK version 3.72.0 or higher. We recommend always using
+                            the latest version.
                         </Markdown>
                     </CalloutBox>
                 </>
