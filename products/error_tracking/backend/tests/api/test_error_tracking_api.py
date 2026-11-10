@@ -1,7 +1,7 @@
 import os
 import json
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
@@ -222,13 +222,9 @@ class TestErrorTracking(APIBaseTest):
                 team=self.team, issue=issue, key=key, value=value, source="jev", question_version=1
             )
 
-        with (
-            patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, NEEDS_LOGIN)),
-            patch.object(
-                team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
-            ),
-        ):
-            response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}")
+        self._enable_issue_tags(enabled_flags)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}")
 
         assert response.status_code == 200
         expected: dict[str, object] = {
@@ -263,13 +259,9 @@ class TestErrorTracking(APIBaseTest):
     def test_issue_tag_definitions_lists_the_enabled_tags(
         self, _name: str, enabled_flags: set[str], expected: list[IssueTagDefinition]
     ) -> None:
-        with (
-            patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, NEEDS_LOGIN)),
-            patch.object(
-                team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
-            ),
-        ):
-            response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/tag_definitions")
+        self._enable_issue_tags(enabled_flags)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/tag_definitions")
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
@@ -311,7 +303,7 @@ class TestErrorTracking(APIBaseTest):
         [
             (
                 "unknown_key",
-                {ISSUE_TAGS_FLAG},
+                {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag},
                 "unknown_key",
                 False,
                 400,
@@ -319,14 +311,28 @@ class TestErrorTracking(APIBaseTest):
             ),
             (
                 "disabled_key",
-                {ISSUE_TAGS_FLAG},
+                {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag},
                 NEEDS_LOGIN.key,
                 False,
                 400,
                 "This project has no enabled tag with this key.",
             ),
-            ("issue_tags_off", set(), BLOCKS_CHECKOUT.key, False, 404, "Issue tags are off for this project."),
-            ("other_team_issue", {ISSUE_TAGS_FLAG}, BLOCKS_CHECKOUT.key, True, 404, "Issue not found"),
+            (
+                "issue_tags_off",
+                {BLOCKS_CHECKOUT.enabled_flag},
+                BLOCKS_CHECKOUT.key,
+                False,
+                404,
+                "Issue tags are off for this project.",
+            ),
+            (
+                "other_team_issue",
+                {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag},
+                BLOCKS_CHECKOUT.key,
+                True,
+                404,
+                "Issue not found",
+            ),
         ]
     )
     def test_issue_tag_correction_writes_nothing_when_rejected(
@@ -338,7 +344,7 @@ class TestErrorTracking(APIBaseTest):
         expected_status: int,
         expected_detail: str,
     ) -> None:
-        self._enable_issue_tags({*enabled_flags, BLOCKS_CHECKOUT.enabled_flag})
+        self._enable_issue_tags(enabled_flags)
         team = Team.objects.create(organization=self.organization) if other_team else self.team
         issue = ErrorTrackingIssue.objects.create(team=team)
 
@@ -352,16 +358,14 @@ class TestErrorTracking(APIBaseTest):
         assert not ErrorTrackingIssueTag.objects.for_team(team.id).filter(issue=issue).exists()
 
     def _enable_issue_tags(
-        self, enabled_flags: frozenset[str] | set[str] = frozenset({ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag})
+        self, enabled_flags: Collection[str] = (ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag)
     ) -> None:
-        for patcher in (
-            patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, NEEDS_LOGIN)),
+        self.enterContext(patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, NEEDS_LOGIN)))
+        self.enterContext(
             patch.object(
                 team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
-            ),
-        ):
-            patcher.start()
-            self.addCleanup(patcher.stop)
+            )
+        )
 
     def test_issue_list_paginates_without_aggregating_all_fingerprints(self) -> None:
         issues = [ErrorTrackingIssue.objects.create(team=self.team) for _ in range(3)]

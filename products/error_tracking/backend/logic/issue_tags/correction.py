@@ -33,19 +33,18 @@ def correct_issue_tag(
     if not team_flag_enabled(definition.enabled_flag, team_id):
         raise UnknownIssueTagError(key)
 
-    previous = (
+    source = ErrorTrackingIssueTag.Source.MANUAL
+    previous_source, previous_value, previous_probability = (
         ErrorTrackingIssueTag.objects.for_team(team_id)
         .filter(issue_id=issue_id, key=key)
-        .values("source", "value", "probability")
+        .values_list("source", "value", "probability")
         .first()
-    ) or {"source": None, "value": None, "probability": None}
+    ) or (None, None, None)
     answer = TagAnswer(
         value=value, probability=None, model=None, question_version=definition.question_version, set_by=user
     )
     try:
-        stored = set_issue_tag(
-            team_id, issue_id, key, answer, ErrorTrackingIssueTag.Source.MANUAL, was_impersonated=was_impersonated
-        )
+        stored = set_issue_tag(team_id, issue_id, key, answer, source, was_impersonated=was_impersonated)
     except ErrorTrackingIssue.DoesNotExist:
         raise ErrorTrackingIssueNotFoundError
     # Manual outranks every source, so the writer refuses it only when issue tags were turned off after the check above.
@@ -54,14 +53,10 @@ def correct_issue_tag(
 
     return contracts.ErrorTrackingIssueTagCorrection(
         tag=contracts.ErrorTrackingIssueTag(
-            key=key,
-            label=definition.label,
-            description=definition.description,
-            value=value,
-            source=ErrorTrackingIssueTag.Source.MANUAL,
+            key=key, label=definition.label, description=definition.description, value=value, source=source
         ),
-        previous_source=previous["source"],
-        previous_value=previous["value"],
-        previous_probability=previous["probability"],
-        changed=(previous["source"], previous["value"]) != (ErrorTrackingIssueTag.Source.MANUAL, value),
+        previous_source=previous_source,
+        previous_value=previous_value,
+        previous_probability=previous_probability,
+        changed=(previous_source, previous_value) != (source, value),
     )
