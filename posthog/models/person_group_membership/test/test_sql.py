@@ -32,6 +32,7 @@ from posthog.models.person_group_membership.sql import (
 
 MIGRATION = "posthog.clickhouse.migrations.0343_person_group_membership"
 INGESTION_MIGRATION = "posthog.clickhouse.migrations.0369_person_group_membership_ingestion"
+ACTIVITY_MIGRATION = "posthog.clickhouse.migrations.0375_person_group_membership_activity"
 SOURCE_TABLE = "test_source_person_group_membership"
 
 
@@ -70,8 +71,9 @@ def test_ingestion_sql(build_sql: Callable[[], str], snapshot, settings) -> None
             False,
         ),
         (INGESTION_MIGRATION, [[NodeRole.INGESTION_EVENTS]] * 5, True),
+        (ACTIVITY_MIGRATION, [[NodeRole.INGESTION_EVENTS]], False),
     ],
-    ids=["storage", "ingestion"],
+    ids=["storage", "ingestion", "activity"],
 )
 @pytest.mark.parametrize("deployment", ["", "DEV", "US", "EU"])
 @pytest.mark.parametrize("multinode", [False, True])
@@ -88,7 +90,16 @@ def test_migration_placement(
             )
             for op in operations:
                 assert "ON CLUSTER" not in op._sql
-                assert "IF NOT EXISTS" in op._sql
+                if migration == ACTIVITY_MIGRATION:
+                    assert op._sql.startswith(
+                        f"ALTER TABLE {django_settings.CLICKHOUSE_DATABASE}.person_group_membership_mv MODIFY QUERY "
+                    )
+                    assert f"FROM {django_settings.CLICKHOUSE_DATABASE}.kafka_person_group_membership" in op._sql
+                    assert op._sharded is False
+                    assert op._is_alter_on_replicated_table is False
+                    assert "JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false'" in op._sql
+                else:
+                    assert "IF NOT EXISTS" in op._sql
             assert any("Kafka" in op._sql for op in operations) == consumes_kafka
             assert any("kafka_events_json_ws" in op._sql for op in operations) is False
     finally:
@@ -296,6 +307,7 @@ def test_ingestion_admits_only_eligible_events(group_type_index: int) -> None:
     )
     sync_execute(f"SYSTEM RELOAD DICTIONARY {PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY}")
     every_group = json.dumps({f"$group_{index}": f"account-{index}" for index in range(5)})
+    suppressed = json.dumps({**json.loads(every_group), "$update_person_last_seen_at": False})
     configured_empty = json.dumps({f"$group_{group_type_index}": ""})
     events = [
         (2001, "identified", every_group, datetime(2024, 1, 2, tzinfo=UTC), "full"),
@@ -308,6 +320,24 @@ def test_ingestion_admits_only_eligible_events(group_type_index: int) -> None:
         (2002, "disabled-team", every_group, datetime(2024, 1, 1, tzinfo=UTC), "full"),
         (2003, "missing-team", every_group, datetime(2024, 1, 1, tzinfo=UTC), "full"),
     ]
+    events.extend(
+        (2001, distinct_id, suppressed, timestamp, "full")
+        for distinct_id, timestamp in [
+            ("identified", datetime(2023, 12, 1, tzinfo=UTC)),
+            ("identified", datetime(2024, 2, 1, tzinfo=UTC)),
+            ("suppressed-only", datetime(2024, 2, 1, tzinfo=UTC)),
+        ]
+    )
+    events.extend(
+        (
+            2001,
+            f"retained-{index}",
+            json.dumps({**json.loads(every_group), "$update_person_last_seen_at": value}),
+            datetime(2024, 1, 2, tzinfo=UTC),
+            "full",
+        )
+        for index, value in enumerate((True, "false", 0, None))
+    )
     sync_execute(f"DROP TABLE IF EXISTS {SOURCE_TABLE}")
     sync_execute(f"CREATE TABLE {SOURCE_TABLE} ({KAFKA_PERSON_GROUP_MEMBERSHIP_COLUMNS}) ENGINE = Memory")
     try:
@@ -340,4 +370,14 @@ def test_ingestion_admits_only_eligible_events(group_type_index: int) -> None:
             datetime(2024, 1, 1, tzinfo=UTC),
             datetime(2024, 1, 1, tzinfo=UTC),
         ),
+    ] + [
+        (
+            2001,
+            group_type_index,
+            f"account-{group_type_index}",
+            f"retained-{index}",
+            datetime(2024, 1, 2, tzinfo=UTC),
+            datetime(2024, 1, 2, tzinfo=UTC),
+        )
+        for index in range(4)
     ]

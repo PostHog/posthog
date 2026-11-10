@@ -55,7 +55,15 @@ const meta: Meta<typeof NotebookBtwLayout> = {
 export default meta
 type Story = StoryObj<typeof NotebookBtwLayout>
 
-export const Default: Story = {}
+export const Default: Story = {
+    decorators: [
+        (Story) => (
+            <div className="w-[1248px]">
+                <Story />
+            </div>
+        ),
+    ],
+}
 
 export const Narrow: Story = {
     parameters: { testOptions: { snapshotTargetSelector: '.LemonModal' } },

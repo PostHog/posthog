@@ -1322,7 +1322,11 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             body = {
                                 "event": WORKFLOWS_DIGEST_EVENT,
                                 "distinct_id": _workflows_distinct_id(user),
-                                "properties": {**workflows_payload, "to": user.email},
+                                "properties": {
+                                    **workflows_payload,
+                                    "to": user.email,
+                                    "$update_person_last_seen_at": False,
+                                },
                             }
                             try:
                                 # The payload holds UUIDs and datetimes, which plain json cannot encode.
@@ -1361,7 +1365,7 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             queued = ph_client.capture(
                                 distinct_id=user.distinct_id,
                                 event=CUSTOMER_IO_DIGEST_EVENT,
-                                properties=payload,
+                                properties={**payload, "$update_person_last_seen_at": False},
                                 groups={
                                     "organization": str(organization.id),
                                     "instance": settings.SITE_URL,

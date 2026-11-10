@@ -1559,15 +1559,18 @@ class Database(BaseModel):
                 continue
 
             fields_dict: dict[str, DatabaseSchemaField] = {}
+            table = self.get_table(table_name)
+            table_description = table.description if isinstance(table, Table) else None
             if include_fields:
                 field_input: dict[str, Any] = {}
-                table = self.get_table(table_name)
                 if isinstance(table, Table):
                     field_input = _schema_field_input(table)
 
                 fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
                 fields_dict = {field.name: field for field in fields}
-            tables[table_name] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_name, name=table_name)
+            tables[table_name] = DatabaseSchemaPostHogTable(
+                fields=fields_dict, id=table_name, name=table_name, description=table_description
+            )
 
         # System tables
         system_tables = [] if self._is_direct_query() else self.get_system_table_names()
@@ -1576,15 +1579,18 @@ class Database(BaseModel):
                 continue
 
             fields_dict = {}
+            table = self.get_table(table_key)
+            table_description = table.description if isinstance(table, Table) else None
             if include_fields:
                 system_field_input: dict[str, Any] = {}
-                table = self.get_table(table_key)
                 if isinstance(table, Table):
                     system_field_input = _schema_field_input(table)
 
                 fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
                 fields_dict = {field.name: field for field in fields}
-            tables[table_key] = DatabaseSchemaSystemTable(fields=fields_dict, id=table_key, name=table_key)
+            tables[table_key] = DatabaseSchemaSystemTable(
+                fields=fields_dict, id=table_key, name=table_key, description=table_description
+            )
 
         # Data Warehouse Tables and Views - Fetch all related data in one go
         warehouse_table_names = self.get_warehouse_table_names()
@@ -3965,4 +3971,8 @@ def serialize_fields(
                     chain=field.chain,
                 )
             )
+    for schema_field in field_output:
+        source_field = field_input.get(schema_field.name)
+        if isinstance(source_field, FieldOrTable) and source_field.description:
+            schema_field.description = source_field.description
     return field_output
