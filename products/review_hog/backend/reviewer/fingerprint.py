@@ -264,7 +264,6 @@ class TurnFingerprint:
             # Only a set whose lenses run on another arm carries it, so sets with one arm keep their cohort.
             lens_inputs: dict[str, Any] = {"lens_arm": _arm_payload(lens_arm)} if lens_arm != review_arm else {}
             if devex_lens:
-                # Only a turn that runs the devex lens carries it, so every other turn keeps its cohort.
                 prompt = (SINGLE_AGENT_PROMPT_PATH / DEVEX_LENS.prompt_file).read_text()
                 lens_inputs["devex_lens"] = {"prompt": _text_hash(prompt)}
             return cls(

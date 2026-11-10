@@ -190,7 +190,6 @@ class TestFetchDecidesTheTier(BaseTest):
         coordinator_flag: MagicMock,
         devex_flag: MagicMock,
     ) -> None:
-        # The lens must stay off every turn outside its route, or those turns leave their evaluation cohort.
         devex_flag.return_value = flag_on
         coordinator_flag.return_value = coordinator_on
         mock_fetcher.return_value.fetch_pr_data.return_value = FetchedPR(

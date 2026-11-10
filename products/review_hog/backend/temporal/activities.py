@@ -332,8 +332,7 @@ class ReviewMeta:
     # A single-agent turn that runs its sessions as sub-agents of one coordinator session. Recorded here
     # so a replay takes the same branch. Older histories decode as separate sessions.
     coordinator: bool = False
-    # The turn adds the devex lens session. Recorded here so a replay fans out over the same sessions.
-    # Older histories decode as no devex lens.
+    # Recorded here, so a replay fans out over the same sessions. Older histories decode as no devex lens.
     devex_lens: bool = False
     # The PR's arms in the zero-change and delta splits. Recorded here so a replay takes the same branch.
     # Older histories decode as the control arms.
@@ -457,6 +456,7 @@ class SandboxStageInput:
     delta_since_head_sha: str | None = field(default=None, kw_only=True)
     # Names the single-agent sessions' arms (`single_agent_arms`). Control on payloads from before the field.
     arm_set: str = field(default=CONTROL_ARM_SET, kw_only=True)
+    devex_lens: bool = field(default=False, kw_only=True)
 
 
 @dataclass
@@ -1837,12 +1837,23 @@ def _is_final_attempt() -> bool:
 
 
 def _combine_and_clean(
-    team_id: int, report_id: str, head_sha: str, review_arm: ReviewArm, review_design: str, arm_set: str
+    team_id: int,
+    report_id: str,
+    head_sha: str,
+    review_arm: ReviewArm,
+    review_design: str,
+    arm_set: str,
+    devex_lens: bool = False,
 ) -> list[Issue]:
     if review_design == REVIEW_DESIGN_SINGLE_AGENT:
         perspective_results = load_single_agent_results(
             team_id=team_id, report_id=report_id, head_sha=head_sha, arms=single_agent_arms(arm_set)
         ).reviews
+        if not devex_lens:
+            # An earlier attempt at this head can have persisted a devex lens result before the lens went off.
+            perspective_results = {
+                unit: review for unit, review in perspective_results.items() if unit[0] != DEVEX_LENS.pass_number
+            }
     else:
         perspective_results = load_perspective_results(
             team_id=team_id, report_id=report_id, head_sha=head_sha, review_arm=review_arm, review_design=review_design
@@ -1927,7 +1938,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     )
     single_agent = input.review_design == REVIEW_DESIGN_SINGLE_AGENT
     issues = await database_sync_to_async(_combine_and_clean, thread_sensitive=False)(
-        input.team_id, input.report_id, input.head_sha, review_arm, input.review_design, input.arm_set
+        input.team_id, input.report_id, input.head_sha, review_arm, input.review_design, input.arm_set, input.devex_lens
     )
     snapshot = await database_sync_to_async(load_pr_snapshot, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_design=input.review_design

@@ -18,6 +18,7 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_REVIEW_ARM,
+    DEVEX_LENS,
     FLASH_ARM,
     FLASH_LENS_MAX_CHUNKS,
     FLASH_LENSES,
@@ -53,6 +54,7 @@ from products.review_hog.backend.temporal.activities import (
     ReviewChunkInput,
     SandboxStageInput,
     SelectPerspectivesInput,
+    _combine_and_clean,
     _current_pr_comments,
     _publish,
     coordinator_review_activity,
@@ -483,6 +485,29 @@ async def test_reused_single_agent_session_reports_whether_its_result_fell_back(
 
     assert fell_back is persisted_as_fallback
     mock_review.assert_not_called()
+
+
+@pytest.mark.parametrize("devex_lens", [False, True])
+def test_combine_reads_a_persisted_devex_lens_result_only_on_a_turn_that_runs_the_lens(devex_lens: bool) -> None:
+    # A retry at the same head after the lens goes off would otherwise publish lens findings in the control cohort.
+    done = SingleAgentResults(
+        reviews={
+            (2000, 1): IssuesReview(issues=[_wave_issue("main finding")]),
+            (DEVEX_LENS.pass_number, 1): IssuesReview(issues=[_wave_issue("devex lens finding")]),
+        },
+        fallbacks=frozenset(),
+    )
+    with (
+        patch(f"{_MODULE}.load_single_agent_results", return_value=done),
+        patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot()),
+        patch(f"{_MODULE}.clean_issues", side_effect=lambda issues, _pr_files: issues),
+    ):
+        issues = _combine_and_clean(
+            1, "r1", "sha1", DEFAULT_REVIEW_ARM, REVIEW_DESIGN_SINGLE_AGENT, "control", devex_lens
+        )
+
+    expected = ["main finding", "devex lens finding"] if devex_lens else ["main finding"]
+    assert [issue.title for issue in issues] == expected
 
 
 @pytest.mark.asyncio

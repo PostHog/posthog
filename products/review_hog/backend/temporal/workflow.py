@@ -704,6 +704,14 @@ class ReviewPRWorkflow:
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
             )
+            # A delta turn has no devex lens session. The patch goes before the recorded value, so a history
+            # from before the devex lens keeps its sessions on replay.
+            devex_lens = (
+                review_design == REVIEW_DESIGN_SINGLE_AGENT
+                and workflow.patched("flash-devex-lens-2026-11")
+                and meta.devex_lens
+                and delta_since_head_sha is None
+            )
             # After the skill sync and schema generation, so the fingerprint hashes what the stages use.
             if workflow.patched("record-turn-marker-2026-10"):
                 try:
@@ -721,7 +729,7 @@ class ReviewPRWorkflow:
                             coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
                             publishes=publishes_to_pr,
                             arm_set=meta.arm_set,
-                            devex_lens=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.devex_lens,
+                            devex_lens=devex_lens,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
@@ -743,6 +751,7 @@ class ReviewPRWorkflow:
                 trigger_source=inputs.trigger_source,
                 delta_since_head_sha=delta_since_head_sha,
                 arm_set=meta.arm_set,
+                devex_lens=devex_lens,
             )
 
             # The patch keeps a history from before the coordinator existed on separate sessions when it replays.
@@ -754,12 +763,7 @@ class ReviewPRWorkflow:
                 flash_sessions = await self._review_with_coordinator(stage, meta.lens_chunk_count)
             elif review_design == REVIEW_DESIGN_SINGLE_AGENT:
                 lens_parts = 1 if delta_since_head_sha is not None else meta.lens_chunk_count
-                # A delta turn reviews only the files that changed since the last review, so it has no devex lens part.
-                # The patch goes first, so a history from before the devex lens keeps its sessions on replay.
-                devex_lens = (
-                    workflow.patched("flash-devex-lens-2026-11") and meta.devex_lens and delta_since_head_sha is None
-                )
-                flash_sessions = await self._review_with_single_agent(stage, lens_parts, devex_lens)
+                flash_sessions = await self._review_with_single_agent(stage, lens_parts)
             else:
                 await self._review_with_pipeline(stage, acting_user_id)
 
@@ -1028,9 +1032,7 @@ class ReviewPRWorkflow:
         return report_id
 
     @staticmethod
-    async def _review_with_single_agent(
-        stage: SandboxStageInput, lens_chunk_count: int, devex_lens: bool = False
-    ) -> FlashSessionStats | None:
+    async def _review_with_single_agent(stage: SandboxStageInput, lens_chunk_count: int) -> FlashSessionStats | None:
         """Stages 2 and 3 of the single-agent design: the main session and every lens session in parallel.
 
         A failed lens session costs only its own findings. A failed main session fails the turn. Returns
@@ -1048,7 +1050,7 @@ class ReviewPRWorkflow:
             return None
 
         lens_units = [(lens, chunk_id) for lens in FLASH_LENSES for chunk_id in range(1, lens_chunk_count + 1)]
-        if devex_lens:
+        if stage.devex_lens:
             lens_units.append((DEVEX_LENS_NAME, 1))
         workflow.logger.info(
             f"STAGE 2-3/7 · Single-agent review: the main session and {len(lens_units)} lens session(s)"
