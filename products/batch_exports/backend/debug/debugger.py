@@ -16,6 +16,7 @@ import pyarrow.fs as fs
 import pyarrow.ipc as ipc
 from rich.console import Console
 
+from posthog.integrations import IntegrationManager
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.integration import DatabricksIntegration, GoogleCloudServiceAccountIntegration
 from posthog.temporal.common.clickhouse import ClickHouseClient
@@ -277,7 +278,7 @@ class BatchExportsDebugger:
             filters["id"] = id
 
         self.loaded_batch_exports = tuple(
-            BatchExport.objects.select_related("destination__integration").filter(team_id=self.team_id, **filters)
+            BatchExport.objects.select_related("destination").filter(team_id=self.team_id, **filters)
         )
         return self.loaded_batch_exports
 
@@ -527,8 +528,12 @@ class BatchExportsDebugger:
             case BatchExportDestination.Destination.DATABRICKS:
                 console.print("[bold green]Getting Databricks client...[/bold green]")
                 databricks_inputs = cast(DatabricksBatchExportInputs, self.batch_export_inputs)
-                assert self.batch_export.destination.integration is not None
-                integration = DatabricksIntegration(self.batch_export.destination.integration)
+                assert self.batch_export.destination.integration_id is not None
+                integration = DatabricksIntegration(
+                    await IntegrationManager.databricks.credentials.aget(
+                        self.batch_export.team_id, self.batch_export.destination.integration_id
+                    )
+                )
                 client = DatabricksClient(
                     server_hostname=integration.server_hostname,
                     http_path=databricks_inputs.http_path,
@@ -541,9 +546,11 @@ class BatchExportsDebugger:
                     yield databricks_client
             case BatchExportDestination.Destination.BIGQUERY:
                 console.print("[bold green]Getting BigQuery client...[/bold green]")
-                assert self.batch_export.destination.integration is not None
+                assert self.batch_export.destination.integration_id is not None
                 google_cloud_integration = GoogleCloudServiceAccountIntegration(
-                    self.batch_export.destination.integration
+                    await IntegrationManager.google_cloud_service_account.credentials.aget(
+                        self.batch_export.team_id, self.batch_export.destination.integration_id
+                    )
                 )
                 if not google_cloud_integration.has_key():
                     await verify_impersonated_service_account_ownership(
