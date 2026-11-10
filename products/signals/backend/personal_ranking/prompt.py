@@ -12,7 +12,7 @@ from products.signals.backend.activity_summary.read import ActivitySummaryView
 from products.signals.backend.personal_ranking.candidates import Candidate, NeedsYouKind
 from products.signals.backend.personal_ranking.config import PersonalRankingConfig
 
-PROMPT_VERSION = 6
+PROMPT_VERSION = 9
 
 Tier = Literal["top", "worth_a_look", "later"]
 TIERS: tuple[Tier, ...] = get_args(Tier)
@@ -103,7 +103,8 @@ Each outcome has a probability and a lift. Lift is the probability over the base
 
 Read every candidate. Rank only the best {config.rank_top}, fold the duplicates, and ignore the rest. The candidates you do not rank follow in their given order.
 To pick and order the best {config.rank_top}:
-- Put first the reports that need this person: waiting on their input, claimed by them, or naming them as suggested reviewer.
+- Put first the reports whose `needs you` line says waiting on their input or claimed by them. Most candidates name them as suggested reviewer, so that fact alone does not move a report up.
+- The status in a report's first line, such as `pending_input`, is the report's own state, not a fact about this person. A report with no `needs you` line does not need them, whatever its status.
 - Then the reports that match their themes, the objects they own or watch, and the products they work in.
 - Use the ranking model's lift as evidence of value. Prefer lift to the raw probability. A report with an open pull request is cheap to finish.
 - Old reports with no activity and reports far from their work go last.
@@ -111,9 +112,9 @@ To pick and order the best {config.rank_top}:
 
 Output:
 - `ranked`: at most {config.rank_top} entries, the best candidates that you do not fold, with `ref` (such as "c3"), `rank` (1 is first, no gaps, no repeats) and `tier`.
-- `tier`: "top" for at most {config.top_max} reports they should look at today. A "top" report needs a needs-you fact, a match to one of their themes, an object they own, or the focus. "worth_a_look" for at most {config.worth_a_look_max} other useful reports. "later" for the rest. A lower rank never has a better tier.
-- `reason`: why this rank, in plain words. Name the theme, object, product or needs-you fact that matched. Never quote the profile. At most {reasons.top} characters for "top", {reasons.worth_a_look} for "worth_a_look", {reasons.later} for "later". Every entry needs a reason.
-- `matched`: the theme label that matched (as written in the person block) and the needs-you kinds that apply, or null when nothing matched.
+- `tier`: "top" for at most {config.top_max} reports they should look at today. A "top" report needs to be waiting on their input or claimed by them, or to match one of their themes, an object they own, or the focus. Being a suggested reviewer is not enough. "worth_a_look" for at most {config.worth_a_look_max} other useful reports. "later" for the rest. A lower rank never has a better tier.
+- `reason`: why this report fits this person, in plain words. Start with the theme, object, product or focus that matched, as in "Breaks the checkout funnel you tune each week." Do not mention suggested reviewer, claims, lift or probability: the card already shows them. Mention waiting on their input only when the report's `needs you` line states it and it is the main reason for the rank, and never at the start. A "top" reason never argues against its tier: if it has to hedge, give the report a lower tier. Never quote the profile. At most {reasons.top} characters for "top", {reasons.worth_a_look} for "worth_a_look", {reasons.later} for "later". Every entry needs a reason.
+- `matched`: the theme label that matched (as written in the person block) and the needs-you kinds from the report's `needs you` line (empty when it has none), or null when nothing matched.
 - `next_step`: one short action for ranks 1 to {min(limit, config.rank_top)}, at most {config.next_step_max_chars} characters, else null.
 - `folded`: any candidate, ranked or not, that repeats another candidate (a digest series or a duplicate) goes here, not in `ranked`, with `into` (the ref it repeats) and a short reason.
 

@@ -41,7 +41,7 @@ Edges are (upstream_id, downstream_id): data flows upstream -> downstream, so a 
 
 import dataclasses
 from collections import defaultdict, deque
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping, Set
 from datetime import timedelta
 from typing import Literal
 
@@ -588,6 +588,15 @@ def _nothing_satisfiable_message(
     return "No cadence works here."
 
 
+def ensure_schedulable(target: timedelta) -> None:
+    """Raise if `target` is not one of the cadences a person may pick."""
+    if target not in SCHEDULABLE_BUCKETS:
+        supported = ", ".join(format_cadence(interval) for interval in sorted(SCHEDULABLE_BUCKETS))
+        raise UnsupportedFrequencyTargetError(
+            f"Can't refresh every {humanize_cadence(target)}. Pick one of: {supported}."
+        )
+
+
 def validate_declared_target(
     *,
     node_id: str,
@@ -604,11 +613,7 @@ def validate_declared_target(
     that blocks the target, which is the thing a person has to change to unblock it. `pinned`
     holds the pin state the write would leave, including `node_id`'s own.
     """
-    if target not in SCHEDULABLE_BUCKETS:
-        supported = ", ".join(format_cadence(interval) for interval in sorted(SCHEDULABLE_BUCKETS))
-        raise UnsupportedFrequencyTargetError(
-            f"Can't refresh every {humanize_cadence(target)}. Pick one of: {supported}."
-        )
+    ensure_schedulable(target)
 
     bounds = compute_target_bounds(
         node_id=node_id,
@@ -656,6 +661,7 @@ def find_invalid_targets(
     edges: list[tuple[str, str]],
     declared_targets: dict[str, timedelta],
     source_intervals: dict[str, timedelta],
+    floor_exempt: Set[str] = frozenset(),
     pinned: Collection[str] = frozenset(),
 ) -> list[InvalidTarget]:
     """Re-validate every declared target against its current bounds.
@@ -663,6 +669,9 @@ def find_invalid_targets(
     Targets drift: a descendant declaring a finer target lowers ancestors' ceilings, and
     graph edits move floors. Runtime freshness stays correct (finest demand wins) — what
     breaks is declared == effective, so run this on any graph mutation and surface the result.
+
+    `floor_exempt` nodes may declare a target finer than their sources deliver: the scheduler
+    clamps them at run time, so the declared value is intent rather than drift.
     """
     floors = all_source_floors(edges, source_intervals, _pinned_targets(pinned, declared_targets))
     ceilings = all_consumer_ceilings(edges, declared_targets, pinned)
@@ -670,7 +679,7 @@ def find_invalid_targets(
     for node_id, declared in declared_targets.items():
         source_floor = floors.get(node_id, STREAMING)
         consumer_ceiling = ceilings.get(node_id)
-        if is_finer_than(declared, source_floor) or (
+        if (node_id not in floor_exempt and is_finer_than(declared, source_floor)) or (
             consumer_ceiling is not None and is_coarser_than(declared, consumer_ceiling)
         ):
             invalid.append(

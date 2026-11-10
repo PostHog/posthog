@@ -19,6 +19,7 @@ from posthog.models.utils import UUIDT, uuid7
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person, update_seed_person
+from posthog.run_mode import run_mode
 
 from products.mcp_analytics.backend.models import MCPSession
 
@@ -147,6 +148,22 @@ TOOL_DESCRIPTIONS = {
     "person_get": "Look up a person and their properties by distinct id.",
     "experiment_get": "Fetch an experiment's setup and current results.",
     "session_recording_get": "Fetch metadata for a session recording.",
+}
+
+# One plausible argument set per tool, so the session view has $mcp_parameters to show.
+TOOL_ARGUMENTS: dict[str, dict[str, Any]] = {
+    "query_run": {"query": "SELECT event, count() FROM events WHERE timestamp > now() - INTERVAL 7 DAY GROUP BY event"},
+    "read_data_schema": {"kind": "events"},
+    "insight_get": {"insight_id": "aB3dE9xY"},
+    "project_get": {},
+    "dashboard_get": {"dashboard_id": 42},
+    "feature_flag_get": {"key": "new-onboarding-flow"},
+    "error_tracking_issue_get": {"issue_id": "0192f3a1-7c2e-7d4b-9f00-000000000001"},
+    "docs_search": {"query": "how do I filter out internal users"},
+    "logs_query": {"service": "api", "level": "error", "search": "timeout"},
+    "person_get": {"distinct_id": "user_1234"},
+    "experiment_get": {"experiment_id": 7},
+    "session_recording_get": {"session_id": "0192f3a1-7c2e-7d4b-9f00-000000000002"},
 }
 
 
@@ -1257,6 +1274,10 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
+        if run_mode().is_deployed_cloud:
+            raise CommandError(
+                "seed_mcp_sessions writes fabricated events and persons; it does not run on PostHog Cloud."
+            )
         team_id: int = options["team_id"]
         session_count: int = options["sessions"]
         min_calls: int = options["min_calls"]
@@ -1579,6 +1600,8 @@ class Command(BaseCommand):
                     "$mcp_intent": session_intent,
                     "$mcp_intent_source": rng.choices(["context_parameter", "inferred"], weights=[92, 8], k=1)[0],
                     "$mcp_is_error": failure is not None,
+                    "$mcp_parameters": TOOL_ARGUMENTS.get(tool_name, {}),
+                    "$mcp_response": {"content": [{"type": "text", "text": f"{tool_name} completed."}]},
                 }
                 if failure:
                     # Permission and validation errors fail before any work; the rest fail after it.
@@ -1589,6 +1612,10 @@ class Command(BaseCommand):
                     tool_properties["$mcp_error_type"] = failure.error_type
                     tool_properties["$mcp_error_message"] = failure.message
                     tool_properties["$mcp_error_status"] = failure.status
+                    tool_properties["$mcp_response"] = {
+                        "content": [{"type": "text", "text": failure.message}],
+                        "isError": True,
+                    }
                 tool_properties["$mcp_duration_ms"] = duration_ms
                 emit(session, "$mcp_tool_call", timestamp, tool_properties)
                 session_calls.append(

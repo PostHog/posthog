@@ -5,12 +5,15 @@ import { AppState, type AppStateStatus } from 'react-native'
 
 import { setAuthProvider } from '@/api/client'
 import { queryClient as appQueryClient } from '@/api/queryClient'
+import { useAuthStore } from '@/auth/authStore'
+import { setSessionTokens } from '@/auth/tokens'
 import { useHandoffStore } from '@/features/handoff/handoffStore'
 import { useReportWithLiveRun } from '@/features/handoff/useReportWithLiveRun'
+import { useFeatureAccess, useScopeErrorStore } from '@/features/views/useViewsAccess'
 import { reportFixture } from '@/model/adapters/testFixtures'
 import type { QueryState, ReportView } from '@/model/types'
 
-import { REPORT_POLL_INTERVAL_MS, useReport } from './hooks'
+import { REPORT_POLL_INTERVAL_MS, useReport, useReportActions } from './hooks'
 import { reportArtefactsQuery, reportDetailQuery, reportPageQuery, reportSignalsQuery } from './queries'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -34,6 +37,7 @@ const REPORT_ID = 'report-1'
 
 describe('useReport', () => {
     beforeEach(() => {
+        useScopeErrorStore.getState().clear()
         AppState.currentState = 'active'
         jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: () => undefined })
         useHandoffStore.setState({ reports: {} })
@@ -48,6 +52,83 @@ describe('useReport', () => {
     afterEach(() => {
         setAuthProvider(null)
         jest.restoreAllMocks()
+    })
+
+    describe.each<[string, (actions: ReturnType<typeof useReportActions>) => Promise<void>]>([
+        ['resolve', (actions) => actions.resolve('other', '')],
+        ['dismiss', (actions) => actions.dismiss('other', '')],
+        ['priority', (actions) => actions.setPriority('P0')],
+    ])('%s access', (_name, run) => {
+        test.each([
+            ["API key missing required scope 'inbox:write'", 'reauth', 'current'],
+            ['You do not have permission to perform this action.', 'ok', 'current'],
+            ["API key missing required scope 'task:write'", 'ok', 'current'],
+            ["API key missing required scope 'inbox:write'", 'ok', 'signed-out'],
+            ["API key missing required scope 'inbox:write'", 'ok', 'replacement'],
+        ])('handles a rejected write: %s (%s, %s session)', async (detail, state, session) => {
+            const previousAuth = useAuthStore.getState()
+            useAuthStore.setState({ method: 'oauth' })
+            setSessionTokens({
+                kind: 'oauth',
+                accessToken: 'test-token',
+                refreshToken: null,
+                expiresAt: null,
+                grantedScopes: ['inbox:read'],
+                requestedScopes: ['inbox:read'],
+            })
+            let requestStarted!: () => void
+            const started = new Promise<void>((resolve) => {
+                requestStarted = resolve
+            })
+            let completeRequest!: (response: Response) => void
+            const response = new Promise<Response>((resolve) => {
+                completeRequest = resolve
+            })
+            globalThis.fetch = jest.fn(() => {
+                requestStarted()
+                return response
+            })
+            const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+            const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+                <QueryClientProvider client={client}>{children}</QueryClientProvider>
+            )
+            const { result, unmount } = renderHook(
+                () => ({ actions: useReportActions(REPORT_ID), access: useFeatureAccess('inbox') }),
+                { wrapper }
+            )
+            try {
+                expect(result.current.access.state).toBe('ok')
+                await act(async () => {
+                    const rejected = expect(run(result.current.actions)).rejects.toThrow(detail)
+                    await started
+                    if (session !== 'current') {
+                        setSessionTokens(null)
+                        useScopeErrorStore.getState().clear()
+                        client.clear()
+                        if (session === 'replacement') {
+                            setSessionTokens({
+                                kind: 'oauth',
+                                accessToken: 'replacement-test-token',
+                                refreshToken: null,
+                                expiresAt: null,
+                                grantedScopes: ['inbox:read', 'inbox:write'],
+                                requestedScopes: ['inbox:read', 'inbox:write'],
+                            })
+                        }
+                    }
+                    completeRequest(new Response(JSON.stringify({ detail }), { status: 403 }))
+                    await rejected
+                })
+                expect(result.current.access.state).toBe(state)
+                expect(result.current.access.missingScope).toBe(state === 'reauth' ? 'inbox:write' : null)
+                expect(Object.values(result.current.actions.pending)).not.toContain(true)
+            } finally {
+                unmount()
+                client.clear()
+                setSessionTokens(null)
+                useAuthStore.setState(previousAuth)
+            }
+        })
     })
 
     test('shows a prefetched report on the first render and refetches it', async () => {
@@ -166,7 +247,7 @@ describe('useReport', () => {
         }
     })
 
-    test.each([200, 500])(
+    test.each([200, 500, 403])(
         'keeps the report visible while refreshing missing evidence (signals %s)',
         async (signalsStatus) => {
             jest.useFakeTimers()
@@ -180,12 +261,15 @@ describe('useReport', () => {
                 if (refreshing) {
                     await new Promise<void>((resolve) => pending.push({ evidence: page || signals, resolve }))
                 }
-                const status = page ? 404 : signals ? signalsStatus : failRefresh ? 503 : 200
-                const body = url.includes('/artefacts/')
-                    ? { count: 0, next: null, results: [] }
-                    : signals
-                      ? { signals: [] }
-                      : reportFixture({ id: REPORT_ID })
+                const status = page ? 404 : signals ? (failRefresh ? signalsStatus : 200) : failRefresh ? 503 : 200
+                const body =
+                    status === 403
+                        ? { detail: "API key missing required scope 'inbox:read'" }
+                        : url.includes('/artefacts/')
+                          ? { count: 0, next: null, results: [] }
+                          : signals
+                            ? { signals: [] }
+                            : reportFixture({ id: REPORT_ID })
                 return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
             }) as typeof fetch
             const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
@@ -233,6 +317,7 @@ describe('useReport', () => {
                     await jest.advanceTimersByTimeAsync(10)
                 })
                 expect(result.current.isRefetching).toBe(false)
+                expect(useScopeErrorStore.getState().reported.inbox).toBe(signalsStatus === 403 ? 'inbox:read' : null)
                 expect(renders.every((state) => state.data?.id === REPORT_ID && !state.isLoading)).toBe(true)
             } finally {
                 unmount()

@@ -728,7 +728,6 @@ describe('RecordingApi', () => {
             const recordingApi = new RecordingApi(
                 {
                     RECORDING_API_JWT_SECRET: JWT_SECRET,
-                    RECORDING_API_ALLOW_LEGACY_SECRET: false,
                 } as RecordingApiConfig,
                 mockPostgres,
                 mockOutputs
@@ -762,34 +761,6 @@ describe('RecordingApi', () => {
             const res = await req.set('Authorization', bearer(op))
 
             expect(res.status).toBe(expectedStatus)
-        })
-
-        it('accepts the legacy secret while JWT auth is not configured', async () => {
-            const legacyApi = new RecordingApi(
-                {
-                    RECORDING_API_JWT_SECRET: '',
-                    RECORDING_API_ALLOW_LEGACY_SECRET: true,
-                    INTERNAL_API_SECRET: 'legacy-secret',
-                } as RecordingApiConfig,
-                mockPostgres,
-                mockOutputs
-            )
-            await legacyApi.start(mockService)
-            const legacyApp = express()
-            legacyApp.use(express.json())
-            legacyApp.use('/', legacyApi.router())
-            const legacyServer = legacyApp.listen(0, () => {})
-
-            try {
-                const res = await supertest(legacyApp)
-                    .post('/api/projects/1/recordings/session-1/encrypt')
-                    .set('X-Internal-Api-Secret', 'legacy-secret')
-                    .send(body)
-
-                expect(res.status).toBe(200)
-            } finally {
-                legacyServer.close()
-            }
         })
 
         it.each([
@@ -843,7 +814,6 @@ describe('RecordingApi', () => {
                 {
                     RECORDING_API_JWT_SECRET: JWT_SECRET,
                     RECORDING_API_BLOCKS_JWT_SECRET: BLOCKS_JWT_SECRET,
-                    RECORDING_API_ALLOW_LEGACY_SECRET: false,
                     RECORDING_API_ROLE: role,
                     RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED: enforced,
                 } as RecordingApiConfig,
@@ -880,7 +850,7 @@ describe('RecordingApi', () => {
             const res = await supertest(app).get(BLOCK_URL).set('Authorization', browserToken())
 
             expect(res.status).toBe(200)
-            expect(res.headers['cache-control']).toBe('private, max-age=86400, immutable')
+            expect(res.headers['cache-control']).toBe('private, max-age=14400, immutable')
             expect(res.headers['vary'] ?? '').not.toMatch(/cookie/i)
             expect(Buffer.from(res.body).toString()).toBe('block-bytes')
             expect(mockService.getBlockByRef).toHaveBeenCalledWith(1, 'session-123', 'v1.abc')
@@ -951,7 +921,7 @@ describe('RecordingApi', () => {
             const res = await supertest(app).get(BLOCK_URL).set('Authorization', browserToken())
 
             expect(res.status).toBe(expectedStatus)
-            expect(res.headers['cache-control']).toBe(enforced ? 'no-store' : 'private, max-age=86400, immutable')
+            expect(res.headers['cache-control']).toBe(enforced ? 'no-store' : 'private, max-age=14400, immutable')
             if (enforced) {
                 expect(res.headers['retry-after']).toBe('1')
             }

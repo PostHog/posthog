@@ -4,6 +4,7 @@ import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 import pytest
 import time_machine
@@ -20,6 +21,8 @@ from posthog.models import Organization, Team, User
 from posthog.security.outbound_proxy import internal_requests
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
+from products.signals.backend.facade.testing import claim_trial, trial_incomplete_sources
+from products.signals.backend.models import SignalReport
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
@@ -94,6 +97,8 @@ class TestResolveSandboxAiProduct:
             ("onboarding", None, "onboarding"),
             ("posthog_ai", None, "posthog_ai"),
             ("metrics_import", None, "posthog_ai"),
+            ("feature_flags", None, "posthog_ai"),
+            ("feature_flags", "implementation", "posthog_ai"),
         ],
     )
     def test_mapping(self, origin_product, ai_stage, expected):
@@ -359,6 +364,14 @@ class TestMintScopedToken:
         body = post.call_args.kwargs["json"]
         assert body["product"] == "onboarding"
         assert body["allowed_models"] == ["claude-sonnet-5", "claude-opus-4-8"]
+
+    def test_conversations_mint_carries_the_legacy_model_pin(self, mint_settings):
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response(201, {"token": "phe_abc"})
+            assert mint_scoped_token(ai_product="conversations", team_id=2) == "phe_abc"
+        body = post.call_args.kwargs["json"]
+        assert body["product"] == "conversations"
+        assert body["allowed_models"] == ["claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5"]
 
     def test_limit_tier_is_sent_only_when_given(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
@@ -708,6 +721,35 @@ class TestProvisioningBoundaries:
         task.internal = True
         task.stored_profile = profile
         return task
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("failure", [None, RuntimeError("mint unavailable")])
+    def test_trial_provisioning_retry_does_not_invent_missing_usage(
+        self, mint_settings: Settings, test_task_run: TaskRun, failure: RuntimeError | None
+    ) -> None:
+        task = test_task_run.task
+        task.origin_product = "signal_report"
+        task.internal = True
+        task.signal_report = SignalReport.objects.create(team=task.team, triggering_signal_id=uuid4())
+        task.save()
+        with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
+            assert task.created_by_id is not None
+            grant_id = claim_trial(team=task.team, user_id=task.created_by_id)
+            run = task.create_run(extra_state={"ai_stage": "research"})
+            ctx = self._ctx()
+            ctx.run_id, ctx.team_id, ctx.origin_product, ctx.state = (
+                str(run.id),
+                run.team_id,
+                task.origin_product,
+                run.state,
+            )
+            with patch.object(utils, "mint_scoped_token", side_effect=[failure, "synthetic-token"]):
+                with pytest.raises(GatewayNotConfiguredError):
+                    utils.run_gateway_env_vars(ctx, task)
+                assert utils.run_gateway_env_vars(ctx, task)["AI_GATEWAY_TOKEN"] == "synthetic-token"
+        run.refresh_from_db()
+        assert not run.state.get("token_cost_incomplete")
+        assert trial_incomplete_sources(team=task.team, grant_id=grant_id) == 0
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
@@ -1369,19 +1411,35 @@ class TestSlackAppMint:
 
         organization = Organization.objects.create(name="Quota Org")
         team = Team.objects.create(organization=organization, name="Quota Team")
-        with patch("ee.billing.quota_limiting.is_team_over_credit_budget", return_value=True) as quota:
+        ai_credits_limited = {QuotaResource.AI_CREDITS: True, QuotaResource.POSTHOG_CODE_CREDITS: False}
+        with patch(
+            "ee.billing.quota_limiting.get_fresh_team_limited_resources", return_value=ai_credits_limited
+        ) as quota:
             assert _team_credit_refusal(team.id, "ai_credits") == "ai_credits_exhausted"
             assert _team_credit_refusal(team.id + 10_000, "ai_credits") is None
-        quota.assert_called_once_with(team.api_token, QuotaResource.AI_CREDITS)
-        with patch("ee.billing.quota_limiting.is_team_over_credit_budget", return_value=False) as quota:
             assert _team_credit_refusal(team.id, "posthog_code_credits") is None
-        quota.assert_called_once_with(team.api_token, QuotaResource.POSTHOG_CODE_CREDITS)
+        assert [lookup.args for lookup in quota.call_args_list] == [(team.api_token,), (team.api_token,)]
+
+    @pytest.mark.django_db
+    def test_quota_check_ignores_a_stale_cached_limit(self):
+        from ee.billing.quota_limiting import QuotaResource
+
+        organization = Organization.objects.create(name="Just Paid Org")
+        team = Team.objects.create(organization=organization, name="Just Paid Team")
+        with (
+            patch("ee.billing.quota_limiting.is_team_limited", return_value=True),
+            patch(
+                "ee.billing.quota_limiting.get_fresh_team_limited_resources",
+                return_value={QuotaResource.AI_CREDITS: False},
+            ),
+        ):
+            assert _team_credit_refusal(team.id, "ai_credits") is None
 
     @pytest.mark.django_db
     def test_deactivated_org_refuses_before_the_bucket_is_read(self):
         organization = Organization.objects.create(name="Gone Org", is_active=False)
         team = Team.objects.create(organization=organization, name="Gone Team")
-        with patch("ee.billing.quota_limiting.is_team_over_credit_budget") as quota:
+        with patch("ee.billing.quota_limiting.get_fresh_team_limited_resources") as quota:
             assert _team_credit_refusal(team.id, "ai_credits") == "org_deactivated"
         quota.assert_not_called()
 
@@ -1483,18 +1541,39 @@ class TestMintRefusalScope:
             == expected
         )
 
-    @pytest.mark.parametrize("product", ["posthog_ai", "workflows", "review_hog", "onboarding"])
+    @pytest.mark.parametrize("product", ["posthog_ai", "workflows", "review_hog", "onboarding", "conversations"])
     def test_pinned_products_refuse_an_off_pin_model(self, product):
-        refusal = mint_refusal(product, team_id=2, state=None, model="claude-opus-3", runtime="acp")
+        refusal = mint_refusal(
+            product,
+            team_id=2,
+            state=None,
+            model="claude-opus-3",
+            runtime="acp",
+            internal=True,
+            origin_product="support_reply",
+        )
         assert refusal == "model_outside_pin"
 
     def test_unpinned_products_take_any_model(self):
         assert mint_refusal("signals_scout", team_id=2, state=None, model="zai-org/glm-5.3", runtime="acp") is None
 
-    @pytest.mark.parametrize("product", ["review_hog", "signals_scout", "signals_implementation", "onboarding"])
+    @pytest.mark.parametrize(
+        "product", ["review_hog", "signals_scout", "signals_implementation", "onboarding", "conversations"]
+    )
     def test_products_billed_elsewhere_skip_the_credit_check(self, product):
         with patch(_CREDIT_LOOKUP, return_value="ai_credits_exhausted") as quota:
-            assert mint_refusal(product, team_id=2, state=None, model=None, runtime="acp") is None
+            assert (
+                mint_refusal(
+                    product,
+                    team_id=2,
+                    state=None,
+                    model=None,
+                    runtime="acp",
+                    internal=True,
+                    origin_product="support_reply",
+                )
+                is None
+            )
         quota.assert_not_called()
 
 
@@ -1665,6 +1744,21 @@ def test_account_audit_cost_routing_requires_server_provenance(
         mint.assert_called_once_with(ai_product="account_audit", team_id=123, user=None)
 
 
+@pytest.mark.parametrize("internal", [True, False])
+def test_support_reply_mint_requires_server_provenance(settings: Settings, internal: bool) -> None:
+    settings.SANDBOX_AI_GATEWAY_URL = "https://ai-gateway.example.com"
+    settings.SANDBOX_AI_GATEWAY_PRODUCTS = "conversations"
+    with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_test") as mint:
+        env = ai_gateway_env_vars(
+            team_id=123, origin_product="support_reply", internal=internal, model=None, runtime="acp"
+        )
+    assert ("AI_GATEWAY_TOKEN" in env) is internal
+    if internal:
+        mint.assert_called_once_with(ai_product="conversations", team_id=123, user=None)
+    else:
+        mint.assert_not_called()
+
+
 class TestPosthogCodeSandboxMint:
     def _team(self, *, paid: bool) -> Team:
         organization = Organization.objects.create(name="Code Org")
@@ -1691,7 +1785,7 @@ class TestPosthogCodeSandboxMint:
         assert {entry.id for entry in model_catalog.MODELS} - {"gpt-6.1-terra"} <= set(pin)
         assert "gpt-6.1-terra" not in pin
         assert set(SDK_IMPLICIT_MODELS) <= set(pin)
-        assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini"} <= set(pin)
+        assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5-mini"} <= set(pin)
 
     def test_pin_carries_the_go_spelling_of_every_cf_id(self):
         pin = set(_PRODUCT_ALLOWED_MODELS["posthog_code"])

@@ -65,7 +65,8 @@ def eligible_direct_query_schemas(team_id: int, source_id: str) -> list[External
     catalog, so the two selections can't drift. Excludes rows without usable ``schema_metadata``
     (e.g. discovered before metadata persistence shipped) and rows with ``row_filters`` — a
     sync-time row restriction the live direct query can't reproduce, so exposing the upstream
-    table would let a user read rows the schema was configured not to sync.
+    table would let a user read rows the schema was configured not to sync. Rows with
+    ``masked_columns`` are excluded for the same reason: a live query reads the plaintext values.
     """
     return [
         schema_row
@@ -78,7 +79,7 @@ def eligible_direct_query_schemas(team_id: int, source_id: str) -> list[External
         # `table` is the synced S3 row backing the warehouse access-control check on the build path.
         .select_related("table")
         .order_by("name")
-        if schema_row.schema_metadata and not schema_row.row_filters
+        if schema_row.schema_metadata and not schema_row.row_filters and not schema_row.masked_columns
     ]
 
 
@@ -91,9 +92,9 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
     metadata = schema.schema_metadata
     engine = source.direct_engine
 
-    # Defense in depth for any direct caller: a row-filtered schema is already excluded from the
-    # catalog by eligible_direct_query_schemas; never build a live table that would bypass it.
-    if schema.row_filters:
+    # Defense in depth for any direct caller: a row-filtered or masked schema is already excluded
+    # from the catalog by eligible_direct_query_schemas; never build a live table that would bypass it.
+    if schema.row_filters or schema.masked_columns:
         return None
 
     if engine == "postgres":

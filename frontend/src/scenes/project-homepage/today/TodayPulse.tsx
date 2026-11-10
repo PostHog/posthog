@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { type RefObject, Suspense, lazy, useLayoutEffect, useRef } from 'react'
 
-import { Button, Skeleton, Text } from '@posthog/quill'
+import { IconSparkles } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
 import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
@@ -15,12 +15,13 @@ import type { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general
 import type { HighlightMetricApi, PulseSlotApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayChange } from './TodayChange'
-import { todayHighlightsLogic } from './todayHighlightsLogic'
+import { pulsePinLimitReason, todayHighlightsLogic } from './todayHighlightsLogic'
 import { todayNumber } from './todayNumbers'
 import { TodayPulseCard } from './TodayPulseCard'
 import { pulseChange } from './todayPulseFacts'
 import { TodayPulseHoverCard } from './TodayPulseHoverCard'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
+import { pulsePlaceholderLabel, TodayPulsePlaceholder } from './TodayPulsePlaceholder'
 import type { TodayTone } from './todayTone'
 
 // The charts are most of the code the home page adds, so the numbers render first and the sparklines follow.
@@ -110,71 +111,41 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                 interval: metric.interval,
             })
         )
-    const { highlightsLoading, highlights, highlightsFailed } = useValues(todayHighlightsLogic)
+    const { pulsePins, pulsePinsUnavailableReason, pulseHideUnavailableReason } = useValues(todayHighlightsLogic)
     const listRef = useRef<HTMLUListElement>(null)
     useSettleOnReorder(listRef, cards.map((tile) => tile.key).join('|'))
     const { baseCurrency } = useValues(teamLogic)
-    const { pulseMetricOpened, pulseMetricPreviewed, hidePulseMetric, holdPulseOrder, releasePulseOrder, retryPulse } =
+    const { pulseMetricOpened, pulseMetricPreviewed, hidePulseMetric, togglePulsePin } =
         useActions(todayHighlightsLogic)
     return (
         <ul ref={listRef} className="TodayPulse" aria-label="Key numbers, against the period before">
             {cards.map((slot, position) => {
                 const metric = metrics.find((metric) => metric.key === slot.key)
                 if (!metric) {
-                    const loading = slot.status === 'pending'
                     return (
                         <li
                             key={slot.key}
                             data-pulse-key={slot.key}
                             className="TodayPulse__metric"
-                            aria-busy={loading}
-                            aria-label={`${slot.name}: ${loading ? 'Loading' : slot.status === 'error' ? 'Could not load' : 'No data'}`}
+                            aria-busy={slot.status === 'pending'}
+                            aria-label={pulsePlaceholderLabel(slot)}
                         >
-                            {slot.url ? (
-                                <LinkPrimitive to={slot.url} className="TodayPulse__name">
-                                    {slot.name}
-                                </LinkPrimitive>
-                            ) : (
-                                <span className="TodayPulse__name">{slot.name}</span>
-                            )}
-                            <span className="TodayPulse__row">
-                                {loading ? (
-                                    <Skeleton className="inline-block h-5 w-24" />
-                                ) : (
-                                    <Text size="sm" variant="muted">
-                                        {slot.status === 'error' ? 'Could not load' : 'No data'}
-                                    </Text>
-                                )}
-                            </span>
-                            <span className="TodayPulse__spark">
-                                {loading ? (
-                                    <Skeleton className="h-3 w-full" />
-                                ) : slot.status === 'error' ? (
-                                    <Button
-                                        size="xs"
-                                        variant="link-muted"
-                                        className="-ms-2"
-                                        disabled={
-                                            highlightsLoading ||
-                                            (!highlightsFailed && highlights?.status === 'computing')
-                                        }
-                                        onClick={retryPulse}
-                                    >
-                                        Retry
-                                    </Button>
-                                ) : null}
-                            </span>
+                            <TodayPulsePlaceholder slot={slot} />
                         </li>
                     )
                 }
 
                 const isInsight = metric.key.startsWith('insight:')
+                const pinned = pulsePins.some((pin) => pin.key === metric.key)
                 const tone = isInsight ? 'neutral' : metricTone(metric.change_pct, metric.value)
                 const formatValue = metric.value_format ? metricFormatter(metric, baseCurrency) : todayNumber
                 const change = pulseChange(metric)
                 const content = (
                     <>
-                        <span className="TodayPulse__name">{metric.name}</span>
+                        <span className="TodayPulse__name">
+                            {!pinned && <IconSparkles className="TodayPulse__suggested" aria-label="Suggested" />}
+                            <span>{metric.name}</span>
+                        </span>
                         <span className="TodayPulse__row">
                             <span className="TodayPulse__value" translate="no">
                                 {formatValue(metric.value)}
@@ -200,12 +171,6 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                             onOpenChange={(open) => {
                                 if (open) {
                                     pulseMetricPreviewed(metric, position)
-                                    holdPulseOrder(
-                                        metric.key,
-                                        cards.map((tile) => tile.key)
-                                    )
-                                } else {
-                                    releasePulseOrder(metric.key)
                                 }
                             }}
                             card={
@@ -214,6 +179,17 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                                     tone={tone}
                                     formatValue={metric.value_format ? formatValue : cardNumber}
                                     onOpen={() => pulseMetricOpened(metric, position)}
+                                    pinned={pinned}
+                                    pinDisabledReason={
+                                        pulsePinsUnavailableReason ?? pulsePinLimitReason(pulsePins.length, pinned)
+                                    }
+                                    onTogglePin={() =>
+                                        togglePulsePin(
+                                            { key: metric.key, name: metric.name, dashboard_id: metric.dashboard_id },
+                                            'hover_card'
+                                        )
+                                    }
+                                    hideDisabledReason={pulseHideUnavailableReason}
                                     onHide={() => hidePulseMetric(metric, position)}
                                 />
                             }

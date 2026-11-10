@@ -6,9 +6,11 @@ import * as React from 'react'
 
 import { Button } from './button'
 import { Checkbox } from './checkbox'
+import { InputGroup, InputGroupInput } from './input-group'
 import { Kbd } from './kbd'
 import { cn } from './lib/utils'
 import { MenuItemBody } from './menu-item-body'
+import { MenuEmpty } from './menu-empty'
 import { MenuLabel } from './menu-label'
 import { RadioIndicator } from './radio-group'
 import { hasTooltipContent, withTooltip } from './with-tooltip'
@@ -25,13 +27,16 @@ type DescribedMenuItemExtras = MenuItemExtras & {
     description?: React.ReactNode
 }
 
-/** Disabled items ignore the pointer, so the tooltip listens on a wrapper and opens beside the row. */
+/**
+ * Disabled items ignore the pointer, so the tooltip listens on a wrapper and opens beside the row. Rows without a
+ * tooltip skip the wrapper: a long list would mount one per row, and it hides a row's neighbours from sibling selectors.
+ */
 function withItemTooltip(
     item: React.ReactElement,
     { tooltip, disabledReason }: Pick<MenuItemExtras, 'tooltip' | 'disabledReason'>
 ): React.ReactElement {
     const content = hasTooltipContent(disabledReason) ? disabledReason : tooltip
-    return withTooltip(item, content, { target: 'block', side: 'inline-end' })
+    return hasTooltipContent(content) ? withTooltip(item, content, { target: 'block', side: 'inline-end' }) : item
 }
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props): React.ReactElement {
@@ -76,7 +81,7 @@ const DropdownMenuContent = React.forwardRef<
                     data-slot="dropdown-menu-content"
                     data-flush={flush ? '' : undefined}
                     className={cn(
-                        'quill-menu__content w-max min-w-(--anchor-width) max-w-(--available-width)',
+                        'quill-menu__content w-max min-w-[max(10rem,var(--anchor-width))] max-w-(--available-width)',
                         className
                     )}
                     {...props}
@@ -205,6 +210,40 @@ const DropdownMenuSubContent = React.forwardRef<
             alignOffset={alignOffset}
             side={side}
             sideOffset={sideOffset}
+            {...props}
+        />
+    )
+})
+
+const DropdownMenuFilterProvider = MenuPrimitive.FilterProvider
+
+const DropdownMenuInput = React.forwardRef<HTMLInputElement, MenuPrimitive.Input.Props>(
+    function DropdownMenuInput(props, ref) {
+        return (
+            <div className="quill-menu__input" data-slot="dropdown-menu-input">
+                <InputGroup>
+                    <MenuPrimitive.Input ref={ref} render={<InputGroupInput />} {...props} />
+                </InputGroup>
+            </div>
+        )
+    }
+)
+
+const DropdownMenuEmpty = React.forwardRef<HTMLDivElement, MenuPrimitive.Empty.Props>(
+    function DropdownMenuEmpty(props, ref) {
+        return <MenuPrimitive.Empty ref={ref} data-slot="dropdown-menu-empty" render={<MenuEmpty />} {...props} />
+    }
+)
+
+const DropdownMenuList = React.forwardRef<HTMLDivElement, MenuPrimitive.List.Props>(function DropdownMenuList(
+    { className, ...props },
+    ref
+) {
+    return (
+        <MenuPrimitive.List
+            ref={ref}
+            data-slot="dropdown-menu-list"
+            className={cn('quill-menu__list', className)}
             {...props}
         />
     )
@@ -451,7 +490,11 @@ export {
     DropdownMenuPortal,
     DropdownMenuTrigger,
     DropdownMenuContent,
+    DropdownMenuEmpty,
+    DropdownMenuFilterProvider,
     DropdownMenuGroup,
+    DropdownMenuInput,
+    DropdownMenuList,
     DropdownMenuLabel,
     DropdownMenuItem,
     DropdownMenuCheckboxItem,

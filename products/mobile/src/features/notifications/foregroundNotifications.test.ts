@@ -46,6 +46,7 @@ async function deliver(data: Record<string, unknown>): Promise<Notifications.Not
                 body: 'Report update',
                 data,
                 categoryIdentifier: null,
+                threadIdentifier: null,
                 sound: null,
             },
         },

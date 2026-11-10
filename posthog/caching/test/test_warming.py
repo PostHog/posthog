@@ -15,7 +15,7 @@ from posthog.caching.warming import (
 )
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity
-from posthog.models import PropertyDefinition, User
+from posthog.models import User
 from posthog.query_cache.freshness_index import update_target_age
 from posthog.scheduling.jitter import deterministic_offset
 
@@ -23,6 +23,7 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.event_definitions.backend.models import PropertyDefinition
 from products.product_analytics.backend.facade.api import record_insight_views
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 

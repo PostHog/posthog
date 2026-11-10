@@ -156,6 +156,19 @@ export function getActivationConfig(
     return activationConfig
 }
 
+export type ExposureSource = 'warehouse_native' | 'activation' | 'custom' | 'default'
+
+/** What decides who enters the analysis: a warehouse-native query, an activation event, a custom event, or the default event. */
+export function getExposureSource(exposureCriteria: ExperimentExposureCriteria | null | undefined): ExposureSource {
+    if (exposureCriteria?.exposure_config?.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
+        return 'warehouse_native'
+    }
+    if (getActivationConfig(exposureCriteria ?? undefined)) {
+        return 'activation'
+    }
+    return exposureCriteria?.exposure_config ? 'custom' : 'default'
+}
+
 /**
  * Determines which event and variant property carry the exposure for an experiment.
  *

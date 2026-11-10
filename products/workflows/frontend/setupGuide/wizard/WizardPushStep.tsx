@@ -21,7 +21,7 @@ const PLATFORMS: Record<PushPlatform, { label: string; provider: 'apns' | 'fireb
 
 function sdkSnippet(platform: PushPlatform, token: string, host: string, appId: string | undefined): string {
     if (platform === 'ios') {
-        return `let config = PostHogConfig(apiKey: "${token}", host: "${host}")
+        return `let config = PostHogConfig(projectToken: "${token}", host: "${host}")
 config.capturePushNotificationSubscriptions = true // on by default
 PostHogSDK.shared.setup(config)
 

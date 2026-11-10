@@ -41,6 +41,7 @@ from products.warehouse_suggestions.backend.tests.factories import busy_reads, c
 from .test_accept import REPORT
 
 NOTIFY = "products.warehouse_suggestions.backend.logic.assignment.create_notification"
+FLAG = "products.warehouse_suggestions.backend.logic.assignment.is_warehouse_suggestions_enabled"
 CAN_TAKE = "products.warehouse_suggestions.backend.logic.assignment.can_take"
 NOW = datetime(2026, 10, 7, 9, tzinfo=UTC)
 READ_COST_BEFORE = {"read_seconds_per_month": 5000.0, "read_bytes_per_month": 5e12, "human_reads_per_month": 200.0}
@@ -81,6 +82,10 @@ PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
 
 
 class TestApplyRun(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.flag = self.enterContext(patch(FLAG, return_value=True))
+
     def _context(self, *view_ids: UUID, recent_days_with_data: int = 7) -> CandidateContext:
         return context(
             team_reads({}, recent_days_with_data=recent_days_with_data),
@@ -268,11 +273,18 @@ class TestApplyRun(BaseTest):
             ("creator_who_left_the_organization", "left", WarehouseSuggestionKind.MATERIALIZE, False),
             ("creator_who_cannot_edit_the_catalog", "catalog_viewer", WarehouseSuggestionKind.CERTIFY, False),
             ("no_creator", "none", WarehouseSuggestionKind.MATERIALIZE, False),
+            ("creator_on_a_team_without_the_flag", "member", WarehouseSuggestionKind.MATERIALIZE, True, False),
         ]
     )
     def test_assigns_surfaced_view_suggestions_to_a_creator_who_can_accept_them(
-        self, _name: str, creator_state: str, kind: WarehouseSuggestionKind, expect_assigned: bool
+        self,
+        _name: str,
+        creator_state: str,
+        kind: WarehouseSuggestionKind,
+        expect_assigned: bool,
+        flag_enabled: bool = True,
     ) -> None:
+        self.flag.return_value = flag_enabled
         creator = self._creator(creator_state)
         views = [
             DataWarehouseSavedQuery.objects.create(
@@ -297,7 +309,7 @@ class TestApplyRun(BaseTest):
         expected_assignee = creator.pk if expect_assigned and creator else None
         assert (assignee_ids, notified) == (
             {expected_assignee},
-            [str(expected_assignee)] if expect_assigned else [],
+            [str(expected_assignee)] if expect_assigned and flag_enabled else [],
         )
 
     @parameterized.expand([("kept_access_to_the_view", False), ("lost_access_to_the_view", True)])

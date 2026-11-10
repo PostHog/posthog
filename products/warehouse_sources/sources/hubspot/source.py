@@ -1,9 +1,15 @@
-from typing import cast
+import time
+from collections.abc import Mapping
+from typing import Any, cast
 
 import structlog
 
 from products.warehouse_sources.sources.hubspot._config import HubspotSourceConfig
-from products.warehouse_sources.sources.hubspot.auth import hubspot_access_token_is_valid, hubspot_refresh_access_token
+from products.warehouse_sources.sources.hubspot.auth import (
+    hubspot_access_token_is_valid,
+    hubspot_exchange_legacy_grant,
+    hubspot_refresh_access_token,
+)
 from products.warehouse_sources.sources.hubspot.hubspot import HubspotResumeConfig, hubspot_source
 from products.warehouse_sources.sources.hubspot.scopes import (
     SCOPE_GATED_OBJECTS,
@@ -25,6 +31,7 @@ from products.warehouse_sources.sources.sdk import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
     FieldType,
+    LegacyOAuthGrant,
     OAuthMixin,
     ResumableSource,
     ResumableSourceManager,
@@ -141,6 +148,32 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.HUBSPOT
+
+    def has_legacy_oauth_tokens(self, job_inputs: Mapping[str, Any]) -> bool:
+        refresh_token = job_inputs.get("hubspot_refresh_token")
+        return "hubspot_integration_id" not in job_inputs and isinstance(refresh_token, str) and bool(refresh_token)
+
+    def legacy_oauth_keys(self) -> tuple[str, ...]:
+        return ("hubspot_secret_key", "hubspot_refresh_token")
+
+    def adopt_legacy_oauth(self, job_inputs: Mapping[str, Any]) -> LegacyOAuthGrant | None:
+        if not self.has_legacy_oauth_tokens(job_inputs):
+            return None
+        refresh_token = cast(str, job_inputs["hubspot_refresh_token"])
+        exchanged = hubspot_exchange_legacy_grant(refresh_token)
+        return LegacyOAuthGrant(
+            kind="hubspot",
+            external_id=exchanged.external_id,
+            config={**exchanged.config, "refreshed_at": int(time.time())},
+            sensitive_config={
+                "access_token": exchanged.access_token,
+                "refresh_token": exchanged.refresh_token,
+                "id_token": None,
+            },
+            pointer_key="hubspot_integration_id",
+            legacy_keys=self.legacy_oauth_keys(),
+            refresh_token=refresh_token,
+        )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.sources.hubspot.canonical_descriptions import CANONICAL_DESCRIPTIONS

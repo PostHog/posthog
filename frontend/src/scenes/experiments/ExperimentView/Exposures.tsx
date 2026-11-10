@@ -180,8 +180,8 @@ export function Exposures(): JSX.Element {
     // The answer holds a series for every configured variant, with zero counts, so only the total tells.
     const hasZeroExposures = !isExperimentDraft && !exposuresLoading && exposures != null && totalExposures === 0
 
-    // With the health panel, its row reports the finding as shown. The card reports the same finding, so that opening
-    // the card's evidence counts against the panel's "shown" event and not a second one.
+    // With the health findings, the health chip reports the finding as shown. The card reports the same finding, so that
+    // opening the card's evidence counts against the chip's "shown" event and not a second one.
     const srmFinding = healthUi === 'panel' ? serverSampleRatioFinding(exposures) : undefined
     const { reportOpened: reportSrmOpened } = useHealthFindingReporting(
         hasSRM && !isExperimentDraft && !exposuresLoading

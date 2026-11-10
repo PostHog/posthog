@@ -13,7 +13,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 import structlog
@@ -50,8 +50,14 @@ from products.alerts.backend.llm_detector_limits import (
     is_llm_detector_config,
     llm_detector_access_error,
 )
-from products.alerts.backend.models.alert import METRICS_INSIGHT_QUERY_FILTER, AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import (
+    METRICS_INSIGHT_QUERY_FILTER,
+    AlertCheck,
+    AlertConfiguration,
+    AlertSubscription,
+)
 from products.alerts_platform.backend.facade.contracts import InvalidPlatformAlertEdit
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 
@@ -115,11 +121,29 @@ def delete_insight_alerts(insight_ids: Collection[int]) -> None:
     insight can never come back without its alerts. Rows go one at a time rather than through a
     queryset delete, because a queryset delete never calls ``AlertConfiguration.delete()``, and
     ModelActivityMixin hangs its per-row activity logging off that override.
+
+    Alerts with no insight row go in a workflow started after the transaction commits, because the
+    platform resolves their open incidents first, which calls the providers, and a rollback cannot
+    take a resolve back. The workflow retries each delete.
     """
     # Caller-supplied ids that are already team-scoped by the caller's own query.
     # nosemgrep: idor-lookup-without-team
     for alert in AlertConfiguration.objects.filter(insight_id__in=insight_ids):
         alert.delete()
+    # nosemgrep: idor-lookup-without-team
+    insights_by_team: dict[int, list[int]] = {}
+    for team_id, insight_id in Insight.objects_including_soft_deleted.filter(id__in=insight_ids).values_list(
+        "team_id", "id"
+    ):
+        insights_by_team.setdefault(team_id, []).append(insight_id)
+    transaction.on_commit(lambda: _start_native_cleanup(insights_by_team))
+
+
+def _start_native_cleanup(insights_by_team: dict[int, list[int]]) -> None:
+    # Deferred, so the Temporal client stays off this facade's import graph.
+    from products.alerts.backend.platform_native_cleanup import start_native_cleanup  # noqa: PLC0415
+
+    start_native_cleanup(insights_by_team)
 
 
 def snooze_alert_from_slack(
@@ -249,6 +273,44 @@ def list_firing_alerts_created_by(
         )
         for alert in islice(viewable, limit)
     ]
+
+
+ENABLED_ALERT_CANDIDATES = 500
+
+
+def list_enabled_alerts(team: Team, user: User, *, limit: int) -> list[contracts.EnabledAlert]:
+    """Enabled alerts on insights the user can view, newest first."""
+    access = UserAccessControl(user, team=team)
+    candidates = (
+        AlertConfiguration.objects.filter(team_id=team.id, enabled=True, insight__deleted=False)
+        .select_related("insight")
+        .order_by("-created_at")[:ENABLED_ALERT_CANDIDATES]
+    )
+    viewable = (alert for alert in candidates if access.check_access_level_for_object(alert.insight, "viewer"))
+    return [
+        contracts.EnabledAlert(
+            id=alert.id,
+            name=alert.name,
+            insight_name=alert.insight.name or alert.insight.derived_name,
+            insight_short_id=alert.insight.short_id,
+        )
+        for alert in islice(viewable, limit)
+    ]
+
+
+WATCHED_ROWS_PER_INSIGHT = 4
+
+
+def insight_short_ids_watched_by(*, team_id: int, user_id: int, limit: int) -> list[str]:
+    """Short ids of insights with an enabled alert that the user created or subscribes to, newest alert first."""
+    follows = AlertSubscription.objects.filter(alert_configuration=OuterRef("pk"), user_id=user_id, subscribed=True)
+    rows = (
+        AlertConfiguration.objects.filter(team_id=team_id, enabled=True, insight__deleted=False)
+        .filter(Q(created_by_id=user_id) | Exists(follows))
+        .order_by("-created_at")
+        .values_list("insight__short_id", flat=True)[: limit * WATCHED_ROWS_PER_INSIGHT]
+    )
+    return list(dict.fromkeys(rows))[:limit]
 
 
 def assign_alert_owner(*, team_id: int, alert_id: uuid.UUID, user: User, was_impersonated: bool) -> None:

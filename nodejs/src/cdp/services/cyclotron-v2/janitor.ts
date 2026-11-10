@@ -8,6 +8,7 @@ import { captureException } from '~/common/utils/posthog'
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
+import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CleanupResult,
@@ -129,7 +130,7 @@ export class CyclotronV2Janitor {
         // refuses to drop a job it can't record a recovery row for.
         private invocationResults?: HogInvocationResultsService
     ) {
-        this.pool = new Pool({
+        this.pool = createCyclotronPool('janitor', {
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 5,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,

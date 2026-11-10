@@ -34,7 +34,8 @@ from posthog.sync import database_sync_to_async
 from posthog.taxonomy.property_access import restricted_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import list_actions
+from products.actions.backend.facade.contracts import Action, ActionNotFound
 from products.event_definitions.backend.models.property_definition import (
     PropertyDefinition,
     PropertyType,
@@ -509,7 +510,7 @@ class TaxonomyAgentToolkit:
         event_name_or_action_id = task.args["event_name_or_action_id"]
         try:
             response, verbose_name = await self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
-        except Action.DoesNotExist:
+        except ActionNotFound:
             project_actions = await self._get_project_actions()
             if not project_actions:
                 result = TaxonomyErrorMessages.no_actions_exist()
@@ -770,7 +771,7 @@ class TaxonomyAgentToolkit:
 
     @database_sync_to_async(thread_sensitive=False)
     def _get_project_actions(self) -> list[Action]:
-        return list(Action.objects.filter(team__project_id=self._team.project_id, deleted=False))
+        return list_actions(project_id=self._team.project_id)
 
     async def retrieve_event_or_action_properties_parallel(
         self, event_name_or_action_ids: list[str | int]

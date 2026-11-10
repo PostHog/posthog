@@ -1,15 +1,17 @@
 import { useQueryClient } from '@tanstack/react-query'
 
 import { NotSignedInError } from '@/api/client'
-import { dismissReport, reportKeys, resolveReport } from '@/api/reports'
+import { dismissReport, type ProjectScope, reportKeys, resolveReport } from '@/api/reports'
+import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDemoMode } from '@/demo/demoMode'
+import { reportScopeError } from '@/features/views/useViewsAccess'
 import { type AnalyticsEvent, track } from '@/lib/analytics'
 import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
 import type { DismissReason, ResolveReason } from '@/model/verdictReasons'
 
 interface VerdictTarget<Reason extends string> {
-    send: (reportId: string, reason: Reason, note: string) => Promise<unknown>
+    send: (scope: ProjectScope, reportId: string, reason: Reason, note: string) => Promise<unknown>
     sendDemo: (reportId: string, reason: Reason) => void
     event: AnalyticsEvent
 }
@@ -29,7 +31,15 @@ function useVerdictAction<Reason extends string>(
         if (!scope) {
             throw new NotSignedInError()
         }
-        await send(reportId, reason, note)
+        const session = sessionGeneration()
+        try {
+            await send(scope, reportId, reason, note)
+        } catch (error) {
+            if (sessionGeneration() === session) {
+                reportScopeError(error, 'inbox')
+            }
+            throw error
+        }
         void queryClient.invalidateQueries({ queryKey: reportKeys.report(scope, reportId) })
         void queryClient.invalidateQueries({ queryKey: reportKeys.inbox(scope) })
         // The note is free text the person typed, so only its presence is tracked.

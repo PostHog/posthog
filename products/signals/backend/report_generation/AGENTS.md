@@ -234,3 +234,5 @@ Renders a concise timeline of: prompts, tool calls, tool outputs, agent messages
 - **If you change any command or the flow, update this file to match**
 
 Fix verification may revise only the Expected impact section of the presentation summary; validation preserves all other sections and chart links.
+With Monitoring enabled, verification guidance and proposed-check notes use the entire fixed window from the recorded Monitoring start through the soak deadline. PR completion uses the latest implementation PR merge timestamp; manual entry uses the time Monitoring starts.
+Read [Verification plans](../../../../docs/internal/signals-pr-lifecycle.md#verification-plans) when changing these timing instructions.

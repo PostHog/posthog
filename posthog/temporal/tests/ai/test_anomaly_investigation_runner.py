@@ -277,7 +277,7 @@ def test_build_callbacks_tags_ai_product_for_llm_analytics(alert_id, expected_pr
 
     with (
         patch("posthog.temporal.ai.anomaly_investigation.runner.posthoganalytics") as mock_module,
-        patch("posthog.temporal.ai.anomaly_investigation.runner.CallbackHandler") as mock_handler,
+        patch("ee.hogai.llm.MaxCallbackHandler") as mock_handler,
     ):
         mock_module.default_client = sentinel_client
 

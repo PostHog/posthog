@@ -930,6 +930,7 @@ class ErrorTrackingSettings(models.Model):
         primary_key=True,
         related_name="error_tracking_settings",
     )
+    adaptive_ingestion_enabled = models.BooleanField(default=False, db_default=False)
     project_rate_limit_value = models.IntegerField(null=True, blank=True)
     project_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_value = models.IntegerField(null=True, blank=True)

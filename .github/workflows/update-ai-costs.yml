@@ -37,7 +37,7 @@ jobs:
               with:
                   working-directory: nodejs
                   # --ignore-scripts already skips husky's prepare hook (no need for HUSKY=0)
-                  install-command: pnpm install --frozen-lockfile --ignore-scripts
+                  install-command: pnpm install --frozen-lockfile --ignore-scripts --filter @posthog/nodejs...
 
             # Single definition for the writer and the PR body; a job-level env
             # block cannot reference the `runner` context.

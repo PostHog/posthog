@@ -12,7 +12,7 @@ from products.logs.backend.platform_ownership import before_delete, on_deleted
 
 
 def delete_alert(*, team_id: int, alert_id: UUID, only_platform_owned: bool = False) -> bool:
-    """Deletes the alert, its destinations and any platform copy. False when it was already gone.
+    """Deletes the alert, its destinations and its platform copy, whichever stack owns it. False when it was already gone.
 
     With `only_platform_owned`, raises `PlatformAlertNotEditable` when the alert is not, or stops
     being, owned by the platform, such as after a rollback hands it back mid-delete.
@@ -34,8 +34,7 @@ def delete_alert(*, team_id: int, alert_id: UUID, only_platform_owned: bool = Fa
         soft_delete_all_alert_destinations(
             team_id=locked.team_id, alert_id=str(locked.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
         )
-        if locked.platform_owned:
-            on_deleted(team_id=locked.team_id, alert_id=locked.id)
+        on_deleted(team_id=locked.team_id, alert_id=locked.id)
         locked.delete()
     return True
 
@@ -54,6 +53,14 @@ def delete_platform_owned(*, team_id: int, legacy_configuration_id: UUID) -> Non
             "This alert belongs to one of this project's environments. Delete it on that environment's logs alerts page."
         )
     delete_alert(team_id=team_id, alert_id=alert.id, only_platform_owned=True)
+
+
+def remove_native_destinations(*, team_id: int, configuration_id: UUID) -> None:
+    """Removes the HogFunction destinations of a logs alert with no logs row, which match on the
+    configuration's own id."""
+    soft_delete_all_alert_destinations(
+        team_id=team_id, alert_id=str(configuration_id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+    )
 
 
 def _require_platform_owned(alert: LogsAlertConfiguration) -> None:

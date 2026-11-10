@@ -179,6 +179,10 @@ class HogQLContext:
     # Per-query event property definitions that transform loads. The transform runs once for the query and once for
     # each saved view the query inlines, so this loads each property's definition once per query.
     flag_call_property_metadata: Optional["FlagCallPropertyMetadata"] = field(default=None, compare=False, repr=False)
+    # The (start, end) of each `$feature_flag_called` literal in the query text that the flag-call union reads.
+    # `_resolve_with_swaps` in transforms/flag_calls_from_flag_evaluations.py fills it when the swap succeeds, and the
+    # SQL editor's notices read it.
+    flag_called_union_spans: set[tuple[int, int]] = field(default_factory=set)
 
     # Backend-only opt-in for transforms/events_read_in_order.py. The prefix is slower when the range is short or
     # the filter is selective, so set it only for a query shape that was measured to be faster with it.

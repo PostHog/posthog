@@ -24,6 +24,8 @@ from products.warehouse_sources.sources.similarweb._config import SimilarwebSour
 from products.warehouse_sources.sources.similarweb.settings import (
     API_VERSION_LEGACY,
     API_VERSION_V5,
+    CONVERSION_ANALYSIS,
+    CONVERSION_COUNTRY_ERROR,
     ENDPOINTS,
     GRANULARITY_OPTIONS,
     INCREMENTAL_FIELDS,
@@ -35,6 +37,7 @@ from products.warehouse_sources.sources.similarweb.similarweb import (
     SimilarwebResumeConfig,
     coerce_month,
     is_valid_country,
+    normalize_country,
     parse_domains,
     similarweb_source,
     validate_credentials as validate_similarweb_credentials,
@@ -66,7 +69,16 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                 "Similarweb rejected the API key, or the account is out of data credits. "
                 "Check both on the API management page in your Similarweb account."
             ),
+            # Similarweb's documented cause for 400 is a request parameter outside what the
+            # account can answer — most commonly a start month earlier than the account's plan
+            # has history for. Retrying sends the exact same invalid window every time, so stop.
+            "Similarweb API returned status 400": (
+                "Similarweb rejected the request. This usually means the configured start month "
+                "is earlier than your plan's available history. Check the start month in the "
+                "source settings, then re-run the sync."
+            ),
             NO_DOMAINS_ERROR: "Add one or more domains in the source settings, then re-run the sync.",
+            CONVERSION_COUNTRY_ERROR: CONVERSION_COUNTRY_ERROR,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -104,6 +116,8 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
             return False, f"Too many domains. List at most {MAX_DOMAINS}."
         if not is_valid_country(config.country):
             return False, "Country must be a two-letter code such as us, or world for worldwide data."
+        if schema_name == CONVERSION_ANALYSIS and normalize_country(config.country) == "world":
+            return False, CONVERSION_COUNTRY_ERROR
         if config.start_date and coerce_month(config.start_date) is None:
             return False, "Start month must be in YYYY-MM format."
 

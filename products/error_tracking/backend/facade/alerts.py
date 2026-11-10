@@ -10,6 +10,7 @@ from ..models import (
     ErrorTrackingAlert as ErrorTrackingAlertModel,
     ErrorTrackingAlertDestination as ErrorTrackingAlertDestinationModel,
 )
+from ..temporal.alerts import filtering as _filtering
 from . import contracts
 
 AlertValidationError = _alerts.AlertValidationError
@@ -109,3 +110,15 @@ def update_alert(
 
 def delete_alert(team_id: int, alert_id: UUID | str) -> bool:
     return _alerts.delete_alert(team_id, alert_id)
+
+
+def compile_signal_source_filters(team_id: int, filters: dict[str, Any]) -> dict[str, Any]:
+    """Compile the Inbox error tracking source filter. Raises `AlertValidationError` when it is invalid."""
+    return _alerts.compile_signal_source_filters(team_id, filters)
+
+
+def stored_issue_created_filter_outcome(
+    team_id: int, issue_id: str, fingerprint: str | None, filters: object
+) -> contracts.LifecycleFilterOutcome:
+    """Evaluate compiled filters against a stored issue, for an issue_created signal no exception triggered."""
+    return _filtering.stored_issue_created_filter_outcome(team_id, issue_id, fingerprint, filters)

@@ -40,7 +40,7 @@ import calendar
 import functools
 import dataclasses
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import closing, nullcontext
+from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal, Protocol
@@ -1046,6 +1046,8 @@ class DucklingBackfillConfig(Config):
     dry_run: bool = False
     # Opt-in per run. A backfill never evaluates the canary feature flag.
     use_trino_canary: bool = False
+    # Opt-in per run: register through Trino even when the organization is not on the flag.
+    register_through_trino: bool = False
     events_parquet_row_group_size_bytes: int = pydantic.Field(
         default=DEFAULT_EVENTS_PARQUET_ROW_GROUP_SIZE_BYTES,
         gt=0,
@@ -2642,10 +2644,12 @@ def backfill_through_trino(
         and all(isinstance(item.replacement, DuckLakeTableReplacement) for item in exports)
     )
     rebuild = False
-    with (
-        connect_backfill_catalog(target.organization_id, canary=config.use_trino_canary) if register else nullcontext()
-    ) as catalog:
-        if catalog is not None:
+    connect = functools.partial(
+        connect_backfill_catalog, target.organization_id, canary=config.use_trino_canary, team_id=target.team_id
+    )
+
+    if register:
+        with connect() as catalog:
             try:
                 catalog.ensure_table(
                     table,
@@ -2662,24 +2666,26 @@ def backfill_through_trino(
                     f"{table} does not have the column types of the export, so this run rebuilds it before it "
                     "registers files"
                 )
-        for item in exports:
-            # A new prefix for every export, because an export under an earlier prefix would overwrite files that
-            # DuckLake already registered with their row counts and statistics.
-            prefix = f"{run_id}_{secrets.token_hex(4)}"
+    for item in exports:
+        # A new prefix for every export, because an export under an earlier prefix would overwrite files that
+        # DuckLake already registered with their row counts and statistics.
+        prefix = f"{run_id}_{secrets.token_hex(4)}"
 
-            def export_and_list(client: Client, item: TrinoExport = item, prefix: str = prefix) -> list[str] | None:
-                with tags_context(kind="dagster", dagster=tags):
-                    s3_glob = item.export(client=client, run_id=prefix)
-                    return None if s3_glob is None else list_exported_files(client, target, s3_glob, settings)
+        def export_and_list(client: Client, item: TrinoExport = item, prefix: str = prefix) -> list[str] | None:
+            with tags_context(kind="dagster", dagster=tags):
+                s3_glob = item.export(client=client, run_id=prefix)
+                return None if s3_glob is None else list_exported_files(client, target, s3_glob, settings)
 
-            files = cluster.any_host_by_role(fn=export_and_list, workload=workload, node_role=NodeRole.DATA).result()
-            if files is None:
-                continue
-            partitions_exported += 1
-            if catalog is None:
-                context.log.info(f"Exported {len(files)} file(s) for {item.label} without registering them")
-                continue
-            replacement = item.replacement if config.cleanup_existing_partition_data else None
+        files = cluster.any_host_by_role(fn=export_and_list, workload=workload, node_role=NodeRole.DATA).result()
+        if files is None:
+            continue
+        partitions_exported += 1
+        if not register:
+            context.log.info(f"Exported {len(files)} file(s) for {item.label} without registering them")
+            continue
+        replacement = item.replacement if config.cleanup_existing_partition_data else None
+        # An export can outlive the Trino service credential, which cannot be renewed after it expires.
+        with connect() as catalog:
             if rebuild:
                 # The rebuild waits until the export finished, to keep the window with an empty table short. A file
                 # count that add_files refuses fails here, before the rebuild empties the table.
@@ -2691,14 +2697,14 @@ def backfill_through_trino(
                 files_registered += len(files)
             elif replacement is not None:
                 catalog.delete_rows(table, replacement)
-            context.log.info(f"Registered {len(files)} file(s) for {item.label} in {table} through Trino")
-            logger.info(
-                "duckling_trino_files_registered",
-                team_id=target.team_id,
-                table=table,
-                partition=item.label,
-                file_count=len(files),
-            )
+        context.log.info(f"Registered {len(files)} file(s) for {item.label} in {table} through Trino")
+        logger.info(
+            "duckling_trino_files_registered",
+            team_id=target.team_id,
+            table=table,
+            partition=item.label,
+            file_count=len(files),
+        )
     return TrinoBackfillResult(partitions_exported=partitions_exported, files_registered=files_registered)
 
 
@@ -2865,7 +2871,7 @@ def _run_duckling_events_backfill(context: AssetExecutionContext, config: Duckli
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
 
-    if backfills_through_trino(target.organization_id):
+    if config.register_through_trino or backfills_through_trino(target.organization_id):
         _backfill_events_through_trino(context, config, target, dates)
         return
 
@@ -3187,7 +3193,7 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
 
-    if backfills_through_trino(target.organization_id):
+    if config.register_through_trino or backfills_through_trino(target.organization_id):
         _backfill_persons_through_trino(context, config, target, None if is_full else dates)
         return
 
