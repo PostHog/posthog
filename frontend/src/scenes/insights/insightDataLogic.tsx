@@ -374,6 +374,7 @@ export interface insightDataLogicActions {
             warnings?:
                 | (
                       | import('~/queries/schema/schema-general').AccessControlFilterWarning
+                      | import('~/queries/schema/schema-general').BreakdownNotAppliedWarning
                       | import('~/queries/schema/schema-general').DataWarehouseSyncWarning
                   )[]
                 | null
@@ -431,6 +432,7 @@ export interface insightDataLogicActions {
             warnings?:
                 | (
                       | import('~/queries/schema/schema-general').AccessControlFilterWarning
+                      | import('~/queries/schema/schema-general').BreakdownNotAppliedWarning
                       | import('~/queries/schema/schema-general').DataWarehouseSyncWarning
                   )[]
                 | null

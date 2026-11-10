@@ -34,6 +34,7 @@ class SourceKind(StrEnum):
     WAREHOUSE_SOURCE = "warehouse_source"
     WAREHOUSE_DESTINATION = "warehouse_destination"
     METRICS = "metrics"
+    TRACES = "traces"
 
 
 @frozen
@@ -273,6 +274,7 @@ class PlatformAlertCheckInput:
     # The calendar half of the schedule, so a source can tell when its own cadence has moved.
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+    created_by_id: int | None = None
 
     @property
     def destination_alert_id(self) -> UUID:
@@ -373,6 +375,7 @@ class PlatformAlertUpsert:
     # Written only when the upsert creates the copy. An existing copy keeps the grouping its own
     # edits set, because a source row stores none.
     grouping: Grouping = Grouping()
+    created_by_id: int | None = None
 
 
 @frozen
@@ -1013,6 +1016,8 @@ class PlatformAlertConfigurationView:
     alerts: tuple[PlatformAlertSnapshot, ...]
     labels: dict[str, str] = field(default_factory=dict)
     annotations: dict[str, str] = field(default_factory=dict)
+    created_by_id: int | None = None
+    first_enabled_at: datetime | None = None
 
     @property
     def destination_alert_id(self) -> UUID:
@@ -1172,6 +1177,10 @@ class SourceConfigSpec:
     platform, and enforces the source's caps and plan entitlements. `mirror` runs in the edit's transaction. Without
     `create` or `delete`, the API cannot create or delete alerts of the kind, unless the kind is
     `native`: then the platform creates and deletes them itself, and the source keeps no row.
+
+    A kind can have both. `mirror` and `delete` then serve the alerts that have a source row, and
+    `native` serves the ones that have none. A create goes through `create`, unless `native_create`
+    says the team's new alerts get no source row.
     """
 
     model: type[BaseModel]
@@ -1186,6 +1195,8 @@ class SourceConfigSpec:
     incident_event_ids: Mapping[str, str] | None = None
     alert_url: Callable[[int, UUID], str] | None = None
     native: NativeAlertLifecycle | None = None
+    # For a kind with both `create` and `native`: whether a team's new alert gets no source row.
+    native_create: Callable[[int], bool] | None = None
     # A PostHog feature flag a project needs, beside `platform-alerts`, to create alerts of this kind.
     # A new kind names its own flag, so it opens on its own schedule while the others stay generally
     # available.
@@ -1195,14 +1206,15 @@ class SourceConfigSpec:
     # the other kinds and the platform's own pages closed.
     access_flag: str | None = None
 
-    def __post_init__(self) -> None:
-        # The source-row hooks write a row a native kind does not have.
-        if self.native is not None and (self.mirror or self.create or self.delete):
-            raise ValueError("A native kind keeps no source row, so it cannot register mirror, create or delete.")
-
     @property
     def creatable(self) -> bool:
         return self.native is not None or self.create is not None
+
+    def creates_natively(self, team_id: int) -> bool:
+        """Whether a create for the team makes only the configuration, with no source row."""
+        if self.native is None:
+            return False
+        return self.create is None or (self.native_create is not None and self.native_create(team_id))
 
 
 SourceConfigLoader = Callable[[], SourceConfigSpec]
@@ -1457,6 +1469,28 @@ class MessageLink:
 class MessageImage:
     url: str
     alt_text: str
+
+
+# Marks the block where a source's image goes, so an image that renders after the message lands replaces it.
+SLACK_IMAGE_SLOT_BLOCK_ID: Final = "alert_image"
+
+
+@frozen
+class LateImageResult:
+    """What adding a late image to an evaluation's Slack messages did.
+
+    `waiting` counts the Slack destinations with no message for the evaluation yet, because its
+    delivery has not sent it, or because the destination is not delivered natively.
+    """
+
+    edited: int
+    waiting: int
+
+    def __add__(self, other: LateImageResult) -> LateImageResult:
+        return LateImageResult(edited=self.edited + other.edited, waiting=self.waiting + other.waiting)
+
+
+NO_LATE_IMAGE: Final = LateImageResult(edited=0, waiting=0)
 
 
 @frozen

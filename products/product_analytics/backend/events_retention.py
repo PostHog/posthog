@@ -20,6 +20,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.events_plan_deletion import (
     TeamEventsPlanDeletion,
     cleanup_date,
+    deleting_plans,
     deletion_months,
     next_cleanup_on,
     next_pass_on,
@@ -45,7 +46,6 @@ from posthog.models.team.event_retention import (
     has_standard_retention,
     organization_events_retention_months,
     should_delete_past_default_period,
-    team_plan,
 )
 from posthog.models.user import User
 
@@ -54,8 +54,12 @@ from products.product_analytics.backend.facade.contracts import (
     ProjectEventsRetention,
     ScheduledEventsDeletion,
 )
+from products.product_analytics.backend.facade.enums import EventsRetentionMonths
 
-RETENTION_MONTHS_CHOICES = (1, 3, 12, 24, 36, 60, 84)
+NOT_A_STANDARD_PERIOD_MESSAGE = (
+    f"Events retention has to be {', '.join(map(str, EventsRetentionMonths.values[:-1]))} or "
+    f"{EventsRetentionMonths.values[-1]} months. Contact PostHog support to set another period."
+)
 EVENTS_DELETED_QUERY_SECONDS = 10
 EVENTS_DELETED_CACHE_SECONDS = 24 * 60 * 60
 
@@ -130,7 +134,7 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
         plan_months=plan_months,
         min_months=staff_min or 1,
         max_months=min(plan_months, staff_max) if staff_max else plan_months,
-        months_choices=list(RETENTION_MONTHS_CHOICES),
+        months_choices=list(EventsRetentionMonths.values),
         next_cleanup_on=next_cleanup_on(),
     )
 
@@ -230,19 +234,11 @@ def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -
     if months is None:
         return
     if months not in retention.months_choices:
-        *shorter, longest = retention.months_choices
-        raise ValidationError(
-            f"Events retention has to be {', '.join(map(str, shorter))} or {longest} months. "
-            "Contact PostHog support to set another period."
-        )
+        raise ValidationError(NOT_A_STANDARD_PERIOD_MESSAGE)
     if not retention.min_months <= months <= retention.max_months:
         raise ValidationError(
             f"Events retention has to be {describe_months_range(retention.min_months, retention.max_months)}."
         )
-
-
-def _deleting_plans(teams: Iterable[Team]) -> list[TeamPlan]:
-    return [team_plan(team) for team in teams if should_delete_past_default_period(team)]
 
 
 def _schedule_passes(plans: Sequence[TeamPlan]) -> None:
@@ -265,7 +261,7 @@ def set_organization_events_retention(
         if months == before:
             return
         _check_allowed(organization_events_retention(organization), months)
-        plans = _deleting_plans(Team.objects.filter(organization_id=organization.id))
+        plans = deleting_plans(Team.objects.filter(organization_id=organization.id))
         _schedule_passes(plans)
         config = config or OrganizationEventsRetentionConfig(organization_id=organization.id)
         config.default_events_retention_months = months
@@ -309,7 +305,7 @@ def set_project_events_retention(
         if months == before:
             return
         _check_allowed(organization_events_retention(team.organization), months)
-        plans = _deleting_plans([team])
+        plans = deleting_plans([team])
         _schedule_passes(plans)
         if months is None:
             TeamEventsRetentionConfig.objects.filter(team_id=team.id).delete()

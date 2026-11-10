@@ -1,7 +1,7 @@
 import posthog, { BeforeSendFn, PostHogConfig } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import {
     dropHandledAuthGateExceptions,
@@ -13,12 +13,15 @@ import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
 import { redactMetricVariableUrls } from 'lib/utils/metricVariableUrlRedaction'
 import { isOAuthMode } from 'lib/utils/oauthClient'
 import { identifyInstanceInPostHog, identifyUserInPostHog } from 'lib/utils/posthogIdentity'
+import { consumeMobileHandoff, installMobileHandoff } from 'lib/utils/webMobileHandoff'
 
 import { dropWebMCPToolErrors } from 'products/webmcp/frontend/webmcpToolError'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
+
+let removeMobileHandoff: (() => void) | undefined
 
 const LAST_SEEN_FEATURE_FLAGS_KEY = 'posthog-app-last-seen-feature-flags'
 
@@ -103,6 +106,9 @@ function loadFeatureFlagsForPage(): void {
 }
 
 export function loadPostHogJS(): void {
+    const incomingHandoff = consumeMobileHandoff()
+    removeMobileHandoff?.()
+    removeMobileHandoff = undefined
     if (window.JS_POSTHOG_API_KEY) {
         posthog.init(window.JS_POSTHOG_API_KEY, {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
@@ -164,6 +170,7 @@ export function loadPostHogJS(): void {
                     loadedInstance.opt_out_capturing()
                 } else {
                     loadedInstance.opt_in_capturing()
+                    removeMobileHandoff = installMobileHandoff(loadedInstance, incomingHandoff)
 
                     if (
                         !!window.POSTHOG_APP_CONTEXT?.preflight?.is_debug ||
@@ -274,7 +281,7 @@ export function loadPostHogJS(): void {
                 writeLastSeenFeatureFlags({ distinctId: posthog.get_distinct_id(), featureFlags: variants })
             }
 
-            if (inStorybook() || inStorybookTestRunner() || !context?.errorsLoading) {
+            if (inStorybook() || !context?.errorsLoading) {
                 return
             }
 

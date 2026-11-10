@@ -60,6 +60,12 @@ describe('AgentsRoster', () => {
                 '/api/environments/:team_id/integrations/': () => [200, EMPTY_LIST],
                 '/api/projects/:team_id/external_data_sources/wizard/': () => [200, { GitLab: GITLAB_WIZARD_CONFIG }],
             },
+            post: {
+                '/api/projects/:team_id/signals/source_configs/alert_pattern_preview/': () => [
+                    200,
+                    { alert_allow_patterns_error: null, alert_block_patterns_error: null, alerts: [], has_more: false },
+                ],
+            },
         })
         // The roster only loads its sources behind this flag, so without it every list stays empty.
         featureFlagLogic.mount()
@@ -122,7 +128,7 @@ describe('AgentsRoster', () => {
         const errorTracking = document.querySelector('[data-source="error_tracking"]') as HTMLElement
         expect(await within(errorTracking).findByLabelText('Arm Error tracking')).toBeInTheDocument()
         if (enabled && armed) {
-            expect(await within(errorTracking).findByText('$1.50')).toBeInTheDocument()
+            expect(await within(errorTracking).findByText('150 credits')).toBeInTheDocument()
             const support = document.querySelector('[data-source="conversations"]') as HTMLElement
             expect(within(support).queryByText('Not tracked')).not.toBeInTheDocument()
             expect(usageRequests).toHaveBeenCalledTimes(1)

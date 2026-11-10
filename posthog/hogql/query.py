@@ -91,6 +91,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
+from posthog.clickhouse.workload import PINNED_CLUSTER_WORKLOADS
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import (
@@ -840,7 +841,7 @@ class HogQLQueryExecutor:
                     settings=settings,
                 )
 
-            if self.clickhouse_context.workload == Workload.LOGS and self.query_type == "HogQLQuery":
+            if self.clickhouse_context.workload in PINNED_CLUSTER_WORKLOADS and self.query_type == "HogQLQuery":
                 if settings.max_bytes_to_read is None:
                     settings.max_bytes_to_read = get_hogql_max_bytes_to_read_for_logs_user_queries(
                         self.team.organization

@@ -543,6 +543,9 @@ class TestStripeSource:
             # The key belongs to a connected account, so Stripe refuses to nest Connect access two
             # levels deep when an "Account id" is also configured — a customer misconfiguration.
             "Request req_abc123: You cannot access the connected accounts of your platform's connected accounts.",
+            # An Organization API key was used — Stripe rejects every request that omits the
+            # Stripe-Context header these keys require, matched on the stable boilerplate text.
+            "Please include the Stripe-Context header with your target account when using an Organization API key.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
@@ -582,6 +585,22 @@ class TestStripeSource:
         assert messages
         assert messages[0] is not None
         assert "Account id" in messages[0]
+
+    def test_organization_api_key_rejection_has_actionable_message(self):
+        # Stripe's own text doesn't say which key type the customer should use instead, so the
+        # guidance has to name it — every call with an Organization key fails identically, since
+        # it never carries the Stripe-Context header these keys require.
+        observed_error = (
+            "Please include the Stripe-Context header with your target account when using an Organization API key."
+        )
+        messages = [
+            message
+            for pattern, message in self.source.get_non_retryable_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages
+        assert messages[0] is not None
+        assert "secret or restricted API key" in messages[0]
 
     @pytest.mark.parametrize(
         "other_error",

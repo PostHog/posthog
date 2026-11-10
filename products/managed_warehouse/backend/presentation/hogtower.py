@@ -44,6 +44,7 @@ _WAREHOUSE_STILL_EXISTS = (
 
 _TEAM_PATH = re.compile(r"/teams/(?P<team_id>[^/]+)")
 _SERVICE_GRANT_PATH = re.compile(r"/service-grants/(?P<credential_id>[^/]+)")
+_HOGLAKE_CREDENTIAL_PATH = re.compile(r"/hoglake-credentials/(?P<credential_id>[^/]+)(?P<rotate>/rotate)?")
 
 
 def is_configured() -> bool:
@@ -188,9 +189,11 @@ def _status(call: _Call) -> TranslatedResponse:
             "database": connection.get("database") or warehouse.get("database_name", ""),
             "username": connection.get("username") or "root",
         }
-    bucket = _dict(warehouse.get("data_store")).get("bucket_name")
-    if bucket:
-        out["bucket"] = bucket
+    data_store = _dict(warehouse.get("data_store"))
+    if data_store.get("bucket_name"):
+        out["bucket"] = data_store["bucket_name"]
+    if data_store.get("prefix"):
+        out["bucket_prefix"] = data_store["prefix"]
     return TranslatedResponse(resp.status_code, out)
 
 
@@ -385,6 +388,45 @@ def _revoke_credential(call: _Call, credential_id: str) -> TranslatedResponse:
     return call.send("DELETE", f"{call.warehouse}/service-credentials/{quote(credential_id, safe='')}")
 
 
+# --- hoglake credentials -------------------------------------------------------------
+#
+# Customer OAuth clients for hoglake (hlc_<id> + a secret shown once), exchanged at
+# hogtower's public /oauth/token. hogtower-only: duckgres has no equivalent, so the
+# v1-style paths below exist only in this adapter and views refuse them without hogtower.
+
+
+def _list_hoglake_credentials(call: _Call) -> TranslatedResponse:
+    """GET /hoglake-credentials -> v2 GET /warehouses/:id/hoglake-credentials (never a secret).
+
+    ``owner_user_uuid`` keeps only that member's personal credentials; nothing else is forwarded.
+    """
+    owner = (call.params or {}).get("owner_user_uuid")
+    params = {"owner_user_uuid": str(owner)} if owner else None
+    return call.send("GET", f"{call.warehouse}/hoglake-credentials", params=params)
+
+
+def _create_hoglake_credential(call: _Call) -> TranslatedResponse:
+    """POST /hoglake-credentials -> v2 POST /warehouses/:id/hoglake-credentials (secret once)."""
+    return call.send("POST", f"{call.warehouse}/hoglake-credentials", json_body=call.json_body)
+
+
+def _hoglake_credential(call: _Call, method: str, credential_id: str, rotate: bool) -> TranslatedResponse:
+    """POST /hoglake-credentials/:cid/rotate (secret once) and DELETE /hoglake-credentials/:cid (revoke).
+
+    ``owner_user_uuid`` (rotate: body, revoke: params) names the acting member, and hogtower then
+    acts only on that member's own credentials. Without it the call acts as an organization admin.
+    Nothing else is forwarded.
+    """
+    path = f"{call.warehouse}/hoglake-credentials/{quote(credential_id, safe='')}"
+    if rotate and method == "POST":
+        owner = (call.json_body or {}).get("owner_user_uuid")
+        return call.send("POST", f"{path}/rotate", json_body={"owner_user_uuid": str(owner)} if owner else None)
+    if not rotate and method == "DELETE":
+        owner = (call.params or {}).get("owner_user_uuid")
+        return call.send("DELETE", path, params={"owner_user_uuid": str(owner)} if owner else None)
+    return _not_supported(method, f"/hoglake-credentials/{credential_id}{'/rotate' if rotate else ''}")
+
+
 def _not_supported(method: str, path: str) -> TranslatedResponse:
     """A v1 call this adapter has no v2 mapping for: 501, never forwarded to hogtower.
 
@@ -422,6 +464,8 @@ _ORG_ROUTES: dict[tuple[str, str], Callable[[_Call], TranslatedResponse]] = {
     ("GET", "/trino"): _trino,
     ("POST", "/service-credentials"): _mint_credential,
     ("POST", "/service-credentials/refresh"): _refresh_credential,
+    ("GET", "/hoglake-credentials"): _list_hoglake_credentials,
+    ("POST", "/hoglake-credentials"): _create_hoglake_credential,
     ("GET", "/monitoring/snapshot"): _org_passthrough("/monitoring/snapshot"),
     ("GET", "/monitoring/series"): _org_passthrough("/monitoring/series"),
     ("GET", "/monitoring/trino/snapshot"): _org_passthrough("/monitoring/trino/snapshot"),
@@ -467,6 +511,9 @@ def request(
         grant = _SERVICE_GRANT_PATH.fullmatch(path)
         if handler is None and grant is not None and method == "DELETE":
             return _revoke_credential(call, grant.group("credential_id"))
+        hoglake = _HOGLAKE_CREDENTIAL_PATH.fullmatch(path)
+        if handler is None and hoglake is not None:
+            return _hoglake_credential(call, method, hoglake.group("credential_id"), bool(hoglake.group("rotate")))
     else:
         handler = _GLOBAL_ROUTES.get((method, path))
     if handler is None:

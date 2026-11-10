@@ -352,7 +352,9 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: storybook-build
-                  path: common/storybook/dist
+                  path: |
+                      common/storybook/dist
+                      !common/storybook/dist/module-graph.json
                   retention-days: 1
 
             # Consumed by the select-stories job below. Uploaded separately so

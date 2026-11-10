@@ -390,6 +390,9 @@ async def emit_issue_created_signal_activity(inputs: IssueCreatedWorkflowInputs)
         inputs,
         source_type="issue_created",
         preamble="New error tracking issue created - this particular exception was observed for the first time",
+        event="$error_tracking_issue_created",
+        exception_timestamp=inputs.event_timestamp,
+        humanize_status=False,
     )
 
 

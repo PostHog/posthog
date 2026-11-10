@@ -38,6 +38,7 @@ from posthog.hogql.database.schema.events_with_flag_calls import (
     EventsWithFlagCallsTable,
     FlagEvaluationsColumns,
     property_read,
+    serialized_like_events,
     union_table_of,
 )
 from posthog.hogql.database.schema.util.where_clause_extractor import (
@@ -252,6 +253,7 @@ def union_branch_filters(
     union: EventsWithFlagCallsTable,
     columns: FlagEvaluationsColumns,
     flag_key_compares_as_string: Callable[[], bool],
+    context: HogQLContext,
 ) -> UnionBranchFilters:
     """The filters for the union scan that `node` reads, from the resolved WHERE and PREWHERE of `node`."""
     extracted = _scan_conjuncts(node, union)
@@ -264,7 +266,8 @@ def union_branch_filters(
     flag_evaluations_conjuncts = [
         mapped
         for conjunct in flag_call_conjuncts
-        if _truth(conjunct) is not True and (mapped := _FlagEvaluationsReads(columns).copy(conjunct)) is not None
+        if _truth(conjunct) is not True
+        and (mapped := _FlagEvaluationsReads(columns, context).copy(conjunct)) is not None
     ]
     return UnionBranchFilters(
         events=_events_filter(extracted),
@@ -369,8 +372,14 @@ def _union_chain(field_type: ast.Type | None) -> tuple[EventsWithFlagCallsTable,
 
 def _scan_conjuncts(node: ast.SelectQuery, union: EventsWithFlagCallsTable) -> list[ast.Expr]:
     """The parts of the WHERE and PREWHERE of `node` that read only the union scan, with reads as chains on it."""
-    inliner = SelectAliasInliner({expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)})
-    extracted = [_scan_predicate(inliner.visit(conjunct), union) for conjunct in filter_conjuncts(node)]
+    aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
+    inliner = SelectAliasInliner(aliases)
+    # The union exports a SELECT alias as its value, and `toJSONString` of the alias serializes that value. A copy of
+    # the inlined read would serialize the way a direct read does instead, so a conjunct like that is not copied.
+    conjuncts = [
+        conjunct for conjunct in filter_conjuncts(node) if not (aliases and _serializes_select_alias(conjunct, aliases))
+    ]
+    extracted = [_scan_predicate(inliner.visit(conjunct), union) for conjunct in conjuncts]
     return [conjunct for conjunct in extracted if conjunct is not None]
 
 
@@ -691,9 +700,10 @@ class _Qualified(CloningVisitor):
 
 
 class _FlagEvaluationsReads(CloningVisitor):
-    def __init__(self, columns: FlagEvaluationsColumns) -> None:
+    def __init__(self, columns: FlagEvaluationsColumns, context: HogQLContext) -> None:
         super().__init__()
         self.columns = columns
+        self.context = context
         self.failed = False
 
     def copy(self, expr: ast.Expr) -> ast.Expr | None:
@@ -706,6 +716,49 @@ class _FlagEvaluationsReads(CloningVisitor):
             self.failed = True
             return super().visit_field(node)
         return ast.Field(chain=["flag_evaluations", *chain])
+
+    def visit_call(self, node: ast.Call):
+        argument = _serialized_argument(node)
+        if isinstance(argument, ast.Field):
+            read = self.visit_field(argument)
+            return serialized_like_events(self.columns.events, argument.chain, read, self.context)
+        return super().visit_call(node)
+
+
+def _serialized_argument(node: ast.Call) -> ast.Expr | None:
+    """The argument of a one-argument `toJSONString` call, through any aliases, or None for any other call."""
+    if node.name != "toJSONString" or len(node.args) != 1:
+        return None
+    argument = node.args[0]
+    while isinstance(argument, ast.Alias):
+        argument = argument.expr
+    return argument
+
+
+def _serializes_select_alias(expr: ast.Expr, aliases: dict[str, ast.Expr]) -> bool:
+    finder = _SelectAliasSerializationFinder(aliases)
+    finder.visit(expr)
+    return finder.found
+
+
+class _SelectAliasSerializationFinder(SyntaxVisitor):
+    """Finds a `toJSONString` call whose argument is a reference to one of `aliases`."""
+
+    def __init__(self, aliases: dict[str, ast.Expr]) -> None:
+        super().__init__()
+        self.aliases = aliases
+        self.found = False
+
+    def visit_call(self, node: ast.Call) -> None:
+        argument = _serialized_argument(node)
+        if (
+            isinstance(argument, ast.Field)
+            and isinstance(argument.type, ast.FieldAliasType)
+            and argument.type.alias in self.aliases
+        ):
+            self.found = True
+            return
+        super().visit_call(node)
 
 
 class _UnionChainCollector(SyntaxVisitor):
@@ -730,12 +783,12 @@ class _UnionChainCollector(SyntaxVisitor):
         if read is not None:
             chain = read[1]
             self.chains.append(chain)
-            # Lazy table resolution names a whole-field read after the field, whichever table the field is on.
-            # It names a property read by joining the path with `___`, so `a.b` and `a___b` share a name.
-            name = node.type.name if isinstance(node.type, ast.FieldType) else "___".join(str(link) for link in chain)
-            first = self.exports.setdefault((id(self._select), name), chain)
-            if first != chain and self.export_collision is None:
-                self.export_collision = (first, chain)
+            if not isinstance(node.type, ast.FieldType):
+                # Lazy table resolution names a property read by joining the path with `___`, so `a.b` and `a___b` share a name.
+                name = "___".join(str(link) for link in chain)
+                first = self.exports.setdefault((id(self._select), name), chain)
+                if first != chain and self.export_collision is None:
+                    self.export_collision = (first, chain)
             return
         field_type = node.type.field_type if isinstance(node.type, ast.PropertyType) else node.type
         if not isinstance(field_type, ast.FieldType):

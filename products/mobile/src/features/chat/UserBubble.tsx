@@ -5,6 +5,7 @@ import { DocumentIcon } from '@/ui/icons/DocumentIcon'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, radii, type } from '@/ui/tokens'
 
+import { CopyMessageButton } from './CopyMessageButton'
 import type { SessionAttachment } from './session/types'
 
 interface UserBubbleProps {
@@ -60,6 +61,7 @@ export const UserBubble = memo(function UserBubble({ text, attachments = [] }: U
                     <Text style={styles.text}>{text}</Text>
                 </View>
             ) : null}
+            <CopyMessageButton text={text} messageRole="user" />
         </View>
     )
 })
