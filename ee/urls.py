@@ -42,7 +42,7 @@ def extend_api_router() -> None:
         r"billing", organization_billing.OrganizationBillingViewSet, "organization_billing", ["organization_id"]
     )
     projects_router.register(r"billing", project_billing.ProjectBillingViewSet, "project_billing", ["team_id"])
-    root_router.register(r"integrations", integration.PublicIntegrationViewSet)
+    root_router.register(r"integrations", integration.PublicIntegrationViewSet, "integration")
     projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
 
     projects_router.register(r"conversations", conversation.ConversationViewSet, "project_conversations", ["team_id"])

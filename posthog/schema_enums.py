@@ -1557,6 +1557,14 @@ class ExperimentMetricType(StrEnum):
     QUANTILE = "quantile"
 
 
+class ExperimentMetricValueFormatType(StrEnum):
+    CURRENCY = "currency"
+    DURATION = "duration"
+    DURATION_MS = "duration_ms"
+    PERCENTAGE = "percentage"
+    PERCENTAGE_SCALED = "percentage_scaled"
+
+
 class PrecomputationMode(StrEnum):
     PRECOMPUTED = "precomputed"
     DIRECT = "direct"
