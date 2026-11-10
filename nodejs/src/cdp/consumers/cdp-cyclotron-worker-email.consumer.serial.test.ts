@@ -336,7 +336,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
 
     function emailFlow(
         delayAfterEmail?: string,
-        stepAfterDelay: 'exit' | 'function_email' | 'function' = 'exit'
+        stepAfterDelay: 'exit' | 'function_email' | 'function' = 'exit',
+        firstStep: 'function_email' | 'function' = 'function_email'
     ): HogFlow {
         const emailStep = {
             type: 'function_email',
@@ -363,7 +364,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             .withWorkflow({
                 actions: {
                     trigger: { type: 'trigger', config: { type: 'api' } },
-                    email: emailStep,
+                    email: { ...emailStep, type: firstStep },
                     ...(delayAfterEmail && {
                         delay: { type: 'delay', config: { delay_duration: delayAfterEmail } },
                     }),
@@ -928,10 +929,16 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             stepAfterDelay: 'function',
             settles: (id: string): Promise<unknown> => deferredRow(id, 1),
         },
+        {
+            next: 'defers its next email step like a fresh send, when a function step sent the first email,',
+            firstStep: 'function',
+            stepAfterDelay: 'function_email',
+            settles: (id: string): Promise<unknown> => deferredRow(id, 1),
+        },
     ] as const)(
         'after an email with files went out and a delay passed, $next while the room is taken, though the first due time is long past',
-        async ({ stepAfterDelay, settles }) => {
-            hogFlow = await insertEmailFlow('3s', stepAfterDelay)
+        async ({ stepAfterDelay, firstStep, settles }) => {
+            hogFlow = await insertEmailFlow('3s', stepAfterDelay, firstStep)
             await startWorker(roomFor(1))
             const [id] = await enqueue(transactionalSend([invoice.metadata], waitedTooLong()))
             const delayed = await waitForExpect(async () => {

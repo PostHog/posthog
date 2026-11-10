@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { canSendEmail } from '~/cdp/services/hogflows/hogflow-utils'
 import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
@@ -194,10 +195,6 @@ function registryFor(config: PluginsServerConfig): InFlightRegistry {
     logger.info('📧', 'The email worker admits sends with files', admission.limits)
     return new InFlightRegistry(admission.limits)
 }
-
-// A generic function step can run a template that calls sendEmail, and the stored workflow does not say which one does.
-const canSendEmail = (action: HogFlowAction | undefined): boolean =>
-    action?.type === 'function_email' || action?.type === 'function'
 
 function sendStepAhead(invocation: CyclotronJobInvocation, hogFlow: HogFlow | null | undefined): boolean {
     if (invocation.queueParameters?.type === 'email') {
