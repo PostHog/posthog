@@ -11,6 +11,7 @@ import {
 } from '@aws-sdk/client-s3'
 import { defaultProvider } from '@aws-sdk/credential-provider-node'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import { createHash } from 'node:crypto'
 import { Counter } from 'prom-client'
 
 import { CdpConfig } from '~/cdp/config'
@@ -26,6 +27,7 @@ const UPLOAD_URL_LIFETIME_MS = 15 * MINUTE_MS
 const SIGNING_CREDENTIALS_MIN_LIFETIME_MS = UPLOAD_URL_LIFETIME_MS + MINUTE_MS
 const S3_CLIENT_REFRESHES_CREDENTIALS_BEFORE_EXPIRY_MS = 5 * MINUTE_MS
 const METADATA_REPLACED_SO_S3_ACCEPTS_A_SELF_COPY = 'REPLACE'
+const DOWNLOADS_CHECKED_AGAINST_THEIR_HASH_SO_A_CUT_BODY_STILL_FAILS = 'WHEN_REQUIRED'
 const PRESENT_MIN_REMAINING_MS = UPLOAD_URL_LIFETIME_MS + DAY_MS
 export const SHA256_HEX = /^[0-9a-f]{64}$/
 
@@ -241,6 +243,7 @@ export class S3AttachmentStore implements AttachmentStore {
                 this.s3
                     .send(new GetObjectCommand({ Bucket: this.config.bucket, Key: key }), { abortSignal: signal })
                     .then((object) => object.Body!.transformToByteArray())
+                    .then((downloaded) => matchingItsHash(downloaded, sha256))
             )
             attachmentStoreFiles.labels({ operation: 'load', outcome: 'loaded' }).inc()
             return bytes
@@ -252,6 +255,13 @@ export class S3AttachmentStore implements AttachmentStore {
             throw new AttachmentStoreUnavailableError(error)
         }
     }
+}
+
+function matchingItsHash(bytes: Uint8Array, sha256: Sha256Hex): Uint8Array {
+    if (createHash('sha256').update(bytes).digest('hex') !== sha256) {
+        throw new Error(`The bytes downloaded for ${sha256} do not match its hash`)
+    }
+    return bytes
 }
 
 const expiryOf = (head: HeadObjectCommandOutput): Date =>
@@ -337,6 +347,7 @@ export function buildAttachmentStore(settings: AttachmentStoreSettings): S3Attac
         new S3Client({
             region: settings.CDP_EMAIL_ATTACHMENTS_S3_REGION,
             credentials,
+            responseChecksumValidation: DOWNLOADS_CHECKED_AGAINST_THEIR_HASH_SO_A_CUT_BODY_STILL_FAILS,
             ...(endpoint && { endpoint, forcePathStyle: true }),
         })
     return new S3AttachmentStore(

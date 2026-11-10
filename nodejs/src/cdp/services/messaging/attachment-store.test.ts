@@ -1,5 +1,7 @@
 import { CopyObjectCommand, CreateBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { createHash, randomBytes } from 'node:crypto'
+import { ServerResponse, createServer, request as httpRequest } from 'node:http'
+import { AddressInfo } from 'node:net'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
 import { FetchResponse, internalFetch } from '~/common/utils/request'
@@ -39,6 +41,74 @@ const put = (slot: UploadSlot, body: Buffer): Promise<FetchResponse> => {
 }
 
 const minutesFromNow = (minutes: number): Date => new Date(Date.now() + minutes * MINUTE_MS)
+
+const settledWithin = async <T>(ms: number, promise: Promise<T>): Promise<T> => {
+    let timer: NodeJS.Timeout | undefined
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<never>((_, reject) => {
+                timer = setTimeout(() => reject(new Error(`still pending after ${ms} ms`)), ms)
+            }),
+        ])
+    } finally {
+        clearTimeout(timer)
+    }
+}
+
+type FileBody = 'stall after its first byte' | 'change its last byte'
+
+type BucketProxy = { endpoint: string; bodyAnswered: Promise<void>; cut: () => void; close: () => Promise<void> }
+
+const answerTheFileBody = (body: FileBody, file: NodeJS.ReadableStream, response: ServerResponse): Promise<void> =>
+    new Promise((answered) => {
+        if (body === 'stall after its first byte') {
+            file.once('data', (chunk: Buffer) => {
+                response.write(chunk.subarray(0, 1))
+                setTimeout(answered, 100)
+            })
+            file.resume()
+            return
+        }
+        const chunks: Buffer[] = []
+        file.on('data', (chunk: Buffer) => chunks.push(chunk))
+        file.on('end', () => {
+            const bytes = Buffer.concat(chunks)
+            bytes[bytes.length - 1] ^= 0xff
+            response.end(bytes, answered)
+        })
+    })
+
+const bucketProxyThatMangles = async (body: FileBody): Promise<BucketProxy> => {
+    let bodyAnswered: () => void = () => undefined
+    const answered = new Promise<void>((resolve) => (bodyAnswered = resolve))
+    const server = createServer((request, response) => {
+        const upstream = httpRequest(
+            new URL(request.url!, config.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT),
+            { method: request.method, headers: request.headers },
+            (answer) => {
+                response.writeHead(answer.statusCode!, answer.headers)
+                if (request.method === 'GET' && answer.statusCode === 200) {
+                    void answerTheFileBody(body, answer, response).then(bodyAnswered)
+                    return
+                }
+                answer.pipe(response)
+            }
+        )
+        request.pipe(upstream)
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const cut = (): void => {
+        server.close()
+        server.closeAllConnections()
+    }
+    return {
+        endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+        bodyAnswered: answered,
+        cut,
+        close: () => new Promise((resolve) => (cut(), server.close(() => resolve()))),
+    }
+}
 
 const withTheClockAt = async <T>(at: Date, act: () => Promise<T>): Promise<T> => {
     jest.useFakeTimers({
@@ -415,6 +485,40 @@ describe('S3AttachmentStore', () => {
             await expect(
                 store.load(1, [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length }], signal())
             ).rejects.toThrow(error)
+        })
+
+        it.each([
+            [
+                'the caller aborts while the file body stalls',
+                'stall after its first byte',
+                (_: BucketProxy, caller: AbortController) => caller.abort(),
+            ],
+            [
+                'the connection is cut while the file body stalls',
+                'stall after its first byte',
+                (bucket: BucketProxy) => bucket.cut(),
+            ],
+            ['the file body arrives with a changed byte', 'change its last byte', () => undefined],
+        ] as const)('throws unavailable at once when %s', async (_, body, interrupt) => {
+            const f = file()
+            await uploaded(1, f)
+            const bucket = await bucketProxyThatMangles(body)
+            const viaBucket = buildAttachmentStore({ ...config, CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint })!
+            const caller = new AbortController()
+            try {
+                const loading = viaBucket.load(
+                    1,
+                    [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length }],
+                    caller.signal
+                )
+                await bucket.bodyAnswered
+                interrupt(bucket, caller)
+
+                await expect(settledWithin(3000, loading)).rejects.toThrow(AttachmentStoreUnavailableError)
+            } finally {
+                viaBucket.s3.destroy()
+                await bucket.close()
+            }
         })
     })
 
