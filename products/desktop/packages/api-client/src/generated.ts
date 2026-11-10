@@ -15505,6 +15505,14 @@ export namespace Schemas {
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
         last_client_at?: (string | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        repository_integration?: (number | null) | undefined;
     };
     /**
      * Basic list response for a task, returned when the list is asked for ``basic=true``.
@@ -15651,6 +15659,17 @@ export namespace Schemas {
          * server-side.
          */
         last_client_at?: (string | null) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        repository_integration?: (number | null) | undefined;
         /**
          * First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text.
          */
@@ -16580,6 +16599,7 @@ export namespace Schemas {
         repository: string | null;
         repositories: Array<string>;
         github_integration: number | null;
+        repository_integration: number | null;
         github_user_integration: string | null;
         signal_report: string | null;
         signal_report_task_relationship: string;
@@ -18085,6 +18105,7 @@ export namespace Schemas {
         repository: string | null;
         repositories: Array<string>;
         github_integration: number | null;
+        repository_integration: number | null;
         github_user_integration: string | null;
         signal_report: string | null;
         signal_report_task_relationship: string;
@@ -18227,6 +18248,14 @@ export namespace Schemas {
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
         last_client_at?: (string | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        repository_integration?: (number | null) | undefined;
         /**
          * Detail response for a task.
          *
@@ -18442,6 +18471,13 @@ export namespace Schemas {
          * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
          * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
+        repository_integration?: (number | null) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
         run_error?: string | undefined;
         /**
          * The task ``run`` action's response: the refreshed task detail plus the run this call made.
@@ -18465,6 +18501,7 @@ export namespace Schemas {
         repository: string | null;
         repositories: Array<string>;
         github_integration: number | null;
+        repository_integration: number | null;
         github_user_integration: string | null;
         signal_report: string | null;
         signal_report_task_relationship: string;
