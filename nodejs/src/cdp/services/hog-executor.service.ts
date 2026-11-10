@@ -22,6 +22,7 @@ import {
 } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
+import { hasIntegrationRef } from '../utils/integration-input-refs'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { HogInputsService } from './hog-inputs.service'
 import type { PreferencesTokenSource } from './messaging/recipient-tokens.service'
@@ -195,10 +196,12 @@ export class HogExecutorService {
                 // (e.g. the mappings path) skip the rebuild.
                 if (invocation.state.globals.inputs) {
                     // The resolved values stay local to this run, so the state the queue persists keeps references.
-                    const inputs = await this.hogInputsService.resolveIntegrationRefs(
-                        invocation.hogFunction,
-                        invocation.state.globals.inputs
-                    )
+                    const inputs = hasIntegrationRef(invocation.state.globals.inputs)
+                        ? await this.hogInputsService.resolveIntegrationRefs(
+                              invocation.hogFunction,
+                              invocation.state.globals.inputs
+                          )
+                        : invocation.state.globals.inputs
                     globals =
                         inputs === invocation.state.globals.inputs
                             ? invocation.state.globals

@@ -17,6 +17,11 @@ const isIntegrationId = (value: unknown): value is IntegrationType['id'] =>
 export const isIntegrationRef = (value: unknown): value is IntegrationInputRef =>
     isPlainObject(value) && isIntegrationId(value[INTEGRATION_REF_KEY])
 
+export const hasIntegrationRef = (inputs: Record<string, unknown>): boolean =>
+    Object.values(inputs).some(
+        (value) => isIntegrationRef(value) || (Array.isArray(value) && value.some(isIntegrationRef))
+    )
+
 const toRef = (value: unknown): unknown =>
     isPlainObject(value) && isIntegrationId(value.$integration_id)
         ? { [INTEGRATION_REF_KEY]: value.$integration_id }
