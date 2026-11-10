@@ -8,6 +8,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
+import { HOG_FILTERS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
@@ -667,7 +668,7 @@ describe('Hog Inputs', () => {
         it('keeps the secrets out of the persisted job when built through the real enqueue path', async () => {
             const { invocations } = await buildHogFunctionInvocations(
                 hogInputsService,
-                [hogFunction],
+                [{ ...hogFunction, ...HOG_FILTERS_EXAMPLES.no_filters }],
                 createHogExecutionGlobals()
             )
             expect(invocations).toHaveLength(1)
