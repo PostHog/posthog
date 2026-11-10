@@ -220,6 +220,7 @@ export type CyclotronV2WorkerConfig = {
     queueName: string
     batchMaxSize?: number
     pollDelayMs?: number
+    pollDelayMaxMs?: number
     heartbeatTimeoutMs?: number
     includeEmptyBatches?: boolean
 }

@@ -53,6 +53,12 @@ export const consumerLoopErrorsCounter = new Counter({
     labelNames: ['queue'] as const,
 })
 
+export const pollsCounter = new Counter({
+    name: 'cdp_cyclotron_v2_polls_total',
+    help: 'Consumer loop polls of the queue database, per queue and outcome.',
+    labelNames: ['queue', 'outcome'] as const,
+})
+
 export function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -231,6 +237,8 @@ export class CyclotronV2Worker {
     protected readonly queueName: string
     protected readonly batchMaxSize: number
     protected readonly pollDelayMs: number
+    private readonly pollDelayMaxMs: number
+    private nextPollDelayMs: number
     private readonly heartbeatTimeoutMs: number
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
@@ -245,6 +253,15 @@ export class CyclotronV2Worker {
         this.batchMaxSize = config.batchMaxSize ?? 100
         this.pollDelayMs = config.pollDelayMs ?? 50
         this.heartbeatTimeoutMs = config.heartbeatTimeoutMs ?? 30000
+        this.pollDelayMaxMs = Math.max(config.pollDelayMaxMs ?? this.pollDelayMs, this.pollDelayMs)
+        // isHealthy() measures from the start of the last poll, so the poll's own query time
+        // adds to the sleep. Half the timeout leaves that margin.
+        if (this.pollDelayMaxMs > this.heartbeatTimeoutMs / 2) {
+            throw new Error(
+                `pollDelayMaxMs (${this.pollDelayMaxMs}) must be at most half of heartbeatTimeoutMs (${this.heartbeatTimeoutMs})`
+            )
+        }
+        this.nextPollDelayMs = this.pollDelayMs
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
         // Fair (per-team round-robin) dequeue is the email queue's ordering.
         // `dequeue_seq` is only ever assigned for email jobs (see
@@ -268,21 +285,38 @@ export class CyclotronV2Worker {
                 const rows = this.fairDequeue ? await this.fairDequeueJobs() : await this.dequeueJobs()
 
                 if (rows.length === 0) {
+                    pollsCounter.labels({ queue: this.queueName, outcome: 'empty' }).inc()
                     if (this.includeEmptyBatches) {
                         await processBatch([])
                     }
-                    await sleep(this.pollDelayMs)
+                    await this.backOff()
                     continue
                 }
 
+                pollsCounter.labels({ queue: this.queueName, outcome: 'jobs' }).inc()
+                this.resetBackOff()
                 const jobs = rows.map((row) => this.wrapJob(row))
                 await processBatch(jobs)
             } catch (err) {
                 consumerLoopErrorsCounter.labels({ queue: this.queueName }).inc()
                 logger.error('CyclotronV2Worker consumer loop error', { error: String(err) })
-                await sleep(this.pollDelayMs)
+                await this.backOff()
             }
         }
+    }
+
+    protected async backOff(): Promise<void> {
+        const delayMs = this.nextPollDelayMs
+        this.nextPollDelayMs = Math.min(Math.max(delayMs * 2, 1), this.pollDelayMaxMs)
+        await this.delay(delayMs)
+    }
+
+    protected resetBackOff(): void {
+        this.nextPollDelayMs = this.pollDelayMs
+    }
+
+    protected delay(ms: number): Promise<void> {
+        return sleep(ms)
     }
 
     /**

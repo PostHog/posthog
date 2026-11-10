@@ -185,6 +185,36 @@ async function loopErrorCountForQueue(queue: string): Promise<number> {
     return line ? Number(line.trim().split(' ').pop()) : 0
 }
 
+async function pollCountForQueue(queue: string, outcome: string): Promise<number> {
+    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_polls_total')
+    const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`) && l.includes(`outcome="${outcome}"`))
+    return line ? Number(line.trim().split(' ').pop()) : 0
+}
+
+async function recordPollDelays(
+    worker: CyclotronV2Worker,
+    count: number,
+    afterDelay?: (delayNumber: number) => Promise<unknown>
+): Promise<number[]> {
+    const delays: number[] = []
+    let resolveStopped!: (stopped: Promise<void>) => void
+    const stopped = new Promise<void>((resolve) => {
+        resolveStopped = resolve
+    })
+    jest.spyOn(worker as unknown as { delay: (ms: number) => Promise<void> }, 'delay').mockImplementation(
+        async (ms) => {
+            delays.push(ms)
+            if (delays.length === count) {
+                resolveStopped(worker.stopConsuming())
+            }
+            await afterDelay?.(delays.length)
+        }
+    )
+    await worker.connect(async () => {})
+    await stopped
+    return delays
+}
+
 async function churnCountForQueue(queue: string): Promise<number> {
     const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_high_transition_dequeues')
     const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
@@ -1194,6 +1224,53 @@ describe('Cyclotron V2', () => {
             await worker.stopConsuming()
 
             expect((await loopErrorCountForQueue(queue)) - before).toBe(1)
+        })
+
+        const plainWorker = (queue: string, overrides?: Record<string, unknown>): CyclotronV2Worker =>
+            createWorker(queue, overrides)
+        const rateLimitedWorker = (queue: string, overrides?: Record<string, unknown>): CyclotronV2Worker =>
+            new CyclotronV2RateLimitedWorker(
+                { pool: { dbUrl: DB_URL }, queueName: queue, batchMaxSize: 100, pollDelayMs: 10, ...overrides },
+                () => Promise.resolve(undefined)
+            )
+
+        it.each([
+            ['the plain worker', 'backoff-plain', plainWorker, { pollDelayMaxMs: 80 }, [10, 20, 40, 80, 80, 80]],
+            [
+                'the rate-limited worker',
+                'backoff-limited',
+                rateLimitedWorker,
+                { pollDelayMaxMs: 80 },
+                [10, 20, 40, 80, 80, 80],
+            ],
+            ['the plain worker without a cap', 'backoff-plain-default', plainWorker, {}, [10, 10, 10]],
+            ['the rate-limited worker without a cap', 'backoff-limited-default', rateLimitedWorker, {}, [10, 10, 10]],
+        ])('delays idle polls of %s', async (_name, queue, makeWorker, overrides, expectedDelays) => {
+            const emptyPollsBefore = await pollCountForQueue(queue, 'empty')
+
+            const delays = await recordPollDelays(makeWorker(queue, overrides), expectedDelays.length)
+
+            expect(delays).toEqual(expectedDelays)
+            expect((await pollCountForQueue(queue, 'empty')) - emptyPollsBefore).toBe(expectedDelays.length)
+        })
+
+        it.each([
+            ['the plain worker', 'backoff-reset-plain', plainWorker],
+            ['the rate-limited worker', 'backoff-reset-limited', rateLimitedWorker],
+        ])('resets the idle delay of %s after a batch of jobs', async (_name, queue, makeWorker) => {
+            const delays = await recordPollDelays(makeWorker(queue, { pollDelayMaxMs: 80 }), 5, (delayNumber) =>
+                delayNumber === 3
+                    ? manager.createJob({ teamId: 1, queueName: queue, scheduled: new Date(Date.now() - 60_000) })
+                    : Promise.resolve()
+            )
+
+            expect(delays).toEqual([10, 20, 40, 10, 20])
+        })
+
+        it('rejects a delay cap that would fail the heartbeat health check', () => {
+            expect(() => createWorker(QUEUE, { pollDelayMaxMs: 20_000, heartbeatTimeoutMs: 30_000 })).toThrow(
+                'pollDelayMaxMs'
+            )
         })
 
         // Both dequeue paths bump transition_count for the whole batch in one UPDATE, so an

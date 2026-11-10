@@ -2,7 +2,7 @@ import { logger } from '~/common/utils/logger'
 
 import { CyclotronV2BatchLimit, CyclotronV2WorkerConfig } from './types'
 import { CyclotronV2DequeuedJob } from './types'
-import { CyclotronV2Worker, consumerLoopErrorsCounter, sleep } from './worker'
+import { CyclotronV2Worker, consumerLoopErrorsCounter, pollsCounter } from './worker'
 
 /**
  * Variant of CyclotronV2Worker that consults a per-poll rate-limit hook before
@@ -41,15 +41,18 @@ export class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
                 // every time.
                 const visibleRows = await this.countWork(this.batchMaxSize)
                 if (visibleRows === 0) {
-                    await sleep(this.pollDelayMs)
+                    pollsCounter.labels({ queue: this.queueName, outcome: 'empty' }).inc()
+                    await this.backOff()
                     continue
                 }
+                this.resetBackOff()
 
                 const decision = await this.getBatchLimit(visibleRows)
                 // === 0 (not <=) so a future bug returning a negative limit
                 // surfaces as a SQL LIMIT error instead of silently sleeping.
                 if (decision && decision.limit === 0) {
-                    await sleep(decision.sleepMs ?? this.pollDelayMs)
+                    pollsCounter.labels({ queue: this.queueName, outcome: 'throttled' }).inc()
+                    await this.delay(decision.sleepMs ?? this.pollDelayMs)
                     continue
                 }
                 const effectiveLimit = decision ? Math.min(decision.limit, this.batchMaxSize) : this.batchMaxSize
@@ -59,19 +62,21 @@ export class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
                     : await this.dequeueJobs(effectiveLimit)
 
                 if (rows.length === 0) {
+                    pollsCounter.labels({ queue: this.queueName, outcome: 'empty' }).inc()
                     if (this.includeEmptyBatches) {
                         await processBatch([])
                     }
-                    await sleep(this.pollDelayMs)
+                    await this.backOff()
                     continue
                 }
 
+                pollsCounter.labels({ queue: this.queueName, outcome: 'jobs' }).inc()
                 const jobs = rows.map((row) => this.wrapJob(row))
                 await processBatch(jobs)
             } catch (err) {
                 consumerLoopErrorsCounter.labels({ queue: this.queueName }).inc()
                 logger.error('CyclotronV2RateLimitedWorker consumer loop error', { error: String(err) })
-                await sleep(this.pollDelayMs)
+                await this.backOff()
             }
         }
     }
