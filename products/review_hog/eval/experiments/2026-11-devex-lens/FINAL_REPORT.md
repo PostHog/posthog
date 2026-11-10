@@ -120,6 +120,7 @@ On the second set Standard found 69% and 73%, which is at the 70% line.
 - **The prompt was revised after its misses were read**, on the held-out PRs too. The second set was not used to revise any prompt.
 - **Small sets.** 9 and 22 cases, 6 clean PRs, two runs. Read a difference of one or two issues as noise.
 - **The judge is a model.** The refutation pass covers one prompt on one set.
+- **One line of the prompt changed after the runs.** The runs told the session to read an edited guide at the merge base with git. A review sandbox has a shallow clone and no merge-base SHA in the prompt, so the prompt now points at the removed lines of the diff.
 
 ## What this supports
 

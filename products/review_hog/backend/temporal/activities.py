@@ -31,6 +31,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.integrations import IntegrationManager
+from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
 from posthog.ownership.github_files import fetcher_for_team
@@ -840,9 +841,13 @@ def _devex_lens_files(team_id: int, repository: str, pr_files: list[PRFile]) -> 
     Empty when the repository declares no ownership or its files could not be read.
     """
     paths = [pr_file.filename for pr_file in pr_files]
-    ownership = resolve_path_owners(
-        repository, paths, files=fetcher_for_team(team_id, repository, priority=Priority.BATCH)
-    )
+    try:
+        files = fetcher_for_team(team_id, repository, priority=Priority.BATCH)
+    except GitHubIntegrationError:
+        # The lens is optional, so a failed installation probe must not fail the review.
+        logger.warning("Could not read ownership for the devex lens; reviewing without it", exc_info=True)
+        return []
+    ownership = resolve_path_owners(repository, paths, files=files)
     return [path for path in paths if ownership.team_by_path[path] == DEVEX_OWNER_TEAM]
 
 

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
 
 from products.review_hog.backend.models import ReviewReport
@@ -168,11 +169,12 @@ class TestFetchDecidesTheTier(BaseTest):
 
     @parameterized.expand(
         [
-            ("devex_owned_file_with_flag", "team-devex", True, False, True),
-            ("flag_off", "team-devex", False, False, False),
-            ("file_of_another_team", "team-surveys", True, False, False),
-            ("ownership_not_readable", UNOWNED_TEAM, True, False, False),
-            ("coordinated_turn", "team-devex", True, True, False),
+            ("devex_owned_file_with_flag", "team-devex", True, False, None, True),
+            ("flag_off", "team-devex", False, False, None, False),
+            ("file_of_another_team", "team-surveys", True, False, None, False),
+            ("ownership_not_readable", UNOWNED_TEAM, True, False, None, False),
+            ("coordinated_turn", "team-devex", True, True, None, False),
+            ("installation_probe_failed", "team-devex", True, False, GitHubIntegrationError("probe failed"), False),
         ]
     )
     @patch(f"{_MODULE}.fetcher_for_team")
@@ -188,6 +190,7 @@ class TestFetchDecidesTheTier(BaseTest):
         owner: str,
         flag_on: bool,
         coordinator_on: bool,
+        probe_error: Exception | None,
         expected: bool,
         mock_fetcher: MagicMock,
         _auth: MagicMock,
@@ -195,8 +198,9 @@ class TestFetchDecidesTheTier(BaseTest):
         coordinator_flag: MagicMock,
         devex_flag: MagicMock,
         path_owners: MagicMock,
-        _fetcher: MagicMock,
+        files_fetcher: MagicMock,
     ) -> None:
+        files_fetcher.side_effect = probe_error
         devex_flag.return_value = flag_on
         path_owners.return_value = PathOwnership(
             team_by_path={"ci.yml": owner}, registry={}, resolved=owner != UNOWNED_TEAM

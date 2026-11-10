@@ -210,7 +210,7 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   This amends "No team slot" in the 2026-10-06 entry. There is one slot, it is DevEx-owned, and it is routed by ownership.
 - **Where the rules live.** The prompt holds the review method. The session reads the `AGENTS.md` files above the changed paths, then the guides and skills those files route the change to. For a CI file it also identifies the execution engine and follows the change through the events, failure paths, concurrency groups and cache keys of the job.
   The rules stay in those guides, and the session reads them from the checkout.
-  A guide that the PR edits is read at the merge base.
+  A guide that the PR edits is applied as it was before the PR, from the removed lines of its diff.
 - **Left out.** Coordinated turns (the coordinator has no sub-agent slot for it), delta turns (the session has no part of a delta), and the Deep pipeline.
 - **Measured.** A local pilot (`eval/experiments/2026-11-devex-lens/FINAL_REPORT.md`) found a small gain and no lost Standard finding: 13 and 14 of 21 labelled findings against 10 and 11, and 1 more of 26 on a second set.
   The lens failed the plan's recall bar and its cost bar. Its session costs 1.5 to 1.7 times a shipped lens session.

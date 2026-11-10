@@ -49,7 +49,7 @@ Start from what the change promises, then try to break the promise.
 
 - Read the `AGENTS.md` files from the repository root down to each changed file.
   When the root file routes kinds of change to guides or skills, open the ones whose trigger matches a file in your scope.
-  When the pull request edits a guide, a skill or an `AGENTS.md`, read it at the merge base with `git show <merge base>:<path>`, because a change to a rule cannot excuse its own violation.
+  When the pull request edits a guide, a skill or an `AGENTS.md`, apply the rule as it was before the pull request, which the removed lines of its diff show, because a change to a rule cannot excuse its own violation.
 - Compare with how the repository already does the same job. The established mechanism is the default.
 - For each new test, ask which broken implementation would still pass it.
 - For anything that runs with a secret, a write token or a publish credential, follow what a pull request author or a third party can change into that step, including actions, images and scripts that are not pinned to an immutable version.
