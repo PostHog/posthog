@@ -31,6 +31,7 @@ export function OAuthDeviceAuthorize(): JSX.Element {
         decision,
         decisionLoading,
         error,
+        goingToLogin,
         isStepUp,
         identityScopeDescriptions,
         requiredScopeRows,
@@ -43,7 +44,7 @@ export function OAuthDeviceAuthorize(): JSX.Element {
     } = useValues(oauthDeviceAuthorizeLogic)
     const {
         setUserCode,
-        lookUpCode,
+        submitCode,
         setOrganizationId,
         setProjectId,
         loadProjects,
@@ -60,7 +61,11 @@ export function OAuthDeviceAuthorize(): JSX.Element {
                 <AuthSceneCard>
                     <AuthCardTitle
                         title={approved ? 'Login approved' : 'Login denied'}
-                        sub="You can close this window and go back to where you started the login."
+                        sub={
+                            approved
+                                ? 'Go back to your terminal to continue. You can close this window.'
+                                : 'You can close this window and go back to your terminal.'
+                        }
                     />
                 </AuthSceneCard>
             </AuthScene>
@@ -76,7 +81,7 @@ export function OAuthDeviceAuthorize(): JSX.Element {
                         className="flex flex-col gap-4"
                         onSubmit={(event) => {
                             event.preventDefault()
-                            lookUpCode()
+                            submitCode()
                         }}
                     >
                         <LemonField.Pure label="Code" error={error}>
@@ -101,7 +106,7 @@ export function OAuthDeviceAuthorize(): JSX.Element {
                             fullWidth
                             center
                             size="large"
-                            loading={deviceGrantLoading}
+                            loading={deviceGrantLoading || goingToLogin}
                             disabledReason={userCode.trim() ? undefined : 'Type the code first'}
                         >
                             Continue
