@@ -696,7 +696,7 @@ def _active_model_blocks(run_defaults: RunDefaultsState) -> list[dict]:
     Two rungs, in resolution order: the central PostHog default (personal or
     project), else Slack's own floor.
     """
-    if run_defaults.applies:
+    if run_defaults.model:
         parts = [display_name_for_model(run_defaults.model)]
         if run_defaults.reasoning_effort:
             parts.append(f"{label_for(run_defaults.reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)} reasoning")
@@ -1079,7 +1079,7 @@ def _untagged_questions_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
 def _multiplayer_section_blocks(mode: ThreadJoinMode | None) -> list[dict]:
     if mode is None:
         return []
-    labels = {
+    labels: dict[str, str] = {
         ThreadJoinMode.ASK_PER_PERSON: "Ask for each person",
         ThreadJoinMode.ASK_PER_THREAD: "Ask once per thread",
     }
