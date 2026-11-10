@@ -120,6 +120,8 @@ class SlackUserProfileCache(UUIDModel):
     is_admin = models.BooleanField(default=False, db_default=False)
     is_owner = models.BooleanField(default=False, db_default=False)
     is_bot = models.BooleanField(default=False, db_default=False)
+    # The IANA name from Slack, such as "Europe/Prague". Empty when Slack sent none.
+    tz = models.CharField(max_length=64, blank=True, default="", db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     # Null is treated as stale (rows predating this field).
@@ -261,6 +263,27 @@ class SlackSettings(UUIDModel):
         blank=True,
         help_text="This user's onboarding thread in the PostHog DM, and whether they finished it.",
     )
+    # Only read on a personal row. NULL means the person never chose, which resolves to off.
+    daily_focus_enabled = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="Send this user a work focus DM every workday.",
+    )
+    # NULL resolves to ``DEFAULT_DAILY_FOCUS_TIME`` in ``logic/daily_focus.py``.
+    daily_focus_time = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="The local time of day the daily work focus runs, in the user's Slack timezone.",
+    )
+    # NULL while the daily work focus is off. The sweep runs every row whose time has come.
+    daily_focus_next_run_at = models.DateTimeField(null=True, blank=True)
+    # An id, not a relation, because integration rows are read through the integrations SDK. A run whose
+    # installation is gone ends without a DM.
+    daily_focus_integration_id = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="The installation the daily work focus runs on, because one Slack workspace can connect several.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -277,6 +300,13 @@ class SlackSettings(UUIDModel):
                 fields=["slack_workspace_id"],
                 name="uniq_slack_settings_per_workspace",
                 condition=Q(slack_user_id__isnull=True),
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["daily_focus_next_run_at"],
+                name="slack_settings_daily_focus_idx",
+                condition=Q(daily_focus_next_run_at__isnull=False),
             ),
         ]
 

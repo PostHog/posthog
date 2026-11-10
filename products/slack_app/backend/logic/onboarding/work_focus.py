@@ -7,10 +7,12 @@ Only the suggestions and their links leave it.
 
 import json
 import asyncio
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
@@ -28,6 +30,13 @@ from posthog.models.integration import SlackIntegration
 from posthog.token_bucket import BucketDecision, Budget, consume, refund
 
 from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.feature_flags import is_slack_app_daily_work_focus_enabled
+from products.slack_app.backend.logic.daily_focus import (
+    daily_focus_footer_block,
+    person_zone,
+    resolve_daily_focus,
+    turn_on_daily_focus,
+)
 from products.slack_app.backend.logic.onboarding.actions import WORK_FOCUS_START_ACTION_ID, WORK_FOCUS_TASK_ACTION_ID
 from products.slack_app.backend.logic.onboarding.checks import has_ai_approval
 from products.slack_app.backend.logic.onboarding.step import read_action_value
@@ -53,12 +62,17 @@ SEARCH_CALLS = 2 * SEARCH_PAGES
 # A workspace gets about 10 search calls a minute, so a burst of links waits for tokens.
 SEARCH_BUDGET = Budget(burst=10, per_hour=600)
 MIN_MESSAGES = 5
+# One workday can bring a single message worth acting on.
+DAILY_MIN_MESSAGES = 1
+SENT_KEY_TIMEOUT_SECONDS = 2 * 24 * 60 * 60
 MAX_MESSAGE_CHARS = 500
 
 # Onboarding promotes PostHog, so its model calls must not spend the team's AI credits.
 WORK_FOCUS_AI_PRODUCT = "slack_app_onboarding"
 # Jev ranks the messages, because a judgment costs far less than generated text, and only the few messages it keeps
 # reach the model that writes. One question for each message, and a request takes 32 questions at most.
+ONBOARDING_PRIVACY_LINE = "🔒 I read your recent messages once and kept nothing. Each one starts its own thread."
+
 RANK_MODEL = DEFAULT_DECISION_MODEL
 RANK_BATCH_SIZE = GATEWAY_MAX_QUESTIONS
 RANK_MIN_PROBABILITY = 0.5
@@ -181,21 +195,89 @@ def find_and_send_work_focus(integration: WorkspaceIntegration, slack_user_id: s
     return outcome
 
 
+def find_and_send_daily_focus(integration: WorkspaceIntegration, slack_user_id: str, *, since: datetime) -> str:
+    """One workday's work focus, from the messages sent after ``since``. A quiet day sends nothing."""
+    sent_key = f"slack_app_daily_focus_sent:{integration.integration_id}:{slack_user_id}:{int(since.timestamp())}"
+    if cache.get(sent_key):
+        return "already_sent"
+    if not is_slack_app_daily_work_focus_enabled(integration):
+        return "flag_off"
+    daily = resolve_daily_focus(integration.integration_id, slack_user_id)
+    if not daily.enabled:
+        return "turned_off"
+    if not has_ai_approval(integration.team_id):
+        return "no_ai_consent"
+    # A task started from the DM reads its thread with the bot, so suggestions need the bot's DM scope.
+    if SlackIntegration(integration).missing_scopes(frozenset({"im:history"})):
+        return "missing_bot_scope"
+    found = _find(integration, slack_user_id, after=since, min_messages=DAILY_MIN_MESSAGES)
+    if isinstance(found, str):
+        return found
+    zone = person_zone(integration, slack_user_id)
+    blocks = [
+        *work_focus_blocks(integration, found.focus, slack_user_id, privacy=_daily_privacy_line(since, zone)),
+        daily_focus_footer_block(integration, daily.at, zone, first=False),
+    ]
+    # Set before the DM goes out. When Slack takes the DM but the response times out, the retry sends nothing.
+    if not cache.add(sent_key, True, timeout=SENT_KEY_TIMEOUT_SECONDS):
+        return "already_sent"
+    return _post(integration, slack_user_id, found, blocks, mode="daily")
+
+
 def _ready_to_send(integration: WorkspaceIntegration, slack_user_id: str) -> None:
     # Stored before the DM goes out. When Slack takes the DM but the response times out, the retry sees this and
     # sends nothing, because a second DM would carry a second set of buttons.
     update_onboarding(integration.integration_id, slack_user_id, work_focus_outcome="sending")
 
 
+@frozen
+class _DailyFooter:
+    at: time
+    zone: ZoneInfo
+
+
+def _daily_focus_to_turn_on(integration: WorkspaceIntegration, slack_user_id: str) -> _DailyFooter | None:
+    """The onboarding turns the daily work focus on, unless the person already chose."""
+    if not is_slack_app_daily_work_focus_enabled(integration):
+        return None
+    daily = resolve_daily_focus(integration.integration_id, slack_user_id)
+    if daily.enabled is not None:
+        return None
+    return _DailyFooter(at=daily.at, zone=person_zone(integration, slack_user_id))
+
+
 def _find_and_send(integration: WorkspaceIntegration, slack_user_id: str) -> str:
+    found = _find(integration, slack_user_id, after=timezone.now() - SEARCH_LOOKBACK, min_messages=MIN_MESSAGES)
+    if isinstance(found, str):
+        return found
+    blocks = work_focus_blocks(integration, found.focus, slack_user_id)
+    daily = _daily_focus_to_turn_on(integration, slack_user_id)
+    if daily is not None:
+        blocks.append(daily_focus_footer_block(integration, daily.at, daily.zone, first=True))
+    _ready_to_send(integration, slack_user_id)
+    outcome = _post(integration, slack_user_id, found, blocks, mode="onboarding")
+    if outcome == "sent" and daily is not None:
+        turn_on_daily_focus(integration, slack_user_id, source="onboarding")
+    return outcome
+
+
+@frozen
+class _Found:
+    focus: WorkFocus
+    message_count: int
+    candidate_count: int
+
+
+def _find(integration: WorkspaceIntegration, slack_user_id: str, *, after: datetime, min_messages: int) -> _Found | str:
+    """The suggestions from the messages sent after ``after``, or the outcome that stops the run."""
     token = linked_user_token(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
     if token is None or "search:read.public" not in token.scopes:
         return "no_search_scope"
     channel_types = [kind for kind, scope in _CHANNEL_TYPE_SCOPES.items() if scope in token.scopes]
-    messages = _search_messages(integration, token.access_token, slack_user_id, channel_types)
+    messages = _search_messages(integration, token.access_token, slack_user_id, channel_types, after=after)
     if messages is None:
         raise WorkFocusTransientError("search failed")
-    if len(messages) < MIN_MESSAGES:
+    if len(messages) < min_messages:
         return "not_enough_messages"
     try:
         candidates = _rank(integration, messages)
@@ -211,12 +293,17 @@ def _find_and_send(integration: WorkspaceIntegration, slack_user_id: str) -> str
         raise WorkFocusTransientError("write failed") from error
     if not focus.suggestions:
         return "no_suggestions"
-    _ready_to_send(integration, slack_user_id)
+    return _Found(focus=focus, message_count=len(messages), candidate_count=len(candidates))
+
+
+def _post(
+    integration: WorkspaceIntegration, slack_user_id: str, found: _Found, blocks: list[dict], *, mode: str
+) -> str:
     try:
         SlackIntegration(integration).client.chat_postMessage(
             channel=slack_user_id,
-            text=focus.intro,
-            blocks=work_focus_blocks(integration, focus, slack_user_id),
+            text=found.focus.intro,
+            blocks=blocks,
             unfurl_links=False,
             unfurl_media=False,
         )
@@ -227,20 +314,32 @@ def _find_and_send(integration: WorkspaceIntegration, slack_user_id: str) -> str
         integration,
         SUGGESTIONS_SENT_EVENT,
         slack_user_id=slack_user_id,
-        suggestion_count=len(focus.suggestions),
-        message_count=len(messages),
-        candidate_count=len(candidates),
+        suggestion_count=len(found.focus.suggestions),
+        message_count=found.message_count,
+        candidate_count=found.candidate_count,
+        mode=mode,
     )
     return "sent"
 
 
+def _daily_privacy_line(since: datetime, zone: ZoneInfo) -> str:
+    since_day = since.astimezone(zone).date()
+    today = timezone.now().astimezone(zone).date()
+    when = "yesterday" if since_day == today - timedelta(days=1) else since_day.strftime("%A")
+    return f"🔒 I read your messages since {when} and kept nothing. Each one starts its own thread."
+
+
 def _search_messages(
-    integration: WorkspaceIntegration, access_token: str, slack_user_id: str, channel_types: list[str]
+    integration: WorkspaceIntegration,
+    access_token: str,
+    slack_user_id: str,
+    channel_types: list[str],
+    *,
+    after: datetime,
 ) -> list[_FoundMessage] | None:
     client = SlackWebClient(
         access_token, source="slack_app_work_focus", workspace_id=integration.integration_id, app_id="posthog"
     )
-    after = int((timezone.now() - SEARCH_LOOKBACK).timestamp())
     found: dict[tuple[str, str], _FoundMessage] = {}
     # All calls are reserved at once, so two runs cannot each take one call and both fail on the next one.
     bucket = f"slack_app:work_focus_search:{integration.integration_id}"
@@ -258,7 +357,7 @@ def _search_messages(
                     "channel_types": ",".join(channel_types),
                     "content_types": "messages",
                     "sort": "timestamp",
-                    "after": after,
+                    "after": int(after.timestamp()),
                     "limit": SEARCH_LIMIT,
                     "include_bots": False,
                 }
@@ -402,7 +501,9 @@ def source_line(suggestion: WorkFocusSuggestion, slack_user_id: str) -> str | No
     return f"<{suggestion.source_permalink}|Here's the thread>{with_author}{where}"
 
 
-def work_focus_blocks(integration: WorkspaceIntegration, focus: WorkFocus, slack_user_id: str) -> list[dict]:
+def work_focus_blocks(
+    integration: WorkspaceIntegration, focus: WorkFocus, slack_user_id: str, *, privacy: str = ONBOARDING_PRIVACY_LINE
+) -> list[dict]:
     blocks: list[dict] = [section_block(f"{focus.intro} Here's where I can jump in:")]
     for index, suggestion in enumerate(focus.suggestions):
         # The DM posts with unfurling off, so the link shows no preview.
@@ -425,9 +526,7 @@ def work_focus_blocks(integration: WorkspaceIntegration, focus: WorkFocus, slack
                 },
             }
         )
-    blocks.append(
-        context_block("🔒 I read your recent messages once and kept nothing. Each one starts its own thread.")
-    )
+    blocks.append(context_block(privacy))
     return blocks
 
 

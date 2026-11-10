@@ -36,6 +36,8 @@ class SlackAppWorkFocusInputs:
     integration_id: int
     slack_team_id: str
     slack_user_id: str
+    # Set on a daily run: the previous run time, as epoch seconds. The run reads the messages sent after it.
+    since: int | None = None
 
 
 @frozen
