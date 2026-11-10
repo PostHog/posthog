@@ -306,9 +306,12 @@ def _prefetch_github_identities(candidates: Sequence[_Candidate]) -> None:
     # Deferred: resolve_reviewers imports the engineering_analytics facade, which imports the signals facade.
     from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
         _github_identity_prefetches,
+        _with_team_github_integrations,
     )
 
-    prefetch_related_objects([candidate.user for candidate in candidates], *_github_identity_prefetches())
+    users = [candidate.user for candidate in candidates]
+    prefetch_related_objects(users, *_github_identity_prefetches())
+    _with_team_github_integrations(users)
 
 
 def _uses_product(computed: dict[str, Any], product: str) -> bool:
