@@ -17,11 +17,9 @@ import { parseProjectId, ProjectIdSchema } from '@/posthog/ids'
 import { LOGIN_COMMAND, loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
 import { parsePersonalApiKey, PersonalApiKeySchema } from '@/posthog/tokens'
 
-// The posthog.json that login writes the host and project to.
 interface ConfigWrite {
     path: string
     status: 'created' | 'updated' | 'unchanged' | 'failed'
-    // Why hog couldn't write the file. Null unless `status` is failed.
     error: string | null
 }
 

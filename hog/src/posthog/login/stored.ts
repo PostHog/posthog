@@ -32,7 +32,6 @@ export interface LoggedOut extends LogoutOutcome {
     keychainLeftover: string | null
 }
 
-// A null `projectId` is a secret filed under its host alone that no login in settings.json uses.
 export type LoggedOutLogin = LoggedOut & LoginTarget<ProjectId | null>
 
 export interface StoredLogin {
@@ -324,7 +323,6 @@ export async function logoutAll(runtime: Runtime): Promise<LoggedOutLogin[]> {
         }
     }
 
-    // Each revoke goes out as soon as its login is gone, and the rest of the logout doesn't wait for it.
     const steps: {
         name: ItemName
         owner: LoginTarget<ProjectId | null>

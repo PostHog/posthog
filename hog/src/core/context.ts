@@ -120,7 +120,6 @@ export class Context {
         return this.credentialsRequest
     }
 
-    // What picks the stored login, without reading its secret.
     async loginQuery(): Promise<LoginQuery> {
         return loginQuery(this.runtime, await this.credentialOptions())
     }
