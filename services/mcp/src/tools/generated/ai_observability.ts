@@ -2872,6 +2872,36 @@ const llmaScoreDefinitionUpdate = (): ToolBase<
     },
 })
 
+const LlmaScoreDefinitionValidateSchema = () => {
+    const LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody =
+        orvalSchemas.LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody()
+    return LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody
+}
+
+const llmaScoreDefinitionValidate = (): ToolBase<
+    ReturnType<typeof LlmaScoreDefinitionValidateSchema>,
+    Schemas.CompositeValidationResponse
+> => ({
+    name: 'llma-score-definition-validate',
+    schema: LlmaScoreDefinitionValidateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaScoreDefinitionValidateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.composition !== undefined) {
+            body['composition'] = params.composition
+        }
+        const result = await context.api.request<Schemas.CompositeValidationResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/validate_composition/`,
+            body,
+        })
+        return result
+    },
+})
+
 const LlmaScoreDefinitionVersionGetSchema = () => {
     const LlmAnalyticsScoreDefinitionsVersionsRetrieveParams =
         orvalSchemas.LlmAnalyticsScoreDefinitionsVersionsRetrieveParams()
@@ -3617,6 +3647,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-score-definition-list': llmaScoreDefinitionList,
     'llma-score-definition-new-version': llmaScoreDefinitionNewVersion,
     'llma-score-definition-update': llmaScoreDefinitionUpdate,
+    'llma-score-definition-validate': llmaScoreDefinitionValidate,
     'llma-score-definition-version-get': llmaScoreDefinitionVersionGet,
     'llma-score-definition-version-list': llmaScoreDefinitionVersionList,
     'llma-summarization-create': llmaSummarizationCreate,

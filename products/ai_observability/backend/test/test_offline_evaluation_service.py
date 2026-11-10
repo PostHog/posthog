@@ -903,7 +903,9 @@ class TestOfflineEvaluationServiceConcurrency(TransactionTestCase):
             created_by=None,
         )
         request = UploadSubmission(
-            results=[ResultSubmission(item_id=source.item_id, scorer_version_id=version.id, status="ok", compute=True)]
+            results=[
+                ResultSubmission(item_id=source.item_id, scorer_version_id=version.id, status="ok", calculate=True)
+            ]
         )
         started = Event()
         with ThreadPoolExecutor(max_workers=1) as executor:

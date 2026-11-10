@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 97 enabled ops
+ * PostHog API - MCP 98 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -546,7 +546,7 @@ export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemApplicati
 
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax = 1000
 
-export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemComputeDefault = false
+export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemCalculateDefault = false
 export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemStatusDefault = `ok`
 export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemValueThreeItemMax = 128
 
@@ -649,11 +649,11 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = () => zod.objec
                     .string()
                     .describe('UUID of an item declared in this request or already accepted in this experiment.'),
                 scorer_version_id: zod.string().describe('Exact UUID of an existing scorer version in this project.'),
-                compute: zod
+                calculate: zod
                     .boolean()
-                    .default(aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemComputeDefault)
+                    .default(aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemCalculateDefault)
                     .describe(
-                        'Compute this composite scorer for this item. Supply no value or outcome; all input results must already exist or be in this request.'
+                        "Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate; all pinned input results must already exist for this item or be in this request. For reported scorers, omit this flag or set false and supply the result."
                     ),
                 status: zod
                     .enum(['ok', 'error', 'skipped', 'not_applicable'])
@@ -679,7 +679,7 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = () => zod.objec
                     ])
                     .optional()
                     .describe(
-                        'Required for ok: finite number, boolean, or distinct category keys matching the scorer version.'
+                        'Required for an ok reported result: finite number, boolean, or distinct category keys matching the scorer version. Omit when calculate is true.'
                     ),
                 error_code: zod
                     .string()
@@ -3447,6 +3447,63 @@ export const LlmAnalyticsScoreDefinitionsVersionsRetrieveParams = () => zod.obje
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     version_id: zod.string().describe('Immutable version UUID.'),
+})
+
+export const LlmAnalyticsScoreDefinitionsValidateCompositionCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneExpressionMax = 1024
+
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemAliasMax = 32
+
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
+    '^[a-z][a-z0-9_]{0,31}$'
+)
+
+export const LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody = () => zod.object({
+    kind: zod
+        .enum(['categorical', 'numeric', 'boolean'])
+        .describe('\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean')
+        .describe(
+            'Expected formula output kind.\n\n\* `categorical` - categorical\n\* `numeric` - numeric\n\* `boolean` - boolean'
+        ),
+    composition: zod
+        .object({
+            expression: zod
+                .string()
+                .max(llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneExpressionMax)
+                .describe(
+                    'Bounded arithmetic or Boolean expression. Use number(boolean), category membership, and conditional expressions for conversions.'
+                ),
+            inputs: zod
+                .array(
+                    zod.object({
+                        alias: zod
+                            .string()
+                            .max(
+                                llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemAliasMax
+                            )
+                            .regex(
+                                llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemAliasRegExp
+                            )
+                            .describe(
+                                'Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.'
+                            ),
+                        scorer_version_id: zod
+                            .string()
+                            .describe('Exact immutable version of an ordinary input scorer.'),
+                    })
+                )
+                .describe(
+                    'Named, version-pinned input scorers for the same item. Nested composites are not supported.'
+                ),
+        })
+        .describe('Formula and pinned input versions to validate without saving.'),
 })
 
 /**

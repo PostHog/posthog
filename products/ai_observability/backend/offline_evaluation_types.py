@@ -47,7 +47,7 @@ class ResultSubmission:
     item_id: UUID
     scorer_version_id: UUID
     status: ResultStatus
-    compute: bool = False
+    calculate: bool = False
     value: ResultValue | None = None
     error_code: str | None = None
     evaluator_trace_id: str | None = None

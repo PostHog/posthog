@@ -276,10 +276,10 @@ class ItemSubmissionSerializer(_StrictDataclassSerializer[ItemSubmission]):
 class ResultSubmissionSerializer(_StrictDataclassSerializer[ResultSubmission]):
     item_id = _UUIDField(help_text="UUID of an item declared in this request or already accepted in this experiment.")
     scorer_version_id = _UUIDField(help_text="Exact UUID of an existing scorer version in this project.")
-    compute = serializers.BooleanField(
+    calculate = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="Compute this composite scorer for this item. Supply no value or outcome; all input results must already exist or be in this request.",
+        help_text="Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate; all pinned input results must already exist for this item or be in this request. For reported scorers, omit this flag or set false and supply the result.",
     )
     status = serializers.ChoiceField(
         choices=OfflineEvaluationResult.Status.choices, default="ok", help_text="Outcome of this scorer execution."
@@ -287,7 +287,7 @@ class ResultSubmissionSerializer(_StrictDataclassSerializer[ResultSubmission]):
     value = ResultValueField(
         required=False,
         allow_null=True,
-        help_text="Required for ok: finite number, boolean, or distinct category keys matching the scorer version.",
+        help_text="Required for an ok reported result: finite number, boolean, or distinct category keys matching the scorer version. Omit when calculate is true.",
     )
     error_code = _identifier_field("Optional stable error code, permitted only for error outcomes.", max_length=128)
     evaluator_trace_id = _identifier_field("Trace identifier of the evaluator that produced this result.")
@@ -304,7 +304,7 @@ class ResultSubmissionSerializer(_StrictDataclassSerializer[ResultSubmission]):
 
     def validate(self, attrs: ResultSubmission) -> ResultSubmission:
         errors: dict[str, list[str] | dict[str, list[str]]] = {}
-        if attrs.compute:
+        if attrs.calculate:
             if (
                 attrs.value is not None
                 or attrs.status != "ok"
@@ -314,7 +314,7 @@ class ResultSubmissionSerializer(_StrictDataclassSerializer[ResultSubmission]):
                 or attrs.evaluated_at is not None
             ):
                 raise serializers.ValidationError(
-                    {"compute": "A composite request accepts only the item, scorer version, and compute flag."}
+                    {"calculate": "A composite request accepts only item_id, scorer_version_id, and calculate: true."}
                 )
             return attrs
         if attrs.status == "ok" and attrs.value is None:

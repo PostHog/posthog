@@ -309,7 +309,7 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
             )
             if row is None:
                 raise OfflineEvaluationValidationError(
-                    f"results.{index}.compute",
+                    f"results.{index}.calculate",
                     f"Missing input '{source['alias']}' for this item. Upload its pinned scorer version before or with this request.",
                 )
             source_rows.append(row)
@@ -329,7 +329,10 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
             "ok",
         )
         computed = replace(
-            submission, status=status, compute=False, error_code="composite_input_error" if status == "error" else None
+            submission,
+            status=status,
+            calculate=False,
+            error_code="composite_input_error" if status == "error" else None,
         )
         try:
             if status == "ok":
@@ -532,7 +535,7 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
         new_item_submissions = [item for item in submission.items if item.id not in items]
         if (new_item_submissions or new_results) and experiment.status != OfflineExperiment.Status.UPLOADING:
             raise OfflineEvaluationConflict("experiment_closed", "This experiment is closed to new items and results.")
-        if any(not result.compute for _, result in new_results):
+        if any(not result.calculate for _, result in new_results):
             api_token = Team.objects.values_list("api_token", flat=True).get(id=self.team_id)
             if is_team_limited(api_token, QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
                 raise QuotaLimitExceeded(
@@ -572,30 +575,30 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
             version = versions.get(result.scorer_version_id)
             if version is None:
                 errors[f"results.{index}.scorer_version_id"] = "Select an existing scorer version in this project."
-            elif result.compute != (version.definition.calculation == ScoreDefinition.Calculation.COMPOSITE):
-                errors[f"results.{index}.compute"] = (
-                    "Request compute for composite scorers; provide a result for reported scorers."
+            elif result.calculate != (version.definition.calculation == ScoreDefinition.Calculation.COMPOSITE):
+                errors[f"results.{index}.calculate"] = (
+                    "Set calculate: true for composite scorers. For reported scorers, supply a result and omit calculate or set it to false."
                 )
-            elif result.compute and version.id not in compositions:
-                errors[f"results.{index}.compute"] = "This composite scorer version has no formula."
+            elif result.calculate and version.id not in compositions:
+                errors[f"results.{index}.calculate"] = "This composite scorer version has no formula."
             elif version.composition and any(
                 UUID(source["scorer_version_id"]) not in input_versions for source in version.composition["inputs"]
             ):
-                errors[f"results.{index}.compute"] = "All input scorer versions must be accessible in this project."
+                errors[f"results.{index}.calculate"] = "All input scorer versions must be accessible in this project."
         valid_results = [
             (index, result)
             for index, result in new_results
-            if f"results.{index}.compute" not in errors and f"results.{index}.scorer_version_id" not in errors
+            if f"results.{index}.calculate" not in errors and f"results.{index}.scorer_version_id" not in errors
         ]
         dependencies = [
             ResultSubmission(item_id=result.item_id, scorer_version_id=UUID(source["scorer_version_id"]), status="ok")
             for _, result in valid_results
-            if result.compute
+            if result.calculate
             for source in compositions[result.scorer_version_id]["inputs"]
         ]
         results.update(self._existing_results(experiment_id=experiment.id, submissions=dependencies))
         for _, result in valid_results:
-            if result.compute and result.scorer_version_id not in formulas:
+            if result.calculate and result.scorer_version_id not in formulas:
                 version = versions[result.scorer_version_id]
                 formulas[version.id] = CompositeFormula.parse(
                     compositions[version.id]["expression"],
@@ -626,13 +629,13 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
                     errors.update(error.errors)
         items.update({item.id: item for item in new_items})
         new_result_rows: list[OfflineEvaluationResult] = []
-        for index, result in sorted(valid_results, key=lambda pair: pair[1].compute):
+        for index, result in sorted(valid_results, key=lambda pair: pair[1].calculate):
             version = versions.get(result.scorer_version_id)
             if version is None:
                 errors[f"results.{index}.scorer_version_id"] = "Select an existing scorer version in this project."
                 continue
             try:
-                if result.compute:
+                if result.calculate:
                     row = self._computed_result(
                         result,
                         version=version,

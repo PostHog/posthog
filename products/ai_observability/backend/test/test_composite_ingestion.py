@@ -67,7 +67,7 @@ class TestCompositeIngestion(TestCase):
             item_id=self.item.id, scorer_version_id=self.input_version.id, status="ok", value=True
         )
         self.request = ResultSubmission(
-            item_id=self.item.id, scorer_version_id=self.version.id, status="ok", compute=True
+            item_id=self.item.id, scorer_version_id=self.version.id, status="ok", calculate=True
         )
 
     def result(self) -> OfflineEvaluationResult:
@@ -82,7 +82,10 @@ class TestCompositeIngestion(TestCase):
         submission = UploadSubmission(
             items=[self.item], results=[self.request, self.source_result] if same_batch else [self.request]
         )
-        self.ingestion.upload(self.experiment.id, submission)
+        with patch(
+            "products.ai_observability.backend.offline_evaluation_service.is_team_limited", return_value=not same_batch
+        ):
+            self.ingestion.upload(self.experiment.id, submission)
         derived = self.result()
         self.assertEqual(derived.numeric_value, 1.0)
         source = OfflineEvaluationResult.objects.for_team(self.team.id).get(
@@ -134,10 +137,10 @@ class TestCompositeIngestion(TestCase):
         self.assertEqual(self.result().error_code, "composite_formula_error")
         self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 2)
 
-    def test_rejects_supplied_composite_value_and_compute_for_reported_scorer(self) -> None:
+    def test_rejects_supplied_composite_value_and_calculate_for_reported_scorer(self) -> None:
         for result in (
-            replace(self.request, compute=False, value=0.5),
-            replace(self.source_result, compute=True, value=None),
+            replace(self.request, calculate=False, value=0.5),
+            replace(self.source_result, calculate=True, value=None),
         ):
             with self.assertRaises(OfflineEvaluationValidationError):
                 self.ingestion.upload(self.experiment.id, UploadSubmission(items=[self.item], results=[result]))

@@ -1371,8 +1371,8 @@ export interface ResultSubmissionApi {
     item_id: string
     /** Exact UUID of an existing scorer version in this project. */
     scorer_version_id: string
-    /** Compute this composite scorer for this item. Supply no value or outcome; all input results must already exist or be in this request. */
-    compute?: boolean
+    /** Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate; all pinned input results must already exist for this item or be in this request. For reported scorers, omit this flag or set false and supply the result. */
+    calculate?: boolean
     /** Outcome of this scorer execution.
      *
      * * `ok` - OK
@@ -1380,7 +1380,7 @@ export interface ResultSubmissionApi {
      * * `skipped` - Skipped
      * * `not_applicable` - Not applicable */
     status?: OfflineEvaluationResultStatusEnumApi
-    /** Required for ok: finite number, boolean, or distinct category keys matching the scorer version. */
+    /** Required for an ok reported result: finite number, boolean, or distinct category keys matching the scorer version. Omit when calculate is true. */
     value?: number | boolean | string[] | null
     /**
      * Optional stable error code, permitted only for error outcomes.

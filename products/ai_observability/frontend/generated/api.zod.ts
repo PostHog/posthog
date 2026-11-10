@@ -155,7 +155,7 @@ export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemApplicati
 
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax = 1000
 
-export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemComputeDefault = false
+export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemCalculateDefault = false
 export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemStatusDefault = `ok`
 export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemValueThreeItemMax = 128
 
@@ -258,11 +258,11 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
                     .uuid()
                     .describe('UUID of an item declared in this request or already accepted in this experiment.'),
                 scorer_version_id: zod.uuid().describe('Exact UUID of an existing scorer version in this project.'),
-                compute: zod
+                calculate: zod
                     .boolean()
-                    .default(aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemComputeDefault)
+                    .default(aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemCalculateDefault)
                     .describe(
-                        'Compute this composite scorer for this item. Supply no value or outcome; all input results must already exist or be in this request.'
+                        "Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate; all pinned input results must already exist for this item or be in this request. For reported scorers, omit this flag or set false and supply the result."
                     ),
                 status: zod
                     .enum(['ok', 'error', 'skipped', 'not_applicable'])
@@ -288,7 +288,7 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = /* @__PURE__ */
                     ])
                     .optional()
                     .describe(
-                        'Required for ok: finite number, boolean, or distinct category keys matching the scorer version.'
+                        'Required for an ok reported result: finite number, boolean, or distinct category keys matching the scorer version. Omit when calculate is true.'
                     ),
                 error_code: zod
                     .string()

@@ -429,7 +429,8 @@ Input values retain their raw meaning: `number(True)` is 1 and `number(False)` i
 Categorical inputs are lists of category keys; use membership tests such as `"good" in relevance`.
 A categorical formula can return a key or list of keys, such as `"good" if correct else "bad"`.
 
-Request computation independently for each item by uploading `item_id`, `scorer_version_id`, and `compute: true`, without a value or result metadata.
+Request calculation independently for each item by uploading `item_id`, `scorer_version_id`, and `calculate: true`, without a value or result metadata.
+`calculate` is only for composite scorers. For reported scorers, omit it or set it to false and supply the result.
 All pinned inputs must already exist for that item or be included anywhere in the same HTTP request.
 Missing inputs reject the whole request. Non-success input statuses propagate in this precedence: `error`, `skipped`, `not_applicable`.
 An input error uses `composite_input_error`. Arithmetic errors or results outside the output configuration use `composite_formula_error`; valid reported results in the batch are still saved.
@@ -460,12 +461,13 @@ Automatic formulas follow input changes until the user edits the expression. Man
 Input scorer selection supports search and tag filters, and version lists load automatically.
 **Validate formula** calls `POST /api/projects/{team_id}/llm_analytics/score_definitions/validate_composition/` with `kind` and `composition`.
 This read-scoped operation checks formula syntax, input access and output type without creating a scorer or version. Runtime values and output bounds remain checked when results are calculated.
+The MCP tool `llma-score-definition-validate` exposes the same validation with `llm_analytics:read` scope.
+MCP agents can create and version composites through the scorer tools, then request per-item calculations through `llma-offline-experiment-upload` with `calculate: true`.
 
-The Python and JavaScript SDKs accept `compute=True` / `compute: true` in result declarations.
-Bulk uploads stably place reported results before composite requests before chunking, so sources commit before dependent chunks.
-Relative order within each group is retained; receipts follow transmitted order. Ordinary-only uploads retain their existing order.
-Bulk failures retain the failed chunk's first original input index, its exact body, and all remaining declarations for retry.
-This extends the current SDK specification's ordinary-result ordering and status/value contract; the new exception applies only to explicit compute requests.
+SDK integrations must send `calculate: true` in composite result declarations.
+When chunking bulk uploads, send reported results before dependent composite requests so their inputs exist when each chunk arrives.
+Receipts follow transmitted order. Retrying a failed chunk must preserve its item IDs, scorer version IDs, and request content.
+This extends the ordinary-result status/value contract only for explicit composite calculation requests.
 
 ### Product usage events
 

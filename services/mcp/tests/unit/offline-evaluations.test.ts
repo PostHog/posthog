@@ -55,16 +55,25 @@ describe('offline evaluation MCP tools', () => {
         expect(result).toMatchObject(response)
     })
 
-    it('sends exact scorer-version identities and typed result values on upload', async () => {
+    it('sends exact scorer versions, reported values, and composite calculation requests on upload', async () => {
         const { context, request } = createContext({ items: [], results: [] })
         const tool = GENERATED_TOOLS['llma-offline-experiment-upload']!()
         const items = [{ id: itemId, payload: { input: { question: 'q' }, output: 'a', metadata: { source: 'ci' } } }]
-        const results = [{ item_id: itemId, scorer_version_id: versionId, status: 'ok', value: false }]
+        const results = [
+            { item_id: itemId, scorer_version_id: versionId, status: 'ok', value: false },
+            { item_id: itemId, scorer_version_id: '00000000-0000-4000-8000-000000000004', calculate: true },
+        ]
         await tool.handler(context, tool.schema.parse({ id: experimentId, items, results }))
         expect(request).toHaveBeenCalledExactlyOnceWith({
             method: 'POST',
             path: `/api/projects/17/ai_observability/offline_experiments/${experimentId}/upload/`,
-            body: { items, results },
+            body: {
+                items,
+                results: [
+                    { ...results[0], calculate: false },
+                    { ...results[1], status: 'ok' },
+                ],
+            },
         })
         expect(
             tool.schema.safeParse({ id: experimentId, results: [{ ...results[0], scorer_version_id: 1 }] }).success
@@ -80,6 +89,24 @@ describe('offline evaluation MCP tools', () => {
             tool.schema.safeParse({ id: experimentId, results: [{ ...results[0], payload: { explanation: 'why' } }] })
                 .success
         ).toBe(false)
+    })
+
+    it('validates a composite formula through the registered tool without saving a scorer', async () => {
+        const { context, request } = createContext({ valid: true })
+        const tool = await getTool(context, 'llma-score-definition-validate')
+        const body = {
+            kind: 'boolean',
+            composition: { expression: 'correct', inputs: [{ alias: 'correct', scorer_version_id: versionId }] },
+        }
+
+        const result = await tool.handler(context, tool.schema.parse(body))
+
+        expect(result).toMatchObject({ valid: true })
+        expect(request).toHaveBeenCalledExactlyOnceWith({
+            method: 'POST',
+            path: '/api/projects/17/llm_analytics/score_definitions/validate_composition/',
+            body,
+        })
     })
 
     it.each([

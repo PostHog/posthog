@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "composition": {
+            "description": "Formula and pinned input versions to validate without saving.",
+            "properties": {
+                "expression": {
+                    "description": "Bounded arithmetic or Boolean expression. Use number(boolean), category membership, and conditional expressions for conversions.",
+                    "maxLength": 1024,
+                    "type": "string"
+                },
+                "inputs": {
+                    "description": "Named, version-pinned input scorers for the same item. Nested composites are not supported.",
+                    "items": {
+                        "properties": {
+                            "alias": {
+                                "description": "Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.",
+                                "maxLength": 32,
+                                "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                                "type": "string"
+                            },
+                            "scorer_version_id": {
+                                "description": "Exact immutable version of an ordinary input scorer.",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["alias", "scorer_version_id"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["expression", "inputs"],
+            "type": "object"
+        },
+        "kind": {
+            "description": "Expected formula output kind.\n\n* `categorical` - categorical\n* `numeric` - numeric\n* `boolean` - boolean",
+            "enum": ["categorical", "numeric", "boolean"],
+            "type": "string"
+        }
+    },
+    "required": ["kind", "composition"],
+    "type": "object"
+}
