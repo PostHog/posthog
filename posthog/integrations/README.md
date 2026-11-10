@@ -70,6 +70,39 @@ These reads go across teams, for example to the teams that share one GitHub inst
 They need an accessor with a kind: on `IntegrationManager.any` they raise `ValueError`, because external ids are unique only per provider.
 Do not take the first row of `list_by_external_id` without `team_ids`: the rule `github-installation-first-team` flags it for GitHub.
 
+### List rows across teams
+
+`list_across_teams(CrossTeamFilter(...))` is the one cross-team list operation.
+Use it only for sweeps, admin and management commands, and reads for an organization (pass the team ids of the organization).
+Request code that reads one team uses `list`.
+In the credentials service, only the web, Celery and Temporal deployments can call it, and the service audits each row that it returns.
+Like the other cross-team reads, it needs an accessor with a kind, and it keeps the scope of the accessor (kinds, auth types, warehouse source rows).
+
+```python
+from posthog.integrations import CrossTeamFilter, IntegrationManager
+
+rows = IntegrationManager.email.any.list_across_teams(
+    CrossTeamFilter(where={"verified": True}, where_in={"domain": ("example.com",)}, exclude_team_ids=(team_id,))
+)
+```
+
+Every field of `CrossTeamFilter` is optional. The fields that are set combine with AND:
+
+| Field                           | Selects the rows                                                                                            |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `team_ids`, `exclude_team_ids`  | Of these teams, or not of these teams. An empty `team_ids` selects no row.                                  |
+| `created_by_ids`                | That these users created. An empty tuple selects no row.                                                    |
+| `external_id`                   | With this external id.                                                                                      |
+| `where={key: value}`            | Whose config key equals the value. The same rules as `find(where=...)`.                                     |
+| `where_in={key: (values, ...)}` | Whose config key equals one of the values. It does not take `None`.                                         |
+| `where_iexact={key: text}`      | Whose config key holds this string, ignoring case. A key can name one nested key, such as `"account.name"`. |
+| `has_config_key=key`            | That have this config key, with any value.                                                                  |
+
+Rows come back ordered by id, oldest first, or newest first with `newest_first=True`.
+To read in pages, pass `limit`, and pass the last id of a page as `after_id` for the next page.
+For a sweep over many rows, read in pages, so that one call does not load every row of a kind.
+The operation has no count and no list of team ids: take them from the rows.
+
 `IntegrationManager.kinds(...)` takes `auth_types`: `"default"` (the default auth type of each kind), `"any"` for every auth type, or a list of auth types.
 
 Reads do not load the GitHub repository cache columns (`repository_cache`, `repository_cache_updated_at`). Django loads them with one more query when code reads them.
@@ -123,7 +156,7 @@ The per-kind adapters next to the model (`SlackIntegration`, `GitHubIntegration`
 
 The accessors hold the scope rules: the kinds, the auth types, the warehouse source rows and the reserved config keys.
 They send the storage work to one `StorageBackend` (`backend/protocol.py`), which `current_backend()` returns.
-The primitives take and return plain data (`RowScope`, `RowFilter`, `NewIntegration`, `IntegrationPatch`, records), so a backend can send them over HTTP.
+The primitives take and return plain data (`RowScope`, `RowFilter`, `CrossTeamFilter`, `NewIntegration`, `IntegrationPatch`, records), so a backend can send them over HTTP.
 
 | Backend                       | Rows                                                        |
 | ----------------------------- | ----------------------------------------------------------- |
