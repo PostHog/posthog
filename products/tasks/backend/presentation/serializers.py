@@ -1064,8 +1064,9 @@ class TaskWriteSerializer(serializers.Serializer):
         return value
 
     def _targets_repository_integration(self) -> bool:
-        if "repository_integration" in self.initial_data:
-            return self.initial_data["repository_integration"] not in (None, "")
+        initial_data = getattr(self, "initial_data", {})
+        if "repository_integration" in initial_data:
+            return initial_data["repository_integration"] not in (None, "")
         return getattr(self.instance, "repository_integration_id", None) is not None
 
     def validate_repository(self, value):
