@@ -328,12 +328,9 @@ class Pipeline:
         """
         deny = set(self.classification.get("deny_categories", []))
         unproven = self.classification.get("unattested_files", [])
-        candidates = POLICY.attestations
-        if self.admitted_bot:
-            candidates = tuple(attestation for attestation in candidates if attestation.publisher_files)
         if not deny and not unproven:
             return []
-        pending = pending_attestations(candidates, self.pr.check_runs, self.pr.file_paths)
+        pending = pending_attestations(self._attestations, self.pr.check_runs, self.pr.file_paths)
         if any(not pending_attestations(pending, self.pr.check_runs, [path]) for path in unproven):
             return []
         if not pending or not deny <= set().union(*(set(a.lifts) for a in pending)):
@@ -350,6 +347,17 @@ class Pipeline:
         if any(not r.passed and r.gate not in ATTESTATION_LIFTED_GATES for r in self.gate_results):
             return []
         return self.pending_lifting_attestations()
+
+    @property
+    def _attestations(self) -> tuple[Attestation, ...]:
+        """The policy attestations that count for this PR's author.
+
+        For an admitted bot only an entry that declares `publisher_files` counts, because a job of
+        any PR can post the check of every other entry.
+        """
+        if not self.admitted_bot:
+            return POLICY.attestations
+        return tuple(attestation for attestation in POLICY.attestations if attestation.publisher_files)
 
     def refuses_bot_author(self) -> bool:
         """True when the PR author is a bot that neither carve-out admits.
@@ -485,13 +493,14 @@ class Pipeline:
         breadth = scope_breadth(top_dirs)
         cc = parse_conventional_commit(pr.title)
         reviewed = ReviewedHead(pr_number=pr.number, head_sha=pr.head_sha, merge_base_sha=pr.merge_base_sha)
-        lifted = lifted_files(POLICY.attestations, pr.check_runs, file_paths, reviewed)
-        pinned = pinned_files(POLICY.attestations, pr.check_runs, file_paths, reviewed)
+        lifted = lifted_files(self._attestations, pr.check_runs, file_paths, reviewed)
+        # A proof may name a rename's old path, so the old path is matched like a changed file.
+        pinned = pinned_files(self._attestations, pr.check_runs, pr.deny_paths, reviewed)
         unattested = sorted(set(pr.deny_paths) - pinned) if self.admitted_bot else []
         # The server polls GitHub for these checks after a WAIT, so the list names each one by the
         # check name and App id that a check run carries.
         attestation_checks = {
-            "pending": _check_identities(pending_attestations(POLICY.attestations, pr.check_runs, file_paths)),
+            "pending": _check_identities(pending_attestations(self._attestations, pr.check_runs, file_paths)),
         }
         deny = detect_deny_categories(pr.deny_paths, lifted)
         exception_lifted = bool(POLICY.deny_exceptions) and (

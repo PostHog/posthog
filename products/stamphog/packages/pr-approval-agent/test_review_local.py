@@ -978,6 +978,7 @@ _DOCS_PROOF = Attestation(
     publisher_files=("tools/docs_proof.py",),
 )
 _DOCS_LINT = replace(_DOCS_PROOF, name="docs_lint", check="Docs lint", app_id=78, paths=(r"^docs/linted\.md$",))
+_DOCS_NOTE = replace(_DOCS_PROOF, name="docs_note", check="Docs note", app_id=79, publisher_files=())
 
 
 def _bot_context(
@@ -1017,6 +1018,7 @@ def _proof(check: str, app_id: int, files: list[str]) -> dict:
 
 
 _MIGRATION = "posthog/migrations/0999_add_col.py"
+_DOCS_MIGRATION = "docs/migrations/0999_add_col.py"
 
 
 @pytest.mark.parametrize(
@@ -1043,6 +1045,25 @@ _MIGRATION = "posthog/migrations/0999_add_col.py"
             "REFUSED",
             "every_file_attested",
             id="a-rename-leaves-its-old-path-unproven",
+        ),
+        pytest.param(
+            (_RENOVATE,),
+            _bot_context(
+                [{**_api_file("docs/a.md", status="renamed"), "previous_filename": "docs/old.md"}],
+                [_docs_proof(["docs/a.md", "docs/old.md"])],
+            ),
+            None,
+            None,
+            id="a-rename-with-both-paths-proven",
+        ),
+        pytest.param(
+            (_RENOVATE,),
+            _bot_context(
+                [_DOCS_MIGRATION], [_docs_proof([_DOCS_MIGRATION]), _proof("Migration risk", 2492437, [_DOCS_MIGRATION])]
+            ),
+            "REFUSED",
+            "deny-list",
+            id="a-deny-that-only-an-unpinned-check-lifts",
         ),
         pytest.param(
             (_RENOVATE,),
@@ -1085,10 +1106,11 @@ def test_an_admitted_bot_is_reviewed_only_when_every_file_is_proven(
     monkeypatch, bot_authors: tuple[BotAuthor, ...], context: dict, expect_verdict: str | None, failed_gate: str | None
 ) -> None:
     # `Docs lint` never reports here, and it must not hold back a PR whose files are all proven.
+    # `Docs note` pins no publisher, so it never counts for a bot.
     policy = replace(
         review_pr.POLICY,
         bot_authors=bot_authors,
-        attestations=(*review_pr.POLICY.attestations, _DOCS_PROOF, _DOCS_LINT),
+        attestations=(*review_pr.POLICY.attestations, _DOCS_PROOF, _DOCS_LINT, _DOCS_NOTE),
     )
     monkeypatch.setattr(review_pr, "POLICY", policy)
     monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
@@ -1104,6 +1126,9 @@ def test_an_admitted_bot_is_reviewed_only_when_every_file_is_proven(
         return
     result = outcome["result"]
     assert result["final_verdict"] == expect_verdict
+    if expect_verdict == "WAIT":
+        # The server polls for every check listed here, and `Docs note` would never report.
+        assert result["classification"]["attestations"]["pending"] == [{"check": "Docs proof", "app_id": 77}]
     failed = {gate["gate"] for gate in result["gates"] if not gate["passed"]}
     if failed_gate is not None:
         assert failed_gate in failed
