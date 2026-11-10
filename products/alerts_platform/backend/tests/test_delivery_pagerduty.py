@@ -145,7 +145,9 @@ class TestPagerDutyTransport(SimpleTestCase):
         with pinned_post(400, headers=headers, body=body or b"") as adapter:
             stalled = ProtocolError("Connection broken")
             with (
-                patch.object(adapter.body, "read", side_effect=stalled) if body is None else nullcontext(),
+                patch.object(adapter.body, "read1", side_effect=stalled) if body is None else nullcontext(),
+                # `read(n)` waits for n bytes, so a slowly sent body would hold the send.
+                patch.object(adapter.body, "read", side_effect=AssertionError("read waits for the whole cap")),
                 pytest.raises(DeliveryError) as raised,
             ):
                 PagerDutyTransport().deliver(team_id=2, target=TARGET, message=_message(IncidentAction.TRIGGER))

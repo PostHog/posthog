@@ -21,6 +21,9 @@ _RETRYABLE_CLIENT_ERRORS: Final = frozenset({408, 429})
 
 # Enough for a provider's error JSON, and small enough that no answer can fill the worker's memory.
 _MAX_REFUSAL_BODY_BYTES: Final = 4096
+# The refusal body is read in one receive within this time, so a destination that sends it slowly
+# cannot hold the send past the deliver activity's 10-second start_to_close.
+_REFUSAL_BODY_TIMEOUT_SECONDS: Final = 1.0
 
 # Both fit inside the deliver activity's 10-second start_to_close, so a stalled destination fails
 # this attempt instead of outliving it. A send still in flight when Temporal starts the next
@@ -114,14 +117,23 @@ def _is_owner_refusal(
     marker = owner_refusals[status]
     if marker is None:
         return True
-    # A compressed body would decode past the cap, so only a plain one is read. The read takes the
-    # raw bytes, because the adapter turns decoding off.
+    # A compressed body would decode past the cap, so only a plain one is read.
     if response.headers.get("Content-Encoding", "identity") != "identity":
         return False
     try:
-        head = response.raw.read(_MAX_REFUSAL_BODY_BYTES)
+        head = _read_once(response.raw)
     except Exception:
         # urllib3 raises its own errors here, which `requests` does not wrap. A body that cannot
         # be read leaves whose fix it is unknown, and an unknown refusal is not the owner's.
         return False
     return marker in head.lower()
+
+
+def _read_once(raw: Any) -> bytes:
+    """At most one receive, where `read(n)` keeps receiving until it has n bytes or the body ends."""
+    sock = getattr(getattr(raw, "connection", None), "sock", None)
+    if sock is not None:
+        sock.settimeout(_REFUSAL_BODY_TIMEOUT_SECONDS)
+    # urllib3 1.26 has no `read1`, so the call goes to the `http.client` response it wraps, which
+    # returns the raw bytes, still undecoded.
+    return getattr(raw, "_fp", raw).read1(_MAX_REFUSAL_BODY_BYTES)
