@@ -26,6 +26,20 @@ const isVerified = (integration: IntegrationType): boolean => {
     }
 }
 
+function VerificationTag({ verified }: { verified: boolean }): JSX.Element {
+    return (
+        <Tooltip
+            title={
+                verified
+                    ? 'This channel is ready to use'
+                    : 'You cannot send messages from this channel until it has been verified'
+            }
+        >
+            <LemonTag type={verified ? 'success' : 'warning'}>{verified ? 'Verified' : 'Unverified'}</LemonTag>
+        </Tooltip>
+    )
+}
+
 export function IntegrationEmailDomainView({
     integration,
     canAddSender,
@@ -74,19 +88,7 @@ export function IntegrationEmailDomainView({
                             {integrations.some((sender) => sender.id === defaultSenderId) && (
                                 <LemonTag type="primary">Default sender</LemonTag>
                             )}
-                            {verificationRequired && (
-                                <Tooltip
-                                    title={
-                                        verified
-                                            ? 'This channel is ready to use'
-                                            : 'You cannot send messages from this channel until it has been verified'
-                                    }
-                                >
-                                    <LemonTag type={verified ? 'success' : 'warning'}>
-                                        {verified ? 'Verified' : 'Unverified'}
-                                    </LemonTag>
-                                </Tooltip>
-                            )}
+                            {verificationRequired && <VerificationTag verified={verified} />}
                         </div>
                     </div>
                     {canAddSender && (
