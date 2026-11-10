@@ -1,5 +1,4 @@
 import re
-import json
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Literal, Optional
@@ -351,7 +350,6 @@ class PageNumberPaginator(BasePaginator):
         stop_after_empty_page: bool = True,
         param_location: ParamLocation = "query",
         page_size: Optional[int] = None,
-        raise_on_repeated_page: bool = False,
     ) -> None:
         super().__init__()
         self.base_page = base_page
@@ -366,8 +364,6 @@ class PageNumberPaginator(BasePaginator):
         # The page size the request asks for. A page with fewer rows is the last page, so an API that
         # never returns an empty page (it repeats the last page, or ignores the page param) still stops.
         self.page_size = page_size
-        self.raise_on_repeated_page = raise_on_repeated_page
-        self._previous_page_fingerprint: Optional[str] = None
 
     def init_request(self, request: Request) -> None:
         _inject_param(request, self.param_location, self.page_param, self.page)
@@ -376,14 +372,6 @@ class PageNumberPaginator(BasePaginator):
         if self.stop_after_empty_page and (data is None or len(data) == 0):
             self._has_next_page = False
             return
-
-        if self.raise_on_repeated_page and data:
-            fingerprint = json.dumps(data, sort_keys=True, default=str)
-            if fingerprint == self._previous_page_fingerprint:
-                raise ValueError(
-                    f"Page number pagination is not advancing: page {self.page} returned the same rows as the page before it"
-                )
-            self._previous_page_fingerprint = fingerprint
 
         self.page += 1
 

@@ -5,12 +5,15 @@ from typing import Any, ClassVar, Optional
 from urllib.parse import urlencode
 
 import requests
+import structlog
+from requests import Response
 from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.blueshift.settings import (
     BLUESHIFT_ENDPOINTS,
     BLUESHIFT_REGION_URLS,
     DEFAULT_REGION,
+    FIRST_PAGE,
     PAGE_SIZE,
     STATS_BACKFILL_DAYS,
     STATS_REQUEST_INTERVAL_SECONDS,
@@ -22,6 +25,7 @@ from products.warehouse_sources.sources.sdk import (
     Endpoint,
     EndpointResource,
     PageNumberPaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SinglePagePaginator,
@@ -36,6 +40,8 @@ from products.warehouse_sources.sources.sdk import (
     suspend_adapter_retries,
     validate_via_probe,
 )
+
+logger = structlog.get_logger(__name__)
 
 STATS_REQUEST_TIMEOUT = 120
 _ISO_UTC = "%Y-%m-%dT%H:%M:%S.000Z"
@@ -57,6 +63,8 @@ class BlueshiftRetryableError(Exception):
 class BlueshiftResumeConfig:
     # Next page of a paginated list endpoint.
     next_page: Optional[int] = None
+    # Index into the endpoint's `passes` that `next_page` belongs to. None is the first pass.
+    list_pass: Optional[int] = None
     # Next UTC day (ISO date) the stats walk fetches.
     next_date: Optional[str] = None
 
@@ -97,13 +105,54 @@ def _client_config(region: str, api_key: str) -> ClientConfig:
     }
 
 
-def _list_endpoint(config: BlueshiftEndpointConfig) -> Endpoint:
+def _row_key(row: Any, primary_keys: list[str]) -> Optional[tuple[Any, ...]]:
+    return tuple(row.get(key) for key in primary_keys) if isinstance(row, dict) else None
+
+
+class BlueshiftPagePaginator(PageNumberPaginator):
+    """Walks a Blueshift list until a short page, or a page that holds no row not seen before.
+
+    The list endpoints document no last-page signal, and some return full pages past the end, so an
+    empty page never comes.
+    """
+
+    def __init__(self, primary_keys: list[str]) -> None:
+        super().__init__(base_page=FIRST_PAGE, page_param="page", page_size=PAGE_SIZE)
+        self._primary_keys = primary_keys
+        self._seen: set[tuple[Any, ...]] = set()
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        keys = {key for row in data or [] if (key := _row_key(row, self._primary_keys)) is not None}
+        has_new_rows = not keys <= self._seen
+        self._seen |= keys
+        # An endpoint that counts pages from 1 answers page 0 as page 1, so page 1 repeats it once.
+        if data and not has_new_rows and self.page != FIRST_PAGE + 1:
+            logger.warning("Blueshift list page repeats earlier rows, ending the walk", page=self.page)
+            self._has_next_page = False
+            return
+        super().update_state(response, data)
+
+
+def _first_sighting(primary_keys: list[str]) -> Callable[[dict[str, Any]], bool]:
+    seen: set[tuple[Any, ...]] = set()
+
+    def keep(row: dict[str, Any]) -> bool:
+        key = _row_key(row, primary_keys)
+        if key is None:
+            return True
+        if key in seen:
+            return False
+        seen.add(key)
+        return True
+
+    return keep
+
+
+def _list_endpoint(config: BlueshiftEndpointConfig, pass_params: dict[str, str]) -> Endpoint:
     endpoint: Endpoint = {"path": config.path}
     if config.pagination == "page":
-        endpoint["params"] = {"per_page": PAGE_SIZE}
-        endpoint["paginator"] = PageNumberPaginator(
-            base_page=1, page_param="page", page_size=PAGE_SIZE, raise_on_repeated_page=True
-        )
+        endpoint["params"] = {"per_page": PAGE_SIZE, **config.params, **pass_params}
+        endpoint["paginator"] = BlueshiftPagePaginator(config.primary_keys)
     else:
         endpoint["paginator"] = SinglePagePaginator()
     if config.data_selector is not None:
@@ -114,13 +163,13 @@ def _list_endpoint(config: BlueshiftEndpointConfig) -> Endpoint:
     return endpoint
 
 
-def get_resource(config: BlueshiftEndpointConfig) -> EndpointResource:
+def get_resource(config: BlueshiftEndpointConfig, pass_params: dict[str, str]) -> EndpointResource:
     return {
         "name": config.name,
         "table_name": config.name,
         "primary_key": config.primary_keys,
         "write_disposition": "replace",
-        "endpoint": _list_endpoint(config),
+        "endpoint": _list_endpoint(config, pass_params),
         "table_format": "delta",
     }
 
@@ -177,6 +226,27 @@ def _fetch_stats_day(session: requests.Session, url: str, headers: dict[str, str
     return response.json()
 
 
+def _is_nonzero(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int | float):
+        return value != 0
+    if isinstance(value, str):
+        try:
+            return float(value) != 0
+        except ValueError:
+            return False
+    return False
+
+
+def _has_activity(campaign: dict[str, Any]) -> bool:
+    # The daily summary lists every campaign of the account, mostly with all counters at zero.
+    statistics = campaign.get("statistics")
+    if not isinstance(statistics, dict):
+        return True
+    return any(_is_nonzero(value) for value in statistics.values())
+
+
 def _campaign_stats_rows(
     region: str,
     api_key: str,
@@ -221,7 +291,7 @@ def _campaign_stats_rows(
             interruptible_wait(STATS_REQUEST_INTERVAL_SECONDS, safe_point=resumable_source_manager.safe_point)
         first_request = False
         body = _fetch_stats_day(session, url, headers, day)
-        campaigns = body.get(data_selector) or []
+        campaigns = [campaign for campaign in body.get(data_selector) or [] if _has_activity(campaign)]
         next_day = day + timedelta(days=1)
         if next_day <= today:
             resumable_source_manager.save_state(BlueshiftResumeConfig(next_date=next_day.isoformat()))
@@ -275,30 +345,46 @@ def blueshift_source(
             ),
         )
 
-    rest_config: RESTAPIConfig = {
-        "client": _client_config(region, api_key),
-        "resource_defaults": {},
-        "resources": [get_resource(config)],
-    }
-
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if resume is not None and resume.next_page is not None:
-        initial_paginator_state = {"page": resume.next_page}
+    start_pass = (resume.list_pass or 0) if resume is not None else 0
+    start_page = resume.next_page if resume is not None else None
+    keep = _first_sighting(config.primary_keys)
 
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        if state and state.get("page") is not None:
-            resumable_source_manager.save_state(BlueshiftResumeConfig(next_page=int(state["page"])))
+    def build_pass(pass_index: int, page: Optional[int]) -> Resource:
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state and state.get("page") is not None:
+                resumable_source_manager.save_state(
+                    BlueshiftResumeConfig(next_page=int(state["page"]), list_pass=pass_index or None)
+                )
 
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
-    return _source_response(config, lambda: resource)
+        rest_config: RESTAPIConfig = {
+            "client": _client_config(region, api_key),
+            "resource_defaults": {},
+            "resources": [get_resource(config, config.passes[pass_index])],
+        }
+        return rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state={"page": page} if page is not None else None,
+        ).add_filter(keep)
+
+    first = build_pass(start_pass, start_page)
+    if start_pass == len(config.passes) - 1:
+        return _source_response(config, lambda: first)
+
+    def walk_passes() -> Iterator[Any]:
+        yield from first
+        for pass_index in range(start_pass + 1, len(config.passes)):
+            resumable_source_manager.save_state(BlueshiftResumeConfig(next_page=FIRST_PAGE, list_pass=pass_index))
+            yield from build_pass(pass_index, None)
+
+    # The walk hands each page on unchanged and holds no rows. As a `Resource` it keeps the
+    # framework's checkpoints, so a run that waits on a rate limit can hand off.
+    passes = Resource(walk_passes, name=config.name, hints=first._hints)
+    return _source_response(config, lambda: passes)
 
 
 def _probe_url(region: str, schema_name: Optional[str]) -> str:

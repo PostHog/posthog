@@ -35,22 +35,49 @@ def _campaign(uuid: str) -> dict[str, Any]:
     return {"uuid": uuid, "name": f"Campaign {uuid}", "statistics": {"sends": 10, "opens": 4}}
 
 
+def _segments(start: int, stop: int) -> ScriptedResponse:
+    return ScriptedResponse(json={"segments": [{"uuid": f"s{i}"} for i in range(start, stop)]})
+
+
 class TestBlueshiftLists:
-    def test_paginated_list_stops_after_a_short_page(self) -> None:
-        result = _driver().run(
-            "segments",
-            [
-                ScriptedResponse(json={"segments": [{"uuid": f"s{i}"} for i in range(100)]}),
-                ScriptedResponse(json={"segments": [{"uuid": "s100"}]}),
-            ],
-        )
+    @parameterized.expand(
+        [
+            ("pages_count_from_zero", [_segments(0, 100), _segments(100, 101)], ["0", "1"], 101),
+            ("pages_count_from_one", [_segments(0, 100), _segments(0, 100), _segments(100, 150)], ["0", "1", "2"], 150),
+            ("page_param_ignored", always(_segments(0, 100)), ["0", "1", "2"], 100),
+        ]
+    )
+    def test_page_walk_ends_without_an_empty_page(
+        self, _name: str, script: Any, pages: list[str], row_count: int
+    ) -> None:
+        result = _driver().run("segments", script)
 
         assert result.raised is None
-        assert result.params("page") == ["1", "2"]
-        assert result.params("per_page") == ["100", "100"]
+        assert result.params("page") == pages
+        assert set(result.params("per_page")) == {"100"}
         assert {r.headers.get("authorization") for r in result.requests} == {AUTH_VALUE}
-        assert len(result.rows) == 101
-        assert result.saved_states == [BlueshiftResumeConfig(next_page=2)]
+        assert len(result.rows) == row_count
+        assert len({row["uuid"] for row in result.rows}) == row_count
+
+    @parameterized.expand(
+        [
+            ("both_passes", None, ["false", "true"], ["a", "b", "c"]),
+            ("resume_in_archived_pass", BlueshiftResumeConfig(next_page=0, list_pass=1), ["true"], ["b", "c"]),
+        ]
+    )
+    def test_campaigns_walks_live_then_archived_campaigns(
+        self, _name: str, resume_state: BlueshiftResumeConfig | None, archived: list[str], uuids: list[str]
+    ) -> None:
+        def answer(request: Any) -> ScriptedResponse:
+            rows = ["a", "b"] if request.param("archived") == "false" else ["b", "c"]
+            return ScriptedResponse(json=[{"uuid": uuid} for uuid in rows])
+
+        result = _driver().run("campaigns", answer, resume_state=resume_state)
+
+        assert result.raised is None
+        assert result.params("archived") == archived
+        assert set(result.params("startdate")) == {"2000-01-01T00:00:00.000Z"}
+        assert [row["uuid"] for row in result.rows] == uuids
 
     @parameterized.expand(
         [
@@ -133,7 +160,8 @@ class TestBlueshiftCampaignStats:
             day = request.param("start_time")[:10]
             if day == "2026-10-14":
                 return ScriptedResponse(json={"campaigns": []})
-            return ScriptedResponse(json={"campaigns": [_campaign(f"c-{day}")]})
+            idle = {"uuid": "idle", "statistics": {"sends": 0, "revenue": "0.0", "start_time": f"{day}T00:00:00Z"}}
+            return ScriptedResponse(json={"campaigns": [_campaign(f"c-{day}"), idle]})
 
         result = _driver().run(
             "campaign_stats", answer, incremental_field="date", source_cursor=_no_stored_cursor(), **kwargs
