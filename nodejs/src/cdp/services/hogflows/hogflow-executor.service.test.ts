@@ -12,7 +12,7 @@ import { template as customerTaskTemplate } from '~/cdp/templates/_destinations/
 import { template as setVariableTemplate } from '~/cdp/templates/_destinations/posthog_workflows/posthog-set-variable.template'
 import { compileHog } from '~/cdp/templates/compiler'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
-import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
+import { FakeUsageIngestion } from '~/common/usage-ingestion/_tests/fake-usage-ingestion'
 import { createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -3123,14 +3123,8 @@ describe('Hogflow Executor', () => {
         }
 
         it('bills hog functions and own-domain email, and never a sandbox email in the same run', async () => {
-            const ingested: UsageRecordInput[] = []
-            const usageIngestion = {
-                ingest: (records: UsageRecordInput[]) => {
-                    ingested.push(...records)
-                    return Promise.resolve([])
-                },
-            } as unknown as UsageIngestionClient
-            const usageReporter = new CdpUsageReporterService(usageIngestion, () => true)
+            const usageIngestion = new FakeUsageIngestion()
+            const usageReporter = new CdpUsageReporterService(await usageIngestion.start(), () => true)
             const sandboxMailbox: SandboxMessage[] = []
             const sandboxSes = {
                 send: (message: SandboxMessage) => {
@@ -3345,11 +3339,14 @@ describe('Hogflow Executor', () => {
 
             expect(sandboxMailbox.map((message) => message.to.address)).toEqual(['member@example.com'])
             await usageReporter.shutdown()
-            expect(ingested.map(({ usageKey }) => usageKey).sort()).toEqual([
-                'workflow_billable_invocations',
-                'workflow_billable_invocations',
-                'workflow_emails_sent',
-                'workflow_emails_sent',
+            await usageIngestion.stop()
+            expect(
+                usageIngestion.accepted.map(({ teamId, usageKey, quantity }) => [teamId, usageKey, quantity]).sort()
+            ).toEqual([
+                [invocation.teamId, 'workflow_billable_invocations', 1],
+                [invocation.teamId, 'workflow_billable_invocations', 1],
+                [invocation.teamId, 'workflow_emails_sent', 1],
+                [invocation.teamId, 'workflow_emails_sent', 1],
             ])
             expect(
                 metrics.filter((m) => m.instance_id === 'sandbox_email').map((m) => [m.metric_kind, m.metric_name])
