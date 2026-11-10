@@ -1153,6 +1153,10 @@ export class CdpApi {
                     scheduledAt: now,
                     startedAt: now,
                 })
+                const { invocation_ids: invocationIds, ...filterWithoutIds } = rerunRequest.filter
+                const filterForLog = invocationIds
+                    ? { ...filterWithoutIds, invocation_id_count: invocationIds.length }
+                    : filterWithoutIds
                 this.invocationResultsService.monitoringService.queueLogs(
                     [
                         {
@@ -1162,7 +1166,7 @@ export class CdpApi {
                             instance_id: rerunJobId,
                             timestamp: DateTime.fromJSDate(now),
                             level: 'info',
-                            message: `Re-run queued. Filter: ${JSON.stringify(rerunRequest.filter)}`,
+                            message: `Re-run queued. Filter: ${JSON.stringify(filterForLog)}`,
                         },
                     ],
                     functionKind

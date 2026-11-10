@@ -104,6 +104,9 @@ If the only way to exercise your logic is to stand up a database, a request, and
 Pull it into a pure function or a kea logic and test _that_ directly: you get a faster test and better-factored code at once.
 Escalating to the next rung is the last resort, not the default.
 
+When you extract a decision this way, such as the dedupe, routing, or eligibility rule that [.agents/architecture.md](../../architecture.md) keeps pure, put the case matrix on the pure function and keep one database-backed test as a wiring guard.
+Without that guard, a refactor that stops calling the decision passes every pure case.
+
 - If logic is in (or can be moved to) a pure function, test the function — don't stand up a DB, a request, or a render.
 - Frontend: test the **kea logic** (`logic.actions` / `logic.values`), not a full component render, whenever the behavior lives in the logic.
   A `render()` + DOM-query test is for things only the DOM can show.
@@ -172,8 +175,15 @@ Escalating to the next rung is the last resort, not the default.
     Do not assume a debounce, `setTimeout`, kea breakpoint, or fast mock will still be
     pending on the next line. Test setup may shorten internal delays without changing
     production behavior.
-- **No `time.sleep` / arbitrary waits.** A sleep is a flake waiting to happen, and it
-  slows every run. Replace it with the matching control above or `time_machine.travel`.
+- **No new `time.sleep` or non-zero `asyncio.sleep` calls in test code.** The `no-fixed-sleeps-in-tests` Semgrep rule blocks new calls in CI, including import aliases and calls with `noqa` comments. Calls already on the base branch stay allowed. When elapsed time is the behavior under test, explain why next to a specific `# nosemgrep: no-fixed-sleeps-in-tests` exemption.
+  A fixed delay does not prove another operation finished.
+  Replace the sleep with the control that matches the wait:
+  - `time.time()` or `datetime.now()`: `time_machine.travel(..., tick=False)`, then `traveller.shift(...)`.
+  - `time.monotonic()`: time-machine does not patch it. Patch the clock where the code reads it.
+  - Another thread or process: `threading.Event`, a future, `thread.join()`, or the process's output stream. Use `posthog.test.waiting.wait_until` when the dependency only exposes a condition to poll.
+  - A fake that must block until cancelled or timed out: `await asyncio.Event().wait()`.
+  - Something that must not happen: `assert not event.wait(timeout=...)`.
+  - Order between two writes: set each timestamp yourself.
 - **An absolute date in a test is a time bomb until you pin the clock.**
   A fixture date keeps its meaning only while the real clock stays where you left it.
   If anything under test measures that date against `now` — an age, a window, a "recent" flag, an expiry — the assertion holds today and fails some weeks later, on every open branch at once.

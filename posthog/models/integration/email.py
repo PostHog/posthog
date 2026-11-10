@@ -19,12 +19,12 @@ from rest_framework.exceptions import ValidationError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import email_domain
-from posthog.integrations.contracts import IntegrationRecord
+from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
-from . import model
+from . import model, row_writes
 
 if TYPE_CHECKING:
     from products.workflows.backend.facade.contracts import EmailDomainCheck, EmailDomainVerification
@@ -162,12 +162,10 @@ class EmailIntegration:
         }
         if setup_method := config.get("setup_method"):
             changes["setup_method"] = setup_method
-        # The row is reread under a lock so a concurrent verification write is not overwritten.
-        with transaction.atomic():
-            locked = model.Integration.objects.select_for_update().get(id=self.integration.id)
-            locked.config.update(changes)
-            locked.save(update_fields=["config"])
-        self.integration.config = locked.config
+        # The SDK merges the patch under a row lock, so a concurrent verification write is kept.
+        self.integration = model.integration_model(
+            row_writes.update_row(self.integration, IntegrationPatch(config_patch=changes))
+        )
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         return self.integration
@@ -284,7 +282,7 @@ class EmailIntegration:
                 sender.config["verified"] = True
                 sender.save()
 
-        self.integration.config["verified"] = True
+        self.integration = model.integration_model(row_writes.reread_row(self.integration))
 
         from products.workflows.backend.facade.api import (
             set_default_email_sender_if_unset,  # noqa: PLC0415 — keeps the workflows facade off the model import path
