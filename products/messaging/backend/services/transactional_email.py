@@ -59,7 +59,7 @@ from products.messaging.backend.facade.contracts import (
 )
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
-from products.messaging.backend.services.html_text import UNSUBSCRIBE_PLACEHOLDER, text_from_html
+from products.messaging.backend.services.html_text import has_unsubscribe_link, text_from_html
 from products.messaging.backend.services.send_categories import (
     RequestedCategory,
     code_send_category,
@@ -586,10 +586,12 @@ def _send_payload(
 def _require_marketing_rules(email: CodeEmail, kind: MessageCategoryKind) -> None:
     if kind != "marketing":
         return
-    if not UNSUBSCRIBE_PLACEHOLDER.search(email.html or email.text):
+    if not has_unsubscribe_link(email.html, email.text):
         raise UnsubscribeLinkRequired(
-            "A marketing email needs an unsubscribe link. Put `{{ unsubscribe_url }}` where the link goes, such as "
-            '`<a href="{{ unsubscribe_url }}">Unsubscribe</a>`, and PostHog fills in the recipient\'s link.'
+            "A marketing email needs an unsubscribe link that readers can click. Use `{{ unsubscribe_url }}` as a "
+            'link\'s whole `href`, such as `<a href="{{ unsubscribe_url }}">Unsubscribe</a>`, and PostHog fills in '
+            "the recipient's link. An email with no `html` can put it in its `text`. A placeholder in a comment, in "
+            "another attribute, or inside another address doesn't count."
         )
     if email.cc or email.bcc:
         raise CopiesNotAllowed(

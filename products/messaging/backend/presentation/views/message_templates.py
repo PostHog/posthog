@@ -540,8 +540,9 @@ class TransactionalEmailMessageSerializer(serializers.Serializer):
         "`description`. The send creates the category when the project has none with that key, updates its name and "
         "description when they changed, and restores it when it was archived. An existing category must have the "
         "same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets "
-        "unsubscribe headers, and can't have `cc` or `bcc`. Its `html`, or `text` when it has no `html`, must hold "
-        "`{{ unsubscribe_url }}`, which PostHog replaces with the recipient's unsubscribe link. A send with "
+        "unsubscribe headers, and can't have `cc` or `bcc`. Its `html` needs a link whose `href` is "
+        "`{{ unsubscribe_url }}`, or its `text` needs `{{ unsubscribe_url }}` when it has no `html`. PostHog replaces "
+        "the placeholder with the recipient's unsubscribe link. A send with "
         "`template_id`, or with a `template_key` that names a template, follows the template's category: leave it out "
         "there, or send the template's own.",
     )
@@ -863,8 +864,8 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
         "verified, the recipient can't be used, the Idempotency-Key is invalid, the email is too large to send, "
         "the project has reached its limit of template keys and the `template_key` is new, `category` doesn't match "
         "the existing category's type or the template's category (`category_mismatch`), the send would create a "
-        "category past the project's limit (`too_many_categories`), or a marketing email has no "
-        "`{{ unsubscribe_url }}` (`unsubscribe_link_required`) or has `cc` or `bcc` (`copies_not_allowed`)"
+        "category past the project's limit (`too_many_categories`), or a marketing email has no link a reader can "
+        "click to `{{ unsubscribe_url }}` (`unsubscribe_link_required`) or has `cc` or `bcc` (`copies_not_allowed`)"
     ),
     404: OpenApiResponse(description="Template not found"),
     409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),
@@ -1474,8 +1475,8 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             "a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run "
             "history group under the key. Transactional emails skip opt-outs and frequency caps. A code send can define "
             "its message `category` by key, and PostHog creates or updates that category. In a marketing category it "
-            "goes out as marketing email: it skips recipients who opted out, needs `{{ unsubscribe_url }}` in its "
-            "body, and can't have `cc` or `bcc`. Send an "
+            "goes out as marketing email: it skips recipients who opted out, needs a link to `{{ unsubscribe_url }}` "
+            "in its body, and can't have `cc` or `bcc`. Send an "
             "`Idempotency-Key` header to retry safely without sending the email twice. Needs the "
             "`transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the "
             "rest of Workflows too."

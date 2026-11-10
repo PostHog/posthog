@@ -6,6 +6,7 @@ import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from functools import partial
+from pathlib import Path
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
@@ -54,6 +55,11 @@ from products.workflows.backend.facade.api import set_default_email_sender_if_un
 from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
+UNSUBSCRIBE_LINK_CASES = json.loads((Path(__file__).parents[2] / "unsubscribe_link_cases.json").read_text())
+CLICKABLE_UNSUBSCRIBE_LINKS = [(case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if case["has_unsubscribe_link"]]
+MISSING_UNSUBSCRIBE_LINKS = [
+    (case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if not case["has_unsubscribe_link"]
+]
 TWO_FILES = [{"filename": "a.csv", "content": "YSxi"}, {"filename": "notes.txt", "content": "aGk="}]
 CDP_ACCEPTS = {"return_value": MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})}
 CDP_REPLAYS = MagicMock(status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True})
@@ -828,16 +834,6 @@ class TestTransactionalEmail(APIBaseTest):
             ("transactional", {"category": "transactional", "html": UNSUBSCRIBE_HTML}, None),
             ("marketing", {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML}, "marketing"),
             (
-                "placeholder_without_spaces",
-                {"category": NEWSLETTER, "html": "<a href='{{unsubscribe_url}}'>x</a>"},
-                "marketing",
-            ),
-            (
-                "text_only",
-                {"category": NEWSLETTER, "html": "", "text": "Unsubscribe: {{ unsubscribe_url }}"},
-                "marketing",
-            ),
-            (
                 "transactional_category_needs_no_link",
                 {"category": {"key": "receipts", "type": "transactional", "name": "Receipts"}},
                 "transactional",
@@ -864,6 +860,35 @@ class TestTransactionalEmail(APIBaseTest):
         assert queued.content is not None
         assert bool(UNSUBSCRIBE_PLACEHOLDER.search(queued.content["text"])) == (kind == "marketing")
         assert [send["category_type"] for send in self.usage.api_sends()] == [kind or "transactional"]
+
+    @parameterized.expand(CLICKABLE_UNSUBSCRIBE_LINKS)
+    def test_a_marketing_code_send_with_a_clickable_unsubscribe_link_is_accepted(
+        self, cdp_post, _flag, capture, _name, case
+    ):
+        self._use_fakes(cdp_post, capture)
+
+        response = self._marketing_code_send(case)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert len(self.cdp.queued) == 1
+
+    @parameterized.expand(MISSING_UNSUBSCRIBE_LINKS)
+    def test_a_marketing_code_send_without_a_clickable_unsubscribe_link_is_refused(
+        self, cdp_post, _flag, capture, _name, case
+    ):
+        self._use_fakes(cdp_post, capture)
+
+        response = self._marketing_code_send(case)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "unsubscribe_link_required"
+        assert self.cdp.queued == []
+
+    def _marketing_code_send(self, case: dict[str, Any]) -> Any:
+        body = self._code_send(category=self.NEWSLETTER, html=case["html"])
+        if case["text"]:
+            body["text"] = case["text"]
+        return self._psak_client(["transactional_email:write"]).post(self.send_email_url, body, format="json")
 
     @parameterized.expand(
         [
@@ -917,7 +942,6 @@ class TestTransactionalEmail(APIBaseTest):
                 {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML},
                 "category_mismatch",
             ),
-            ("no_unsubscribe_link", None, {"category": NEWSLETTER}, "unsubscribe_link_required"),
             (
                 "placeholder_spaced_with_a_character_the_email_worker_reads_as_text",
                 None,

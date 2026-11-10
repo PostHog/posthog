@@ -1,6 +1,7 @@
 import re
 from collections import Counter
 from html.parser import HTMLParser
+from uuid import uuid4
 
 from posthog.dataclasses import frozen
 
@@ -42,6 +43,17 @@ BLANK_LINES = re.compile(r"\n{3,}")
 WHITESPACE = re.compile(r"\s+")
 LINE_END = "\x00"
 LINE_ENDS = re.compile(r"\n?\x00+\n?")
+URL_PARSER_TRIMS = "".join(chr(code) for code in range(0x21))
+
+
+def has_unsubscribe_link(html: str, text: str) -> bool:
+    if not html:
+        return UNSUBSCRIBE_PLACEHOLDER.search(text) is not None
+    link = f"unsubscribe-link-{uuid4().hex}"
+    parser = _TextParser(keep_unsubscribe_link=False)
+    parser.feed(UNSUBSCRIBE_PLACEHOLDER.sub(link, html))
+    parser.close()
+    return link in parser.visible_hrefs
 
 
 def text_from_html(html: str, *, keep_unsubscribe_link: bool = False) -> str:
@@ -55,6 +67,10 @@ def text_from_html(html: str, *, keep_unsubscribe_link: bool = False) -> str:
 
 def _line_break(match: re.Match[str]) -> str:
     return match.group(0).replace(LINE_END, "") or "\n"
+
+
+def _first_href(attrs: list[tuple[str, str | None]]) -> str | None:
+    return next((value for name, value in attrs if name == "href"), None)
 
 
 @frozen
@@ -75,6 +91,7 @@ class _TextParser(HTMLParser):
         self.hidden_from: int | None = None
         self.label_text: list[str] = []
         self.label_length = 0
+        self.visible_hrefs: set[str] = set()
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in VOID_TAGS:
@@ -120,7 +137,9 @@ class _TextParser(HTMLParser):
             self.parts.append("\n\n")
         elif tag in LINE_TAGS:
             self.parts.append("\n")
-        href = dict(attrs).get("href") if tag == "a" else None
+        href = _first_href(attrs) if tag == "a" else None
+        if href is not None:
+            self.visible_hrefs.add(href.strip(URL_PARSER_TRIMS))
         if href is not None and (href.startswith(LINK_SCHEMES) or self._is_unsubscribe_link(href)):
             self.open_links.append(_OpenLink(depth=len(self.open_tags), href=href, label_start=self.label_length))
 
