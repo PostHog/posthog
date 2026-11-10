@@ -5422,7 +5422,6 @@ class HogFlowViewSet(
         )
 
     def _list_reader(self, request: Request) -> UserAccessControl | None:
-        # Service credentials are synthetic users that UserAccessControl cannot evaluate.
         return None if is_service_auth(request) else self.user_access_control
 
     @staticmethod
