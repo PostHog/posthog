@@ -384,9 +384,10 @@ def reset_stuck_cohorts() -> None:
         0:MAX_STUCK_STATIC_COHORTS_TO_SCAN
     ]:
         cohort.is_calculating = False
+        cohort.population_marker = None
         cohort.errors_calculating = F("errors_calculating") + 1
         cohort.last_error_at = timezone.now()
-        cohort.save(update_fields=["is_calculating", "errors_calculating", "last_error_at"])
+        cohort.save(update_fields=["is_calculating", "population_marker", "errors_calculating", "last_error_at"])
         reset_static_cohort_ids.append(cohort.pk)
 
         if not static_cohort_has_supported_population_source(cohort):
@@ -1033,6 +1034,9 @@ def _populate_static_cohort(
         # The mode this attempt runs under is half of the token it finalizes with: a newer claim
         # writes its own mode, so the compare-and-clear at the end can't take that claim's fields.
         claimed_mode = cohort.pending_population_mode
+        replacing = supports_replace and claimed_mode == CohortPopulationMode.REPLACE
+        if marker is not None and not replacing:
+            raise PopulationSuperseded(cohort_id)
 
         if replacing and marker is None:
             # Every insert attempt gets a fresh marker, so rows a lost acknowledgement left at an older
@@ -1126,8 +1130,8 @@ def _populate_static_cohort(
             team_id=team_id,
             error=str(err),
         )
-        # ExposedHogQLError is a user validation failure, and an empty replace is the user's outcome, so neither goes
-        # to error tracking.
+        # ExposedHogQLError is a user validation failure, and an empty replace is a refused run, not a system fault,
+        # so neither goes to error tracking.
         if not isinstance(err, (ExposedHogQLError, PopulationEmptyResult)):
             capture_exception()
     except BaseException as err:
