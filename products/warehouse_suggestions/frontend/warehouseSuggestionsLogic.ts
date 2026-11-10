@@ -37,6 +37,7 @@ import {
     warehouseSuggestionsList,
     warehouseSuggestionsResumeCreate,
     warehouseSuggestionsStatusRetrieve,
+    warehouseSuggestionsSurfaceMoreCreate,
 } from './generated/api'
 import type {
     AcceptWarehouseSuggestionApi,
@@ -60,6 +61,7 @@ import {
 
 export type StripState = 'loading' | 'error' | 'hidden' | 'warming_up' | 'not_eligible' | 'active' | 'all_done'
 export type SuggestionSurface = 'models' | 'catalog'
+export type ShowMorePlacement = 'strip' | 'dialog'
 export interface SuggestionGroup {
     kind: string
     suggestions: WarehouseSuggestionApi[]
@@ -87,11 +89,6 @@ const KIND_ORDER: Record<string, number> = {
     deprecate: MAIN_SAVING_KINDS.length + 1,
 }
 
-const SHOWN_ON_SURFACE: Record<SuggestionSurface, (suggestion: WarehouseSuggestionApi) => boolean> = {
-    models: ({ kind, subject_kind }) =>
-        kind === 'materialize' || kind === 'unmaterialize' || (kind === 'deprecate' && subject_kind === 'saved_query'),
-    catalog: ({ kind }) => kind === 'certify' || kind === 'deprecate',
-}
 const VIEW_ON_MODEL_PAGE_KINDS = ['materialize', 'unmaterialize']
 const CONFLICT_STATUS = 409
 const NOT_FOUND_STATUS = 404
@@ -246,6 +243,8 @@ export interface warehouseSuggestionsLogicValues {
     refreshDraft: IncrementalConfigDraft
     reviewOpen: boolean
     savingsSummary: SavingsSummary
+    showWaitingNotice: boolean
+    showingMore: boolean
     status: WarehouseSuggestionStatusApi | null
     statusLoading: boolean
     stripState: StripState
@@ -404,6 +403,12 @@ export interface warehouseSuggestionsLogicActions {
     setRefreshDraft: (draft: Partial<IncrementalConfigDraft>) => {
         draft: Partial<IncrementalConfigDraft>
     }
+    setShowingMore: (showingMore: boolean) => {
+        showingMore: boolean
+    }
+    showMore: (placement: ShowMorePlacement) => {
+        placement: ShowMorePlacement
+    }
     suggestionAccepted: (suggestion: WarehouseSuggestionApi) => {
         suggestion: WarehouseSuggestionApi
     }
@@ -424,8 +429,7 @@ export interface warehouseSuggestionsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         listedSuggestions: (
             suggestions: WarehouseSuggestionApi[] | null,
-            hiddenSuggestionIds: string[],
-            surface: SuggestionSurface
+            hiddenSuggestionIds: string[]
         ) => WarehouseSuggestionApi[]
         suggestionGroups: (listedSuggestions: WarehouseSuggestionApi[]) => SuggestionGroup[]
         surfaceSuggestions: (
@@ -459,6 +463,12 @@ export interface warehouseSuggestionsLogicMeta {
             hiddenSuggestionIds: string[],
             leavingSuggestionIds: string[]
         ) => StripState
+        showWaitingNotice: (
+            suggestions: WarehouseSuggestionApi[] | null,
+            surfaceSuggestions: WarehouseSuggestionApi[],
+            status: WarehouseSuggestionStatusApi | null,
+            featureForbidden: boolean
+        ) => boolean
     }
 }
 
@@ -505,19 +515,23 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             setMaterializeInterval: (interval: DataModelingSyncInterval | null) => ({ interval }),
             suggestionAccepted: (suggestion: WarehouseSuggestionApi) => ({ suggestion }),
             reload: true,
+            showMore: (placement: ShowMorePlacement) => ({ placement }),
+            setShowingMore: (showingMore: boolean) => ({ showingMore }),
         }),
-        loaders(({ values }) => ({
+        loaders(({ values, props }) => ({
             suggestions: [
                 null as WarehouseSuggestionApi[] | null,
                 {
                     loadSuggestions: async () =>
-                        (await warehouseSuggestionsList(projectId(), { status: 'proposed' })).results,
+                        (await warehouseSuggestionsList(projectId(), { status: 'proposed', surface: props.surface }))
+                            .results,
                 },
             ],
             status: [
                 null as WarehouseSuggestionStatusApi | null,
                 {
-                    loadStatus: async () => await warehouseSuggestionsStatusRetrieve(projectId()),
+                    loadStatus: async () =>
+                        await warehouseSuggestionsStatusRetrieve(projectId(), { surface: props.surface }),
                 },
             ],
             incrementalCheck: [
@@ -567,6 +581,12 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 {
                     openReview: () => true,
                     closeReview: () => false,
+                },
+            ],
+            showingMore: [
+                false,
+                {
+                    setShowingMore: (_, { showingMore }) => showingMore,
                 },
             ],
             materializeModalSuggestionId: [
@@ -645,19 +665,10 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
         })),
         selectors({
             listedSuggestions: [
-                (s, p) => [s.suggestions, s.hiddenSuggestionIds, p.surface],
-                (
-                    suggestions: WarehouseSuggestionApi[] | null,
-                    hiddenIds: string[],
-                    surface: SuggestionSurface
-                ): WarehouseSuggestionApi[] => {
+                (s) => [s.suggestions, s.hiddenSuggestionIds],
+                (suggestions: WarehouseSuggestionApi[] | null, hiddenIds: string[]): WarehouseSuggestionApi[] => {
                     const byWorth = (suggestions ?? [])
-                        .filter(
-                            (suggestion) =>
-                                suggestion.surfaced_at !== null &&
-                                !hiddenIds.includes(suggestion.id) &&
-                                SHOWN_ON_SURFACE[surface](suggestion)
-                        )
+                        .filter((suggestion) => suggestion.surfaced_at !== null && !hiddenIds.includes(suggestion.id))
                         .sort(compareSuggestions)
                     return groupedByKind(byWorth).flatMap((group) => group.suggestions)
                 },
@@ -772,8 +783,21 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     return status.days_with_data < status.window_days ? 'warming_up' : 'hidden'
                 },
             ],
+            showWaitingNotice: [
+                (s) => [s.suggestions, s.surfaceSuggestions, s.status, s.featureForbidden],
+                (
+                    suggestions: WarehouseSuggestionApi[] | null,
+                    surfaceSuggestions: WarehouseSuggestionApi[],
+                    status: WarehouseSuggestionStatusApi | null,
+                    featureForbidden: boolean
+                ): boolean =>
+                    !featureForbidden &&
+                    suggestions !== null &&
+                    surfaceSuggestions.length === 0 &&
+                    !!status?.can_show_more,
+            ],
         }),
-        listeners(({ actions, values, props, cache, selectors }) => {
+        listeners(({ actions, asyncActions, values, props, cache, selectors }) => {
             const reportViewedOnce = (): void => {
                 if (cache.viewReported || values.stripState !== 'active') {
                     return
@@ -782,6 +806,22 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 posthog.capture('warehouse suggestions viewed', {
                     surface: props.surface,
                     suggestion_count: values.surfaceSuggestions.length,
+                })
+            }
+            const recheckWaitingOnceSettled = (): void => {
+                const decisionsSaving = Object.values(values.actionsInFlight).some(Boolean)
+                if (values.surfaceSuggestions.length === 0 && !decisionsSaving) {
+                    actions.loadStatus()
+                }
+            }
+            const reportWaitingNoticeOnce = (): void => {
+                if (cache.waitingNoticeReported || !values.showWaitingNotice) {
+                    return
+                }
+                cache.waitingNoticeReported = true
+                posthog.capture('warehouse suggestions waiting notice viewed', {
+                    surface: props.surface,
+                    waiting: values.status?.waiting,
                 })
             }
             const viewAction = (suggestion: WarehouseSuggestionApi): (() => void) | null => {
@@ -807,8 +847,14 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     actions.loadSuggestions()
                     actions.loadStatus()
                 },
-                loadSuggestionsSuccess: () => reportViewedOnce(),
-                loadStatusSuccess: () => reportViewedOnce(),
+                loadSuggestionsSuccess: () => {
+                    reportViewedOnce()
+                    reportWaitingNoticeOnce()
+                },
+                loadStatusSuccess: () => {
+                    reportViewedOnce()
+                    reportWaitingNoticeOnce()
+                },
                 closeMaterializeModal: (_, __, ___, previousState) => {
                     posthog.capture('warehouse suggestion materialize cancelled', {
                         suggestion_id: selectors.materializeModalSuggestionId(previousState),
@@ -865,6 +911,38 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 },
                 restoreSuggestion: ({ id }) => {
                     cache.disposables.dispose(leaveDisposableKey(id))
+                },
+                finishHidingSuggestion: () => recheckWaitingOnceSettled(),
+                setActionInFlight: ({ inFlight }) => {
+                    if (!inFlight) {
+                        recheckWaitingOnceSettled()
+                    }
+                },
+                showMore: async ({ placement }) => {
+                    if (values.showingMore) {
+                        return
+                    }
+                    actions.setShowingMore(true)
+                    try {
+                        const { surfaced } = await warehouseSuggestionsSurfaceMoreCreate(projectId(), {
+                            surface: props.surface,
+                        })
+                        posthog.capture('warehouse suggestions show more clicked', {
+                            surface: props.surface,
+                            placement,
+                            surfaced,
+                        })
+                        if (surfaced === 0) {
+                            lemonToast.info('No more suggestions can show right now. The list is up to date.')
+                        } else {
+                            actions.openReview()
+                        }
+                        await Promise.allSettled([asyncActions.loadSuggestions(), asyncActions.loadStatus()])
+                    } catch (error) {
+                        reportFailure(error, "Couldn't show more suggestions. Try again.")
+                    } finally {
+                        actions.setShowingMore(false)
+                    }
                 },
                 suggestionAccepted: ({ suggestion }) => {
                     const view = viewAction(suggestion)

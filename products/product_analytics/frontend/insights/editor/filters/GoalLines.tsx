@@ -10,6 +10,7 @@ import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext
 import { InsightLogicProps } from '~/types'
 
 import { goalLinesLogic } from './goalLinesLogic'
+import { QuillGoalLineRow } from './QuillGoalLineRow'
 
 interface GoalLinesProps {
     insightProps: InsightLogicProps
@@ -23,7 +24,15 @@ export function GoalLines({ insightProps }: GoalLinesProps): JSX.Element {
     if (quillSurface) {
         return (
             <div className="flex flex-col items-start gap-2">
-                <GoalLinesList goalLines={goalLines} removeGoalLine={removeGoalLine} updateGoalLine={updateGoalLine} />
+                {goalLines.map((goalLine, index) => (
+                    <QuillGoalLineRow
+                        key={index}
+                        goalLine={goalLine}
+                        index={index}
+                        updateGoalLine={updateGoalLine}
+                        removeGoalLine={removeGoalLine}
+                    />
+                ))}
                 <Button variant="outline" onClick={addGoalLine}>
                     <IconPlus />
                     Add goal line

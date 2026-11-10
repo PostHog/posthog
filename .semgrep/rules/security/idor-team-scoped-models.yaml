@@ -201,6 +201,7 @@ rules:
                               |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingIssueSummary
+                              |ErrorTrackingIssueTag
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -433,6 +434,7 @@ rules:
                               |SignalScoutEmission
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
+                              |SignalScoutPendingTrigger
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
@@ -447,6 +449,7 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SlackThreadJoin
+                              |SlackDailyFocus
                               |SourceBatch
                               |SourceGroupLease
                               |StreamlitApp
@@ -725,6 +728,7 @@ rules:
                         |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingIssueSummary
+                        |ErrorTrackingIssueTag
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -947,6 +951,7 @@ rules:
                         |SignalScoutEmission
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
+                        |SignalScoutPendingTrigger
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
@@ -961,6 +966,7 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SlackThreadJoin
+                        |SlackDailyFocus
                         |SourceBatch
                         |SourceGroupLease
                         |StreamlitApp

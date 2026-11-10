@@ -10,6 +10,7 @@ from products.alerts.backend.facade.contracts import InvestigationRelease
 from products.alerts.backend.investigation_release import verdict_change_is_news
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
+from products.alerts.backend.platform_insight_alert import investigated_alert
 
 __all__ = [
     "finish_investigation",
@@ -21,6 +22,12 @@ __all__ = [
 
 def _investigation(team_id: int, investigation_id: UUID) -> InsightAlertInvestigation:
     return InsightAlertInvestigation.objects.for_team(team_id).get(id=investigation_id)
+
+
+def _alert(team_id: int, alert_id: UUID) -> AlertConfiguration:
+    if (alert := investigated_alert(team_id, alert_id)) is None:
+        raise AlertConfiguration.DoesNotExist(f"No insight alert {alert_id}")
+    return alert
 
 
 def mark_investigation_running(team_id: int, investigation_id: UUID) -> None:
@@ -44,7 +51,7 @@ def finish_investigation(
 ) -> InvestigationRelease:
     """Records the investigation's verdict and releases its held firing by it. Safe to repeat."""
     return investigation_release.finish_investigation(
-        AlertConfiguration.objects.get(team_id=team_id, id=alert_id),
+        _alert(team_id, alert_id),
         _investigation(team_id, investigation_id),
         verdict=verdict,
         summary=summary,
