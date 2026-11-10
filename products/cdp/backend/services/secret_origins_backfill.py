@@ -70,14 +70,22 @@ class TemplateCache:
         return self._templates[template_id]
 
 
-def _plaintext_secret_keys(hog_function: HogFunction) -> set[str]:
-    inputs = hog_function.inputs or {}
-    secrets = hog_function.encrypted_inputs or {}
+def _declared_secret_keys(hog_function: HogFunction) -> set[str]:
     return {
         schema["key"]
         for schema in hog_function.inputs_schema or []
-        if schema.get("secret") and isinstance(inputs.get(schema.get("key")), dict) and schema["key"] not in secrets
+        if isinstance(schema, dict) and schema.get("secret")
     }
+
+
+def _with_defaults(inputs: dict[str, Any], inputs_schema: Optional[list]) -> dict[str, Any]:
+    # A save resolves origins against validated inputs, where a missing required input holds its default.
+    filled = dict(inputs)
+    for schema in inputs_schema or []:
+        if isinstance(schema, dict) and schema.get("required") and schema.get("default") is not None:
+            if not filled.get(str(schema.get("key"))):
+                filled[str(schema["key"])] = {"value": schema["default"]}
+    return filled
 
 
 def _has_stored_origins(entry: dict) -> bool:
@@ -92,17 +100,21 @@ def plan_secret_origins(hog_function: HogFunction, template: Optional[HogFunctio
 
     inputs = hog_function.inputs or {}
     secrets = hog_function.encrypted_inputs or {}
+    declared = _declared_secret_keys(hog_function)
     moved_inputs: Optional[dict[str, Any]] = None
-    if plaintext_keys := _plaintext_secret_keys(hog_function):
+    if plaintext_keys := {key for key in declared if isinstance(inputs.get(key), dict)}:
         # Like `move_secret_inputs` on save, limited to these keys: that helper also rewrites every other
-        # input to match the schema, which a backfill must not do.
+        # input to match the schema, which a backfill must not do. The worker reads the encrypted copy of a
+        # key held in both columns, so that copy wins.
         moved_inputs = {key: value for key, value in inputs.items() if key not in plaintext_keys}
-        secrets = {**secrets, **{key: inputs[key] for key in plaintext_keys}}
+        secrets = {**{key: inputs[key] for key in plaintext_keys}, **secrets}
 
+    resolved_inputs = _with_defaults(moved_inputs if moved_inputs is not None else inputs, hog_function.inputs_schema)
     updated = dict(secrets)
     outcomes: list[SecretOutcome] = []
     has_any_origin_secret = False
-    for key in sorted(secrets):
+    # A save stores origins only for keys the schema declares secret, so the backfill leaves any other entry.
+    for key in sorted(secrets.keys() & declared):
         entry = secrets[key]
         if not isinstance(entry, dict):
             outcomes.append(SecretOutcome.SKIPPED)
@@ -112,7 +124,7 @@ def plan_secret_origins(hog_function: HogFunction, template: Optional[HogFunctio
             outcomes.append(SecretOutcome.ALREADY_STORED)
             has_any_origin_secret |= entry["allowed_origins"] == ANY_ORIGIN
         else:
-            origins = template_origins(template, key, moved_inputs if moved_inputs is not None else inputs)
+            origins = template_origins(template, key, resolved_inputs)
             outcomes.append(SecretOutcome.ANY_ORIGIN if origins == ANY_ORIGIN else SecretOutcome.DECLARED)
             has_any_origin_secret |= origins == ANY_ORIGIN
             updated[key] = {**entry, "allowed_origins": origins}

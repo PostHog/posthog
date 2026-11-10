@@ -131,8 +131,11 @@ class TestSecretOriginsBackfill(BaseTest):
         )
         assert (report.rows_written, report.rows_failed) == (1, 0)
 
-    def test_function_with_only_bound_or_stored_secrets_is_not_written(self) -> None:
-        self._function({"bound": BOUND_TOKEN, "token": KEPT_TOKEN})
+    def test_function_with_only_bound_stored_or_undeclared_secrets_is_not_written(self) -> None:
+        hog_function = self._function({"bound": BOUND_TOKEN, "token": KEPT_TOKEN})
+        HogFunction.objects.filter(pk=hog_function.pk).update(
+            encrypted_inputs={"bound": BOUND_TOKEN, "token": KEPT_TOKEN, "orphan": {"value": "secret-orphan"}}
+        )
         before = self._stored()
 
         report = self._commit()
@@ -146,6 +149,12 @@ class TestSecretOriginsBackfill(BaseTest):
             ("unstored", {"value": "secret-legacy"}, None, {"value": "secret-legacy", "allowed_origins": "*"}),
             ("beside_an_encrypted_secret", {"value": "secret-legacy"}, {"token": KEPT_TOKEN}, None),
             ("already_stored", KEPT_TOKEN, None, KEPT_TOKEN),
+            (
+                "stale_beside_its_encrypted_copy",
+                {"value": "secret-old"},
+                {"api_key": {"value": "secret-live"}},
+                {"value": "secret-live", "allowed_origins": "*"},
+            ),
         ]
     )
     def test_commit_moves_a_plaintext_secret_into_the_encrypted_column(
@@ -156,19 +165,37 @@ class TestSecretOriginsBackfill(BaseTest):
         expected_secret: Optional[dict[str, Any]],
     ) -> None:
         hog_function = self._function({"api_key": plaintext, **(stored_secrets or {})})
+        url = {"value": "https://api.example.com/track", "bytecode": ["_H", 1, 32, "url"], "order": 0}
         HogFunction.objects.filter(pk=hog_function.pk).update(
-            inputs={"api_key": plaintext}, encrypted_inputs=stored_secrets
+            inputs={"api_key": plaintext, "url": url}, encrypted_inputs=stored_secrets
         )
+        updated_at = HogFunction.objects.get(pk=hog_function.pk).updated_at
 
         report = self._commit()
 
         hog_function.refresh_from_db()
-        assert hog_function.inputs == {}
+        assert (hog_function.inputs, hog_function.updated_at) == ({"url": url}, updated_at)
         assert hog_function.encrypted_inputs == {
             **(stored_secrets or {}),
             "api_key": expected_secret or {**plaintext, "allowed_origins": "*"},
         }
         assert (report.rows_written, report.rows_failed) == (1, 0)
+
+    def test_origin_input_left_to_its_default_resolves_as_a_save_resolves_it(self) -> None:
+        self._template("template-sender", FROM_URL)
+        hog_function = self._function({"api_key": {"value": "secret-live"}}, template_id="template-sender")
+        url_schema = {"key": "url", "type": "string", "label": "URL", "required": True}
+        HogFunction.objects.filter(pk=hog_function.pk).update(
+            inputs_schema=[
+                *(hog_function.inputs_schema or []),
+                {**url_schema, "default": "https://eu.example.com/track"},
+            ]
+        )
+
+        self._commit()
+
+        hog_function.refresh_from_db()
+        assert hog_function.encrypted_inputs["api_key"]["allowed_origins"] == ["https://eu.example.com"]
 
     def test_skips_a_row_whose_encrypted_inputs_no_key_decrypts(self) -> None:
         hog_function = self._function({"api_key": {"value": "secret-legacy"}})
