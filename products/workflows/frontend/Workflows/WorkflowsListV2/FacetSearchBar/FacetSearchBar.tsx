@@ -209,7 +209,8 @@ export function FacetSearchBar<TItem>({
                             {value.filters.map((filter) => {
                                 const label = pillLabel(facets, filter)
                                 const fromView = viewFilters.some(
-                                    (viewFilter) => facetFilterKey(viewFilter) === facetFilterKey(filter)
+                                    (viewFilter) =>
+                                        facetFilterKey(viewFilter, facets) === facetFilterKey(filter, facets)
                                 )
                                 return (
                                     <LemonSnack

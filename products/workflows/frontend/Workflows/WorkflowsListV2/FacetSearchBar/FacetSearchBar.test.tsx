@@ -33,7 +33,19 @@ const ITEMS: Item[] = [
     { name: 'Promo', status: 'archived', subjects: [] },
 ]
 
-function Harness({ initial, viewFilters }: { initial: FacetSearchValue; viewFilters?: FacetFilter[] }): JSX.Element {
+const FOLDER_FACETS: FacetDefinition<Item>[] = [
+    { key: 'in', label: 'Folder', description: 'Exact folder', caseSensitive: true, getValues: () => [] },
+]
+
+function Harness({
+    initial,
+    viewFilters,
+    facets = FACETS,
+}: {
+    initial: FacetSearchValue
+    viewFilters?: FacetFilter[]
+    facets?: FacetDefinition<Item>[]
+}): JSX.Element {
     const [value, setValue] = useState(initial)
     return (
         <div>
@@ -41,7 +53,7 @@ function Harness({ initial, viewFilters }: { initial: FacetSearchValue; viewFilt
                 Before
             </button>
             <FacetSearchBar
-                facets={FACETS}
+                facets={facets}
                 items={ITEMS}
                 value={value}
                 viewFilters={viewFilters}
@@ -242,6 +254,20 @@ describe('FacetSearchBar', () => {
         await user.keyboard('{Enter}')
         expect(shown('query')).toEqual('')
         expect(input()).toHaveFocus()
+    })
+
+    it('marks only the pill that matches a view filter in a case-sensitive facet', () => {
+        const fromView: FacetFilter = { facet: 'in', value: 'Archive', negated: true }
+        const other: FacetFilter = { facet: 'in', value: 'archive', negated: true }
+        render(
+            <Harness
+                initial={{ filters: [fromView, other], text: '' }}
+                viewFilters={[fromView]}
+                facets={FOLDER_FACETS}
+            />
+        )
+        expect(document.querySelector('[aria-label="Remove view filter Folder is not: Archive"]')).not.toBeNull()
+        expect(document.querySelector('[aria-label="Remove filter Folder is not: archive"]')).not.toBeNull()
     })
 
     it('exposes the combobox and labels each pill remove button', async () => {
