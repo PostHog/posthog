@@ -228,7 +228,6 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 [EventPropertyFilter(key="$host", value="app.example.com", operator=PropertyOperator.EXACT)],
                 {"Desktop": (1.0, 2.0), "Mobile": (1.0, 1.0)},
             ),
-            # Desktop: user_a's session has two views and user_c's one, so one of two sessions bounced.
             (
                 "device_breakdown_with_bounce_rate",
                 None,
@@ -280,7 +279,6 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
 
         assert not runner.used_preaggregated_tables
         assert opted_in == self._run_live(WebStatsBreakdown.DEVICE_TYPE, properties, include_bounce_rate=True)
-        # user_c's /blog session drops out. user_a's session viewed "/" but did not bounce.
         assert self._bounce_rates(opted_in) == {"Desktop": 0.0, "Mobile": 1.0}
 
     @parameterized.expand(
