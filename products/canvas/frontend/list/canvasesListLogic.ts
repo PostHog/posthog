@@ -19,9 +19,9 @@ export interface canvasesListLogicValues {
     currentTeamId: number | null // teamLogic
     breadcrumbs: Breadcrumb[]
     canvases: CanvasApi[]
+    canvasesLoadFailed: boolean
     canvasesResponse: PaginatedCanvasListApi | null
     canvasesResponseLoading: boolean
-    canvasesLoadFailed: boolean
     hiddenIds: string[]
     ordering: CanvasesOrdering
     page: number

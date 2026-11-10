@@ -190,8 +190,8 @@ export interface canvasSceneLogicValues {
     space: CanvasSpace | null
     spaceLoading: boolean
     view: CanvasViewResponseApi | null
-    viewLoading: boolean
     viewForbidden: boolean
+    viewLoading: boolean
     viewMissing: boolean
     viewUnavailable: boolean
     visibility: CanvasVisibility | null
