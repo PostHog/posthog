@@ -272,6 +272,12 @@ export type workflowsSavedViewsLogicType = MakeLogicType<
     workflowsSavedViewsLogicMeta
 >
 
+interface EditsWhileViewsLoad {
+    view: string
+    valueBefore?: FacetSearchValue
+    columns?: OptionalColumn[]
+}
+
 export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'WorkflowsListV2', 'workflowsSavedViewsLogic']),
     connect(() => ({
@@ -583,11 +589,24 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             const keys = new Set(filters.map(pillKey))
             return [...filters, ...more.filter((filter) => !keys.has(pillKey(filter)))]
         }
+        // Applying a view replaces the filters and columns, so edits made before the views arrive are kept
+        // to apply again after the view. They belong to the view link they were made on: nothing on the page
+        // can change that link while the views load, so a different one means a navigation replaced them.
+        const viewInUrl = (): string => new URLSearchParams(router.values.location.search).get('view') ?? 'all'
+        const editsWhileViewsLoad = (): EditsWhileViewsLoad => {
+            if (cache.editsWhileViewsLoad?.view !== viewInUrl()) {
+                cache.editsWhileViewsLoad = { view: viewInUrl() }
+            }
+            return cache.editsWhileViewsLoad
+        }
+        const takeEditsWhileViewsLoaded = (): EditsWhileViewsLoad | undefined => {
+            const edits: EditsWhileViewsLoad | undefined = cache.editsWhileViewsLoad
+            cache.editsWhileViewsLoad = undefined
+            return edits?.view === viewInUrl() ? edits : undefined
+        }
         const writeColumns = (): void => {
-            // Applying a view replaces the columns, so a change made before the views arrive is kept to
-            // apply again after the view.
             if (values.enabled && !values.available) {
-                cache.columnsChangedWhileViewsLoaded = values.shownColumns
+                editsWhileViewsLoad().columns = values.shownColumns
             }
             writeUrl()
         }
@@ -596,11 +615,8 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 actions.setVisibleColumns(columns)
             }
         }
-        const filtersAddedSinceViewsStartedLoading = (): FacetFilter[] => {
-            const before: FacetSearchValue | undefined = cache.valueBeforeViewsLoaded
-            cache.valueBeforeViewsLoaded = undefined
-            return before ? addedFiltersAfterEdit(before.filters, [], values.value.filters, values.facets) : []
-        }
+        const filtersAddedWhileViewsLoaded = (before: FacetSearchValue | undefined): FacetFilter[] =>
+            before ? addedFiltersAfterEdit(before.filters, [], values.value.filters, values.facets) : []
         const additionTrackers = (): Set<Set<string>> => (cache.additionTrackers ??= new Set<Set<string>>())
         const trackAdditions = (): Set<string> => {
             const added = new Set<string>()
@@ -748,7 +764,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             setValue: ({ value, fromUrl }, _, __, previousState) => {
                 if (!fromUrl) {
                     if (values.enabled && !values.available) {
-                        cache.valueBeforeViewsLoaded ??= workflowsListV2Logic.selectors.value(previousState)
+                        editsWhileViewsLoad().valueBefore ??= workflowsListV2Logic.selectors.value(previousState)
                     }
                     if (values.available && !cache.applyingView && !cache.syncingUrl) {
                         const previous = workflowsListV2Logic.selectors.value(previousState)
@@ -851,6 +867,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     if (values.enabled && raw.has('view') && !explicit && cache.viewOnlyLink?.id !== id) {
                         cache.viewOnlyLink = { id, baseline: values.value }
                     }
+                    if (cache.editsWhileViewsLoad && cache.editsWhileViewsLoad.view !== id) {
+                        cache.editsWhileViewsLoad = undefined
+                    }
                     return
                 }
                 if (cache.writingUrl || cache.applyingView) {
@@ -859,10 +878,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 const view = values.views.find((candidate) => candidate.id === id)
                 const viewOnlyLink: { id: string; baseline: FacetSearchValue } | undefined = cache.viewOnlyLink
                 cache.viewOnlyLink = undefined
-                const addedWhileViewsLoaded = filtersAddedSinceViewsStartedLoading()
-                const columnsChangedWhileViewsLoaded: OptionalColumn[] | undefined =
-                    cache.columnsChangedWhileViewsLoaded
-                cache.columnsChangedWhileViewsLoaded = undefined
+                const editsWhileViewsLoaded = takeEditsWhileViewsLoaded()
+                const addedWhileViewsLoaded = filtersAddedWhileViewsLoaded(editsWhileViewsLoaded?.valueBefore)
+                const columnsChangedWhileViewsLoaded = editsWhileViewsLoaded?.columns
                 if (view && viewOnlyLink?.id === id) {
                     const edited = values.value
                     const baselineKeys = new Set(viewOnlyLink.baseline.filters.map(pillKey))
