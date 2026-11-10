@@ -213,7 +213,16 @@ async function emptyPollIntervals(
     intervals: number,
     afterEmptyPoll: (pollNumber: number) => Promise<unknown> = () => Promise.resolve()
 ): Promise<number[]> {
-    const emptyPollsBefore = await pollCountForQueue(queue, 'empty')
+    return pollIntervals(worker, () => pollCountForQueue(queue, 'empty'), intervals, afterEmptyPoll)
+}
+
+async function pollIntervals(
+    worker: CyclotronV2Worker,
+    polls: () => Promise<number>,
+    intervals: number,
+    afterPoll: (pollNumber: number) => Promise<unknown> = () => Promise.resolve()
+): Promise<number[]> {
+    const pollsBefore = await polls()
     const pollTimes: number[] = []
     useFakeClockWithRealIo()
     try {
@@ -223,12 +232,9 @@ async function emptyPollIntervals(
                 jest.advanceTimersToNextTimer()
             }
             const pollNumber = pollTimes.length + 1
-            await waitForWorkerToSettle(
-                `empty poll ${pollNumber}`,
-                async () => (await pollCountForQueue(queue, 'empty')) - emptyPollsBefore >= pollNumber
-            )
+            await waitForWorkerToSettle(`poll ${pollNumber}`, async () => (await polls()) - pollsBefore >= pollNumber)
             pollTimes.push(Date.now())
-            await afterEmptyPoll(pollNumber)
+            await afterPoll(pollNumber)
         }
     } finally {
         await worker.disconnect()
@@ -1313,6 +1319,21 @@ describe('Cyclotron V2', () => {
                 }
             }
         )
+
+        it.each([
+            ['the plain worker', 'backoff-errors-plain', createWorker],
+            ['the rate-limited worker', 'backoff-errors-limited', rateLimitedWorker],
+        ])('spaces the failed polls of %s', async (_name, queue, makeWorker) => {
+            const missingTable = `${DB_URL}?options=${encodeURIComponent('-c search_path=no_such_schema')}`
+
+            const intervals = await pollIntervals(
+                makeWorker(queue, { pollDelayMaxMs: 80, pool: { dbUrl: missingTable } }),
+                () => loopErrorCountForQueue(queue),
+                5
+            )
+
+            expect(intervals).toEqual([10, 20, 40, 80, 80])
+        })
 
         it.each([
             ['the plain worker', 'backoff-reset-plain', createWorker],
