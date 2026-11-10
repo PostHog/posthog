@@ -59,7 +59,7 @@ pub fn judge(row: &PropertyRecord, stored: Option<&StoredProperties>) -> Verdict
         return Verdict::NewerInSlatedb;
     }
     // Identity revives a deleted person empty, above the marker's version, without a record.
-    if stored.deleted && stored.version < row.version && !row.deleted {
+    if stored.is_revival(row.version) && !row.deleted {
         return if empty_document(&row.properties) {
             Verdict::Match
         } else {
