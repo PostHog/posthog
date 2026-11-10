@@ -344,7 +344,7 @@ export interface EmailServiceConfig {
     sesEndpoint: string
     // Configuration set with ESP-level open/click tracking enabled.
     sesTrackedConfigurationSet: string
-    // Configuration set without open/click tracking. Required whenever sesRegion is set.
+    // Configuration set without open/click tracking.
     sesUntrackedConfigurationSet: string
     // Trust-tiered per-team sending caps. Optional and defaulting to off, so every send path that
     // builds an EmailService without them keeps its pre-cap behavior.
