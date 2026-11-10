@@ -204,16 +204,19 @@
             "description": "Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200.",
             "properties": {
                 "quiet_period_seconds": {
-                    "default": 3600,
-                    "description": "For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.",
+                    "description": "For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run. Defaults to 3600.",
                     "maximum": 86400,
                     "minimum": 10,
                     "type": "number"
                 },
+                "strategy": {
+                    "description": "The evaluation's settle strategy. A session evaluation with a fixed window is previewed on sessions that have been quiet for `window_seconds`, otherwise for `quiet_period_seconds`.\n\n* `fixed_window` - Fixed window\n* `inactivity` - Inactivity",
+                    "enum": ["fixed_window", "inactivity"],
+                    "type": "string"
+                },
                 "window_seconds": {
-                    "default": 1800,
-                    "description": "Aggregation window for trace samples, in seconds.",
-                    "maximum": 7200,
+                    "description": "Aggregation window in seconds. A trace preview defaults to 1800 and uses at most 7200.",
+                    "maximum": 604800,
                     "minimum": 10,
                     "type": "number"
                 }
