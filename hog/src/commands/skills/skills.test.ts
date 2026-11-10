@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
 
-import type { InstallableSkill, SkillAssetStatus, SkillsLibrary } from '@posthog/mcp/src/cli/library-types'
+import type {
+    InstallableSkill,
+    SkillAssetStatus,
+    SkillsLibrary,
+    SkillsRelease,
+} from '@posthog/mcp/src/cli/library-types'
 
 import type { Env } from '@/core/runtime'
 import { runHog, type FakeRuntimeOptions, type HogRun } from '@/testing'
@@ -32,16 +37,35 @@ interface InstallCall {
     skillsDir: string | undefined
 }
 
-function fakeSkills(installed: string[] = []): { library: () => SkillsLibrary; calls: InstallCall[] } {
+interface FakeSkills {
+    library: () => SkillsLibrary
+    calls: InstallCall[]
+    releaseLoads: number
+}
+
+function fakeSkills(installed: string[] = []): FakeSkills {
     const calls: InstallCall[] = []
     const present = new Set(installed)
+    const release: SkillsRelease = { assets: ASSETS }
 
-    const library = (): SkillsLibrary => ({
+    const fake: FakeSkills = {
+        calls,
+        releaseLoads: 0,
+        library: () => library,
+    }
+
+    const library: SkillsLibrary = {
         learn: async () => ({ ok: false, error: { code: 'usage', message: 'not used' } }),
         instrumentSkills: async () => ({ ok: true, value: { skills: [], assets: ASSETS } }),
-        installable: async () => ({ ok: true, value: { skills: CATALOG, assets: ASSETS } }),
-        install: async (id, { cwd, force, skillsDir }) => {
+        installable: async () => {
+            fake.releaseLoads += 1
+            return { ok: true, value: { skills: CATALOG, assets: ASSETS, release } }
+        },
+        install: async (id, { cwd, force, skillsDir, release: given }) => {
             calls.push({ id, cwd, force, skillsDir })
+            if (given !== release) {
+                fake.releaseLoads += 1
+            }
 
             const directory = join(cwd, skillsDir ?? '.agents/skills', id)
             if (present.has(directory) && !force) {
@@ -54,14 +78,14 @@ function fakeSkills(installed: string[] = []): { library: () => SkillsLibrary; c
             present.add(directory)
             return { ok: true, value: { skill: { id, directory, fileCount: 1 }, assets: ASSETS } }
         },
-    })
+    }
 
-    return { library, calls }
+    return fake
 }
 
 const REPOSITORY: FakeRuntimeOptions = { cwd: '/work/app', files: { '/work/.git/HEAD': 'ref: refs/heads/main\n' } }
 
-function skills(argv: string[], fake: ReturnType<typeof fakeSkills>, env: Env, options = REPOSITORY): Promise<HogRun> {
+function skills(argv: string[], fake: FakeSkills, env: Env, options = REPOSITORY): Promise<HogRun> {
     return runHog(['skills', ...argv], { ...options, env, skills: fake.library })
 }
 
@@ -102,7 +126,7 @@ describe('hog skills', () => {
         })
     })
 
-    test('--agent repeats, and agents that share a folder share one copy', async () => {
+    test('--agent repeats, agents that share a folder share one copy, and every install reuses one release', async () => {
         const fake = fakeSkills()
 
         const result = await skills(
@@ -113,6 +137,7 @@ describe('hog skills', () => {
 
         expect(result.exitCode).toBe(0)
         expect(fake.calls.map((call) => call.skillsDir)).toEqual(['.claude/skills', '.agents/skills'])
+        expect(fake.releaseLoads).toBe(1)
         expect(result.json()).toMatchObject({
             skills: [
                 { agent: 'claude-code', path: '/work/.claude/skills/posthog-flags', status: 'installed' },

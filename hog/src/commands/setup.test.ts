@@ -73,6 +73,7 @@ function fakeSkills(): SkillsLibrary {
                     },
                 ],
                 assets: [],
+                release: { assets: [] },
             }),
         install: async () => {
             throw new Error('hog setup installs no skills')
