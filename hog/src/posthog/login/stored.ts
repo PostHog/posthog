@@ -88,9 +88,15 @@ export async function writeLogin(
         await store.write(name, key.secret(), { removeIfLate: options.removeIfLate })
         const current = await readSettings(runtime)
         const previous = loginFor(current, key)
+        // A renewal keeps a leftover for the next login or logout, because removing it can wait on the
+        // keychain while this lock holds every other login's renewal.
+        const keepLeftover = previous?.keychainLeftover === true && options.lastLogin !== true
         const keychainLeftover =
-            store.kind === 'file' &&
-            (options.keychainLeftover === true || previous?.store === 'keychain' || previous?.keychainLeftover === true)
+            keepLeftover ||
+            (store.kind === 'file' &&
+                (options.keychainLeftover === true ||
+                    previous?.store === 'keychain' ||
+                    previous?.keychainLeftover === true))
         const loggedInAt = options.lastLogin ? runtime.now() : previous?.loggedInAt
         const record: LoginRecord = {
             ...key.record(store.kind),
@@ -104,9 +110,9 @@ export async function writeLogin(
         await save(record)
         const settings = withLogin(current, key, record)
         // The previous secrets go only once settings.json no longer names them. A failed removal doesn't
-        // fail a login that is already saved. A keychain
-        // item stays when the login moved to the file, because the keychain just failed and hog would
-        // wait for it again. `keychainLeftover` marks it for logout instead.
+        // fail a login that is already saved. A keychain item stays when the login moved to the file,
+        // because the keychain just failed and hog would wait for it again. `keychainLeftover` marks it
+        // for logout instead.
         const stale: { store: StoreChoice; name: ItemName }[] = []
         if (previous && !(previous.store === 'keychain' && store.kind === 'file')) {
             const previousName = recordItemName(previous)
@@ -115,7 +121,12 @@ export async function writeLogin(
             }
         }
         // The write above replaced a leftover under the login's own name, but not one under the host.
-        if (previous?.keychainLeftover && store.kind === 'keychain' && !hostItemInUse(settings, key.host)) {
+        if (
+            options.lastLogin &&
+            previous?.keychainLeftover &&
+            store.kind === 'keychain' &&
+            !hostItemInUse(settings, key.host)
+        ) {
             stale.push({ store: 'keychain', name: hostItemName(key.host) })
         }
         let keychainLeft = false
@@ -164,6 +175,9 @@ export async function logout(runtime: Runtime, target: LoginTarget): Promise<Log
         if (!record) {
             return undefined
         }
+        if (record.store === 'keychain') {
+            await removeFileCopies(runtime, settings, record)
+        }
         const login = await readLogin(runtime, settings, target)
         if (!login) {
             // The store can hold an item hog can't read, such as a key an older hog accepted, and
@@ -187,6 +201,20 @@ export async function logout(runtime: Runtime, target: LoginTarget): Promise<Log
         }
         const leftover = record.keychainLeftover ? await removeKeychainLeftover(runtime, settings, record) : null
         return { ...outcome, keychainLeftover: leftover }
+    })
+}
+
+// A login that moved from the file to the keychain leaves its old entry when that removal failed, so
+// logout removes it. A failure stops the logout before the record goes, so the next logout tries again.
+async function removeFileCopies(runtime: Runtime, settings: HogSettings, record: LoginRecord): Promise<void> {
+    const names = hostItemInUse(withLogin(settings, record, undefined), record.host)
+        ? [itemName(record)]
+        : [itemName(record), hostItemName(record.host)]
+    const file = new FileStore(runtime)
+    await withFileLock(runtime, LOGINS_LOCK, async () => {
+        for (const name of names) {
+            await file.remove(name)
+        }
     })
 }
 
