@@ -29,7 +29,7 @@ export function QuillFilmstripRail({
         )
     // Reaches across the card padding and the gap to the neighbouring cards.
     return (
-        <div className="flex items-center -mx-2 h-5" aria-hidden>
+        <span className="flex items-center -mx-2 h-5" aria-hidden>
             <span className={segment(passedBefore, first)} />
             {dot && (
                 <span
@@ -41,6 +41,6 @@ export function QuillFilmstripRail({
                 />
             )}
             <span className={segment(passedAfter, last)} />
-        </div>
+        </span>
     )
 }
