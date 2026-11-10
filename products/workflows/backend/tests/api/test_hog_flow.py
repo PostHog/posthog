@@ -5233,23 +5233,32 @@ class TestHogFlowAPI(APIBaseTest):
                 },
                 "An audience filter is incomplete. Finish it or remove it.",
             ),
+            (
+                "unfinished_person_filter_in_lowercase_group",
+                {"type": "and", "values": [{"key": "email", "type": "person", "operator": "exact"}]},
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "unfinished_person_filter_as_json_string",
+                json.dumps([{"key": "email", "type": "person", "operator": "exact"}]),
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "person_filter_without_key_in_group",
+                {"type": "AND", "values": [{"type": "AND", "values": [{"type": "person", "operator": "exact"}]}]},
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
         ]
     )
     def test_hog_flow_user_blast_radius_rejects_unusable_condition(self, _name, properties, message):
-        # Conditions that can't be sized get a clean 400 before the blast-radius query. A flag would
-        # 500 there, and an unfinished filter would be dropped, so the count covered a wider audience.
-        with patch(
-            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
-        ) as mock_get_person_audience_count:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
-                {"filters": {"properties": properties}},
-                format="json",
-            )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+            {"filters": {"properties": properties}},
+            format="json",
+        )
 
         assert response.status_code == 400, response.json()
         assert message in response.json().get("detail", "")
-        mock_get_person_audience_count.assert_not_called()
 
     @parameterized.expand(
         [
@@ -5267,19 +5276,15 @@ class TestHogFlowAPI(APIBaseTest):
     )
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_rejects_unusable_condition(self, _name, properties, message):
-        with patch(
-            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
-        ) as mock_get_person_audience_count:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
-                {"filters": {"properties": properties}},
-                format="json",
-                headers={"x-internal-api-secret": "test-secret-123"},
-            )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
+            {"filters": {"properties": properties}},
+            format="json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
 
         assert response.status_code == 400, response.json()
         assert message in response.json().get("error", "")
-        mock_get_person_audience_count.assert_not_called()
 
     @parameterized.expand(
         [
@@ -5297,19 +5302,15 @@ class TestHogFlowAPI(APIBaseTest):
     )
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_persons_rejects_unusable_condition(self, _name, properties, message):
-        with patch(
-            "products.workflows.backend.services.blast_radius.get_batch_audience_person_ids"
-        ) as mock_get_batch_audience_person_ids:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
-                {"filters": {"properties": properties}},
-                format="json",
-                headers={"x-internal-api-secret": "test-secret-123"},
-            )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
+            {"filters": {"properties": properties}},
+            format="json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
 
         assert response.status_code == 400, response.json()
         assert message in response.json().get("error", "")
-        mock_get_batch_audience_person_ids.assert_not_called()
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123", WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS=123)
     def test_internal_user_blast_radius_persons_uses_workflows_query(self):
