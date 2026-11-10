@@ -8,7 +8,7 @@ import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue }
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { QuillSurfaceContext, useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -65,7 +65,7 @@ function DashboardControlSlot({
     )
 }
 
-const INTERVAL_OPTIONS: { value: IntervalType | null; label: string }[] = [
+const GROUP_BY_INTERVAL_OPTIONS: { value: IntervalType | null; label: string }[] = [
     { value: null, label: "each insight's interval" },
     { value: 'hour', label: 'hour' },
     { value: 'day', label: 'day' },
@@ -74,12 +74,12 @@ const INTERVAL_OPTIONS: { value: IntervalType | null; label: string }[] = [
 ]
 
 // Quill's Select can't hold null as an item value, so "no override" gets its own key.
-const NO_INTERVAL_OVERRIDE = 'inherit'
+const NO_INTERVAL_OVERRIDE = 'inherit' as const
 
 export function DashboardIntervalFilter(): JSX.Element {
     const { dashboardEditing, effectiveEditBarFilters } = useValues(dashboardLogic)
     const { setInterval, setDashboardEditing } = useActions(dashboardLogic)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillSurface = useQuillSurface()
 
     const onChange = (interval: IntervalType | null): void => {
         if (!dashboardEditing?.filters) {
@@ -91,23 +91,22 @@ export function DashboardIntervalFilter(): JSX.Element {
     return (
         <span className="flex items-center gap-2">
             <span className="hidden md:inline">grouped by</span>
-            {todayRailNav ? (
-                <Select<string>
+            {quillSurface ? (
+                <Select<IntervalType | typeof NO_INTERVAL_OVERRIDE>
                     value={effectiveEditBarFilters.interval ?? NO_INTERVAL_OVERRIDE}
-                    onValueChange={(value) =>
-                        onChange(!value || value === NO_INTERVAL_OVERRIDE ? null : (value as IntervalType))
-                    }
+                    onValueChange={(value) => onChange(!value || value === NO_INTERVAL_OVERRIDE ? null : value)}
                 >
                     <SelectTrigger render={<Button variant="outline" left />} data-attr="dashboard-interval-filter">
                         <SelectValue>
-                            {(value: string) =>
-                                INTERVAL_OPTIONS.find((option) => (option.value ?? NO_INTERVAL_OVERRIDE) === value)
-                                    ?.label ?? value
+                            {(value: IntervalType | typeof NO_INTERVAL_OVERRIDE) =>
+                                GROUP_BY_INTERVAL_OPTIONS.find(
+                                    (option) => (option.value ?? NO_INTERVAL_OVERRIDE) === value
+                                )?.label ?? value
                             }
                         </SelectValue>
                     </SelectTrigger>
                     <SelectContent align="start" alignItemWithTrigger={false}>
-                        {INTERVAL_OPTIONS.map((option) => (
+                        {GROUP_BY_INTERVAL_OPTIONS.map((option) => (
                             <SelectItem
                                 key={option.value ?? NO_INTERVAL_OVERRIDE}
                                 value={option.value ?? NO_INTERVAL_OVERRIDE}
@@ -123,7 +122,7 @@ export function DashboardIntervalFilter(): JSX.Element {
                     value={effectiveEditBarFilters.interval ?? null}
                     dropdownMatchSelectWidth={false}
                     onChange={onChange}
-                    options={INTERVAL_OPTIONS}
+                    options={GROUP_BY_INTERVAL_OPTIONS}
                 />
             )}
         </span>

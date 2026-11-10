@@ -5,6 +5,7 @@ import { IconEllipsis, IconGear, IconPalette } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonDivider, LemonLabel, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { Badge, Button } from '@posthog/quill'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -59,7 +60,7 @@ export function DashboardEditBarAdvancedFilters({
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { currentTeam } = useValues(teamLogic)
     const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillSurface = useQuillSurface()
     const [visible, setVisible] = useState(false)
 
     const filterTestAccounts = effectiveEditBarFilters.filterTestAccounts ?? null
@@ -173,7 +174,7 @@ export function DashboardEditBarAdvancedFilters({
                 </div>
             }
         >
-            {todayRailNav ? (
+            {quillSurface ? (
                 <Button
                     variant="outline"
                     size="icon"
@@ -185,7 +186,11 @@ export function DashboardEditBarAdvancedFilters({
                     data-attr="dashboard-advanced-filters"
                 >
                     <IconEllipsis />
-                    {overrideCount ? <Badge className="absolute top-0 right-0">{overrideCount}</Badge> : null}
+                    {overrideCount ? (
+                        <Badge className="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2">
+                            {overrideCount}
+                        </Badge>
+                    ) : null}
                 </Button>
             ) : (
                 <LemonButton

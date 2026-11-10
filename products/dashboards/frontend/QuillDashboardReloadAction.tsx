@@ -20,17 +20,19 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
 
+import { AUTO_REFRESH_INTERVAL_OPTIONS } from './autoRefreshIntervalOptions'
+
 export interface QuillDashboardReloadActionProps {
     refreshDisabledReason: string
-    intervalOptions: { label: string; value: number }[]
+    onRefreshClick: () => void
 }
 
 export function QuillDashboardReloadAction({
     refreshDisabledReason,
-    intervalOptions,
+    onRefreshClick,
 }: QuillDashboardReloadActionProps): JSX.Element {
     const { itemsLoading, autoRefresh } = useValues(dashboardLogic)
-    const { triggerDashboardRefresh, setAutoRefresh, cancelDashboardRefresh } = useActions(dashboardLogic)
+    const { setAutoRefresh } = useActions(dashboardLogic)
 
     const optionsLabel = autoRefresh.enabled
         ? `Refresh options (auto refresh every ${humanFriendlyDuration(autoRefresh.interval)})`
@@ -47,7 +49,7 @@ export function QuillDashboardReloadAction({
             >
                 <Button
                     variant="outline"
-                    onClick={() => (itemsLoading ? cancelDashboardRefresh() : triggerDashboardRefresh())}
+                    onClick={onRefreshClick}
                     data-attr="dashboard-items-action-refresh"
                     tooltip={itemsLoading ? 'Cancel refresh' : undefined}
                     disabledReason={refreshDisabledReason || undefined}
@@ -86,7 +88,7 @@ export function QuillDashboardReloadAction({
                                 onValueChange={(value) => setAutoRefresh(true, Number(value))}
                             >
                                 <DropdownMenuLabel>Refresh interval</DropdownMenuLabel>
-                                {intervalOptions.map((option) => (
+                                {AUTO_REFRESH_INTERVAL_OPTIONS.map((option) => (
                                     <DropdownMenuRadioItem key={option.value} value={String(option.value)}>
                                         {option.label}
                                     </DropdownMenuRadioItem>

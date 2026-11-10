@@ -16,6 +16,7 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
 
+import { AUTO_REFRESH_INTERVAL_OPTIONS } from './autoRefreshIntervalOptions'
 import { QuillDashboardReloadAction } from './QuillDashboardReloadAction'
 
 export const LastRefreshText = (): JSX.Element => {
@@ -58,15 +59,6 @@ export function DashboardRefreshStatusText(): JSX.Element {
     )
 }
 
-const REFRESH_INTERVAL_SECONDS = [900, 1800, 3600]
-if (process.env.NODE_ENV === 'development') {
-    REFRESH_INTERVAL_SECONDS.unshift(10)
-}
-const INTERVAL_OPTIONS = Array.from(REFRESH_INTERVAL_SECONDS, (value) => ({
-    label: humanFriendlyDuration(value),
-    value: value,
-}))
-
 export function DashboardReloadAction(): JSX.Element {
     const { itemsLoading, autoRefresh, blockRefresh, nextAllowedDashboardRefresh } = useValues(dashboardLogic)
     const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility, cancelDashboardRefresh } =
@@ -82,6 +74,7 @@ export function DashboardReloadAction(): JSX.Element {
         dayjs(nextAllowedDashboardRefresh).isAfter(dayjs())
             ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
             : ''
+    const onRefreshClick = (): void => (itemsLoading ? cancelDashboardRefresh() : triggerDashboardRefresh())
 
     if (todayRailNav) {
         return (
@@ -89,13 +82,13 @@ export function DashboardReloadAction(): JSX.Element {
                 <DashboardRefreshStatusText />
                 <QuillDashboardReloadAction
                     refreshDisabledReason={refreshDisabledReason}
-                    intervalOptions={INTERVAL_OPTIONS}
+                    onRefreshClick={onRefreshClick}
                 />
             </div>
         )
     }
 
-    const options = INTERVAL_OPTIONS.map((option) => {
+    const options = AUTO_REFRESH_INTERVAL_OPTIONS.map((option) => {
         return {
             ...option,
             disabledReason: !autoRefresh.enabled ? 'Enable auto refresh to set the interval' : undefined,
@@ -115,7 +108,7 @@ export function DashboardReloadAction(): JSX.Element {
             >
                 <div className="relative inline-flex">
                     <LemonButton
-                        onClick={() => (itemsLoading ? cancelDashboardRefresh() : triggerDashboardRefresh())}
+                        onClick={onRefreshClick}
                         type="secondary"
                         icon={
                             itemsLoading ? (
