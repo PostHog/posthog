@@ -7343,30 +7343,28 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
     def _global(self, params=None):
         return self.client.get(f"/api/projects/{self.team.id}/hog_flows/metrics/global/", params)
 
-    def _seed(
-        self,
-        workflow_id,
-        *,
-        succeeded=0,
-        failed=0,
-        timestamp=None,
-        team_id=None,
-        app_source="hog_flow_version",
-        app_source_id=None,
-        instance_id="",
+    def _metric(
+        self, app_source, app_source_id, *, succeeded=0, failed=0, timestamp=None, team_id=None, instance_id=""
     ):
         for metric_kind, metric_name, count in (("success", "succeeded", succeeded), ("failure", "failed", failed)):
             if count:
                 create_app_metric2(
                     team_id=team_id or self.team.pk,
                     app_source=app_source,
-                    app_source_id=app_source_id or f"{workflow_id}/1",
+                    app_source_id=app_source_id,
                     instance_id=instance_id,
                     metric_kind=metric_kind,
                     metric_name=metric_name,
                     count=count,
                     timestamp=timestamp,
                 )
+
+    # Writes what the worker writes: the run under its workflow, or under its batch job for a batch-triggered run,
+    # and once the versioned mirror shipped, the same run again under the workflow and version.
+    def _seed(self, workflow_id, *, batch_job=None, version=1, mirrored=True, **run):
+        self._metric("hog_flow", str(batch_job.id if batch_job else workflow_id), **run)
+        if mirrored:
+            self._metric("hog_flow_version", f"{workflow_id}/{version}", **run)
 
     def test_returns_empty_when_no_metrics(self):
         res = self._global()
@@ -7383,29 +7381,38 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         # Most-failing first.
         assert rows[0]["workflow_id"] == str(self.flow_b.id)
 
-    def test_counts_each_run_once_across_versions_steps_and_both_series(self):
+    def test_counts_each_run_once_across_versions_steps_batches_and_the_switch_to_mirroring(self):
         now = datetime.now(tz=UTC)
-        mirroring_day = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        switch_hour = (now - timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
         before_mirroring = now - timedelta(days=3)
-        legacy = {"app_source": "hog_flow", "app_source_id": str(self.flow_a.id)}
-        for hour in (now, mirroring_day + timedelta(hours=9)):
-            self._seed(self.flow_a.id, succeeded=3, failed=1, timestamp=hour)
-            self._seed(self.flow_a.id, succeeded=3, failed=1, timestamp=hour, **legacy)
-            self._seed(self.flow_a.id, succeeded=2, app_source_id=f"{self.flow_a.id}/2", timestamp=hour)
-            self._seed(self.flow_a.id, succeeded=2, timestamp=hour, app_source="hog_flow", app_source_id="batch-run")
+        with patch(
+            "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+        ):
+            broadcast = HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.flow_a)
+            early_broadcast = HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.flow_a)
+            other_broadcast = HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.flow_b)
+        self._seed(self.flow_a.id, succeeded=3, failed=1, timestamp=now)
+        self._seed(self.flow_a.id, succeeded=2, version=2, timestamp=now)
+        self._seed(self.flow_a.id, batch_job=broadcast, succeeded=2, timestamp=now)
         self._seed(self.flow_a.id, succeeded=8, failed=6, instance_id="action_email", timestamp=now)
-        self._seed(self.flow_a.id, succeeded=6, failed=5, timestamp=mirroring_day + timedelta(hours=3), **legacy)
-        self._seed(self.flow_a.id, succeeded=6, failed=2, timestamp=before_mirroring, **legacy)
-        self._seed(self.flow_a.id, succeeded=50, instance_id="action_email", timestamp=before_mirroring, **legacy)
+        self._seed(self.flow_b.id, batch_job=other_broadcast, failed=5, timestamp=now)
+        self._seed(self.flow_a.id, mirrored=False, succeeded=6, timestamp=switch_hour)
+        self._seed(self.flow_a.id, succeeded=3, timestamp=switch_hour + timedelta(minutes=30))
+        self._seed(self.flow_a.id, batch_job=broadcast, succeeded=2, timestamp=switch_hour + timedelta(minutes=30))
+        self._seed(self.flow_a.id, mirrored=False, succeeded=6, failed=2, timestamp=before_mirroring)
+        self._seed(self.flow_a.id, batch_job=early_broadcast, mirrored=False, succeeded=4, timestamp=before_mirroring)
+        self._seed(self.flow_a.id, mirrored=False, succeeded=50, instance_id="action_email", timestamp=before_mirroring)
         rows = self._global().json()
-        assert rows == [{"workflow_id": str(self.flow_a.id), "succeeded": 22, "failed": 9}]
+        assert rows == [
+            {"workflow_id": str(self.flow_b.id), "succeeded": 0, "failed": 5},
+            {"workflow_id": str(self.flow_a.id), "succeeded": 28, "failed": 3},
+        ]
 
     @parameterized.expand([("list_v2_on", True, 3), ("list_v2_off", False, 5)])
     def test_counts_runs_the_new_way_only_behind_the_list_flag(self, _name, enabled, succeeded):
         self.list_v2_enabled = enabled
-        legacy = {"app_source": "hog_flow", "app_source_id": str(self.flow_a.id)}
-        self._seed(self.flow_a.id, succeeded=3, **legacy)
-        self._seed(self.flow_a.id, succeeded=2, instance_id="action_email", **legacy)
+        self._seed(self.flow_a.id, mirrored=False, succeeded=3)
+        self._seed(self.flow_a.id, mirrored=False, succeeded=2, instance_id="action_email")
         rows = self._global().json()
         assert rows == [{"workflow_id": str(self.flow_a.id), "succeeded": succeeded, "failed": 0}]
 
@@ -7432,7 +7439,7 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
     def test_isolated_from_other_team_and_app_source(self):
         self._seed(self.flow_a.id, succeeded=2)
         # Same id but a hog_function metric, and another team — neither must leak in.
-        self._seed(self.flow_a.id, succeeded=7, app_source="hog_function")
+        self._metric("hog_function", str(self.flow_a.id), succeeded=7)
         other_team = Team.objects.create(organization=self.organization, name="Other")
         self._seed(self.flow_a.id, succeeded=99, team_id=other_team.pk)
         rows = self._global().json()
