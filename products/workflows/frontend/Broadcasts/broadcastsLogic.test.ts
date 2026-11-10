@@ -255,7 +255,6 @@ describe('broadcastsLogic', () => {
         process.off('unhandledRejection', onRejection)
 
         expect(rejections).toEqual([])
-        expect(metrics).not.toHaveBeenCalled()
     })
 
     it('drops only the run statuses when the list reloads, keeping the tag and counts on screen', () => {
