@@ -9,6 +9,7 @@ on:
         paths:
             - 'nodejs/**'
             - 'ingestion/node/packages/common/**'
+            - 'ingestion/node/packages/ingestion/**'
             - 'ingestion/rust/**'
             - 'common/hogvm/typescript/**'
             - 'common/plugin_transpiler/**'
@@ -72,6 +73,7 @@ jobs:
                       rasterizer_files:
                         - 'nodejs/**'
                         - 'ingestion/node/packages/common/**'
+                        - 'ingestion/node/packages/ingestion/**'
                         - 'ingestion/rust/**'
                         - 'common/hogvm/typescript/**'
                         - 'common/plugin_transpiler/**'
@@ -138,6 +140,7 @@ jobs:
                       common/replay-shared
                       nodejs
                       ingestion/node/packages/common
+                      ingestion/node/packages/ingestion
                       ingestion/rust
                       patches
                       rust
