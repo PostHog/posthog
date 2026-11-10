@@ -1,8 +1,9 @@
-import type { CSSProperties, ReactNode } from 'react'
+import { type CSSProperties, type ReactNode, useRef, useState } from 'react'
 
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { IconColumns } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton, Popover } from '@posthog/lemon-ui'
 
-import { getColumnWidths, NotebookColumnsGroup } from './columnLayout'
+import { getColumnWidth, NotebookColumnsGroup } from './columnLayout'
 import type { MarkdownNotebookVisualGroup } from './documentModel'
 import type { NotebookMode } from './types'
 
@@ -23,30 +24,100 @@ export function NotebookColumns({
     onRemoveLayout: () => void
     onAddBlock: (boundaryIndex: number) => void
 }): JSX.Element {
-    const widths = getColumnWidths(group.start.node.props, group.columns.length)
+    const [settingsOpen, setSettingsOpen] = useState(false)
+    const toolbarRef = useRef<HTMLDivElement>(null)
+    const widths = group.columns.map((column) => getColumnWidth(column.start.node.props))
     return (
         <section className="MarkdownNotebook__columns" aria-label="Notebook columns">
             {mode === 'edit' && (
-                <div className="MarkdownNotebook__columns-toolbar" contentEditable={false}>
-                    <LemonSelect
-                        size="small"
-                        value={group.columns.length}
-                        options={[2, 3, 4].map((count) => ({ value: count, label: `${count} columns` }))}
-                        onChange={onCountChange}
-                        aria-label="Number of columns"
-                        data-attr="notebook-columns-count"
-                        tooltip="Reducing the number of columns moves their content into the last remaining column."
-                    />
-                    <LemonButton
-                        size="small"
-                        onClick={() => onWidthsChange(widths.map(() => 1))}
-                        data-attr="notebook-columns-equal-widths"
+                <div className="MarkdownNotebook__columns-toolbar" contentEditable={false} ref={toolbarRef}>
+                    <Popover
+                        visible={settingsOpen}
+                        additionalRefs={[toolbarRef]}
+                        onClickOutside={() => setSettingsOpen(false)}
+                        placement="bottom-end"
+                        overlay={
+                            <div
+                                className="MarkdownNotebook__columns-settings"
+                                contentEditable={false}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Escape') {
+                                        setSettingsOpen(false)
+                                    }
+                                }}
+                            >
+                                <span className="font-semibold">Column layout</span>
+                                <LemonSegmentedButton
+                                    size="small"
+                                    fullWidth
+                                    value={group.columns.length}
+                                    options={[2, 3, 4].map((count) => ({
+                                        value: count,
+                                        label: `${count} columns`,
+                                        'data-attr': `notebook-columns-count-${count}`,
+                                    }))}
+                                    onChange={onCountChange}
+                                />
+                                <div className="flex items-center justify-between">
+                                    <span className="font-semibold">Relative widths</span>
+                                    <LemonButton
+                                        size="xsmall"
+                                        onClick={() => onWidthsChange(widths.map(() => 1))}
+                                        data-attr="notebook-columns-equal-widths"
+                                    >
+                                        Equal widths
+                                    </LemonButton>
+                                </div>
+                                {group.columns.map((column, index) => (
+                                    <label className="MarkdownNotebook__column-width" key={column.start.key}>
+                                        <span>{`Column ${index + 1}`}</span>
+                                        <input
+                                            type="range"
+                                            min={1}
+                                            max={12}
+                                            step={1}
+                                            value={widths[index]}
+                                            aria-label={`Column ${index + 1} width`}
+                                            data-attr="notebook-column-width"
+                                            onChange={(event) =>
+                                                onWidthsChange(
+                                                    widths.map((current, i) =>
+                                                        i === index ? Number(event.target.value) : current
+                                                    )
+                                                )
+                                            }
+                                        />
+                                        <span className="tabular-nums text-right">{`${widths[index]}×`}</span>
+                                    </label>
+                                ))}
+                                <p className="text-xs text-secondary m-0">
+                                    Removing columns keeps their content in the last column.
+                                </p>
+                                <div className="border-t pt-2">
+                                    <LemonButton
+                                        size="small"
+                                        fullWidth
+                                        onClick={onRemoveLayout}
+                                        data-attr="notebook-columns-remove"
+                                    >
+                                        Remove layout, keep content
+                                    </LemonButton>
+                                </div>
+                            </div>
+                        }
                     >
-                        Equal widths
-                    </LemonButton>
-                    <LemonButton size="small" onClick={onRemoveLayout} data-attr="notebook-columns-remove">
-                        Remove layout
-                    </LemonButton>
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconColumns />}
+                            onClick={() => setSettingsOpen(!settingsOpen)}
+                            active={settingsOpen}
+                            aria-expanded={settingsOpen}
+                            aria-label="Configure columns"
+                            data-attr="notebook-columns-count"
+                        >
+                            {`${group.columns.length} columns`}
+                        </LemonButton>
+                    </Popover>
                 </div>
             )}
             <div
@@ -57,23 +128,8 @@ export function NotebookColumns({
                     } as CSSProperties
                 }
             >
-                {group.columns.map((column, index) => (
+                {group.columns.map((column) => (
                     <div className="MarkdownNotebook__column" key={column.start.key}>
-                        {mode === 'edit' && (
-                            <div className="MarkdownNotebook__column-toolbar" contentEditable={false}>
-                                <span>{`Column ${index + 1}`}</span>
-                                <LemonSelect
-                                    size="xsmall"
-                                    value={widths[index]}
-                                    options={[1, 2, 3, 4].map((width) => ({ value: width, label: `${width}× width` }))}
-                                    onChange={(width) =>
-                                        onWidthsChange(widths.map((current, i) => (i === index ? width : current)))
-                                    }
-                                    aria-label={`Column ${index + 1} width`}
-                                    data-attr="notebook-column-width"
-                                />
-                            </div>
-                        )}
                         {column.groups.map(renderGroup)}
                         {mode === 'edit' && column.groups.length === 0 && (
                             <div contentEditable={false}>

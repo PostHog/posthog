@@ -11,8 +11,8 @@ class TestColumnLayout(TestCase):
     def test_sharing_preserves_columns_and_filters_each_inner_component(self) -> None:
         markdown = "\n\n".join(
             [
-                '<Columns widths={[2, 1]} privateProp="remove-me">',
-                "<Column>",
+                '<Columns privateProp="remove-me">',
+                '<Column width={2} privateProp="remove-me">',
                 "## First chart",
                 '<Query nodeId="demo-chart" query={{"kind":"SavedInsightNode","shortId":"demo-first"}} />',
                 "</Column>",
@@ -29,7 +29,8 @@ class TestColumnLayout(TestCase):
         }
         self.assertEqual(extract_referenced_insight_short_ids(content), {"demo-first"})
         shared = filter_notebook_content_for_sharing(content)["content"][0]["attrs"]["markdown"]
-        self.assertIn("<Columns widths={[2,1]}>", shared)
+        self.assertIn("<Columns>", shared)
+        self.assertIn("<Column width={2}>", shared)
         self.assertIn("</Columns>", shared)
         self.assertIn("Notes next to the chart.", shared)
         self.assertIn("<PythonV2 />", shared)

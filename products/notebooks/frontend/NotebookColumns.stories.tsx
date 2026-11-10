@@ -42,9 +42,9 @@ const demoMarkdown = `# Weekly product review
 
 Compare acquisition and activation with notes next to each chart.
 
-<Columns widths={[2, 1]}>
+<Columns>
 
-<Column>
+<Column width={2}>
 
 ## Acquisition
 

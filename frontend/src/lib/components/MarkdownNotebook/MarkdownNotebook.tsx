@@ -7457,11 +7457,26 @@ function MarkdownNotebookEditor({
                                             })
                                         }}
                                         onWidthsChange={(widths) => {
-                                            updateNode(group.start.node.id, (node) =>
-                                                node.type === 'component'
-                                                    ? { ...node, props: { ...node.props, widths } }
-                                                    : node
+                                            const columnWidths = new Map(
+                                                group.columns.map((column, index) => [
+                                                    column.start.node.id,
+                                                    widths[index],
+                                                ])
                                             )
+                                            commitDocument({
+                                                ...documentRef.current,
+                                                nodes: documentRef.current.nodes.map((node) =>
+                                                    node.type === 'component' && columnWidths.has(node.id)
+                                                        ? {
+                                                              ...node,
+                                                              props: {
+                                                                  ...node.props,
+                                                                  width: columnWidths.get(node.id)!,
+                                                              },
+                                                          }
+                                                        : node
+                                                ),
+                                            })
                                             posthog.capture('notebook columns configured', {
                                                 columns: group.columns.length,
                                                 property: 'widths',

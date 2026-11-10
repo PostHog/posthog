@@ -1,12 +1,12 @@
-import { groupNotebookColumns, getColumnWidths, resizeNotebookColumns, NotebookColumnsGroup } from './columnLayout'
+import { groupNotebookColumns, getColumnWidth, resizeNotebookColumns, NotebookColumnsGroup } from './columnLayout'
 import { getMarkdownNotebookVisualGroups } from './documentModel'
 import { parseMarkdownNotebook, serializeMarkdownNotebook } from './markdown'
 
 const markdown = `# Review
 
-<Columns widths={[2,1]}>
+<Columns>
 
-<Column>
+<Column width={2}>
 
 ## Acquisition
 
@@ -40,6 +40,7 @@ describe('notebook columns', () => {
             ['text', 'block'],
             ['text', 'block'],
         ])
+        expect(layout.columns.map((column) => getColumnWidth(column.start.node.props))).toEqual([2, 1])
         expect(layout.columns[0].groups[1]).toMatchObject({ node: { props: { nodeId: 'first-chart' } } })
         expect(layout.columns[1].groups[1]).toMatchObject({ node: { props: { nodeId: 'second-chart' } } })
     })
@@ -68,6 +69,7 @@ describe('notebook columns', () => {
         const reduced = resizeNotebookColumns(populated, expandedLayout, 2)
         const reducedLayout = groupNotebookColumns(getMarkdownNotebookVisualGroups(reduced))[1] as NotebookColumnsGroup
         expect(reducedLayout.columns).toHaveLength(2)
+        expect(reducedLayout.columns.map((column) => getColumnWidth(column.start.node.props))).toEqual([2, 1])
         expect(reduced).toContainEqual(extraContent.items[0].node)
         expect(
             reduced.filter((node) => node.type !== 'component' || !['Column', 'ColumnEnd'].includes(node.tagName))
@@ -97,12 +99,17 @@ describe('notebook columns', () => {
     })
 
     it.each([
-        [{ widths: [2, 1] }, [2, 1]],
-        [{ widths: [0, -1, '2', null] }, [1, 1]],
-        [{ widths: [Number.NaN, Number.POSITIVE_INFINITY] }, [1, 1]],
-        [{ widths: [100000] }, [1, 1]],
-        [{}, [1, 1]],
+        [{ width: 2 }, 2],
+        [{ width: 1.5 }, 1.5],
+        [{ width: 0 }, 1],
+        [{ width: -1 }, 1],
+        [{ width: '2' }, 1],
+        [{ width: null }, 1],
+        [{ width: Number.NaN }, 1],
+        [{ width: Number.POSITIVE_INFINITY }, 1],
+        [{ width: 100000 }, 1],
+        [{}, 1],
     ])('bounds width values before generating CSS: %j', (props, expected) => {
-        expect(getColumnWidths(props, 2)).toEqual(expected)
+        expect(getColumnWidth(props)).toEqual(expected)
     })
 })

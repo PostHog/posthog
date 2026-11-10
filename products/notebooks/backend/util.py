@@ -53,8 +53,8 @@ SHARED_NOTEBOOK_SUPPORTED_MARKDOWN_COMPONENT_TAGS: frozenset[str] = frozenset(
 
 _SHARED_NOTEBOOK_MARKDOWN_COMPONENT_PROP_TYPES: dict[str, dict[str, type | tuple[type, ...]]] = {
     "Comment": {"ref": str, "replies": list, "text": str},
-    "Columns": {"widths": list},
-    "Column": {},
+    "Columns": {},
+    "Column": {"width": (int, float)},
     "ColumnEnd": {},
     "ColumnsEnd": {},
     "Divider": {},

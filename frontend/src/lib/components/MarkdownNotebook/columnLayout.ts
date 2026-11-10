@@ -8,16 +8,13 @@ export function isColumnLayoutNode(node: NotebookBlockNode): boolean {
     return node.type === 'component' && COLUMN_LAYOUT_TAGS.some((tag) => tag === node.tagName)
 }
 
-export function getColumnWidths(props: NotebookComponentProps, count: number): number[] {
-    const widths = Array.isArray(props.widths) ? props.widths : []
-    return Array.from({ length: count }, (_, index) => {
-        const width = widths[index]
-        return typeof width === 'number' && Number.isFinite(width) && width >= 1 && width <= 12 ? width : 1
-    })
+export function getColumnWidth(props: NotebookComponentProps): number {
+    const width = props.width
+    return typeof width === 'number' && Number.isFinite(width) && width >= 1 && width <= 12 ? width : 1
 }
 
 export type NotebookColumnGroup = {
-    start: Extract<MarkdownNotebookVisualGroup, { type: 'block' }>
+    start: Extract<MarkdownNotebookVisualGroup, { type: 'block' }> & { node: NotebookComponentBlockNode }
     groups: MarkdownNotebookVisualGroup[]
     end: Extract<MarkdownNotebookVisualGroup, { type: 'block' }>
 }
@@ -34,19 +31,26 @@ function groupTag(group: MarkdownNotebookVisualGroup | undefined): string | unde
     return group?.type === 'block' && group.node.type === 'component' ? group.node.tagName : undefined
 }
 
+function isLayoutOpening(
+    group: MarkdownNotebookVisualGroup | undefined,
+    tagName: 'Columns' | 'Column'
+): group is NotebookColumnGroup['start'] {
+    return (
+        group?.type === 'block' &&
+        group.node.type === 'component' &&
+        group.node.tagName === tagName &&
+        !group.node.errors?.length
+    )
+}
+
 function readColumns(groups: MarkdownNotebookVisualGroup[], start: number): NotebookColumnsGroup | null {
     const opening = groups[start]
-    if (
-        opening.type !== 'block' ||
-        opening.node.type !== 'component' ||
-        opening.node.tagName !== 'Columns' ||
-        opening.node.errors?.length
-    ) {
+    if (!isLayoutOpening(opening, 'Columns')) {
         return null
     }
     const columns: NotebookColumnGroup[] = []
     let index = start + 1
-    while (groupTag(groups[index]) === 'Column') {
+    while (isLayoutOpening(groups[index], 'Column')) {
         const columnStart = groups[index++] as NotebookColumnGroup['start']
         const content: MarkdownNotebookVisualGroup[] = []
         while (index < groups.length && !COLUMN_LAYOUT_TAGS.some((tag) => tag === groupTag(groups[index]))) {
@@ -125,21 +129,13 @@ export function resizeNotebookColumns(
                 ])
         )
         return [
-            ...nodes.slice(0, startIndex),
-            {
-                ...group.start.node,
-                props: { ...group.start.node.props, widths: getColumnWidths(group.start.node.props, count) },
-            },
+            ...nodes.slice(0, startIndex + 1),
             ...content.filter((node) => !removedMarkers.has(node.id)),
             ...nodes.slice(endIndex),
         ]
     }
     return [
-        ...nodes.slice(0, startIndex),
-        {
-            ...group.start.node,
-            props: { ...group.start.node.props, widths: getColumnWidths(group.start.node.props, count) },
-        },
+        ...nodes.slice(0, startIndex + 1),
         ...content,
         ...Array.from({ length: count - group.columns.length }, makeColumnNodes).flat(),
         ...nodes.slice(endIndex),
