@@ -23,7 +23,7 @@
     "@earendil-works/pi-coding-agent": "catalog:",
     "@hono/node-server": "catalog:",
     "@hono/trpc-server": "catalog:",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@parcel/watcher": "catalog:",
     "@posthog/agent": "link:../../../../packages/agent/packages/agent",
     "@posthog/di": "workspace:*",

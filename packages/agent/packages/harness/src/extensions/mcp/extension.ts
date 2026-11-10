@@ -111,6 +111,9 @@ function isAuthRequiredError(message: string): boolean {
  * the message already carries one (our own UnauthorizedError messages do).
  */
 function authHint(serverName: string, message: string): string {
+  if (/is bound to authorization server/.test(message)) {
+    return ` — run /mcp:auth ${serverName} reset`;
+  }
   return isAuthRequiredError(message) && !message.includes("/mcp:auth")
     ? ` — run /mcp:auth ${serverName}`
     : "";

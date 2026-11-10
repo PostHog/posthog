@@ -176,9 +176,60 @@ describe("McpOAuthProvider", () => {
         }),
       ]);
       const entry = await storage.readForUrl(SERVER, serverUrl);
-      expect(entry?.tokens?.accessToken).toBe("access-1");
+      const issuer = `${oauth.url}/`;
+      expect(entry?.tokens).toMatchObject({ accessToken: "access-1", issuer });
+      await p.invalidateCredentials("tokens");
+      expect(await p.clientInformation()).toEqual({
+        client_id: "client-123",
+        issuer,
+      });
       await oauth.close();
     });
+
+    it.each([
+      ["a background provider", "client-123", authConfig(), undefined],
+      [
+        "a configured client in an interactive flow",
+        "configured-client",
+        authConfig({ clientId: "configured-client", clientSecret: "secret" }),
+        () => {},
+      ],
+    ] as const)(
+      "%s never sends credentials bound to another authorization server",
+      async (_, clientId, config, onRedirect) => {
+        const oauth = await createFakeOAuthServer();
+        const serverUrl = `${oauth.url}/mcp`;
+        const boundElsewhere = {
+          clientInfo: { clientId, issuer: "https://as.example.com/" },
+          tokens: {
+            accessToken: "stale",
+            refreshToken: "refresh-old",
+            issuer: "https://as.example.com/",
+          },
+        };
+        await storage.update(SERVER, serverUrl, (entry) => {
+          Object.assign(entry, boundElsewhere);
+        });
+        const p = new McpOAuthProvider(
+          SERVER,
+          serverUrl,
+          config,
+          storage,
+          onRedirect,
+          onRedirect && REDIRECT,
+        );
+
+        await expect(auth(p, { serverUrl })).rejects.toThrow(
+          /is bound to authorization server/,
+        );
+        expect(oauth.registrations).toHaveLength(0);
+        expect(oauth.tokenRequests).toHaveLength(0);
+        expect(await storage.readForUrl(SERVER, serverUrl)).toMatchObject(
+          boundElsewhere,
+        );
+        await oauth.close();
+      },
+    );
 
     it("fails with UnauthorizedError and no side effects when unauthenticated", async () => {
       const oauth = await createFakeOAuthServer();
@@ -212,8 +263,8 @@ describe("McpOAuthProvider", () => {
   });
 
   it("saveClientInformation round-trips through storage", async () => {
-    const p = provider();
-    await p.saveClientInformation({
+    const p = provider(authConfig(), () => {}, REDIRECT);
+    await p.saveClientInformation?.({
       client_id: "new-client",
       client_secret: "secret",
       redirect_uris: [REDIRECT],
@@ -308,9 +359,9 @@ describe("McpOAuthProvider", () => {
     ["client", { tokens: "kept", clientInfo: undefined }],
     ["all", { tokens: undefined, clientInfo: undefined }],
   ] as const)("invalidateCredentials(%s)", async (scope, expected) => {
-    const p = provider();
+    const p = provider(authConfig(), () => {}, REDIRECT);
     await p.saveTokens({ access_token: "a", token_type: "bearer" });
-    await p.saveClientInformation({ client_id: "c", redirect_uris: [] });
+    await p.saveClientInformation?.({ client_id: "c", redirect_uris: [] });
 
     await p.invalidateCredentials(scope);
     const entry = await storage.read(SERVER);

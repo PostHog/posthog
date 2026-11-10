@@ -19,6 +19,8 @@ export interface StoredTokens {
   /** Unix timestamp in seconds. */
   expiresAt?: number;
   scope?: string;
+  /** The MCP SDK sends the refresh token only to this authorization server. */
+  issuer?: string;
 }
 
 /** OAuth client information from dynamic (or static) registration. */
@@ -28,6 +30,7 @@ export interface StoredClientInfo {
   clientIdIssuedAt?: number;
   clientSecretExpiresAt?: number;
   redirectUris?: string[];
+  issuer?: string;
 }
 
 /** Complete auth entry for one server. */

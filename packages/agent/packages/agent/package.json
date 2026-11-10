@@ -200,7 +200,7 @@
     "jsonwebtoken": "^9.0.2",
     "lru-cache": "^11.1.0",
     "minimatch": "^10.0.3",
-    "@modelcontextprotocol/sdk": "1.29.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "uuid": "13.0.0",
     "yoga-wasm-web": "^0.3.3",
     "zod": "^4.2.0"
