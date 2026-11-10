@@ -1,6 +1,7 @@
 import { chunk } from 'lodash'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import type { CommonConfig } from '~/common/config'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -63,7 +64,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
             | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
-        >
+        > &
+            Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>
     ) {
         this.sanitizer = createInvocationSanitizer(config)
     }

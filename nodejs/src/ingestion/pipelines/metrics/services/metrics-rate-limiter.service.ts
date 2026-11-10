@@ -1,7 +1,8 @@
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 import { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
+import { METRICS_LIMITER_FAIL_OPEN_REDIS_TIMEOUT_MS } from '~/ingestion/pipelines/metrics/services/metrics-redis'
 import { MetricsIngestionMessage } from '~/ingestion/pipelines/metrics/types'
 
 const msToSeconds = (ms: number): number => Math.round(ms / 1000)
@@ -13,6 +14,11 @@ export const metricsMessageLagHistogram = new Histogram({
     buckets: [-60, 0, 1, 5, 10, 30, 60, 300, 600, 1800, 3600],
 })
 
+export const metricsRateLimiterRedisErrorsCounter = new Counter({
+    name: 'metrics_rate_limiter_redis_errors_total',
+    help: 'Rate limit checks that allowed every message because Redis was unavailable (METRICS_LIMITER_FAIL_OPEN)',
+})
+
 export type MetricsRateLimiterConfig = Pick<
     MetricsIngestionConsumerConfig,
     | 'METRICS_LIMITER_TEAM_BUCKET_SIZE_KB'
@@ -22,7 +28,27 @@ export type MetricsRateLimiterConfig = Pick<
     | 'METRICS_LIMITER_BUCKET_SIZE_KB'
     | 'METRICS_LIMITER_REFILL_RATE_KB_PER_SECOND'
     | 'METRICS_LIMITER_TTL_SECONDS'
+    | 'METRICS_LIMITER_FAIL_OPEN'
 >
+
+// ioredis holds a command in its offline queue while it reconnects, and commandTimeout does not start
+// for a queued command. Without this bound, a Redis outage stalls the batch instead of failing open.
+const withFailOpenTimeout = async <T>(pending: Promise<T>): Promise<T> => {
+    let timer: NodeJS.Timeout | undefined
+    try {
+        return await Promise.race([
+            pending,
+            new Promise<never>((_, reject) => {
+                timer = setTimeout(
+                    () => reject(new Error('Metrics rate limiter Redis call timed out')),
+                    METRICS_LIMITER_FAIL_OPEN_REDIS_TIMEOUT_MS
+                )
+            }),
+        ])
+    } finally {
+        clearTimeout(timer)
+    }
+}
 
 export const BASE_REDIS_KEY =
     process.env.NODE_ENV == 'test' ? '@posthog-test/metrics-rate-limiter' : '@posthog/metrics-rate-limiter'
@@ -128,29 +154,55 @@ export class MetricsRateLimiterService {
     }
 
     public async rateLimitMany(idCosts: [string, number, number][]): Promise<[string, MetricsRateLimit][]> {
-        const res = await this.redis.usePipeline({ name: 'metrics-rate-limiter', failOpen: true }, (pipeline) => {
-            idCosts.forEach(([id, cost, nowSeconds]) => {
-                pipeline.checkRateLimitV2(...this.rateLimitArgs(id, cost, nowSeconds))
+        let res: Awaited<ReturnType<RedisV2['usePipeline']>>
+        try {
+            const pending = this.redis.usePipeline({ name: 'metrics-rate-limiter', failOpen: true }, (pipeline) => {
+                idCosts.forEach(([id, cost, nowSeconds]) => {
+                    pipeline.checkRateLimitV2(...this.rateLimitArgs(id, cost, nowSeconds))
+                })
             })
-        })
+            res = this.config.METRICS_LIMITER_FAIL_OPEN ? await withFailOpenTimeout(pending) : await pending
+        } catch (error) {
+            if (!this.config.METRICS_LIMITER_FAIL_OPEN) {
+                throw error
+            }
+            res = null
+        }
 
         if (!res) {
+            if (this.config.METRICS_LIMITER_FAIL_OPEN) {
+                // No result means no limit for any team, so filterMessages allows every message.
+                metricsRateLimiterRedisErrorsCounter.inc()
+                return []
+            }
             throw new Error('Failed to rate limit')
         }
 
-        return idCosts.map(([id, ,], index) => {
+        let commandFailed = false
+        const results = idCosts.flatMap(([id, ,], index): [string, MetricsRateLimit][] => {
             const [tokenRes] = getRedisPipelineResults(res, index, 1)
+            if (this.config.METRICS_LIMITER_FAIL_OPEN && tokenRes[0]) {
+                // A team with no result has no limit, so filterMessages allows its messages.
+                commandFailed = true
+                return []
+            }
             const tokensBefore = Number(tokenRes[1]?.[0] ?? this.config.METRICS_LIMITER_BUCKET_SIZE_KB)
             const tokensAfter = Number(tokenRes[1]?.[1] ?? this.config.METRICS_LIMITER_BUCKET_SIZE_KB)
             return [
-                id,
-                {
-                    tokensBefore,
-                    tokensAfter,
-                    isRateLimited: tokensAfter <= 0,
-                },
+                [
+                    id,
+                    {
+                        tokensBefore,
+                        tokensAfter,
+                        isRateLimited: tokensAfter <= 0,
+                    },
+                ],
             ]
         })
+        if (commandFailed) {
+            metricsRateLimiterRedisErrorsCounter.inc()
+        }
+        return results
     }
 
     private isRateLimitingEnabledForTeam(teamId: number): boolean {
