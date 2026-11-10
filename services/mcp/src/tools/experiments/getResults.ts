@@ -1,6 +1,9 @@
 import type { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
 import { findRecoverableApiError, PostHogApiError, PostHogValidationError, wrapError } from '@/lib/errors'
+import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
+import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import { withUiApp } from '@/resources/ui-apps'
 import type { ExperimentResultsSummary } from '@/schema/experiments'
 import { transformExperimentResults } from '@/schema/experiments'
@@ -13,6 +16,38 @@ const schema = ExperimentResultsGetSchema
 type Params = z.infer<typeof schema>
 type Result = WithPostHogUrl<ExperimentResultsSummary>
 
+// The same flag shows the health panel in the app. Agents get the configuration checks only for the
+// people who see that panel, so a customer's agent does not report findings the customer cannot see.
+const EXPERIMENT_HEALTH_FINDINGS_FLAG = 'experiment-health-findings'
+
+// The results wait for the health read, so a slow read must not hold them. The limit covers the
+// retries too. When it runs out, the response keeps the exposure checks only.
+const CONFIG_HEALTH_TIMEOUT_MS = 10_000
+
+async function readConfigHealth(
+    context: Context,
+    projectId: string,
+    experimentId: number
+): Promise<Schemas.ExperimentHealth | null> {
+    try {
+        const analyticsContext = await context.stateManager.getAnalyticsContext().catch(() => undefined)
+        const enabled = await isFeatureFlagEnabled(
+            EXPERIMENT_HEALTH_FINDINGS_FLAG,
+            await context.getDistinctId(),
+            analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : undefined
+        )
+        if (!enabled) {
+            return null
+        }
+        const health = await context.api
+            .experiments({ projectId })
+            .getHealth({ experimentId, signal: AbortSignal.timeout(CONFIG_HEALTH_TIMEOUT_MS) })
+        return health.success ? health.data : null
+    } catch {
+        return null
+    }
+}
+
 /**
  * Get experiment results including metrics and exposures data
  * This tool fetches the experiment details and executes the necessary queries
@@ -24,10 +59,13 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
 ) => {
     const projectId = await context.stateManager.getProjectId()
 
-    const result = await context.api.experiments({ projectId }).getMetricResults({
-        experimentId: params.id,
-        refresh: params.refresh,
-    })
+    const [result, configHealth] = await Promise.all([
+        context.api.experiments({ projectId }).getMetricResults({
+            experimentId: params.id,
+            refresh: params.refresh,
+        }),
+        readConfigHealth(context, projectId, params.id),
+    ])
 
     if (!result.success) {
         const message = `Failed to get experiment results: ${result.error.message}`
@@ -60,6 +98,7 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
             primaryMetricsResults,
             secondaryMetricsResults,
             exposures,
+            configHealth,
         }),
         `/experiments/${params.id}`
     )

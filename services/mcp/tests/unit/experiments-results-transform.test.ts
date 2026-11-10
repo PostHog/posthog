@@ -310,6 +310,90 @@ describe('transformExperimentResults', () => {
         expect(result.experiment.saved_metrics).toEqual([savedMetric])
     })
 
+    it('puts the health findings of both sources first, most severe first, so a client that cuts the middle of the response keeps them', () => {
+        const findingText = {
+            actions: [],
+            detail: 'detail',
+            diagnostic_ref: null,
+            evidence: {},
+            reason: null,
+            subcode: null,
+            title: 'title',
+        }
+        const experiment = makeExperiment({ metrics: [], primary_metrics_ordered_uuids: [] })
+
+        const result = transformExperimentResults({
+            experiment,
+            exposures: {
+                ...baseExposures,
+                health_findings: [
+                    {
+                        ...findingText,
+                        code: 'multiple_variants_share',
+                        check: 'multiple_variants_share',
+                        severity: 'info',
+                    },
+                    { ...findingText, code: 'srm', check: 'srm', severity: 'critical' },
+                ],
+                health_checks: [
+                    {
+                        key: 'srm',
+                        name: 'Sample ratio mismatch',
+                        description: 'Compares the split with the configured one.',
+                        reason: null,
+                        status: 'finding',
+                        values: { p_value: 0.0001 },
+                    },
+                    {
+                        key: 'zero_exposures',
+                        name: 'No exposures',
+                        reason: 'Runs after launch',
+                        status: 'not_applicable',
+                    },
+                ],
+            },
+            primaryMetricEntries: [],
+            secondaryMetricEntries: [],
+            primaryMetricsResults: [],
+            secondaryMetricsResults: [],
+            configHealth: {
+                findings: [
+                    {
+                        ...findingText,
+                        code: 'split_changed_mid_run',
+                        check: 'split_changed_mid_run',
+                        severity: 'warning',
+                    },
+                ],
+                checks: [
+                    {
+                        key: 'split_changed_mid_run',
+                        name: 'Split changed after launch',
+                        description: 'Compares the variant split with the one at launch.',
+                        reason: null,
+                        status: 'finding',
+                        values: {},
+                        rule: null,
+                    },
+                ],
+            },
+        })
+
+        expect(Object.keys(result)[0]).toBe('health')
+        expect(result.health.findings.map((f) => f.code)).toEqual([
+            'srm',
+            'split_changed_mid_run',
+            'multiple_variants_share',
+        ])
+        expect(result.health.checks).toEqual([
+            { key: 'split_changed_mid_run', status: 'finding', reason: null },
+            { key: 'srm', status: 'finding', reason: null },
+            { key: 'zero_exposures', status: 'not_applicable', reason: 'Runs after launch' },
+        ])
+        expect(result.exposures).not.toHaveProperty('health_findings')
+        expect(result.exposures).not.toHaveProperty('health_checks')
+    })
+
     it('keeps a row with `data: null` when the underlying metric query fails, so positions stay aligned', () => {
         // The API client returns `null` for that row when the per-metric query errors.
         // Erasing the row would shift subsequent positions away from

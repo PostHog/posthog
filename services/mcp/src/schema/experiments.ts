@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
+
 const ExperimentType = ['web', 'product'] as const
 
 const ExperimentConclusion = ['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'] as const
@@ -170,7 +172,16 @@ export const ExperimentExposureQueryResponseSchema = z.object({
     }),
 })
 
-export type ExperimentExposureQueryResponse = z.infer<typeof ExperimentExposureQueryResponseSchema>
+export type ExperimentExposureQueryResponse = z.infer<typeof ExperimentExposureQueryResponseSchema> &
+    Pick<Schemas.ExperimentExposureQueryResponse, 'health_findings' | 'health_checks'>
+
+type HealthFinding = Schemas.ExperimentHealthFinding | Schemas.ExperimentExposureHealthFinding
+type HealthCheck = Schemas.ExperimentHealthCheckResult | Schemas.ExperimentExposureHealthCheck
+
+export type ExperimentResultsHealth = {
+    findings: HealthFinding[]
+    checks: Pick<HealthCheck, 'key' | 'status' | 'reason'>[]
+}
 
 export type MetricSummary = {
     uuid: string | null
@@ -195,6 +206,7 @@ export type ExperimentMetricResultRow = {
 }
 
 export interface ExperimentResultsSummary {
+    health: ExperimentResultsHealth
     experiment: {
         id: number
         name: string
@@ -212,7 +224,7 @@ export interface ExperimentResultsSummary {
             rollout_percentage?: number | null | undefined
         }>
     }
-    exposures: ExperimentExposureQueryResponse
+    exposures: Omit<ExperimentExposureQueryResponse, 'health_findings' | 'health_checks'>
     metrics: {
         primary: {
             count: number
@@ -398,6 +410,19 @@ function stripBulkFields(data: unknown): unknown {
     }
 }
 
+const SEVERITY_RANK: Record<HealthFinding['severity'], number> = {
+    critical: 0,
+    warning: 1,
+    info: 2,
+}
+
+function summarizeHealth(findings: HealthFinding[], checks: HealthCheck[]): ExperimentResultsHealth {
+    return {
+        findings: [...findings].sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]),
+        checks: checks.map(({ key, status, reason }) => ({ key, status, reason })),
+    }
+}
+
 export function transformExperimentResults(input: {
     experiment: Experiment
     exposures: ExperimentExposureQueryResponse
@@ -405,6 +430,7 @@ export function transformExperimentResults(input: {
     secondaryMetricEntries: ResolvedMetricEntry[]
     primaryMetricsResults: unknown[]
     secondaryMetricsResults: unknown[]
+    configHealth?: Schemas.ExperimentHealth | null
 }): ExperimentResultsSummary {
     const {
         experiment,
@@ -413,6 +439,7 @@ export function transformExperimentResults(input: {
         secondaryMetricEntries,
         primaryMetricsResults,
         secondaryMetricsResults,
+        configHealth,
     } = input
 
     const transformedExperiment = {
@@ -458,9 +485,17 @@ export function transformExperimentResults(input: {
         }
     }
 
+    const { health_findings, health_checks, ...exposureCounts } = exposures
+
+    // MCP clients shorten a long tool result by cutting its middle or its end, and an experiment with many
+    // metrics makes the result long. The health findings come first so that they survive the cut.
     return {
+        health: summarizeHealth(
+            [...(configHealth?.findings ?? []), ...(health_findings ?? [])],
+            [...(configHealth?.checks ?? []), ...(health_checks ?? [])]
+        ),
         experiment: transformedExperiment,
-        exposures,
+        exposures: exposureCounts,
         metrics: {
             primary: buildRows(primaryMetricsResults, primaryMetricEntries),
             secondary: buildRows(secondaryMetricsResults, secondaryMetricEntries),

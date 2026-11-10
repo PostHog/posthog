@@ -1106,6 +1106,19 @@ export class ApiClient {
                 )
             },
 
+            getHealth: async ({
+                experimentId,
+                signal,
+            }: {
+                experimentId: number
+                signal?: AbortSignal
+            }): Promise<Result<Schemas.ExperimentHealth>> => {
+                return this.fetchJson<Schemas.ExperimentHealth>(
+                    `${this.baseUrl}/api/projects/${projectId}/experiments/${experimentId}/health/`,
+                    { signal }
+                )
+            },
+
             getExposures: async ({
                 experimentId,
                 refresh = false,
