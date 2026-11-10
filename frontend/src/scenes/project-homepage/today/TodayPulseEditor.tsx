@@ -31,6 +31,38 @@ import {
     withoutKeys,
 } from './todayPulseEditorRows'
 
+function IgnoredToggleItem({ count, open }: { count: number; open: boolean }): JSX.Element {
+    const Chevron = open ? IconChevronDown : IconChevronRight
+    return (
+        <ComboboxItem
+            value={IGNORED_TOGGLE}
+            action
+            aria-expanded={open}
+            className="pe-8 text-muted-foreground"
+            data-attr="today-pulse-ignored-toggle"
+        >
+            <IconHide className="size-3.5 shrink-0" />
+            <span className="min-w-0 truncate">Ignored</span>
+            <span className="text-xs tabular-nums">{count}</span>
+            <Chevron className="pointer-events-none absolute end-2 size-3.5" />
+        </ComboboxItem>
+    )
+}
+
+function IgnoredItem({ value, row }: { value: string; row: HiddenPulseNumberApi }): JSX.Element {
+    return (
+        <ComboboxItem
+            value={value}
+            tooltip="It can be suggested again"
+            className="pe-16 text-muted-foreground"
+            data-attr="today-pulse-restore"
+        >
+            <span className="min-w-0 truncate">{row.name}</span>
+            <span className="pointer-events-none absolute end-2.5 text-xs">Restore</span>
+        </ComboboxItem>
+    )
+}
+
 export function TodayPulseEditor(): JSX.Element {
     const {
         pulsePins,

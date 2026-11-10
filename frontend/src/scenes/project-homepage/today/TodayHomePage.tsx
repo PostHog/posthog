@@ -56,8 +56,7 @@ export function TodayHomePage(): JSX.Element {
     const rootRef = useRef<HTMLDivElement>(null)
     const { currentOrganization } = useValues(organizationLogic)
     const postHogAiTasks = useFeatureFlag('PHAI_SANDBOX_MODE')
-    const homeComposer =
-        useFeatureFlag('TODAY_HOME_COMPOSER') && postHogAiTasks && !!currentOrganization?.is_ai_data_processing_approved
+    const homeComposer = postHogAiTasks && !!currentOrganization?.is_ai_data_processing_approved
 
     useLayoutEffect(() => {
         pulseViewMounted(useSampleData)
@@ -113,7 +112,7 @@ export function TodayHomePage(): JSX.Element {
                     </Text>
                 </div>
                 <TodayMetaLine />
-                {postHogAiTasks ? <TodayHomeComposer /> : null}
+                {homeComposer ? <TodayHomeComposer /> : null}
             </section>
             <div className="TodayHome__body">
                 {isNewProject ? <TodayFirstEventWatcher /> : <TodayPulseSection />}
