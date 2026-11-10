@@ -24,6 +24,8 @@ import type {
     LogsAnomalyScanRequestApi,
     LogsAnomalyScanResponseApi,
     LogsAttributesRetrieveParams,
+    LogsContextRequestApi,
+    LogsContextResponseApi,
     LogsExportCreate201,
     LogsHasLogsRetrieve200,
     LogsMetricRuleApi,
@@ -464,6 +466,23 @@ export const logsAttributesRetrieve = async (
     return apiMutator<_LogsAttributesResponseApi>(getLogsAttributesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLogsContextCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/context/`
+}
+
+export const logsContextCreate = async (
+    projectId: string,
+    logsContextRequestApi: LogsContextRequestApi,
+    options?: RequestInit
+): Promise<LogsContextResponseApi> => {
+    return apiMutator<LogsContextResponseApi>(getLogsContextCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsContextRequestApi),
     })
 }
 
