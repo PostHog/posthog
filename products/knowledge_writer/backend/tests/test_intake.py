@@ -343,9 +343,19 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     assert joined.pull_request_url == opened["pr_url"]
     assert TaskRun.objects.get(task_id=joined.task_id).branch == DOCS_HEAD["branch"]
 
-    with patch(f"{GITHUB}.comment_on_pull_request", return_value={"success": True}) as comment_for_refused_files:
+    with (
+        patch(
+            f"{GITHUB}.comment_on_pull_request",
+            side_effect=[
+                GitHubRateLimitError("rate limited"),
+                {"success": False, "status_code": 502},
+                {"success": True},
+            ],
+        ) as comment_for_refused_files,
+        patch("products.knowledge_writer.backend.logic.pull_requests.time.sleep"),
+    ):
         _finish_run(joined.task_id, django_capture_on_commit_callbacks, changed_files=(WORKFLOW_PATH,))
-    comment_for_refused_files.assert_called_once()
+    assert comment_for_refused_files.call_count == 3
     assert comment_for_refused_files.call_args.args[:2] == ("posthog.com", 9)
     assert second_verdict.request.source_url not in comment_for_refused_files.call_args.args[2]
     assert (

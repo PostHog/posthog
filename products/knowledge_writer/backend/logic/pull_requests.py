@@ -1,11 +1,12 @@
 import re
+import time
 from dataclasses import dataclass
 from urllib.parse import quote
 from uuid import UUID
 
 import structlog
 
-from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationManager
@@ -163,6 +164,10 @@ def open_writer_pull_requests(writer: WriterSettings) -> list[WriterPullRequest]
     return None
 
 
+REFUSAL_WARNING_ATTEMPTS = 3
+REFUSAL_WARNING_BACKOFF_SECONDS = 2
+
+
 class WriterPullRequestFailed(Exception):
     pass
 
@@ -314,13 +319,30 @@ def is_docs_path(path: str, docs_paths: tuple[str, ...]) -> bool:
 def warn_on_joined_pull_request(
     github: GitHubIntegration, docs_name: str, pull_request: WriterPullRequest, team_id: int, task_run_id: UUID
 ) -> None:
+    for attempt in range(REFUSAL_WARNING_ATTEMPTS):
+        time.sleep(REFUSAL_WARNING_BACKOFF_SECONDS * attempt)
+        try:
+            commented = posted_refusal_warning(github, docs_name, pull_request.number)
+        except Exception as error:
+            capture_exception(error, {"team_id": team_id, "task_run_id": str(task_run_id)})
+            return
+        if commented.get("success"):
+            return
+        if not is_comment_failure_retryable(commented):
+            break
+    reported_step_failure(github_step_failed("comment_on_pull_request", commented), team_id, task_run_id)
+
+
+def posted_refusal_warning(github: GitHubIntegration, docs_name: str, pull_request_number: int) -> dict:
     try:
-        commented = github.comment_on_pull_request(docs_name, pull_request.number, refused_push_comment())
-    except Exception as error:
-        capture_exception(error, {"team_id": team_id, "task_run_id": str(task_run_id)})
-        return
-    if not commented.get("success"):
-        reported_step_failure(github_step_failed("comment_on_pull_request", commented), team_id, task_run_id)
+        return github.comment_on_pull_request(docs_name, pull_request_number, refused_push_comment())
+    except GitHubRateLimitError:
+        return {"success": False, "status_code": 429}
+
+
+def is_comment_failure_retryable(commented: dict) -> bool:
+    status_code = commented.get("status_code")
+    return isinstance(status_code, int) and (status_code == 429 or status_code >= 500)
 
 
 def reported_step_failure(step_failed: GitHubStepFailed, team_id: int, task_run_id: UUID) -> WriterPullRequestFailed:
