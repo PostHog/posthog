@@ -76,6 +76,10 @@ filters:
         - 'products/warehouse_sources/backend/facade/models.py'
         - 'products/warehouse_sources/backend/facade/source_management.py'
         - 'products/warehouse_sources/backend/facade/types.py'
+        - 'products/warehouse_sources/backend/models/credential.py'
+        - 'products/warehouse_sources/backend/models/external_data_source.py'
+        - 'products/warehouse_sources/backend/models/pending_source_credential.py'
+        - 'products/warehouse_sources/backend/models/table.py'
         - 'products/event_definitions/backend/logic/__init__.py'
         - 'products/event_definitions/backend/logic/placeholder.py'
         - 'posthog/temporal/oauth.py'
@@ -83,8 +87,18 @@ filters:
         - 'products/security/backend/facade/**'
         - 'products/security/backend/logic/**'
         - 'products/security/backend/metrics.py'
+        - 'products/access_control/backend/facade/user_access_control.py'
+        - 'products/mcp_store/backend/facade/api.py'
+        - 'products/posthog_ai/backend/task_ownership.py'
         - 'posthog/storage/gateway_credential_signal_handlers.py'
         - 'posthog/storage/gateway_credential_cache.py'
+        - 'posthog/caching/ai_gateway_redis_cache.py'
+        - 'posthog/caching/flags_redis_cache.py'
+        - 'posthog/caching/tasks_redis_cache.py'
+        - 'posthog/caching/zstd_compressor.py'
+        - 'posthog/llm/gateway_client.py'
+        - 'posthog/llm/gateway_internal_client.py'
+        - 'posthog/llm/wizard_blocklist.py'
         - posthog/apps.py
         - 'posthog/egress/github/**'
         - 'posthog/egress/limiter/**'
@@ -95,10 +109,27 @@ filters:
         - 'posthog/integrations/**'
         - 'posthog/helpers/encrypted_fields.py'
         - posthog/cache_utils.py
+        - posthog/jwt.py
+        - posthog/oauth_provenance.py
+        - 'posthog/helpers/oauth_pending_connection.py'
+        - posthog/permissions.py
+        - posthog/user_permissions.py
+        - posthog/push_notifications.py
+        - 'posthog/helpers/email_utils.py'
         - posthog/redis.py
         - 'posthog/storage/object_storage.py'
         - posthog/__init__.py
+        - posthog/celery.py
         - posthog/celery_queues.py
+        - posthog/cloud_utils.py
+        - posthog/exceptions_capture.py
+        - posthog/product_db_config.py
+        - 'products/db_routing.yaml'
+        - 'posthog/db_backends/**'
+        - posthog/db_circuit_breaker.py
+        - posthog/dbrouter.py
+        - posthog/person_db_router.py
+        - posthog/product_db_router.py
         - posthog/dataclasses.py
         - posthog/enums.py
         - posthog/event_usage.py
@@ -106,11 +137,24 @@ filters:
         - posthog/ph_client.py
         - posthog/queryset_paging.py
         - posthog/schema_enums.py
-        - 'posthog/tasks/__init__.py'
         - 'posthog/tasks/utils.py'
+        - 'posthog/tasks/gateway_credential.py'
+        - 'posthog/tasks/email.py'
+        - 'posthog/tasks/integrations.py'
+        - 'posthog/tasks/ip_restrictions.py'
+        - 'posthog/tasks/team_access_cache_tasks.py'
         - posthog/utils.py
+        - 'posthog/clickhouse/query_tagging.py'
+        - 'posthog/hogql/ast.py'
+        - 'posthog/hogql/parser.py'
+        - 'posthog/hogql/query.py'
         - 'posthog/temporal/common/**'
+        - 'posthog/logging/exceptions.py'
+        - 'posthog/kafka_client/topics.py'
         - 'posthog/management/commands/start_temporal_worker.py'
+        - 'posthog/settings/__init__.py'
+        - 'posthog/settings/base_variables.py'
+        - 'posthog/settings/utils.py'
         - 'posthog/settings/temporal.py'
         - 'posthog/settings/data_stores.py'
         - 'posthog/settings/object_storage.py'
@@ -146,4 +190,4 @@ images:
             wizard:
                 repository: posthog-temporal-workers/wizard
                 filter: wizardWorker
-                bootstrapPolicyDigest: ae8998af1f19301598c9656ae38f2477ee6d77da5f6e173760680f91907ba062
+                bootstrapPolicyDigest: e28c06e3bb34ab9810c7e053736efd0c454c4f2a5706e42ff97235ae72c64c4c
