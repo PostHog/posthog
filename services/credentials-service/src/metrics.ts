@@ -81,6 +81,22 @@ export const authFailuresTotal = new Counter({
     registers: [register],
 })
 
+// `deployment` is `unknown` until a signing key verifies the token, so a request cannot add a
+// series. Counts each authorization decision, so one request can count more than once.
+export const integrationAuthTotal = new Counter({
+    name: 'credentials_service_integration_auth_total',
+    help: 'Integration token checks, by deployment and outcome',
+    labelNames: ['deployment', 'outcome'],
+    registers: [register],
+})
+
+// Each eviction lets one live token id be used again on this pod. Alert if this grows.
+export const integrationReplayEvictionsTotal = new Counter({
+    name: 'credentials_service_integration_replay_evictions_total',
+    help: 'Live token ids dropped from the replay cache because it was full',
+    registers: [register],
+})
+
 // The signing-key reload fails open so a malformed edit cannot lock a running fleet out.
 // These two make that alertable: staleness on the gauge means a revocation has not landed
 // on this pod.

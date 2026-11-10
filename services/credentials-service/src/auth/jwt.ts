@@ -4,7 +4,7 @@
 // token an attacker could edit to become a different deployment. The `keys` claim is the
 // whole request scope, so a token lifted from a log unlocks one call's fields.
 
-import { jwtVerify } from 'jose'
+import { type JWTPayload, type JWTVerifyOptions, jwtVerify } from 'jose'
 
 import type { CallerIdentity } from '../types'
 import type { SigningKeyLoader } from './registry'
@@ -22,8 +22,13 @@ function rejectionReason(err: unknown): AuthFailureReason | null {
             return 'malformed'
         case 'ERR_JWT_EXPIRED':
             return 'expired'
-        case 'ERR_JWT_CLAIM_VALIDATION_FAILED':
-            return (err as { claim?: string }).claim === 'exp' ? 'no_expiry' : 'bad_audience'
+        case 'ERR_JWT_CLAIM_VALIDATION_FAILED': {
+            const claim = (err as { claim?: string }).claim
+            if (claim === 'exp') {
+                return 'no_expiry'
+            }
+            return claim === 'aud' ? 'bad_audience' : 'malformed'
+        }
         default:
             return null
     }
@@ -36,36 +41,59 @@ function stringArray(value: unknown): string[] {
     return value as string[]
 }
 
+export interface VerifiedToken {
+    /** The deployment whose key verified the signature. */
+    deployment: string
+    payload: JWTPayload
+}
+
+/**
+ * Try every deployment's keys in turn and return the payload of the one that verifies.
+ * Throws an AuthError when none does.
+ *
+ * `aud` must equal the expected audience as a plain string. jose accepts an array that
+ * merely contains it, so one token could otherwise carry both audiences and be valid at
+ * both the secrets and the integrations endpoints.
+ */
+export async function verifyDeploymentToken(
+    keys: SigningKeyLoader,
+    token: string,
+    options: JWTVerifyOptions & { audience: string }
+): Promise<VerifiedToken> {
+    let reason: AuthFailureReason = 'bad_signature'
+
+    for (const [deployment, candidateKeys] of keys.entries()) {
+        for (const key of candidateKeys) {
+            let payload: JWTPayload
+            try {
+                payload = (
+                    await jwtVerify(token, new TextEncoder().encode(key), {
+                        ...options,
+                        algorithms: ['HS256'],
+                        // jose only checks `exp` when the claim is present, so without this
+                        // a token minted without one verifies and never expires.
+                        requiredClaims: ['exp', ...(options.requiredClaims ?? [])],
+                    })
+                ).payload
+            } catch (err) {
+                reason = rejectionReason(err) ?? reason
+                continue
+            }
+            if (payload.aud !== options.audience) {
+                throw new AuthError('bad_audience', 'token was not accepted')
+            }
+            return { deployment, payload }
+        }
+    }
+
+    throw new AuthError(reason, 'token was not accepted')
+}
+
 export class JwtVerifier {
     constructor(private readonly keys: SigningKeyLoader) {}
 
     async verify(token: string): Promise<CallerIdentity> {
-        let payload: Record<string, unknown> | undefined
-        let deployment = ''
-        let reason: AuthFailureReason = 'bad_signature'
-
-        outer: for (const [candidate, candidateKeys] of this.keys.entries()) {
-            for (const key of candidateKeys) {
-                try {
-                    const result = await jwtVerify(token, new TextEncoder().encode(key), {
-                        algorithms: ['HS256'],
-                        audience: AUDIENCE,
-                        // jose only checks `exp` when the claim is present, so without this
-                        // a token minted without one verifies and never expires.
-                        requiredClaims: ['exp'],
-                    })
-                    payload = result.payload as Record<string, unknown>
-                    deployment = candidate
-                    break outer
-                } catch (err) {
-                    reason = rejectionReason(err) ?? reason
-                }
-            }
-        }
-
-        if (!payload) {
-            throw new AuthError(reason, 'token was not accepted')
-        }
+        const { deployment, payload } = await verifyDeploymentToken(this.keys, token, { audience: AUDIENCE })
 
         const requested = stringArray(payload['keys'])
         if (requested.length === 0) {

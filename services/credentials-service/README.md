@@ -87,7 +87,7 @@ Authorization hangs off the deployment. The caller claim reaches the audit log s
 ask "which product read this", and reaches nothing else — in particular it is never a metric
 label, because prom-client keeps every series in process memory for the pod's lifetime.
 
-**There is no per-deployment allowlist.** Every authenticated deployment may read any credential
+**There is no per-deployment allowlist for platform secrets.** Every authenticated deployment may read any credential
 on the mount: a list bounds nothing the signing key does not already bound, and a compromised
 deployment is contained by revoking its key. What a deployment actually read is in the audit
 log.
@@ -99,6 +99,38 @@ Signing keys live in the same secret as the credentials, one flat entry per depl
 (`__CALLER_KEY_<DEPLOYMENT>`). Deployment names are derived from the entries present, not declared
 in code, so onboarding a caller or revoking a compromised one is a secrets edit with no deploy.
 The same value goes into that deployment's own secret as `CREDENTIALS_SERVICE_JWT_SECRET`.
+
+### Integration tokens
+
+The future `/v1/integrations/*` routes use the same signing keys with a different audience, `posthog:credentials_service:integrations`.
+Each route accepts only its own audience, and `aud` must be a plain string, so one token never works on both.
+
+```jsonc
+{
+  "aud": "posthog:credentials_service:integrations",
+  "iat": 1786035872,
+  "exp": 1786035932, // at most 60s after iat
+  "jti": "<16-128 URL-safe chars>", // used once; a replay is rejected
+  "owner": { "type": "team", "id": 2 }, // optional only when every op is cross-team
+  "ops": ["read", "resolve"],
+  "kinds": ["slack"], // optional; narrows the token to these kinds
+  "refs": ["123"], // optional; narrows the token to these refs (decimal legacy id or lowercase UUID)
+  "user_id": 7, // optional; audit only
+  "caller": "integrations-sdk", // logged, not trusted
+}
+```
+
+- Any other claim fails the token.
+- Clocks may differ by 30s. A pod remembers each `jti` for 2 minutes.
+- A request needs its op in the token **and** in the policy for its deployment (`src/auth/policy.ts`). A deployment that the policy does not name gets no op.
+- The owner comes only from the token. A route never reads it from the path, query or body.
+- A rejected token gets a bare 401. A valid token that does not allow the request gets a 403 with `forbidden_op`, `forbidden_kind` or `forbidden_ref`.
+
+| Deployment                                  | Ops                                                          |
+| ------------------------------------------- | ------------------------------------------------------------ |
+| `posthog-django`                            | all, including `*_by_external_id`, `delete_owner`, `changes` |
+| `temporal-worker[-*]`, `posthog-celery[-*]` | `read`, `resolve`, `write`, `refresh`, `list_across_teams`   |
+| `cdp[-*]`, `ingestion[-*]`, `push-api[-*]`  | `resolve`                                                    |
 
 ## Storage and rotation
 
@@ -210,6 +242,8 @@ carry it; anything else collapses to a constant, and the `caller` claim is not a
 | `credentials_service_signing_keys_last_loaded_timestamp`                 | staleness means a revocation has not landed on this pod       |
 | `credentials_service_signing_key_reload_failures_total`                  | reloads that kept the previous key set                        |
 | `credentials_service_auth_failures_total{reason}`                        | rejected tokens, by why                                       |
+| `credentials_service_integration_auth_total{deployment,outcome}`         | integration token decisions, by deployment and outcome        |
+| `credentials_service_integration_replay_evictions_total`                 | live token ids dropped because the replay cache was full      |
 | `credentials_service_http_requests_total{method,route,status}`           | request volume, with an unmatched path collapsed to `other`   |
 | `credentials_service_http_request_duration_seconds{method,route,status}` | request latency                                               |
 | `credentials_service_shutting_down`                                      | 1 while draining                                              |
