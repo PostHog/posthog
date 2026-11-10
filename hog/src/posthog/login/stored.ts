@@ -13,7 +13,8 @@ import {
 } from '@/posthog/credential-store/item-name'
 import { KeychainStore } from '@/posthog/credential-store/keychain'
 import { openStore } from '@/posthog/credential-store/open'
-import { sameHost } from '@/posthog/host'
+import type { StoreChoice } from '@/posthog/credential-store/types'
+import { sameHost, type Host } from '@/posthog/host'
 import { withLoginLock } from '@/posthog/oauth'
 import {
     loginFor,
@@ -98,15 +99,31 @@ export async function writeLogin(
         }
         const settings = withLogin(current, key, record)
         await writeSettings(runtime, options.lastLogin ? { ...settings, host: key.host } : settings)
-        // The previous secret goes only once settings.json no longer names it. A keychain item stays
-        // when the login moved to the file, because the keychain just failed and hog would wait for it
-        // again. `keychainLeftover` marks it for logout instead.
-        const previousName = previous && recordItemName(previous)
-        const keychainKept = previous?.store === 'keychain' && store.kind === 'file'
-        if (previous && previousName && !keychainKept && (previous.store !== store.kind || previousName !== name)) {
-            await openStore(runtime, previous.store).remove(previousName)
+        // The previous secrets go only once settings.json no longer names them. A failed removal leaves
+        // them to `hog auth logout --all` instead of failing a login that is already saved. A keychain
+        // item stays when the login moved to the file, because the keychain just failed and hog would
+        // wait for it again. `keychainLeftover` marks it for logout instead.
+        const stale: { store: StoreChoice; name: ItemName }[] = []
+        if (previous && !(previous.store === 'keychain' && store.kind === 'file')) {
+            const previousName = recordItemName(previous)
+            if (previous.store !== store.kind || previousName !== name) {
+                stale.push({ store: previous.store, name: previousName })
+            }
+        }
+        // The write above replaced a leftover under the login's own name, but not one under the host.
+        if (previous?.keychainLeftover && store.kind === 'keychain' && !hostItemInUse(settings, key.host)) {
+            stale.push({ store: 'keychain', name: hostItemName(key.host) })
+        }
+        for (const item of stale) {
+            await openStore(runtime, item.store)
+                .remove(item.name)
+                .catch(() => false)
         }
     })
+}
+
+function hostItemInUse(settings: HogSettings, host: Host): boolean {
+    return loginsFor(settings, host).some((other) => other.storedUnderHost)
 }
 
 // Resolves to false when the store held nothing for the login.
@@ -170,10 +187,9 @@ async function removeKeychainLeftover(
     record: LoginRecord
 ): Promise<string | null> {
     const keychain = new KeychainStore(runtime)
-    const hostItemInUse = loginsFor(withLogin(settings, record, undefined), record.host).some(
-        (other) => other.storedUnderHost
-    )
-    const names = hostItemInUse ? [itemName(record)] : [itemName(record), hostItemName(record.host)]
+    const names = hostItemInUse(withLogin(settings, record, undefined), record.host)
+        ? [itemName(record)]
+        : [itemName(record), hostItemName(record.host)]
     try {
         for (const name of names) {
             await keychain.remove(name)

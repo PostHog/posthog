@@ -62,14 +62,6 @@ export default defineCommand({
                 out.line(
                     `${out.style('Scopes added', 'green', 'bold')} to your login for project ${result.projectId} on ${result.host}.`
                 )
-                if (result.expectedProjectId) {
-                    out.line(
-                        out.style(
-                            `PostHog approved them for project ${result.projectId}, so hog added them to your login for that project. Your login for project ${result.expectedProjectId}, which this folder uses, keeps its scopes.`,
-                            'yellow'
-                        )
-                    )
-                }
                 if (result.replacedRevoked === false) {
                     out.line(
                         out.style(

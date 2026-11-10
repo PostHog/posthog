@@ -1,8 +1,8 @@
-import { dirname } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { printPending, refuseInCi, resumeApproval, runApproval, type PendingResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
-import { updateConfig } from '@/core/config'
+import { CONFIG_FILE, updateConfig } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
@@ -19,7 +19,9 @@ import { parsePersonalApiKey, PersonalApiKeySchema } from '@/posthog/tokens'
 
 interface NamedIn {
     path: string
-    status: 'created' | 'updated' | 'unchanged'
+    status: 'created' | 'updated' | 'unchanged' | 'failed'
+    // Why hog couldn't write the file. Null unless `status` is failed.
+    error: string | null
 }
 
 type LoginResult =
@@ -46,16 +48,23 @@ function nextCommand(scopes: readonly string[] | null): string {
 
 // Commands pick a login from the closest posthog.json, so the login names itself there. The file in
 // this folder or above it keeps its other settings, and a new one goes in this folder.
+// The login is already saved, so a file hog can't write only warns.
 async function nameInConfig(ctx: Context, { host, projectId }: LoggedIn): Promise<NamedIn> {
     const loaded = await ctx.config()
-    if (loaded && loaded.config.host === host && loaded.config.projectId?.toString() === projectId) {
-        return { path: loaded.path, status: 'unchanged' }
+    const named = loaded?.config.projectId
+    if (loaded && loaded.config.host === host && named !== undefined && parseProjectId(named) === projectId) {
+        return { path: loaded.path, status: 'unchanged', error: null }
     }
-    const path = await updateConfig(ctx.runtime, loaded, (raw) => {
-        raw.host = host
-        raw.projectId = Number(projectId)
-    })
-    return { path, status: loaded ? 'updated' : 'created' }
+    const path = loaded?.path ?? join(ctx.runtime.cwd(), CONFIG_FILE)
+    try {
+        await updateConfig(ctx.runtime, loaded, (raw) => {
+            raw.host = host
+            raw.projectId = Number(projectId)
+        })
+    } catch (error) {
+        return { path, status: 'failed', error: error instanceof Error ? error.message : String(error) }
+    }
+    return { path, status: loaded ? 'updated' : 'created', error: null }
 }
 
 async function finish(ctx: Context, key: AccessKey): Promise<LoginResult> {
@@ -208,8 +217,18 @@ export default defineCommand({
                 out.line(out.style(`Credentials saved to ${result.credentialsPath}, which only you can read`, 'dim'))
                 break
         }
-        const { path, status } = result.config
+        const { path, status, error } = result.config
         const file = escapeControls(path)
+        if (status === 'failed') {
+            out.line(
+                out.style(
+                    `hog couldn't write ${file}: ${escapeControls(error ?? '').replace(/\.?$/, '.')} Add "host": "${escapeControls(result.host)}" and "projectId": ${result.projectId} to it, so commands there use this login.`,
+                    'yellow'
+                )
+            )
+            out.line(`Try it: ${result.next}`)
+            return
+        }
         const saved = {
             created: `Created ${file} with this host and project.`,
             updated: `Set this host and project in ${file}.`,

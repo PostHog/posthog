@@ -7,7 +7,7 @@ import { CI_CREDENTIALS_HINT } from '@/posthog/credentials'
 import type { Credentials } from '@/posthog/credentials'
 import { sameHost } from '@/posthog/host'
 import type { OAuthLogin } from '@/posthog/oauth'
-import { addToKeyHint, canStepUp, fewestScopes, isScopeName, stepUpCommand } from '@/posthog/scope-challenge'
+import { addToKeyHint, canStepUp, fewestScopes, isScopeName } from '@/posthog/scope-challenge'
 import { scopesNotCovered } from '@/posthog/scopes'
 import { readSettings } from '@/posthog/settings'
 
@@ -20,9 +20,6 @@ export type StepUpResult =
           status: 'added' | 'already_granted'
           host: string
           projectId: string
-          // The project of the login the folder uses, when PostHog approved the scopes for another
-          // project. hog then saved them as that project's login, and this one keeps its scopes.
-          expectedProjectId: string | null
           scopes: string[]
           replacedRevoked: boolean | null
       }
@@ -34,14 +31,21 @@ export async function finishStepUp(ctx: Context, approved: OAuthLogin): Promise<
         .loginQuery()
         .then(async (query) => chooseLogin(await readSettings(ctx.runtime), query).record)
         .catch(() => undefined)
+    // The approval asked for this login's scopes. Saving it as another project's login would replace
+    // the scopes that login has, so hog revokes it instead.
+    if (expected && sameHost(expected.host, approved.host) && expected.projectId !== approved.projectId) {
+        await approved.logout(ctx.runtime)
+        throw new HogError(
+            'step_up_other_project',
+            `PostHog approved the scopes for project ${approved.projectId}, and this folder uses project ${expected.projectId}, so hog didn't save them.`,
+            `Run the same \`hog auth add\` command again, and pick project ${expected.projectId} on the approval page.`
+        )
+    }
     const saved = await saveLogin(ctx.runtime, approved, { replace: (stored) => approved.continuing(stored) })
-    const otherProject =
-        expected !== undefined && sameHost(expected.host, saved.host) && expected.projectId !== saved.projectId
     return {
         status: 'added',
         host: saved.host,
         projectId: saved.projectId,
-        expectedProjectId: otherProject ? expected.projectId : null,
         scopes: saved.status.scopes ?? [],
         replacedRevoked: saved.replacedRevoked,
     }
@@ -71,19 +75,8 @@ export async function promptStepUp(ctx: Context, scopes: readonly string[]): Pro
         return true
     }
     const question = `This needs ${missing.join(', ')}, which your login doesn't have. Add these scopes now?`
-    if (!(await prompts.confirm(question, { initialValue: true }))) {
+    if (!(await prompts.confirm(question, { initialValue: true })) || (await stepUp(ctx, missing)).status !== 'added') {
         return false
-    }
-    const result = await stepUp(ctx, missing)
-    if (result.status !== 'added') {
-        return false
-    }
-    if (result.expectedProjectId !== null) {
-        throw new HogError(
-            'step_up_other_project',
-            `PostHog approved the scopes for project ${result.projectId}, and this command uses project ${result.expectedProjectId}, so hog stopped.`,
-            `hog saved them as your login for project ${result.projectId}. Run \`${stepUpCommand(missing, result.host)}\` and pick project ${result.expectedProjectId} on the approval page.`
-        )
     }
     await (await ctx.session()).reload()
     return true
@@ -118,7 +111,6 @@ export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<S
             status: 'already_granted',
             host: key.host,
             projectId: key.projectId,
-            expectedProjectId: null,
             scopes: held,
             replacedRevoked: null,
         }

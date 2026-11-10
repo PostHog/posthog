@@ -403,27 +403,32 @@ describe('hog auth login', () => {
         keychain: { [EU_ITEM]: JSON.stringify({ accessToken: ACCESS_TOKEN, refreshToken: REFRESH_TOKEN }) },
     }
 
-    // A monorepo whose apps use two projects on one host. Project 2 is the latest login.
+    // A monorepo whose apps use two projects on one host. Project 2 is the latest login there, and
+    // project 9 is the only login to the US host.
     const MONOREPO = {
         files: {
             '/repo/.git/HEAD': 'ref: refs/heads/main\n',
             '/repo/apps/web/posthog.json': JSON.stringify({ host: EU, projectId: 1 }),
             '/repo/apps/api/posthog.json': JSON.stringify({ host: EU, projectId: 2 }),
             '/repo/apps/docs/posthog.json': JSON.stringify({ host: EU, projectId: 3 }),
+            '/repo/apps/admin/posthog.json': JSON.stringify({ host: EU, projectId: '01' }),
             [SETTINGS_FILE]: settingsJson(
                 EU,
                 { ...keyRecord(EU, 'keychain', '1'), loggedInAt: 1 },
-                { ...keyRecord(EU, 'keychain', '2'), loggedInAt: 2 }
+                { ...keyRecord(EU, 'keychain', '2'), loggedInAt: 2 },
+                keyRecord(US, 'keychain', '9')
             ),
         },
         keychain: {
             [`${EU}#1`]: JSON.stringify({ apiKey: 'phx_one' }),
             [`${EU}#2`]: JSON.stringify({ apiKey: 'phx_two' }),
+            [`${US}#9`]: JSON.stringify({ apiKey: 'phx_nine' }),
         },
     }
     test.each([
         ['/repo/apps/web', 1],
         ['/repo/apps/api', 2],
+        ['/repo/apps/admin', 1],
     ])('a command in %s uses the login for the project its posthog.json names', async (cwd, project) => {
         const result = await runHog(['query', 'run', 'select 1'], {
             env: { CLAUDECODE: '1' },
@@ -447,7 +452,9 @@ describe('hog auth login', () => {
         expect(result.exitCode).toBe(2)
         expect(result.error()).toMatchObject({
             code: 'project_mismatch',
-            message: expect.stringContaining('/repo/apps/docs/posthog.json names project 3 on https://eu.posthog.com'),
+            message: expect.stringContaining(
+                `/repo/apps/docs/posthog.json names project 3, and hog has no login for it on ${EU}`
+            ),
             hint: expect.stringContaining(`hog auth login --host ${EU}`),
         })
         expect(result.requests).toEqual([])
@@ -474,6 +481,13 @@ describe('hog auth login', () => {
             {},
             '/repo/apps/api',
             { projectId: '2', login: { match: 'override', reason: expect.stringContaining('--host') } },
+        ],
+        [
+            '--host names another host than posthog.json, whose project is then left out',
+            ['--host', US],
+            {},
+            '/repo/apps/api',
+            { projectId: '9', login: { match: 'fallback', reason: expect.stringContaining('on another host') } },
         ],
         [
             'nothing names a project, so the latest login is used',
@@ -567,9 +581,13 @@ describe('hog auth login', () => {
         })
 
         expect(result.json()).toMatchObject({ status: 'logged_out', host: EU, projectId: '2', logins: null })
-        expect(result.keychain).toEqual({ [`${EU}#1`]: MONOREPO.keychain[`${EU}#1`] })
+        const { [`${EU}#2`]: _removed, ...kept } = MONOREPO.keychain
+        expect(result.keychain).toEqual(kept)
         expect(readJson(result.files[SETTINGS_FILE] ?? '{}')).toEqual({
-            logins: { [EU]: { '1': { ...keyRecord(EU, 'keychain', '1'), loggedInAt: 1 } } },
+            logins: {
+                [EU]: { '1': { ...keyRecord(EU, 'keychain', '1'), loggedInAt: 1 } },
+                [US]: { '9': keyRecord(US, 'keychain', '9') },
+            },
             host: EU,
         })
     })
@@ -778,16 +796,8 @@ describe('hog auth login', () => {
         expect(result.keychain).toEqual({})
     })
 
-    test.each([
-        ['a keychain login', KEYCHAIN_LOGIN.files, EU_ITEM],
-        [
-            'a keychain login stored in the shape that kept one login per host',
-            { [SETTINGS_FILE]: JSON.stringify({ logins: { [EU]: keyRecord(EU) }, host: EU }) },
-            EU,
-        ],
-    ])('a file login that replaced %s takes the old keychain item with it on logout', async (_name, files, item) => {
-        const oldItem = JSON.stringify({ apiKey: 'phx_old' })
-        const items = new Map([[item, oldItem]])
+    // A keychain that refuses every write and removal until `works.now` is true.
+    function flakyKeychain(items: Map<string, string>): { secrets: Secrets; works: { now: boolean } } {
         const keychainWorks = { now: false }
         const secrets: Secrets = {
             get: async (name) => items.get(name) ?? null,
@@ -804,34 +814,78 @@ describe('hog auth login', () => {
                 return items.delete(name)
             },
         }
-        const login = await runHog(['auth', 'login', '--wait'], {
-            env: { CLAUDECODE: '1' },
-            files: { ...files, [PENDING_FILE]: PENDING },
-            respond: deviceFlow(0),
-            secrets: () => secrets,
-        })
-        expect(login.json()).toMatchObject({ store: 'file' })
+        return { secrets, works: keychainWorks }
+    }
 
-        const denied = await runHog(['auth', 'logout'], {
-            env: { CLAUDECODE: '1' },
-            files: login.files,
-            secrets: () => secrets,
-        })
-        expect(denied.json()).toMatchObject({
-            status: 'logged_out',
-            keychainLeftover: expect.stringContaining('keychain'),
-        })
-        expect(items.get(item)).toBe(oldItem)
+    const KEYCHAIN_LOGINS = [
+        ['a keychain login', KEYCHAIN_LOGIN.files, EU_ITEM],
+        [
+            'a keychain login stored in the shape that kept one login per host',
+            { [SETTINGS_FILE]: JSON.stringify({ logins: { [EU]: keyRecord(EU) }, host: EU }) },
+            EU,
+        ],
+    ] as const
 
-        keychainWorks.now = true
-        const removed = await runHog(['auth', 'logout'], {
-            env: { CLAUDECODE: '1' },
-            files: login.files,
-            secrets: () => secrets,
-        })
-        expect(removed.json()).toMatchObject({ status: 'logged_out', keychainLeftover: null })
-        expect(items.size).toBe(0)
-    })
+    test.each(KEYCHAIN_LOGINS)(
+        'a file login that replaced %s takes the old keychain item with it on logout',
+        async (_name, files, item) => {
+            const oldItem = JSON.stringify({ apiKey: 'phx_old' })
+            const items = new Map<string, string>([[item, oldItem]])
+            const { secrets, works: keychainWorks } = flakyKeychain(items)
+            const login = await runHog(['auth', 'login', '--wait'], {
+                env: { CLAUDECODE: '1' },
+                files: { ...files, [PENDING_FILE]: PENDING },
+                respond: deviceFlow(0),
+                secrets: () => secrets,
+            })
+            expect(login.json()).toMatchObject({ store: 'file' })
+
+            const denied = await runHog(['auth', 'logout'], {
+                env: { CLAUDECODE: '1' },
+                files: login.files,
+                secrets: () => secrets,
+            })
+            expect(denied.json()).toMatchObject({
+                status: 'logged_out',
+                keychainLeftover: expect.stringContaining('keychain'),
+            })
+            expect(items.get(item)).toBe(oldItem)
+
+            keychainWorks.now = true
+            const removed = await runHog(['auth', 'logout'], {
+                env: { CLAUDECODE: '1' },
+                files: login.files,
+                secrets: () => secrets,
+            })
+            expect(removed.json()).toMatchObject({ status: 'logged_out', keychainLeftover: null })
+            expect(items.size).toBe(0)
+        }
+    )
+
+    test.each(KEYCHAIN_LOGINS)(
+        'a keychain login that replaces a file login, which replaced %s, takes the old keychain item',
+        async (_name, files, item) => {
+            const items = new Map<string, string>([[item, JSON.stringify({ apiKey: 'phx_old' })]])
+            const { secrets, works } = flakyKeychain(items)
+            const login = { env: { CLAUDECODE: '1' }, respond: deviceFlow(0), secrets: () => secrets }
+            const fileLogin = await runHog(['auth', 'login', '--wait'], {
+                ...login,
+                files: { ...files, [PENDING_FILE]: PENDING },
+            })
+            expect(fileLogin.json()).toMatchObject({ store: 'file' })
+
+            works.now = true
+            const keychainLogin = await runHog(['auth', 'login', '--wait'], {
+                ...login,
+                files: { ...fileLogin.files, [PENDING_FILE]: PENDING },
+            })
+
+            expect(keychainLogin.json()).toMatchObject({ store: 'keychain' })
+            expect([...items.keys()]).toEqual([EU_ITEM])
+            expect(readJson(items.get(EU_ITEM) ?? '{}')).toMatchObject({ accessToken: ACCESS_TOKEN })
+            expect(keychainLogin.files[HOG_CREDENTIALS_FILE]).toBeUndefined()
+        }
+    )
 
     test('logout --all removes every login, and the leftovers settings.json no longer names', async () => {
         const ORPHAN = 'https://posthog.example.com'
@@ -964,25 +1018,14 @@ describe('hog auth login', () => {
     })
 
     test.each([
-        ['in the same project, the login keeps its id', OAUTH_LOGIN, 42, 'login-1', null, REFRESH_TOKEN],
-        // Each project keeps its own login, so the login this folder uses stays as it was.
-        [
-            'in another project, hog saves a login for that project instead',
-            OAUTH_LOGIN,
-            7,
-            expect.not.stringMatching(/^login-1$/),
-            '42',
-            undefined,
-        ],
+        ['in the same project, the login keeps its id', OAUTH_LOGIN, 'login-1', REFRESH_TOKEN],
         [
             'over a personal API key, the login gets a new id',
             KEYCHAIN_LOGIN,
-            42,
             expect.not.stringMatching(/^phx_/),
-            null,
             undefined,
         ],
-    ])('add --wait replaces the stored login: %s', async (_name, stored, project, loginId, expected, revoked) => {
+    ])('add --wait replaces the stored login: %s', async (_name, stored, loginId, revoked) => {
         const scopes = ['openid', 'insight:read', 'insight:write']
         const result = await runHog(['auth', 'add', '--wait'], {
             env: { CLAUDECODE: '1' },
@@ -1002,32 +1045,38 @@ describe('hog auth login', () => {
                     access_token: STEPPED_UP_ACCESS,
                     refresh_token: STEPPED_UP_REFRESH,
                     scope: scopes.join(' '),
-                    scoped_teams: [project],
                 },
             }),
         })
 
-        expect(result.json()).toMatchObject({
-            status: 'added',
-            projectId: String(project),
-            expectedProjectId: expected,
-            scopes,
-        })
-        const item = `${EU}#${project}`
-        expect(readJson(result.keychain[item] ?? '{}')).toEqual({
+        expect(result.json()).toMatchObject({ status: 'added', projectId: '42', scopes })
+        expect(readJson(result.keychain[EU_ITEM] ?? '{}')).toEqual({
             accessToken: STEPPED_UP_ACCESS,
             refreshToken: STEPPED_UP_REFRESH,
         })
-        expect(result.keychain[EU_ITEM]).toBe(item === EU_ITEM ? result.keychain[item] : stored.keychain[EU_ITEM])
         expect(readJson(result.files[SETTINGS_FILE] ?? '{}')).toMatchObject({
-            logins: { [EU]: { [project]: { loginId, scopes } } },
+            logins: { [EU]: { '42': { loginId, scopes } } },
         })
         const revoke = result.requests.find((request) => request.url.endsWith('/oauth/revoke/'))
         expect((revoke?.body as { token?: string } | undefined)?.token).toBe(revoked)
         expect(result.files[ADD_PENDING_FILE]).toBeUndefined()
     })
 
-    test('add --wait keeps the current login when PostHog drops a required scope', async () => {
+    test.each([
+        [
+            'PostHog drops a required scope',
+            { scope: 'openid insight:read' },
+            {
+                code: 'scopes_not_granted',
+                hint: expect.stringContaining(`\`hog auth add --host ${EU} insight:write\``),
+            },
+        ],
+        [
+            'the person approves another project than the folder uses',
+            { scope: 'openid insight:read insight:write', scoped_teams: [7] },
+            { code: 'step_up_other_project', hint: expect.stringContaining('pick project 42') },
+        ],
+    ])('add --wait keeps the current login when %s', async (_name, approved, expected) => {
         const result = await runHog(['auth', 'add', '--wait'], {
             env: { CLAUDECODE: '1' },
             files: {
@@ -1045,16 +1094,13 @@ describe('hog auth login', () => {
                     ...APPROVED,
                     access_token: STEPPED_UP_ACCESS,
                     refresh_token: STEPPED_UP_REFRESH,
-                    scope: 'openid insight:read',
+                    ...approved,
                 },
             }),
         })
 
-        expect(result.error()).toMatchObject({
-            code: 'scopes_not_granted',
-            hint: expect.stringContaining(`\`hog auth add --host ${EU} insight:write\``),
-        })
-        expect(result.keychain[EU_ITEM]).toBe(OAUTH_LOGIN.keychain[EU_ITEM])
+        expect(result.error()).toMatchObject(expected)
+        expect(result.keychain).toEqual(OAUTH_LOGIN.keychain)
         const revoke = result.requests.find((request) => request.url.endsWith('/oauth/revoke/'))
         expect((revoke?.body as { token?: string } | undefined)?.token).toBe(STEPPED_UP_REFRESH)
     })

@@ -241,7 +241,7 @@ A command picks a login from the closest `posthog.json`:
 | Nothing names a project                               | Your latest login to the host that is named, or else to the host you last logged in to       |
 | A project is named, and hog has no login for it       | None. The command stops with `project_mismatch`, and `hog auth login` adds the login         |
 
-`posthog.json` with a `projectId` and no `host` means that project on the host you last logged in to.
+`posthog.json` with a `projectId` and no `host` means that project on the host you last logged in to. When `--host` or `HOG_HOST` names another host than `posthog.json`, its `projectId` doesn't count, because a project ID belongs to one host.
 `hog auth status` names the `posthog.json` it found, the login it picked and why.
 A personal API key in `HOG_PERSONAL_API_KEY` and a CI job's token don't use stored logins: they take the project from `HOG_PROJECT_ID` or `posthog.json`.
 

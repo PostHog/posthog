@@ -1,6 +1,6 @@
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { LoginTarget } from '@/posthog/credential-store/item-name'
-import type { Host } from '@/posthog/host'
+import { sameHost, type Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 import { hostFlag } from '@/posthog/scope-challenge'
 import { latestLoginFor, loginFor, loginsFor, type HogSettings, type LoginRecord } from '@/posthog/settings'
@@ -35,9 +35,19 @@ export interface ChosenLogin {
     record: LoginRecord | undefined
 }
 
+// A project ID means a project on one host, so posthog.json's project counts only on its own host.
+function configProjectFor(query: LoginQuery, host: Host): ProjectId | undefined {
+    const { configHost } = query
+    return configHost === undefined || sameHost(configHost, host) ? query.configProjectId : undefined
+}
+
 function reasonFor(query: LoginQuery, host: Host, projectId: ProjectId | undefined): string {
     if (projectId === undefined) {
-        return `nothing sets a project in posthog.json or HOG_PROJECT_ID, so hog uses your latest login to ${host}`
+        const why =
+            query.configProjectId === undefined
+                ? 'nothing sets a project in posthog.json or HOG_PROJECT_ID'
+                : 'the project in posthog.json is on another host'
+        return `${why}, so hog uses your latest login to ${host}`
     }
     const hostFrom =
         query.host !== undefined ? '--host or HOG_HOST' : query.configHost !== undefined ? 'posthog.json' : undefined
@@ -51,7 +61,7 @@ function reasonFor(query: LoginQuery, host: Host, projectId: ProjectId | undefin
 
 export function chooseLogin(settings: HogSettings, query: LoginQuery): ChosenLogin {
     const host = query.host ?? query.configHost ?? settings.host
-    const projectId = query.projectId ?? query.configProjectId
+    const projectId = query.projectId ?? (host === undefined ? undefined : configProjectFor(query, host))
     const overridden = query.host !== undefined || query.projectId !== undefined
     const choice: LoginChoice = {
         host: host ?? null,
@@ -87,7 +97,7 @@ export class ProjectMismatch extends HogError {
         const command = `hog auth login${hostFlag(target.host)}`
         super(
             'project_mismatch',
-            `${namedBy} names project ${target.projectId} on ${target.host}, and hog has no login for it.${loggedIn}`,
+            `${namedBy} names project ${target.projectId}, and hog has no login for it on ${target.host}.${loggedIn}`,
             `Run \`${command}\` and pick project ${target.projectId} on the approval page. Each project keeps its own login.`,
             EXIT_USAGE,
             { configPath: query.configPath ?? null, host: target.host, projectId: target.projectId, command }
