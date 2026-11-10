@@ -14,6 +14,7 @@ import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail
 import { ContentAutopilotRankings } from './ContentAutopilotRankings'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import { ContentAutopilotSiteGate } from './ContentAutopilotSiteGate'
+import { ContentAutopilotWeeklyReportModal } from './ContentAutopilotWeeklyReportModal'
 
 export interface ContentAutopilotBotsTab {
     active: boolean
@@ -192,6 +193,7 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
             <ContentAutopilotProposalDetail />
             <ContentAutopilotPromptAddModal />
             <ContentAutopilotPromptSuggestModal />
+            <ContentAutopilotWeeklyReportModal />
         </div>
     )
 }
