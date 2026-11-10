@@ -29,8 +29,8 @@ export function WatchPanelSections({
     observations?: ObservationsSection
     debug: boolean
 }): JSX.Element {
-    const { watchPanelOpenSections } = useValues(playerSettingsLogic)
-    const { setWatchPanelOpenSections, setWatchDebugDock } = useActions(playerSettingsLogic)
+    const { watchPanelOpenSections, watchPanelFocusRequest } = useValues(playerSettingsLogic)
+    const { setWatchPanelOpenSections, setWatchDebugDock, clearWatchPanelFocus } = useActions(playerSettingsLogic)
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
     const linkedIssuesAvailable = useLinkedIssuesAvailable()
@@ -49,17 +49,24 @@ export function WatchPanelSections({
     const debugTabs = debugTabKeys(linkedIssuesAvailable)
     const debugTab = debugTabs.includes(activeTab) ? activeTab : SessionRecordingSidebarTab.INSPECTOR
 
-    const debugItemRef = useRef<HTMLDivElement>(null)
-    const debugOpen = debug && open.includes('debug')
+    const itemRefs = useRef<Partial<Record<WatchPanelSection, HTMLDivElement | null>>>({})
     useEffect(() => {
-        if (debugOpen) {
-            debugItemRef.current?.scrollIntoView({ block: 'start' })
+        if (!watchPanelFocusRequest) {
+            return
         }
-    }, [debugOpen])
+        itemRefs.current[watchPanelFocusRequest.section]?.scrollIntoView({ block: 'start' })
+        clearWatchPanelFocus()
+    }, [watchPanelFocusRequest, clearWatchPanelFocus])
 
     return (
         <Accordion multiple value={open} onValueChange={onOpenChange} data-attr="watch-panel-sections">
-            <AccordionItem value="overview" className={ITEM_CLASS}>
+            <AccordionItem
+                value="overview"
+                className={ITEM_CLASS}
+                ref={(el) => {
+                    itemRefs.current.overview = el
+                }}
+            >
                 <AccordionTrigger data-attr="watch-panel-section-overview">
                     <span className="flex items-center gap-1.5">
                         <IconInfo />
@@ -71,7 +78,13 @@ export function WatchPanelSections({
                 </AccordionContent>
             </AccordionItem>
             {observations && (
-                <AccordionItem value="observations" className={ITEM_CLASS}>
+                <AccordionItem
+                    value="observations"
+                    className={ITEM_CLASS}
+                    ref={(el) => {
+                        itemRefs.current.observations = el
+                    }}
+                >
                     <AccordionTrigger data-attr="watch-panel-section-observations">
                         <span className="flex items-center gap-1.5">
                             <IconSparkles />
@@ -83,7 +96,13 @@ export function WatchPanelSections({
                 </AccordionItem>
             )}
             {debug && (
-                <AccordionItem value="debug" className={ITEM_CLASS} ref={debugItemRef}>
+                <AccordionItem
+                    value="debug"
+                    className={ITEM_CLASS}
+                    ref={(el) => {
+                        itemRefs.current.debug = el
+                    }}
+                >
                     <AccordionTrigger data-attr="watch-panel-section-debug">
                         <span className="flex items-center gap-1.5">
                             <IconBug />
