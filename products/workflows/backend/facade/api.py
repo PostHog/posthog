@@ -261,11 +261,6 @@ def get_workflow_summary(*, team_id: int, workflow_id: str) -> WorkflowSummary:
 
 
 def has_active_workflows(*, team_id: int) -> bool:
-    """Whether the team runs a workflow, the activation signal for the Workflows product.
-
-    A workflow whose only messages go through the sandbox sender doesn't count: it reaches the
-    team's own members, not its users.
-    """
     active = HogFlow.objects.filter(team_id=team_id, status=HogFlow.State.ACTIVE)
     sends_own_messages = Q()
     for action_type in MESSAGING_ACTION_TYPES:

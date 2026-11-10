@@ -50,7 +50,6 @@ SUPPORTED_ACTION_TYPES: Final[list[str]] = [
     "conditional_branch",
     "random_cohort_branch",
     "exit",
-    # Sends through PostHog's shared sandbox sender, never a team's own sender or delivery settings.
     SANDBOX_EMAIL_ACTION_TYPE,
 ]
 

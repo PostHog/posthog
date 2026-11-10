@@ -99,8 +99,6 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
 
     def validate(self, data):
         if data.get("type") == SANDBOX_EMAIL_ACTION_TYPE:
-            # A workflow made from a template belongs to whichever team uses it, and the sandbox sender
-            # is something each organization opts into.
             raise serializers.ValidationError(
                 {"type": "Templates can't use the sandbox sender. Use an email step with a verified sender."}
             )

@@ -126,10 +126,6 @@ _NO_SENDER_ROW = _SenderRow(kind="", domain="")
 
 
 def _load_senders(integration_ids: set[int], context: dict, *, team_id: int) -> dict[int, _SenderRow]:
-    """The kind and verified domain of each sender row, or empty strings for an id with no row.
-
-    A drip sequence validates one action at a time, so the rows go in a request-scoped cache.
-    """
     shared_cache = context.get("email_integration_domain_cache")
     cache: dict[int, _SenderRow] = shared_cache if isinstance(shared_cache, dict) else {}
     missing_ids = [integration_id for integration_id in integration_ids if integration_id not in cache]
@@ -146,12 +142,6 @@ def _load_senders(integration_ids: set[int], context: dict, *, team_id: int) -> 
 
 
 def _validate_email_sender_kind(from_value: dict, context: dict) -> None:
-    """Reject a newly chosen sender row that is not an email sender, such as the sandbox sender.
-
-    The send path only resolves `email` rows, so another kind fails at send time. Ids on the live step
-    are grandfathered, and ids with no row are left to the send path. A draft's ids are not, because
-    some writes, such as an approved suggestion, store a draft without validating it.
-    """
     get_team = context.get("get_team")
     if get_team is None:
         return
@@ -171,11 +161,6 @@ def _validate_email_sender_kind(from_value: dict, context: dict) -> None:
 
 
 def reject_new_non_email_senders(inputs_schema: list[dict] | None, inputs: dict | None, context: dict) -> None:
-    """Run the sender-kind rule on a save that otherwise tolerates invalid inputs, such as a draft.
-
-    A wrong-kind sender is never an unfinished edit, so even a lenient save refuses it. Otherwise
-    the stored id would be grandfathered once the workflow publishes.
-    """
     if not isinstance(inputs, dict):
         return
     for schema in inputs_schema or []:
@@ -242,8 +227,6 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
     if not integration_ids:
         return
 
-    # An empty domain means the id resolved to no email integration for this team; the save is
-    # not blocked on it (there is no domain to compare), matching the uncached behavior.
     senders = _load_senders(integration_ids, context, team_id=get_team().id)
 
     for integration_id in sorted(integration_ids):

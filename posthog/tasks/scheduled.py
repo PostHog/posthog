@@ -1053,8 +1053,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="ses tenant reputation reconciliation",
     )
 
-    # The sandbox sender's SES tenant status, mirrored every minute: the sandbox worker refuses to
-    # send on a stale mirror, so a missed run delays sends rather than sending while paused.
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*"),

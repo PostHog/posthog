@@ -1,5 +1,3 @@
-"""The sandbox sender: PostHog's shared email sender for teams that haven't verified a domain yet."""
-
 from products.workflows.backend.models.hog_flow.hog_flow import SANDBOX_EMAIL_ACTION_TYPE
 from products.workflows.backend.services.sandbox_email.provisioning import (
     SANDBOX_SENDER_ADOPTION_FLAG,

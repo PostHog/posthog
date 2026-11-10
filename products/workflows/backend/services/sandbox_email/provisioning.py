@@ -10,12 +10,10 @@ from products.workflows.backend.facade.contracts import SandboxSenderStatus
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
 
 SANDBOX_SENDER_ADOPTION_FLAG = "workflows-sandbox-sender"
-# Every team's row carries this one ID, so the unique (team, kind, integration_id) key allows one row per team.
 SANDBOX_SENDER_INTEGRATION_ID = "posthog-managed-sandbox"
 
 
 def sandbox_adoption_enabled(team: Team, user: User | None = None) -> bool:
-    """Whether the team may add new sandbox steps. Steps it already has keep working either way."""
     organization_id = str(team.organization_id)
     return feature_enabled_or_false(
         SANDBOX_SENDER_ADOPTION_FLAG,
@@ -31,7 +29,6 @@ def organization_blocked(team: Team) -> bool:
 
 
 def provision_sandbox_sender(team: Team, user: User) -> IntegrationRecord:
-    """The team's sandbox sender row, created on the first call. Calls no email provider."""
     accessor = IntegrationManager.email_sandbox.credentials
     existing = accessor.find(team.id, external_id=SANDBOX_SENDER_INTEGRATION_ID)
     if existing is not None:

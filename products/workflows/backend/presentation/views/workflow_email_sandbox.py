@@ -42,9 +42,7 @@ class WorkflowEmailSandboxViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """The sandbox sender, which sends workflow email to organization members before a domain is verified."""
 
     scope_object = "hog_flow"
-    # The sender belongs to the whole project, so access to a single workflow is not enough.
     requires_resource_level_access = True
-    # Only someone who can add the step to a workflow needs to read or set up the sender.
     scope_object_write_actions = ["status", "provision"]
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
