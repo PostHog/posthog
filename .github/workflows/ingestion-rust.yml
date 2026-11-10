@@ -568,7 +568,7 @@ jobs:
             - name: Install cargo-binstall
               uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
             - name: Install cargo-shear
-              run: cargo binstall --no-confirm --force --locked cargo-shear
+              run: cargo binstall --no-confirm --force --locked cargo-shear@1.1.12
             - name: Check for unused dependencies
               run: cargo shear
 
