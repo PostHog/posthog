@@ -28,7 +28,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { tagsModel } from '~/models/tagsModel'
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '~/types'
 
@@ -37,7 +36,7 @@ import type { ExperimentSavedMetricLinkedExperimentApi } from 'products/experime
 import { getWarehouseNativeMetricError } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
-import { isLegacyExperimentQuery } from '../utils'
+import { getMetricIncompleteReason, isLegacyExperimentQuery } from '../utils'
 import { openDeleteSharedMetricDialog } from './deleteSharedMetricDialog'
 import { SharedMetricLinkedExperiments } from './SharedMetricLinkedExperiments'
 import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
@@ -98,7 +97,6 @@ export function SharedMetric(): JSX.Element {
         useActions(sharedMetricLogic)
 
     const { currentTeam, currentProjectId } = useValues(teamLogic)
-    const { tags: allExistingTags } = useValues(tagsModel)
     const [deleteCheckLoading, setDeleteCheckLoading] = useState(false)
 
     const runningExperiments = (sharedMetric?.linked_experiments || []).filter((experiment) => experiment.is_running)
@@ -107,7 +105,8 @@ export function SharedMetric(): JSX.Element {
         ? 'Legacy shared metrics can no longer be edited'
         : !sharedMetric?.name
           ? 'You must give your metric a name'
-          : (getWarehouseNativeMetricError(sharedMetric.query as ExperimentMetric) ?? undefined)
+          : (getWarehouseNativeMetricError(sharedMetric.query as ExperimentMetric) ??
+            (sharedMetric.query ? getMetricIncompleteReason(sharedMetric.query as ExperimentMetric) : undefined))
 
     const handleDelete = async (): Promise<void> => {
         if (!sharedMetric.id || deleteCheckLoading) {
@@ -189,7 +188,6 @@ export function SharedMetric(): JSX.Element {
                         }}
                         canEdit={!isLegacy}
                         tags={sharedMetric.tags}
-                        tagsAvailable={allExistingTags}
                         dataAttrKey="shared-metric"
                     />
                 </ScenePanelInfoSection>

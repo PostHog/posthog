@@ -769,6 +769,12 @@ export const AutonomyPriorityEnumApi = {
     P4: 'P4',
 } as const
 
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
 export interface SignalTeamConfigApi {
     readonly id: string
     /**
@@ -783,6 +789,14 @@ export interface SignalTeamConfigApi {
      * @nullable
      */
     default_slack_notification_channel?: string | null
+    /** Minimum report priority for the project's team Slack channel. P0 is highest. Null includes all reports, including reports without a priority. A set threshold excludes reports without a priority. Personal notification settings are separate.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    default_slack_notification_min_priority?: AutonomyPriorityEnumApi | BlankEnumApi | null
     /**
      * Connected Slack integration that owns `default_slack_notification_channel`. Send it together with the channel. A channel saved without it is routed through the team's oldest Slack integration, and clearing the channel clears this too.
      * @nullable
@@ -2508,6 +2522,8 @@ export interface SignalReportListApi {
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
     readonly assignee: SignalReportAssigneeApi | null
+    /** Whether an implementation run for this report is still working. A new implementation run cannot start until it settles. */
+    readonly implementation_in_flight: boolean
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -2533,12 +2549,12 @@ export interface SignalReportListApi {
      */
     readonly inbox_merge_key: number | null
     /**
-     * The tier your personal ranking gave this report, for sort=personal. Null when the language model did not rank the report, and for every other sort.
+     * The tier your personal ranking gave this report, when the list response's ranker is personal. Null when the language model did not rank the report, and for every other ranker.
      * @nullable
      */
     readonly personal_tier: string | null
     /**
-     * Why your personal ranking put this report where it is, for sort=personal. Null when the language model did not rank the report, and for every other sort.
+     * Why your personal ranking put this report where it is, when the list response's ranker is personal. Null when the language model did not rank the report, and for every other ranker.
      * @nullable
      */
     readonly personal_reason: string | null
@@ -2552,12 +2568,12 @@ export interface PaginatedSignalReportListListApi {
     previous?: string | null
     results: SignalReportListApi[]
     /**
-     * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model. For sort=personal it is personal when your stored personal ranking ordered the page. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+     * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model, or personal when a stored personal ranking ordered the page. For sort=personal that is the teammate's ranking with scope=teammate, else yours. For sort=recommended it is yours, when your flag arm serves it. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
      * @nullable
      */
     ranker?: string | null
     /**
-     * The stored personal ranking that ordered the page when sort=personal. Pass it back as ranking_id on later pages, so a new ranking does not reorder them. Null when no personal ranking applied, and for every other sort.
+     * The stored personal ranking that ordered the page, when the ranker is personal. Pass it back as ranking_id on later pages, so a new ranking does not reorder them. Null when no personal ranking applied, and for every other sort.
      * @nullable
      */
     ranking_id?: string | null
@@ -3135,6 +3151,8 @@ export interface SignalReportApi {
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
     readonly assignee: SignalReportAssigneeApi | null
+    /** Whether an implementation run for this report is still working. A new implementation run cannot start until it settles. */
+    readonly implementation_in_flight: boolean
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -6939,6 +6957,74 @@ export interface SignalReportRefundSummaryResponseApi {
     quota_limited: boolean
 }
 
+/**
+ * * `keyword` - Keyword
+ * * `semantic` - Semantic
+ */
+export type ReportMatchKindEnumApi = (typeof ReportMatchKindEnumApi)[keyof typeof ReportMatchKindEnumApi]
+
+export const ReportMatchKindEnumApi = {
+    Keyword: 'keyword',
+    Semantic: 'semantic',
+} as const
+
+export interface SignalReportSearchHitApi {
+    /** The report id. Pass it to inbox-reports-retrieve for the full report. */
+    id: string
+    /**
+     * The report title.
+     * @nullable
+     */
+    title: string | null
+    /** The report status.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+    /** The report priority, P0 to P4, or null.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority: AutonomyPriorityEnumApi | null
+    /** When the report last changed. */
+    updated_at: string
+    /** A short excerpt of the summary, around the first query word it holds, or the summary's opening when it holds none. */
+    summary_snippet: string
+    /**
+     * The reason code from the latest dismissal of the report, or null.
+     * @nullable
+     */
+    dismissal_reason: string | null
+    /**
+     * The note a person wrote with the latest dismissal, or null.
+     * @nullable
+     */
+    dismissal_note: string | null
+    /** How the report matched: `keyword`, `semantic`, or both. */
+    match_kinds: ReportMatchKindEnumApi[]
+    /** The reciprocal rank fusion score. Higher is a better match. Compare it only within one response. */
+    score: number
+}
+
+export interface SignalReportSearchResponseApi {
+    /** The matching reports, best match first. */
+    results: SignalReportSearchHitApi[]
+    /** False when the results come from keywords only: a `keyword` search, or a `hybrid` search whose semantic search failed. */
+    semantic_available: boolean
+}
+
 export interface SignalReportSectionCountsApi {
     /** Ready reports with an implementation pull request. */
     pull_requests: number
@@ -7330,12 +7416,6 @@ export const RoleAtOrganizationEnumApi = {
     Sales: 'sales',
     Student: 'student',
     Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
 } as const
 
 /**
@@ -11697,7 +11777,7 @@ export type SignalsReportsListParams = {
      */
     priority?: string
     /**
-     * For sort=personal: the ranking_id of the first page. Pass it on later pages, so a new personal ranking does not reorder them. When that ranking no longer exists, the latest one applies.
+     * For sort=personal, and for sort=recommended when its ranker is personal: the ranking_id of the first page. Pass it on later pages, so a new personal ranking does not reorder them. When that ranking no longer exists, the latest one applies.
      */
     ranking_id?: string
     /**
@@ -11725,7 +11805,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of your stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. It only reads the stored ranking and never starts a build. With no stored personal ranking, it is the recommended order.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
      */
     sort?: string
     /**
@@ -11900,6 +11980,52 @@ export type SignalsReportsPrCiStatusesParams = {
      */
     report_ids: string
 }
+
+export type SignalsReportsSearchParams = {
+    /**
+     * ISO 8601 datetime. Keeps reports created at or after this time.
+     */
+    created_after?: string
+    /**
+     * Include reports kept out of the shared inbox. A report is kept out when the scout that authored it turned off its `inbox` output destination. Defaults to false.
+     */
+    include_unlisted?: boolean
+    /**
+     * The most results to return, best match first.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number
+    /**
+     * What to look for: natural language, such as a description of the issue, or an exact string, such as an error message or an entity name.
+     * @minLength 1
+     * @maxLength 1000
+     */
+    query: string
+    /**
+     * `hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and returns 503 when the semantic search fails. `keyword` requires every query word in the title or the summary. Words such as `a` or `is` are too short to look up, so the keyword search leaves them out.
+     *
+     * * `hybrid` - Hybrid
+     * * `semantic` - Semantic
+     * * `keyword` - Keyword
+     * @minLength 1
+     */
+    search_mode?: SignalsReportsSearchSearchMode
+    /**
+     * Comma-separated statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, failed, suppressed. Defaults to every status, dismissed reports included.
+     * @minLength 1
+     */
+    status?: string
+}
+
+export type SignalsReportsSearchSearchMode =
+    (typeof SignalsReportsSearchSearchMode)[keyof typeof SignalsReportsSearchSearchMode]
+
+export const SignalsReportsSearchSearchMode = {
+    Hybrid: 'hybrid',
+    Semantic: 'semantic',
+    Keyword: 'keyword',
+} as const
 
 export type SignalsReportsSectionCountsRetrieveParams = {
     /**

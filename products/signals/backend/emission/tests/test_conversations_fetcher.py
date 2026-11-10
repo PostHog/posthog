@@ -360,13 +360,23 @@ class TestConversationsTicketFetcherMarkEmitted(BaseTest):
             source_id=str(ticket.id),
         ).exists()
 
-    def test_creates_emission_record_after_fetch(self):
+    def test_marks_empty_ticket_processed_without_billable_work(self):
         ticket = _make_ticket(self.team)
         _backdate_ticket(ticket, hours=2)
 
         conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})
 
         assert self._has_emission(ticket)
+
+    def test_leaves_ticket_with_messages_eligible_until_processed(self):
+        ticket = _make_ticket(self.team)
+        _backdate_ticket(ticket, hours=2)
+        _add_comment(self.team, ticket, content="Export does not finish")
+
+        first = conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {})
+        assert [record["id"] for record in first] == [ticket.id]
+        assert not self._has_emission(ticket)
+        assert conversations_ticket_fetcher(self.team, CONVERSATIONS_TICKETS_CONFIG, {}) == first
 
     def test_does_not_create_emission_record_when_result_empty(self):
         ticket = _make_ticket(self.team)

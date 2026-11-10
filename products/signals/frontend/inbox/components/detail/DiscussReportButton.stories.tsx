@@ -113,6 +113,7 @@ export const MetricSuggestion: Story = {
                 <div className="flex-1 min-w-0 p-4">
                     <h2>{report.title}</h2>
                     <ReportCheckRow
+                        reportId={report.id}
                         row={{
                             check,
                             reportStatus: 'ready',

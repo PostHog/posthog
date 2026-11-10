@@ -7,6 +7,7 @@ from parameterized import parameterized
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     SEARCH_CONSOLE_PERFORMANCE_URL,
     CampaignStats,
+    KeywordTracking,
     OrganicQueryStats,
     RankingPage,
     RecommendationInputs,
@@ -123,6 +124,45 @@ class TestMarketingRecommendations(SimpleTestCase):
         }
         assert f"CPA is ${value:.0f}" in rec.reason
         assert reason_benchmark in rec.reason
+
+    @parameterized.expand(
+        [
+            ("spent_less_than_the_bar", 200.0, 0.0, None),
+            (
+                "spent_past_the_bar",
+                360.0,
+                0.0,
+                "Spent $360 (4.3x the account's non-brand CPA of $84) with no non-brand conversions.",
+            ),
+            ("only_brand_spend_past_the_bar", 360.0, 160.0, None),
+        ]
+    )
+    def test_campaign_without_conversions_needs_enough_spend_to_review(
+        self, _name: str, cost: float, brand_cost: float, reason: str | None
+    ) -> None:
+        campaigns = (
+            _campaign(id="a", name="Converting", cost=1000, conversions=20),
+            _campaign(id="b", name="Silent", cost=cost, conversions=0),
+            _campaign(id="c", name="Average", cost=2000, conversions=20),
+        )
+        terms = (
+            (
+                _term("example", "b", cost=brand_cost, conversions=0),
+                _term("other", "b", cost=cost - brand_cost, conversions=0),
+            )
+            if brand_cost
+            else ()
+        )
+
+        reviews = [rec for rec in recommend(_inputs(campaigns, terms)) if rec.rule == "review_campaign"]
+
+        pause = (
+            "If after two weeks it still has no non-brand conversions, or its non-brand CPA is more than 3x "
+            "the account's non-brand CPA, pause it in Campaigns."
+        )
+        assert [(rec.subject, rec.reason, (rec.steps or [])[-1].text) for rec in reviews] == (
+            [("Silent", reason, pause)] if reason else []
+        )
 
     def test_conversions_without_cost_leave_no_benchmark(self) -> None:
         campaigns = (
@@ -479,3 +519,41 @@ class TestMarketingRecommendations(SimpleTestCase):
             "trackly logs": "Competitor term: decide whether conquesting is worth it.",
             "app analytics": "Review the bid and landing page, or add it as a negative",
         }
+
+    @parameterized.expand(
+        [
+            ("keyword_missing", {}, {}, True),
+            (
+                "set_in_the_account_suffix",
+                {"account_final_url_suffix": "utm_source=google&utm_term={keyword}"},
+                {},
+                False,
+            ),
+            ("passed_under_another_name", {"account_final_url_suffix": "kw={keyword}"}, {}, True),
+            ("set_in_the_account_template", {"account_tracking_url_template": "{lpurl}?utm_term={keyword}"}, {}, False),
+            (
+                "campaign_template_replaces_the_accounts",
+                {"account_tracking_url_template": "{lpurl}?utm_term={keyword}"},
+                {"tracking_url_template": "{lpurl}?utm_source=google"},
+                True,
+            ),
+            ("set_on_every_search_campaign", {}, {"tracking_url_template": "{lpurl}?utm_term={keyword}"}, False),
+            ("most_sessions_carry_it", {"sessions_with_keyword": 40}, {}, False),
+            ("too_few_sessions", {"sessions": 20, "sessions_with_keyword": 0}, {}, False),
+            ("no_search_campaign", {}, {"channel_type": "PERFORMANCE_MAX"}, False),
+            ("search_campaign_paused", {}, {"primary_status": "PAUSED"}, False),
+        ]
+    )
+    def test_keyword_tracking_needs_search_ads_sessions_without_utm_term(
+        self, _name: str, tracking: dict[str, object], campaign: dict[str, object], expected: bool
+    ) -> None:
+        values: dict = {"account_name": "Acme Ads", "sessions": 400, "sessions_with_keyword": 4, **tracking}
+        inputs = replace(_inputs((_campaign(**campaign),)), keyword_tracking=KeywordTracking(**values))
+
+        rows = [rec for rec in recommend(inputs) if rec.rule == "keyword_tracking"]
+
+        assert [(rec.level, rec.subject, rec.reason[:4]) for rec in rows] == (
+            [("account", "Acme Ads", "99% ")] if expected else []
+        )
+        if expected:
+            assert [step.copyValue for step in rows[0].steps or [] if step.copyValue] == ["utm_term={keyword}"]
