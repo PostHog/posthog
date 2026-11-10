@@ -133,3 +133,28 @@ def ensure_single_direct_statement(sql: str, *, dialect: str) -> str:
     """
     _single_statement_tokens(sql, dialect)
     return sql
+
+
+def nestable_direct_statement(sql: str, *, dialect: str) -> str:
+    """Return the single statement in `sql` as text that another query can wrap in parentheses.
+
+    The result ends at the last token, so it carries no semicolon. A statement with an unmatched
+    parenthesis is rejected: a stray `)` would close the wrapper, and the text after it would then
+    run as part of the outer query.
+    """
+    from sqlglot.tokens import TokenType  # noqa: PLC0415 -- load dialect grammars only for direct queries
+
+    statement = _single_statement_tokens(sql, dialect)
+    if not statement:
+        raise ExposedHogQLError("Raw query is empty.")
+    depth = 0
+    for token in statement:
+        if token.token_type == TokenType.L_PAREN:
+            depth += 1
+        elif token.token_type == TokenType.R_PAREN:
+            depth -= 1
+        if depth < 0:
+            break
+    if depth != 0:
+        raise ExposedHogQLError("Raw query has unbalanced parentheses.")
+    return sql[: statement[-1].end + 1]
