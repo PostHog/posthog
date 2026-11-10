@@ -53,6 +53,7 @@ class TestInvestigatedFiringMessages(APIBaseTest):
                 source_kind=SourceKind.INSIGHT,
                 check_interval_minutes=60,
                 recurrence_unit="hour",
+                source_config={"insight_id": self.alert.insight_id},
                 legacy_configuration_id=self.alert.id,
             ).id
         self.notebook = notebooks.create_notebook(self.team.id, title="Investigation", content=None)
