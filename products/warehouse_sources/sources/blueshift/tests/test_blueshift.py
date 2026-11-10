@@ -64,16 +64,24 @@ class TestBlueshiftLists:
 
     @parameterized.expand(
         [
-            ("both_passes", None, ["false", "true"], ["a", "b", "c"]),
-            ("resume_in_archived_pass", BlueshiftResumeConfig(next_page=0, list_pass=1), ["true"], ["b", "c"]),
+            ("both_passes", None, True, ["false", "true"], ["a", "b", "c"]),
+            ("resume_in_archived_pass", BlueshiftResumeConfig(next_page=0, list_pass=1), True, ["true"], ["b", "c"]),
+            ("rows_without_archived_flag", None, False, ["false", "true"], ["a", "b", "c"]),
         ]
     )
     def test_campaigns_writes_each_campaign_in_one_pass(
-        self, _name: str, resume_state: BlueshiftResumeConfig | None, archived: list[str], uuids: list[str]
+        self,
+        _name: str,
+        resume_state: BlueshiftResumeConfig | None,
+        with_flag: bool,
+        archived: list[str],
+        uuids: list[str],
     ) -> None:
         def answer(request: Any) -> ScriptedResponse:
             rows = [("a", False), ("b", True)] if request.param("archived") == "false" else [("b", True), ("c", True)]
-            return ScriptedResponse(json=[{"uuid": uuid, "archived": flag} for uuid, flag in rows])
+            return ScriptedResponse(
+                json=[{"uuid": uuid, **({"archived": flag} if with_flag else {})} for uuid, flag in rows]
+            )
 
         result = _driver().run("campaigns", answer, resume_state=resume_state)
 
@@ -99,7 +107,7 @@ class TestBlueshiftLists:
 
     @parameterized.expand(
         [
-            ("later_page", 7, {7: (0, 0)}, ["7"], []),
+            ("later_page_repeating_the_page_before", 7, {6: (0, 100), 7: (0, 100)}, ["6", "7"], []),
             ("page_one_counting_from_zero", 1, {0: (0, 100), 1: (100, 150)}, ["0", "1"], list(range(100, 150))),
             (
                 "page_one_counting_from_one",
