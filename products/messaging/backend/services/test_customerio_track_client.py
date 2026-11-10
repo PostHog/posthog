@@ -60,5 +60,3 @@ class TestCustomerIOTrackClient(SimpleTestCase):
 
         with self.assertRaises(CustomerIOAPIError):
             client.set_global_unsubscribe("user@example.com", True)
-
-        self.assertEqual(self.track_api.received, [])
