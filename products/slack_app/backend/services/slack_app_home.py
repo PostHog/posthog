@@ -30,6 +30,7 @@ from posthog.models.integration import SLACK_INTEGRATION_KINDS, SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
@@ -500,14 +501,14 @@ def render_home_view(
 
     # Section 2 — project routing. Personal pick on top; admins get an
     # editable workspace default below, others see it as read-only context.
+    blocks.append({"type": "divider"})
+    blocks.append({"type": "header", "text": {"type": "plain_text", "text": "Project and model"}})
     if project_state and project_state.has_anything_to_show:
-        blocks.append({"type": "divider"})
         blocks.extend(_project_section_blocks(project_state, is_admin=is_admin))
 
     # Section 3 — AI model settings: which model handles those mentions.
     # Headline shows the resolved central default (and its source), with the
     # personal editor underneath.
-    blocks.append({"type": "divider"})
     blocks.extend(_active_model_blocks(run_defaults))
     blocks.extend(_personal_section_blocks(run_defaults))
     # `None` means no PostHog user is linked to this viewer.
@@ -524,36 +525,22 @@ def render_home_view(
     if untagged_followup_mode is not None:
         reply_blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
 
-    # Section 4a — multiplayer: who may join the threads you started, and whose plan pays.
-    if thread_join_mode is not None or uses_own_plan:
-        reply_blocks.extend(_multiplayer_section_blocks(thread_join_mode, uses_own_plan=uses_own_plan))
-
-    # Section 4b — channel questions. `None` means the flag is off for this workspace.
     if untagged_question_mode is not None:
         reply_blocks.extend(_untagged_questions_section_blocks(untagged_question_mode))
+
+    if thread_join_mode is not None or uses_own_plan:
+        reply_blocks.extend(_multiplayer_section_blocks(thread_join_mode, uses_own_plan=uses_own_plan))
+    if feature_tips_enabled is not None:
+        reply_blocks.extend(_feature_tips_section_blocks(feature_tips_enabled))
     if reply_blocks:
-        blocks.append(
-            {
-                "type": "container",
-                "block_id": "slack_app_home:reply_settings",
-                "title": {"type": "plain_text", "text": "Reply settings"},
-                "subtitle": {"type": "plain_text", "text": "Thread replies, questions, and collaboration"},
-                "width": "full",
-                "is_collapsible": True,
-                "default_collapsed": True,
-                "child_blocks": reply_blocks,
-            }
-        )
+        blocks.append({"type": "divider"})
+        blocks.append({"type": "header", "text": {"type": "plain_text", "text": "Reply settings"}})
+        blocks.extend(reply_blocks)
 
     # Section 5 — channel welcome: a workspace setting, so only admins see it.
     if is_admin and channel_welcome_mode is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_channel_welcome_section_blocks(channel_welcome_mode))
-
-    # Section 5a — feature tips: the only way back for a reader who turned them off.
-    if feature_tips_enabled is not None:
-        blocks.append({"type": "divider"})
-        blocks.extend(_feature_tips_section_blocks(feature_tips_enabled))
 
     # Section 6 — linked accounts: PostHog and GitHub side by side, shown
     # before Tasks so the connect prompts are visible while the Tasks list
@@ -575,7 +562,6 @@ def render_home_view(
         blocks.append({"type": "divider"})
         blocks.extend(_tasks_section_blocks(tasks_state))
 
-    blocks.append({"type": "divider"})
     blocks.extend(_footer_blocks())
 
     return {"type": "home", "callback_id": HOME_CALLBACK_ID, "blocks": blocks}
@@ -641,7 +627,7 @@ def _static_select(
 def _header_blocks() -> list[dict]:
     return [
         {"type": "header", "text": {"type": "plain_text", "text": "PostHog in Slack"}},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": "Manage your projects, model, and replies."}]},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": "Settings for your work with @PostHog."}]},
     ]
 
 
@@ -732,21 +718,13 @@ def _active_model_blocks(run_defaults: RunDefaultsState) -> list[dict]:
                 "text": {"type": "plain_text", "text": "Edit model"},
             },
         },
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Source: {source_label}"}]},
     ]
+    source_text = source_label
     if run_defaults.settings_url:
-        blocks.append(
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"<{run_defaults.settings_url}|Task agent defaults> apply to Slack, PostHog Desktop, "
-                        "and the task composer.",
-                    }
-                ],
-            }
+        source_text += (
+            f" · <{run_defaults.settings_url}|Task agent defaults> also apply to PostHog Desktop and the task composer."
         )
+    blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": source_text}]})
     return blocks
 
 
@@ -771,7 +749,7 @@ def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict
             "placeholder": {"type": "plain_text", "text": "Inherit workspace default"},
             "options": options,
         }
-        personal_actions: list[dict[str, Any]] = []
+        personal_actions: list[dict[str, Any]] = [personal_select]
         if state.personal_team_id is not None and any(c.team_id == state.personal_team_id for c in state.candidates):
             personal_select["initial_option"] = next(o for o in options if o["value"] == str(state.personal_team_id))
             personal_actions.append(
@@ -781,15 +759,19 @@ def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict
                     "text": {"type": "plain_text", "text": "Use workspace default", "emoji": True},
                 }
             )
+        selected_label = next((c.label for c in state.candidates if c.team_id == state.personal_team_id), None)
         blocks.append(
             {
                 "type": "section",
-                "text": {"type": "mrkdwn", "text": "*Project*\nYour default for @PostHog mentions."},
-                "accessory": personal_select,
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Your project*\n{escape_slack_mrkdwn(selected_label)}"
+                    if selected_label
+                    else "*Your project*\nUses the workspace default.",
+                },
             }
         )
-        if personal_actions:
-            blocks.append({"type": "actions", "elements": personal_actions})
+        blocks.append({"type": "actions", "elements": personal_actions})
 
     if is_admin and options:
         workspace_select: dict[str, Any] = {
@@ -805,11 +787,11 @@ def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "*Workspace project*\nDefault for people without a personal choice.",
+                    "text": "*Workspace project (admin)*\nDefault for people without a personal choice.",
                 },
-                "accessory": workspace_select,
             }
         )
+        blocks.append({"type": "actions", "elements": [workspace_select]})
         # Footnote when the default points at a project the admin can't access:
         # the picker can't surface it via `initial_option` since it isn't in `options`.
         if state.workspace_team_label and not any(c.team_id == state.workspace_team_id for c in state.candidates):
@@ -857,9 +839,7 @@ def _linked_accounts_section_blocks(
         return []
 
     return [
-        _section_title(
-            "Linked accounts",
-        ),
+        {"type": "header", "text": {"type": "plain_text", "text": "Linked accounts"}},
         *rows,
     ]
 
@@ -909,7 +889,7 @@ def _github_account_text(github_state: GitHubState) -> str:
         return "*GitHub*\nLink your PostHog account first, so we know whose GitHub to look up."
     if not github_state.accounts:
         return "*GitHub*\nNot connected. Connect it so @PostHog opens pull requests as you."
-    marker = "✅" if github_state.credentials_usable else "⚠️"
+    marker = "✅ Connected as" if github_state.credentials_usable else "⚠️"
     listed = "\n".join(f"{marker} {account.label}" for account in github_state.accounts)
     if github_state.credentials_usable:
         return f"*GitHub*\n{listed}"
@@ -974,12 +954,10 @@ FEATURE_TIPS_VALUE = "on"
 
 def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
     option = {
-        "text": {"type": "mrkdwn", "text": "*Use auto model choice*"},
-        # Slack caps an option description at 75 characters and rejects the whole
-        # `views.publish` call over it, so the caveats go in the context line below.
+        "text": {"type": "mrkdwn", "text": "*Choose the model automatically for new tasks*"},
         "description": {
             "type": "mrkdwn",
-            "text": "PostHog picks the model for each new task you start.",
+            "text": "A model in your message overrides this. Existing tasks keep their model.",
         },
         "value": AUTO_MODEL_CHOICE_VALUE,
     }
@@ -990,36 +968,19 @@ def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
     }
     if enabled:
         checkbox["initial_options"] = [option]
-    return [
-        {"type": "actions", "elements": [checkbox]},
-        {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": "A model you name in your message still wins, and follow-ups keep the model of their task.",
-                }
-            ],
-        },
-    ]
+    return [{"type": "actions", "elements": [checkbox]}]
 
 
 def _feature_tips_section_blocks(enabled: bool) -> list[dict]:
     option = {
-        "text": {"type": "mrkdwn", "text": "*Show tips*"},
-        "description": {"type": "mrkdwn", "text": "At most one tip a day, under an answer. Only you see it."},
+        "text": {"type": "mrkdwn", "text": "*Show tips about PostHog features*"},
+        "description": {"type": "mrkdwn", "text": "Only you see these tips. At most one a day, under an answer."},
         "value": FEATURE_TIPS_VALUE,
     }
     checkbox: dict[str, Any] = {"type": "checkboxes", "action_id": ACTION_SET_FEATURE_TIPS, "options": [option]}
     if enabled:
         checkbox["initial_options"] = [option]
-    return [
-        {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": "*Tips*\nLearn about PostHog features you have not used yet."},
-            "accessory": checkbox,
-        },
-    ]
+    return [{"type": "actions", "elements": [checkbox]}]
 
 
 def _own_plan_blocks(state: OwnPlanState) -> list[dict]:
@@ -1071,9 +1032,9 @@ def _untagged_mode_section_blocks(
     return [
         {
             "type": "section",
-            "text": {"type": "mrkdwn", "text": f"*{title}*\n{subtitle}\n{note}"},
-            "accessory": select,
+            "text": {"type": "mrkdwn", "text": f"*{title}*\n{subtitle} {note}"},
         },
+        {"type": "actions", "elements": [select]},
     ]
 
 
@@ -1083,8 +1044,8 @@ def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
         action_id=ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
         labels=UNTAGGED_FOLLOWUP_MODE_LABELS,
         title="Thread follow-ups",
-        subtitle="Replies in threads you start, without an @PostHog mention.",
-        note="Applies to all replies, including yours.",
+        subtitle="Replies without @PostHog in threads you start.",
+        note="Includes your replies.",
     )
 
 
@@ -1094,7 +1055,7 @@ def _untagged_questions_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
         action_id=ACTION_SET_UNTAGGED_QUESTION_MODE,
         labels=UNTAGGED_QUESTION_MODE_LABELS,
         title="Questions in channels",
-        subtitle="Your questions without an @PostHog mention, when your data can answer them.",
+        subtitle="Your channel questions without @PostHog, when your data can answer.",
         note="Does not change thread follow-ups.",
     )
 
@@ -1104,7 +1065,7 @@ def _multiplayer_section_blocks(mode: ThreadJoinMode | None, *, uses_own_plan: b
 
     ``mode`` is `None` when the join setting is not offered to this viewer.
     """
-    row = _section_title("Multiplayer", "When another person mentions @PostHog in a thread you start.")
+    row = _section_title("Multiplayer", "When others mention @PostHog in threads you start.")
     blocks: list[dict] = [row]
     if mode is not None:
         select = _static_select(
@@ -1113,7 +1074,7 @@ def _multiplayer_section_blocks(mode: ThreadJoinMode | None, *, uses_own_plan: b
             pairs=ThreadJoinMode.choices,
             selected=mode.value,
         )
-        row["accessory"] = select
+        blocks.append({"type": "actions", "elements": [select]})
     if uses_own_plan:
         blocks.append(
             {
@@ -1121,7 +1082,7 @@ def _multiplayer_section_blocks(mode: ThreadJoinMode | None, *, uses_own_plan: b
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": "Codex tasks you start here use your ChatGPT plan, also when other people join your thread.",
+                        "text": "Your Codex tasks use your ChatGPT plan, also when other people join your thread.",
                     }
                 ],
             }
@@ -1139,10 +1100,14 @@ CHANNEL_WELCOME_MODE_LABELS: dict[str, str] = {
 def _channel_welcome_section_blocks(mode: ChannelWelcomeMode) -> list[dict]:
     """Admin picker for where the welcome goes when someone adds the app to a channel."""
     return [
-        _section_title(
-            "📣 Channel welcome",
-            "What I do when someone adds me to a channel in this workspace.",
-        ),
+        {"type": "header", "text": {"type": "plain_text", "text": "Workspace settings"}},
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Channel welcome (admin)*\nWhere to send the welcome when someone adds PostHog to a channel.",
+            },
+        },
         {
             "type": "actions",
             "elements": [
@@ -1153,10 +1118,6 @@ def _channel_welcome_section_blocks(mode: ChannelWelcomeMode) -> list[dict]:
                     selected=mode.value,
                 )
             ],
-        },
-        {
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": "Applies to everyone in this Slack workspace."}],
         },
     ]
 

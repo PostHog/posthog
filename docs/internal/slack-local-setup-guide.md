@@ -165,8 +165,11 @@ Django must be up at that moment.
 > locally. Neither is behind a feature flag: the App Home tab renders for every install, and the
 > identity link appears only when the install holds the `users:read` and `users:read.email` scopes.
 
-The Home tab puts project selectors beside their labels.
-Expand Reply settings to change thread replies, channel questions, and collaboration options.
+The Home tab groups project and model settings, reply settings, and linked accounts.
+Selectors sit below their labels to leave room for text on narrow screens.
+The full personal project name appears above its selector.
+Reply settings contains thread replies, channel questions, multiplayer options, and tips.
+These controls use standard Home blocks and remain visible.
 Edit model opens the personal model form.
 Use project default clears the personal model choice for Slack, PostHog Desktop, and the task composer.
 Workspace project and channel welcome controls appear only for Slack workspace admins.

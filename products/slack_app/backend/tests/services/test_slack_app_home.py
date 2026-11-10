@@ -550,11 +550,11 @@ class TestThreadFollowupsCard:
         # Without the right initial option the tab misreports the setting, and picking
         # the value already stored is a no-op click that looks broken.
         view = self._view(mode)
-        replies = next(block for block in view["blocks"] if block.get("type") == "container")
         select = next(
-            block["accessory"]
-            for block in replies["child_blocks"]
-            if block.get("accessory", {}).get("action_id") == ACTION_SET_UNTAGGED_FOLLOWUP_MODE
+            element
+            for block in view["blocks"]
+            for element in block.get("elements", [])
+            if element.get("action_id") == ACTION_SET_UNTAGGED_FOLLOWUP_MODE
         )
         assert select["initial_option"]["value"] == mode.value
         assert {o["value"] for o in select["options"]} == set(UntaggedFollowupMode.values)
