@@ -145,7 +145,7 @@ export function filterAnalytics(
     const createdBy = filters.createdBy
     return items.filter(
         (item) =>
-            filters.tags.every((tag) => item.tags.includes(tag)) &&
+            (!filters.tags.length || filters.tags.some((tag) => item.tags.includes(tag))) &&
             (filters.types.length ? filters.types.includes(item.type) : !insightsHidden || item.type !== 'insight') &&
             (!needle || item.name.toLowerCase().includes(needle)) &&
             (!createdBy.length || (!!item.createdBy && createdBy.includes(item.createdBy.uuid)))

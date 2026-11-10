@@ -24,7 +24,7 @@ from django.db.models import (
     Value,
     When,
 )
-from django.db.models.functions import Concat, Lower
+from django.db.models.functions import Cast, Concat, Lower
 from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -133,6 +133,18 @@ def validate_file_system_path(path: Any) -> str:
     return path
 
 
+def parse_tags_param(raw: str | None) -> builtins.list[str]:
+    if not raw:
+        return []
+    try:
+        tags = json.loads(raw)
+    except ValueError:
+        raise serializers.ValidationError({"tags": "Must be a JSON array of tag names."})
+    if not isinstance(tags, builtins.list) or not all(isinstance(tag, str) for tag in tags):
+        raise serializers.ValidationError({"tags": "Must be a JSON array of tag names."})
+    return tags
+
+
 class FileSystemListQuerySerializer(serializers.Serializer):
     include_content_type = serializers.BooleanField(
         default=False,
@@ -142,6 +154,16 @@ class FileSystemListQuerySerializer(serializers.Serializer):
         default=False,
         help_text="Include meta.tags, the tag names, for dashboards and insights on this page.",
     )
+    tags = serializers.CharField(
+        required=False,
+        help_text=(
+            'A JSON array of tag names, such as ["growth", "weekly"]. Keeps only the dashboards and insights '
+            "that carry at least one of them."
+        ),
+    )
+
+    def validate_tags(self, value: str) -> builtins.list[str]:
+        return parse_tags_param(value)
 
 
 class FileSystemDeleteQuerySerializer(serializers.Serializer):
@@ -657,6 +679,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(created_at__lt=created_at__lt)
         if search_param:
             queryset = self._apply_search_to_queryset(queryset, search_param, basename_only=search_name_only)
+        if self.action == "list":
+            tags = parse_tags_param(self.request.query_params.get("tags"))
+            if tags:
+                queryset = queryset.filter(self._tagged_with_any_q(tags))
 
         queryset = self._filter_by_access_control(queryset)
 
@@ -693,6 +719,25 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.order_by(Lower("path"))
 
         return queryset
+
+    def _tagged_with_any_q(self, tags: builtins.list[str]) -> Q:
+        """Rows whose dashboard or insight carries at least one of these tags."""
+        condition = Q(pk__in=[])
+        for entry_type, app_label, model_name, ref_field in TAGGED_FILE_SYSTEM_TYPES:
+            model = apps.get_model(app_label, model_name)
+            tagged_objects = (
+                model.objects.filter(
+                    team_id=OuterRef("team_id"),
+                    deleted=False,
+                    pk__in=TaggedItem.objects.for_model(model)
+                    .filter(tag__name__in=tags)
+                    .values(object_column_for(model)),
+                )
+                .annotate(file_system_ref=Cast(ref_field, output_field=CharField()))
+                .filter(file_system_ref=OuterRef("ref"))
+            )
+            condition |= (Q(type=entry_type) | Q(type__startswith=f"{entry_type}/")) & Exists(tagged_objects)
+        return condition
 
     def _add_object_types(
         self, results: builtins.list[dict[str, object]], *, include_content_type: bool, include_tags: bool = False
