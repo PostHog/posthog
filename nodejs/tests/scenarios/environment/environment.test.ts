@@ -1,18 +1,19 @@
 import { ChildProcess, spawn } from 'child_process'
 import { once } from 'events'
-import { mkdtempSync, readFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmdirSync } from 'fs'
+import Redis from 'ioredis'
 import net from 'net'
 import os from 'os'
 import path from 'path'
 import { setTimeout as nextTimers } from 'timers/promises'
 
-import { getDefaultCdpConfig } from '~/cdp/config'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { CdpRole } from '../cards'
 import { createEnvironment } from './environment'
 import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ROLE_PORTS, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
-import { membersOf, pingRedis, seekFailures } from './stack'
+import { SES_BUCKET_KEY, forgetSesBucket, membersOf, pingRedis, seekFailures } from './stack'
 import { createSupervisor } from './supervisor'
 
 const SELF = 100
@@ -196,10 +197,14 @@ describe('scenario environment', () => {
             })
         })
 
-        it('lets profile settings override the role environment but not how the runner finds a role', () => {
+        it('lets profile settings override the role environment but not how the runner wires a role', () => {
             const settings = {
                 SES_REGION: 'eu-west-1',
                 CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
+                SES_ENDPOINT: 'http://elsewhere',
+                PERSONHOG_ADDR: '127.0.0.1:1',
+                ENCRYPTION_SALT_KEYS: 'profile-key',
+                WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'profile-jwt',
                 PLUGIN_SERVER_MODE: 'ingestion-v2',
                 HTTP_SERVER_PORT: '1',
                 PGAPPNAME: 'other',
@@ -210,11 +215,21 @@ describe('scenario environment', () => {
             expect(spec.env).toMatchObject({
                 SES_REGION: 'eu-west-1',
                 CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
+                SES_ENDPOINT: 'http://127.0.0.1:4566',
+                PERSONHOG_ADDR: '127.0.0.1:50052',
+                ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00',
+                WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'local-dev-workflows-transactional-email-jwt',
                 PLUGIN_SERVER_MODE: spec.role,
                 HTTP_SERVER_PORT: String(ROLE_PORTS[spec.role]),
                 PGAPPNAME: `scenario-${spec.role}`,
                 SCENARIO_RUNNER: '1',
             })
+        })
+
+        it('drops an inherited consumer group id, so the events role joins the group a reset moves', () => {
+            const specs = roleSpecs({ KAFKA_CONSUMER_GROUP_ID: 'dev-group' }, 'http://edge', secretsOf({}))
+
+            expect(specs.filter(({ env }) => 'KAFKA_CONSUMER_GROUP_ID' in env)).toEqual([])
         })
 
         it("shares the runner's secrets with the roles", () => {
@@ -256,7 +271,7 @@ describe('scenario environment', () => {
             [
                 {
                     group: 'cdp-processed-events-consumer',
-                    topics: [getDefaultCdpConfig().CDP_EVENTS_CONSUMER_TOPIC],
+                    topics: ['clickhouse_events_json'],
                 },
             ],
         ],
@@ -264,7 +279,13 @@ describe('scenario environment', () => {
             'the group the runner env overrides',
             { CDP_EVENTS_CONSUMER_GROUP_ID: 'scenario-events' },
             {},
-            [{ group: 'scenario-events', topics: [getDefaultCdpConfig().CDP_EVENTS_CONSUMER_TOPIC] }],
+            [{ group: 'scenario-events', topics: ['clickhouse_events_json'] }],
+        ],
+        [
+            'the events topic under the Kafka prefix the roles inherit',
+            { KAFKA_PREFIX: 'scenario_' },
+            {},
+            [{ group: 'cdp-processed-events-consumer', topics: ['scenario_clickhouse_events_json'] }],
         ],
         [
             'the group and topic a profile sets',
@@ -288,19 +309,32 @@ describe('scenario environment', () => {
             ['clickhouse_events_json/0: INVALID_OPERATION: seeking a non-empty group is not allowed.'],
         ],
         [
-            'one refused partition among moved ones',
-            'TOPIC         PARTITION  PRIOR-OFFSET  CURRENT-OFFSET  ERROR\nscenario_one  0          4             9\nscenario_one  1          2             2               NOT_COORDINATOR: not the coordinator\n',
-            ['scenario_one/1: NOT_COORDINATOR: not the coordinator'],
+            'a topic that does not exist yet, so has nothing to skip',
+            'unable to list all offsets successfully: UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.\n',
+            [],
         ],
         [
             'a seek rpk could not run',
-            'unable to list all offsets successfully: UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.\n',
+            'unable to fetch offsets for "scenario-probe-t4-nobroker": unable to dial: dial tcp 127.0.0.1:1: connect: connection refused\n',
             [
-                'unable to list all offsets successfully: UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.',
+                'unable to fetch offsets for "scenario-probe-t4-nobroker": unable to dial: dial tcp 127.0.0.1:1: connect: connection refused',
             ],
         ],
     ])('reads the partition errors of %s from rpk', (_name, output, failures) => {
         expect(seekFailures(output)).toEqual(failures)
+    })
+
+    it('forgets the SES token bucket so a reset starts with a full one', async () => {
+        const redis = new Redis(6379, '127.0.0.1')
+        try {
+            await redis.hset(SES_BUCKET_KEY, 'ts', '1', 'pool', '0')
+
+            await forgetSesBucket({ host: '127.0.0.1', port: 6379 })
+
+            expect(await redis.exists(SES_BUCKET_KEY)).toBe(0)
+        } finally {
+            redis.disconnect()
+        }
     })
 
     it('reports a Redis that accepts but never answers as down instead of hanging', async () => {
@@ -479,6 +513,47 @@ describe('scenario environment', () => {
             await nextTimers(0)
 
             expect({ exits: supervisor.exits(), running: tagged() }).toEqual({ exits: [], running: [] })
+        }, 15_000)
+
+        it('records a role it cannot start again and keeps retrying until it starts', async () => {
+            const cwd = mkdtempSync(path.join(os.tmpdir(), 'scenario-role-cwd-'))
+            const exiting = createSupervisor({
+                command: process.execPath,
+                args: ['-e', 'process.exit(3)'],
+                cwd,
+                logDir: mkdtempSync(path.join(os.tmpdir(), 'scenario-logs-')),
+                graceMs: 1000,
+                restartBackoffMs: 50,
+            })
+            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}))
+            try {
+                await exiting.start([spec])
+                rmdirSync(cwd)
+                await waitForExpect(
+                    () =>
+                        expect(exiting.exits().map(({ error }) => error)).toContainEqual(
+                            expect.stringContaining('ENOENT')
+                        ),
+                    5000,
+                    20
+                )
+                mkdirSync(cwd)
+                const failedStarts = exiting.exits().length
+
+                await waitForExpect(
+                    () =>
+                        expect(
+                            exiting
+                                .exits()
+                                .slice(failedStarts)
+                                .map(({ code }) => code)
+                        ).toContain(3),
+                    5000,
+                    20
+                )
+            } finally {
+                await exiting.stop()
+            }
         }, 15_000)
     })
 

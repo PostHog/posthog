@@ -9,10 +9,12 @@ import { ProviderEdge, startProviderEdge } from '../provider-edge'
 import { StackConflictError, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ConsumerGroup, ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
 import {
+    STACK,
     cyclotronUrlOf,
     deleteUnfinishedJobs,
     downServices,
     expectOk,
+    forgetSesBucket,
     groupMembers,
     missingTemplates,
     rolesNotReady,
@@ -105,17 +107,24 @@ export function createEnvironment(): Environment {
                 PROBE_INTERVAL_MS
             )
             edge.clearFaults()
-            await Promise.all([...new Set(specs.map(cyclotronUrlOf))].map(deleteUnfinishedJobs))
+            await deleteUnfinishedJobs(cyclotronUrlOf(specs[0]))
+            await forgetSesBucket(STACK.sesRateLimiterValkey)
             for (const group of groups) {
                 await seekToEnd(group)
             }
+            const exitsBefore = supervisor.exits().length
             await supervisor.start(specs)
             await waitForExpect(
                 async () => {
                     const notReady = await rolesNotReady(specs)
                     if (notReady.length > 0) {
+                        const exited = supervisor
+                            .exits()
+                            .slice(exitsBefore)
+                            .map(({ role, code, signal }) => `${role} (${signal ?? `code ${code}`})`)
                         throw new Error(
-                            `The roles ${notReady.join(', ')} did not answer /_health within ${ROLES_READY_WITHIN_MS / 1000}s.`
+                            `The roles ${notReady.join(', ')} did not answer /_health within ${ROLES_READY_WITHIN_MS / 1000}s. ` +
+                                `Exited since the reset: ${exited.join(', ') || 'none'}. Logs: ${stateDir}/<role>.log.`
                         )
                     }
                 },

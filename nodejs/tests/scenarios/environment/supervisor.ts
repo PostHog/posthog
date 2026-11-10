@@ -6,7 +6,14 @@ import path from 'path'
 import { terminate } from './processes'
 import { Role, RoleSpec } from './roles'
 
-export type RoleExit = { role: Role; at: string; code: number | null; signal: string | null; byValve: boolean }
+export type RoleExit = {
+    role: Role
+    at: string
+    code: number | null
+    signal: string | null
+    byValve: boolean
+    error?: string
+}
 
 export type SupervisorOptions = {
     command: string
@@ -29,6 +36,16 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
     const recorded: RoleExit[] = []
     let stopping = false
 
+    const relaunchLater = (spec: RoleSpec): void => {
+        const restart = setTimeout(() => {
+            restarts.delete(restart)
+            if (!stopping) {
+                launch(spec)
+            }
+        }, options.restartBackoffMs)
+        restarts.add(restart)
+    }
+
     const launch = (spec: RoleSpec): ChildProcess => {
         const log = openSync(path.join(options.logDir, `${spec.role}.log`), 'a')
         const child = spawn(options.command, options.args, {
@@ -39,6 +56,23 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
         })
         closeSync(log)
         children.set(spec.role, child)
+        child.once('error', (error) => {
+            if (children.get(spec.role) === child) {
+                children.delete(spec.role)
+            }
+            if (stopping || child.pid !== undefined) {
+                return
+            }
+            recorded.push({
+                role: spec.role,
+                at: new Date().toISOString(),
+                code: null,
+                signal: null,
+                byValve: false,
+                error: error.message,
+            })
+            relaunchLater(spec)
+        })
         child.once('exit', (code, signal) => {
             if (children.get(spec.role) === child) {
                 children.delete(spec.role)
@@ -48,13 +82,7 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
             }
             void terminate({ groups: child.pid ? [child.pid] : [], pids: [] }, 0)
             recorded.push({ role: spec.role, at: new Date().toISOString(), code, signal, byValve: false })
-            const restart = setTimeout(() => {
-                restarts.delete(restart)
-                if (!stopping) {
-                    launch(spec).once('error', () => undefined)
-                }
-            }, options.restartBackoffMs)
-            restarts.add(restart)
+            relaunchLater(spec)
         })
         return child
     }
