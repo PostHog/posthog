@@ -23,9 +23,9 @@ import { IntegrationsService } from '@/integrations/service'
 import { logger } from '@/lib/logging'
 import { register } from '@/metrics'
 
-const WEB = 'posthog-django'
+const WEB = 'posthog-web-django'
 const WORKER = 'temporal-worker-data-warehouse'
-const CDP = 'cdp-destinations'
+const CDP = 'cdp-api'
 const KEYS: SigningKeys = {
     [WEB]: ['web-signing-key-fake'],
     [WORKER]: ['worker-signing-key-fake'],
