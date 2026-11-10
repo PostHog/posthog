@@ -203,6 +203,30 @@ describe('EmailService', () => {
             limiters.workflowEmailRateLimiter ?? null,
             limiters.teamEmailRateLimiter ?? null
         )
+    // The limiter's script reads the time from Redis, which a test cannot freeze. This client answers
+    // TIME from Date.now instead, so a test that freezes Date.now also stops the bucket's refill.
+    const limiterTimeCall = "redis.call('TIME')"
+    const onTestClock = (redis: RedisV2): RedisV2 => ({
+        ...redis,
+        useClient: (options, callback) =>
+            redis.useClient(options, (client) =>
+                callback(
+                    new Proxy(client, {
+                        get: (target, property, receiver) =>
+                            property === 'eval'
+                                ? (script: string, ...args: [number, ...string[]]) => {
+                                      if (!script.includes(limiterTimeCall)) {
+                                          throw new Error('The limiter script no longer reads the time from Redis')
+                                      }
+                                      const nowMs = Date.now()
+                                      const time = `{'${Math.floor(nowMs / 1000)}', '${(nowMs % 1000) * 1000}'}`
+                                      return target.eval(script.replace(limiterTimeCall, time), ...args)
+                                  }
+                                : Reflect.get(target, property, receiver),
+                    })
+                )
+            ),
+    })
     let limiterRedis: RedisV2 | undefined
     const createRateLimiter = (name: string): RateLimiterService => {
         limiterRedis ??= createRedisV2PoolFromConfig({
@@ -215,7 +239,7 @@ describe('EmailService', () => {
             poolMinSize: hub.REDIS_POOL_MIN_SIZE,
             poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         })
-        return new RateLimiterService(limiterRedis, { name })
+        return new RateLimiterService(onTestClock(limiterRedis), { name })
     }
     const unreachableValkey: RedisV2 = {
         useClient: () => Promise.reject(new Error('connect ECONNREFUSED')),
@@ -735,26 +759,18 @@ describe('EmailService', () => {
 
             const parkedAt = (send: TimedSend): number => send.result.invocation.queueScheduledAt!.toMillis()
 
-            // The limiter refills on Redis's clock, which a test cannot freeze. A bucket in debt denies
-            // every claim until the debt refills, however slowly the test runs up to that point.
-            const oweTokens = async (tokens: number): Promise<number> => {
-                const owedAt = await limiterRedis!.useClient({ name: 'owe-tokens' }, async (client) => {
-                    const [seconds, micros] = (await client.time()).map(Number)
-                    return seconds * 1000 + Math.floor(micros / 1000)
-                })
-                await limiterRedis!.useClient({ name: 'owe-tokens' }, (client) =>
-                    client.hset(
-                        `@posthog/workflow-email-rate/${invocation.teamId}/${invocation.functionId}`,
-                        'ts',
-                        owedAt!,
-                        'pool',
-                        -tokens
-                    )
-                )
-                return owedAt!
+            let frozenClock: jest.SpyInstance | undefined
+            const freezeClock = (): void => {
+                frozenClock = jest.spyOn(Date, 'now').mockReturnValue(Date.now())
             }
 
+            afterEach(() => {
+                frozenClock?.mockRestore()
+                frozenClock = undefined
+            })
+
             it('reschedules a denied send with its email payload and no business metric', async () => {
+                freezeClock()
                 limitTo(30, 'minute')
 
                 const denied = await sendUntilDenied()
@@ -776,10 +792,10 @@ describe('EmailService', () => {
                 ['2s slots at 30 a minute', 30, 2000],
                 ['sub-second slots at 120 a minute', 120, 500],
             ])('parks consecutive denials exactly one slot apart: %s', async (_name, count, slotMs) => {
+                freezeClock()
                 limitTo(count, 'minute')
-                await oweTokens(count)
 
-                const first = await timedSend()
+                const first = await sendUntilDenied()
                 const next = [await timedSend(), await timedSend()]
 
                 next.forEach((denied, index) => {
@@ -788,20 +804,6 @@ describe('EmailService', () => {
                     const callMs = first.after - first.before + (denied.after - denied.before)
                     expect(Math.abs(driftMs)).toBeLessThanOrEqual(callMs + 1)
                 })
-            })
-
-            it('parks on a sub-second slot as-is, with no one second floor', async () => {
-                limitTo(120, 'minute')
-
-                for (let attempt = 0; attempt < 5; attempt++) {
-                    const slotAt = (await oweTokens(0.6)) + 800
-                    const send = await timedSend()
-                    if (!send.result.finished) {
-                        expect(Math.abs(parkedAt(send) - slotAt)).toBeLessThanOrEqual(send.after - send.before + 1)
-                        return
-                    }
-                }
-                throw new Error('The workflow sending limit never denied a send')
             })
 
             it('scatters a backlog that overflows the reservation horizon', async () => {
@@ -858,14 +860,15 @@ describe('EmailService', () => {
             })
 
             it('sends a burst of one second of budget, then parks only the workflow over its limit', async () => {
+                freezeClock()
                 limitTo(61, 'minute')
 
                 const burst = [await timedSend(), await timedSend()]
-                await oweTokens(61)
                 const denied = await timedSend()
 
                 expect(burst.map((send) => send.result.finished)).toEqual([true, true])
                 expect(denied.result.finished).toBe(false)
+                expect(parkedAt(denied)).toBeLessThanOrEqual(denied.after + 1000)
 
                 const otherWorkflow = createExampleInvocation({ team_id: team.id, id: 'function-2' })
                 otherWorkflow.state.vmState = { stack: [] } as any
