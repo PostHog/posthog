@@ -63,7 +63,7 @@ class LiveExperimentManager(RootTeamManager):
     on the model that does not inherit it would lose the project-scoped team rewriting.
     """
 
-    def get_queryset(self) -> "QuerySet[Experiment]":
+    def get_queryset(self):
         return super().get_queryset().filter(deleted=False)
 
 
@@ -183,7 +183,7 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
     # inherited one, so `live_objects` alone would become the default and would hide soft-deleted
     # rows from every reverse accessor, from the admin and from the delete and restore paths that
     # must still see them.
-    objects = RootTeamManager()
+    objects = RootTeamManager()  # type: ignore[misc]
     live_objects = LiveExperimentManager()
 
     class Meta:
