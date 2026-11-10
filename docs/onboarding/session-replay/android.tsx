@@ -104,7 +104,7 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                             // We recommend the values below to balance performance and image quality.
                                             // Lower resolution and RGB_565 reduce capture time and memory use.
 
-                                            // Scale each screenshot dimension from 0.1 to 1.0. Default is 1.0.
+                                            // Scale each screenshot dimension from 0.1 to 1.0. With no value, SDK 3.74.0+ captures one pixel per dp.
                                             config.sessionReplayConfig.screenshotScale = 0.5f
 
                                             // RGB_565 uses two bytes per pixel instead of four, with lower color precision
