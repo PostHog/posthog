@@ -1,10 +1,11 @@
 import math
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -14,7 +15,12 @@ from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.models.user import User
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
+    TeamMemberAccessPermission,
+    posthog_feature_flag_enabled,
+)
 from posthog.rate_limit import AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle
 
 from products.aeo.backend.facade.api import (
@@ -979,6 +985,18 @@ class _AEOFlagGateMixin(TeamAndOrgViewSetMixin):
             raise PermissionDenied("This feature is not available.")
 
 
+class _WebAnalyticsReadAccessPermission(AccessControlPermission):
+    """Requires only read access to web analytics, for an action whose writes land in other resources.
+
+    The default permission maps any `:write` entry in `required_scopes` to editor access on the view's
+    scope object, so a web analytics viewer could not create a dashboard. The action checks its
+    dashboard and insight writes itself.
+    """
+
+    def _get_required_access_level(self, request: Request, view: Any) -> Literal["viewer"]:
+        return "viewer"
+
+
 class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
     scope_object_read_actions = [
@@ -995,6 +1013,16 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     # suggest saves nothing, but it spends model credits, so it needs write access.
     scope_object_write_actions = ["partial_update", "destroy", "bulk_import", "suggest"]
     pagination_class = PrecountedLimitOffsetPagination
+
+    def dangerously_get_permissions(self) -> list[BasePermission]:
+        if self.action != "create_dashboard":
+            raise NotImplementedError()
+        return [
+            IsAuthenticated(),
+            APIScopePermission(),
+            _WebAnalyticsReadAccessPermission(),
+            TeamMemberAccessPermission(),
+        ]
 
     @validated_request(
         query_serializer=AEOPromptListQuerySerializer,
@@ -1202,12 +1230,16 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         required_scopes=["web_analytics:read", "dashboard:write", "insight:write"],
     )
     def create_dashboard(self, request: Request, **kwargs: Any) -> Response:
-        # required_scopes only constrains API keys; session RBAC evaluates this viewset's web_analytics scope object,
-        # so the caller's dashboard access is checked here.
-        if not authorization.check(
-            resource=Resource(type=ResourceType.DASHBOARD, project_id=self.team_id), action=AuthorizationAction.CREATE
+        # required_scopes only constrains API keys, and session RBAC on this viewset checks only web_analytics,
+        # so the caller's access to the dashboard and the insights it creates is checked here.
+        for resource_type, message in (
+            (ResourceType.DASHBOARD, "Creating a dashboard requires dashboard edit access."),
+            (ResourceType.INSIGHT, "Creating a dashboard requires insight edit access."),
         ):
-            raise PermissionDenied("Creating a dashboard requires dashboard edit access.")
+            if not authorization.check(
+                resource=Resource(type=resource_type, project_id=self.team_id), action=AuthorizationAction.CREATE
+            ):
+                raise PermissionDenied(message)
         created = create_visibility_dashboard(self.team, cast(User, request.user))
         return Response(AEOVisibilityDashboardSerializer(created).data, status=status.HTTP_201_CREATED)
 

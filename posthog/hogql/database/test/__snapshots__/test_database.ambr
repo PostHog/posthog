@@ -2870,9 +2870,11 @@
       },
       "system.aeo_brands": {
           "certification": null,
+          "description": "AEO brand catalog: one row per company whose domain the answer engines cite, labeled as the team's own brand, a competitor, a publisher, or unknown. Join a cited URL's host to `domain` to tell own pages from competitor pages.",
           "fields": {
               "id": {
                   "chain": null,
+                  "description": "Brand id.",
                   "fields": null,
                   "hogql_value": "id",
                   "id": null,
@@ -2883,6 +2885,7 @@
               },
               "name": {
                   "chain": null,
+                  "description": "Brand name as people say it.",
                   "fields": null,
                   "hogql_value": "name",
                   "id": null,
@@ -2893,6 +2896,7 @@
               },
               "domain": {
                   "chain": null,
+                  "description": "Registrable domain, for example 'example.com'. Citations on its subdomains count for the brand.",
                   "fields": null,
                   "hogql_value": "domain",
                   "id": null,
@@ -2903,6 +2907,7 @@
               },
               "kind": {
                   "chain": null,
+                  "description": "What the brand is to the team: 'own', 'competitor', 'publisher' or 'unknown'.",
                   "fields": null,
                   "hogql_value": "kind",
                   "id": null,
@@ -2913,6 +2918,7 @@
               },
               "status": {
                   "chain": null,
+                  "description": "Whether a person confirmed the brand ('confirmed'), ignored it ('ignored'), or has not looked at it yet ('suggested').",
                   "fields": null,
                   "hogql_value": "status",
                   "id": null,
@@ -2923,6 +2929,7 @@
               },
               "source": {
                   "chain": null,
+                  "description": "How the brand entered the catalog: 'citations' or 'manual'.",
                   "fields": null,
                   "hogql_value": "source",
                   "id": null,
@@ -2933,6 +2940,7 @@
               },
               "aliases": {
                   "chain": null,
+                  "description": "JSON array of other names for the brand, used to find it in answer text.",
                   "fields": null,
                   "hogql_value": "aliases",
                   "id": null,
@@ -2943,6 +2951,7 @@
               },
               "created_at": {
                   "chain": null,
+                  "description": "When the brand entered the catalog.",
                   "fields": null,
                   "hogql_value": "created_at",
                   "id": null,
@@ -2953,6 +2962,7 @@
               },
               "updated_at": {
                   "chain": null,
+                  "description": "When the brand was last edited.",
                   "fields": null,
                   "hogql_value": "updated_at",
                   "id": null,
@@ -19604,9 +19614,11 @@
       },
       "system.aeo_brands": {
           "certification": null,
+          "description": "AEO brand catalog: one row per company whose domain the answer engines cite, labeled as the team's own brand, a competitor, a publisher, or unknown. Join a cited URL's host to `domain` to tell own pages from competitor pages.",
           "fields": {
               "id": {
                   "chain": null,
+                  "description": "Brand id.",
                   "fields": null,
                   "hogql_value": "id",
                   "id": null,
@@ -19617,6 +19629,7 @@
               },
               "name": {
                   "chain": null,
+                  "description": "Brand name as people say it.",
                   "fields": null,
                   "hogql_value": "name",
                   "id": null,
@@ -19627,6 +19640,7 @@
               },
               "domain": {
                   "chain": null,
+                  "description": "Registrable domain, for example 'example.com'. Citations on its subdomains count for the brand.",
                   "fields": null,
                   "hogql_value": "domain",
                   "id": null,
@@ -19637,6 +19651,7 @@
               },
               "kind": {
                   "chain": null,
+                  "description": "What the brand is to the team: 'own', 'competitor', 'publisher' or 'unknown'.",
                   "fields": null,
                   "hogql_value": "kind",
                   "id": null,
@@ -19647,6 +19662,7 @@
               },
               "status": {
                   "chain": null,
+                  "description": "Whether a person confirmed the brand ('confirmed'), ignored it ('ignored'), or has not looked at it yet ('suggested').",
                   "fields": null,
                   "hogql_value": "status",
                   "id": null,
@@ -19657,6 +19673,7 @@
               },
               "source": {
                   "chain": null,
+                  "description": "How the brand entered the catalog: 'citations' or 'manual'.",
                   "fields": null,
                   "hogql_value": "source",
                   "id": null,
@@ -19667,6 +19684,7 @@
               },
               "aliases": {
                   "chain": null,
+                  "description": "JSON array of other names for the brand, used to find it in answer text.",
                   "fields": null,
                   "hogql_value": "aliases",
                   "id": null,
@@ -19677,6 +19695,7 @@
               },
               "created_at": {
                   "chain": null,
+                  "description": "When the brand entered the catalog.",
                   "fields": null,
                   "hogql_value": "created_at",
                   "id": null,
@@ -19687,6 +19706,7 @@
               },
               "updated_at": {
                   "chain": null,
+                  "description": "When the brand was last edited.",
                   "fields": null,
                   "hogql_value": "updated_at",
                   "id": null,

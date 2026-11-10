@@ -26,7 +26,9 @@ describe('contentAutopilotVisibilityDashboardLogic', () => {
     })
 
     afterEach(() => {
-        logic.unmount()
+        if (logic.isMounted()) {
+            logic.unmount()
+        }
     })
 
     it('opens the new dashboard and offers a weekly subscription to it', async () => {
@@ -54,5 +56,23 @@ describe('contentAutopilotVisibilityDashboardLogic', () => {
         expect(lemonToast.error).toHaveBeenCalledWith(
             "Couldn't create the dashboard: Creating a dashboard requires dashboard edit access."
         )
+    })
+
+    it('stays where the person went when the response arrives after they left the overview', async () => {
+        let resolveCreate: (dashboard: { id: number; name: string }) => void = () => {}
+        jest.mocked(aeoPromptsCreateDashboard).mockReturnValue(
+            new Promise((resolve) => {
+                resolveCreate = resolve
+            })
+        )
+        router.actions.push(urls.webAnalytics())
+        const pending = logic.asyncActions.createVisibilityDashboard()
+
+        logic.unmount()
+        resolveCreate({ id: 42, name: 'AI visibility weekly' })
+        await pending
+
+        expect(router.values.location.pathname).toContain(urls.webAnalytics())
+        expect(lemonToast.success).not.toHaveBeenCalled()
     })
 })

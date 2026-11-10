@@ -10,6 +10,7 @@ from rest_framework import status
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project import Project
@@ -17,6 +18,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.aeo.backend.dashboard import (
     DASHBOARD_NAME,
     DASHBOARD_TAG,
@@ -41,19 +43,32 @@ class TestCreateDashboardAPI(APIBaseTest):
         self.addCleanup(flag_patcher.stop)
         self.url = f"/api/projects/{self.team.id}/aeo_prompts/create_dashboard/"
 
+    def _restrict(self, levels: dict[str, str]) -> None:
+        self.organization.available_product_features = [
+            {"key": feature, "name": feature}
+            for feature in (AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS)
+        ]
+        self.organization.save()
+        for resource, level in levels.items():
+            AccessControl.objects.create(team=self.team, resource=resource, access_level=level)
+
     @parameterized.expand(
         [
-            ("session", True, True, None, status.HTTP_201_CREATED),
-            ("flag_off", False, True, None, status.HTTP_403_FORBIDDEN),
-            ("no_dashboard_edit_access", True, False, None, status.HTTP_403_FORBIDDEN),
-            ("key_with_scopes", True, True, ["web_analytics:read", "dashboard:write", "insight:write"], 201),
-            ("key_without_dashboard_write", True, True, ["web_analytics:write", "insight:write"], 403),
+            ("session", True, {}, None, status.HTTP_201_CREATED),
+            ("flag_off", False, {}, None, status.HTTP_403_FORBIDDEN),
+            ("web_analytics_viewer", True, {"web_analytics": "viewer"}, None, status.HTTP_201_CREATED),
+            ("no_web_analytics_access", True, {"web_analytics": "none"}, None, status.HTTP_403_FORBIDDEN),
+            ("dashboard_viewer", True, {"dashboard": "viewer"}, None, status.HTTP_403_FORBIDDEN),
+            ("insight_viewer", True, {"insight": "viewer"}, None, status.HTTP_403_FORBIDDEN),
+            ("key_with_scopes", True, {}, ["web_analytics:read", "dashboard:write", "insight:write"], 201),
+            ("key_without_dashboard_write", True, {}, ["web_analytics:write", "insight:write"], 403),
         ]
     )
     def test_create_dashboard(
-        self, _name: str, flag_on: bool, can_create: bool, scopes: list[str] | None, expected: int
+        self, _name: str, flag_on: bool, levels: dict[str, str], scopes: list[str] | None, expected: int
     ) -> None:
         self.feature_enabled.return_value = flag_on
+        self._restrict(levels)
         headers: dict[str, Any] = {}
         if scopes is not None:
             value = generate_random_token_personal()
@@ -63,8 +78,7 @@ class TestCreateDashboardAPI(APIBaseTest):
             self.client.logout()
             headers = {"authorization": f"Bearer {value}"}
 
-        with patch("products.aeo.backend.presentation.views.authorization.check", return_value=can_create):
-            response = self.client.post(self.url, headers=headers)
+        response = self.client.post(self.url, headers=headers)
 
         assert response.status_code == expected, response.json()
         self.client.force_login(self.user)
@@ -111,6 +125,8 @@ class TestDashboardQueries(ClickhouseTestMixin, NonAtomicBaseTest):
         self._brand(self.team, "rival.io", "competitor")
         self._brand(self.team, "old.com", "own", status="ignored")
         self._brand(self.other_team, "beta.com", "own")
+        # A citation-sourced domain can carry regex syntax. Its "x|" label must not mark every prompt as branded.
+        self._brand(self.team, "x|.example", "own")
 
         # This week: two analytics answers, one with no topic that mentions the brand in text only,
         # and a failed and a branded check that every tile leaves out.
@@ -126,7 +142,8 @@ class TestDashboardQueries(ClickhouseTestMixin, NonAtomicBaseTest):
         self._check(
             self.team, 2, "best analytics tool", "analytics", answer="rival is good", urls=["https://rival.io/b"]
         )
-        self._check(self.team, 2, "is old any good", "", answer="Acme fits")
+        # Its stored cited flag points at old.com, which is ignored now, so the citation no longer counts.
+        self._check(self.team, 2, "is old any good", "", cited=True, answer="Acme fits", urls=["https://old.com/p"])
         self._check(self.team, 2, "best analytics tool", "analytics", cited=True, failed=True)
         self._check(self.team, 2, "what is Acme", "analytics", cited=True, answer="acme")
         # The week before. "beta" is another team's brand, so the prompt is non-branded here.

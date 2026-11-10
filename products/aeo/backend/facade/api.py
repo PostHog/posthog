@@ -23,8 +23,8 @@ from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
-from posthog.redis import get_client
 from posthog.models.user import User
+from posthog.redis import get_client
 
 from products.aeo.backend import catalog, dashboard, gaps, rankings, suggestions
 from products.aeo.backend.brand import (

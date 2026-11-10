@@ -113,8 +113,10 @@ aeo_citation_checks: PostgresTable = PostgresTable(
 aeo_brands: PostgresTable = PostgresTable(
     name="aeo_brands",
     postgres_table_name="posthog_aeo_brand",
-    # No access_scope, for the same reason as aeo_citation_checks.
-    access_scope=None,
+    # AEOBrandViewSet gates the catalog on web_analytics, so SQL reads need the same resource access.
+    # Brand ids do not key web_analytics object grants, which makes the gate resource-level only.
+    access_scope="web_analytics",
+    resource_level_access_only=True,
     description=(
         "AEO brand catalog: one row per company whose domain the answer engines cite, labeled as the team's own "
         "brand, a competitor, a publisher, or unknown. Join a cited URL's host to `domain` to tell own pages from "
@@ -122,7 +124,7 @@ aeo_brands: PostgresTable = PostgresTable(
     ),
     fields={
         "id": UUIDDatabaseField(name="id", description="Brand id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
+        "team_id": IntegerDatabaseField(name="team_id", hidden=True),
         "name": StringDatabaseField(name="name", description="Brand name as people say it."),
         "domain": StringDatabaseField(
             name="domain",
