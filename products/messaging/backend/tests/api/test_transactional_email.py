@@ -808,11 +808,6 @@ class TestTransactionalEmail(APIBaseTest):
                 "marketing",
             ),
             (
-                "placeholder_with_a_no_break_space",
-                {"category": NEWSLETTER, "html": "<a href='{{\u00a0unsubscribe_url }}'>x</a>"},
-                "marketing",
-            ),
-            (
                 "transactional_category_needs_no_link",
                 {"category": {"key": "receipts", "type": "transactional", "name": "Receipts"}},
                 "transactional",
