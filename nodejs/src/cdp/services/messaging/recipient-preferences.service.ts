@@ -219,28 +219,18 @@ export class RecipientPreferencesService {
 
         // Grab the recipient preferences for the action category
         const categoryId = action.config.message_category_id || '$all'
-        const copies = this.codeSendCopyRecipients(invocation, action)
-        const trimmedIdentifiers = [String(identifier).trim(), ...copies]
+        const trimmedIdentifier = String(identifier).trim()
         if (
             runOptOuts.some(
                 (optOut) =>
-                    trimmedIdentifiers.includes(optOut.identifier) &&
+                    optOut.identifier === trimmedIdentifier &&
                     (optOut.categoryId === categoryId || optOut.categoryId === '$all')
             )
         ) {
             return true
         }
 
-        const optedOut = await Promise.all(
-            [identifier, ...copies].map((recipient) => this.isOptedOut(invocation.teamId, recipient, categoryId))
-        )
-        return optedOut.some(Boolean)
-    }
-
-    // A code send's cc and bcc recipients get the marketing email too, as the API checked when it accepted the send.
-    private codeSendCopyRecipients(invocation: CyclotronJobInvocationHogFunction, action: MessageAction): string[] {
-        const send = invocation.state.send
-        return action.type === 'function_email' && send ? [...(send.cc ?? []), ...(send.bcc ?? [])] : []
+        return this.isOptedOut(invocation.teamId, identifier, categoryId)
     }
 
     /** Whether the recipient opted out of the category or of all marketing. A failed lookup lets the send through. */

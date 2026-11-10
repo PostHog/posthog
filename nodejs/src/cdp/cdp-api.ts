@@ -62,9 +62,10 @@ import {
     TransactionalEmailRequest,
     TransactionalEmailRequestSchema,
     TransactionalEmailStageTimer,
-    hogFlowWithSendCategory,
+    hogFlowForApiSend,
     isRecipientFormatIssue,
     marketingEmailStep,
+    sendCategory,
     transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
@@ -1326,7 +1327,8 @@ export class CdpApi {
                 if (!savedHogFlow || savedHogFlow.team_id !== team.id) {
                     return reply('not_found', 404, { error: 'Workflow not found' })
                 }
-                const hogFlow = hogFlowWithSendCategory(savedHogFlow, send)
+                const category = sendCategory(parsed.data)
+                const hogFlow = hogFlowForApiSend(savedHogFlow, category)
                 if (hogFlow.trigger?.type !== 'api') {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
@@ -1362,12 +1364,20 @@ export class CdpApi {
                 if (send) {
                     invocation.state.send = send
                 }
+                if (category) {
+                    invocation.state.messageCategory = category
+                }
                 // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
                 // worker counts it instead.
                 invocation.state.triggerMetricPending = true
                 // Straight to the email queue: the flow's only step is the email, so a hop through the
                 // workflow queue would only add latency to a password reset or a verification code.
                 const marketingStep = marketingEmailStep(hogFlow)
+                // The preferences link and List-Unsubscribe are signed for `to`, so a copy would hand its reader
+                // control of `to`'s preferences.
+                if (marketingStep && (send?.cc?.length || send?.bcc?.length)) {
+                    return reply('copies_not_allowed', 400, { error: 'copies_not_allowed' })
+                }
                 const priorityClass: EmailQueuePriorityClass = marketingStep ? 'bulk' : 'fast'
                 invocation.queue = 'email'
                 invocation.queuePriority = EMAIL_QUEUE_PRIORITY[priorityClass]

@@ -26,7 +26,7 @@ import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { actionIdForLogging, aiTaskLogToken, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
-import { emailStepWithSendCategory } from '../transactional-email'
+import { emailStepForApiSend } from '../transactional-email'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 const OPT_OUT_OF_MESSAGES_TEMPLATE_ID = 'template-posthog-opt-out-of-messages'
@@ -449,7 +449,10 @@ export class HogFunctionHandler implements ActionHandler {
             frequencyCapHold?: FrequencyCapHold
         }
     > {
-        const action = emailStepWithSendCategory(savedAction, invocation.state.send)
+        const action =
+            invocation.hogFlow.trigger?.type === 'api'
+                ? emailStepForApiSend(savedAction, invocation.state.messageCategory)
+                : savedAction
         const hogFunction = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)

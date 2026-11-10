@@ -13,7 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
-import type { QueuedSend } from './services/hogflows/transactional-email'
+import type { QueuedSend, SendCategory } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
 
 export type HogBytecode = any[]
@@ -583,6 +583,7 @@ export type HogFlowInvocationContext = {
     conversionCounted?: boolean
     variables?: Record<string, any>
     send?: QueuedSend
+    messageCategory?: SendCategory
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on

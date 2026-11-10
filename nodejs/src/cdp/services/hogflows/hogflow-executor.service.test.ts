@@ -39,7 +39,7 @@ import { RecipientPreferencesService } from '../messaging/recipient-preferences.
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
-import { QueuedSend } from './transactional-email'
+import { QueuedSend, SendCategory } from './transactional-email'
 
 // Mock before importing fetch
 jest.mock('~/common/utils/request', () => {
@@ -3330,7 +3330,11 @@ describe('Hogflow Executor', () => {
                 },
             }) as const
 
-        const emailFlow = (email: Record<string, any>, stepConfig: Record<string, unknown> = {}): HogFlow =>
+        const emailFlow = (
+            email: Record<string, any>,
+            stepConfig: Record<string, unknown> = {},
+            trigger: 'event' | 'api' = 'event'
+        ): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withExitCondition('exit_only_at_end')
@@ -3338,10 +3342,10 @@ describe('Hogflow Executor', () => {
                     actions: {
                         trigger: {
                             type: 'trigger',
-                            config: {
-                                type: 'event',
-                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
-                            },
+                            config:
+                                trigger === 'api'
+                                    ? { type: 'api' }
+                                    : { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
                         },
                         email_1: {
                             type: 'function_email',
@@ -3762,11 +3766,17 @@ if (not res.success) { throw Error(res.error) }`,
             }
         )
 
-        describe('for a code send in a marketing category', () => {
+        describe('for an API send in a category', () => {
             const newsletterId = '0195d6b4-6c3e-0000-1a2b-3c4d5e6f7a8b'
-            // Django saves every code send's email step as transactional, and the send carries its category.
-            const codeSendFlow = () => emailFlow(codeKeyStep(), { message_category_type: 'transactional' })
-            const unsubscribeSend = (messageCategoryId?: string): QueuedSend => ({
+            const newsletter: SendCategory = { id: newsletterId, type: 'marketing' }
+            const receipts: SendCategory = { id: '0195d6b4-6c3e-0002-9a8b-7c6d5e4f3a2b', type: 'transactional' }
+            const apiFlow = (stepCategory: 'transactional' | 'marketing', kind: 'code' | 'template') =>
+                emailFlow(
+                    kind === 'code' ? { ...codeKeyStep(), cc: undefined } : storedStep(),
+                    { message_category_type: stepCategory },
+                    'api'
+                )
+            const unsubscribeSend = (messageCategory?: SendCategory): QueuedSend => ({
                 content: {
                     subject: 'Our news',
                     html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
@@ -3774,8 +3784,23 @@ if (not res.success) { throw Error(res.error) }`,
                 },
                 from: { integrationId, email: 'news@posthog.com' },
                 tracking: { captureEngagement: false },
-                ...(messageCategoryId && { messageCategoryId }),
+                ...(messageCategory && { messageCategory }),
             })
+            const apiSend = (
+                stepCategory: 'transactional' | 'marketing',
+                category: SendCategory | undefined,
+                kind: 'code' | 'template'
+            ): CyclotronJobInvocationHogFlow => {
+                const invocation = flowInvocation(apiFlow(stepCategory, kind))
+                if (kind === 'code') {
+                    invocation.state.send = unsubscribeSend(category)
+                }
+                if (category) {
+                    invocation.state.messageCategory = category
+                }
+                return invocation
+            }
+            const marketingFlow = () => emailFlow(storedStep(), { message_category_type: 'marketing' })
             const sendThrough = async (
                 runner: HogFlowExecutorService,
                 invocation: CyclotronJobInvocationHogFlow
@@ -3800,36 +3825,61 @@ if (not res.success) { throw Error(res.error) }`,
             it.each([
                 {
                     name: 'sends a transactional code send to a recipient opted out of all marketing',
+                    step: 'transactional',
                     category: undefined,
+                    kind: 'code',
                     optedOutOf: '$all',
                     sent: true,
                 },
                 {
                     name: 'sends a code send in a marketing category',
-                    category: newsletterId,
+                    step: 'transactional',
+                    category: newsletter,
+                    kind: 'code',
                     optedOutOf: null,
                     sent: true,
                 },
                 {
                     name: 'skips a code send to a recipient opted out of its category',
-                    category: newsletterId,
+                    step: 'transactional',
+                    category: newsletter,
+                    kind: 'code',
                     optedOutOf: newsletterId,
                     sent: false,
                 },
                 {
                     name: 'skips a code send to a recipient opted out of all marketing',
-                    category: newsletterId,
+                    step: 'transactional',
+                    category: newsletter,
+                    kind: 'code',
                     optedOutOf: '$all',
                     sent: false,
                 },
                 {
-                    name: 'skips a code send with a bcc recipient opted out of its category',
-                    category: newsletterId,
+                    name: 'sends a code send in a transactional category to a recipient opted out of all marketing',
+                    step: 'transactional',
+                    category: receipts,
+                    kind: 'code',
+                    optedOutOf: '$all',
+                    sent: true,
+                },
+                {
+                    name: 'skips a template send whose category is now marketing, to a recipient opted out of it',
+                    step: 'transactional',
+                    category: newsletter,
+                    kind: 'template',
                     optedOutOf: newsletterId,
-                    bcc: 'reader@example.com',
                     sent: false,
                 },
-            ])('$name', async ({ category, optedOutOf, bcc, sent }) => {
+                {
+                    name: 'sends a template send whose category is now transactional to a recipient opted out of all marketing',
+                    step: 'marketing',
+                    category: receipts,
+                    kind: 'template',
+                    optedOutOf: '$all',
+                    sent: true,
+                },
+            ] as const)('$name', async ({ step, category, kind, optedOutOf, sent }) => {
                 await insertEmailSetup('ses')
                 if (optedOutOf) {
                     await hub.postgres.query(
@@ -3837,22 +3887,19 @@ if (not res.success) { throw Error(res.error) }`,
                         `INSERT INTO posthog_messagerecipientpreference
                             (id, team_id, identifier, preferences, created_at, updated_at, deleted)
                          VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)`,
-                        [team.id, bcc ?? 'recipient@example.com', JSON.stringify({ [optedOutOf]: 'OPTED_OUT' })],
+                        [team.id, 'recipient@example.com', JSON.stringify({ [optedOutOf]: 'OPTED_OUT' })],
                         'test-insert-opt-out'
                     )
                 }
-                const invocation = flowInvocation(codeSendFlow())
-                invocation.state.send = { ...unsubscribeSend(category), ...(bcc && { bcc: [bcc] }) }
 
-                const sesSend = await sendThrough(executor, invocation)
+                const sesSend = await sendThrough(executor, apiSend(step, category, kind))
 
                 expect(sesSend).toHaveBeenCalledTimes(sent ? 1 : 0)
             })
 
             it("puts the recipient's unsubscribe link in a marketing code send and keeps the placeholder for a retry", async () => {
                 await insertEmailSetup('ses')
-                const invocation = flowInvocation(codeSendFlow())
-                invocation.state.send = unsubscribeSend(newsletterId)
+                const invocation = apiSend('transactional', newsletter, 'code')
 
                 const email = sentEmail(await sendThrough(executor, invocation))
 
@@ -3869,17 +3916,20 @@ if (not res.success) { throw Error(res.error) }`,
             it.each([
                 {
                     name: 'holds back a marketing workflow email',
-                    stepCategory: 'marketing',
-                    category: undefined,
+                    invocation: () => flowInvocation(marketingFlow()),
                     sent: false,
                 },
                 {
                     name: 'sends a code send in a marketing category',
-                    stepCategory: 'transactional',
-                    category: newsletterId,
+                    invocation: () => apiSend('transactional', newsletter, 'code'),
                     sent: true,
                 },
-            ])('$name to a recipient at the frequency cap', async ({ stepCategory, category, sent }) => {
+                {
+                    name: 'sends a template send whose step is marketing',
+                    invocation: () => apiSend('marketing', undefined, 'template'),
+                    sent: true,
+                },
+            ])('$name to a recipient at the frequency cap', async ({ invocation, sent }) => {
                 await insertEmailSetup('ses')
                 const cappedExecutor = new HogFlowExecutorService(
                     hogFlowFunctionsService,
@@ -3900,10 +3950,7 @@ if (not res.success) { throw Error(res.error) }`,
                     hub.integrationManager,
                     null
                 )
-                const invocation = flowInvocation(emailFlow(codeKeyStep(), { message_category_type: stepCategory }))
-                invocation.state.send = unsubscribeSend(category)
-
-                const sesSend = await sendThrough(cappedExecutor, invocation)
+                const sesSend = await sendThrough(cappedExecutor, invocation())
 
                 expect(sesSend).toHaveBeenCalledTimes(sent ? 1 : 0)
             })

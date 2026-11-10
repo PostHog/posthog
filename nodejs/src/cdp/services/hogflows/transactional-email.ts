@@ -15,6 +15,14 @@ const CopyRecipientsSchema = z
     .readonly()
     .optional()
 
+// The id is a UUIDT, which z.uuid() refuses.
+const SendCategorySchema = z
+    .object({ id: z.guid(), type: z.enum(['marketing', 'transactional']) })
+    .strict()
+    .readonly()
+
+export type SendCategory = z.infer<typeof SendCategorySchema>
+
 export const AcceptedSendSchema = z
     .object({
         content: z
@@ -40,9 +48,7 @@ export const AcceptedSendSchema = z
         cc: CopyRecipientsSchema,
         bcc: CopyRecipientsSchema,
         tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
-        // The marketing category the send belongs to. Its id is a UUIDT, which z.uuid() refuses. Without it the send
-        // is transactional.
-        messageCategoryId: z.guid().optional(),
+        messageCategory: SendCategorySchema.optional(),
     })
     .strict()
     .readonly()
@@ -53,31 +59,29 @@ export type QueuedSend = AcceptedSend & { attachments?: readonly EmailAttachment
 
 type EmailStep = Extract<HogFlowAction, { type: 'function_email' }>
 
-// The send's category replaces the email step's, so every check that reads the step treats the send as the
-// marketing email it is. The frequency cap stays off for code sends.
-export const emailStepWithSendCategory = <Action extends HogFlowAction>(
+// A worker can hold a cached workflow whose email step predates a change to its category.
+export const emailStepForApiSend = <Action extends HogFlowAction>(
     action: Action,
-    send: QueuedSend | undefined
+    category: SendCategory | undefined
 ): Action => {
-    if (action.type !== 'function_email' || !send?.messageCategoryId) {
+    if (action.type !== 'function_email') {
         return action
     }
     const step: EmailStep = {
         ...action,
         config: {
             ...action.config,
-            message_category_type: 'marketing',
-            message_category_id: send.messageCategoryId,
+            ...(category && { message_category_type: category.type, message_category_id: category.id }),
             skip_frequency_cap: true,
         },
     }
     return step as Action
 }
 
-export const hogFlowWithSendCategory = (hogFlow: HogFlow, send: QueuedSend | undefined): HogFlow =>
-    send?.messageCategoryId
-        ? { ...hogFlow, actions: hogFlow.actions.map((action) => emailStepWithSendCategory(action, send)) }
-        : hogFlow
+export const hogFlowForApiSend = (hogFlow: HogFlow, category: SendCategory | undefined): HogFlow => ({
+    ...hogFlow,
+    actions: hogFlow.actions.map((action) => emailStepForApiSend(action, category)),
+})
 
 export const marketingEmailStep = (hogFlow: HogFlow): EmailStep | undefined =>
     hogFlow.actions.find(
@@ -110,6 +114,7 @@ export const TransactionalEmailRequestSchema = z.object({
     variables: z.record(z.string(), z.any()).default({}),
     // The caller's `Idempotency-Key`. A repeat with the same key and request returns the first send.
     idempotency_key: z.string().min(1).max(255).optional(),
+    message_category: SendCategorySchema.optional(),
 })
 
 export const TEMPLATE_SEND_TOKEN_CLAIMS = { kind: undefined }
@@ -118,6 +123,9 @@ export const CODE_SEND_TOKEN_CLAIMS = { kind: 'code_send' }
 export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend({ send: AcceptedSendSchema })
 
 export type TransactionalEmailRequest = z.infer<typeof TransactionalEmailRequestSchema> & { send?: AcceptedSend }
+
+export const sendCategory = ({ send, message_category }: TransactionalEmailRequest): SendCategory | undefined =>
+    send?.messageCategory ?? message_category
 
 export const transactionalEmailRecipients = ({ to, send }: TransactionalEmailRequest): string[] => [
     to,
@@ -145,6 +153,7 @@ export type TransactionalEmailOutcome =
     | 'sending_paused'
     | 'recipient_suppressed'
     | 'recipient_opted_out'
+    | 'copies_not_allowed'
     | 'recipient_unreachable'
     | 'error'
 

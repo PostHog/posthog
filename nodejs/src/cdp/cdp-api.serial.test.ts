@@ -2313,7 +2313,9 @@ describe('CDP API', () => {
         }
         // Message categories have UUIDT ids, which are not RFC 4122 UUIDs.
         const newsletterId = '0195d6b4-6c3e-0000-1a2b-3c4d5e6f7a8b'
-        const newsletterSend = { ...codeSend, messageCategoryId: newsletterId }
+        const newsletter = { id: newsletterId, type: 'marketing' } as const
+        const receipts = { id: '0195d6b4-6c3e-0002-9a8b-7c6d5e4f3a2b', type: 'transactional' } as const
+        const newsletterSend = { ...codeSend, messageCategory: newsletter }
 
         beforeEach(async () => {
             produceOutput = jest.spyOn(api['emailStatusService']['outputs'], 'produce')
@@ -2605,7 +2607,9 @@ describe('CDP API', () => {
                 'a tracking field this version does not know',
                 { ...codeSend, tracking: { captureEngagement: true, pixel: false } },
             ],
-            ['a category that is not an id', { ...codeSend, messageCategoryId: 'newsletter' }],
+            ['a category that is not an id', { ...codeSend, messageCategory: { id: 'newsletter', type: 'marketing' } }],
+            ['a category of an unknown type', { ...codeSend, messageCategory: { id: newsletterId, type: 'promo' } }],
+            ['a category id with no type', { ...codeSend, messageCategory: { id: newsletterId } }],
             ['content without a body', { ...codeSend, content: { subject: 'Hi', html: '', text: '' } }],
             ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
             ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
@@ -2753,29 +2757,91 @@ describe('CDP API', () => {
         )
 
         it.each([
-            ['a transactional code send on the fast lane', 'transactional', 'transactional_email/send', codeSend, 0],
+            [
+                'a transactional code send on the fast lane',
+                'transactional',
+                'transactional_email/send',
+                { send: codeSend },
+                0,
+                undefined,
+            ],
             [
                 'a code send in a marketing category on the bulk lane',
                 'transactional',
                 'transactional_email/send',
-                newsletterSend,
+                { send: newsletterSend },
                 1,
+                newsletter,
             ],
-            ['a marketing email on the bulk lane', 'marketing', 'transactional_email', undefined, 1],
-        ] as const)('queues %s', async (_desc, category, route, acceptedSend, queuePriority) => {
+            [
+                'a code send in a transactional category on the fast lane',
+                'transactional',
+                'transactional_email/send',
+                { send: { ...codeSend, messageCategory: receipts } },
+                0,
+                receipts,
+            ],
+            ['a marketing email on the bulk lane', 'marketing', 'transactional_email', {}, 1, undefined],
+            [
+                'a template send whose category is now marketing on the bulk lane',
+                'transactional',
+                'transactional_email',
+                { message_category: newsletter },
+                1,
+                newsletter,
+            ],
+            [
+                'a template send whose category is now transactional on the fast lane',
+                'marketing',
+                'transactional_email',
+                { message_category: receipts },
+                0,
+                receipts,
+            ],
+        ] as const)('queues %s', async (_desc, category, route, extra, queuePriority, queuedCategory) => {
             const flow = await insertHogFlow(transactionalFlow('api', 'active', category))
 
             const res = await sendOn(
                 route,
                 flow.id,
                 { Authorization: `Bearer ${tokenFor(route, team.id, flow.id)}` },
-                { ...body, ...(acceptedSend && { send: acceptedSend }) }
+                { ...body, ...extra }
             )
 
             expect(res.status).toEqual(202)
             const [invocation] = mockQueueInvocations.mock.calls[0][0]
             expect(invocation).toMatchObject({ queue: 'email', queuePriority })
-            expect(invocation.state.send).toEqual(acceptedSend)
+            expect(invocation.state.send).toEqual('send' in extra ? extra.send : undefined)
+            expect(invocation.state.messageCategory).toEqual(queuedCategory)
+        })
+
+        it.each([
+            ['a cc', 'cc', 'transactional', newsletterSend],
+            ['a bcc', 'bcc', 'transactional', newsletterSend],
+            ['a cc, when the workflow step is marketing', 'cc', 'marketing', codeSend],
+        ] as const)('refuses a marketing code send with %s', async (_desc, field, category, acceptedSend) => {
+            const flow = await insertHogFlow(transactionalFlow('api', 'active', category))
+            const refusedBefore = await outcomeCount('copies_not_allowed')
+
+            const res = await sendAccepted(flow.id, {
+                ...body,
+                send: { ...acceptedSend, [field]: ['copy@example.com'] },
+            })
+
+            expect(res.status).toEqual(400)
+            expect(res.body).toEqual({ error: 'copies_not_allowed' })
+            expect(await outcomeCount('copies_not_allowed')).toEqual(refusedBefore + 1)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it('queues a code send in a transactional category with a bcc', async () => {
+            const res = await sendAccepted(hogFlow.id, {
+                ...body,
+                send: { ...codeSend, messageCategory: receipts, bcc: ['copy@example.com'] },
+            })
+
+            expect(res.status).toEqual(202)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
         describe('to a recipient who opted out', () => {
@@ -2797,45 +2863,40 @@ describe('CDP API', () => {
                     'a code send to a recipient opted out of its category',
                     'transactional',
                     'transactional_email/send',
-                    newsletterSend,
+                    { send: newsletterSend },
                     newsletterId,
-                    'to',
                 ],
                 [
                     'a code send to a recipient opted out of all marketing',
                     'transactional',
                     'transactional_email/send',
-                    newsletterSend,
+                    { send: newsletterSend },
                     '$all',
-                    'to',
                 ],
                 [
                     'a marketing email to a recipient opted out of its category',
                     'marketing',
                     'transactional_email',
-                    undefined,
+                    {},
                     newsletterId,
-                    'to',
                 ],
                 [
-                    'a code send with a bcc recipient opted out of its category',
+                    'a template send whose category is now marketing, to a recipient opted out of it',
                     'transactional',
-                    'transactional_email/send',
-                    newsletterSend,
+                    'transactional_email',
+                    { message_category: newsletter },
                     newsletterId,
-                    'bcc',
                 ],
-            ] as const)('refuses %s', async (_desc, category, route, acceptedSend, optedOutOf, field) => {
-                const flow = await insertHogFlow(transactionalFlow('api', 'active', category, newsletterId))
+            ] as const)('refuses %s', async (_desc, category, route, extra, optedOutOf) => {
+                const flow = await insertHogFlow(
+                    transactionalFlow('api', 'active', category, category === 'marketing' ? newsletterId : undefined)
+                )
                 const refusedBefore = await outcomeCount('recipient_opted_out')
-                const optedOut = await recipientOptedOutOf(optedOutOf)
                 const keyed = {
                     ...body,
-                    ...(field === 'to' && { to: optedOut }),
+                    ...extra,
+                    to: await recipientOptedOutOf(optedOutOf),
                     idempotency_key: `key-${new UUIDT().toString()}`,
-                    ...(acceptedSend && {
-                        send: field === 'bcc' ? { ...acceptedSend, bcc: [optedOut] } : acceptedSend,
-                    }),
                 }
                 const headers = { Authorization: `Bearer ${tokenFor(route, team.id, flow.id)}` }
 
@@ -2848,13 +2909,18 @@ describe('CDP API', () => {
             })
 
             it.each([
-                ['a transactional code send', codeSend, '$all'],
-                ['a code send in another category', newsletterSend, '0195d6b4-6c3e-0001-5e6f-7a8b9c0d1e2f'],
-            ])('queues %s', async (_desc, acceptedSend, optedOutOf) => {
+                ['a transactional code send', { send: codeSend }, '$all'],
+                [
+                    'a code send in a transactional category',
+                    { send: { ...codeSend, messageCategory: receipts } },
+                    '$all',
+                ],
+                ['a code send in another category', { send: newsletterSend }, '0195d6b4-6c3e-0001-5e6f-7a8b9c0d1e2f'],
+            ])('queues %s', async (_desc, extra, optedOutOf) => {
                 const res = await sendAccepted(hogFlow.id, {
                     ...body,
+                    ...extra,
                     to: await recipientOptedOutOf(optedOutOf),
-                    send: acceptedSend,
                 })
 
                 expect(res.status).toEqual(202)
