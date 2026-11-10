@@ -34,7 +34,7 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-                  sparse-checkout: ingestion/ci/actions/paths-filter
+                  sparse-checkout: .github/actions/paths-filter
                   sparse-checkout-cone-mode: false
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -42,7 +42,7 @@ jobs:
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: ./ingestion/ci/actions/paths-filter
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push'
               with:
@@ -61,6 +61,12 @@ jobs:
                         - 'rust/.sqlx/**'
                         - 'rust/Dockerfile'
                         - '.github/workflows/ingestion-rust.yml'
+                        - '.github/actions/rust-compute-affected/**'
+                        - '.github/actions/setup-protoc/**'
+                        - '.github/actions/setup-rust/**'
+                        - '.github/actions/setup-sccache/**'
+                        - '.github/actions/setup-sqlx-cli/**'
+                        - '.github/actions/trunk-quarantine-gate/**'
 
     affected:
         name: Compute affected crates
@@ -79,16 +85,20 @@ jobs:
               with:
                   fetch-depth: 0
                   sparse-checkout: |
+                      .github/actions
                       ingestion
                       rust
                   clean: false
-            - uses: ./ingestion/ci/actions/setup-rust
+            - uses: ./.github/actions/setup-rust
               with:
                   toolchain: ${{ env.RUST_TOOLCHAIN }}
             - name: Compute affected crates
               id: affected
-              uses: ./ingestion/ci/actions/compute-affected
+              uses: ./.github/actions/rust-compute-affected
               with:
+                  rules-file: ingestion/ci/determinator-rules.toml
+                  images-file: ingestion/ci/images.yml
+                  crate-path-filter: /ingestion/rust/
                   event-name: ${{ github.event_name }}
                   pr-base-sha: ${{ github.event.pull_request.base.sha }}
                   push-before-sha: ${{ github.event.before }}
@@ -116,17 +126,28 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: |
+                      .github/actions
                       ingestion
                       rust
                   clean: false
-            - uses: ./ingestion/ci/actions/setup-protoc
-            - uses: ./ingestion/ci/actions/setup-rust
+            - uses: ./.github/actions/setup-protoc
+            - uses: ./.github/actions/setup-rust
               with:
                   toolchain: ${{ env.RUST_TOOLCHAIN }}
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
-            - uses: ./ingestion/ci/actions/setup-sccache
+            - uses: ./.github/actions/setup-sccache
+            - name: Install system OpenSSL
+              run: |
+                  if ! pkg-config --exists openssl; then
+                      sudo rm -f /etc/apt/sources.list.d/*twingate*
+                      sudo apt-get update
+                      sudo apt-get install -y libssl-dev pkg-config
+                  fi
             - name: Build
+              env:
+                  # The vendored openssl-src fails to assemble on these runners.
+                  OPENSSL_NO_VENDOR: '1'
               run: |
                   for pkg in ${{ matrix.packages }}; do
                       cargo build --locked -p "$pkg"
@@ -152,6 +173,7 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: |
+                      .github/actions
                       ingestion
                       rust
                   clean: false
@@ -173,14 +195,14 @@ jobs:
                   bin/ci-wait-for-docker launch --down db kafka kafka-secondary redis7 clickhouse etcd objectstorage seaweedfs
                   bin/ci-wait-for-docker wait --only db kafka kafka-secondary redis7 clickhouse etcd objectstorage seaweedfs
                   echo "127.0.0.1 db redis7 kafka clickhouse objectstorage seaweedfs" | sudo tee -a /etc/hosts
-            - uses: ./ingestion/ci/actions/setup-protoc
-            - uses: ./ingestion/ci/actions/setup-rust
+            - uses: ./.github/actions/setup-protoc
+            - uses: ./.github/actions/setup-rust
               with:
                   toolchain: ${{ env.RUST_TOOLCHAIN }}
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
-            - uses: ./ingestion/ci/actions/setup-sccache
-            - uses: ./ingestion/ci/actions/setup-sqlx-cli
+            - uses: ./.github/actions/setup-sccache
+            - uses: ./.github/actions/setup-sqlx-cli
             - name: Create and migrate the persons database
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
@@ -237,7 +259,7 @@ jobs:
                       fi
                   done
             - name: Quarantine gate
-              uses: ./ingestion/ci/actions/trunk-quarantine-gate
+              uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: rust/junit-nextest-*.xml
                   previous-step-outcome: ${{ steps.run-tests.outcome }}
@@ -275,6 +297,7 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: |
+                      .github/actions
                       ingestion
                       rust
                   clean: false
@@ -299,14 +322,14 @@ jobs:
 
                   echo "127.0.0.1 db kafka" | sudo tee -a /etc/hosts
 
-            - uses: ./ingestion/ci/actions/setup-protoc
-            - uses: ./ingestion/ci/actions/setup-rust
+            - uses: ./.github/actions/setup-protoc
+            - uses: ./.github/actions/setup-rust
               with:
                   toolchain: ${{ env.RUST_TOOLCHAIN }}
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
-            - uses: ./ingestion/ci/actions/setup-sccache
-            - uses: ./ingestion/ci/actions/setup-sqlx-cli
+            - uses: ./.github/actions/setup-sccache
+            - uses: ./.github/actions/setup-sqlx-cli
 
             - name: Create and migrate the persons database
               env:
@@ -538,11 +561,12 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: |
+                      .github/actions
                       ingestion
                       rust
                   clean: false
-            - uses: ./ingestion/ci/actions/setup-protoc
-            - uses: ./ingestion/ci/actions/setup-rust
+            - uses: ./.github/actions/setup-protoc
+            - uses: ./.github/actions/setup-rust
               with:
                   toolchain: ${{ env.RUST_TOOLCHAIN }}
                   components: rustfmt, clippy
@@ -558,9 +582,17 @@ jobs:
                   cargo fmt "${packages[@]}" -- --check
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
-            - uses: ./ingestion/ci/actions/setup-sccache
+            - uses: ./.github/actions/setup-sccache
+            - name: Install system OpenSSL
+              run: |
+                  if ! pkg-config --exists openssl; then
+                      sudo rm -f /etc/apt/sources.list.d/*twingate*
+                      sudo apt-get update
+                      sudo apt-get install -y libssl-dev pkg-config
+                  fi
             - name: Run clippy
               env:
+                  OPENSSL_NO_VENDOR: '1'
                   PACKAGES: ${{ steps.crates.outputs.packages }}
               run: |
                   read -ra packages <<< "$PACKAGES"

@@ -39,7 +39,7 @@ on:
             - '.nvmrc'
             - 'ingestion/ci/images.yml'
             - 'ingestion/ci/determinator-rules.toml'
-            - 'ingestion/ci/actions/compute-affected/**'
+            - '.github/actions/rust-compute-affected/**'
             - 'rust/common/**'
             - 'rust/Cargo.toml'
             - 'rust/Cargo.lock'
@@ -71,6 +71,7 @@ jobs:
               with:
                   fetch-depth: 0
                   sparse-checkout: |
+                      .github/actions/rust-compute-affected/
                       ingestion/
                       rust/
                   sparse-checkout-cone-mode: false
@@ -83,8 +84,11 @@ jobs:
 
             - name: Compute affected images
               id: compute
-              uses: ./ingestion/ci/actions/compute-affected
+              uses: ./.github/actions/rust-compute-affected
               with:
+                  rules-file: ingestion/ci/determinator-rules.toml
+                  images-file: ingestion/ci/images.yml
+                  crate-path-filter: /ingestion/rust/
                   event-name: ${{ github.event_name }}
                   push-before-sha: ${{ github.event.before }}
 

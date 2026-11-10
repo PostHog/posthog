@@ -19,7 +19,7 @@ ingestion/
              (@posthog/ingestion-ai-research, the AI research team's pipelines and servers, their own lane and image)
   proto/     the protos ingestion owns
   pinned/    copies of outside format files, each with a SOURCE.json
-  ci/        compose stack, determinator rules, image list, scripts and composite actions the workflows use
+  ci/        compose stack, determinator rules, image list and scripts the workflows use; the workflows run the root .github/actions
 ```
 
 ## Working here

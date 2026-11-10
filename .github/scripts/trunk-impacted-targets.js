@@ -1573,6 +1573,41 @@ function isIngestionRootBuildInput(file) {
     )
 }
 
+// The root actions ingestion's workflows run, read from the workflows and the
+// composite actions they call. A change to one claims ingestion's lanes on top
+// of its own, as the root build inputs do. paths-filter keeps the ci-tooling
+// lane alone, because its own CI tests it (see CI_TOOLING).
+const INGESTION_WORKFLOW = /^_?ingestion-[\w-]+\.ya?ml$/
+const LOCAL_ACTION_USE = /uses:\s*\.\/\.github\/actions\/([\w-]+)/g
+
+function ciActionsUsedBy(repoRoot, workflowFiles) {
+    const actions = new Set()
+    const pending = [...workflowFiles]
+    while (pending.length > 0) {
+        const file = pending.pop()
+        if (!fs.existsSync(file)) {
+            continue
+        }
+        for (const [, name] of fs.readFileSync(file, 'utf8').matchAll(LOCAL_ACTION_USE)) {
+            if (!actions.has(name)) {
+                actions.add(name)
+                pending.push(path.join(repoRoot, '.github/actions', name, 'action.yml'))
+            }
+        }
+    }
+    actions.delete('paths-filter')
+    return [...actions].sort().map((name) => `.github/actions/${name}/`)
+}
+
+function loadIngestionCiActions(repoRoot) {
+    const dir = path.join(repoRoot, '.github/workflows')
+    const workflows = fs.readdirSync(dir).filter((name) => INGESTION_WORKFLOW.test(name))
+    return ciActionsUsedBy(
+        repoRoot,
+        workflows.map((name) => path.join(dir, name))
+    )
+}
+
 function ingestionLanesFor(file) {
     if (/^\.github\/workflows\/ingestion-rust\.yml$/.test(file)) {
         return [INGESTION]
@@ -2005,7 +2040,11 @@ function applyRustNonCrateLanes(file, targets, context) {
 
 function computeTargets(changedFiles, context) {
     const targets = computeTargetsOfFiles(changedFiles, context)
-    if (targets === ALL || !changedFiles.some(isIngestionRootBuildInput)) {
+    const ingestionCiActions = context.ingestionCiActions ?? []
+    const claimsIngestion = changedFiles.some(
+        (file) => isIngestionRootBuildInput(file) || ingestionCiActions.some((action) => file.startsWith(action))
+    )
+    if (targets === ALL || !claimsIngestion) {
         return targets
     }
     return [...new Set([...targets, ...INGESTION_LANES])].sort()
@@ -3226,6 +3265,7 @@ function buildContext(repoRoot) {
         backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, tachGraph),
         tachDeclaredProducts: listTachDeclaredProducts(products, tachGraph),
         semgrepDomains: loadSemgrepDomains(repoRoot),
+        ingestionCiActions: loadIngestionCiActions(repoRoot),
         rustInventory,
         tachGraph,
     }
@@ -3234,6 +3274,7 @@ function buildContext(repoRoot) {
 module.exports = {
     INGESTION_ROOT_BUILD_INPUTS,
     INGESTION_ROOT_INPUTS_LEFT_TO_THE_LOCKFILE,
+    ciActionsUsedBy,
     computeTargets,
     ingestionLanesFor,
     INGESTION_SESSION_REPLAY,

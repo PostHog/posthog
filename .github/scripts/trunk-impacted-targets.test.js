@@ -51,6 +51,7 @@ const {
     INGESTION_AI_EVENTS,
     INGESTION_LANES,
     INGESTION_ROOT_BUILD_INPUTS,
+    ciActionsUsedBy,
     INGESTION_ROOT_INPUTS_LEFT_TO_THE_LOCKFILE,
 } = require('./trunk-impacted-targets')
 const { tachDependents } = require('./turbo-discover')
@@ -514,7 +515,9 @@ test('the quarantine list claims the fullstack lanes and no rust crate', () => {
 // paths-filter decides which jobs run inside a single run's own diff, so no
 // run's outcome depends on it jointly with another queue entry. Its own CI and
 // its .depot mirror share the lane.
+// The other root actions ingestion's workflows run claim ingestion's lanes on top of their own.
 test('the paths-filter action and its CI share the ci-tooling lane', () => {
+    const context = { ...CONTEXT, ingestionCiActions: buildContext(REPO_ROOT).ingestionCiActions }
     for (const file of [
         '.github/actions/paths-filter/src/filter.ts',
         '.github/actions/paths-filter/dist/index.js',
@@ -523,7 +526,10 @@ test('the paths-filter action and its CI share the ci-tooling lane', () => {
         '.github/workflows/ci-paths-filter.yml',
         '.depot/actions/paths-filter/src/filter.ts',
     ]) {
-        assert.deepEqual(computeTargets([file], CONTEXT), ['ci-tooling'], file)
+        assert.deepEqual(computeTargets([file], context), ['ci-tooling'], file)
+    }
+    for (const file of ['.github/actions/setup-rust/action.yml', '.github/actions/setup-pnpm/action.yml']) {
+        assert.deepEqual(computeTargets([file], context), withIngestionLanes(computeTargets([file], CONTEXT)), file)
     }
 })
 
@@ -2396,16 +2402,25 @@ test('a root build input claims the ingestion lanes on top of its own', () => {
 
 // Both lists come from one fact, which root files ingestion's build reads; this
 // keeps the lane claim and the CI trigger from drifting apart.
-test('the root build inputs are the root entries of the ingestion workflow filter', () => {
-    const workflow = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/ingestion-node.yml'), 'utf8')
-    const filter = workflow.slice(workflow.indexOf('filters: |'), workflow.indexOf('\n    check:'))
-    const rootEntries = [...filter.matchAll(/^\s+- '([^']+)'$/gm)]
-        .map((match) => match[1])
+test('the ingestion workflow filters list the root inputs the lane script claims for them', () => {
+    const filterOf = (workflow) => {
+        const text = fs.readFileSync(path.join(REPO_ROOT, workflow), 'utf8')
+        const start = text.indexOf('filters: |')
+        const end = text.slice(start).search(/\n    [\w-]+:\n/)
+        return [...text.slice(start, start + end).matchAll(/^\s+- '([^']+)'$/gm)].map((match) => match[1])
+    }
+    const rootEntries = filterOf('.github/workflows/ingestion-node.yml')
         .filter((entry) => !entry.includes('/') || /^[^/]+\/\*\*$/.test(entry))
         .map((entry) => entry.replace(/\*\*$/, ''))
         .filter((entry) => !INGESTION_ROOT_INPUTS_LEFT_TO_THE_LOCKFILE.includes(entry))
         .sort()
     assert.deepEqual(rootEntries, [...INGESTION_ROOT_BUILD_INPUTS].sort())
+    for (const workflow of ['.github/workflows/ingestion-node.yml', '.github/workflows/ingestion-rust.yml']) {
+        const filter = filterOf(workflow)
+        for (const action of ciActionsUsedBy(REPO_ROOT, [path.join(REPO_ROOT, workflow)])) {
+            assert.ok(filter.includes(`${action}**`), `${workflow} runs ${action} but does not trigger on it`)
+        }
+    }
 })
 
 test('the AI research pipelines inside the ingestion tree have a lane of their own', () => {

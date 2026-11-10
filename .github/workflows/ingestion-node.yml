@@ -31,7 +31,7 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-                  sparse-checkout: ingestion/ci/actions/paths-filter
+                  sparse-checkout: .github/actions/paths-filter
                   sparse-checkout-cone-mode: false
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -39,7 +39,7 @@ jobs:
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            - uses: ./ingestion/ci/actions/paths-filter
+            - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push'
               with:
@@ -80,6 +80,13 @@ jobs:
                         - 'rust/cyclotron-node-migrations/**'
                         - 'rust/behavioral_cohorts_migrations/**'
                         - '.github/workflows/ingestion-node.yml'
+                        - '.github/actions/pnpm-install/**'
+                        - '.github/actions/setup-pnpm/**'
+                        - '.github/actions/setup-protoc/**'
+                        - '.github/actions/setup-rust/**'
+                        - '.github/actions/setup-sccache/**'
+                        - '.github/actions/setup-sqlx-cli/**'
+                        - '.github/actions/trunk-quarantine-gate/**'
                       # The service e2e tests spawn the Rust ingestion consumer and the personhog stack.
                       e2e:
                         - 'ingestion/rust/ingestion-consumer/**'
@@ -101,15 +108,15 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-            - uses: ./ingestion/ci/actions/pnpm-install
+            - uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/ingestion... --filter=@posthog/ingestion-ai-research... install --frozen-lockfile
-            - uses: ./ingestion/ci/actions/setup-rust
+            - uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
-            - uses: ./ingestion/ci/actions/setup-sccache
+            - uses: ./.github/actions/setup-sccache
             - name: Build the dependencies
               run: bin/turbo --filter=@posthog/ingestion --filter=@posthog/ingestion-ai-research prepare
             - name: Typecheck
@@ -170,16 +177,16 @@ jobs:
             - name: Create the Kafka topics
               working-directory: ingestion/ci
               run: docker compose up kafka-init
-            - uses: ./ingestion/ci/actions/pnpm-install
+            - uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/ingestion... --filter=@posthog/ingestion-ai-research... install --frozen-lockfile
-            - uses: ./ingestion/ci/actions/setup-rust
+            - uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
-            - uses: ./ingestion/ci/actions/setup-sccache
-            - uses: ./ingestion/ci/actions/setup-sqlx-cli
+            - uses: ./.github/actions/setup-sccache
+            - uses: ./.github/actions/setup-sqlx-cli
             # The Django tables the services read come from the pinned schema; the persons tables from ingestion's
             # own migrations.
             - name: Create the test databases
@@ -226,7 +233,7 @@ jobs:
                       pnpm --filter=@posthog/ingestion test:${{ matrix.lane }}
                   fi
             - name: Quarantine gate
-              uses: ./ingestion/ci/actions/trunk-quarantine-gate
+              uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: ingestion/node/junit/junit-*.xml
                   previous-step-outcome: ${{ steps.run-tests.outcome }}
@@ -268,17 +275,17 @@ jobs:
             - name: Create the Kafka topics
               working-directory: ingestion/ci
               run: docker compose up kafka-init
-            - uses: ./ingestion/ci/actions/pnpm-install
+            - uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/ingestion... install --frozen-lockfile
-            - uses: ./ingestion/ci/actions/setup-protoc
-            - uses: ./ingestion/ci/actions/setup-rust
+            - uses: ./.github/actions/setup-protoc
+            - uses: ./.github/actions/setup-rust
               with:
                   toolchain: 1.91.1
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
-            - uses: ./ingestion/ci/actions/setup-sccache
-            - uses: ./ingestion/ci/actions/setup-sqlx-cli
+            - uses: ./.github/actions/setup-sccache
+            - uses: ./.github/actions/setup-sqlx-cli
             - name: Create the test databases
               env:
                   PGPASSWORD: posthog
