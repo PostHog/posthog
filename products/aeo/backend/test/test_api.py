@@ -8,7 +8,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
-from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -22,9 +21,9 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 
 from products.aeo.backend.engines import top_domains
-from products.aeo.backend.facade.api import get_prompt_set_overview
+from products.aeo.backend.facade.api import RECOMPUTE_DEBOUNCE_SECONDS, get_prompt_set_overview
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOKeyword, AEOPrompt, AEOPromptVersion
-from products.aeo.backend.test.factories import create_citation_check
+from products.aeo.backend.test.factories import create_citation_check, create_own_brand
 
 
 class TestAEOPromptAPI(APIBaseTest):
@@ -523,8 +522,9 @@ class TestAEOPromptAPI(APIBaseTest):
         self._record_check(prompt_id, "claude-web-search", minutes_ago=2 * day, cited=True, position=3)
         self._record_check(prompt_id, "claude-web-search", minutes_ago=40 * day)
 
-        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
-            response = self.client.get(f"{self.url}{prompt_id}/stats/")
+        create_own_brand(self.team, "example.com")
+
+        response = self.client.get(f"{self.url}{prompt_id}/stats/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         stats = response.json()
@@ -577,8 +577,9 @@ class TestAEOPromptAPI(APIBaseTest):
         prompt_id = self._import_one_prompt()
         self._record_check(prompt_id, "exa-answer", minutes_ago=10, **check)
 
-        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
-            stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
+        create_own_brand(self.team, "example.com")
+
+        stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
 
         assert [row["mentioned"] for row in stats["engines"]] == [expected_mentioned]
         assert [row["mentioned"] for row in stats["daily"]] == [expected_mentioned]
@@ -595,8 +596,9 @@ class TestAEOPromptAPI(APIBaseTest):
                     brand_sentiment=label, brand_sentiment_score=score
                 )
 
-        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
-            stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
+        create_own_brand(self.team, "example.com")
+
+        stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
         checks = self.client.get(f"{self.url}{prompt_id}/checks/?engine=exa-answer").json()["results"]
 
         assert [
@@ -642,8 +644,9 @@ class TestAEOPromptAPI(APIBaseTest):
         self._record_check(prompt_id, "openai-web-search", minutes_ago=4 * day, check_failed=True)
         self._record_check(prompt_id, "openai-web-search", minutes_ago=40 * day, cited_urls=[rival, rival, rival])
 
-        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
-            stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
+        create_own_brand(self.team, "example.com")
+
+        stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
 
         assert [(row["engine"], row["domain"], row["checks_citing"], row["checks"]) for row in stats["consensus"]] == [
             ("claude-web-search", "docs.example.com", 1, 2),
@@ -720,8 +723,9 @@ class TestAEOPromptAPI(APIBaseTest):
         self._record_check(ids["replay?"], "exa-answer", minutes_ago=40 * day, cited=True, position=4)
         self._record_check(ids["funnels?"], "claude-web-search", minutes_ago=70 * day, cited=True)
 
-        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
-            response = self.client.get(f"{self.url}overview/")
+        create_own_brand(self.team, "example.com")
+
+        response = self.client.get(f"{self.url}overview/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         overview = response.json()
@@ -837,8 +841,8 @@ class TestAEOPromptAPI(APIBaseTest):
             ids["replay?"], "exa-answer", minutes_ago=-5, answer_text="Late.", cited_urls=["https://late.example.net/x"]
         )
 
-        with override_settings(AEO_TARGET_DOMAINS=["docs.example.com"]):
-            response = self.client.get(f"{self.url}rankings/")
+        create_own_brand(self.team, "docs.example.com")
+        response = self.client.get(f"{self.url}rankings/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         rankings = response.json()
@@ -958,6 +962,113 @@ class TestAEOPromptAPI(APIBaseTest):
         }
         competitors = self.client.get(f"{url}?kind=competitor").json()["results"]
         assert [brand["domain"] for brand in competitors] == ["amplitude.com"]
+
+    @parameterized.expand(
+        [
+            (
+                "url_becomes_registrable_domain",
+                {"domain": "https://Docs.Example.com/pricing", "kind": "own", "aliases": [" Example ", "Example"]},
+                status.HTTP_201_CREATED,
+                {"domain": "example.com", "name": "Example", "kind": "own", "aliases": ["Example"]},
+            ),
+            (
+                "bare_host_with_a_name",
+                {"domain": "rival.example.org", "kind": "competitor", "name": "Rival"},
+                status.HTTP_201_CREATED,
+                {"domain": "example.org", "name": "Rival", "kind": "competitor", "aliases": []},
+            ),
+            ("invalid_domain", {"domain": "not a domain", "kind": "own"}, status.HTTP_400_BAD_REQUEST, None),
+            ("space_in_a_label", {"domain": "not a domain.com", "kind": "own"}, status.HTTP_400_BAD_REQUEST, None),
+            ("underscore_in_a_label", {"domain": "my_site.com", "kind": "own"}, status.HTTP_400_BAD_REQUEST, None),
+            ("label_ends_with_a_hyphen", {"domain": "example-.com", "kind": "own"}, status.HTTP_400_BAD_REQUEST, None),
+            ("missing_kind", {"domain": "example.com"}, status.HTTP_400_BAD_REQUEST, None),
+        ]
+    )
+    def test_brands_create(self, _name: str, body: dict, expected_status: int, expected: dict | None) -> None:
+        self._brand(self.team, "example.net")
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        self._brand(other_team, "example.com")
+        self._brand(other_team, "example.org")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/aeo_brands/", body, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected is None:
+            assert AEOBrand.objects.for_team(self.team.id).count() == 1
+            return
+        brand = response.json()
+        assert {key: brand[key] for key in expected} == expected
+        assert (brand["status"], brand["source"]) == ("confirmed", "manual")
+        assert AEOBrand.objects.for_team(other_team.id).count() == 2
+
+    @parameterized.expand(
+        [
+            ("create_own", None, {"domain": "example.com", "kind": "own"}, 1),
+            ("create_competitor", None, {"domain": "example.com", "kind": "competitor"}, 0),
+            ("relabel_to_own", "competitor", {"kind": "own"}, 1),
+            ("relabel_own_to_competitor", "own", {"kind": "competitor"}, 1),
+            ("ignore_own", "own", {"status": "ignored"}, 1),
+            # Any kind or status edit, since concurrent edits can each look like no change.
+            ("confirm_own", "own", {"status": "confirmed"}, 1),
+            ("relabel_competitor_as_competitor", "competitor", {"kind": "competitor"}, 1),
+            ("rename_own", "own", {"name": "Example Inc", "aliases": ["Example"]}, 0),
+        ]
+    )
+    def test_own_brand_changes_recompute_past_citations_after_commit(
+        self, _name: str, existing_kind: str | None, body: dict, expected_calls: int
+    ) -> None:
+        url = f"/api/projects/{self.team.id}/aeo_brands/"
+        brand_id = self._brand(self.team, "example.com", kind=existing_kind) if existing_kind else None
+
+        with (
+            patch("products.aeo.backend.facade.api.recompute_aeo_own_citations_task") as task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if brand_id is None:
+                response = self.client.post(url, body, format="json")
+            else:
+                response = self.client.patch(f"{url}{brand_id}/", body, format="json")
+
+        assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.json()
+        assert task.apply_async.call_count == expected_calls
+        if expected_calls:
+            task.apply_async.assert_called_with((self.team.id,), countdown=RECOMPUTE_DEBOUNCE_SECONDS)
+
+    def test_a_burst_of_own_brand_edits_queues_one_recompute(self) -> None:
+        brand_id = self._brand(self.team, "example.com", kind="competitor")
+        url = f"/api/projects/{self.team.id}/aeo_brands/{brand_id}/"
+
+        with (
+            patch("products.aeo.backend.facade.api.recompute_aeo_own_citations_task") as task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            for kind in ("own", "competitor", "own"):
+                assert self.client.patch(url, {"kind": kind}, format="json").status_code == status.HTTP_200_OK
+
+        assert task.apply_async.call_count == 1
+
+    def test_a_failed_recompute_enqueue_keeps_the_brand_change(self) -> None:
+        with (
+            patch("products.aeo.backend.facade.api.recompute_aeo_own_citations_task") as task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            task.apply_async.side_effect = ConnectionError("broker unavailable")
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/aeo_brands/", {"domain": "example.com", "kind": "own"}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert AEOBrand.objects.for_team(self.team.id).filter(domain="example.com", kind="own").exists()
+
+    def test_brands_create_rejects_a_known_domain_with_a_pointer_to_update(self) -> None:
+        self._brand(self.team, "example.com")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/aeo_brands/", {"domain": "example.com", "kind": "own"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Update the existing brand" in json.dumps(response.json())
 
     @parameterized.expand([("get", None), ("patch", {"status": "ignored"})])
     def test_another_teams_brand_is_not_found(self, method: str, body: dict | None) -> None:
@@ -1199,8 +1310,8 @@ class TestAEOKeywordAPI(APIBaseTest):
         self._record(replay, check_failed=True)
         self._record(replay, searches=["session replay"], answer_text="Session replay", cited=True, days_ago=10)
 
-        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
-            response = self.client.get(f"{self.url}report/?days=7")
+        create_own_brand(self.team, "example.com")
+        response = self.client.get(f"{self.url}report/?days=7")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         body = response.json()
@@ -1240,8 +1351,7 @@ class TestAEOKeywordAPI(APIBaseTest):
         assert rows["zebra"]["uses_per_answer"] is None
 
         self.client.post(self.url, {"keywords": ["acme"]}, format="json")
-        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
-            refreshed = self.client.get(f"{self.url}report/?days=7").json()
+        refreshed = self.client.get(f"{self.url}report/?days=7").json()
         assert [row["keyword"] for row in refreshed["keywords"]] == ["acme", "pricing", "session replay", "zebra"]
         assert next(row for row in refreshed["keywords"] if row["keyword"] == "acme")["answer_checks"] == 2
 
