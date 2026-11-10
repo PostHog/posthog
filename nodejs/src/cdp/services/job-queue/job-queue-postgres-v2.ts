@@ -44,6 +44,7 @@ type SerializedJobState = {
 export class CyclotronJobQueuePostgresV2 implements JobQueue {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
+    private stoppingConsumer?: Promise<void>
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
 
@@ -143,9 +144,14 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     }
 
     public async stopConsumer(): Promise<void> {
-        const worker = this.worker
-        this.worker = undefined
-        await worker?.disconnect()
+        if (!this.stoppingConsumer) {
+            const worker = this.worker
+            this.worker = undefined
+            this.stoppingConsumer = Promise.resolve(worker?.disconnect()).finally(() => {
+                this.stoppingConsumer = undefined
+            })
+        }
+        await this.stoppingConsumer
     }
 
     public async stopProducer(): Promise<void> {
