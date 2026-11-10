@@ -36,14 +36,14 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install openai opentelemetry-sdk "posthog[otel]<8" opentelemetry-instrumentation-openai-v2
+                                    pip install openai opentelemetry-sdk "posthog[otel]>=8,<9" opentelemetry-instrumentation-openai-v2
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install openai @posthog/ai posthog-node@5 @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
+                                    npm install openai @posthog/ai posthog-node@6 @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
                                 `,
                             },
                             {

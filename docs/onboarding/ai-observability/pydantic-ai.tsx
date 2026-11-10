@@ -29,7 +29,7 @@ export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefini
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install "pydantic-ai[openai]" opentelemetry-sdk "posthog[otel]<8"
+                            pip install "pydantic-ai[openai]" opentelemetry-sdk "posthog[otel]>=8,<9"
                         `}
                     />
                 </>
