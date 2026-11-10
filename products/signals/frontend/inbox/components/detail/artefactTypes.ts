@@ -347,8 +347,6 @@ export function selectVisibleReportActivity(artefacts: SignalReportArtefact[]): 
             artefact.type !== 'impact_measurement_plan' &&
             // The report shows its product suggestion under the evidence, so the log would only repeat it.
             artefact.type !== 'source_suggestion' &&
-            // Follow-up checks lists each interim measurement under its own check.
-            artefact.type !== 'check_observation' &&
             (artefact.type !== 'implementation_handover' ||
                 (artefact.content as ImplementationHandoverContent).status !== 'processing')
     )
