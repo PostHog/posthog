@@ -1,8 +1,10 @@
+import gc
 import os
 import time
 import errno
 import threading
 
+from django.conf import settings
 from django.dispatch import receiver
 
 import structlog
@@ -16,6 +18,7 @@ from celery.signals import (
     task_prerun,
     task_retry,
     task_success,
+    worker_init,
     worker_process_init,
     worker_process_shutdown,
 )
@@ -206,6 +209,21 @@ def _tag_celery_span_with_team_id(task_kwargs: dict | None) -> None:
 
 def _celery_team_id_prerun_receiver(task_id=None, task=None, args=None, kwargs=None, **_) -> None:
     _tag_celery_span_with_team_id(kwargs)
+
+
+@worker_init.connect
+def freeze_objects_before_pool_forks(**kwargs) -> None:
+    if not settings.GC_FREEZE_BEFORE_POOL_FORK:
+        return
+    # Celery sends worker_init after it imports the task modules and before the prefork pool forks
+    # its children, so the frozen objects include the tasks. Children that the pool forks again
+    # later, for example after --max-tasks-per-child, inherit the same frozen objects. The garbage
+    # collector writes to every object it scans, so a child's first full collection turns the memory
+    # it shares with this process into private copies. Frozen objects are never scanned, so the
+    # children keep sharing them. The collection runs first because a frozen garbage cycle is never
+    # freed.
+    gc.collect()
+    gc.freeze()
 
 
 @worker_process_init.connect
