@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "type": "string"
+        },
+        "key": {
+            "description": "Key of the tag to set. The tag definitions endpoint lists the tags enabled for the project.",
+            "maxLength": 64,
+            "type": "string"
+        },
+        "value": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The answer to set: true for yes, false for no, null for unknown."
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 28 enabled ops
+ * PostHog API - MCP 29 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -8263,6 +8263,26 @@ export const ErrorTrackingIssuesSplitCreateBody = () => zod.object({
         )
         .optional()
         .describe('Fingerprints to split into new issues. Each fingerprint becomes its own new issue.'),
+})
+
+export const ErrorTrackingIssuesTagPartialUpdateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const errorTrackingIssuesTagPartialUpdateBodyKeyMax = 64
+
+export const ErrorTrackingIssuesTagPartialUpdateBody = () => zod.object({
+    key: zod
+        .string()
+        .max(errorTrackingIssuesTagPartialUpdateBodyKeyMax)
+        .optional()
+        .describe('Key of the tag to set. The tag definitions endpoint lists the tags enabled for the project.'),
+    value: zod.boolean().nullish().describe('The answer to set: true for yes, false for no, null for unknown.'),
 })
 
 /**

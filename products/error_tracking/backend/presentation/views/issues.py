@@ -83,6 +83,16 @@ class ErrorTrackingIssueTagReadSerializer(ErrorTrackingIssueTagDefinitionSeriali
     )
 
 
+class ErrorTrackingIssueTagWriteSerializer(serializers.Serializer):
+    key = serializers.CharField(
+        max_length=64,
+        help_text="Key of the tag to set. The tag definitions endpoint lists the tags enabled for the project.",
+    )
+    value = serializers.BooleanField(
+        allow_null=True, help_text="The answer to set: true for yes, false for no, null for unknown."
+    )
+
+
 class ErrorTrackingIssueTagDefinitionsResponseSerializer(serializers.Serializer):
     results = ErrorTrackingIssueTagDefinitionSerializer(
         many=True, help_text="The tags enabled for the project. Empty while issue tags are off for the project."
@@ -348,6 +358,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         "merge",
         "split",
         "assign",
+        "tag",
         "cohort",
         "bulk",
     ]
@@ -526,6 +537,47 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 request, "assign", {"issue_id": str(pk), "assignee_type": assignee["type"] if assignee else None}
             )
         return Response({"success": True})
+
+    @validated_request(
+        request_serializer=ErrorTrackingIssueTagWriteSerializer,
+        responses={200: OpenApiResponse(response=ErrorTrackingIssueTagReadSerializer)},
+    )
+    @action(methods=["PATCH"], detail=True)
+    def tag(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
+        try:
+            issue_id = UUID(str(pk))
+        except ValueError:
+            raise NotFound("Issue not found")
+        key = request.validated_data["key"]
+        try:
+            correction = issues_facade.correct_issue_tag(
+                self.team.id,
+                issue_id,
+                key,
+                request.validated_data["value"],
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+            )
+        except issues_facade.IssueTagsDisabledError:
+            raise NotFound("Issue tags are off for this project.")
+        except issues_facade.UnknownIssueTagError:
+            raise ValidationError({"key": "This project has no enabled tag with this key."})
+        except IssueNotFoundError:
+            raise NotFound("Issue not found")
+        if correction.changed:
+            self._report_issue_change(
+                request,
+                "tag",
+                {
+                    "issue_id": str(issue_id),
+                    "tag_key": key,
+                    "previous_tag_source": correction.previous_source,
+                    "previous_tag_value": correction.previous_value,
+                    "previous_tag_probability": correction.previous_probability,
+                    "tag_value": correction.tag.value,
+                },
+            )
+        return Response(ErrorTrackingIssueTagReadSerializer(correction.tag).data)
 
     @extend_schema(
         request=ErrorTrackingIssueCohortRequestSerializer,

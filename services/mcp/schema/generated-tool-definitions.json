@@ -5481,6 +5481,21 @@
             "readOnlyHint": false
         }
     },
+    "error-tracking-issues-tag-partial-update": {
+        "description": "Correct the answer of an error tracking issue to one tag. Provide the issue ID as `id`, the tag as `key`, and the answer as `value`: true for yes, false for no, or null for unknown. A correction ranks above AI answers, so a later AI answer does not replace it. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Correct error tracking issue tag",
+        "title": "Correct error tracking issue tag",
+        "required_scopes": ["error_tracking:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/error_tracking/issues/{id}/tag/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-recommendations-list": {
         "description": "List error tracking recommendations for the current project. Each row is a server-computed suggestion with a fixed `type` and a type-specific `meta` payload.\n\nUse this when the user asks how to improve their error tracking setup, what they should fix, or wants to act on their recommendations.\n\nSurface only the few recommendations that matter — don't dump every row. Skip ones that are already done or dismissed.\n\n# Response envelope (every recommendation)\n\n- `type`: one of `alerts`, `rate_limits`, `source_maps`.\n- `meta`: type-specific payload — see the per-type sections below.\n- `completed`: `true` means the recommended action is already satisfied. Nothing to do — skip it.\n- `dismissed_at`: set if the user dismissed this recommendation. Skip dismissed ones unless the user explicitly asks.\n\nOnly act on recommendations that are not `completed` and not dismissed.\n\n# Recommendation types\n\n- `alerts` — `meta.alerts` is a list of `{ key, enabled }` for the `issue-created`/`issue-reopened`/`issue-spiking` triggers; `enabled: false` means no alert is wired. To act, use the `authoring-error-tracking-alerts` skill (or the `error-tracking-alerts-create` tool).\n- `rate_limits` — `meta.rate_limits` is a list of `{ key, enabled }` for the `project` and `per_issue` ingestion limits; `enabled: false` means it isn't set. To act, check and set them via `error-tracking-settings-get` / `error-tracking-settings-update`.\n- `source_maps` — `meta` carries frame-resolution stats (`unresolved_pct` vs `threshold_pct` over a sample); a high unresolved share means stack traces aren't symbolicated. The fix is uploading source maps from the build via the setup wizard:\n\n  ```sh\n  npx -y @posthog/wizard@latest upload-source-maps\n  ```\n\n  If frames still don't resolve after uploading, use the `diagnosing-stacktrace-symbolication` skill.",
         "category": "Error tracking",

@@ -251,6 +251,21 @@ tools:
             Split one or more fingerprints out of an existing error tracking issue into new issues. Provide the source
             issue as `id` and the fingerprints to split as `fingerprints`, where each entry includes a required
             `fingerprint` and optional `name` or `description`.
+    error-tracking-issues-tag-partial-update:
+        operation: error_tracking_issues_tag_partial_update
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Correct error tracking issue tag
+        description: >
+            Correct the answer of an error tracking issue to one tag. Provide the issue ID as `id`, the tag as `key`,
+            and the answer as `value`: true for yes, false for no, or null for unknown. A correction ranks above AI
+            answers, so a later AI answer does not replace it. The call fails with "Issue tags are off for this
+            project." when the project does not have issue tags.
     error-tracking-recommendations-list:
         operation: error_tracking_recommendations_list
         enabled: true

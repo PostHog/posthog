@@ -544,6 +544,17 @@ export const ErrorTrackingIssuesSplitCreateBody = /* @__PURE__ */ zod.object({
         .describe('Fingerprints to split into new issues. Each fingerprint becomes its own new issue.'),
 })
 
+export const errorTrackingIssuesTagPartialUpdateBodyKeyMax = 64
+
+export const ErrorTrackingIssuesTagPartialUpdateBody = /* @__PURE__ */ zod.object({
+    key: zod
+        .string()
+        .max(errorTrackingIssuesTagPartialUpdateBodyKeyMax)
+        .optional()
+        .describe('Key of the tag to set. The tag definitions endpoint lists the tags enabled for the project.'),
+    value: zod.boolean().nullish().describe('The answer to set: true for yes, false for no, null for unknown.'),
+})
+
 export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
     action: zod
         .enum(['set_status', 'assign'])

@@ -183,6 +183,16 @@ class ErrorTrackingIssueTag:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingIssueTagCorrection:
+    tag: ErrorTrackingIssueTag
+    # The answer that the correction replaced. Each field is None when the issue had no answer to the tag.
+    previous_source: str | None
+    previous_value: bool | None
+    previous_probability: float | None
+    changed: bool
+
+
+@dataclass(frozen=True)
 class ErrorTrackingIssue:
     id: UUID
     status: str

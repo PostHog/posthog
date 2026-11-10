@@ -83472,6 +83472,19 @@ export namespace Schemas {
       assignee?: ErrorTrackingIssueAssigneeWrite | null;
     }
 
+    export interface PatchedErrorTrackingIssueTagWrite {
+      /**
+         * Key of the tag to set. The tag definitions endpoint lists the tags enabled for the project.
+         * @maxLength 64
+         */
+      key?: string;
+      /**
+         * The answer to set: true for yes, false for no, null for unknown.
+         * @nullable
+         */
+      value?: boolean | null;
+    }
+
     export interface PatchedErrorTrackingIssueWrite {
       /** Issue status to set. Deprecated archived and pending_release values are rejected.
        *

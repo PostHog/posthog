@@ -1186,6 +1186,19 @@ export interface ErrorTrackingIssueSummaryResponseApi {
     reason: IssueSummaryUnavailableReasonEnumApi | null
 }
 
+export interface PatchedErrorTrackingIssueTagWriteApi {
+    /**
+     * Key of the tag to set. The tag definitions endpoint lists the tags enabled for the project.
+     * @maxLength 64
+     */
+    key?: string
+    /**
+     * The answer to set: true for yes, false for no, null for unknown.
+     * @nullable
+     */
+    value?: boolean | null
+}
+
 /**
  * * `set_status` - set_status
  * * `assign` - assign

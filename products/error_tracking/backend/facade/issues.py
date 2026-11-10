@@ -15,11 +15,14 @@ from ..logic import (
     issue_mutations as _mutations,
     linear_status_sync as _linear_status_sync,
 )
+from ..logic.issue_tags import correction as _issue_tag_correction
 from . import api, contracts
 
 CohortNotFoundError = _mutations.CohortNotFoundError
 AssigneeValidationError = _mutations.AssigneeValidationError
 InvalidIssueStatusError = _mutations.InvalidIssueStatusError
+IssueTagsDisabledError = _issue_tag_correction.IssueTagsDisabledError
+UnknownIssueTagError = _issue_tag_correction.UnknownIssueTagError
 
 
 def update_issue(
@@ -52,6 +55,14 @@ def assign_issue(
     team_id: int, issue_id: UUID, assignee: dict[str, Any] | None, *, user: Any, was_impersonated: bool
 ) -> bool:
     return _mutations.assign_issue(team_id, issue_id, assignee, user=user, was_impersonated=was_impersonated)
+
+
+def correct_issue_tag(
+    team_id: int, issue_id: UUID, key: str, value: bool | None, *, user: User, was_impersonated: bool
+) -> contracts.ErrorTrackingIssueTagCorrection:
+    return _issue_tag_correction.correct_issue_tag(
+        team_id, issue_id, key, value, user=user, was_impersonated=was_impersonated
+    )
 
 
 def bulk_update_issues(

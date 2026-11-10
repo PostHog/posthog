@@ -390,6 +390,41 @@ const errorTrackingIssuesSplitCreate = (): ToolBase<
     },
 })
 
+const ErrorTrackingIssuesTagPartialUpdateSchema = () => {
+    const ErrorTrackingIssuesTagPartialUpdateBody = orvalSchemas.ErrorTrackingIssuesTagPartialUpdateBody()
+    const ErrorTrackingIssuesTagPartialUpdateParams = orvalSchemas.ErrorTrackingIssuesTagPartialUpdateParams()
+    return ErrorTrackingIssuesTagPartialUpdateParams.omit({ project_id: true }).extend(
+        ErrorTrackingIssuesTagPartialUpdateBody.shape
+    )
+}
+
+const errorTrackingIssuesTagPartialUpdate = (): ToolBase<
+    ReturnType<typeof ErrorTrackingIssuesTagPartialUpdateSchema>,
+    Schemas.ErrorTrackingIssueTagRead
+> => ({
+    name: 'error-tracking-issues-tag-partial-update',
+    schema: ErrorTrackingIssuesTagPartialUpdateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ErrorTrackingIssuesTagPartialUpdateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
+        if (params.value !== undefined) {
+            body['value'] = params.value
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingIssueTagRead>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/tag/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ErrorTrackingRecommendationsListSchema = () => {
     const ErrorTrackingRecommendationsListQueryParams = orvalSchemas.ErrorTrackingRecommendationsListQueryParams()
     return ErrorTrackingRecommendationsListQueryParams
@@ -981,6 +1016,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-issues-merge-create': errorTrackingIssuesMergeCreate,
     'error-tracking-issues-partial-update': errorTrackingIssuesPartialUpdate,
     'error-tracking-issues-split-create': errorTrackingIssuesSplitCreate,
+    'error-tracking-issues-tag-partial-update': errorTrackingIssuesTagPartialUpdate,
     'error-tracking-recommendations-list': errorTrackingRecommendationsList,
     'error-tracking-settings-get': errorTrackingSettingsGet,
     'error-tracking-settings-update': errorTrackingSettingsUpdate,
