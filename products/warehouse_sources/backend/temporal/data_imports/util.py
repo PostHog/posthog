@@ -722,20 +722,20 @@ async def prepare_s3_files_for_querying(
         if delete_existing and files_to_delete:
             await _log(f"Deleting {len(files_to_delete)} old query folders")
 
-            async def delete_folder(file: str) -> None:
+            async def delete_folder(file: str) -> Optional[BaseException]:
                 async with semaphore:
                     delete_attempt = 0
                     while True:
                         delete_attempt += 1
                         try:
                             await s3._rm(file, recursive=True)
-                            return
+                            return None
                         except FileNotFoundError:
                             # The folder is already gone: another sync's cleanup pass took it, or an
                             # earlier attempt of this one deleted it and lost the response. That is
                             # the outcome this delete wanted, so there is nothing to report.
                             await _log(f"Old query folder was already deleted: {file}")
-                            return
+                            return None
                         except Exception as e:
                             if _is_s3_throttling_error(e) and delete_attempt < _DELETE_FOLDER_MAX_ATTEMPTS:
                                 await _log(
@@ -746,22 +746,36 @@ async def prepare_s3_files_for_querying(
                                 await asyncio.sleep(2**delete_attempt)
                                 continue
 
-                            await _log(f"Error while deleting old query folder {file}: {e}", level="error")
+                            await _log(f"Error while deleting old query folder {file}: {e}")
                             # Throttling that outlasted the retry budget is no longer a blip that
                             # clears on its own, so it is reported even though the classifier
                             # treats a single throttled response as transient.
                             if _is_s3_throttling_error(e) or not (
                                 _is_transient_s3_connection_error(e) or is_transient_object_store_error(e)
                             ):
-                                capture_exception(S3OperationError("delete an old query folder for this table", e))
+                                return e
                             # Cleanup stays best effort: the folder is timestamped, so the age-based
                             # GC above picks it up on a later sync. Failing the sync over it would
                             # throw away a load that has already landed.
-                            return
+                            return None
 
             with post_load_phase("delete_old_folders"):
                 note_post_load_phase(folders_deleted=len(files_to_delete))
-                await asyncio.gather(*[delete_folder(file) for file in files_to_delete])
+                delete_errors = await asyncio.gather(*[delete_folder(file) for file in files_to_delete])
+
+            # One report per call, not one per folder: a storage condition that fails every delete
+            # fails it again for each folder that every later sync lists, so per-folder reports grow
+            # with the backlog instead of with the number of affected syncs.
+            failed_deletes = [error for error in delete_errors if error is not None]
+            if failed_deletes:
+                await _log(
+                    f"Could not delete {len(failed_deletes)} of {len(files_to_delete)} old query folders",
+                    level="error",
+                )
+                capture_exception(
+                    S3OperationError("delete an old query folder for this table", failed_deletes[0]),
+                    {"failed_folder_deletes": len(failed_deletes), "folder_deletes": len(files_to_delete)},
+                )
 
         await _log(f"Returning S3 folder for querying: {s3_folder_for_querying}")
 
