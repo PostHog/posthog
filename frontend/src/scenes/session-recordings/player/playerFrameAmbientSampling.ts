@@ -1,5 +1,5 @@
 import { clamp } from 'lib/utils/numbers'
-import { PlayerFrameDimensions } from 'scenes/session-recordings/player/playerFrameScaling'
+import { PlayerFrameDimensions, getPlayerFrameScale } from 'scenes/session-recordings/player/playerFrameScaling'
 
 const MIN_BAR_PX = 8
 const GRID_COLUMNS = 8
@@ -45,6 +45,17 @@ export function isBoxed(container: PlayerFrameDimensions, recording: PlayerFrame
     return Math.max(container.width - recording.width, container.height - recording.height) >= MIN_BAR_PX * 2
 }
 
+// Matches PlayerFrame's scaling, because the wrapper's measured size lags until its scale applies.
+export function scaledFrameRect(container: PlayerFrameDimensions, recording: PlayerFrameDimensions): Rect | null {
+    if (!(recording.width >= 1 && recording.height >= 1 && container.width >= 1 && container.height >= 1)) {
+        return null
+    }
+    const { scale } = getPlayerFrameScale(container, recording)
+    const width = recording.width * scale
+    const height = recording.height * scale
+    return { width, height, left: (container.width - width) / 2, top: (container.height - height) / 2 }
+}
+
 export function gridSize(recording: PlayerFrameDimensions): { columns: number; rows: number } {
     const rows = Math.round((GRID_COLUMNS * recording.height) / recording.width)
     return { columns: GRID_COLUMNS, rows: clamp(rows, MIN_GRID_ROWS, MAX_GRID_ROWS) }
@@ -66,8 +77,8 @@ export class AmbientFrameSampler {
     private canvasesThisSample = new Map<HTMLCanvasElement, Uint8ClampedArray | null>()
     private elementColorsThisSample = new Map<Element, Rgba | null>()
     onBackgroundImageLoad: (() => void) | null = null
-    // Canvases repaint without a DOM mutation, so a frame that shows one needs sampling again.
-    sawCanvas = false
+    // Canvases repaint without a DOM mutation, and the image load cap defers work, so either needs another sample.
+    needsResample = false
     private imageLoadsThisSample = 0
 
     sample(doc: Document, recording: PlayerFrameDimensions): AmbientGrid | null {
@@ -75,9 +86,7 @@ export class AmbientFrameSampler {
         if (!view || !doc.body?.hasChildNodes()) {
             return null
         }
-        this.canvasesThisSample.clear()
-        this.elementColorsThisSample.clear()
-        this.sawCanvas = false
+        this.needsResample = false
         this.imageLoadsThisSample = 0
         const { columns, rows } = gridSize(recording)
         const fallback = this.documentColor(doc, view)
@@ -89,6 +98,9 @@ export class AmbientFrameSampler {
                 pixels.set(this.colorAt(doc, view, x, y) ?? fallback, (row * columns + column) * 4)
             }
         }
+        // Cleared here so the sampler holds no recorded nodes between samples.
+        this.canvasesThisSample.clear()
+        this.elementColorsThisSample.clear()
         return { columns, rows, pixels }
     }
 
@@ -144,9 +156,7 @@ export class AmbientFrameSampler {
         const hasRoom = this.backgroundImages.size < MAX_BACKGROUND_IMAGES
         const url = backgroundImage.match(/url\(["']?([^"')]+)["']?\)/)?.[1]
         if (!url) {
-            const gradient = averageColor(
-                [...backgroundImage.matchAll(/rgba?\([^)]*\)/g)].map((match) => opaque(parseCssColor(match[0])))
-            )
+            const gradient = gradientColor(backgroundImage)
             if (hasRoom) {
                 this.backgroundImages.set(backgroundImage, gradient)
             }
@@ -155,25 +165,31 @@ export class AmbientFrameSampler {
         if (!hasRoom) {
             return null
         }
-        // Computed styles resolve recorded URLs to absolute ones, so a relative URL here would only hit the app origin.
         if (this.imageLoadsThisSample >= MAX_IMAGE_LOADS_PER_SAMPLE) {
+            this.needsResample = true
             return null
         }
         this.backgroundImages.set(backgroundImage, null)
-        if (URL.canParse(url) && FETCHABLE_PROTOCOLS.includes(new URL(url).protocol)) {
-            this.imageLoadsThisSample++
-            // The recorded document's own policy admits any image, and the app's would report every one.
-            const image = new view.Image()
-            image.crossOrigin = 'anonymous'
-            image.referrerPolicy = 'no-referrer'
-            image.onload = () => {
-                const pixels = this.draw(image)
-                this.backgroundImages.set(backgroundImage, pixels ? averageColor(rgbaPixels(pixels).map(opaque)) : null)
-                this.onBackgroundImageLoad?.()
-            }
-            image.src = url
-        }
+        this.loadBackgroundImage(backgroundImage, url, view)
         return null
+    }
+
+    private loadBackgroundImage(key: string, url: string, view: Window & typeof globalThis): void {
+        // Computed styles resolve recorded URLs to absolute ones, so a relative URL here would only hit the app origin.
+        if (!URL.canParse(url) || !FETCHABLE_PROTOCOLS.includes(new URL(url).protocol)) {
+            return
+        }
+        this.imageLoadsThisSample++
+        // The recorded document's own policy admits any image, and the app's would report every one.
+        const image = new view.Image()
+        image.crossOrigin = 'anonymous'
+        image.referrerPolicy = 'no-referrer'
+        image.onload = () => {
+            const pixels = this.draw(image)
+            this.backgroundImages.set(key, pixels ? averageColor(rgbaPixels(pixels).map(opaque)) : null)
+            this.onBackgroundImageLoad?.()
+        }
+        image.src = url
     }
 
     private pixelAt(element: Element, pixels: Uint8ClampedArray | null, x: number, y: number): Rgba | null {
@@ -200,7 +216,7 @@ export class AmbientFrameSampler {
     }
 
     private canvasPixels(canvas: HTMLCanvasElement): Uint8ClampedArray | null {
-        this.sawCanvas = true
+        this.needsResample = true
         if (!this.canvasesThisSample.has(canvas)) {
             this.canvasesThisSample.set(canvas, this.draw(canvas))
         }
@@ -319,6 +335,12 @@ export class AmbientBlend {
         }
         return this.image
     }
+}
+
+function gradientColor(backgroundImage: string): Rgba | null {
+    return averageColor(
+        [...backgroundImage.matchAll(/rgba?\([^)]*\)/g)].map((match) => opaque(parseCssColor(match[0])))
+    )
 }
 
 export function averageColor(colors: (Rgba | null)[]): Rgba | null {

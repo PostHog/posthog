@@ -6,11 +6,12 @@ import { useEffect, useRef } from 'react'
 import {
     AmbientBlend,
     AmbientFrameSampler,
+    AmbientGrid,
     Rect,
     extendGrid,
     isBoxed,
+    scaledFrameRect,
 } from 'scenes/session-recordings/player/playerFrameAmbientSampling'
-import { getPlayerFrameScale } from 'scenes/session-recordings/player/playerFrameScaling'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 const CHECK_INTERVAL_MS = 1000
@@ -88,8 +89,7 @@ export function PlayerFrameAmbient(): JSX.Element | null {
         }
 
         const observe = (recordedDocument: Document): void => {
-            // rrweb's document.open() on each full snapshot drops listeners, so they are re-added every check.
-            // Neither event bubbles, so they are caught on the way down.
+            // rrweb's document.open() on each full snapshot drops these non-bubbling listeners, so every check re-adds them.
             recordedDocument.addEventListener('scroll', markDirty, true)
             recordedDocument.addEventListener('load', markDirty, true)
             if (recordedDocument === observedDocument) {
@@ -108,50 +108,48 @@ export function PlayerFrameAmbient(): JSX.Element | null {
             dirty = true
         }
 
+        const show = (grid: AmbientGrid, area: Rect): void => {
+            placeCanvas(area)
+            const snapped = blend.setTarget(grid)
+            if (snapped || !canvasSized) {
+                canvasSized = true
+                canvas.width = blend.columns
+                canvas.height = blend.rows
+                paint()
+            }
+            if (!snapped && reducedMotion) {
+                blend.snap()
+                paint()
+            } else if (!snapped && !animationFrame) {
+                animationFrame = requestAnimationFrame(animate)
+            }
+            canvas.style.opacity = '1'
+        }
+
         const update = (): void => {
             const iframe = replayer.iframe
             const recordedDocument = iframe?.contentDocument
             const recording = { width: Number(iframe?.width), height: Number(iframe?.height) }
             const container = replayer.wrapper.ownerDocument.body.getBoundingClientRect()
-            if (
-                document.hidden ||
-                maskedRef.current ||
-                !recordedDocument ||
-                !(recording.width >= 1 && recording.height >= 1) ||
-                !(container.width >= 1 && container.height >= 1)
-            ) {
+            const scaled = scaledFrameRect(container, recording)
+            if (document.hidden || maskedRef.current || !recordedDocument || !scaled) {
                 return
             }
             observe(recordedDocument)
-            // Computed as PlayerFrame does, because the wrapper's measured size lags until its scale applies.
-            const { scale } = getPlayerFrameScale(container, recording)
-            const width = recording.width * scale
-            const height = recording.height * scale
-            const scaled = {
-                width,
-                height,
-                left: (container.width - width) / 2,
-                top: (container.height - height) / 2,
-            }
             if (!isBoxed(container, scaled)) {
                 canvas.style.opacity = '0'
                 lastLayout = ''
                 return
             }
             const layout = [container.width, container.height, recording.width, recording.height].join()
-            if (layout !== lastLayout) {
-                lastLayout = layout
-                dirty = true
-            }
-            if (!dirty) {
-                return
-            }
+            dirty ||= layout !== lastLayout
+            lastLayout = layout
             // A document mid-rebuild samples as nothing, so the last colors stay up until a real sample replaces them.
-            const sampled = sampler.sample(recordedDocument, recording)
+            const sampled = dirty ? sampler.sample(recordedDocument, recording) : null
             if (!sampled) {
                 return
             }
-            dirty = sampler.sawCanvas
+            dirty = sampler.needsResample
             const overhang = { x: container.width * OVERHANG, y: container.height * OVERHANG }
             const extended = extendGrid(sampled, scaled, {
                 left: -overhang.x,
@@ -159,19 +157,7 @@ export function PlayerFrameAmbient(): JSX.Element | null {
                 width: container.width + 2 * overhang.x,
                 height: container.height + 2 * overhang.y,
             })
-            placeCanvas(extended.area)
-            if (blend.setTarget(extended.grid) || !canvasSized) {
-                canvasSized = true
-                canvas.width = blend.columns
-                canvas.height = blend.rows
-                paint()
-            } else if (reducedMotion) {
-                blend.snap()
-                paint()
-            } else if (!animationFrame) {
-                animationFrame = requestAnimationFrame(animate)
-            }
-            canvas.style.opacity = '1'
+            show(extended.grid, extended.area)
         }
 
         const markDirtyOnStyleChange = (event: eventWithTime): void => {
