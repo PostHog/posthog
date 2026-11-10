@@ -5574,7 +5574,7 @@ FROM
     AND
       (person_mode != 'propertyless')
     AND
-      JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false'
+      (JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false')
   )
 WHERE notEmpty(group_key)
 GROUP BY
