@@ -8,7 +8,6 @@ ids and emails, and nothing the Hedgebox simulation wrote is changed or removed.
 from __future__ import annotations
 
 import json
-import math
 import uuid
 import hashlib
 from datetime import datetime, timedelta
@@ -20,6 +19,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.event.util import bulk_create_events
+from posthog.models.person import Person
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -86,7 +86,8 @@ __all__ = [
     "seed_wau_spike_with_annotation",
 ]
 
-_PREVIEW_ACTIVITY_EVENTS = ("logged_in", "uploaded_file", "downloaded_file", "shared_file_link")
+# Agents count active users from page views, often with the file events added, so the planted share uses both.
+_PREVIEW_ACTIVITY_EVENTS = ("$pageview", "logged_in", "uploaded_file", "downloaded_file", "shared_file_link")
 
 _CRM_COLUMN_TYPES = {
     "deal_id": _STRING_COLUMN,
@@ -141,8 +142,16 @@ def _plant_needle(team: Team, needle: EventNeedle, now: datetime) -> int:
                 last_seen_at=last_seen,
             )
             insert_seed_distinct_id(conn, team_id=team.id, person_id=person_id, distinct_id=person.distinct_id)
+    person_mapping: dict[str, Person] = {}
     for person in needle.persons:
         person_uuid = str(_person_uuid(team.id, person.distinct_id))
+        # Without the mapping, bulk_create_events looks the person up once per event.
+        person_mapping[person.distinct_id] = Person(
+            team_id=team.id,
+            uuid=person_uuid,
+            properties=person_properties[person.distinct_id],
+            created_at=created_at,
+        )
         create_person(
             team_id=team.id,
             version=0,
@@ -165,7 +174,8 @@ def _plant_needle(team: Team, needle: EventNeedle, now: datetime) -> int:
                 "person_properties": person_properties[event.distinct_id],
             }
             for event in needle.events
-        ]
+        ],
+        person_mapping=person_mapping,
     )
     return len(needle.events)
 
@@ -345,6 +355,10 @@ def seed_revenue_rep_outlier(context: CustomPromptSandboxContext) -> dict[str, A
     }
 
 
+def _adoption_threshold(distinct_id: str) -> float:
+    return int(hashlib.sha256(distinct_id.encode()).hexdigest()[:8], 16) / 0x1_0000_0000
+
+
 def seed_preview_adoption(context: CustomPromptSandboxContext) -> dict[str, Any]:
     team, user = _team_and_user(context)
     spec = PREVIEW_ADOPTION
@@ -368,9 +382,12 @@ def seed_preview_adoption(context: CustomPromptSandboxContext) -> dict[str, Any]
         raise RuntimeError("No active users on the preview launch day; the Hedgebox master data is too old.")
     events = []
     for days_ago, users in active_by_day.items():
-        # A stable hash order lets the adopters of one day stay adopters on the next, as real adoption does.
-        ranked = sorted(users, key=lambda item: hashlib.sha256(item[0].encode()).hexdigest())
-        for distinct_id, person_id in ranked[: math.ceil(spec.share_on(days_ago) * len(ranked))]:
+        share = spec.share_on(days_ago)
+        # A user adopts once the day's share passes the user's fixed hash value, and previews on every
+        # active day after that. Then a daily and a weekly share of active users both end near the end share.
+        for distinct_id, person_id in users:
+            if _adoption_threshold(distinct_id) >= share:
+                continue
             events.append(
                 {
                     "event": spec.event,
