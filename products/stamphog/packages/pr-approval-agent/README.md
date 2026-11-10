@@ -404,13 +404,14 @@ This repository's `.stamphog/policy.yml` names `Migration risk` for the `migrati
 The engine knows nothing about what a check proves. See `attestations.py` for the marker contract and the proof conditions.
 
 If a check that could lift every deny hasn't reported yet, `review_local.py` returns `WAIT` rather than a verdict, because its caller can retry on the next push.
-
-A bot named under `bot_authors` is refused unless the hosted server admitted it, which the context carries as `admitted_bot`.
-The engine checks that login against the policy again, keeps every gate, and adds `every_file_attested`, which refuses the PR when a file is lifted by no attestation, because a bot carries no author trust for it.
-A pending attestation makes that gate wait like a deny.
 `review_pr.py` has no such caller and returns `REFUSED` instead.
 The deny-list only matched because the engine could not tell a safe migration from a risky one, so a refusal would be a verdict on a race with CI rather than on the PR.
 A retry against the now-classified head commit reviews it properly.
+
+A bot named under `bot_authors` is refused unless the hosted server admitted it, which the context carries as `admitted_bot`.
+The engine checks that login against the policy again, keeps every gate, and adds `every_file_attested`.
+That gate refuses the PR unless an attestation that declares `publisher_files` proved every file in it, because a bot carries no author trust for a file no such check covers.
+A pending attestation of that kind makes the gate wait like a deny.
 
 ### Ownership
 
