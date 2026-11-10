@@ -1116,6 +1116,13 @@ class NonDbAlterFieldPolicy(_StatePolicy):
     def check_migration(self, migration) -> list[str]:
         if not is_posthog_app(migration.app_label, migration):
             return []
+        # Rebuilding the state replays every earlier migration, so skip it when nothing here can be flagged.
+        if not any(
+            isinstance(state_op, migrations.AlterField) and not runs_in_database
+            for op in migration.operations
+            for state_op, runs_in_database in self._state_operations(op)
+        ):
+            return []
         state = self._state_before(migration)
         if state is None:
             return []
