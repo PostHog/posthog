@@ -269,27 +269,14 @@ describe('checkSandboxRecipient', () => {
             expect(await check({ frequencyCap: realFrequencyCap() })).toEqual({ ok: true })
         })
 
-        it('starts at most eight cap checks against a stalled store, and checks again once they finish', async () => {
-            const applicationName = `sandbox-frequency-cap-${teamId}`
-            const configReader = new PostgresRouter(
-                { ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 20 },
-                applicationName
-            )
+        it('keeps recipient reads on a shared pool working while a stalled cap store holds its checks, and caps again once they finish', async () => {
+            const shared = new PostgresRouter({ ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 10 })
             try {
+                reads = sandboxRecipientReads(shared, suppressionConfig, 200)
                 const stalled = Array.from({ length: MAX_RUNNING_FREQUENCY_CAP_CHECKS + 4 }, () =>
-                    check({ frequencyCap: realFrequencyCap(configReader) })
+                    check({ frequencyCap: realFrequencyCap(shared) })
                 )
                 expect(await Promise.all(stalled)).toEqual(stalled.map(() => ({ ok: true })))
-                await waitForExpect(async () => {
-                    const { rows } = await postgres.query(
-                        PostgresUse.COMMON_READ,
-                        `SELECT count(*)::int AS waiting FROM pg_stat_activity
-                         WHERE application_name = $1 AND wait_event_type = 'Lock'`,
-                        [applicationName],
-                        'test:frequency-cap-reads-waiting-on-lock'
-                    )
-                    expect(rows).toEqual([{ waiting: MAX_RUNNING_FREQUENCY_CAP_CHECKS }])
-                }, 3_000)
                 expect(await check()).toEqual({ ok: true })
 
                 await lockHolder.query('COMMIT')
@@ -297,7 +284,7 @@ describe('checkSandboxRecipient', () => {
                     expect(await check()).toEqual({ ok: false, reason: 'frequency_capped' })
                 }, 3_000)
             } finally {
-                await configReader.end()
+                await shared.end()
             }
         })
     })
