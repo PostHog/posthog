@@ -5,6 +5,9 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
@@ -362,6 +365,36 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         else:
             assert refusal in response.json()["detail"]
             assert stored == sandbox_step
+
+    def test_switching_back_reads_the_senders_once_however_long_the_rotation(self) -> None:
+        verified_id = self._verified_sender().id
+
+        def queries_to_switch_with(rotation: list[int]) -> int:
+            flow = HogFlow.objects.create(
+                team=self.team, name="Flow", status="draft", actions=[_trigger(), _sandbox_step()]
+            )
+            patch_body = {"from": {"integrationId": verified_id, "integrationIds": rotation}}
+            with CaptureQueriesContext(connection) as queries:
+                response = self._patch_email(flow, SANDBOX_STEP_ID, {"sender": "own", "email_patch": patch_body})
+            assert response.status_code == 200, response.json()
+            return len(queries)
+
+        queries_to_switch_with([verified_id])
+        assert queries_to_switch_with([verified_id] * 10) == queries_to_switch_with([verified_id])
+
+    def test_an_api_test_run_neither_moves_new_steps_nor_sets_up_the_sandbox_sender(self) -> None:
+        flow = HogFlow.objects.create(team=self.team, name="Flow", status="draft", actions=[_trigger()])
+
+        with _flag(True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}/invocations",
+                {"configuration": _flow(_own_email_step(None)), "use_draft": True, "globals": {}},
+                format="json",
+                HTTP_USER_AGENT="posthog-cli",
+            )
+
+        assert response.status_code == 400, response.json()
+        assert not self._sandbox_sender_is_set_up()
 
     @parameterized.expand(
         [

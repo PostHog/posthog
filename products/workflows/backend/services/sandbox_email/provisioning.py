@@ -70,8 +70,7 @@ def has_verified_own_sender(team_id: int) -> bool:
     return any(sender.config.get("verified") for sender in IntegrationManager.email.credentials.list(team_id))
 
 
-def is_verified_own_sender(team_id: int, integration_id: int) -> bool:
-    return any(
-        sender.id == integration_id and sender.config.get("verified")
-        for sender in IntegrationManager.email.credentials.list(team_id)
+def verified_own_sender_ids(team_id: int) -> frozenset[int]:
+    return frozenset(
+        sender.id for sender in IntegrationManager.email.credentials.list(team_id) if sender.config.get("verified")
     )

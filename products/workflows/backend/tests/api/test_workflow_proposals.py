@@ -15,6 +15,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.integration import Integration
 from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -27,6 +28,7 @@ from products.cdp.backend.templates.hog_function_template import sync_template_t
 from products.notifications.backend.facade.testing import stored_notification_for_resource
 from products.signals.backend.models import SignalScoutConfig
 from products.skills.backend.models.skills import LLMSkill
+from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
@@ -123,7 +125,7 @@ class TestWorkflowProposals(APIBaseTest):
             self._optimize(flow_id)
         return flow_id
 
-    def _propose(self, flow_id: str, **overrides) -> dict:
+    def _propose(self, flow_id: str, user_agent: str | None = None, **overrides) -> dict:
         payload = {
             "title": "Point the webhook somewhere that answers",
             "rationale": "Every call to the current URL failed over the last week.",
@@ -146,7 +148,10 @@ class TestWorkflowProposals(APIBaseTest):
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
             payload,
             format="json",
-            headers={"authorization": f"Bearer {self.producer_key}"},
+            headers={
+                "authorization": f"Bearer {self.producer_key}",
+                **({"user-agent": user_agent} if user_agent else {}),
+            },
         )
         assert response.status_code == 201, response.json()
         return response.json()
@@ -1696,6 +1701,42 @@ class TestWorkflowProposals(APIBaseTest):
         stale = self.client.post(url, {"overwrite": True, "expected_draft_updated_at": "2020-01-01T00:00:00Z"})
         assert stale.status_code == 409, stale.json()
         assert WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status == "suggested"
+
+    def test_a_proposed_email_step_without_a_sender_stays_on_the_own_sender(self):
+        flow_id = self._create_active_flow()
+        new_step = {
+            "id": "email_2",
+            "name": "email_2",
+            "type": "function_email",
+            "config": {
+                "template_id": "template-email",
+                "inputs": {
+                    "email": {
+                        "templating": "liquid",
+                        "value": {
+                            "to": {"email": "{{ person.properties.email }}", "name": ""},
+                            "from": {"integrationId": None},
+                            "subject": "Hello",
+                            "text": "Hello",
+                            "html": "",
+                        },
+                    }
+                },
+            },
+        }
+
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, *_args, **_kwargs: key == SANDBOX_SENDER_ADOPTION_FLAG,
+        ):
+            proposal = self._propose(
+                flow_id, user_agent="posthog-cli", content={"actions": [_trigger_action(), new_step]}
+            )
+
+        proposed = next(action for action in proposal["content"]["actions"] if action["id"] == "email_2")
+        assert proposed["type"] == "function_email"
+        assert proposed["config"]["template_id"] == "template-email"
+        assert not Integration.objects.filter(team=self.team, kind="email_sandbox").exists()
 
     def test_a_whole_list_proposal_must_say_which_version_it_read(self):
         flow_id = self._create_active_flow()
