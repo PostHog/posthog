@@ -646,6 +646,49 @@ describe("SessionLogWriter", () => {
     });
   });
 
+  describe("thought chunk ownership", () => {
+    it("preserves parent metadata and separates consecutive subagents", async () => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+      for (const [parent, text] of [
+        ["a", "first "],
+        ["a", "thought"],
+        ["b", "second"],
+        [undefined, "top"],
+      ] as const) {
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("agent_thought_chunk", {
+            content: { type: "text", text },
+            ...(parent
+              ? { _meta: { claudeCode: { parentToolCallId: parent } } }
+              : {}),
+          }),
+        );
+      }
+      await logWriter.flush(sessionId, { coalesce: true });
+      const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
+      expect(entries.map((entry) => entry.notification.params?.update)).toEqual(
+        [
+          {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: "first thought" },
+            _meta: { claudeCode: { parentToolCallId: "a" } },
+          },
+          {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: "second" },
+            _meta: { claudeCode: { parentToolCallId: "b" } },
+          },
+          {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: "top" },
+          },
+        ],
+      );
+    });
+  });
+
   describe("empty agent_thought_chunk filtering", () => {
     it.each([
       {

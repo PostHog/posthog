@@ -46,6 +46,8 @@ export interface SessionLogWriterOptions {
 interface ChunkBuffer {
   kind: "agent_message_chunk" | "agent_thought_chunk";
   text: string;
+  meta?: unknown;
+  parentToolCallId?: unknown;
   firstTimestamp: string;
   firstEventId?: string;
   lastEventId?: string;
@@ -256,7 +258,18 @@ export class SessionLogWriter {
         chunkKind === "agent_message_chunk" ||
         (chunkKind === "agent_thought_chunk" && this.extractChunkText(message))
       ) {
-        if (session.chunkBuffer && session.chunkBuffer.kind !== chunkKind) {
+        const meta = this.getUpdate(message)?._meta as
+          | Record<string, unknown>
+          | undefined;
+        const claudeCode = meta?.claudeCode as
+          | Record<string, unknown>
+          | undefined;
+        const parentToolCallId = claudeCode?.parentToolCallId;
+        if (
+          session.chunkBuffer &&
+          (session.chunkBuffer.kind !== chunkKind ||
+            session.chunkBuffer.parentToolCallId !== parentToolCallId)
+        ) {
           this.emitCoalescedMessage(sessionId, session);
         }
         const text = this.extractChunkText(message);
@@ -265,6 +278,8 @@ export class SessionLogWriter {
             session.chunkBuffer = {
               kind: chunkKind,
               text,
+              meta,
+              parentToolCallId,
               firstTimestamp: timestamp,
               firstEventId: session.leadingEmptyChunkEventId ?? eventId,
               lastEventId: eventId,
@@ -645,7 +660,7 @@ export class SessionLogWriter {
   private emitCoalescedMessage(sessionId: string, session: SessionState): void {
     if (!session.chunkBuffer) return;
 
-    const { kind, firstTimestamp, firstEventId, lastEventId } =
+    const { kind, meta, firstTimestamp, firstEventId, lastEventId } =
       session.chunkBuffer;
     const text = redactSecrets(session.chunkBuffer.text);
     session.chunkBuffer = undefined;
@@ -668,6 +683,7 @@ export class SessionLogWriter {
             sessionUpdate:
               kind === "agent_message_chunk" ? "agent_message" : kind,
             content: { type: "text", text },
+            ...(meta ? { _meta: redactSecrets(meta) } : {}),
           },
         },
       },
