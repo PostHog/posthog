@@ -2,16 +2,16 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconCollapse, IconExpand, IconGear, IconLetter, IconTrash } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconGear, IconLetter, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { EmailIntegrationDomainGroupedType, IntegrationType } from '~/types'
 
-import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
-
-import { integrationsLogic } from './integrationsLogic'
+import { addEmailSenderLogic } from './EmailDomain/addEmailSenderLogic'
+import { ChannelType } from './MessageChannels'
 
 const isVerificationRequired = (integration: IntegrationType): boolean => {
     return ['email'].includes(integration.kind)
@@ -28,10 +28,13 @@ const isVerified = (integration: IntegrationType): boolean => {
 
 export function IntegrationEmailDomainView({
     integration,
+    canAddSender,
 }: {
     integration: EmailIntegrationDomainGroupedType
+    canAddSender: boolean
 }): JSX.Element {
     const { openSetupModal, deleteIntegration } = useActions(integrationsLogic)
+    const { openAddSender } = useActions(addEmailSenderLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const defaultSenderId = currentTeam?.workflows_config?.default_email_integration_id ?? null
@@ -86,6 +89,20 @@ export function IntegrationEmailDomainView({
                             )}
                         </div>
                     </div>
+                    {canAddSender && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconPlus />}
+                            onClick={(event) => {
+                                event.stopPropagation()
+                                openAddSender(domain, 'domain_row')
+                            }}
+                            data-attr="email-domain-add-sender"
+                        >
+                            Add sender
+                        </LemonButton>
+                    )}
                     <div className="text-secondary">
                         {isExpanded ? <IconCollapse className="text-lg" /> : <IconExpand className="text-lg" />}
                     </div>
