@@ -67,6 +67,7 @@ import {
     stateToRRule,
 } from './hogflows/steps/components/rrule-helpers'
 import type { ScheduleState } from './hogflows/steps/components/rrule-helpers'
+import { getTeamUtmDefaults } from './hogflows/steps/components/utmDefaults'
 import { hasOwnSender, needsSandboxSender, sandboxSenderAllowed } from './hogflows/steps/email/emailStepVariants'
 import { getTemplatingError } from './hogflows/steps/templatingError'
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
@@ -205,12 +206,15 @@ async function withDefaultEmailSender(workflow: HogFlow): Promise<HogFlow> {
             team && 'workflows_config' in team ? team.workflows_config?.default_email_integration_id : null
         )
         if (!sender) {
+            const teamUtmTagsEnabled = getTeamUtmDefaults(
+                team && 'workflows_config' in team ? team.workflows_config : null
+            ).enabled
             const needsSender =
                 !hasOwnSender(integrations) &&
                 sandboxSenderAllowed(workflow, false) &&
-                workflow.actions.some((action) => needsSandboxSender(action, true))
+                workflow.actions.some((action) => needsSandboxSender(action, true, teamUtmTagsEnabled))
             return needsSender && (await readySandboxSender(String(ApiConfig.getCurrentTeamId()), 'first_run'))
-                ? withSandboxSender(workflow)
+                ? withSandboxSender(workflow, teamUtmTagsEnabled)
                 : workflow
         }
         const result = withEmailSender(workflow, sender.integrationId)

@@ -343,6 +343,17 @@ describe('hogFlowEditorLogic', () => {
             expect(insertEmail()?.type).toEqual(expectedType)
         })
 
+        it('uses the sandbox sender for a new email step when the team turns UTM tags on by default', () => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                workflows_config: { email_utm_tags_enabled: true },
+            } as any)
+            integrationsLogic.actions.loadIntegrationsSuccess([])
+            sandboxSenderLogic.actions.loadSandboxStatusSuccess(status)
+
+            expect(insertEmail()?.type).toEqual('email_sandbox')
+        })
+
         it('keeps the sandbox step and shows a retry when setting up the sender fails', async () => {
             useMocks({
                 post: { '/api/projects/:team_id/workflow_email_sandbox/provision/': () => [500, {}] },

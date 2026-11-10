@@ -2773,7 +2773,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         !isHogFlowActionNode &&
                         hasOwnSender(values.integrations) === false &&
                         sandboxSenderAllowed(values.workflow, !!props.editTemplateId) &&
-                        needsSandboxSender(newAction, values.canAdoptSandbox)
+                        needsSandboxSender(
+                            newAction,
+                            values.canAdoptSandbox,
+                            getTeamUtmDefaults(values.currentTeam?.workflows_config).enabled
+                        )
                     ) {
                         newAction = toSandboxAction(newAction)
                         if (values.sandboxStatus?.integration_id === null) {

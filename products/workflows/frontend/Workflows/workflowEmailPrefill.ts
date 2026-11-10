@@ -118,10 +118,10 @@ export function withEmailSender(workflow: HogFlow, integrationId: number): { wor
     return { workflow: filled ? { ...workflow, actions } : workflow, filled }
 }
 
-export function withSandboxSender(workflow: HogFlow): HogFlow {
+export function withSandboxSender(workflow: HogFlow, teamUtmTagsEnabled: boolean): HogFlow {
     let switched = false
     const actions = workflow.actions.map((action) => {
-        if (!needsSandboxSender(action, true)) {
+        if (!needsSandboxSender(action, true, teamUtmTagsEnabled)) {
             return action
         }
         switched = true

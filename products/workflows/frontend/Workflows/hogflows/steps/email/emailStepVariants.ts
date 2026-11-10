@@ -17,12 +17,16 @@ export function isEmailStep(action: HogFlowAction | null | undefined): action is
     return action?.type === 'function_email' || action?.type === 'email_sandbox'
 }
 
-export function needsSandboxSender(action: HogFlowAction, canAdoptSandbox: boolean): action is OwnEmailAction {
+export function needsSandboxSender(
+    action: HogFlowAction,
+    canAdoptSandbox: boolean,
+    teamUtmTagsEnabled: boolean
+): action is OwnEmailAction {
     return (
         canAdoptSandbox &&
         action.type === 'function_email' &&
         !action.config.inputs?.email?.value?.from?.integrationId &&
-        ownOnlySettings(action).length === 0
+        ownOnlySettings(action).every((setting) => setting === 'utm_tags' && teamUtmTagsEnabled)
     )
 }
 
