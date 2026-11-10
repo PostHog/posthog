@@ -1027,9 +1027,6 @@ async def test_rm_deletes_each_object_when_the_store_rejects_delete_objects(
 
 @pytest.mark.asyncio
 async def test_delete_folder_deletes_each_object_when_the_store_rejects_delete_objects() -> None:
-    # A store that requires Content-MD5 on DeleteObjects rejects every batch delete botocore sends,
-    # so without the per-object fallback no old query folder is ever removed and each later sync
-    # reports the same folders again.
     stale = f"my_table__query_{_stale_epoch()}"
     stale_files = [f"{_JOB_KEY}/{stale}/part-0.parquet", f"{_JOB_KEY}/{stale}/part-1.parquet"]
     s3 = _fake_s3(

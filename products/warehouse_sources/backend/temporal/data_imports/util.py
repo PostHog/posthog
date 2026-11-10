@@ -90,11 +90,9 @@ def _is_s3_throttling_error(error: BaseException) -> bool:
     return _s3_error_code(error) in _S3_THROTTLING_ERROR_CODES
 
 
-# botocore signs every DeleteObjects request with a CRC32 checksum header and no Content-MD5, even
-# under request_checksum_calculation="when_required", because the S3 service model marks the
-# operation as checksum-required. Some S3-compatible stores still require Content-MD5 on a batch
-# delete, so they reject each one with MissingArgument and every folder s3fs deletes stays in place.
-# DeleteObject has no checksum requirement, so on that error the keys are deleted one at a time.
+# botocore sends DeleteObjects with a CRC32 checksum header and no Content-MD5, even under
+# request_checksum_calculation="when_required". Stores that require Content-MD5 on a batch delete
+# reject it with MissingArgument, so on that error each key is deleted with DeleteObject instead.
 _BULK_DELETE_REJECTED_ERROR_CODES = frozenset({"MissingArgument"})
 _PER_OBJECT_DELETE_CONCURRENCY = 10
 
