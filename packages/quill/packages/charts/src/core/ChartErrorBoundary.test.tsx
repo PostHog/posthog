@@ -115,4 +115,12 @@ describe('ChartErrorBoundary', () => {
         rerender(chart(2))
         expect(container.textContent).not.toContain('Something went wrong')
     })
+
+    it('keeps the fallback when a NaN value does not change', () => {
+        mockShellThrows = true
+        const { container, rerender } = render(<Gauge value={NaN} theme={THEME} />)
+
+        rerender(<Gauge value={NaN} theme={THEME} />)
+        expect(container.textContent).toContain('Something went wrong')
+    })
 })
