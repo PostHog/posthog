@@ -7330,9 +7330,15 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
+        # The flag is released to this project the way the app targets it, by the project group keyed on the
+        # team UUID, so an evaluation that names the project any other way reads as off.
         flag_patch = patch(
             "posthoganalytics.feature_enabled",
-            side_effect=lambda key, *args, **kwargs: key == "workflows-list-v2" and self.list_v2_enabled,
+            side_effect=lambda key, *args, groups=None, **kwargs: (
+                key == "workflows-list-v2"
+                and self.list_v2_enabled
+                and (groups or {}).get("project") == str(self.team.uuid)
+            ),
         )
         flag_patch.start()
         self.addCleanup(flag_patch.stop)
