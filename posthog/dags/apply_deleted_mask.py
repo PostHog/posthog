@@ -1,4 +1,4 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 from django.conf import settings
 
@@ -18,7 +18,7 @@ class FindDeletedMaskPartitionsConfig(dagster.Config):
         default=0.1,
         gt=0,
         le=1,
-        description="Apply the deleted mask on a shard's partition when at least this share of its rows is deleted.",
+        description="Apply the deleted mask on a month, on every shard, when at least this share of its rows is deleted on any shard.",
     )
     partitions: list[str] = pydantic.Field(
         default_factory=list,
@@ -35,8 +35,9 @@ class ApplyDeletedMaskConfig(dagster.Config):
 
 @frozen
 class DeletedMaskPartition:
+    """A month to rewrite on every shard, with its row counts summed over all shards."""
+
     partition: str
-    shard: int
     physical_rows: int
     deleted_rows: int
 
@@ -45,6 +46,41 @@ class DeletedMaskPartition:
 class PartitionRowCounts:
     physical_rows: int
     live_rows: int
+
+    @property
+    def deleted_rows(self) -> int:
+        return self.physical_rows - self.live_rows
+
+    @property
+    def deleted_ratio(self) -> float:
+        return self.deleted_rows / self.physical_rows if self.physical_rows else 0.0
+
+
+def _partitions_due(
+    counts_by_shard: Mapping[int, Mapping[str, PartitionRowCounts]], min_deleted_ratio: float
+) -> list[DeletedMaskPartition]:
+    """The months where at least one shard reaches the threshold, most deleted rows first."""
+    totals: dict[str, PartitionRowCounts] = {}
+    due: set[str] = set()
+    for counts in counts_by_shard.values():
+        for partition, rows in counts.items():
+            total = totals.get(partition, PartitionRowCounts(physical_rows=0, live_rows=0))
+            totals[partition] = PartitionRowCounts(
+                physical_rows=total.physical_rows + rows.physical_rows, live_rows=total.live_rows + rows.live_rows
+            )
+            if rows.deleted_ratio >= min_deleted_ratio:
+                due.add(partition)
+
+    found = [
+        DeletedMaskPartition(
+            partition=partition,
+            physical_rows=totals[partition].physical_rows,
+            deleted_rows=totals[partition].deleted_rows,
+        )
+        for partition in due
+    ]
+    found.sort(key=lambda item: item.deleted_rows, reverse=True)
+    return found
 
 
 def _partition_filter(partitions: Sequence[str], column: str) -> str:
@@ -101,40 +137,31 @@ def _find_deleted_mask_partitions_op(name: str, target: DeletionTarget) -> dagst
         config: FindDeletedMaskPartitionsConfig,
         cluster: dagster.ResourceParam[ClickhouseCluster],
     ) -> list[DeletedMaskPartition]:
-        """Find each month and shard of one events table whose deleted rows reach the threshold, most deleted rows first."""
+        """Find each month of one events table whose deleted rows reach the threshold on any shard, most deleted rows first."""
         placement = placement_for(cluster, target)
         if placement is None:
             context.log.info(f"{target.data_table} is not on any cluster this deployment reaches")
             return []
 
-        found: list[DeletedMaskPartition] = []
-        report: dict[str, dict[int, float]] = {}
+        counts_by_shard: dict[int, dict[str, PartitionRowCounts]] = {}
         per_host = placement.cluster.map_one_host_per_shard(
             _deleted_rows_by_partition(placement, config.partitions)
         ).result()
         for host, counts in per_host.items():
             assert host.shard_num is not None
-            for partition, rows in counts.items():
-                if not rows.physical_rows:
-                    continue
-                deleted_rows = rows.physical_rows - rows.live_rows
-                ratio = deleted_rows / rows.physical_rows
-                report.setdefault(partition, {})[host.shard_num] = round(ratio, 4)
-                if ratio >= config.min_deleted_ratio:
-                    found.append(
-                        DeletedMaskPartition(
-                            partition=partition,
-                            shard=host.shard_num,
-                            physical_rows=rows.physical_rows,
-                            deleted_rows=deleted_rows,
-                        )
-                    )
+            counts_by_shard[host.shard_num] = counts
 
-        found.sort(key=lambda item: item.deleted_rows, reverse=True)
+        report: dict[str, dict[int, float]] = {}
+        for shard, counts in counts_by_shard.items():
+            for partition, rows in counts.items():
+                if rows.physical_rows:
+                    report.setdefault(partition, {})[shard] = round(rows.deleted_ratio, 4)
+
+        found = _partitions_due(counts_by_shard, config.min_deleted_ratio)
         for item in found:
             context.log.info(
-                f"{target.data_table} {item.partition} shard {item.shard}: {item.deleted_rows} of "
-                f"{item.physical_rows} rows deleted ({item.deleted_rows / item.physical_rows:.1%})"
+                f"{target.data_table} {item.partition}: {item.deleted_rows} of {item.physical_rows} rows deleted "
+                f"on all shards, by shard {report[item.partition]}"
             )
         if not found:
             context.log.info(
@@ -160,7 +187,7 @@ def _apply_deleted_mask_op(name: str, target: DeletionTarget) -> dagster.OpDefin
         cluster: dagster.ResourceParam[ClickhouseCluster],
         partitions: list[DeletedMaskPartition],
     ) -> None:
-        """Rewrite each found month on its shard without its deleted rows, one mutation at a time."""
+        """Rewrite each found month without its deleted rows, on all shards at once and one month at a time."""
         if config.dry_run or not partitions:
             context.log.info(
                 f"Not rewriting {len(partitions)} {target.data_table} partition(s), dry run: {config.dry_run}"
@@ -175,7 +202,7 @@ def _apply_deleted_mask_op(name: str, target: DeletionTarget) -> dagster.OpDefin
 
         for idx, item in enumerate(partitions, 1):
             context.log.info(
-                f"{target.data_table} {item.partition} shard {item.shard}: removing {item.deleted_rows} rows "
+                f"{target.data_table} {item.partition}: removing {item.deleted_rows} rows on all shards "
                 f"({idx}/{len(partitions)})"
             )
             commands = [f"APPLY DELETED MASK IN PARTITION '{item.partition}'"]
@@ -184,9 +211,10 @@ def _apply_deleted_mask_op(name: str, target: DeletionTarget) -> dagster.OpDefin
                 # applied. One ALTER with both commands applies the mask first, so they run in turn.
                 commands.insert(0, f"APPLY PATCHES IN PARTITION '{item.partition}'")
             for command in commands:
-                # Each rewrite is heavy, so the next one starts only after every replica finishes this one.
+                # Every shard runs the rewrite at the same time, because each shard rewrites only its own
+                # disks. The next rewrite starts only after every replica of every shard finishes this one.
                 AlterTableMutationRunner(target.data_table, commands={command}, reuse_since=reuse_floor).run_on_shards(
-                    placement.cluster, [item.shard]
+                    placement.cluster
                 )
 
         context.add_output_metadata({"partitions_processed": dagster.MetadataValue.int(len(partitions))})

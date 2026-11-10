@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ai_gateway", "0001_initial"),
+        ("ai_gateway", "0001_squash_2026_11_02_initial"),
     ]
 
     operations = [

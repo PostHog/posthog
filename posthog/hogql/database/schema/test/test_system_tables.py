@@ -54,7 +54,7 @@ from products.ai_observability.backend.models.review_queues import ReviewQueue, 
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.annotations.backend.models.annotation import Annotation
+from products.annotations.backend.facade import testing as annotations_testing
 from products.autoresearch.backend.facade import testing as autoresearch_testing
 from products.batch_exports.backend.facade import testing as batch_exports_testing
 from products.batch_exports.backend.facade.enums import (
@@ -141,7 +141,14 @@ from products.workflows.backend.facade.testing import create_workflow_for_test
 # Only directly-queryable tables are team-scoped via a WHERE clause. Namespace nodes such as
 # `information_schema` carry no `table` of their own (just child catalog tables computed per-query),
 # so they have no team_id filter and can't be `SELECT *`-ed directly — skip them here.
-ALL_SYSTEM_TABLE_NAMES = sorted(name for name, node in SystemTables().children.items() if node.table is not None)
+# `integrations` is read through the integrations SDK and inlined as constant rows, so it prints no
+# team_id guard. test_system_integrations.py covers its team scoping.
+SDK_BACKED_SYSTEM_TABLE_NAMES = frozenset({"integrations"})
+ALL_SYSTEM_TABLE_NAMES = sorted(
+    name
+    for name, node in SystemTables().children.items()
+    if node.table is not None and name not in SDK_BACKED_SYSTEM_TABLE_NAMES
+)
 
 # {table_name: "sql_alias.column_name"} for team_id filter assertion
 TEAM_ID_FILTER_PATTERNS = {
@@ -405,8 +412,8 @@ def _create_cohort(team: Team, label: str) -> Cohort:
     return Cohort.objects.create(team=team, name=f"cohort_{label}")
 
 
-def _create_annotation(team: Team, label: str) -> Annotation:
-    return Annotation.objects.create(team=team, content=f"annotation_{label}")
+def _create_annotation(team: Team, label: str) -> SimpleNamespace:
+    return SimpleNamespace(pk=annotations_testing.create_annotation(team_id=team.pk, content=f"annotation_{label}"))
 
 
 def _create_autoresearch_pipeline(team: Team, label: str) -> SimpleNamespace:

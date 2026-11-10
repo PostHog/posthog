@@ -62,3 +62,8 @@ def add_team_credit(
 
 def recent_team_credits(team_id: int, limit: int) -> list[contracts.TeamCreditTopUp]:
     return logic.recent_team_credits(team_id, limit)
+
+
+def team_wallet(team_id: int) -> contracts.TeamWallet:
+    """Reads the balance and recent ledger from the gateway. Raises `contracts.TeamWalletUnavailable`."""
+    return logic.team_wallet(team_id)

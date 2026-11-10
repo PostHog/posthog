@@ -34,6 +34,8 @@ def kafka_metrics_avro_table_sql(
     group: str,
     flush_interval_ms: int | None = None,
     max_block_size: int | None = None,
+    num_consumers: int = 8,
+    poll_max_batch_size: int = 1000,
 ) -> str:
     # The aggregation views group one insert block at a time, so a longer flush interval
     # packs more samples of a series into each row before the merge.
@@ -72,9 +74,9 @@ ENGINE = {kafka_engine(topic=KAFKA_TOPIC, group=group, serialization="Avro", nam
 SETTINGS
     kafka_skip_broken_messages = 100,
     kafka_thread_per_consumer = 1,
-    kafka_num_consumers = {kafka_num_consumers(8)},
+    kafka_num_consumers = {kafka_num_consumers(num_consumers)},
     kafka_poll_timeout_ms = 3000,
-    kafka_poll_max_batch_size = 1000,{block_settings}
+    kafka_poll_max_batch_size = {poll_max_batch_size},{block_settings}
     input_format_avro_allow_missing_fields = 1
 """
 

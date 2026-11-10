@@ -4,13 +4,14 @@ import csv
 import gzip
 import json
 import tempfile
+import dataclasses
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import IO, Any, Literal, cast
 
 import pytest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.test import override_settings
 
@@ -18,12 +19,16 @@ import boto3
 import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
+from botocore.awsrequest import AWSResponse
+from botocore.compat import HTTPHeaders
 from botocore.exceptions import ClientError
+from botocore.response import StreamingBody
 from botocore.stub import Stubber
 from deltalake import DeltaTable, WriterProperties, write_deltalake
 from deltalake.exceptions import DeltaError, TableNotFoundError
 from fsspec.implementations.local import LocalFileSystem
 from parameterized import parameterized
+from urllib3.response import HTTPResponse
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import (
     delta,
@@ -34,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     CsvOptions,
     DiscoveryOptions,
+    FileFormat,
     ObjectStoreConfig,
     ObjectStoreProvider,
 )
@@ -1174,6 +1180,17 @@ class TestLocationAndErrors:
             ("region_with_a_host", {"region": "us-east-1.evil.com"}, INVALID_CONFIG_ERROR),
             ("missing_secret", {"secret_access_key": " "}, INVALID_CONFIG_ERROR),
             ("parent_folder", {"prefix": "a/../b"}, INVALID_CONFIG_ERROR),
+            ("jurisdiction_outside_r2", {"jurisdiction": "eu"}, INVALID_CONFIG_ERROR),
+            (
+                "r2_jurisdiction_with_a_host",
+                {
+                    "provider": ObjectStoreProvider.R2,
+                    "region": "auto",
+                    "account_id": "0123456789abcdef0123456789abcdef",
+                    "jurisdiction": "eu.evil.com",
+                },
+                INVALID_CONFIG_ERROR,
+            ),
         ]
     )
     def test_config_rejects_values_that_could_retarget_the_request(
@@ -1366,6 +1383,127 @@ class TestS3Listing:
 
             with pytest.raises(PermissionError):
                 _s3_store(client).list_objects("", 10)
+
+
+def _parquet_bytes(table: pa.Table) -> bytes:
+    sink = io.BytesIO()
+    pq.write_table(table, sink)
+    return sink.getvalue()
+
+
+class TestS3Open:
+    @staticmethod
+    def _store(client: Any) -> S3ObjectStore:
+        fs = filesystem.build_s3_filesystem(
+            ObjectStoreConfig(
+                provider=ObjectStoreProvider.GCS,
+                bucket="customer-data",
+                region="auto",
+                access_key_id="AKIAEXAMPLE",
+                secret_access_key="secret",
+            )
+        )
+
+        # Cloud Storage answers a HEAD for an object stored with `Content-Encoding: gzip` without its size.
+        async def head_without_size(method: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            assert method == "head_object"
+            return {"ETag": '"etag"', "LastModified": MODIFIED_AT}
+
+        fs._call_s3 = AsyncMock(side_effect=head_without_size)
+        return S3ObjectStore(
+            fs=fs,
+            root="customer-data/exports",
+            delta_uri_prefix="s3://",
+            delta_storage_options={},
+            client=client,
+            bucket="customer-data",
+            prefix="exports",
+        )
+
+    @staticmethod
+    def _client() -> Any:
+        return filesystem.build_s3_client(
+            ObjectStoreConfig(
+                provider=ObjectStoreProvider.GCS,
+                bucket="customer-data",
+                region="auto",
+                access_key_id="AKIAEXAMPLE",
+                secret_access_key="secret",
+            )
+        )
+
+    @parameterized.expand(
+        [
+            ("csv", "orders.csv", "csv", b"id,name\n1,a\n2,b\n"),
+            ("csv_gzip", "orders.csv.gz", "csv", b"id,name\n1,a\n2,b\n"),
+            ("jsonl", "orders.jsonl", "jsonl", b'{"id": 1, "name": "a"}\n{"id": 2, "name": "b"}\n'),
+            ("jsonl_gzip", "orders.jsonl.gz", "jsonl", b'{"id": 1, "name": "a"}\n{"id": 2, "name": "b"}\n'),
+            ("parquet", "orders.parquet", "parquet", _parquet_bytes(pa.table({"id": [1, 2], "name": ["a", "b"]}))),
+            (
+                "parquet_gzip",
+                "orders.parquet.gz",
+                "parquet",
+                _parquet_bytes(pa.table({"id": [1, 2], "name": ["a", "b"]})),
+            ),
+        ]
+    )
+    def test_an_object_without_a_size_is_read_with_one_plain_get(
+        self, _name: str, path: str, file_format: FileFormat, content: bytes
+    ) -> None:
+        client = self._client()
+        stored = StoredObject(path=path, size=len(content) // 2, modified_at=MODIFIED_AT)
+
+        def send(request: Any) -> AWSResponse:
+            assert request.method == "GET"
+            assert request.url.endswith(f"/exports/{path}")
+            assert "Range" not in request.headers
+            payload = gzip.compress(content) if request.headers.get("Accept-Encoding") in ("gzip", b"gzip") else content
+            headers = HTTPHeaders()
+            headers["content-length"] = str(len(payload))
+            return AWSResponse(
+                request.url,
+                200,
+                headers,
+                HTTPResponse(body=io.BytesIO(payload), preload_content=False),
+            )
+
+        with patch.object(client._endpoint.http_session, "send", side_effect=send):
+            with self._store(client).open(path) as stream:
+                tables = list(iter_file_tables(stream, stored, file_format, CsvOptions()))
+
+        rows = pa.concat_tables(tables).select(["id", "name"]).to_pylist()
+        assert [(int(row["id"]), row["name"]) for row in rows] == [(1, "a"), (2, "b")]
+
+    def test_a_sized_object_uses_the_filesystem(self, tmp_path: Path) -> None:
+        content = b"id,name\n1,a\n"
+        (tmp_path / "orders.csv").write_bytes(content)
+        store = dataclasses.replace(_s3_store(None), root=str(tmp_path))
+
+        with store.open("orders.csv") as stream:
+            assert stream.read() == content
+
+    def test_an_object_without_a_size_past_the_cap_fails_with_a_parse_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(filesystem, "MAX_UNSIZED_OBJECT_BYTES", 4)
+        client = self._client()
+        with Stubber(client) as stubber:
+            stubber.add_response(
+                "get_object",
+                {"Body": StreamingBody(io.BytesIO(b"id\n1\n2\n"), 7)},
+                {"Bucket": "customer-data", "Key": "exports/orders.csv"},
+            )
+
+            with pytest.raises(ObjectStorageError, match=FILE_PARSE_ERROR):
+                self._store(client).open("orders.csv")
+
+    def test_a_refused_download_becomes_a_permission_error(self) -> None:
+        client = self._client()
+        with Stubber(client) as stubber:
+            stubber.add_client_error("get_object", service_error_code="AccessDenied", http_status_code=403)
+
+            with pytest.raises(PermissionError):
+                self._store(client).open("orders.csv")
 
 
 class TestS3BucketRegion:

@@ -232,6 +232,122 @@ class TestGetRowsFanout:
         assert result.rows == []
 
 
+class TestGetRowsNested:
+    def _one_workspace(self) -> ScriptedResponse:
+        return _resp(_offset_page([{"id": "ws-1"}], 0, 1))
+
+    def test_feature_flag_definitions_walk_environments_and_pages(self):
+        result = _run(
+            "feature_flag_definitions",
+            [
+                self._one_workspace(),
+                _resp([{"id": "e1"}, {"id": "e2"}]),
+                _resp(_offset_page([{"name": f"f{i}"} for i in range(PAGE_SIZE)], 0, PAGE_SIZE + 1)),
+                _resp(_offset_page([{"name": "last"}], PAGE_SIZE, PAGE_SIZE + 1)),
+                _resp(_offset_page([{"name": "f0"}], 0, 1)),
+            ],
+        )
+
+        assert result.urls == [
+            f"{BASE_URL}/workspaces?limit={PAGE_SIZE}",
+            f"{BASE_URL}/environments/ws/ws-1",
+            f"{BASE_URL}/splits/ws/ws-1/environments/e1?limit={PAGE_SIZE}",
+            f"{BASE_URL}/splits/ws/ws-1/environments/e1?limit={PAGE_SIZE}&offset={PAGE_SIZE}",
+            f"{BASE_URL}/splits/ws/ws-1/environments/e2?limit={PAGE_SIZE}",
+        ]
+        assert len(result.rows) == PAGE_SIZE + 2
+        # The same flag name in two environments stays two distinct rows.
+        assert result.rows[0] == {"name": "f0", "_workspace_id": "ws-1", "_environment_id": "e1"}
+        assert result.rows[-1] == {"name": "f0", "_workspace_id": "ws-1", "_environment_id": "e2"}
+        assert result.saved_states[-1] == SplitIoResumeConfig(next_url="", workspace_id="ws-1", parent_key="e2")
+
+    def test_segment_keys_walk_environments_then_active_segments(self):
+        result = _run(
+            "segment_keys",
+            [
+                self._one_workspace(),
+                _resp([{"id": "e1"}, {"id": "e2"}]),
+                _resp(_offset_page([{"name": "beta"}, {"name": "empty"}], 0, 2)),
+                _resp(_offset_page([], 0, 0)),
+                _resp({"keys": [{"key": "u1"}, {"key": "u2"}], "count": 2, "offset": 0, "limit": PAGE_SIZE}),
+                _resp({"keys": [], "count": 0, "offset": 0, "limit": PAGE_SIZE}),
+            ],
+        )
+
+        assert result.urls == [
+            f"{BASE_URL}/workspaces?limit={PAGE_SIZE}",
+            f"{BASE_URL}/environments/ws/ws-1",
+            f"{BASE_URL}/segments/ws/ws-1/environments/e1?limit={PAGE_SIZE}",
+            f"{BASE_URL}/segments/ws/ws-1/environments/e2?limit={PAGE_SIZE}",
+            f"{BASE_URL}/segments/e1/beta/keys?limit={PAGE_SIZE}",
+            f"{BASE_URL}/segments/e1/empty/keys?limit={PAGE_SIZE}",
+        ]
+        assert result.rows == [
+            {"key": key, "_workspace_id": "ws-1", "_environment_id": "e1", "_segment_name": "beta"}
+            for key in ("u1", "u2")
+        ]
+
+    def test_attributes_page_with_marker_params(self):
+        result = _run(
+            "attributes",
+            [
+                self._one_workspace(),
+                _resp([{"id": "tt-1"}]),
+                _resp({"data": [{"id": "plan"}], "nextMarker": "m2", "limit": PAGE_SIZE}),
+                _resp({"data": [{"id": "country"}], "nextMarker": None, "limit": PAGE_SIZE}),
+            ],
+        )
+
+        assert result.urls[2:] == [
+            f"{BASE_URL}/schema/ws/ws-1/trafficTypes/tt-1?paginate=true&markerLimit={PAGE_SIZE}",
+            f"{BASE_URL}/schema/ws/ws-1/trafficTypes/tt-1?paginate=true&markerLimit={PAGE_SIZE}&afterMarker=m2",
+        ]
+        assert result.rows == [
+            {"id": attribute_id, "_workspace_id": "ws-1", "_traffic_type_id": "tt-1"}
+            for attribute_id in ("plan", "country")
+        ]
+
+    @pytest.mark.parametrize(
+        "resume_state, expected_definition_urls",
+        [
+            # The saved environment finished: continue at the next one.
+            (
+                SplitIoResumeConfig(next_url="", workspace_id="ws-1", parent_key="e1"),
+                [f"{BASE_URL}/splits/ws/ws-1/environments/e2?limit={PAGE_SIZE}"],
+            ),
+            # Mid-environment: continue at the saved page, then the next environment.
+            (
+                SplitIoResumeConfig(
+                    next_url=f"{BASE_URL}/splits/ws/ws-1/environments/e1?limit={PAGE_SIZE}&offset={PAGE_SIZE}",
+                    workspace_id="ws-1",
+                    parent_key="e1",
+                ),
+                [
+                    f"{BASE_URL}/splits/ws/ws-1/environments/e1?limit={PAGE_SIZE}&offset={PAGE_SIZE}",
+                    f"{BASE_URL}/splits/ws/ws-1/environments/e2?limit={PAGE_SIZE}",
+                ],
+            ),
+            # The saved environment no longer exists: restart the workspace rather than skip it.
+            (
+                SplitIoResumeConfig(next_url="", workspace_id="ws-1", parent_key="deleted"),
+                [
+                    f"{BASE_URL}/splits/ws/ws-1/environments/e1?limit={PAGE_SIZE}",
+                    f"{BASE_URL}/splits/ws/ws-1/environments/e2?limit={PAGE_SIZE}",
+                ],
+            ),
+        ],
+    )
+    def test_resume_inside_workspace(self, resume_state, expected_definition_urls):
+        result = _run(
+            "feature_flag_definitions",
+            [self._one_workspace(), _resp([{"id": "e1"}, {"id": "e2"}])]
+            + [_resp(_offset_page([{"name": "f"}], 0, 1)) for _ in expected_definition_urls],
+            resume_state=resume_state,
+        )
+
+        assert result.urls[2:] == expected_definition_urls
+
+
 class TestRetryAndErrors:
     def test_4xx_raises(self):
         result = _run("workspaces", [_resp({}, status_code=403)])

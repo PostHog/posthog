@@ -1,9 +1,10 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
@@ -56,6 +57,17 @@ export interface todayProductsLogicActions {
         id: string
         successMessage: string | undefined
     } // projectTreeDataLogic
+    productOpened: (
+        item: FileSystemImport,
+        section: 'all' | 'pinned' | 'starred',
+        category: string | null,
+        position: number
+    ) => {
+        category: string | null
+        item: FileSystemImport
+        position: number
+        section: 'all' | 'pinned' | 'starred'
+    }
     setAllProductsOpen: (open: boolean) => {
         open: boolean
     }
@@ -135,19 +147,27 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
         setStarredOpen: (open: boolean) => ({ open }),
         setAllProductsOpen: (open: boolean) => ({ open }),
         toggleStarred: (item: FileSystemImport) => ({ item }),
+        productOpened: (
+            item: FileSystemImport,
+            section: 'pinned' | 'starred' | 'all',
+            category: string | null,
+            position: number
+        ) => ({
+            item,
+            section,
+            category,
+            position,
+        }),
     }),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
         // pinned: storage keys for persisted state. Renaming them resets everyone's sections.
         starredOpen: [true, { persist: true }, { setStarredOpen: (_, { open }) => open }],
-        allProductsOpen: [
-            inStorybook() || inStorybookTestRunner(),
-            { persist: true },
-            { setAllProductsOpen: (_, { open }) => open },
-        ],
+        allProductsOpen: [inStorybook(), { persist: true }, { setAllProductsOpen: (_, { open }) => open }],
     }),
     selectors({
-        // The same list as the Products tab of the current navigation. Home has its own rail item.
+        // The same list as the Products tab of the current navigation, less Home, which is the rail's Home item. Never
+        // drop a product because another rail pane also links to it: this list is where people go to find everything.
         products: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): FileSystemImport[] =>
@@ -191,11 +211,23 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
                 return
             }
             const shortcut = findProductShortcut(item, values.shortcutData)
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('today product star toggled', { product: item.href, starred: !shortcut?.id })
             if (shortcut?.id) {
                 actions.deleteShortcut(shortcut.id)
             } else {
                 actions.addShortcutItem(item as FileSystemEntry)
             }
+        },
+        productOpened: ({ item, section, category, position }) => {
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('today product opened', {
+                product: item.href,
+                section,
+                category,
+                position,
+                starred: values.starredHrefs.has(item.href ?? ''),
+            })
         },
     })),
 ])

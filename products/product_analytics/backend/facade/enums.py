@@ -6,7 +6,7 @@ unchanged. In an annotation the class attribute is not a valid type, so annotate
 ``InsightVariableType`` directly.
 """
 
-from posthog.enums import LabeledStrEnum
+from posthog.enums import LabeledIntEnum, LabeledStrEnum
 
 
 class InsightVariableType(LabeledStrEnum):
@@ -67,3 +67,13 @@ class InsightDataChecksStatus(LabeledStrEnum):
     NO_EVENTS = "no_events", "No events to check"
     UNSUPPORTED = "unsupported", "This kind of insight cannot be checked"
     INCONCLUSIVE = "inconclusive", "No check could run"
+
+
+class EventsRetentionMonths(LabeledIntEnum):
+    ONE_MONTH = 1, "1 month"
+    THREE_MONTHS = 3, "3 months"
+    ONE_YEAR = 12, "1 year"
+    TWO_YEARS = 24, "2 years"
+    THREE_YEARS = 36, "3 years"
+    FIVE_YEARS = 60, "5 years"
+    SEVEN_YEARS = 84, "7 years"

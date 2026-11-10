@@ -23,7 +23,7 @@ import type { MessageAsset } from '../Workflows/messageAssetsApi'
 import { BroadcastAudienceCohorts } from './audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from './audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
-import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
+import { manageDisabledReason, summaryActions } from './broadcastLifecycle'
 import { BroadcastPerformance } from './BroadcastPerformance'
 import { broadcastPerformanceLogic } from './broadcastPerformanceLogic'
 import { BroadcastPushPerformance } from './BroadcastPushPerformance'
@@ -354,60 +354,28 @@ export function BroadcastSummary(): JSX.Element {
         },
     ]
 
-    const isArchived = broadcast?.status === 'archived'
     const accessReason = manageDisabledReason(broadcast?.user_access_level)
-    const actionItems = [
-        canMoveToDraft
-            ? { label: 'Stop and edit', onClick: confirmMoveToDraft, 'data-attr': 'broadcast-move-to-draft' }
-            : null,
-        canEditContent
-            ? {
-                  label: 'Send again as a new broadcast',
-                  onClick: duplicateBroadcast,
-                  'data-attr': 'broadcast-send-again',
-              }
-            : null,
-        isArchived
-            ? {
-                  label: 'Restore as draft',
-                  onClick: restoreBroadcast,
-                  disabledReason: accessReason,
-                  'data-attr': 'broadcast-restore',
-              }
-            : {
-                  label: 'Archive',
-                  status: 'danger' as const,
-                  onClick: archiveBroadcast,
-                  disabledReason:
-                      accessReason ??
-                      archiveDisabledReason(hasLoadedBatchJobs ? batchJobs.map((job) => job.status) : null),
-                  'data-attr': 'broadcast-archive',
-              },
-        isArchived
-            ? {
-                  label: 'Delete',
-                  status: 'danger' as const,
-                  onClick: deleteBroadcast,
-                  disabledReason: accessReason,
-                  'data-attr': 'broadcast-delete',
-              }
-            : null,
-    ]
+    const actionItems = summaryActions({
+        userAccessLevel: broadcast?.user_access_level,
+        canMoveToDraft,
+        canEditContent,
+        isArchived: broadcast?.status === 'archived',
+        batchJobStatuses: hasLoadedBatchJobs ? batchJobs.map((job) => job.status) : null,
+        onMoveToDraft: confirmMoveToDraft,
+        onSendAgain: duplicateBroadcast,
+        onRestore: restoreBroadcast,
+        onArchive: archiveBroadcast,
+        onDelete: deleteBroadcast,
+    })
     const actionsMenu = todayRailNav ? (
         <QuillBroadcastActionsMenu
-            items={actionItems.flatMap((item) =>
-                item
-                    ? [
-                          {
-                              label: item.label,
-                              onClick: item.onClick,
-                              disabledReason: 'disabledReason' in item ? item.disabledReason : undefined,
-                              danger: 'status' in item && item.status === 'danger',
-                              'data-attr': item['data-attr'],
-                          },
-                      ]
-                    : []
-            )}
+            items={actionItems.map((item) => ({
+                label: item.label,
+                onClick: item.onClick,
+                disabledReason: item.disabledReason,
+                danger: item.status === 'danger',
+                'data-attr': item['data-attr'],
+            }))}
             loading={movingToDraft || duplicating}
         />
     ) : (
@@ -429,7 +397,11 @@ export function BroadcastSummary(): JSX.Element {
             <BroadcastSceneHeader nameSuffix={<BroadcastStatusTag status={summaryStatus} />} actions={actionsMenu} />
             <div className="mx-auto w-full max-w-6xl space-y-4">
                 {broadcastPath(broadcastId) === 'composer' ? <ComposerDraftFeedback /> : null}
-                {broadcast?.status === 'draft' ? (
+                {broadcast?.status === 'draft' && accessReason ? (
+                    <LemonBanner type="info">
+                        You can view this draft but not edit it. Ask an admin for editor access to make changes.
+                    </LemonBanner>
+                ) : broadcast?.status === 'draft' ? (
                     <LemonBanner
                         type="info"
                         action={{
@@ -450,6 +422,7 @@ export function BroadcastSummary(): JSX.Element {
                                 ? {
                                       children: 'Move to draft',
                                       onClick: confirmMoveToDraft,
+                                      disabledReason: accessReason,
                                       'data-attr': 'broadcast-unfinished-launch-to-draft',
                                   }
                                 : undefined

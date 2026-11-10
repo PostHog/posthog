@@ -103,7 +103,7 @@ export function TransactionalEmailActivityTimeline({
                 failed={['bounced', 'complained', 'failed'].includes(email.status)}
                 sendLabel={sendLabel(email, sentAt)}
                 sendDetail={email.template_name || null}
-                comeback={describeComeback(activity.after, email.timeline)}
+                comeback={describeComeback(activity, email.timeline)}
                 emptyAfter={emptyAfterText(activity, sentAt)}
                 hiddenBefore={hiddenBefore}
                 onShowEarlier={showAllBefore}
