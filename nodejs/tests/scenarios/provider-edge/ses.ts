@@ -1,4 +1,5 @@
 import addressparser from 'nodemailer/lib/addressparser'
+import { z } from 'zod'
 
 import { TRACKING_CODE_HEADER_NAME } from '~/cdp/services/messaging/helpers/tracking-code'
 
@@ -30,21 +31,28 @@ export interface SesMessage {
 
 export type SesRequest = { message: Omit<SesMessage, 'messageId'> } | { error: SesStatusAnswer }
 
-type NameValueList = { Name: string; Value: string }[]
+const Part = z.object({ Data: z.string(), Charset: z.string().optional() })
+const NameValues = z.array(z.object({ Name: z.string(), Value: z.string() })).optional()
+const Addresses = z.array(z.string()).optional()
 
-function isNameValueList(entries: unknown): entries is NameValueList | undefined {
-    return (
-        entries === undefined ||
-        (Array.isArray(entries) &&
-            entries.every((entry) => typeof entry?.Name === 'string' && typeof entry?.Value === 'string'))
-    )
-}
+const SendEmailRequest = z.object({
+    FromEmailAddress: z.string(),
+    FeedbackForwardingEmailAddress: z.string().optional(),
+    Destination: z.object({ ToAddresses: Addresses, CcAddresses: Addresses, BccAddresses: Addresses }).optional(),
+    ReplyToAddresses: Addresses,
+    Content: z.object({
+        Simple: z.object({
+            Subject: Part,
+            Body: z.object({ Text: Part.optional(), Html: Part.optional() }).optional(),
+            Headers: NameValues,
+        }),
+    }),
+    EmailTags: NameValues,
+    TenantName: z.string().optional(),
+    ConfigurationSetName: z.string().optional(),
+})
 
-function isAddressList(addresses: unknown): addresses is string[] | undefined {
-    return addresses === undefined || (Array.isArray(addresses) && addresses.every((a) => typeof a === 'string'))
-}
-
-function toRecord(entries: NameValueList | undefined): Record<string, string> {
+function toRecord(entries: z.infer<typeof NameValues>): Record<string, string> {
     return Object.fromEntries((entries ?? []).map(({ Name, Value }) => [Name, Value]))
 }
 
@@ -61,49 +69,24 @@ function configurationSetOf(
     return known[name]
 }
 
-export function readSendEmail(
-    request: Record<string, any>,
-    configurationSets: ConfigurationSets | undefined
-): SesRequest {
-    const configurationSetName: string | undefined = request?.ConfigurationSetName
-    const configurationSet = configurationSetOf(configurationSetName, configurationSets)
+export function readSendEmail(body: unknown, configurationSets: ConfigurationSets | undefined): SesRequest {
+    const parsed = SendEmailRequest.safeParse(body)
+    if (!parsed.success) {
+        const problems = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+        return { error: { status: 400, type: 'BadRequestException', message: problems.join('; ') } }
+    }
+    const request = parsed.data
+    const configurationSet = configurationSetOf(request.ConfigurationSetName, configurationSets)
     if (!configurationSet) {
         return {
             error: {
                 status: 404,
                 type: 'NotFoundException',
-                message: `Configuration set <${configurationSetName}> does not exist.`,
+                message: `Configuration set <${request.ConfigurationSetName}> does not exist.`,
             },
         }
     }
-    const simple = request.Content?.Simple
-    const contentParts = [simple?.Subject, simple?.Body?.Text, simple?.Body?.Html]
-    if (!simple?.Subject || contentParts.some((part) => part !== undefined && typeof part.Data !== 'string')) {
-        return {
-            error: { status: 400, type: 'BadRequestException', message: 'Every subject and body part needs Data.' },
-        }
-    }
-    if (!isNameValueList(request.EmailTags) || !isNameValueList(simple.Headers)) {
-        return {
-            error: {
-                status: 400,
-                type: 'BadRequestException',
-                message: 'Every tag and header needs a Name and a Value.',
-            },
-        }
-    }
-    const destination = request.Destination
-    const addressLists = [
-        destination?.ToAddresses,
-        destination?.CcAddresses,
-        destination?.BccAddresses,
-        request.ReplyToAddresses,
-    ]
-    if (!addressLists.every(isAddressList)) {
-        return {
-            error: { status: 400, type: 'BadRequestException', message: 'Every address list needs to be a list.' },
-        }
-    }
+    const { Subject, Body, Headers } = request.Content.Simple
     return {
         message: {
             from: request.FromEmailAddress,
@@ -112,18 +95,14 @@ export function readSendEmail(
             cc: request.Destination?.CcAddresses,
             bcc: request.Destination?.BccAddresses,
             replyTo: request.ReplyToAddresses,
-            subject: simple.Subject.Data,
-            text: simple.Body?.Text?.Data,
-            html: simple.Body?.Html?.Data,
-            charsets: {
-                subject: simple.Subject.Charset,
-                text: simple.Body?.Text?.Charset,
-                html: simple.Body?.Html?.Charset,
-            },
-            headers: toRecord(simple.Headers),
+            subject: Subject.Data,
+            text: Body?.Text?.Data,
+            html: Body?.Html?.Data,
+            charsets: { subject: Subject.Charset, text: Body?.Text?.Charset, html: Body?.Html?.Charset },
+            headers: toRecord(Headers),
             tags: toRecord(request.EmailTags),
             tenant: request.TenantName,
-            configurationSet: configurationSetName,
+            configurationSet: request.ConfigurationSetName,
             tracked: configurationSet.tracking,
         },
     }

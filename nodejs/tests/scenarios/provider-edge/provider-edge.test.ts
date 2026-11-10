@@ -109,15 +109,30 @@ describe('provider edge', () => {
         })
     })
 
-    it('records a send whose address list is not a list as a 400', async () => {
-        const { status } = await call('POST', '/v2/email/outbound-emails', {
-            Destination: { ToAddresses: 'not-a-list' },
-            Content: { Simple: { Subject: { Data: 'Hello' } } },
-        })
+    it.each([
+        [
+            'an address list that is not a list',
+            { FromEmailAddress: 'flows@www.example.com', Destination: { ToAddresses: ALICE } },
+            'Destination.ToAddresses',
+        ],
+        [
+            'a null body part',
+            { FromEmailAddress: 'flows@www.example.com', Content: { Simple: { Body: { Text: null } } } },
+            'Content.Simple.Body.Text',
+        ],
+        ['no sender', {}, 'FromEmailAddress'],
+    ])('records a send with %s as a 400 naming the field', async (_name, request, field) => {
+        const body = {
+            Destination: { ToAddresses: [ALICE] },
+            ...request,
+            Content: { Simple: { Subject: { Data: 'Hello' }, ...(request as any).Content?.Simple } },
+        }
+
+        const { status } = await call('POST', '/v2/email/outbound-emails', body)
 
         expect(status).toBe(400)
         expect((await truth()).records).toEqual([
-            expect.objectContaining({ status: 400, detail: { error: 'Every address list needs to be a list.' } }),
+            expect.objectContaining({ status: 400, detail: { error: expect.stringContaining(`${field}: `) } }),
         ])
     })
 

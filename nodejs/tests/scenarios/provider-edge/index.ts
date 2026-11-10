@@ -72,7 +72,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         trackingCode === undefined ? undefined : signer?.parse(trackingCode)?.actionId
 
     const sendEmail = (body: unknown, req: http.IncomingMessage): Reply | 'drop-connection' => {
-        const request = readSendEmail((body ?? {}) as Record<string, any>, options.configurationSets)
+        const request = readSendEmail(body, options.configurationSets)
         if ('error' in request) {
             truth.append({ kind: 'ses.send', status: request.error.status, detail: { error: request.error.message } })
             return sesError(request.error)
@@ -155,7 +155,16 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     }
 
     const server = http.createServer((req, res) => {
-        handle(req, res).catch(() => res.destroy())
+        handle(req, res).catch((error: unknown) => {
+            if (res.headersSent || req.socket.destroyed) {
+                res.destroy()
+                return
+            }
+            respond(
+                res,
+                sesError({ status: 500, type: 'InternalFailure', message: `The edge failed: ${String(error)}` })
+            )
+        })
     })
     await new Promise<void>((resolve, reject) => {
         server.once('error', reject)
