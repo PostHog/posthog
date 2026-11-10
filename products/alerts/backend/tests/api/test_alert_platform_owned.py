@@ -378,6 +378,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             with CaptureQueriesContext(connection) as queries:
                 built = AlertConfiguration.from_platform_views(page, team_id=self.team.id)
                 for alert in built.values():
+                    assert list(alert.subscribed_users.all()) == []
                     assert (alert.insight.name, alert.created_by, hasattr(alert.insight, "prefetched_tags")) == (
                         "insight",
                         self.user,

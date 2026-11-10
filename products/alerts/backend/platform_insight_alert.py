@@ -195,6 +195,9 @@ def _presented(alert: AlertConfiguration, configuration: PlatformAlertConfigurat
     alert.threshold.created_at = configuration.created_at
     # What the viewset annotates on a row. The platform's last check replaces it when there is one.
     alert.last_value = None  # type: ignore[attr-defined]
+    # An alert with no insight row has no subscriptions. Cached as the viewset prefetches them for
+    # rows, so the serializer does not query for each alert.
+    alert._prefetched_objects_cache = {"subscribed_users": User.objects.none()}  # type: ignore[attr-defined]
     for method in ("save", "delete"):
         setattr(alert, method, _no_insight_row)
     return alert
