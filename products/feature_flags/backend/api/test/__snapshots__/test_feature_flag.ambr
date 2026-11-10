@@ -918,6 +918,7 @@
          AND "posthog_filesystem"."type" = 'cohort'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.11
@@ -1266,6 +1267,7 @@
          AND "posthog_filesystem"."type" = 'cohort'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.2
@@ -2027,5 +2029,6 @@
          AND "posthog_filesystem"."type" = 'cohort'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---

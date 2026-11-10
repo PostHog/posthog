@@ -6,6 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { deleteFromTree, isTreeItemLoaded, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { tagsModel } from '~/models/tagsModel'
 
 import { filterMessageTemplates } from './filterMessageTemplates'
@@ -198,6 +199,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                     return response.results
                 },
                 deleteTemplate: async (template: MessageTemplate) => {
+                    const wasInTree = isTreeItemLoaded('message_template', template.id)
                     await deleteWithUndo({
                         endpoint: `environments/${values.currentTeamIdStrict}/messaging_templates`,
                         object: {
@@ -207,6 +209,11 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                         callback: (undo) => {
                             if (undo) {
                                 actions.loadTemplates()
+                                if (wasInTree) {
+                                    refreshTreeItem('message_template', template.id)
+                                }
+                            } else {
+                                deleteFromTree('message_template', template.id)
                             }
                         },
                     })

@@ -2418,7 +2418,7 @@ export interface HogFlowListSummaryApi {
     readonly status: HogFlowStateEnumApi
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
     readonly updated_at: string
     readonly trigger: unknown
     /**
