@@ -2,13 +2,14 @@
 
 **Question:** on a PR that changes a file the devex team owns, does Standard with the devex lens find problems that Standard alone misses, without adding noise or hiding Standard's findings?
 
-**Short answer:** the lens adds a small number of real findings and takes nothing away, but it fails two of the five bars in [PLAN.md](./PLAN.md).
+**Short answer:** the lens adds a small number of real findings and takes nothing away, but it fails three of the five bars in [PLAN.md](./PLAN.md).
 The flag `reviewhog-devex-lens` stays off.
 
 - It found 13 and 14 of 21 findings that a human reviewer had posted, against 10 and 11 for Standard alone.
 - On a second set of 26 known major issues it found 1 more than Standard, which is the size of the judge's own noise.
 - It caught one defect that shipped and was fixed by a later PR, which Standard missed on every head that carried it.
 - It displaced no Standard finding in any run.
+- Of the 9 new root causes it posts on the second set, 5 are valid and minor or worse, which is 56% against a bar of 70%.
 - Its session costs 1.5 to 1.7 times a shipped lens session, which adds about 30% to the tokens of a routed review.
 
 This is a local pilot, not the experiment in the plan. See [Limits](#limits).
@@ -100,15 +101,16 @@ It reads the repository's guides, which the shipped lenses do not.
 
 ## Against the bars in the plan
 
-| Bar                                                     | Result                                                                   |           |
-| ------------------------------------------------------- | ------------------------------------------------------------------------ | --------- |
-| Labeled issues found: at least 20 points above control  | 14 points on the pilot set (64% against 50%), 4 points on the second set | **Fails** |
-| Lens findings valid and minor or worse: at least 70%    | 95% of all lens findings on the pilot set, 84% on the second set         | Passes    |
-| Clean controls: at most 0.5 more posted findings per PR | 0.17                                                                     | Passes    |
-| Control findings no longer posted: at most 1            | 0                                                                        | Passes    |
-| Lens cost: at most a shipped lens session               | 1.5 to 1.7 times                                                         | **Fails** |
+| Bar                                                       | Result                                                                   |           |
+| --------------------------------------------------------- | ------------------------------------------------------------------------ | --------- |
+| Labeled issues found: at least 20 points above control    | 14 points on the pilot set (64% against 50%), 4 points on the second set | **Fails** |
+| Lens-only findings valid and minor or worse: at least 70% | 6 of 6 in each run on the pilot set, 5 of 9 (56%) on the second set      | **Fails** |
+| Clean controls: at most 0.5 more posted findings per PR   | 0.17                                                                     | Passes    |
+| Control findings no longer posted: at most 1              | 0                                                                        | Passes    |
+| Lens cost: at most a shipped lens session                 | 1.5 to 1.7 times                                                         | **Fails** |
 
-Counting only the new root causes the lens posts on the second set, 5 of 9 are valid and minor or worse, which is 56%.
+The plan sets the validity bar on lens-only findings, which are the new root causes the lens posts after dedup.
+Of all lens findings, 95% on the pilot set and 84% on the second set are valid and minor or worse. The plan sets no bar on that share.
 The stop rule in the plan did not fire on the pilot set, where Standard found 50%.
 On the second set Standard found 69% and 73%, which is at the 70% line.
 
@@ -120,7 +122,7 @@ On the second set Standard found 69% and 73%, which is at the 70% line.
 - **The prompt was revised after its misses were read**, on the held-out PRs too. The second set was not used to revise any prompt.
 - **Small sets.** 9 and 22 cases, 6 clean PRs, two runs. Read a difference of one or two issues as noise.
 - **The judge is a model.** The refutation pass covers one prompt on one set.
-- **One line of the prompt changed after the runs.** The runs told the session to read an edited guide at the merge base with git. A review sandbox has a shallow clone and no merge-base SHA in the prompt, so the prompt now points at the removed lines of the diff. Three words also changed to American spelling.
+- **One line of the prompt changed after the runs.** The runs told the session to read an edited guide at the merge base with git. A review sandbox has a shallow clone and no merge-base SHA in the prompt, so the prompt now points at the removed lines of the session's diff, which holds only the devex-owned files. Three words also changed to American spelling.
 
 ## What this supports
 

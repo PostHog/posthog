@@ -1,6 +1,6 @@
 # PLAN: devex lens for changes to devex-owned files
 
-Status: a local pilot ran, and [FINAL_REPORT.md](./FINAL_REPORT.md) has its result. The lens failed the recall and cost bars below, so `reviewhog-devex-lens` stays off.
+Status: a local pilot ran, and [FINAL_REPORT.md](./FINAL_REPORT.md) has its result. The lens failed the recall, validity and cost bars below, so `reviewhog-devex-lens` stays off.
 The experiment as written here, through `run_review` and with bars agreed first, has not run.
 
 **Question:** on a PR that changes a file the devex team owns, does a Standard review with the devex lens session find problems that Standard alone misses, without adding noise?
@@ -51,7 +51,7 @@ A lens that fails a bar does not get its flag turned on. Change the prompt, then
 ## What to report
 
 - For each arm and run: issues found, findings posted, findings judged invalid or nit, cost, and the slowest session.
-- For the lens session alone: findings that entered dedup (`flash_candidates` for `flash-lens-devex`), and which guides the session read.
+- For the lens session alone: findings that entered dedup (`flash_candidates` for `devex`), and which guides the session read.
 - The share of the case set that also matches the routed-lens experiments' gates, so those gates can be scored again with the lens.
 - Misses the lens was expected to find, each with the reason from its session transcript.
 
