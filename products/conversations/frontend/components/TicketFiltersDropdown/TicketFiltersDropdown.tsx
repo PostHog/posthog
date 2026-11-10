@@ -6,13 +6,12 @@ import {
     LemonButton,
     LemonCheckbox,
     LemonDropdown,
-    LemonInputSelect,
     LemonLabel,
     LemonSegmentedButton,
     LemonSelect,
 } from '@posthog/lemon-ui'
 
-import { tagsModel } from '~/models/tagsModel'
+import { TagsInputSelect } from 'lib/components/TagsInputSelect'
 
 import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import {
@@ -30,15 +29,9 @@ import { useAppliedTicketFilters } from '../TicketAppliedFilters/appliedTicketFi
 
 export function TicketFiltersDropdown(): JSX.Element {
     const appliedCount = useAppliedTicketFilters().length
-    const { loadTagsIfNeeded } = useActions(tagsModel)
 
     return (
-        <LemonDropdown
-            closeOnClickInside={false}
-            placement="bottom-start"
-            overlay={<TicketFiltersDropdownOverlay />}
-            onVisibilityChange={(open) => open && loadTagsIfNeeded()}
-        >
+        <LemonDropdown closeOnClickInside={false} placement="bottom-start" overlay={<TicketFiltersDropdownOverlay />}>
             <LemonButton
                 type="secondary"
                 size="small"
@@ -80,8 +73,6 @@ function TicketFiltersDropdownOverlay(): JSX.Element {
         setTagsMatch,
         setTagsExcludeFilter,
     } = useActions(logic)
-    const { tags: tagsAvailable } = useValues(tagsModel)
-    const tagOptions = tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []
 
     return (
         <div className="flex flex-col gap-3 p-2 w-80 max-w-full max-h-[70vh] overflow-y-auto">
@@ -146,11 +137,8 @@ function TicketFiltersDropdownOverlay(): JSX.Element {
                             ]}
                         />
                     </div>
-                    <LemonInputSelect
-                        mode="multiple"
-                        allowCustomValues
+                    <TagsInputSelect
                         value={tagsFilter}
-                        options={tagOptions}
                         onChange={setTagsFilter}
                         placeholder="Select or type tags..."
                         data-attr="tags-filter-input"
@@ -158,11 +146,8 @@ function TicketFiltersDropdownOverlay(): JSX.Element {
                 </div>
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Exclude tags</LemonLabel>
-                    <LemonInputSelect
-                        mode="multiple"
-                        allowCustomValues
+                    <TagsInputSelect
                         value={tagsExcludeFilter}
-                        options={tagOptions}
                         onChange={setTagsExcludeFilter}
                         placeholder="Exclude tags..."
                         data-attr="tags-exclude-filter-input"
