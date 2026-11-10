@@ -24,7 +24,7 @@ ingestion/
 
 ## Working here
 
-- Run cargo from `rust/`, the workspace root: `cargo test -p capture`. Cargo also resolves the workspace from inside a crate directory; `ingestion/rust/.cargo/config.toml` links to the workspace's build config so it applies there too.
+- Run cargo from `rust/`, the workspace root: `cargo test -p capture`. Cargo also resolves the workspace from inside a crate directory; `ingestion/rust/.cargo/config.toml` and `ingestion/rust/.env` link to the workspace's build config and test database URL so they apply there too.
 - `ingestion-rust.yml` decides what to build with `rust/affected-services --rules ingestion/ci/determinator-rules.toml`, so a change to `rust/common` runs exactly the ingestion crates that depend on it.
 - The images build from the repository root with `rust/Dockerfile` and `ingestion/node/Dockerfile`; `ingestion/ci/images.yml` lists them.
 - The CI stack's ClickHouse mounts Django's user-defined functions from the checkout (`docker/clickhouse/user_defined_function.xml`, `posthog/user_scripts`), because the pinned schema's materialized views call them and the executables are too large to pin.

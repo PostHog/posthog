@@ -155,7 +155,7 @@ pub(crate) fn default_bin_dir() -> PathBuf {
         "release"
     };
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../target")
+        .join("../../../rust/target")
         .join(profile)
 }
 

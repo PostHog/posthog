@@ -5,3 +5,4 @@
 !ingestion/proto
 rust/target
 rust/.env
+ingestion/rust/.env
