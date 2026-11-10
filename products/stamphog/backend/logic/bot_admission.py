@@ -89,10 +89,13 @@ def _parse_bot_authors(raw_text: str | None, repository: str) -> list[dict[str, 
 
 
 def _is_identity(entry: dict[str, Any]) -> bool:
-    user_id = entry.get("id")
+    name, login, user_id = entry.get("name"), entry.get("login"), entry.get("id")
     return (
-        isinstance(entry.get("name"), str)
-        and isinstance(entry.get("login"), str)
+        set(entry) == {"name", "login", "id"}
+        and isinstance(name, str)
+        and bool(name)
+        and isinstance(login, str)
+        and login.endswith("[bot]")
         and isinstance(user_id, int)
         and not isinstance(user_id, bool)
         and user_id > 0

@@ -286,6 +286,13 @@ def _renovate_pr(**overrides: Any) -> dict[str, Any]:
             False,
             id="entry-with-a-text-id",
         ),
+        pytest.param(
+            _renovate_pr(),
+            f"bot_authors:\n  - {{name: renovate, login: 'renovate[bot]', id: {_RENOVATE_ID}, extra: 1}}\n",
+            ReviewMode.ALL,
+            False,
+            id="entry-with-a-key-the-engine-refuses",
+        ),
         pytest.param(_renovate_pr(), "bot_authors: 'renovate[bot]'\n", ReviewMode.ALL, False, id="entries-not-a-list"),
         pytest.param(_renovate_pr(), "bot_authors: [\n", ReviewMode.ALL, False, id="unreadable-policy"),
         pytest.param(
