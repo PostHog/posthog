@@ -10,6 +10,12 @@ import { extend, newScope } from '@posthog/ingestion-common/scopes/index'
 import { initializePrometheusLabels } from '@posthog/node-common/api/router'
 import { CommonConfig } from '@posthog/node-common/config'
 import {
+    DatabaseConnectionConfig,
+    KafkaBrokerConfig,
+    KafkaConsumerBaseConfig,
+    RedisConnectionsConfig,
+} from '@posthog/node-common/config/connections'
+import {
     createCookielessRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
 } from '@posthog/node-common/config/redis-pools'
@@ -50,14 +56,7 @@ import {
 import { createErrorTrackingConsumer } from '~/ingestion/pipelines/errortracking/consumer'
 import { createOutputsRegistry } from '~/ingestion/pipelines/errortracking/outputs/registry'
 
-import {
-    DatabaseConnectionConfig,
-    IngestionConsumerConfig,
-    KafkaBrokerConfig,
-    KafkaConsumerBaseConfig,
-    RedisConnectionsConfig,
-    getDefaultIngestionConsumerConfig,
-} from '../ingestion/config'
+import { IngestionConsumerConfig, getDefaultIngestionConsumerConfig } from '../ingestion/config'
 import { PluginServerService, RedisPool } from '../types'
 
 /**

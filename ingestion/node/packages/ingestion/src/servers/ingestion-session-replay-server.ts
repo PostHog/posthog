@@ -1,5 +1,6 @@
 import { initializePrometheusLabels } from '@posthog/node-common/api/router'
 import { CommonConfig } from '@posthog/node-common/config'
+import { KafkaBrokerConfig, RedisConnectionsConfig } from '@posthog/node-common/config/connections'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
 import {
     BaseServerConfig,
@@ -31,7 +32,7 @@ import {
     getDefaultKafkaSessionreplayProducerEnvConfig,
 } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
-import { KafkaBrokerConfig, RedisConnectionsConfig, getDefaultIngestionConsumerConfig } from '../ingestion/config'
+import { getDefaultIngestionConsumerConfig } from '../ingestion/config'
 import { RedisPool } from '../types'
 
 /**

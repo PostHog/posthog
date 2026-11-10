@@ -19,6 +19,12 @@ import { extend, newScope } from '@posthog/ingestion-common/scopes/index'
 import { initializePrometheusLabels } from '@posthog/node-common/api/router'
 import { CommonConfig, PluginServerMode } from '@posthog/node-common/config'
 import {
+    DatabaseConnectionConfig,
+    KafkaBrokerConfig,
+    KafkaConsumerBaseConfig,
+    RedisConnectionsConfig,
+} from '@posthog/node-common/config/connections'
+import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
@@ -59,12 +65,8 @@ import { createHeatmapsConsumer } from '~/ingestion/pipelines/heatmaps'
 
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
 import {
-    DatabaseConnectionConfig,
     IngestionConsumerConfig,
     IngestionOutputsConfig,
-    KafkaBrokerConfig,
-    KafkaConsumerBaseConfig,
-    RedisConnectionsConfig,
     getDefaultIngestionConsumerConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'

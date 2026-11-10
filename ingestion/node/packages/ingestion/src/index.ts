@@ -15,7 +15,6 @@ import { AiResearchV4ParquetSinkServer } from '~/servers/ai-research-v4-parquet-
 import { ErrorTrackingServer } from '~/servers/error-tracking-server'
 import { IngestionApiServer } from '~/servers/ingestion-api-server'
 import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
-import { IngestionMetricsServer } from '~/servers/ingestion-metrics-server'
 import { IngestionSessionReplayMlImageFetchRetryServer } from '~/servers/ingestion-session-replay-ml-image-fetch-retry-server'
 import { IngestionSessionReplayMlImageFetchServer } from '~/servers/ingestion-session-replay-ml-image-fetch-server'
 import { IngestionSessionReplayMlImageScrubDlqReplayServer } from '~/servers/ingestion-session-replay-ml-image-scrub-dlq-replay-server'
@@ -72,9 +71,6 @@ function createServer(): NodeServer {
 
         case PluginServerMode.ingestion_ai:
             return new AiEventsServer()
-
-        case PluginServerMode.ingestion_metrics:
-            return new IngestionMetricsServer()
 
         default:
             throw new Error(`PLUGIN_SERVER_MODE ${defaultConfig.PLUGIN_SERVER_MODE} is not an ingestion mode`)

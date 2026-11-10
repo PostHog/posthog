@@ -1,5 +1,5 @@
-import { ok } from '@posthog/ingestion/framework/results'
-import { ProcessingStep } from '@posthog/ingestion/framework/steps'
+import { ok } from '@posthog/ingestion-common/framework/results'
+import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { parseKafkaHeaders } from '@posthog/node-common/kafka/consumer/index'
 import { INTERNAL_SOURCE_HEADER, withoutInternalLogsHeaders } from '@posthog/node-common/logs/internal-logs'
 import { recordPiiReplacements } from '@posthog/node-common/metrics/otel-metrics'

@@ -7,6 +7,7 @@ import { initTracing } from '@posthog/node-common/tracing/otel'
 import { defaultConfig } from '~/common/config/config'
 import { PluginServer } from '~/server'
 import { IngestionLogsServer } from '~/servers/ingestion-logs-server'
+import { IngestionMetricsServer } from '~/servers/ingestion-metrics-server'
 import { IngestionTracesServer } from '~/servers/ingestion-traces-server'
 import { PushApiServer } from '~/servers/push-api-server'
 import { RecordingApiServer } from '~/servers/recording-api-server'
@@ -19,6 +20,9 @@ function createServer(): NodeServer {
 
         case PluginServerMode.ingestion_logs:
             return new IngestionLogsServer()
+
+        case PluginServerMode.ingestion_metrics:
+            return new IngestionMetricsServer()
 
         case PluginServerMode.ingestion_traces:
             return new IngestionTracesServer()

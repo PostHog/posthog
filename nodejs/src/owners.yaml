@@ -3,6 +3,8 @@ owners: []
 rules:
     - match: '/ai-observability/'
       owners: team-ai-observability
+    - match: '/metrics/'
+      owners: team-apm
     - match: '/cdp/'
       owners: team-workflows
     - match: '/ingestion/'

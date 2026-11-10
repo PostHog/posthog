@@ -4,8 +4,12 @@ import {
     createTransformationsMonitoringService,
 } from '@posthog/hog-engine/cdp/services/monitoring/hog-function-monitoring.service'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
-import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '@posthog/ingestion/config'
 import { CommonConfig } from '@posthog/node-common/config'
+import {
+    DatabaseConnectionConfig,
+    KafkaBrokerConfig,
+    RedisConnectionsConfig,
+} from '@posthog/node-common/config/connections'
 import { createPosthogRedisConnectionConfig } from '@posthog/node-common/config/redis-pools'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
 import {

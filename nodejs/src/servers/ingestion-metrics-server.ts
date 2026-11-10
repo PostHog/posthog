@@ -1,4 +1,9 @@
 import { CommonConfig } from '@posthog/node-common/config'
+import {
+    DatabaseConnectionConfig,
+    KafkaBrokerConfig,
+    RedisConnectionsConfig,
+} from '@posthog/node-common/config/connections'
 import { createPosthogRedisConnectionConfig } from '@posthog/node-common/config/redis-pools'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
 import {
@@ -25,19 +30,18 @@ import {
     MetricsIngestionOutputsConfig,
     getDefaultMetricsIngestionConsumerConfig,
     getDefaultMetricsIngestionOutputsConfig,
-} from '~/ingestion/pipelines/metrics/config'
-import { MetricsPipelineConsumer } from '~/ingestion/pipelines/metrics/metrics-pipeline-consumer'
-import { createProducerRegistry } from '~/ingestion/pipelines/metrics/outputs/producer-registry'
+} from '~/metrics/config'
+import { MetricsPipelineConsumer } from '~/metrics/metrics-pipeline-consumer'
+import { createProducerRegistry } from '~/metrics/outputs/producer-registry'
 import {
     KafkaWarpstreamIngestionProducerEnvConfig,
     KafkaWarpstreamMetricsProducerEnvConfig,
     MetricsProducerName,
     getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
     getDefaultKafkaWarpstreamMetricsProducerEnvConfig,
-} from '~/ingestion/pipelines/metrics/outputs/producers'
-import { createMetricsOutputsRegistry } from '~/ingestion/pipelines/metrics/outputs/registry'
+} from '~/metrics/outputs/producers'
+import { createMetricsOutputsRegistry } from '~/metrics/outputs/registry'
 
-import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { PluginServerService, RedisPool } from '../types'
 
 /**

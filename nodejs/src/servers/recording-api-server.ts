@@ -1,4 +1,3 @@
-import { KafkaBrokerConfig } from '@posthog/ingestion/config'
 import {
     getDefaultSessionRecordingApiConfig,
     getDefaultSessionRecordingConfig,
@@ -8,6 +7,7 @@ import {
     getDefaultKafkaSessionreplayProducerEnvConfig,
 } from '@posthog/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { CommonConfig } from '@posthog/node-common/config'
+import { KafkaBrokerConfig } from '@posthog/node-common/config/connections'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
 import {
     BaseServerConfig,

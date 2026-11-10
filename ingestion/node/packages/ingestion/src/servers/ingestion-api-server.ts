@@ -23,6 +23,12 @@ import { PostgresPersonRepository } from '@posthog/ingestion-common/persons/repo
 import { initializePrometheusLabels } from '@posthog/node-common/api/router'
 import { CommonConfig } from '@posthog/node-common/config'
 import {
+    DatabaseConnectionConfig,
+    KafkaBrokerConfig,
+    KafkaConsumerBaseConfig,
+    RedisConnectionsConfig,
+} from '@posthog/node-common/config/connections'
+import {
     createCookielessRedisConnectionConfig,
     createFeatureFlagCalledDedupRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
@@ -91,12 +97,8 @@ import { OverflowRedirectService } from '../ingestion/common/overflow-redirect/o
 import { RedisOverflowRepository } from '../ingestion/common/overflow-redirect/overflow-redis-repository'
 import { createAnalyticsOverflowStrategies } from '../ingestion/common/overflow-redirect/overflow-strategy'
 import {
-    DatabaseConnectionConfig,
     IngestionConsumerConfig,
     IngestionOutputsConfig,
-    KafkaBrokerConfig,
-    KafkaConsumerBaseConfig,
-    RedisConnectionsConfig,
     getDefaultIngestionConsumerConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'

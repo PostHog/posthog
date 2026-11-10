@@ -96,7 +96,7 @@
   dockerfile: ./rust/Dockerfile
   project: 6kjc85bwm7
 
-# The Node services: event, session replay, error tracking, metrics and AI research modes.
+# The Node services: event, session replay, error tracking, AI events and AI research modes.
 - image: ingestion-node
   dockerfile: ./ingestion/node/Dockerfile
   project: mtvzx98zjn

@@ -46,10 +46,6 @@ import {
     getDefaultErrorTrackingConsumerConfig,
 } from '~/ingestion/pipelines/errortracking/config'
 import {
-    MetricsIngestionConsumerConfig,
-    getDefaultMetricsIngestionConsumerConfig,
-} from '~/ingestion/pipelines/metrics/config'
-import {
     SessionRecordingApiConfig,
     SessionRecordingConfig,
     getDefaultSessionRecordingApiConfig,
@@ -370,7 +366,6 @@ export type IngestionTestConfig = PluginsServerConfig &
     IngestionConsumerConfig &
     IngestionOutputsConfig &
     ErrorTrackingConsumerConfig &
-    MetricsIngestionConsumerConfig &
     SessionRecordingConfig &
     SessionRecordingApiConfig
 
@@ -426,7 +421,6 @@ export async function createIngestionTestInfra(
         ...getDefaultIngestionConsumerConfig(),
         ...getDefaultIngestionOutputsConfig(),
         ...getDefaultErrorTrackingConsumerConfig(),
-        ...getDefaultMetricsIngestionConsumerConfig(),
         ...getDefaultSessionRecordingConfig(),
         ...getDefaultSessionRecordingApiConfig(),
         // The suites here assert the rolled-out behavior.

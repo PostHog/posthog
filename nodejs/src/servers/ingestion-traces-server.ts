@@ -1,5 +1,9 @@
-import { DatabaseConnectionConfig, KafkaBrokerConfig, RedisConnectionsConfig } from '@posthog/ingestion/config'
 import { CommonConfig } from '@posthog/node-common/config'
+import {
+    DatabaseConnectionConfig,
+    KafkaBrokerConfig,
+    RedisConnectionsConfig,
+} from '@posthog/node-common/config/connections'
 import { createPosthogRedisConnectionConfig } from '@posthog/node-common/config/redis-pools'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
 import {
