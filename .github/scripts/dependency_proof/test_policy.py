@@ -17,7 +17,7 @@ NOW = datetime(2026, 11, 9, tzinfo=UTC)
         ("^0.3.1", "^0.3.2", None),
         ("^1.2.3", "^2.0.0", "major change"),
         ("^0.3.1", "^0.4.0", "0.x minor change"),
-        ("^1.2.3", "~1.2.3", "major change"),
+        ("^1.2.3", "~1.2.3", "changes the range operator"),
         ("^1.2.3", "github:foo/bar", "not a plain registry"),
         ("^1.2.3", "npm:other@^1.2.3", "not a plain registry"),
         ("^1.2.3", "https://example.com/pkg.tgz", "not a plain registry"),

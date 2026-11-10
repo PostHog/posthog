@@ -127,7 +127,9 @@ def check_bump(label: str, old: str, new: str) -> None:
     old_version, new_version = (
         tuple(int(match[part]) for part in ("major", "minor", "patch")) for match in (before, after)
     )
-    if before["operator"] != after["operator"] or old_version[0] != new_version[0]:
+    if before["operator"] != after["operator"]:
+        raise Refused(f"{label} changes from {old} to {new}, which changes the range operator")
+    if old_version[0] != new_version[0]:
         raise Refused(f"{label} changes from {old} to {new}, which is a major change")
     if new_version[0] == 0 and old_version[1] != new_version[1]:
         raise Refused(f"{label} changes from {old} to {new}, which is a 0.x minor change")
