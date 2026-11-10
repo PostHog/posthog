@@ -32,8 +32,9 @@ class ExperimentQueryContext:
     breakdowns: tuple[Breakdown, ...]
     only_count_matured_users: bool
     cuped_config: CupedQueryConfig
-    # Whether a person-aggregated read of a preaggregated table follows person merges. The caller
-    # evaluates it once per query, so that every read of the query resolves persons the same way.
+    # Whether the preaggregated tables follow person merges for a person-aggregated experiment: a
+    # build stores the distinct_id of each row, and a read resolves each row to its current person.
+    # The caller evaluates it once per query, so that every build and read of the query agree.
     resolve_precomputed_persons: bool
     # When set, an entity only counts as exposed once it emits this event at/after its first
     # default exposure event, and that activation event's timestamp becomes the exposure time.
@@ -57,6 +58,20 @@ class ExperimentQueryContext:
         if self.entity_key != "person_id":
             return "t.entity_id"
         return "t.person_id" if self.resolve_precomputed_persons else "toUUID(t.entity_id)"
+
+    def precompute_distinct_id_column_sql(self, distinct_id_sql: str) -> str:
+        """
+        The SELECT column that makes a build store `distinct_id_sql` as the distinct_id of each
+        row. It is written to follow the last column of a build template.
+
+        A read resolves a row to its current person through this distinct_id, so a build stores
+        it only when the read does that. Otherwise the result is empty and the template stays
+        byte for byte the same. The job hash includes the source position of each node, so a
+        template that changes matches no cached job.
+        """
+        if self.entity_key != "person_id" or not self.resolve_precomputed_persons:
+            return ""
+        return f",\n                {distinct_id_sql} AS distinct_id"
 
 
 @dataclass(frozen=True)

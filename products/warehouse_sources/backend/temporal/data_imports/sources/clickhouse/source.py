@@ -40,7 +40,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     is_team_allowlisted_for_internal_hosts,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    rank_incremental_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (
     reconcile_source_schema_metadata,
 )
@@ -612,17 +615,19 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # is_in_sorting_key ORDER BY position).
             sort_key = detected_pks.get(table_name)
             leading_sort_key = sort_key[0] if sort_key else None
-            incremental_fields: list[IncrementalField] = [
-                {
-                    "label": field_name,
-                    "type": field_type,
-                    "field": field_name,
-                    "field_type": field_type,
-                    "nullable": nullable,
-                    "is_indexed": field_name == leading_sort_key,
-                }
-                for field_name, field_type, nullable in incremental_field_tuples
-            ]
+            incremental_fields: list[IncrementalField] = rank_incremental_fields(
+                [
+                    {
+                        "label": field_name,
+                        "type": field_type,
+                        "field": field_name,
+                        "field_type": field_type,
+                        "nullable": nullable,
+                        "is_indexed": field_name == leading_sort_key,
+                    }
+                    for field_name, field_type, nullable in incremental_field_tuples
+                ]
+            )
 
             schemas.append(
                 SourceSchema(

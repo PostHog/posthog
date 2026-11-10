@@ -415,10 +415,10 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
             if recalc.started_at and recalc.created_at
             else None
         )
-        # Hours since the experiment launched, matching the legacy frontend definition exactly
+        # Hours since the start date, matching the legacy frontend definition exactly
         # (now - start_date, ignoring end_date) so dashboards can share the >12h filter across paths.
-        hours_since_launch = experiment.hours_since_launch
-        experiment_duration_hours = round(hours_since_launch) if hours_since_launch is not None else None
+        hours_since_start = experiment.hours_since_start
+        experiment_duration_hours = round(hours_since_start) if hours_since_start is not None else None
         # Count from the discovery list that also sets total_metrics, so saved metrics count and legacy
         # metrics that the run never calculates do not.
         roles = [metric.role for metric in get_metrics_for_calculation(experiment)]
@@ -701,6 +701,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
     attempt: int = 1,
     precomputation_mode: PrecomputationMode | None = None,
     calculation_key_version: int = 1,
+    task_queue: str = "",
 ) -> MetricRecalculationResult:
     close_old_connections()
 
@@ -864,7 +865,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 feature=Feature.CACHE_WARMUP,
                 client_query_id=client_query_id,
                 # Also covers the precompute inserts, which run inside this context.
-                ch_user=recalculation_clickhouse_user(str(experiment.team.organization_id)),
+                ch_user=recalculation_clickhouse_user(task_queue),
             ):
                 result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = sanitize_non_finite(result.model_dump(mode="json"))

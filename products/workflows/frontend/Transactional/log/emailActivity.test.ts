@@ -50,18 +50,77 @@ describe('emailActivity', () => {
     it('does not count a server-side event as the person coming back', () => {
         const clicked = { kind: 'clicked' as const, at: '2026-06-15T09:02:00Z', reason: null }
 
-        expect(describeComeback([event('server', '2026-06-15T09:03:00Z', null, 'invoice_paid')], [clicked])).toBeNull()
-        expect(describeComeback([event('page', '2026-06-15T09:03:00Z', null)], [clicked])).toBe(
+        expect(
+            describeComeback({ before: [], after: [event('server', '2026-06-15T09:03:00Z', null, 'invoice_paid')] }, [
+                clicked,
+            ])
+        ).toBeNull()
+        expect(describeComeback({ before: [], after: [event('page', '2026-06-15T09:03:00Z', null)] }, [clicked])).toBe(
             'Back in your app 1m after clicking the email'
         )
     })
 
     it('keeps a return to the app that came before a later open of the email', () => {
+        const comeback = describeComeback({ before: [], after: [event('return', '2026-06-15T09:03:00Z', 's1')] }, [
+            { kind: 'clicked', at: '2026-06-15T09:02:00Z', reason: null },
+            { kind: 'opened', at: '2026-06-15T10:00:00Z', reason: null },
+        ])
+
+        expect(comeback).toBe('Back in your app 1m after clicking the email')
+    })
+
+    it.each<[string, ActivityEvent[], ActivityEvent[], string | null]>([
+        [
+            'same session across the send and the open',
+            [event('before', '2026-06-15T08:59:00Z', 's1')],
+            [event('stayed', '2026-06-15T09:03:00Z', 's1')],
+            null,
+        ],
+        [
+            'session that started after the send but before the open',
+            [],
+            [event('reading', '2026-06-15T09:01:00Z', 's1'), event('stayed', '2026-06-15T09:03:00Z', 's1')],
+            null,
+        ],
+        [
+            'new session after the open',
+            [event('before', '2026-06-15T08:59:00Z', 's1')],
+            [event('stayed', '2026-06-15T09:03:00Z', 's1'), event('return', '2026-06-15T09:04:00Z', 's2')],
+            'Back in your app 2m after opening the email',
+        ],
+        [
+            'event without a session soon after other activity',
+            [event('before', '2026-06-15T08:45:00Z', null)],
+            [event('stayed', '2026-06-15T09:03:00Z', null)],
+            null,
+        ],
+        [
+            'event without a session a full join window after other activity',
+            [event('before', '2026-06-15T08:33:00Z', null)],
+            [event('return', '2026-06-15T09:03:00Z', null)],
+            'Back in your app 1m after opening the email',
+        ],
+        [
+            'server-side event does not keep a later page view from being a return',
+            [event('server', '2026-06-15T09:00:00Z', null, 'invoice_paid')],
+            [event('return', '2026-06-15T09:03:00Z', null)],
+            'Back in your app 1m after opening the email',
+        ],
+    ])('after only an open: %s', (_, before, after, expected) => {
+        const opened = { kind: 'opened' as const, at: '2026-06-15T09:02:00Z', reason: null }
+
+        expect(describeComeback({ before, after }, [opened])).toBe(expected)
+    })
+
+    it('counts activity in the same session after a click', () => {
         const comeback = describeComeback(
-            [event('return', '2026-06-15T09:03:00Z', 's1')],
+            {
+                before: [event('before', '2026-06-15T08:59:00Z', 's1')],
+                after: [event('stayed', '2026-06-15T09:03:00Z', 's1')],
+            },
             [
+                { kind: 'opened', at: '2026-06-15T09:01:00Z', reason: null },
                 { kind: 'clicked', at: '2026-06-15T09:02:00Z', reason: null },
-                { kind: 'opened', at: '2026-06-15T10:00:00Z', reason: null },
             ]
         )
 

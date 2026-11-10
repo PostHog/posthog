@@ -1,4 +1,4 @@
-import { printPending, resumeApproval, runApproval, type ApprovalResult } from '@/core/approval'
+import { printPending, refuseInCi, resumeApproval, runApproval, type PendingResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
@@ -7,22 +7,15 @@ import type { Prompts } from '@/core/prompts'
 import { validationError } from '@/core/schema'
 import { PersonalAPIKey, type AccessKey } from '@/posthog/access-key'
 import type { StoreChoice } from '@/posthog/credential-store/types'
+import { CI_CREDENTIALS_HINT } from '@/posthog/credentials'
 import { LOGIN_SCOPES, READ_ONLY_LOGIN_SCOPES } from '@/posthog/device-auth'
-import { hostKey, HostSchema, parseHost, type Host } from '@/posthog/host'
+import { cloudRegion, HostSchema, parseHost, REGIONS } from '@/posthog/host'
 import { parseProjectId, ProjectIdSchema } from '@/posthog/ids'
-import { loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
+import { LOGIN_COMMAND, loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
 import { parsePersonalApiKey, PersonalApiKeySchema } from '@/posthog/tokens'
 
-const REGIONS = { us: parseHost('https://us.posthog.com'), eu: parseHost('https://eu.posthog.com') }
-
-// A posthog.json comes with the repository, so it only picks between the PostHog Cloud regions. A
-// login to any other host needs --host, so a repository can't send a person's login elsewhere.
-function cloudRegion(host: Host | undefined): Host | undefined {
-    return host && Object.values(REGIONS).find((region) => hostKey(region) === hostKey(host))
-}
-
 type LoginResult =
-    | (Extract<ApprovalResult<never>, { status: 'pending' }> & { host: string })
+    | (PendingResult & { host: string })
     | {
           status: 'logged_in'
           host: string
@@ -99,7 +92,7 @@ export default defineCommand({
         readOnly: {
             type: 'boolean',
             description:
-                'Ask only for read access. To change something later, run `hog auth login` again without this flag',
+                'Ask only for read access. To change something later, run `hog auth add` with the write scopes you need',
         },
     },
     notes: [
@@ -107,7 +100,7 @@ export default defineCommand({
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
         'The person picks one project, and the token only works there. To use another project, log in again. hog renews the token by itself.',
         'hog stores the token in the system keychain. If no keychain is available, such as over SSH, it stores the token in a file only you can read.',
-        'In CI, skip login and set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST.',
+        'In CI, skip login. Run `hog ci setup` once so jobs use their OIDC token, or set HOG_PERSONAL_API_KEY and HOG_HOST, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.',
     ].join('\n'),
     examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --read-only', 'hog auth login --wait'],
 
@@ -126,13 +119,7 @@ export default defineCommand({
             return finish(ctx, await resumeApproval(ctx, loginWait(ctx.runtime)))
         }
 
-        if (!prompts && ctx.mode.agent === undefined && ctx.mode.ci) {
-            throw new HogError(
-                'login_needs_a_person',
-                'hog auth login needs a person to approve it in a browser, so it does not run in CI.',
-                'Set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST instead.'
-            )
-        }
+        refuseInCi(ctx, LOGIN_COMMAND, CI_CREDENTIALS_HINT)
 
         let host =
             ctx.globals.host ??

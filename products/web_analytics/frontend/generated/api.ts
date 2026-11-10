@@ -9,10 +9,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AEOBrandApi,
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
     AEOPromptSetOverviewApi,
+    AEOPromptSetRankingsApi,
     AEOPromptStatsApi,
     AEOPromptSuggestRequestApi,
     AEOPromptSuggestionJobApi,
@@ -21,9 +23,11 @@ import type {
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
+    AeoBrandsListParams,
     AeoPromptsChecksParams,
     AeoPromptsListParams,
     AeoPromptsOverviewParams,
+    AeoPromptsRankingsParams,
     ApplyPathCleaningSuggestionResponseApi,
     ContentAutopilotExportResponseApi,
     ContentAutopilotOpportunityApi,
@@ -54,6 +58,7 @@ import type {
     HeatmapsResponseApi,
     LlmsTxtFetchRequestApi,
     LlmsTxtFetchResponseApi,
+    PaginatedAEOBrandListApi,
     PaginatedAEOPromptCheckListApi,
     PaginatedAEOPromptListApi,
     PaginatedContentAutopilotOpportunityListApi,
@@ -61,6 +66,7 @@ import type {
     PaginatedContentAutopilotRunListApi,
     PaginatedContentAutopilotSiteProfileListApi,
     PaginatedWebAnalyticsFilterPresetListApi,
+    PatchedAEOBrandUpdateRequestApi,
     PatchedAEOPromptUpdateRequestApi,
     PatchedContentAutopilotSiteProfileApi,
     PatchedHeatmapCaptureSettingsRequestApi,
@@ -106,6 +112,74 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getAeoBrandsListUrl = (projectId: string, params?: AeoBrandsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_brands/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_brands/`
+}
+
+/**
+ * Lists the project's brand catalog by domain: the project itself, competitors, publishers and domains nobody has labeled yet. Each daily run adds the domains its answers cited for the first time.
+ * @summary List AEO brands
+ */
+export const aeoBrandsList = async (
+    projectId: string,
+    params?: AeoBrandsListParams,
+    options?: RequestInit
+): Promise<PaginatedAEOBrandListApi> => {
+    return apiMutator<PaginatedAEOBrandListApi>(getAeoBrandsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoBrandsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_brands/${id}/`
+}
+
+/**
+ * Gets one brand from the project's brand catalog.
+ * @summary Get an AEO brand
+ */
+export const aeoBrandsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<AEOBrandApi> => {
+    return apiMutator<AEOBrandApi>(getAeoBrandsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoBrandsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_brands/${id}/`
+}
+
+/**
+ * Renames, relabels, confirms or ignores a brand, or replaces its other names. The daily run keeps these edits; it only adds newly cited domains.
+ * @summary Update an AEO brand
+ */
+export const aeoBrandsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedAEOBrandUpdateRequestApi?: PatchedAEOBrandUpdateRequestApi,
+    options?: RequestInit
+): Promise<AEOBrandApi> => {
+    return apiMutator<AEOBrandApi>(getAeoBrandsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAEOBrandUpdateRequestApi),
+    })
+}
 
 export const getAeoPromptsListUrl = (projectId: string, params?: AeoPromptsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -311,6 +385,37 @@ export const aeoPromptsOverview = async (
     options?: RequestInit
 ): Promise<AEOPromptSetOverviewApi> => {
     return apiMutator<AEOPromptSetOverviewApi>(getAeoPromptsOverviewUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoPromptsRankingsUrl = (projectId: string, params?: AeoPromptsRankingsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/rankings/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/rankings/`
+}
+
+/**
+ * Gets how often AI answers named the project against its competitors over the last 'days' days (default 30) in the project's timezone, with the same share for the window before, a daily series, and the domains and pages the engines cited most. Competitors are derived from the cited domains.
+ * @summary Get AEO brand rankings
+ */
+export const aeoPromptsRankings = async (
+    projectId: string,
+    params?: AeoPromptsRankingsParams,
+    options?: RequestInit
+): Promise<AEOPromptSetRankingsApi> => {
+    return apiMutator<AEOPromptSetRankingsApi>(getAeoPromptsRankingsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

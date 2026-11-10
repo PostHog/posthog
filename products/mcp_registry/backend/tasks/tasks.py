@@ -6,6 +6,7 @@ from celery import shared_task
 from celery.schedules import crontab
 
 from posthog.celery_queues import CeleryQueue
+from posthog.cloud_utils import is_cloud
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.mcp_registry.backend.aggregation import aggregate_measured_servers
@@ -21,7 +22,16 @@ MCP_REGISTRY_SYNC_CRONTAB = crontab(hour="5", minute="45")
 
 
 def is_pipeline_enabled() -> bool:
-    """Deployment-level kill switch, evaluated with a constant distinct_id. Fails closed."""
+    """Deployment-level kill switch. Fails closed.
+
+    Cloud only. Outside cloud the scheduled task never crawls the public registry, probes
+    third-party hosts or asks PostHog Cloud for the flag. Local dev is off too, because a
+    self-hosted install with DEBUG on resolves to the same run mode as local dev. The
+    sync_mcp_registry management command bypasses this gate on purpose.
+    """
+    if not is_cloud():
+        logger.info("mcp_registry.pipeline_skipped", reason="not_cloud")
+        return False
     try:
         return bool(
             posthoganalytics.feature_enabled(

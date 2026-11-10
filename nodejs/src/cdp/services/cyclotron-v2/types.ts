@@ -26,6 +26,9 @@ export const CyclotronV2JobInitSchema = z.object({
     priority: z.number().int().optional(),
     scheduled: z.date().optional(),
     parentRunId: z.string().nullish(),
+    // Keep `state` small. Queue rows churn, and PostgreSQL moves large BYTEA values to TOAST,
+    // where only vacuum reclaims the space. Files and blobs go to object storage, never into
+    // this column or a new cyclotron table. See "Keep rows small" in ./README.md.
     state: z.instanceof(Buffer).nullish(),
     distinctId: z.string().nullish(),
     personId: z.string().nullish(),
@@ -219,6 +222,7 @@ export type CyclotronV2WorkerConfig = {
     pollDelayMs?: number
     heartbeatTimeoutMs?: number
     includeEmptyBatches?: boolean
+    boundedPolls?: boolean
 }
 
 export type CyclotronV2JanitorConfig = {

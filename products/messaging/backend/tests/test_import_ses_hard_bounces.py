@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from django.core.management import call_command
 from django.utils import timezone
 
-from products.messaging.backend.models.email_hard_bounce import EmailHardBounce
+from products.messaging.backend.models.email_hard_bounce import GLOBAL_HARD_BOUNCE_MAX_HOLD, EmailHardBounce
 
 
 class TestImportSesHardBounces(BaseTest):
@@ -32,6 +32,8 @@ class TestImportSesHardBounces(BaseTest):
         rows = {row.email: row.first_bounced_at for row in EmailHardBounce.objects.all()}
         assert sorted(rows) == ["first@example.com", "known@example.com", "second@example.com"]
         assert rows["known@example.com"] == bounced_at
+        imported = EmailHardBounce.objects.get(email="first@example.com")
+        assert imported.last_bounced_at - imported.first_bounced_at == GLOBAL_HARD_BOUNCE_MAX_HOLD
         calls = client_factory.return_value.list_suppressed_destinations.call_args_list
         assert [call.kwargs for call in calls] == [
             {"Reasons": ["BOUNCE"], "PageSize": 1000},

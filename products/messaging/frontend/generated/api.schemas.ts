@@ -645,6 +645,35 @@ export interface MessageSuppressionApi {
     readonly updated_at: string
 }
 
+export interface BulkRemoveSuppressionsRequestApi {
+    /**
+     * The email addresses to remove, at most 100 per request.
+     * @minItems 1
+     * @maxItems 100
+     * @items.maxLength 512
+     */
+    identifiers: string[]
+    /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+    confirm_complaints?: boolean
+}
+
+export interface BulkRemoveSuppressionsResponseApi {
+    /** Addresses removed from the suppression list. */
+    removed: string[]
+    /** Addresses that were not on the suppression list. */
+    not_found: string[]
+}
+
+export interface RemoveSuppressionRequestApi {
+    /**
+     * The email address to remove.
+     * @maxLength 512
+     */
+    identifier: string
+    /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+    confirm_complaints?: boolean
+}
+
 /**
  * OpenAPI shape for the paginated suppressions response. Declared so drf-spectacular emits
  * the {count, next, previous, results} envelope on the generated client, rather than a bare

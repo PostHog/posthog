@@ -63,7 +63,12 @@ export function usePullRequestChecks(reportId?: string, pullRequestId?: string, 
     const query = useQuery({
         queryKey: [...reportKeys.report(scope, reportId ?? ''), 'pr_checks', pullRequestId ?? ''],
         queryFn: async ({ signal }) => {
-            const response = await fetchReportPullRequestChecks(reportId as string, pullRequestId as string, signal)
+            const response = await fetchReportPullRequestChecks(
+                scope,
+                reportId as string,
+                pullRequestId as string,
+                signal
+            )
             return { status: pullRequestChecksStatus(response.checks), observedAt: Date.now() }
         },
         enabled: canFetch,

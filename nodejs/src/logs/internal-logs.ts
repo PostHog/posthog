@@ -2,7 +2,6 @@ import { createHmac, timingSafeEqual } from 'crypto'
 import { Counter } from 'prom-client'
 
 import { buildIntegerMatcher } from '~/common/config/matchers'
-import { logger } from '~/common/utils/logger'
 import type { ValueMatcher } from '~/types'
 
 export const INTERNAL_LOGS_HEADER = 'posthog-internal'
@@ -39,6 +38,15 @@ export type InternalLogs = InternalSourcePolicy & { source: string }
 export const INTERNAL_SOURCE_POLICIES: Readonly<Record<string, InternalSourcePolicy>> = {
     hog_flow: { billed: false, teamRules: false, serviceName: 'posthog-internal-workflows' },
     hog_function: { billed: false, teamRules: false, serviceName: 'posthog-internal-hog-functions' },
+    external_data_jobs: { billed: false, teamRules: false, serviceName: 'posthog-internal-data-imports' },
+    data_modeling_run: { billed: false, teamRules: false, serviceName: 'posthog-internal-data-modeling' },
+    batch_exports: { billed: false, teamRules: false, serviceName: 'posthog-internal-batch-exports' },
+    batch_exports_backfill: { billed: false, teamRules: false, serviceName: 'posthog-internal-batch-exports' },
+    dwh_cdp_producer_job: { billed: false, teamRules: false, serviceName: 'posthog-internal-warehouse-cdp' },
+    temporal_workflow: { billed: false, teamRules: false, serviceName: 'posthog-internal-temporal' },
+    endpoints: { billed: false, teamRules: false, serviceName: 'posthog-internal-endpoints' },
+    alert_destination: { billed: false, teamRules: false, serviceName: 'posthog-internal-alerts' },
+    session_replay: { billed: false, teamRules: false, serviceName: 'posthog-internal-session-replay' },
 }
 
 type NotInternalReason =
@@ -115,10 +123,6 @@ export class InternalLogsVerifier {
         if (!policy) {
             logsInternalLogsCounter.inc({ outcome: 'not_internal', reason: reason ?? 'unknown_source' })
             // The team is not a counter label, because a caller that rotates tokens would make its values unbounded.
-            logger.warn('Internal logs header did not verify, batch billed as normal', {
-                teamId,
-                reason: reason ?? 'unknown_source',
-            })
             return undefined
         }
         logsInternalLogsCounter.inc({ outcome: 'internal', reason: '' })

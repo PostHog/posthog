@@ -19,6 +19,7 @@ from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckResult
@@ -286,7 +287,9 @@ class TestReportMonitoringAggregation(BaseTest):
         assert self.attempt.research_requested_at == self.now
         assert self.attempt.assessment_requested_at is None
         temporal_client.start_workflow.assert_not_called()
-        sweep_monitoring_research_requests.apply(throw=True)
+        # This test keeps commit callbacks under explicit control; pooled handoff is covered separately.
+        with patch("products.signals.backend.facade.api.database_sync_to_async_pool", database_sync_to_async):
+            sweep_monitoring_research_requests.apply(throw=True)
         emitted = [
             call.args[1].signal
             for call in temporal_client.start_workflow.call_args_list

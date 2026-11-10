@@ -70,7 +70,7 @@ class TestDashboardImportAPI(APIBaseTest):
         self.enterContext(
             patch("posthoganalytics.feature_enabled", side_effect=lambda key, *args, **kwargs: key in self.flags)
         )
-        self.enterContext(override_settings(SNUFFLE_APM_URL="http://snuffle.test"))
+        self.enterContext(override_settings(SNUFFLE_METRICS_URL="http://snuffle.test"))
         self.workflow = self.enterContext(patch(WORKFLOW))
         self.storage = self.enterContext(patch(f"{IMPORTER}.object_storage"))
         self.enterContext(

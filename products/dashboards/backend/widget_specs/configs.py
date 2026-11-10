@@ -32,6 +32,7 @@ from products.dashboards.backend.widget_specs.common import (
     WidgetListConfigBase,
     WidgetOrderDirection,
 )
+from products.metrics.backend.facade.contracts import DERIVED_METRIC_PREFIX
 
 ACTIVITY_EVENTS_LIST_WIDGET_TYPE = "activity_events_list"
 ERROR_TRACKING_LIST_WIDGET_TYPE = "error_tracking_list"
@@ -408,6 +409,14 @@ class MetricsTableColumn(BaseModel):
         max_length=METRICS_TABLE_MAX_FILTERS,
         description="Label filters for this column only, e.g. 5xx status codes for an errors column.",
     )
+
+    @field_validator("metricName")
+    @classmethod
+    def validate_not_derived(cls, value: str) -> str:
+        # A tile runs without the tracing and logs access checks that derived series need.
+        if value.startswith(DERIVED_METRIC_PREFIX):
+            raise ValueError("Derived metrics (posthog.derived.*) are not supported in metrics tables yet.")
+        return value
 
     @model_validator(mode="after")
     def validate_quantile(self) -> Self:

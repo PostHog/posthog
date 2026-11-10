@@ -521,6 +521,43 @@ class TestScoutReportAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.edited_report_ids == [created["report_id"]]
 
+    def test_emit_and_edit_repair_over_escaped_summary_and_return_hints(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(CAPTURE_PATH) as capture:
+            emitted = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(
+                    title="fix(checkout): p99 regressed", summary="## Problem\\n\\nThe \\`/checkout\\` p99 doubled."
+                ),
+                format="json",
+            ).json()
+            report = SignalReport.objects.get(id=emitted["report_id"])
+            assert report.summary == "## Problem\n\nThe `/checkout` p99 doubled."
+            assert [(h["check_id"], h["severity"]) for h in emitted["quality_hints"]] == [
+                ("literal_newline_escapes", "repair"),
+                ("escaped_backticks", "repair"),
+                ("pr_style_title", "hint"),
+            ]
+            edited = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": emitted["report_id"], "summary": "Line one\\nLine two"},
+                format="json",
+            ).json()
+        report.refresh_from_db()
+        assert report.summary == "Line one\nLine two"
+        assert [h["check_id"] for h in edited["quality_hints"]] == ["literal_newline_escapes"]
+        hint_events = [
+            c.kwargs["properties"]
+            for c in capture.call_args_list
+            if c.kwargs["event"] == "signals_scout_report_quality_hint"
+        ]
+        assert [(e["tool"], e["check_id"], e["skill_name"]) for e in hint_events] == [
+            ("emit_report", "literal_newline_escapes", run.skill_name),
+            ("emit_report", "escaped_backticks", run.skill_name),
+            ("emit_report", "pr_style_title", run.skill_name),
+            ("edit_report", "literal_newline_escapes", run.skill_name),
+        ]
+
     def test_edit_report_writes_typed_links_and_rejects_a_cycle(self) -> None:
         # A scout that splits one finding into a stack has to be able to record the order, and the
         # cycle guard has to hold on this path too, not only on the REST action.
@@ -638,12 +675,12 @@ class TestScoutReportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ready", "immediately_actionable", True),
-            ("pending input", "requires_human_input", False),
+            ("ready", "immediately_actionable"),
+            ("pending input", "requires_human_input"),
         ]
     )
-    def test_source_issues_are_recorded_once_and_start_the_writeback_for_a_ready_report(
-        self, _name: str, actionability: str, writes_back: bool
+    def test_source_issues_are_recorded_once_and_start_the_writeback_for_a_visible_report(
+        self, _name: str, actionability: str
     ) -> None:
         run = _make_run(self.team)
         issue_42 = "https://github.com/Acme/Widgets/issues/42"
@@ -661,7 +698,7 @@ class TestScoutReportAPI(APIBaseTest):
                 )
             assert created.status_code == status.HTTP_200_OK, created.json()
             report_id = created.json()["report_id"]
-            assert writeback.delay.call_count == (1 if writes_back else 0)
+            assert writeback.delay.call_count == 1
 
             # Naming the held issue again writes nothing and comments on nothing; only #43 is new.
             with self.captureOnCommitCallbacks(execute=True):
@@ -672,7 +709,7 @@ class TestScoutReportAPI(APIBaseTest):
                 )
             assert edited.status_code == status.HTTP_200_OK, edited.json()
             assert edited.json()["source_issues_appended"] == 1
-            assert writeback.delay.call_count == (2 if writes_back else 0)
+            assert writeback.delay.call_count == 2
 
         stored = SignalReportArtefact.objects.filter(
             report_id=report_id, type=SignalReportArtefact.ArtefactType.SOURCE_ISSUE

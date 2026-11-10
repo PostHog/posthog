@@ -45,6 +45,7 @@ rules:
       owners: team-growth
     - match:
           - '/ingestion_acceptance_test/test_*.py'
+          - '/tests/backfill_group_type_created_at/test_*.py'
           - '/tests/delete_persons/test_*.py'
           - '/tests/ingestion_acceptance_test/test_*.py'
       owners: team-ingestion
@@ -55,6 +56,7 @@ rules:
           - '/tests/cleanup_property_definitions/test_*.py'
       owners: team-product-analytics
     - match:
+          - '/tests/session_replay/copy_recording/test_*.py'
           - '/tests/session_replay/count_playlist_items/test_*.py'
           - '/tests/session_replay/delete_recordings/test_*.py'
           - '/tests/session_replay/enforce_max_replay_retention/test_*.py'
@@ -66,3 +68,6 @@ rules:
     - match:
           - '/tests/warehouse_sources_queue_partition_management/test_*.py'
       owners: team-warehouse-sources
+    - match:
+          - '/tests/data_modeling/test_*.py'
+      owners: team-data-modeling

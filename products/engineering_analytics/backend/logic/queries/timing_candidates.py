@@ -87,7 +87,7 @@ def query_timing_candidates(
         identity = "workflow_name = {workflow_name}"
         placeholders["workflow_name"] = ast.Constant(value=run.workflow_name)
     response = curated.run(
-        _SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True)).replace(
+        _SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True, since=window_start)).replace(
             "__WORKFLOW_IDENTITY__", identity
         ),
         query_type="engineering_analytics.ci_timing_candidates",

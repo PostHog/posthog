@@ -1,10 +1,17 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 SEGMENT_SUBSCRIBERS = "segment_subscribers"
 CAMPAIGN_STATISTICS = "campaign_statistics"
+SEGMENT_RULES = "segment_rules"
+AB_TEST_STATISTICS = "ab_test_statistics"
+SUBSCRIBER_ACTIONS = "subscriber_actions"
+MESSAGE_ACTIONS = "message_actions"
+SEQ_ID_FIELD = "seq_id"
 
 
-@dataclass
+@frozen
 class SmailyEndpointConfig:
     name: str
     path: str
@@ -16,11 +23,14 @@ class SmailyEndpointConfig:
     page_size: int | None = None
     extra_params: dict[str, str] = field(default_factory=dict)
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # Stable creation timestamp to partition by month. Set on the action logs, whose dense
+    # integer `seq_id` keys would otherwise be bucketed one row per partition.
+    partition_key: str | None = None
 
 
-# Smaily list endpoints (https://smaily.com/help/api/). All are full refresh only: the API exposes
-# no server-side `updated_after`-style filter on any list endpoint, so there is no reliable
-# incremental cursor to advance (its Airbyte connector is likewise full-refresh only).
+# Smaily list endpoints (https://smaily.com/help/api/). The list endpoints are full refresh only:
+# the API exposes no server-side `updated_after`-style filter on them. The two action logs are the
+# exception: they page by `since_seq_id`, which is also a server-side incremental cursor.
 # Where the endpoint supports it we sort by `created_at` ascending so page boundaries stay stable
 # while rows are inserted mid-sync.
 SMAILY_ENDPOINTS: dict[str, SmailyEndpointConfig] = {
@@ -39,6 +49,12 @@ SMAILY_ENDPOINTS: dict[str, SmailyEndpointConfig] = {
     ),
     "segments": SmailyEndpointConfig(
         name="segments",
+        path="list.php",
+    ),
+    SEGMENT_RULES: SmailyEndpointConfig(
+        # Fan-out: one request per segment id (`list.php?id=...`), returning the segment with its
+        # `filter_type` and `filter_data` rules.
+        name=SEGMENT_RULES,
         path="list.php",
     ),
     SEGMENT_SUBSCRIBERS: SmailyEndpointConfig(
@@ -72,6 +88,27 @@ SMAILY_ENDPOINTS: dict[str, SmailyEndpointConfig] = {
         page_size=10000,
         extra_params={"sort_by": "created_at", "sort_order": "ASC"},
     ),
+    AB_TEST_STATISTICS: SmailyEndpointConfig(
+        # Fan-out: one request per A/B test id (`split.php?id=...`), returning one statistics
+        # object per test section. The objects carry no id, so rows are keyed by their position.
+        name=AB_TEST_STATISTICS,
+        path="split.php",
+        primary_keys=["ab_test_id", "section_index"],
+    ),
+    SUBSCRIBER_ACTIONS: SmailyEndpointConfig(
+        name=SUBSCRIBER_ACTIONS,
+        path="history.php",
+        page_size=10000,
+        primary_keys=[SEQ_ID_FIELD],
+        partition_key="time",
+    ),
+    MESSAGE_ACTIONS: SmailyEndpointConfig(
+        name=MESSAGE_ACTIONS,
+        path="message/action/log.php",
+        page_size=10000,
+        primary_keys=[SEQ_ID_FIELD],
+        partition_key="created_at",
+    ),
     "users": SmailyEndpointConfig(
         name="users",
         path="organizations/users.php",
@@ -82,4 +119,18 @@ SMAILY_ENDPOINTS: dict[str, SmailyEndpointConfig] = {
 
 ENDPOINTS = tuple(SMAILY_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+# Both action logs keep only the last 30 days, so an incremental sync is what keeps older actions
+# in the warehouse.
+ACTION_LOG_ENDPOINTS = (SUBSCRIBER_ACTIONS, MESSAGE_ACTIONS)
+
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    endpoint: [
+        {
+            "label": SEQ_ID_FIELD,
+            "type": IncrementalFieldType.Integer,
+            "field": SEQ_ID_FIELD,
+            "field_type": IncrementalFieldType.Integer,
+        }
+    ]
+    for endpoint in ACTION_LOG_ENDPOINTS
+}

@@ -376,6 +376,17 @@ share (enrolment kill switch, daily run budget, Signals quota, daily report limi
 single-flight) live in `backend/scout_harness/run_gates.py`; the workflow path adds a 30-minute
 per-`(team, skill)` cooldown, a backstop that does not have to trust the workflow's masking config.
 
+A workflow fire that the cooldown or the in-flight gate turns away is queued as a
+`SignalScoutPendingTrigger` row (`backend/scout_harness/workflow_trigger_queue.py`), unless the step
+asked to skip it. A lane keeps at most `MAX_PENDING_WORKFLOW_TRIGGERS` fires, drops an exact duplicate
+note, and drops its oldest fire when full. Every other rejection (pause, enrolment, budget, quota,
+missing scout) still rejects, so a queued fire never gets around a gate. On each tick the coordinator
+hands a lane's pending trigger ids to its due scheduled run when no run is live and the spend gates
+allow it, and otherwise `drain_pending_workflow_triggers_activity` starts one workflow-triggered run
+per lane that passes the same gates a live fire does. Only ids travel through Temporal: the run claims
+(locks and deletes) the rows when it starts, so a failed dispatch or a run that skips before it starts
+leaves the fires queued. The claimed notes render as one coalesced section, one line per fire.
+
 Findings emitted during the run go through the harness's `emit_signal_*` tools,
 which call `emit_signal()` with `source_product="signals_scout"` and
 `source_type="cross_source_issue"` — from there the signal flows through the same
@@ -686,6 +697,7 @@ Per-team configuration for which signal sources are enabled.
   Guidance written on that row filters both `anomaly_investigation` and `alert_firing`, through the direct steering gate.
   The same row accepts `config.alert_allow_patterns` and `config.alert_block_patterns`: lists of RE2 patterns (at most `ALERT_PATTERNS_MAX_COUNT`, each at most `ALERT_PATTERN_MAX_LENGTH` characters) matched with search semantics against the alert name and the insight name. When allow patterns are set an alert must match one, and a block match drops the alert even when it also matches an allow pattern. The serializer rejects a pattern that does not compile, and rejects both keys on every other source.
   Both signal paths read them through `facade.source_configs.get_analytics_alert_name_patterns(team_id=...)` and decide with the pure `evaluate_alert_filter`. The read ignores the patterns while the `signals-analytics-all-alerts` flag is off. It fails closed: a stored list that no longer validates, or a flag check that raises, drops every alert.
+  The inbox settings edit both lists under the same flag. Before a save, `POST source_configs/alert_pattern_preview/` runs `alert_patterns_problem` and `evaluate_alert_filter` over the team's enabled alerts (newest first, insights the caller can view), so the form shows the save's validation errors and which alerts each pattern set drops. It saves nothing.
   `alert_firing` applies the filter after the scope and episode gates and before it charges the cap, so a filtered alert spends no token and makes no guidance call, and logs `filtered` or `filter_invalid`. The investigation workflow applies it after the verdict gate and before `emit_signal`, with the same two reasons on `anomaly_investigation.signal_skipped`. The filter decides only what reaches the inbox, not alert evaluation, notifications, or whether the agent runs.
 - The serializer exposes a computed `status` field:
   - data-import-backed sources (`github`, `linear`, `zendesk`) derive status from `ExternalDataSchema`
@@ -1392,7 +1404,7 @@ Runs inside `maybe_autostart_implementation_task()` in `backend/auto_start.py`, 
 
 **Task creation:**
 
-1. `Task.create_and_run(origin_product=SIGNAL_REPORT, ...)`
+1. `Task.create_and_run(profile=<signals.implementation>, ...)`
 2. `record_implementation_task` writes the legacy `SignalReportTask` implementation gate row (in the same transaction) and appends an `implementation` `task_run` artefact
 3. Errors are caught and logged but do not fail the report workflow
 

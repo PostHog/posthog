@@ -440,7 +440,7 @@ describe('buildSections', () => {
                 },
             ],
             ['best-matches'],
-            'a',
+            'settings-item',
         ],
     ] as [string, string, string, SearchItem[], string[], string][])(
         'ranks an exact-match setting with the results when %s',
@@ -715,6 +715,27 @@ describe('buildSections', () => {
         )
 
         expect(sections[0].rows[0]).toMatchObject({ kind: 'item', item: setting })
+    })
+
+    it('a pasted snake_case name keeps its Health row next to a matching saved object', () => {
+        const health: SearchItem = { id: 'health-pipeline-status', name: 'Pipeline status', category: 'health' }
+        const remote = emptyRemoteSlots()
+        remote.results.cache.pipe_stat = [
+            { ...dashboard('a', '1'), name: 'Pipe stat board', rankKey: [-2, 0, 0, 0, -2, 0, 1, 0, 0] },
+        ]
+        const sections = buildSections(
+            input('search', {
+                local: { ...emptyLocal(), health: [health] },
+                remote,
+                remoteQueries: { results: 'pipe_stat' },
+                localQuery: 'pipe_stat',
+            })
+        )
+
+        const ids = sections.flatMap((section) =>
+            section.rows.flatMap((row) => (row.kind === 'item' ? [row.item.id] : []))
+        )
+        expect(ids).toEqual(expect.arrayContaining(['a', 'health-pipeline-status']))
     })
 
     it('says which words were dropped when a filter is active', () => {

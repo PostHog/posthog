@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode, useRef } from 'react'
 
+import { canResolveReport, hasOpenImplementationPr } from '@posthog/agent-contracts/signal-report-state'
 import {
     IconArrowUpRight,
     IconCheckbox,
@@ -47,12 +48,7 @@ import {
     ResolveReasonValue,
 } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
-import {
-    canCreateImplementationPr,
-    canResolveReport,
-    canUnassignMe,
-    hasOpenImplementationPr,
-} from '../../utils/reportActions'
+import { canCreateImplementationPr, canUnassignMe } from '../../utils/reportActions'
 import { isReportClaimable, reportClaimant, teammateClaimHolder } from '../../utils/reportClaim'
 import { displayConventionalCommitTitle } from '../../utils/reportPresentation'
 import { reviewerRemovalReasonOptions } from '../../utils/reviewerRemovalReasons'

@@ -12,6 +12,7 @@ import {
     isIdentityQuery,
     rankCandidate,
     searchWords,
+    serverOnlyRank,
     tokenTypos,
 } from './commandKRanking'
 import type { CommandKRow, CommandKSection } from './commandKSections'
@@ -87,23 +88,12 @@ function candidateFor(item: SearchItem, groupKey: string, query: string): RankCa
     }
 }
 
-function rankUnified(items: SearchItem[], query: string, groupKey: (item: SearchItem) => string): RankedItem[] {
+function rankItems(items: SearchItem[], query: string, groupKey: (item: SearchItem) => string): RankedItem[] {
     return items.flatMap((item) => {
         const key = groupKey(item)
-        const ranked = rankCandidate(query, candidateFor(item, key, query))
-        if (!ranked) {
-            return item.rankKey ? [{ item, rank: item.rankKey, groupKey: key }] : []
-        }
-        return [
-            {
-                item:
-                    ranked.matchedAlias && !item.hideMatchedKeyword
-                        ? { ...item, matchedSearchKeyword: ranked.matchedAlias }
-                        : item,
-                rank: ranked.rank,
-                groupKey: key,
-            },
-        ]
+        const candidate = candidateFor(item, key, query)
+        const rank = rankCandidate(query, candidate) ?? (item.rankKey && serverOnlyRank(item.rankKey, candidate))
+        return rank ? [{ item, rank, groupKey: key }] : []
     })
 }
 
@@ -262,11 +252,11 @@ export function buildRankedResults({
     scoped,
 }: RankedResultsInput): CommandKSection[] {
     const candidates: RankedItem[] = [
-        ...rankUnified(results, query, groupKeyFor),
-        ...rankUnified(products, query, () => 'products'),
-        ...rankUnified(persons, query, () => 'persons'),
-        ...rankUnified(settings, query, () => 'settings'),
-        ...rankUnified(accounts, query, () => 'accounts'),
+        ...rankItems(results, query, groupKeyFor),
+        ...rankItems(products, query, () => 'products'),
+        ...rankItems(persons, query, () => 'persons'),
+        ...rankItems(settings, query, () => 'settings'),
+        ...rankItems(accounts, query, () => 'accounts'),
     ].sort((a, b) => compareRanks(a.rank, b.rank))
     if (!candidates.length) {
         return []

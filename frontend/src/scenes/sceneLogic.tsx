@@ -226,6 +226,12 @@ function isProjectAccessDenied(sceneId: string, pathname: string, isCurrentProje
     return isCurrentProjectAccessDenied && !isAccountSettingsPath(pathname)
 }
 
+// `isHobby` is true until preflight loads, so a cloud user must not be redirected before it loads
+function isCloudOnlySceneOnSelfHosted(sceneId: string | null): boolean {
+    const { preflight, isHobby } = preflightLogic.values
+    return !!sceneId && !!sceneConfigurations[sceneId]?.cloudOnly && !!preflight && isHobby
+}
+
 function isFirstProjectWithoutData(user: UserType): boolean {
     const { currentTeam, hasOnboardedAnyProduct } = teamLogic.values
     return (
@@ -822,6 +828,11 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
+        [preflightLogic.actionTypes.loadPreflightSuccess]: () => {
+            if (isCloudOnlySceneOnSelfHosted(values.loadingScene ?? values.sceneId)) {
+                router.actions.replace(urls.moveToPostHogCloud())
+            }
+        },
         [teamLogic.actionTypes.currentProjectAccessDenied]: () => {
             if (values.activeSceneId === Scene.ErrorProjectAccessDenied) {
                 unmountSceneLogic(cache)
@@ -988,6 +999,10 @@ export const sceneLogic = kea<sceneLogicType>([
             }
             if (sceneId === Scene.MoveToPostHogCloud && preflight?.cloud) {
                 router.actions.replace(urls.projectRoot())
+                return
+            }
+            if (isCloudOnlySceneOnSelfHosted(sceneId)) {
+                router.actions.replace(urls.moveToPostHogCloud())
                 return
             }
 

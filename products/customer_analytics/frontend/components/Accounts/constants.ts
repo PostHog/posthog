@@ -99,6 +99,13 @@ export const AccountsEvents = {
     NotesTabFiltered: 'customer analytics notes tab filtered',
     NotesTabNoteClicked: 'customer analytics notes tab note clicked',
     NotesTabAccountClicked: 'customer analytics notes tab account clicked',
+    NotesTabSorted: 'customer analytics notes tab sorted',
+    NotesTabViewSaved: 'customer analytics notes tab view saved',
+    NotesTabViewUpdated: 'customer analytics notes tab view updated',
+    NotesTabViewSelected: 'customer analytics notes tab view selected',
+    NotesTabViewDeleted: 'customer analytics notes tab view deleted',
+    NoteUpdated: 'customer analytics accounts note updated',
+    NotesFiltered: 'customer analytics accounts notes filtered',
     AccountViewEditorOpened: 'customer analytics account view editor opened',
     AccountViewSaved: 'customer analytics account view saved',
     AccountViewSaveFailed: 'customer analytics account view save failed',
@@ -117,4 +124,4 @@ export const AccountsEvents = {
     AccountViewTabSettingsSaveFailed: 'customer analytics account view tab settings save failed',
 } as const
 
-export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes' | 'my_accounts'
+export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes' | 'my_accounts' | 'tag'

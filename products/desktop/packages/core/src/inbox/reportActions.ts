@@ -39,10 +39,6 @@ export function canCreateImplementationPr(
   return false;
 }
 
-export function canResolveReport(report: SignalReport): boolean {
-  return report.status === "ready" || report.status === "pending_input";
-}
-
 interface BuildCreatePrReportPromptOptions {
   reportId: string;
   /**

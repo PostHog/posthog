@@ -90,6 +90,7 @@ database "posthog" {
     column "has_labels" { type = "SimpleAggregateFunction(max, UInt8)" }
     column "instrumentation_scope" { type = "SimpleAggregateFunction(any, String)" }
     column "histogram_bounds" { type = "SimpleAggregateFunction(anyLast, Array(Float64))" }
+    column "histogram_bounds_hash" { type = "UInt64" }
     column "_topic" { type = "SimpleAggregateFunction(any, LowCardinality(String))" }
     column "timestamp_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))" }
     column "observed_timestamp_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))" }
@@ -238,6 +239,7 @@ database "posthog" {
     column "metric_name" { type = "LowCardinality(String)" }
     column "time_bucket" { type = "DateTime" }
     column "series_fingerprint" { type = "UInt64" }
+    column "histogram_bounds_hash" { type = "UInt64" }
     column "original_expiry_date" { type = "Date32" }
     column "resource_fingerprint" { type = "UInt64" }
     column "service_name" { type = "String" }

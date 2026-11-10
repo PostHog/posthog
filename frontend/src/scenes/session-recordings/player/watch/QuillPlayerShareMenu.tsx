@@ -56,7 +56,7 @@ export function QuillPlayerShareMenu(): JSX.Element {
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger render={<Button size="xs" data-attr="session-recording-share-button" />}>
+            <DropdownMenuTrigger render={<Button size="sm" data-attr="session-recording-share-button" />}>
                 <IconShare />
                 Share
             </DropdownMenuTrigger>

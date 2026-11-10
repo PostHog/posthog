@@ -177,15 +177,33 @@ function isPersonInApp(event: ActivityEvent): boolean {
     return !!event.sessionId || event.event === '$pageview' || event.event === '$screen'
 }
 
+/** The person may have had the app open all along when they opened the email, so only a fresh start counts as coming back. */
+function cameBack(event: ActivityEvent, earlier: ActivityEvent[]): boolean {
+    if (event.sessionId) {
+        return !earlier.some((other) => other.sessionId === event.sessionId)
+    }
+    return !earlier.some(
+        (other) =>
+            isPersonInApp(other) &&
+            dayjs(event.timestamp).diff(dayjs(other.timestamp), 'minute') < ACTIVITY_JOIN_MINUTES
+    )
+}
+
 function firstReturnToApp(
-    after: ActivityEvent[],
+    activity: Pick<PersonActivity, 'before' | 'after'>,
     timeline: readonly TransactionalEmailLogEventApi[]
 ): { event: ActivityEvent; engagement: TransactionalEmailLogEventApi } | null {
     const engagements = timeline.filter((event) => event.kind === 'clicked' || event.kind === 'opened').reverse()
-    for (const event of after.filter(isPersonInApp)) {
-        const engagement = engagements.find((candidate) => dayjs(event.timestamp).isAfter(candidate.at))
-        if (engagement) {
-            return { event, engagement }
+    const loaded = [...activity.before, ...activity.after]
+    for (const event of activity.after.filter(isPersonInApp)) {
+        const earlierEngagements = engagements.filter((candidate) => dayjs(event.timestamp).isAfter(candidate.at))
+        const click = earlierEngagements.find((candidate) => candidate.kind === 'clicked')
+        if (click) {
+            return { event, engagement: click }
+        }
+        const earlier = loaded.filter((other) => dayjs(other.timestamp).isBefore(event.timestamp))
+        if (earlierEngagements.length && cameBack(event, earlier)) {
+            return { event, engagement: earlierEngagements[0] }
         }
     }
     return null
@@ -193,10 +211,10 @@ function firstReturnToApp(
 
 /** For example "Back in your app 3m after clicking the email", when the person returned after engaging with it. */
 export function describeComeback(
-    after: ActivityEvent[],
+    activity: Pick<PersonActivity, 'before' | 'after'>,
     timeline: readonly TransactionalEmailLogEventApi[]
 ): string | null {
-    const firstReturn = firstReturnToApp(after, timeline)
+    const firstReturn = firstReturnToApp(activity, timeline)
     if (!firstReturn) {
         return null
     }

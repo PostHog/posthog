@@ -122,6 +122,8 @@ class WizardProgram:
     tags: tuple[str, ...]
     required_programs: tuple[str, ...]
     supported_environments: tuple[WizardRunEnvironment, ...]
+    # None means cloud runs follow the latest context-mill release.
+    context_mill_version: str | None = None
 
 
 @frozen

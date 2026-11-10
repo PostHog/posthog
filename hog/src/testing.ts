@@ -3,11 +3,13 @@ import { z } from 'zod'
 
 import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 
+import type { WorkloadProvider } from '@/ci/providers/registry'
 import { parseJson, parseJsonOrUndefined } from '@/core/json'
 import type { Prompts } from '@/core/prompts'
 import type { Env, Runtime, Secrets } from '@/core/runtime'
 
 import { run } from './cli'
+import { parseProviderIdToken } from './posthog/tokens'
 
 export interface FakeRuntimeOptions {
     env?: Env
@@ -22,7 +24,11 @@ export interface FakeRuntimeOptions {
     answers?: string[]
     // Answers every API request. Without it, requests fail with HTTP 500. A string body is sent
     // as is, for JSON that JSON.stringify can't produce.
-    respond?: (url: string, body: unknown, authorization: string | null) => { status: number; body: unknown }
+    respond?: (
+        url: string,
+        body: unknown,
+        authorization: string | null
+    ) => { status: number; body: unknown; headers?: Record<string, string> }
     telemetryToken?: string
     // The MCP tool catalog `hog api` loads. Without it, loading the catalog fails the test.
     apiTools?: ApiToolLibrary
@@ -163,7 +169,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
                 body: { detail: 'no fake response' },
             }
             const text = typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body)
-            return new Response(text, { status: reply.status })
+            return new Response(text, { status: reply.status, headers: reply.headers })
         }) as typeof fetch,
         now: clock.now,
         sleep: clock.sleep,
@@ -274,7 +280,7 @@ export interface HogRun {
 }
 
 const ErrorOutputSchema = z.object({
-    error: z.object({ code: z.string(), message: z.string(), hint: z.string().optional() }),
+    error: z.looseObject({ code: z.string(), message: z.string(), hint: z.string().optional() }),
 })
 
 type ErrorOutput = z.output<typeof ErrorOutputSchema>['error']
@@ -313,4 +319,17 @@ export async function runHog(argv: string[], options: FakeRuntimeOptions = {}): 
         json: jsonReader(() => runtime.stdout()),
         error: () => readJson(runtime.stderr(), ErrorOutputSchema).error,
     }
+}
+
+// A CI provider for tests, so they don't depend on which real providers hog supports. A job is a
+// Fake CI job when FAKE_CI is "true", and its OIDC token is FAKE_CI_TOKEN.
+export const FAKE_WORKLOAD_PROVIDER: WorkloadProvider = {
+    key: 'fake_ci',
+    name: 'Fake CI',
+    detect: (env) => env.FAKE_CI === 'true',
+    fetchToken: async (runtime) =>
+        runtime.env.FAKE_CI_TOKEN ? parseProviderIdToken(runtime.env.FAKE_CI_TOKEN) : undefined,
+    missingTokenHint: 'Turn on OIDC tokens in Fake CI.',
+    configPath: '.fake-ci.yml',
+    nameFromRemote: (remote) => remote.match(/ci\.example\.com[:/](.+?)(?:\.git)?$/)?.[1],
 }

@@ -10,7 +10,7 @@ from typing import Any, Protocol, runtime_checkable
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
-from products.alerts_platform.backend.facade.contracts import AlertDestinationData
+from products.alerts_platform.backend.facade.contracts import AlertDestinationData, MessageImage
 
 
 @frozen
@@ -78,4 +78,24 @@ class RootEditor(Protocol):
 
     def edit_root(self, *, team_id: int, target: AlertDestinationData, root: MessageHandle, state_line: str) -> None:
         """Rewrites the opening message with `state_line` under its original content."""
+        ...
+
+
+@runtime_checkable
+class RootImageEditor(Protocol):
+    """A transport that can put an image into the message that opened a conversation, after it went out."""
+
+    def add_root_image(
+        self,
+        *,
+        team_id: int,
+        target: AlertDestinationData,
+        root: MessageHandle,
+        image: MessageImage,
+        state_line: str | None,
+    ) -> dict[str, Any] | None:
+        """Rewrites the opening message with `image` in its image slot, and `state_line` when there is one.
+
+        Returns the content to keep as the opening message, or None when it has no image slot.
+        """
         ...

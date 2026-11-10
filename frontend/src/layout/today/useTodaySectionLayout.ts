@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { KeyboardEvent, PointerEvent, RefCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { RefCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import {
     PreferredTodaySectionHeights,
@@ -14,14 +14,7 @@ const KEYBOARD_STEP = 16
 
 type MeasuredKey = TodayWorkSectionId | 'area'
 
-export interface TodaySectionResizer {
-    onPointerDown: (event: PointerEvent<HTMLElement>) => void
-    onPointerMove: (event: PointerEvent<HTMLElement>) => void
-    onPointerUp: (event: PointerEvent<HTMLElement>) => void
-    onPointerCancel: () => void
-    onKeyDown: (event: KeyboardEvent<HTMLElement>) => void
-    onDoubleClick: () => void
-}
+import type { SidebarSectionResizer } from '~/layout/today/sidebar/types'
 
 interface Drag {
     lower: TodayWorkSectionId
@@ -91,7 +84,7 @@ export function useTodaySectionLayout(sections: readonly { id: TodayWorkSectionI
     heights: TodaySectionHeights
     measured: boolean
     dragging: TodayWorkSectionId | null
-    resizer: (upper: TodayWorkSectionId, lower: TodayWorkSectionId) => TodaySectionResizer
+    resizer: (upper: TodayWorkSectionId, lower: TodayWorkSectionId) => SidebarSectionResizer
 } {
     const { sectionHeights } = useValues(todaySpacesLogic)
     const { setSectionHeights, resetSectionPair } = useActions(todaySpacesLogic)
@@ -108,7 +101,7 @@ export function useTodaySectionLayout(sections: readonly { id: TodayWorkSectionI
     const measured =
         areaHeight > 0 && sections.every((section) => !section.open || measuredHeights[section.id] !== undefined)
 
-    const resizer = (upper: TodayWorkSectionId, lower: TodayWorkSectionId): TodaySectionResizer => {
+    const resizer = (upper: TodayWorkSectionId, lower: TodayWorkSectionId): SidebarSectionResizer => {
         const resize = (delta: number, base: TodaySectionHeights): PreferredTodaySectionHeights =>
             resizeTodaySections({ sections: inputs, heights: base, upper, lower, delta, preferred: sectionHeights })
         const active = drag?.lower === lower ? drag : null

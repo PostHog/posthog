@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from django.conf import settings
+from django.db import close_old_connections
 
 import structlog
 from prometheus_client import Counter
@@ -282,11 +283,14 @@ class PersonPropertyUpdateConsumer:
             try:
                 granted = self._grant()
             except Exception:
-                # The limiter degrades a Redis outage to its in-memory fallback internally; anything
-                # that still escapes here is unexpected. Treat it like a transient failure — back off
-                # and retry the acquire rather than letting it escape and crash-loop the pod. The
-                # message stays uncommitted meanwhile, so nothing is sent or dropped.
+                # The limiter degrades a Redis outage to its in-memory fallback internally. The rate
+                # read hits Postgres and can fail when pgbouncer drops the connection. Treat both like
+                # a transient failure — back off and retry the acquire rather than letting it escape
+                # and crash-loop the pod. The message stays uncommitted meanwhile, so nothing is sent
+                # or dropped.
                 logger.exception("person_property_update.grant_error")
+                # This loop runs outside a request, so Django never drops a dead connection on its own.
+                close_old_connections()
                 self._health_reporter()
                 self._sleep(_RETRY_BACKOFF_SECONDS)
                 continue

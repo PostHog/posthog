@@ -62,7 +62,7 @@ describe('SesWebhookHandler', () => {
                 distinctId: 'user-123',
                 teamId: '1',
                 metricName: 'email_opened',
-                properties: { $email_to: 'to@example.com' },
+                properties: { $email_to: 'to@example.com', $email_message_id: 'msg-123' },
                 timestamp: '2025-10-03T12:01:00Z',
             },
         ])
@@ -108,6 +108,7 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics?.[0].distinctId).toBe('user-123')
         expect(result.metrics?.[0].properties).toEqual({
             $email_to: 'to@example.com',
+            $email_message_id: 'msg-123',
             $link_url: 'https://example.com',
         })
         expect(result.metrics?.[0].timestamp).toBe('2025-10-03T12:02:00Z')
@@ -132,6 +133,7 @@ describe('SesWebhookHandler', () => {
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].properties).toEqual({
             $email_to: 'to@example.com',
+            $email_message_id: 'msg-123',
             $link_url: 'https://example.com/pricing?a=1',
             $link_index: '2',
         })
@@ -156,6 +158,7 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.metrics?.[0].properties).toEqual({
             $email_to: 'to@example.com',
+            $email_message_id: 'msg-123',
             $link_url: 'https://app.posthog.com',
             $link_index: '1',
         })
@@ -286,6 +289,31 @@ describe('SesWebhookHandler', () => {
                 'https://webhooks.us.posthog.com/public/m/redirect?ph_id=abc.def',
             ],
             ['an unparseable link is passed through', 'not a url', 'not a url'],
+            [
+                'the workflow run tag is dropped',
+                'https://example.com/x?a=1&ph_workflow_run=run-1#top',
+                'https://example.com/x?a=1#top',
+            ],
+            [
+                'a leading workflow run tag is dropped',
+                'https://example.com/x?ph_workflow_run=run-1&a=1',
+                'https://example.com/x?a=1',
+            ],
+            [
+                'a lone workflow run tag is dropped',
+                'https://example.com/x?ph_workflow_run=run-1',
+                'https://example.com/x',
+            ],
+            [
+                'adjacent workflow run tags are all dropped',
+                'https://example.com/x?ph_workflow_run=old-1&ph_workflow_run=old-2&a=1',
+                'https://example.com/x?a=1',
+            ],
+            [
+                'a run tag inside the fragment is kept',
+                'https://example.com/#/page?ph_workflow_run=x&view=full',
+                'https://example.com/#/page?ph_workflow_run=x&view=full',
+            ],
         ])('%s', (_name, link, expected) => {
             expect(resolveClickDestination(link)).toBe(expected)
         })
@@ -500,7 +528,7 @@ describe('SesWebhookHandler', () => {
                 distinctId: 'user-123',
                 teamId: '1',
                 metricName: 'email_delivered',
-                properties: { $email_to: 'to@example.com' },
+                properties: { $email_to: 'to@example.com', $email_message_id: 'msg-123' },
                 timestamp: '2025-10-03T12:03:00Z',
             },
         ])
@@ -559,7 +587,12 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics?.[0].properties).toMatchObject({ $bounce_type: 'soft' })
         expect(result.hardBounceRecipients).toEqual([])
         expect(result.transientBounceRecipients).toEqual([
-            { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'temp' },
+            {
+                teamId: '1',
+                emailAddresses: ['to@example.com'],
+                diagnostic: 'temp',
+                bounceTimestamp: '2025-10-03T12:04:00Z',
+            },
         ])
     })
 
@@ -638,6 +671,62 @@ describe('SesWebhookHandler', () => {
             expect(result.complainedRecipients).toEqual(expectedRecipients)
         }
     )
+
+    it.each([
+        [
+            'Permanent bounce',
+            'hardBounceRecipients' as const,
+            (emailAddresses: string[]) => ({
+                eventType: 'Bounce',
+                bounce: {
+                    bounceType: 'Permanent',
+                    bouncedRecipients: emailAddresses.map((emailAddress) => ({ emailAddress, status: '5.1.1' })),
+                    timestamp: '2025-10-03T12:04:00Z',
+                },
+            }),
+        ],
+        [
+            'Transient bounce',
+            'transientBounceRecipients' as const,
+            (emailAddresses: string[]) => ({
+                eventType: 'Bounce',
+                bounce: {
+                    bounceType: 'Transient',
+                    bouncedRecipients: emailAddresses.map((emailAddress) => ({ emailAddress, status: '4.2.2' })),
+                    timestamp: '2025-10-03T12:04:00Z',
+                },
+            }),
+        ],
+        [
+            'Complaint',
+            'complainedRecipients' as const,
+            (emailAddresses: string[]) => ({
+                eventType: 'Complaint',
+                complaint: {
+                    complainedRecipients: emailAddresses.map((emailAddress) => ({ emailAddress })),
+                    timestamp: '2025-10-03T12:05:00Z',
+                },
+            }),
+        ],
+    ])('keeps only sent-to recipients of a %s for suppression', async (_label, arrayKey, buildEvent) => {
+        // The send passes a display name with the address, so the destination entry can carry it too.
+        const mail = { ...baseMail, destination: ['"Recipient Name" <to@example.com>'] }
+        const body = [
+            { mail, ...buildEvent(['TO@example.com', 'not-sent-to@example.org']) },
+            { mail, ...buildEvent(['not-sent-to@example.org']) },
+        ]
+        // Other tests in the process add to the counter, so read it as a delta.
+        const notSentToCount = async (): Promise<number> => {
+            const metric = await register.getSingleMetric('email_tracking_recipients_not_sent_to_total')!.get()
+            return metric.values.find((v) => v.labels.event_type === body[0].eventType)?.value ?? 0
+        }
+        const countBefore = await notSentToCount()
+
+        const result = await handler.handleWebhook({ body, headers: {} })
+
+        expect(result[arrayKey]).toEqual([expect.objectContaining({ teamId: '1', emailAddresses: ['TO@example.com'] })])
+        expect((await notSentToCount()) - countBefore).toBe(2)
+    })
 
     it('returns 200, no metrics and no logged payload if tracking code is missing from both carriers', async () => {
         const logSpies = (['info', 'warn', 'error'] as const).map((level) => jest.spyOn(logger, level))
@@ -863,7 +952,7 @@ describe('SesWebhookHandler', () => {
                 parentRunId: 'batch-run-id',
                 teamId: '1',
                 metricName: 'email_opened',
-                properties: { $email_to: 'to@example.com' },
+                properties: { $email_to: 'to@example.com', $email_message_id: 'msg-123' },
                 timestamp: '2025-10-03T12:01:00Z',
             },
         ])
@@ -1259,14 +1348,14 @@ describe('SesWebhookHandler', () => {
                 mail: baseMail,
                 bounce: {
                     bounceType: 'Permanent',
-                    bouncedRecipients: [{ emailAddress: 'recipient@example.com', diagnosticCode: 'bad' }],
+                    bouncedRecipients: [{ emailAddress: 'to@example.com', diagnosticCode: 'bad' }],
                     timestamp: '2025-10-03T12:04:00Z',
                 },
             })
             const result = await restricted.handleWebhook({ body: envelope, headers: {}, verifySignature: false })
             expect(result.status).toBe(200)
             expect(result.hardBounceRecipients).toEqual([
-                { teamId: '1', emailAddresses: ['recipient@example.com'], diagnostic: 'bad' },
+                { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'bad' },
             ])
         })
 

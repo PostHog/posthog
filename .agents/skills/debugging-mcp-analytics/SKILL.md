@@ -72,9 +72,11 @@ These are the failure modes that produce a plausible-looking answer rather than 
    `coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))`.
    It exists because a single-exec server can report the tool two different ways, and the two
    eras of data coexist. Today `services/mcp` resolves the inner tool itself and passes it
-   straight in as the tool name (`execToolName()` in `src/hono/tool-executor.ts`, which falls
-   back to the literal `exec` when the inner command isn't recognized), so
-   `$mcp_tool_name` usually already holds the real tool. `$mcp_exec_tool_call_name` is
+   straight in as the tool name (`analyticsToolName()` in `src/hono/tool-executor.ts`), so
+   `$mcp_tool_name` usually already holds the real tool. It reads the literal `exec` for the
+   discovery verbs (`info`, `schema`, `search`, `learn`, `help`, `tools`), which are most
+   `exec` rows, and for calls naming an unknown tool. Split that bucket by `$mcp_exec_verb`
+   and `$mcp_exec_target_tool` before reading it as unresolved calls. `$mcp_exec_tool_call_name` is
    registered in `posthog/taxonomy/taxonomy.py` and coalesced defensively here, but **nothing
    on master emits it** — treat it as historical rows plus in-flight work, not current
    producer behaviour. Either way, aggregate through the coalesce: hand-rolling
@@ -92,20 +94,25 @@ These are the failure modes that produce a plausible-looking answer rather than 
    docstring), `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts`, and
    [`models-mcp.md`](../../../products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
 5. **Check which SDK version the dogfood server is on before trusting dogfood data.**
-   `services/mcp` consumes the SDK through an alias in its `package.json` and has historically
-   lagged the published version, so version-dependent properties (typed error types, `$lib`
-   identity, payload redaction) can be absent from PostHog's own data even when documented as
-   current. A query filtering on `$lib = 'posthog-node-mcp'` silently excludes all dogfood
-   traffic if that pin predates SDK 0.7.0. Note too that `services/mcp` uses the
-   **custom-dispatcher** (`PostHogMCP`) path rather than `instrument()`, so behaviour living
-   only in the `instrument()` path — stable sessions, `$identify` deduplication, `_meta`-based
-   client identity — has never applied to it at any version.
+   `services/mcp` consumes the SDK through the `@posthog/mcp-analytics` alias in its
+   `package.json` (`npm:@posthog/mcp@0.25.0` at the last check) and the pin moves independently
+   of the published version, so version-dependent properties (typed error types, `$lib`
+   identity, payload redaction) can be absent from PostHog's own data when it lags. A query
+   filtering on `$lib = 'posthog-node-mcp'` silently excludes all dogfood traffic if that pin
+   predates SDK 0.7.0. Note too that `services/mcp` uses the **custom-dispatcher**
+   (`PostHogMCP`) path rather than `instrument()`, so behaviour living only in the
+   `instrument()` path — the `Mcp-Session-Id` token mint, `_meta`-based client identity — does
+   not apply to it. Its `$session_id` comes from `resolveSessionKey` in
+   `src/hono/mcp-context.ts` (see
+   [references/stateless-and-sessions.md](references/stateless-and-sessions.md)).
 6. **Know which session model produced the data.** Under the stateless spec there is no
-   transport session, so `$session_id` is only stable if the server opted into conversation
-   anchoring — `enableConversationId`, which is **off by default**. With it off, a stateless
-   client's sessions fragment (often one per request); with it on, `$session_id` is derived
-   from an agent-echoed handle and survives reconnects, restarts, and pods. Check the flag
-   before diagnosing "fragmented sessions" as an ingestion problem. See
+   transport session, so `$session_id` is only stable if the agent echoes the conversation
+   handle. `enableConversationId` is **on by default** since `@posthog/mcp` 0.17.0 (`posthog`
+   7.56.0 for Python). When sessions fragment, check in this order: whether the host turned it
+   off (`enableConversationId: false`), then whether the agent echoes the handle. If either
+   fails, a stateless client's sessions fragment (often one per request); otherwise
+   `$session_id` is derived from the echoed handle and survives reconnects, restarts, and pods.
+   Rule both out before diagnosing "fragmented sessions" as an ingestion problem. See
    [references/stateless-and-sessions.md](references/stateless-and-sessions.md).
 7. **There are no SQL template files.** Every dashboard and tool-quality query is a typed
    query runner behind the generic `/query/` endpoint. A `backend/templates/*.sql` referenced
@@ -124,7 +131,7 @@ and exec-mode properties the SDK does not define — live in `posthog/taxonomy/t
 **Events** (all `$`-prefixed; non-`$` names would be treated as customer events):
 `$mcp_tool_call` (primary), `$mcp_tools_list`, `$mcp_initialize`, `$mcp_missing_capability`,
 `$mcp_resource_read` / `$mcp_resources_list`, `$mcp_prompt_get` / `$mcp_prompts_list`,
-`$identify`, `$exception`.
+`$exception`. (Standalone `$identify` stopped in TS 0.23.0 and Python 7.72.0; older rows still have it.)
 
 > **`$mcp_initialize` is not a reliable session anchor — but check whose server you're looking
 > at.** The 2026-07-28 revision removes the `initialize` handshake, so a customer server on the
@@ -304,8 +311,8 @@ The wizard install flow, the skill-distribution channels, and the in-app onboard
 
 ## Current state
 
-Verified against `master`, `@posthog/mcp` 0.11.7, `posthog` 7.44.0, and MCP spec `2026-07-28`
-on 2026-08-25. Treat versions and open threads as perishable: re-check
+Verified against `master`, `@posthog/mcp` 0.25.0, and `posthog` 7.84.0 on 2026-11-05. Treat
+versions and open threads as perishable: re-check
 `packages/mcp/CHANGELOG.md`, the pinned alias in `services/mcp/package.json`, and
 [mega-issue 64016](https://github.com/PostHog/posthog/issues/64016) rather than trusting this
 section.
@@ -322,7 +329,10 @@ sessions byte-compatible with TS (`derive_session_id_from_conversation`), typed
 `$mcp_error_type` / `$mcp_error_message`, and the same UA/vendor capture. The old parity
 threads ([posthog-python 803](https://github.com/PostHog/posthog-python/pull/803) and
 [830](https://github.com/PostHog/posthog-python/pull/830)) were **closed unmerged and
-superseded** — don't cite them as the source of what landed.
+superseded** — don't cite them as the source of what landed. Since then: 0.17.0 (`posthog`
+7.56.0) turned `captureModel` and `enableConversationId` on by default, 0.23.0 (`posthog` 7.72.0) stopped sending
+standalone `$identify` events, and 0.24.0 / 0.25.0 added `sendInitializeEvent` /
+`sendToolsListEvent` (on by default).
 [references/stateless-and-sessions.md](references/stateless-and-sessions.md) is the reference
 for all of it.
 
@@ -331,10 +341,5 @@ reports, `mcp_analytics` access control, the shared `ProductEmptyState` adoption
 failure-occurrence drill-down with "create fix task", the migration of every chart to typed
 query runners, the demo seeder, and exec-mode inner-tool breakout (Hard rule 1).
 
-What still lags, all checkable in this repo: the `services/mcp` alias pin is `0.10.2` against a
-0.11.7 SDK (Hard rule 5 — no 0.11.x SDK-side fix or SDK-emitted property reaches dogfood data,
-though the server independently stamps `$mcp_client_user_agent` and the legacy non-`$`
-`mcp_vendor_client` regardless of the pin; harness resolution reads the SDK-emitted
-`$mcp_vendor_client` first and coalesces the legacy name for those rows);
-the exec-property emitter is still absent from
+What still lags, all checkable in this repo: the exec-property emitter is still absent from
 master (Hard rule 1); and the clustering schedule still covers only `GUARANTEED_TEAM_IDS = [2]`.

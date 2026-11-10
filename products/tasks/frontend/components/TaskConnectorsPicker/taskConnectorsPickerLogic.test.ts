@@ -82,6 +82,7 @@ function resolvedTool(toolName: string, policyState: MCPToolApprovalStateEnumApi
         description: '',
         input_schema: {},
         is_destructive: false,
+        is_read_only: false,
         policy_state: policyState,
         team_state: null,
         locked: false,
