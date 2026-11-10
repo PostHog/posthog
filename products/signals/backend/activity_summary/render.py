@@ -36,7 +36,6 @@ CHARS_PER_TOKEN = 4
 MAX_TASKS_PER_PERSON = 200
 MAX_ACTIVITY_ROWS_PER_PERSON = 1000
 MAX_VIEW_ROWS_PER_PERSON = 500
-# Read from each of the two inbox tables.
 MAX_INBOX_ROWS_PER_PERSON = 500
 
 # Units one source may keep from a single UTC day, newest first, so one busy afternoon cannot fill a section.
@@ -178,9 +177,7 @@ MCP_PLUMBING_ROUTES: frozenset[str] = frozenset(
 MCP_PLUMBING_ROUTE_PREFIXES: tuple[str, ...] = ("project_llm_skills-", "project_community_skills-")
 # The same chain of intents in this many sessions of the window is a scheduled job, not a person.
 MIN_REPEATED_MCP_CHAINS = 4
-# The activity log scope of an inbox report, such as an assignment change.
 SIGNAL_REPORT_SCOPE = "SignalReport"
-# The `SignalReportAction` types.
 INBOX_VIEW = "view"
 INBOX_READ = "read"
 INBOX_FEEDBACK = "feedback"
