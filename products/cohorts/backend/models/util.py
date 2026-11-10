@@ -1467,6 +1467,8 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_sinc
                 "limit": batch_size,
                 "written_since": written_since or "1970-01-01 00:00:00",
             },
+            # The table is sorted by person_id within a cohort, so this streams the GROUP BY instead of holding the rest of the cohort.
+            settings={"optimize_aggregation_in_order": 1},
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.COHORTS,
             team_id=team_id,
