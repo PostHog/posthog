@@ -14,6 +14,7 @@ import { parseProviderIdToken } from './posthog/tokens'
 
 export interface FakeRuntimeOptions {
     env?: Env
+    platform?: NodeJS.Platform
     stdoutIsTTY?: boolean
     columns?: number
     cwd?: string
@@ -154,7 +155,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
     const clock = fakeClock(Date.UTC(2026, 0, 1))
     const runtime: FakeRuntime = {
         env: options.env ?? {},
-        platform: 'linux',
+        platform: options.platform ?? 'linux',
         isDevelopment: false,
         stdinIsTTY: options.stdoutIsTTY ?? false,
         stdoutIsTTY: options.stdoutIsTTY ?? false,

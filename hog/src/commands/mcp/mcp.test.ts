@@ -23,13 +23,14 @@ function json(text: string | undefined): unknown {
 }
 
 describe('hog mcp add', () => {
-    test.each<[string, string, string, string, Record<string, unknown>]>([
+    test.each<[string, string, string, string, Record<string, unknown>, NodeJS.Platform]>([
         [
             'claude-code',
             '/work/.mcp.json',
             '{\n  "mcpServers": {"other": {"command": "other-server"}}\n}\n',
             'mcpServers',
             { type: 'http', url: URL },
+            'linux',
         ],
         [
             'cursor',
@@ -37,6 +38,7 @@ describe('hog mcp add', () => {
             '{"mcpServers": {"other": {"command": "other-server"}}}',
             'mcpServers',
             { url: URL },
+            'linux',
         ],
         [
             'vscode',
@@ -44,6 +46,7 @@ describe('hog mcp add', () => {
             '{"servers": {"other": {"command": "other-server"}}}',
             'servers',
             { type: 'http', url: URL },
+            'linux',
         ],
         [
             'zed',
@@ -51,6 +54,7 @@ describe('hog mcp add', () => {
             '{\n  // my theme\n  "theme": "One Dark",\n  "context_servers": {"other": {"command": "other-server"},},\n}\n',
             'context_servers',
             { enabled: true, url: URL },
+            'linux',
         ],
         [
             'opencode',
@@ -58,23 +62,37 @@ describe('hog mcp add', () => {
             '{"mcp": {"other": {"command": "other-server"}}}',
             'mcp',
             { type: 'remote', url: URL },
+            'linux',
         ],
-    ])('%s gets the entry in %s, next to the servers already there', async (agent, path, before, key, entry) => {
-        const result = await mcp(['--agent', agent], {}, { files: { [path]: before } })
+        [
+            'claude-desktop',
+            `${HOME}/Library/Application Support/Claude/claude_desktop_config.json`,
+            '{"mcpServers": {"other": {"command": "other-server"}}}',
+            'mcpServers',
+            { command: 'npx', args: ['-y', expect.stringMatching(/^mcp-remote@\d+\.\d+\.\d+$/), URL] },
+            'darwin',
+        ],
+    ])(
+        '%s gets the entry in %s, next to the servers already there',
+        async (agent, path, before, key, entry, platform) => {
+            const result = await mcp(['--agent', agent], {}, { platform, files: { [path]: before } })
 
-        expect(result.exitCode).toBe(0)
-        expect(result.json()).toEqual({ added: [{ agent, path, status: 'added' }] })
-        expect(json(result.files[path])).toMatchObject({ [key]: { other: OTHER, posthog: entry } })
-        for (const comment of before.match(/\/\/.*$/gm) ?? []) {
-            expect(result.files[path]).toContain(comment)
+            expect(result.exitCode).toBe(0)
+            expect(result.json()).toEqual({ added: [{ agent, path, status: 'added' }] })
+            expect(json(result.files[path])).toMatchObject({ [key]: { other: OTHER, posthog: entry } })
+            for (const comment of before.match(/\/\/.*$/gm) ?? []) {
+                expect(result.files[path]).toContain(comment)
+            }
         }
-    })
+    )
 
-    test('codex gets a TOML section after the config already there', async () => {
-        const path = `${HOME}/.codex/config.toml`
+    test.each<[string, Env, string]>([
+        ['~/.codex', {}, `${HOME}/.codex/config.toml`],
+        ['CODEX_HOME', { CODEX_HOME: '/work/codex' }, '/work/codex/config.toml'],
+    ])('codex gets a TOML section after the config already there, in %s', async (_name, env, path) => {
         const before = 'model = "o3"\n\n[mcp_servers.other]\ncommand = "other-server"\n'
 
-        const result = await mcp(['--agent', 'codex'], {}, { files: { [path]: before } })
+        const result = await mcp(['--agent', 'codex'], env, { files: { [path]: before } })
 
         expect(result.exitCode).toBe(0)
         expect(result.json()).toEqual({ added: [{ agent: 'codex', path, status: 'added' }] })
@@ -115,6 +133,17 @@ describe('hog mcp add', () => {
             URL,
         ],
         [
+            'a Codex header with spaces, single quotes and a comment is kept',
+            {
+                [`${HOME}/.codex/config.toml`]:
+                    '  [ mcp_servers . \'posthog\' ] # PostHog\nurl = "https://old.example.com"\n',
+            },
+            ['--agent', 'codex'],
+            `${HOME}/.codex/config.toml`,
+            'already_added',
+            'https://old.example.com',
+        ],
+        [
             "the Wizard's user entry for Claude Code counts",
             {
                 [`${HOME}/.claude.json`]:
@@ -142,6 +171,82 @@ describe('hog mcp add', () => {
         expect(result.exitCode).toBe(0)
         expect(result.json()).toMatchObject({ added: [{ path, status }] })
         expect(result.files[path]?.match(/https:\/\/[^"]+/g)).toEqual([url])
+    })
+
+    test.each<[string, string, string]>([
+        [
+            'stops at an indented header, and leaves the next server as it was',
+            '[mcp_servers.posthog]\nurl = "https://old.example.com"\n\n  [mcp_servers.other]\nstartup_timeout_sec = 60\n',
+            `[mcp_servers.posthog]\nstartup_timeout_sec = 30\nurl = "${URL}"\n\n  [mcp_servers.other]\nstartup_timeout_sec = 60\n`,
+        ],
+        [
+            'drops the stdio fields of an mcp-remote entry, across lines and tables',
+            [
+                '[mcp_servers.posthog]',
+                'command = "npx"',
+                'args = [',
+                '  "-y",',
+                '  "mcp-remote",',
+                '  "[mcp_servers.fake]",',
+                ']',
+                'tool_timeout_sec = 120',
+                '',
+                '[mcp_servers.posthog.env]',
+                'DEBUG = "1"',
+                '',
+                '[mcp_servers.other]',
+                'command = "other-server"',
+                '',
+            ].join('\n'),
+            [
+                '[mcp_servers.posthog]',
+                `url = "${URL}"`,
+                'startup_timeout_sec = 30',
+                'tool_timeout_sec = 120',
+                '',
+                '[mcp_servers.other]',
+                'command = "other-server"',
+                '',
+            ].join('\n'),
+        ],
+    ])('codex --force %s', async (_name, before, after) => {
+        const path = `${HOME}/.codex/config.toml`
+
+        const result = await mcp(['--agent', 'codex', '--force'], {}, { files: { [path]: before } })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toEqual({ added: [{ agent: 'codex', path, status: 'replaced' }] })
+        expect(result.files[path]).toBe(after)
+    })
+
+    test.each<[string, string, string, string, string]>([
+        [
+            'a Codex server written inline',
+            'codex',
+            `${HOME}/.codex/config.toml`,
+            '[mcp_servers]\nposthog = { command = "npx" }\n',
+            'mcp_config_not_editable',
+        ],
+        [
+            'a second posthog key in .mcp.json',
+            'claude-code',
+            '/work/.mcp.json',
+            '{"mcpServers": {"posthog": {}, "posthog": {"url": "https://old.example.com"}}}',
+            'invalid_mcp_config',
+        ],
+        [
+            'a second mcpServers key in .mcp.json',
+            'claude-code',
+            '/work/.mcp.json',
+            '{"mcpServers": {}, "mcpServers": {"posthog": {"url": "https://old.example.com"}}}',
+            'invalid_mcp_config',
+        ],
+    ])('--force refuses %s and leaves the file as it was', async (_name, agent, path, before, code) => {
+        const result = await mcp(['--agent', agent, '--force'], {}, { files: { [path]: before } })
+
+        expect(result.exitCode).toBe(1)
+        expect(result.error()).toMatchObject({ code })
+        expect(result.files[path]).toBe(before)
     })
 
     test.each<[string, Env, Record<string, string>]>([

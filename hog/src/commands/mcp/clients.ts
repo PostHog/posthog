@@ -1,5 +1,5 @@
 import type { ParseError } from 'jsonc-parser'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { z } from 'zod'
 
 import { knownAgent } from '@/core/agent'
@@ -12,6 +12,8 @@ import type { Env, Runtime } from '@/core/runtime'
 import { regionOf, type RegionId } from '@/posthog/host'
 import { chooseLogin } from '@/posthog/login/choose'
 import { readSettings } from '@/posthog/settings'
+
+import { hasCodexServer, withCodexServer } from './codex-toml'
 
 // The clients the Wizard writes a config file for, with the same paths, formats and entries, so a
 // server either tool added counts as added in the other.
@@ -78,6 +80,9 @@ function appData(name: string, env: Env): string {
     return env.APPDATA
 }
 
+// An exact version, so a later release of the bridge doesn't run in the login without a new install.
+const MCP_REMOTE = 'mcp-remote@0.16.5'
+
 const LOGS_IN_ON_CONNECT = (name: string): string =>
     `${name} asks you to log in to PostHog the first time it connects to the server.`
 
@@ -103,7 +108,12 @@ export const MCP_CLIENTS: Readonly<Record<McpAgent, McpClient>> = {
     },
     codex: {
         name: 'Codex',
-        file: ({ home }) => ({ path: join(home, '.codex', 'config.toml'), scope: 'user' }),
+        file: ({ runtime, home }) => {
+            const folder = runtime.env.CODEX_HOME
+                ? resolve(runtime.cwd(), runtime.env.CODEX_HOME)
+                : join(home, '.codex')
+            return { path: join(folder, 'config.toml'), scope: 'user' }
+        },
         format: { kind: 'codex-toml' },
         afterAdd: 'Run `codex mcp login posthog` to log in to PostHog.',
     },
@@ -170,7 +180,7 @@ export const MCP_CLIENTS: Readonly<Record<McpAgent, McpClient>> = {
         format: {
             kind: 'json',
             serversKey: 'mcpServers',
-            entry: (url) => ({ command: 'npx', args: ['-y', 'mcp-remote@latest', url] }),
+            entry: (url) => ({ command: 'npx', args: ['-y', MCP_REMOTE, url] }),
         },
         afterAdd: `Restart Claude Desktop. ${LOGS_IN_ON_CONNECT('It')}`,
     },
@@ -250,39 +260,8 @@ function serversAt(config: Record<string, unknown>, keys: readonly string[]): Re
     return JsonObject.safeParse(node).data
 }
 
-// Two ways to write one TOML table header, bare and quoted. Matching only one would append a
-// second definition of the table, which Codex rejects with the whole config.
-const CODEX_SECTION = new RegExp(`^\\[mcp_servers\\.(?:${SERVER_NAME}|"${SERVER_NAME}")\\][ \\t]*$`, 'm')
-
 // Codex gives a server 10 seconds to start, which a remote OAuth handshake can take longer than.
 const CODEX_STARTUP_TIMEOUT_SEC = 30
-
-// TOML keys come in any order, so the whole section body is searched.
-function setTomlKey(body: string, key: string, value: string): string {
-    const existing = new RegExp(`^[ \\t]*${key}[ \\t]*=.*$`, 'm')
-    return existing.test(body) ? body.replace(existing, `${key} = ${value}`) : `\n${key} = ${value}${body}`
-}
-
-// Edits the text in place, so the other servers, comments and key order survive, as the Wizard does.
-function withCodexServer(contents: string, url: string): string {
-    const header = CODEX_SECTION.exec(contents)
-    if (!header) {
-        const gap = contents === '' || contents.endsWith('\n\n') ? '' : '\n'
-        const pad = contents === '' || contents.endsWith('\n') ? '' : '\n'
-        return `${contents}${pad}${gap}[mcp_servers.${SERVER_NAME}]\nurl = "${url}"\nstartup_timeout_sec = ${CODEX_STARTUP_TIMEOUT_SEC}\n`
-    }
-
-    const start = header.index + header[0].length
-    const next = /^\[/m.exec(contents.slice(start))
-    const end = next ? start + next.index : contents.length
-    const body = setTomlKey(
-        setTomlKey(contents.slice(start, end), 'url', `"${url}"`),
-        'startup_timeout_sec',
-        String(CODEX_STARTUP_TIMEOUT_SEC)
-    )
-
-    return contents.slice(0, start) + body + contents.slice(end)
-}
 
 function hasServer(jsonc: Jsonc, client: McpClient, path: string, text: string | undefined): boolean {
     if (text === undefined) {
@@ -290,7 +269,7 @@ function hasServer(jsonc: Jsonc, client: McpClient, path: string, text: string |
     }
 
     if (client.format.kind === 'codex-toml') {
-        return CODEX_SECTION.test(text)
+        return hasCodexServer(text, SERVER_NAME)
     }
 
     const config = readJsonConfig(jsonc, path, text)
@@ -302,12 +281,41 @@ function hasServer(jsonc: Jsonc, client: McpClient, path: string, text: string |
     return Object.hasOwn(serversAt(config, [serversKey]) ?? {}, SERVER_NAME)
 }
 
-function withServer(jsonc: Jsonc, client: McpClient, text: string, url: string): string {
+// jsonc-parser reads the last of two equal keys, and its edits change the first, so a forced
+// replacement would leave the other entry as the one the agent reads.
+function assertOneKeyEach(jsonc: Jsonc, client: McpClient, path: string, text: string, keys: readonly string[]): void {
+    let node = jsonc.parseTree(text, [], { allowTrailingComma: true })
+    for (const key of keys) {
+        const matches =
+            node?.type === 'object' ? (node.children ?? []).filter((child) => child.children?.[0]?.value === key) : []
+        if (matches.length > 1) {
+            throw invalidConfig(path, `has "${key}" more than once, so hog can't tell which one ${client.name} reads.`)
+        }
+
+        node = matches[0]?.children?.[1]
+    }
+}
+
+function withServer(jsonc: Jsonc, client: McpClient, path: string, text: string, url: string): string {
     if (client.format.kind === 'codex-toml') {
-        return withCodexServer(text, url)
+        const edited = withCodexServer(text, SERVER_NAME, {
+            url: `"${url}"`,
+            startup_timeout_sec: String(CODEX_STARTUP_TIMEOUT_SEC),
+        })
+        if (edited === undefined) {
+            throw new HogError(
+                'mcp_config_not_editable',
+                `${escapeControls(path)} writes mcp_servers inline or with dotted keys, so hog can't add a [mcp_servers.${SERVER_NAME}] table to it.`,
+                `Move the servers in ${escapeControls(basename(path))} into [mcp_servers.<name>] tables, then run the command again.`
+            )
+        }
+
+        return edited
     }
 
     const { serversKey, entry } = client.format
+    assertOneKeyEach(jsonc, client, path, text, [serversKey, SERVER_NAME])
+
     const edits = jsonc.modify(text, [serversKey, SERVER_NAME], entry(url), {
         formattingOptions: { tabSize: 2, insertSpaces: true },
     })
@@ -392,7 +400,7 @@ export async function addServer(plan: PlannedAdd, where: Where, url: string, for
         }
     }
 
-    const after = withServer(jsonc, client, before ?? '', url)
+    const after = withServer(jsonc, client, file.path, before ?? '', url)
     await (before === undefined ? runtime.writeFile(target, after) : runtime.replaceFile(target, after))
 
     return { agent, path: file.path, status: present ? 'replaced' : 'added' }
