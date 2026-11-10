@@ -208,11 +208,12 @@ export const addTrackingToEmail = (
     // many anchors happened to be trackable. The same template therefore yields the same indices
     // on every send, which is what makes counts comparable across recipients.
     let anchorIndex = 0
-    // A sensitive email's links can carry a login code or a reset token, so none of them goes through
-    // a click-tracking redirect unless the code send's caller turned clicks on. Opens and deliveries
-    // are still tracked.
-    const sensitiveLinksOptedOut =
-        invocation.hogFunction?.metadata?.sensitive === true && invocation.state?.send?.tracking.clicks !== true
+    // An email's links can carry a login code or a reset token. A code send's links go through a
+    // click-tracking redirect only when its caller turned clicks on, whichever workflow it runs on.
+    // A template send's links stay untracked when its step is sensitive. Opens and deliveries are
+    // still tracked.
+    const send = invocation.state?.send
+    const allLinksOptedOut = send ? send.tracking.clicks !== true : invocation.hogFunction?.metadata?.sensitive === true
 
     html = html.replace(LINK_REGEX, (m, d, s, u) => {
         const linkIndex = anchorIndex++
@@ -227,7 +228,7 @@ export const addTrackingToEmail = (
         // Match only the opening <a> tag so a marker in the link's inner HTML (a child
         // element's attribute or literal link text) can't silently disable tracking.
         const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
-        const optedOut = sensitiveLinksOptedOut || hasClickTrackingOptOut(openingTag)
+        const optedOut = allLinksOptedOut || hasClickTrackingOptOut(openingTag)
 
         if (mode === 'ses') {
             // SES rewrites every http(s) anchor once click tracking is on, and it honors only its

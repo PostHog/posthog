@@ -223,7 +223,10 @@ describe('EmailTrackingService', () => {
                         ...invocationWithDistinctId,
                         state: {
                             ...invocationWithDistinctId.state,
-                            send: captureEngagement === undefined ? undefined : { tracking: { captureEngagement } },
+                            send:
+                                captureEngagement === undefined
+                                    ? undefined
+                                    : { tracking: { captureEngagement, clicks: true } },
                         },
                     },
                     signer

@@ -1297,6 +1297,68 @@ describe('EmailService', () => {
                 /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&ph_sig=[A-Za-z0-9_-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
             )
         })
+        it.each([
+            {
+                case: 'keeps the defaults',
+                sensitive: true,
+                tracking: { captureEngagement: true },
+                links: ['https://example.com/a', 'https://example.com/b'],
+                pixel: true,
+            },
+            {
+                case: 'turns opens off',
+                sensitive: true,
+                tracking: { captureEngagement: true, opens: false },
+                links: ['https://example.com/a', 'https://example.com/b'],
+                pixel: false,
+            },
+            {
+                case: 'turns clicks on',
+                sensitive: true,
+                tracking: { captureEngagement: true, clicks: true },
+                links: ['tracked https://example.com/a', 'https://example.com/b'],
+                pixel: true,
+            },
+            {
+                case: 'turns opens off and clicks on',
+                sensitive: true,
+                tracking: { captureEngagement: true, opens: false, clicks: true },
+                links: ['https://example.com/a', 'https://example.com/b'],
+                pixel: false,
+            },
+            {
+                case: "keeps the defaults on a template's workflow that isn't sensitive",
+                sensitive: false,
+                tracking: { captureEngagement: true },
+                links: ['https://example.com/a', 'https://example.com/b'],
+                pixel: true,
+            },
+            {
+                case: "turns clicks on, on a template's workflow that isn't sensitive",
+                sensitive: false,
+                tracking: { captureEngagement: true, clicks: true },
+                links: ['tracked https://example.com/a', 'https://example.com/b'],
+                pixel: true,
+            },
+        ])('delivers a code send that $case', async ({ sensitive, tracking, links, pixel }) => {
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive }
+            invocation.queueParameters = createEmailParams({
+                html: '<body><a href="https://example.com/a">a</a><a href="https://example.com/b" data-ph-no-track>b</a></body>',
+            })
+            invocation.state.send = { tracking }
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
+            const [email] = await mailDevAPI.getEmails()
+            const delivered = [...email.html.matchAll(/<a href="([^"]*)"/g)].map(([, href]) => {
+                const url = new URL(href)
+                return url.pathname === '/public/m/redirect' ? `tracked ${url.searchParams.get('target')}` : href
+            })
+            expect(delivered).toEqual(links)
+            expect(email.html.includes('/public/m/pixel')).toBe(pixel)
+        })
     })
     describe('native email sending with ses', () => {
         let invocation: CyclotronJobInvocationHogFunction
@@ -2360,70 +2422,6 @@ describe('EmailService', () => {
                     expect(sentHtml.match(/ph_workflow_run=[^"&]*/g) ?? []).toEqual(
                         tagged ? ['ph_workflow_run=invocation-1'] : []
                     )
-                }
-            )
-
-            it.each([
-                {
-                    case: 'keeps the defaults',
-                    tracking: { captureEngagement: true },
-                    configurationSet: 'posthog-messaging',
-                    pixel: true,
-                    anchors: [
-                        '<a href="https://example.com/a" ses:no-track>',
-                        '<a href="https://example.com/b" data-ph-no-track ses:no-track>',
-                    ],
-                },
-                {
-                    case: 'turns opens off',
-                    tracking: { captureEngagement: true, opens: false },
-                    configurationSet: 'posthog-messaging-untracked',
-                    pixel: false,
-                    anchors: ['<a href="https://example.com/a">', '<a href="https://example.com/b" data-ph-no-track>'],
-                },
-                {
-                    case: 'turns clicks on',
-                    tracking: { captureEngagement: true, clicks: true },
-                    configurationSet: 'posthog-messaging',
-                    pixel: true,
-                    anchors: [
-                        '<a href="https://example.com/a" ses:tags="phl:0">',
-                        '<a href="https://example.com/b" data-ph-no-track ses:no-track>',
-                    ],
-                },
-                {
-                    case: 'turns opens off and clicks on',
-                    tracking: { captureEngagement: true, opens: false, clicks: true },
-                    configurationSet: 'posthog-messaging-untracked',
-                    pixel: false,
-                    anchors: ['<a href="https://example.com/a">', '<a href="https://example.com/b" data-ph-no-track>'],
-                },
-            ])(
-                'sends a sensitive code send that $case through $configurationSet',
-                async ({ tracking, configurationSet, pixel, anchors }) => {
-                    service['sesConfig'].sesUntrackedConfigurationSet = 'posthog-messaging-untracked'
-                    jest.spyOn(
-                        (service as any).teamWorkflowsConfigService,
-                        'shouldCaptureEngagementEvents'
-                    ).mockResolvedValue(true)
-                    invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: true }
-                    invocation.queueParameters = createEmailParams({
-                        from: { integrationId: 1 },
-                        html: '<body><a href="https://example.com/a">a</a><a href="https://example.com/b" data-ph-no-track>b</a></body>',
-                    })
-                    invocation.state.send = { tracking }
-
-                    const result = await service.executeSendEmail(invocation)
-
-                    expect(result.error).toBeUndefined()
-                    const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                    expect(sentCommand.input.ConfigurationSetName).toEqual(configurationSet)
-                    const sentHtml: string = sentCommand.input.Content.Simple.Body.Html.Data
-                    expect(sentHtml.match(/<a\b[^>]*>/g)).toEqual(anchors)
-                    expect(sentHtml.includes('<img src=')).toBe(pixel)
-                    expect(result.capturedPostHogEvents[0].properties).toMatchObject({
-                        $email_tracking_enabled: pixel,
-                    })
                 }
             )
 

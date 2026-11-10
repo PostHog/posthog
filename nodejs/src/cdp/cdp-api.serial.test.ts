@@ -4,6 +4,7 @@ import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
+import { Pool } from 'pg'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -41,6 +42,7 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
@@ -2541,25 +2543,93 @@ describe('CDP API', () => {
             })
         })
 
-        it.each([
-            ['a code send with rendered content', codeSend],
-            [
-                'a code send with html that has no text to derive',
-                { ...codeSend, content: { subject: 'Hi', html: '<img src="https://example.com/a.png" alt="Hi">' } },
-            ],
-            ['a code send for a local template', { tracking: { captureEngagement: false } }],
-            ['a code send without open tracking', { ...codeSend, tracking: { captureEngagement: true, opens: false } }],
-            ['a code send with click tracking', { ...codeSend, tracking: { captureEngagement: true, clicks: true } }],
-            [
-                'a code send with copies to addresses that use atext symbols',
-                { ...codeSend, cc: ['jane=tag@example.com'], bcc: ['jane~tag@example.com'] },
-            ],
-        ])('stamps %s on the queued run', async (_desc, acceptedSend) => {
-            const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
+        describe('through the cyclotron queue', () => {
+            let queue: CyclotronJobQueuePostgresV2
+            let cyclotronPool: Pool
 
-            expect(res.status).toEqual(202)
-            const [invocation] = mockQueueInvocations.mock.calls[0][0]
-            expect(invocation.state.send).toEqual(acceptedSend)
+            const queuedSends = async (flowId: string): Promise<unknown[]> => {
+                const { rows } = await cyclotronPool.query('SELECT state FROM cyclotron_jobs WHERE function_id = $1', [
+                    flowId,
+                ])
+                return rows.map((row) => parseJSON(row.state.toString('utf-8')).state.send)
+            }
+
+            beforeAll(async () => {
+                queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+                await queue.startAsProducer()
+                cyclotronPool = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+            })
+
+            afterAll(async () => {
+                await queue.stopProducer()
+                await cyclotronPool.end()
+            })
+
+            beforeEach(() => {
+                api['hogflowQueue'] = queue
+            })
+
+            it.each([
+                ['a code send with rendered content', codeSend],
+                [
+                    'a code send with html that has no text to derive',
+                    { ...codeSend, content: { subject: 'Hi', html: '<img src="https://example.com/a.png" alt="Hi">' } },
+                ],
+                ['a code send for a local template', { tracking: { captureEngagement: false } }],
+                [
+                    'a code send without open tracking',
+                    { ...codeSend, tracking: { captureEngagement: true, opens: false } },
+                ],
+                [
+                    'a code send with click tracking',
+                    { ...codeSend, tracking: { captureEngagement: true, clicks: true } },
+                ],
+                [
+                    'a code send with copies to addresses that use atext symbols',
+                    { ...codeSend, cc: ['jane=tag@example.com'], bcc: ['jane~tag@example.com'] },
+                ],
+            ])('stamps %s on the queued run', async (_desc, acceptedSend) => {
+                const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
+
+                expect(res.status).toEqual(202)
+                expect(await queuedSends(hogFlow.id)).toEqual([acceptedSend])
+            })
+
+            it.each([
+                ['a field this version does not know', { ...codeSend, priority: 'high' }],
+                [
+                    'a content field this version does not know',
+                    { ...codeSend, content: { ...codeSend.content, amp: '<p/>' } },
+                ],
+                [
+                    'a sender field this version does not know',
+                    { ...codeSend, from: { ...codeSend.from, replyName: 'Ops' } },
+                ],
+                [
+                    'a tracking field this version does not know',
+                    { ...codeSend, tracking: { captureEngagement: true, pixel: false } },
+                ],
+                [
+                    'click tracking without open tracking',
+                    { ...codeSend, tracking: { captureEngagement: true, opens: false, clicks: true } },
+                ],
+                ['content without a body', { ...codeSend, content: { subject: 'Hi', html: '', text: '' } }],
+                ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
+                ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
+                ['no tracking choice', { content: codeSend.content }],
+                [
+                    'more than 10 cc addresses',
+                    { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
+                ],
+            ])('refuses a code send with %s', async (_desc, acceptedSend) => {
+                const invalidBefore = await outcomeCount('invalid_request')
+
+                const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
+
+                expect(res.status).toEqual(400)
+                expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
+                expect(await queuedSends(hogFlow.id)).toEqual([])
+            })
         })
 
         it('queues a template send without an accepted send, even when the request carries one', async () => {
@@ -2578,42 +2648,6 @@ describe('CDP API', () => {
             const invalidBefore = await outcomeCount('invalid_request')
 
             const res = await sendAccepted(hogFlow.id, body)
-
-            expect(res.status).toEqual(400)
-            expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
-            expect(mockQueueInvocations).not.toHaveBeenCalled()
-        })
-
-        it.each([
-            ['a field this version does not know', { ...codeSend, priority: 'high' }],
-            [
-                'a content field this version does not know',
-                { ...codeSend, content: { ...codeSend.content, amp: '<p/>' } },
-            ],
-            [
-                'a sender field this version does not know',
-                { ...codeSend, from: { ...codeSend.from, replyName: 'Ops' } },
-            ],
-            [
-                'a tracking field this version does not know',
-                { ...codeSend, tracking: { captureEngagement: true, pixel: false } },
-            ],
-            [
-                'click tracking without open tracking',
-                { ...codeSend, tracking: { captureEngagement: true, opens: false, clicks: true } },
-            ],
-            ['content without a body', { ...codeSend, content: { subject: 'Hi', html: '', text: '' } }],
-            ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
-            ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
-            ['no tracking choice', { content: codeSend.content }],
-            [
-                'more than 10 cc addresses',
-                { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
-            ],
-        ])('refuses a code send with %s', async (_desc, acceptedSend) => {
-            const invalidBefore = await outcomeCount('invalid_request')
-
-            const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
 
             expect(res.status).toEqual(400)
             expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
