@@ -45,8 +45,8 @@ function AndroidSetupSnippet({ includeReplay }: AndroidSetupProps): JSX.Element 
         // for more config and to learn about how we capture sessions on mobile
         // and what to expect
         config.sessionReplay = true
-        // choose whether to mask images or text
-        config.sessionReplayConfig.maskAllImages = false
+        // Replays are recorded as masked screenshots, so mask anything sensitive.
+        config.sessionReplayConfig.maskAllImages = true
         config.sessionReplayConfig.maskAllTextInputs = true`
                 : ''
         }
