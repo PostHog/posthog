@@ -7,6 +7,7 @@ team's Slack credentials directly.
 """
 
 import asyncio
+import hashlib
 from datetime import datetime
 from typing import Any, Protocol, cast
 from uuid import UUID
@@ -30,6 +31,7 @@ from posthog.models.team import Team
 from posthog.slack.identity import resolve_slack_profile_by_email
 from posthog.temporal.common.client import sync_connect
 
+from products.conversations.backend import ai_gates
 from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.types import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
@@ -45,6 +47,8 @@ from products.conversations.backend.facade.types import (
     SupportChannel as SupportChannel,
     SupportSlackSender as SupportSlackSender,
     SupportTicketMessage as SupportTicketMessage,
+    TicketAgentMessage as TicketAgentMessage,
+    TicketForAgent as TicketForAgent,
     TicketSummary as TicketSummary,
 )
 from products.conversations.backend.models import (
@@ -438,6 +442,57 @@ def post_ticket_internal_note(team_id: int, ticket_id: str, content: str, *, ded
         item_context={"author_type": "AI", "is_private": True, "internal_note_key": dedupe_key},
     )
     return str(comment.id)
+
+
+def escalates_directly(team_id: int) -> bool:
+    """Whether a Self-driving agent looks at every settled ticket of this project.
+
+    Support's own AI reply workflow is off for such a project, and each ticket reaches Self-driving
+    through an agent run. A reader that takes tickets on a schedule must skip the project, or the
+    same ticket is investigated twice.
+    """
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    return team is not None and ai_gates.escalates_directly(team)
+
+
+def get_ticket_for_agent(team_id: int, ticket_id: str) -> TicketForAgent | None:
+    """One ticket as an agent may read it: its fields and its public thread, oldest message first.
+
+    Private notes and automated updates are left out. None when the ticket does not exist for this team.
+    """
+    ticket = Ticket.objects.filter(team_id=team_id, id=ticket_id).first()
+    if ticket is None:
+        return None
+    comments = (
+        Comment.objects.filter(team_id=team_id, scope="conversations_ticket", item_id=str(ticket.id), deleted=False)
+        .filter(~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True))
+        .exclude(item_context__automated_update_key__isnull=False)
+        .order_by("created_at", "id")
+        .values_list("content", "item_context", "created_at")
+    )
+    messages = tuple(
+        TicketAgentMessage(
+            author_type=(item_context or {}).get("author_type", "customer"), content=content, created_at=created_at
+        )
+        for content, item_context, created_at in comments
+        if content
+    )
+    subject = ticket.email_subject or ""
+    digest = hashlib.sha256()
+    for part in (subject, *(f"{message.author_type}\x1f{message.content}" for message in messages)):
+        digest.update(part.encode("utf-8"))
+        digest.update(b"\x1e")
+    return TicketForAgent(
+        id=str(ticket.id),
+        ticket_number=ticket.ticket_number,
+        subject=subject,
+        channel=ticket.channel_source,
+        priority=ticket.priority,
+        status=ticket.status,
+        url=f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket.ticket_number}",
+        messages=messages,
+        content_hash=digest.hexdigest(),
+    )
 
 
 def post_ticket_automated_update(

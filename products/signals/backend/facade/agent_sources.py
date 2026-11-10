@@ -106,9 +106,11 @@ def deliver_agent_run_result(result: AgentRunResult) -> None:
     handler(result)
 
 
-def notify_fix_run_ended(*, team_id: int, agent: str, entity: AgentEntity, report_id: str) -> None:
-    source = get_agent_source(agent=agent, product=entity.product, type=entity.type)
-    if source is None or source.on_fix_run_ended is None:
-        return
-    handler: FixRunEndedHandler = import_string(source.on_fix_run_ended)
-    handler(team_id, entity, report_id)
+def notify_fix_run_ended(*, team_id: int, entity: AgentEntity, report_id: str) -> None:
+    """Call the fix-run handler of the entity's type. A link does not record which agent made it, so
+    every agent that registered the type hears about the run."""
+    for key, source in list(_SOURCES.items()):
+        if (key.product, key.type) != (entity.product, entity.type) or source.on_fix_run_ended is None:
+            continue
+        handler: FixRunEndedHandler = import_string(source.on_fix_run_ended)
+        handler(team_id, entity, report_id)

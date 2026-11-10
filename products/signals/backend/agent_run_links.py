@@ -3,6 +3,8 @@
 from collections import defaultdict
 from collections.abc import Sequence
 
+import structlog
+
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.signals.backend.agent_run_types import (
@@ -13,10 +15,13 @@ from products.signals.backend.agent_run_types import (
     ImplementationState,
     ReportImplementation,
 )
+from products.signals.backend.facade.agent_sources import notify_fix_run_ended
 from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
 from products.signals.backend.models import SignalAgentRun, SignalReport, SignalReportAssignment, SignalReportEntityLink
 from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION
 from products.tasks.backend.facade import api as tasks_facade
+
+logger = structlog.get_logger(__name__)
 
 _PR_STATE_TO_IMPLEMENTATION_STATE: dict[str, ImplementationState] = {
     SignalReportAssignment.PrState.DRAFT: ImplementationState.PR_DRAFT,
@@ -137,6 +142,22 @@ def linked_entities(*, team_id: int, report_id: str) -> list[AgentEntity]:
         .values_list("source_product", "source_type", "source_id")
     )
     return [AgentEntity(product=product, type=type, id=entity_id) for product, type, entity_id in rows]
+
+
+def notify_linked_entities_of_fix_run_end(*, team_id: int, task_id: str) -> None:
+    """Tell the owner of every entity linked to the task's reports that the fix run ended."""
+    report_ids = (
+        SignalReport.objects.filter(team_id=team_id)
+        .filter(SignalReport.reports_for_task_filter(task_id))
+        .values_list("id", flat=True)
+    )
+    for report_id in report_ids:
+        for entity in linked_entities(team_id=team_id, report_id=str(report_id)):
+            try:
+                notify_fix_run_ended(team_id=team_id, entity=entity, report_id=str(report_id))
+            except Exception:
+                # One product's handler must not keep the others from hearing about the run.
+                logger.exception("signals_fix_run_ended_handler_failed", report_id=str(report_id))
 
 
 def linked_report_ids(*, team_id: int, product: str, ids: Sequence[str]) -> set[str]:

@@ -264,6 +264,9 @@ def _purge_ticket(ticket_id: UUID, cutoff: datetime) -> bool:
                 scope__in=_TICKET_COMMENT_SCOPES,
             )
         )
+        from products.signals.backend.facade.agent_runs import (
+            detach_entity,  # noqa: PLC0415 — keeps signals off the django.setup() path
+        )
         from products.signals.backend.facade.api import (
             retract_source_signals,  # noqa: PLC0415 — keeps signals and HogQL off the django.setup() path
         )
@@ -276,6 +279,8 @@ def _purge_ticket(ticket_id: UUID, cutoff: datetime) -> bool:
             source_type="ticket",
             source_id=str(locked.id),
         )
+        # An agent run links a report to the ticket by its id and keeps what the agent wrote about it.
+        detach_entity(team_id=locked.team_id, product="conversations", type="ticket", id=str(locked.id))
         owned_media = _ticket_owned_media(
             team_id=locked.team_id, ticket_id=str(locked.id), media_ids=_comment_media_ids(comments)
         )

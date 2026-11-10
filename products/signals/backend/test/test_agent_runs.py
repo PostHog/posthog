@@ -19,6 +19,7 @@ from products.signals.backend.facade.agent_runs import (
     get_attached,
     linked_entities,
 )
+from products.signals.backend.facade.agent_sources import agent_source_registered
 from products.signals.backend.models import (
     SignalAgentRun,
     SignalReport,
@@ -30,6 +31,16 @@ from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTA
 
 TICKET = "019f9373-1e60-0000-3928-d8b21e6e8cb0"
 OTHER_TICKET = "019f9373-1e60-0000-3928-d8b21e6e8cb1"
+
+FIX_RUNS_ENDED: list[tuple[int, AgentEntity, str]] = []
+
+
+def record_fix_run_ended(team_id: int, entity: AgentEntity, report_id: str) -> None:
+    FIX_RUNS_ENDED.append((team_id, entity, report_id))
+
+
+def unused_handler(*_args: Any) -> None:
+    return None
 
 
 class AgentRunTestBase(BaseTest):
@@ -58,6 +69,23 @@ class AgentRunTestBase(BaseTest):
             source_id=source_id,
             relation=relation,
         )
+
+    def _fix_run(self, report: SignalReport, *, stage: str = "implementation") -> Any:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(
+            team=self.team, title="Fix", description="Fix", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        task_run = TaskRun.objects.create(task=task, team=self.team, state={"ai_stage": stage})
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type=TASK_RUN_TYPE_IMPLEMENTATION,
+            task_id=str(task.id),
+            run_id=str(task_run.id),
+        )
+        return task_run
 
     def _attach_pull_request(self, report: SignalReport, *, state: str) -> SignalReportPullRequest:
         pull_request = SignalReportPullRequest.objects.for_team(self.team.id).create(
@@ -181,21 +209,8 @@ class TestAttachedReads(AgentRunTestBase):
     ) -> None:
         report = self._report()
         self._link(report)
-        Task = apps.get_model("tasks", "Task")
-        TaskRun = apps.get_model("tasks", "TaskRun")
-        task = Task.objects.create(
-            team=self.team, title="Fix", description="Fix", origin_product=Task.OriginProduct.SIGNAL_REPORT
-        )
-        task_run = TaskRun.objects.create(task=task, team=self.team)
-        TaskRun.objects.filter(id=task_run.id).update(status=run_status)
-        append_task_run_artefact(
-            team_id=self.team.id,
-            report_id=str(report.id),
-            product="signals",
-            type=TASK_RUN_TYPE_IMPLEMENTATION,
-            task_id=str(task.id),
-            run_id=str(task_run.id),
-        )
+        task_run = self._fix_run(report)
+        type(task_run).objects.filter(id=task_run.id).update(status=run_status)
 
         implementation = (
             get_attached(team_id=self.team.id, product="conversations", type="ticket", ids=[TICKET])[TICKET]
@@ -204,6 +219,40 @@ class TestAttachedReads(AgentRunTestBase):
         )
 
         assert (implementation.state, implementation.run_active) == (ImplementationState.STARTED, expected_active)
+
+    @parameterized.expand(
+        [
+            ("the fix run ended", "implementation", "completed", True),
+            ("the fix run failed", "implementation", "failed", True),
+            ("the fix run still works", "implementation", "in_progress", False),
+            ("another kind of run ended", "research", "completed", False),
+        ]
+    )
+    def test_the_owner_of_a_linked_entity_hears_when_the_fix_run_of_the_report_ends(
+        self, _name: str, stage: str, run_status: str, expects_notice: bool
+    ) -> None:
+        report = self._report()
+        self._link(report)
+        self._link(self._report(), source_id=OTHER_TICKET)
+        task_run = self._fix_run(report, stage=stage)
+        FIX_RUNS_ENDED.clear()
+
+        with (
+            agent_source_registered(
+                agent="research",
+                product="conversations",
+                type="ticket",
+                load=f"{__name__}.unused_handler",
+                on_result=f"{__name__}.unused_handler",
+                on_fix_run_ended=f"{__name__}.record_fix_run_ended",
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            task_run.status = run_status
+            task_run.save(update_fields=["status"])
+
+        expected = [(self.team.id, AgentEntity(product="conversations", type="ticket", id=TICKET), str(report.id))]
+        assert FIX_RUNS_ENDED == (expected if expects_notice else [])
 
     def test_linked_entities_lists_every_entity_of_the_report(self) -> None:
         report = self._report()

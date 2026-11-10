@@ -25,6 +25,7 @@ TEST_TEAM_UUID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 TEST_ORG_UUID = uuid.UUID("22222222-2222-4222-8222-222222222222")
 
 COORD_MODULE = "products.conversations.backend.temporal.coordinator"
+GATES_MODULE = "products.conversations.backend.ai_gates"
 
 
 @workflow.defn(name="support-reply-pipeline")
@@ -72,7 +73,7 @@ def _make_ticket(
 
 
 class TestMasterFlagEnabled:
-    @patch(f"{COORD_MODULE}.posthoganalytics.feature_enabled", return_value=True)
+    @patch(f"{GATES_MODULE}.posthoganalytics.feature_enabled", return_value=True)
     def test_evaluates_flag_keyed_on_organization(self, mock_feature_enabled):
         team = MagicMock()
         team.organization_id = TEST_ORG_UUID

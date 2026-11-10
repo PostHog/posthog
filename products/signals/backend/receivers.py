@@ -92,6 +92,35 @@ def connect_task_run_assignment_sync() -> None:
         schedule_implementation_handover,
         dispatch_uid="signals_schedule_implementation_handover",
     )
+    connect_task_run_post_save(
+        notify_linked_entities_when_fix_run_ends,
+        dispatch_uid="signals_notify_linked_entities_when_fix_run_ends",
+    )
+
+
+def notify_linked_entities_when_fix_run_ends(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    """Tell the products whose records an agent run linked to a report when the report's fix run ends.
+
+    Like the handover receiver, it runs on every TaskRun save, so the in-memory checks come first.
+    """
+    if created or not instance.is_terminal:
+        return
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "status" not in update_fields:
+        return
+    if (instance.state or {}).get("ai_stage") != "implementation":
+        return
+    team_id, task_id = instance.team_id, str(instance.task_id)
+
+    def notify() -> None:
+        from products.signals.backend.agent_run_links import (
+            notify_linked_entities_of_fix_run_end,  # noqa: PLC0415 — keeps the tasks facade off the django.setup() path
+        )
+
+        notify_linked_entities_of_fix_run_end(team_id=team_id, task_id=task_id)
+
+    # After commit, so a product that reads the run sees it as ended.
+    transaction.on_commit(notify, robust=True)
 
 
 def schedule_implementation_handover(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
