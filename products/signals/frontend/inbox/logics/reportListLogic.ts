@@ -124,11 +124,17 @@ export function sectionListLogicProps(sectionKey: InboxReportSectionKey): Report
  * The personal ranking a state already loaded with. The flat list merges the states by
  * `inbox_merge_key`, and keys from two rankings do not compare. A state that loads later, such as one
  * the user selects after a rebuild, must request the same ranking as the states already on screen.
+ * Only a ranking of the same owner counts: after a switch to or from a teammate scope, the states
+ * still on screen hold another person's ranking.
  */
-function loadedPersonalRankingId(): string | undefined {
+function loadedPersonalRankingId(teammateUuid: string | undefined): string | undefined {
     for (const sectionKey of INBOX_REPORT_SECTION_KEYS) {
         const response = reportListLogic.findMounted(sectionListLogicProps(sectionKey))?.values.reportsResponse
-        if (response?.requestContext?.sortField === 'personal' && response.ranking_id) {
+        if (
+            response?.requestContext?.sortField === 'personal' &&
+            response.ranking_id &&
+            response.requestParams?.teammate_uuid === teammateUuid
+        ) {
             return response.ranking_id
         }
     }
@@ -496,6 +502,7 @@ export interface reportListLogicMeta {
             activeScoutFilter: string[],
             priorityFilter: SignalReportPriority[],
             scopeReviewerUuid: string | undefined,
+            scope: InboxScope,
             scopeAssignee: 'mine' | undefined,
             activeCreatedWindow: InboxCreatedWindow | null,
             arg: any
@@ -694,7 +701,10 @@ export const reportListLogic = kea<reportListLogicType>([
                         ...listRequestParams(params),
                         offset: 0,
                         limit: PAGE_SIZE,
-                        ranking_id: requestContext.sortField === 'personal' ? loadedPersonalRankingId() : undefined,
+                        ranking_id:
+                            requestContext.sortField === 'personal'
+                                ? loadedPersonalRankingId(params.teammate_uuid)
+                                : undefined,
                     })
                     // A newer first-page request for a changed query supersedes this one.
                     breakpoint()
@@ -849,6 +859,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 s.activeScoutFilter,
                 s.priorityFilter,
                 s.scopeReviewerUuid,
+                s.scope,
                 s.scopeAssignee,
                 s.activeCreatedWindow,
                 (_, p) => p.listParams,
@@ -861,10 +872,12 @@ export const reportListLogic = kea<reportListLogicType>([
                 scoutFilter: string[],
                 priorityFilter: import('../types').SignalReportPriority[],
                 suggestedReviewer: string | undefined,
+                scope: InboxScope,
                 assignee: 'mine' | undefined,
                 activeCreatedWindow: InboxCreatedWindow | null,
                 listParams
             ) => {
+                const teammateUuid = teammateUuidFromScope(scope)
                 return {
                     ...listParams,
                     search: appliedInboxSearch(searchQuery),
@@ -873,6 +886,9 @@ export const reportListLogic = kea<reportListLogicType>([
                     scout: scoutFilter.length > 0 ? scoutFilter.join(',') : undefined,
                     priority: priorityFilter.length > 0 ? priorityFilter.join(',') : undefined,
                     suggested_reviewers: suggestedReviewer,
+                    // `suggested_reviewers` only filters. These make `sort=personal` read the teammate's ranking.
+                    scope: teammateUuid ? 'teammate' : undefined,
+                    teammate_uuid: teammateUuid,
                     assignee,
                     created_window: activeCreatedWindow ?? undefined,
                     // Rows render from Postgres alone; `loadReportSourceMeta` fills the source line after.

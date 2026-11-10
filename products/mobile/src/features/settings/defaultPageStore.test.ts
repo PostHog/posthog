@@ -56,13 +56,13 @@ describe('default page store', () => {
         expect(effectiveDefaultPage(store.getState().page)).toBe('inbox')
     })
 
-    test('a chosen page survives a restart', async () => {
+    test.each<DefaultPage>(['views', 'web_analytics', 'live'])('a chosen %s page survives a restart', async (page) => {
         const store = await loadStore()
-        store.getState().setPage('views')
-        await waitFor(async () => expect(await AsyncStorage.getItem(STORAGE_KEY)).toContain('"views"'))
+        store.getState().setPage(page)
+        await waitFor(async () => expect(await AsyncStorage.getItem(STORAGE_KEY)).toContain(`"${page}"`))
 
         const restarted = await loadStore()
-        expect(restarted.getState().page).toBe('views')
+        expect(restarted.getState().page).toBe(page)
     })
 
     test.each<[string, unknown]>([
@@ -111,6 +111,6 @@ describe('default page store', () => {
     })
 
     test('every page maps to a tab route', () => {
-        expect(DEFAULT_PAGES.map(defaultPageHref)).toEqual(['/inbox', '/chats', '/views'])
+        expect(DEFAULT_PAGES.map(defaultPageHref)).toEqual(['/inbox', '/chats', '/views', '/web-analytics', '/live'])
     })
 })

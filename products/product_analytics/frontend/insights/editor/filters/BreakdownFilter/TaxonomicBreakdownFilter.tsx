@@ -2,7 +2,9 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { ReactElement } from 'react'
 
 import { IconGear, IconPencil } from '@posthog/icons'
+import { Separator } from '@posthog/quill'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -70,6 +72,7 @@ export function TaxonomicBreakdownFilter({
     } = useValues(taxonomicBreakdownFilterLogic(logicProps))
     const { toggleBreakdownOptions } = useActions(taxonomicBreakdownFilterLogic(logicProps))
     const { hogQL, canEditInSqlEditor } = useValues(insightDataLogic(insightProps))
+    const quillSurface = useQuillSurface()
 
     const breakdownDocsUrl =
         taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
@@ -164,11 +167,19 @@ export function TaxonomicBreakdownFilter({
                     size={size}
                 />
             </div>
-            {showInlineOptions && isMultipleBreakdownsEnabled && hasGlobalBreakdownOptions && (
-                <div className="mt-2 border-t pt-2">
-                    <GlobalBreakdownOptionsMenu />
-                </div>
-            )}
+            {showInlineOptions &&
+                isMultipleBreakdownsEnabled &&
+                hasGlobalBreakdownOptions &&
+                (quillSurface ? (
+                    <div className="mt-2 flex flex-col gap-2">
+                        <Separator />
+                        <GlobalBreakdownOptionsMenu />
+                    </div>
+                ) : (
+                    <div className="mt-2 border-t pt-2">
+                        <GlobalBreakdownOptionsMenu />
+                    </div>
+                ))}
         </BindLogic>
     )
 }
