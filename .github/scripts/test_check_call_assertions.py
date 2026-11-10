@@ -88,9 +88,11 @@ def run_check(diff: str, tmp_path: Path) -> dict[str, str]:
             + diff_for("nodejs/src/cdp/thing.spec.ts", "+    expect(b).toHaveBeenCalled()")
             + diff_for("posthog/conftest.py", "+    assert send.call_count == 1")
             + diff_for("ee/billing/thing_test.py", "+    send.assert_called()")
-            + diff_for("products/x/stats/tests.py", "+    send.assert_called()"),
+            + diff_for("products/x/stats/tests.py", "+    send.assert_called()")
+            + 'diff --git "a/posthog/test/test_\\303\\251.py" "b/posthog/test/test_\\303\\251.py"\n'
+            + "@@ -0,0 +1 @@\n+    send.assert_called()\n",
             "warn",
-            "6 added test lines assert on mock calls (Δ +6 vs base)",
+            "7 added test lines assert on mock calls (Δ +7 vs base)",
             id="every-test-file-layout-is-measured",
         ),
         pytest.param(

@@ -15,13 +15,11 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import re
 import sys
-import uuid
 from dataclasses import dataclass, field
 
-from check_comment_density import markdown_cell
+from check_comment_density import markdown_cell, write_github_outputs
 
 TOP_FILES = 8
 
@@ -73,7 +71,7 @@ def analyze(diff_text: str) -> Report:
 
     for raw in diff_text.splitlines():
         if raw.startswith("diff --git "):
-            path = raw.split(" b/", 1)[-1]
+            path = re.split(r' "?b/', raw, maxsplit=1)[-1].rstrip('"')
             stats = FileStats(path) if TEST_FILE.search(path) else None
             in_hunk = False
             continue
@@ -130,24 +128,9 @@ def render_body(report: Report) -> str:
     return "\n".join(lines)
 
 
-def write_outputs(report: Report) -> None:
-    summary = render_summary(report)
-    body = render_body(report)
-    output_path = os.environ.get("GITHUB_OUTPUT")
-    if not output_path:
-        print(f"status={report.status} {summary}")
-        print(body)
-        return
-    delimiter = f"EOF-{uuid.uuid4()}"
-    with open(output_path, "a") as fh:
-        fh.write(f"status={report.status}\n")
-        fh.write(f"summary={summary}\n")
-        fh.write(f"body<<{delimiter}\n{body}\n{delimiter}\n")
-    print(f"status={report.status} {summary}")
-
-
 def main() -> int:
-    write_outputs(analyze(sys.stdin.read()))
+    report = analyze(sys.stdin.read())
+    write_github_outputs(report.status, render_summary(report), render_body(report))
     return 0
 
 
