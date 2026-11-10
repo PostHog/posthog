@@ -4,6 +4,7 @@ import { register } from 'prom-client'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { Hub } from '~/types'
 
 import { RateLimiterService } from './rate-limiter.service'
@@ -251,8 +252,6 @@ describe('RateLimiterService', () => {
             ['a fraction', 0, 1.5],
             ['an expiry past Redis range', 1, 1e16],
         ])('charges no bucket when a TTL is %s that EXPIRE rejects', async (_case, badIndex, ttlSeconds) => {
-            // Redis keeps the writes of a script that fails partway, so a TTL rejected only when
-            // an earlier bucket is already charged would leave it charged and without an expiry.
             const first = { key: `${KEY}/across/first`, requested: 1, capacity: 5, refillPerSecond: 0 }
             const second = { key: `${KEY}/across/second`, requested: 1, capacity: 5, refillPerSecond: 0 }
             const reqs = [first, second].map((req, i) => (i === badIndex ? { ...req, ttlSeconds } : req))
@@ -260,6 +259,21 @@ describe('RateLimiterService', () => {
             expect(claim).toBe('unavailable')
             expect(await limiter.claimUpTo({ ...first, requested: 5 })).toBe(5)
             expect(await limiter.claimUpTo({ ...second, requested: 5 })).toBe(5)
+        })
+
+        it('grants again once every exhausted bucket refills', async () => {
+            const reqs = [
+                { key: `${KEY}/across/refill-first`, requested: 1, capacity: 1, refillPerSecond: 50 },
+                { key: `${KEY}/across/refill-second`, requested: 1, capacity: 1, refillPerSecond: 50 },
+            ]
+            expect(await limiter.claimAllOrNothingAcross(reqs)).toBe('granted')
+            expect(await limiter.claimAllOrNothingAcross(reqs)).toBe('denied')
+
+            await waitForExpect(
+                async () => expect(await limiter.claimAllOrNothingAcross(reqs)).toBe('granted'),
+                2_000,
+                10
+            )
         })
     })
 

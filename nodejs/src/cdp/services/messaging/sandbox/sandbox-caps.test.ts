@@ -85,9 +85,7 @@ describe('claimSandboxCaps', () => {
     })
 
     it.each([
-        // A full project must not spend the member's allowance, which the organization's other projects share.
         ['project', { team: 1, recipient: 2 }, 'member@example.com', 1],
-        // A member at their cap must not spend the project's allowance for its other members.
         ['recipient', { team: 2, recipient: 1 }, 'other@example.com', 0],
     ])('charges neither bucket when the %s bucket is full', async (_full, caps, nextAddress, teamOffset) => {
         await claim(caps, 'member@example.com')
@@ -102,7 +100,6 @@ describe('claimSandboxCaps', () => {
             (await redis.useClient({ name: 'find-project-bucket' }, (client) =>
                 client.keys(`@posthog/sandbox-email/*project/${teamId}`)
             )) ?? []
-        // A project bucket that is not a hash fails the claim after the recipient bucket is read.
         await redis.useClient({ name: 'corrupt-project-bucket' }, (client) => client.set(projectKey, 'not a bucket'))
 
         expect(await claim({ team: 5, recipient: 1 }, 'member@example.com')).toEqual({

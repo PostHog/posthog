@@ -11,6 +11,7 @@ import { SandboxRecipientCheckRequest, checkSandboxRecipient } from './sandbox-r
 
 describe('checkSandboxRecipient', () => {
     let postgres: PostgresRouter
+    let unreachable: PostgresRouter
     let suppression: EmailSuppressionService
     let recipients: RecipientsManagerService
     let teamId: number
@@ -42,18 +43,17 @@ describe('checkSandboxRecipient', () => {
             'test:store-recipient-preferences'
         )
 
-    const failQuery = (tag: string) => {
-        const realQuery = postgres.query.bind(postgres)
-        jest.spyOn(postgres, 'query').mockImplementation(((...args: Parameters<typeof realQuery>) =>
-            args[3] === tag ? Promise.reject(new Error('connection lost')) : realQuery(...args)) as typeof realQuery)
-    }
-
     beforeAll(() => {
         postgres = new PostgresRouter(defaultConfig)
+        unreachable = new PostgresRouter({
+            ...defaultConfig,
+            DATABASE_URL: 'postgres://posthog:posthog@127.0.0.1:1/posthog',
+            DATABASE_READONLY_URL: '',
+        })
     })
 
     afterAll(async () => {
-        await postgres.end()
+        await Promise.all([postgres.end(), unreachable.end()])
     })
 
     beforeEach(async () => {
@@ -63,10 +63,6 @@ describe('checkSandboxRecipient', () => {
         recipients = new RecipientsManagerService(postgres)
         frequencyCap = { capped: false }
         optOuts = []
-    })
-
-    afterEach(() => {
-        jest.restoreAllMocks()
     })
 
     it('admits a recipient with no suppression, opt-out, or cap', async () => {
@@ -106,12 +102,20 @@ describe('checkSandboxRecipient', () => {
         expect(await check(request)).toEqual({ ok: false, reason })
     })
 
-    it.each<[string, string, Partial<SandboxRecipientCheckRequest>]>([
-        ['the opt-out lookup', 'fetchCDPRecipients', {}],
-        ['the suppression lookup', 'loadSuppressed', {}],
-        ['the suppression lookup on a transactional step', 'loadSuppressed', { categoryType: 'transactional' }],
-    ])('blocks for a retry when %s fails', async (_case, failingQuery, request) => {
-        failQuery(failingQuery)
+    it.each<[string, () => unknown, Partial<SandboxRecipientCheckRequest>]>([
+        ['the opt-out lookup', () => (recipients = new RecipientsManagerService(unreachable)), {}],
+        [
+            'the suppression lookup',
+            () => (suppression = new EmailSuppressionService(unreachable, { transientBounceThreshold: 5 })),
+            {},
+        ],
+        [
+            'the suppression lookup on a transactional step',
+            () => (suppression = new EmailSuppressionService(unreachable, { transientBounceThreshold: 5 })),
+            { categoryType: 'transactional' },
+        ],
+    ])('blocks for a retry when %s fails', async (_case, arrange, request) => {
+        arrange()
         expect(await check(request)).toEqual({ ok: false, reason: 'authorization_unavailable' })
     })
 
