@@ -29,8 +29,6 @@ const SANDBOX_SENDER_TABLES = `
         created_at timestamptz NOT NULL
     )`
 
-// The test database gains these tables from the workflows migration once it is on master. Until then the test
-// creates them, and drops them again so a later migrate can still create them.
 const createMissingSandboxSenderTables = async (postgres: PostgresRouter): Promise<() => Promise<void>> => {
     const { rows } = await postgres.query(
         PostgresUse.COMMON_WRITE,
