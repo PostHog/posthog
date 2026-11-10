@@ -38,6 +38,7 @@ export function ReloadAll({ iconOnly }: { iconOnly?: boolean }): JSX.Element {
     const { areAnyLoading } = useValues(dataNodeCollectionLogic)
     const { reloadAll } = useActions(dataNodeCollectionLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const loadingReason = areAnyLoading ? 'Loading data. You can reload when it finishes.' : undefined
 
     if (todayRailNav) {
         return (
@@ -47,7 +48,7 @@ export function ReloadAll({ iconOnly }: { iconOnly?: boolean }): JSX.Element {
                 onClick={reloadAll}
                 loading={areAnyLoading}
                 aria-label={iconOnly ? 'Reload' : undefined}
-                tooltip={iconOnly ? 'Reload' : undefined}
+                tooltip={loadingReason ?? (iconOnly ? 'Reload' : undefined)}
             >
                 <IconRefresh />
                 {!iconOnly && 'Reload'}
@@ -62,7 +63,7 @@ export function ReloadAll({ iconOnly }: { iconOnly?: boolean }): JSX.Element {
             onClick={reloadAll}
             // Setting the loading icon manually to capture clicks while spinning.
             icon={areAnyLoading ? <Spinner textColored /> : <IconRefresh />}
-            disabledReason={areAnyLoading ? 'Loading' : undefined}
+            disabledReason={loadingReason}
         >
             {!iconOnly && 'Reload'}
         </LemonButton>
