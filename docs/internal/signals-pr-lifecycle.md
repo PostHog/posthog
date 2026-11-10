@@ -23,7 +23,7 @@ An explicit PR state takes precedence over that fallback.
 A person can resolve a report by recording a manual implementation or a useful finding that needs no action. Feedback from the state API, Slack, PR closures, report merges, refunds, and plan rollups saves its verdict so the activity log distinguishes resolutions from dismissals even after later state changes. Feedback predating recorded verdicts uses a neutral activity label.
 The `no_action_needed` reason requires a resolved state. It leaves the report resolved, cancels its open follow-up checks, and is excluded from fixed outcomes in inbox ranking. Manual resolution closes an open implementation PR; the resulting GitHub close event preserves the resolved report status.
 
-PR refunds require `signals-pr-refunds` and are unavailable to organizations with `self-driving-ubp` enabled. The inbox hides the refund action for those organizations, and the refund API returns HTTP 403 before changing the report or creating a refund. If the pricing flag cannot be evaluated, the API returns HTTP 503 so the caller can retry without changing the report or creating a refund. Only a confirmed disabled `self-driving-ubp` result permits the existing refund eligibility rules to run. The refund badge displays the amount returned toward the next invoice as AI credits, at 100 credits per dollar, rounded to the nearest whole credit; a confirmed zero refund remains zero, and a pending refund remains pending.
+PR refunds require `signals-pr-refunds` and are unavailable to organizations with `self-driving-ubp` enabled. The inbox hides the refund action for those organizations, and the refund API returns HTTP 403 before changing the report or creating a refund. If the pricing flag cannot be evaluated, the API returns HTTP 503 so the caller can retry without changing the report or creating a refund. Only a confirmed disabled `self-driving-ubp` result permits the existing refund eligibility rules to run. An organization whose usage-based billing starts at a later date counts as disabled until that date. The refund badge displays the amount returned toward the next invoice as AI credits, at 100 credits per dollar, rounded to the nearest whole credit; a confirmed zero refund remains zero, and a pending refund remains pending.
 
 Monitoring means implementation is complete and outcome verification is pending. With Monitoring enabled, Resolved means the report is finished and runs no follow-up checks. The organization-level `signals-report-monitoring` gate requires explicit enablement, including in local development, and treats missing definitions or evaluation failures as disabled. With Monitoring disabled, PR merges retain legacy resolution transitions, including archived reports.
 
@@ -643,6 +643,7 @@ Its `needs_decision` API view also includes actionable ready or pending-input re
 Triage warns before a verdict closes an open implementation PR.
 New failed reports consume a daily inbox slot when they first become visible.
 Existing failed reports without a visibility timestamp remain historical backlog; they do not consume the rollout day's slots.
+Signal admission checks the daily report limit before billable processing. Accepted signals finish buffering, report generation, and automatic implementation even if the limit is reached meanwhile. This can take the day's count above the configured limit; new work remains blocked. The configured limit, visibility-based count, and project-local day boundary are unchanged.
 The desktop eligibility change must ship separately after this backend transition is deployed.
 A suppressed report can resolve if its prior status was `ready`, `pending_input`, `failed`, or `resolved`.
 
@@ -694,3 +695,12 @@ The web report's Runs section lists linked tasks newest first, regardless of the
 
 When a report has a linked task run, the View task button opens it in the PostHog AI sidebar.
 The button fits its label, including when it appears below the Solution section.
+
+Trial-funded background runs require the PostHog AI gateway.
+Pi scouts, including the first-report DeepSeek arm, use the scoped gateway path and retain trial spend accounting.
+They cannot start without a scoped gateway token; a transient mint failure retries provisioning without falling back to unaccounted execution.
+Pi runs outside scouts and own-subscription model access are refused before a run is created, with instructions to choose Claude Code or Codex with PostHog model access.
+The check uses the effective runtime and model access after defaults are applied, including for a prepared trial admission.
+The provisioning guard also treats this refusal as an expected failure, so an incompatible run already queued before the admission check fails without reporting an exception to error tracking.
+Other funding modes keep their existing runtime and model access rules.
+First-report completion returns an incomplete outcome without a notification when admission failed before the scout run was created.

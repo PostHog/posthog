@@ -29,7 +29,7 @@ WAIT = "__wait__"
 # A turn's gateway trace id in the W3C form that the turn-complete event carries.
 TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
 
-SLACK_CTX = {"integration_id": 1, "channel": "C1", "thread_ts": "1.0", "mentioning_slack_user_id": "U1"}
+SLACK_CTX = {"team_id": 1, "integration_id": 1, "channel": "C1", "thread_ts": "1.0", "mentioning_slack_user_id": "U1"}
 
 CHECKING = [("agent_text_delta", "Checking."), ("agent_status_update", {"phase": "posthog:Execute SQL query"})]
 

@@ -213,8 +213,7 @@ describe('accountNotesViewsLogic', () => {
         expect(mockDelete).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'view-1')
         expect(logic.values.views).toEqual([])
         expect(logic.values.currentViewId).toBeNull()
-        // Deleting keeps the filters in place; only the selection goes.
-        expect(accountNotesLogic.values.ordering).toBe('-created_at')
+        expect(accountNotesLogic.values.viewState).toEqual(accountNotesLogic.values.defaultViewState)
     })
 
     describe('keyed to an account notes tile', () => {
@@ -258,7 +257,42 @@ describe('accountNotesViewsLogic', () => {
             tileLogic.actions.setTagsFilter([])
             await expectLogic(tileLogic).toFinishAllListeners()
             expect(tileViewsLogic.values.isDirty).toBe(true)
+
+            tileViewsLogic.unmount()
+            tileViewsLogic = accountNotesViewsLogic({ sourceKey: tileLogic.pathString, sourceLogic: tileLogic })
+            tileViewsLogic.mount()
+            await expectLogic(tileViewsLogic).toFinishAllListeners()
+            expect(tileViewsLogic.values.currentViewId).toBe('view-1')
+            expect(tileViewsLogic.values.isDirty).toBe(true)
         })
+
+        it.each(['account_name', '-account_name'])(
+            'preserves team-only ordering %s when an account applies and updates a view',
+            async (ordering) => {
+                const view = buildView({ order_by: [ordering] })
+                tileViewsLogic.actions.loadViewsSuccess([view])
+                tileViewsLogic.actions.selectView(view.id)
+                await expectLogic(tileLogic).toFinishAllListeners()
+                expect(tileLogic.values.sorting).toEqual({ columnKey: 'created_at', order: -1 })
+                expect(tileViewsLogic.values.isDirty).toBe(false)
+                tileLogic.actions.setTagsFilter(['call'])
+                mockUpdate.mockResolvedValue(
+                    buildView({
+                        order_by: [ordering],
+                        filters: { ...deserializeAccountNotesView(view).filters, tags: ['call'] },
+                    })
+                )
+                await expectLogic(tileViewsLogic, () =>
+                    tileViewsLogic.actions.updateView({ id: view.id, updates: {} })
+                ).toDispatchActions(['updateViewSuccess'])
+                expect(mockUpdate).toHaveBeenLastCalledWith(
+                    String(MOCK_DEFAULT_TEAM.id),
+                    view.id,
+                    expect.objectContaining({ order_by: [ordering] })
+                )
+                expect(tileViewsLogic.values.isDirty).toBe(false)
+            }
+        )
 
         it('saves a new view from the tile filters', async () => {
             await expectLogic(tileViewsLogic).toFinishAllListeners()
@@ -287,6 +321,15 @@ describe('accountNotesViewsLogic', () => {
                 },
             })
             expect(tileViewsLogic.values.currentViewId).toBe('view-3')
+            const restored = accountNotebooksLogic({ accountId: 'acc-2', initialConfig: tileLogic.values.tileConfig })
+            restored.mount()
+            try {
+                await expectLogic(restored).toFinishAllListeners()
+                expect(restored.values.currentViewId).toBe('view-3')
+                expect(restored.values.tagsFilter).toEqual(['calls'])
+            } finally {
+                restored.unmount()
+            }
         })
 
         it('"All notes" clears the tile back to newest first, its own default', async () => {
@@ -385,12 +428,22 @@ describe('what a view saves', () => {
         })
     })
 
-    it('marks the account and assignee filters as team-tab only inside an account', () => {
-        const summary = describeAccountNotesView(state, memberName, 'account')
+    it.each(['-title', 'account_name'] as const)(
+        'marks team-only filters and ordering %s inside an account',
+        (ordering) => {
+            const summary = describeAccountNotesView({ ...state, ordering }, memberName, 'account')
 
-        expect(summary.applied).not.toContain('Account: Acme Example')
-        expect(summary.teamTabOnly).toEqual(['Account: Acme Example', 'Assigned to: Kaya'])
-    })
+            expect(summary.applied).not.toContain('Account: Acme Example')
+            expect(summary.teamTabOnly).toEqual([
+                'Account: Acme Example',
+                'Assigned to: Kaya',
+                ...(ordering === 'account_name' ? ['Sort: Account, A to Z'] : []),
+            ])
+            expect(summary.applied).toContain(
+                ordering === 'account_name' ? 'Sort: Created, newest first' : 'Sort: Title, Z to A'
+            )
+        }
+    )
 
     it('describes an empty view as just its sort', () => {
         const empty = deserializeAccountNotesView(buildView({ filters: {}, order_by: ['-created_at'] }))
