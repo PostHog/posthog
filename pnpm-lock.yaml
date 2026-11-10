@@ -2808,9 +2808,15 @@ importers:
       '@trivago/prettier-plugin-sort-imports':
         specifier: ^5.2.2
         version: 5.2.2(prettier@3.6.2)(supports-color@10.2.2)
+      '@types/ioredis':
+        specifier: ^4.26.4
+        version: 4.28.10
       '@types/jest':
         specifier: ^30.0.0
         version: 30.0.0
+      '@types/libsodium-wrappers':
+        specifier: ^0.7.14
+        version: 0.7.14
       '@types/long':
         specifier: 4.x.x
         version: 4.0.2
