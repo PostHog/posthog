@@ -7,7 +7,7 @@ from posthog.api.shared import SearchMatchTypeSerializerMixin
 
 from products.alerts.backend.presentation.views.alert import AlertSerializer
 from products.cdp.backend.api.hog_function import HogFunctionMinimalSerializer, HogFunctionSerializer
-from products.dashboards.backend.api.dashboard import DashboardBasicSerializer
+from products.dashboards.backend.presentation.views.dashboard import DashboardBasicSerializer
 from products.product_analytics.backend.presentation.insight import InsightBasicSerializer, InsightSerializer
 from products.product_tours.backend.api.product_tour import ProductTourSerializer
 from products.surveys.backend.api.survey import SurveySerializer

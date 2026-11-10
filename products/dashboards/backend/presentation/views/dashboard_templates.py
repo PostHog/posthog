@@ -1,6 +1,4 @@
-import json
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any, NoReturn, cast
 from uuid import UUID
 
@@ -33,9 +31,10 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import str_to_bool
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.api.dashboard import DashboardCustomizationSerializer
 from products.dashboards.backend.customization import validate_template_groups
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.presentation.dashboard_template_json_schema_parser import dashboard_template_schema
+from products.dashboards.backend.presentation.views.dashboard import DashboardCustomizationSerializer
 
 logger = structlog.get_logger(__name__)
 
@@ -50,10 +49,6 @@ _NON_STAFF_ALLOWED_SCOPES = frozenset({DashboardTemplate.Scope.ONLY_TEAM, Dashbo
 def _non_staff_allowed_scopes_display() -> str:
     """Human-readable list of scopes non-staff editors may set, derived from `_NON_STAFF_ALLOWED_SCOPES`."""
     return " or ".join(sorted(str(scope.value) for scope in _NON_STAFF_ALLOWED_SCOPES))
-
-
-# load dashboard_template_schema.json
-dashboard_template_schema = json.loads((Path(__file__).parent / "dashboard_template_schema.json").read_text())
 
 
 def organization_dashboard_template_limit_detail() -> str:

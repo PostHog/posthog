@@ -1,9 +1,9 @@
 """Re-export surface for dashboard widget OpenAPI serializers.
 
 Typed widget PATCH/batch/catalog schemas are built in ``widget_specs/openapi.py``
-from Pydantic config models. This module keeps ``dashboard.api`` and spectacular
-registration imports stable without reaching into ``widget_specs`` from the API
-package.
+from Pydantic config models. This module keeps ``presentation.views.dashboard`` and
+spectacular registration imports stable without reaching into ``widget_specs`` from
+the viewset modules.
 """
 
 from products.dashboards.backend.widget_specs.openapi import (

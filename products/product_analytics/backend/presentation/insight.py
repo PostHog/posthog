@@ -165,7 +165,6 @@ from products.dashboards.backend.facade.api import (
     CannotAddToDashboard,
     CannotRemoveFromDashboard,
     DashboardNotFound,
-    DashboardTileBasicSerializer,
     InsightTilePlacement,
     check_insight_tile_limit,
     dashboard_refs,
@@ -182,6 +181,7 @@ from products.dashboards.backend.facade.api import (
     unknown_dashboard_ids,
     update_insight_dashboard_membership,
 )
+from products.dashboards.backend.presentation.serializers import DashboardTileBasicSerializer
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,

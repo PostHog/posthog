@@ -25,8 +25,6 @@ from typing import TYPE_CHECKING, Any
 from django.db.models import Exists, OuterRef, Prefetch, QuerySet
 from django.utils.timezone import now
 
-from rest_framework import serializers
-
 from posthog.models.user import User
 from posthog.models.user_home_settings import UserHomeSettings
 from posthog.resource_limits import LimitKey, check_count_limit
@@ -56,19 +54,6 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
     from products.product_analytics.backend.facade.models import Insight
-
-
-# The tile shape an insight payload carries for each dashboard it sits on. No docstring: it would
-# land in the generated OpenAPI component as a description.
-class DashboardTileBasicSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = DashboardTile
-        fields = ["id", "dashboard_id", "deleted"]
-        extra_kwargs = {
-            "id": {"help_text": "ID of the dashboard tile."},
-            "dashboard_id": {"help_text": "ID of the dashboard the tile sits on."},
-            "deleted": {"help_text": "Whether the tile was removed from the dashboard."},
-        }
 
 
 def _refs_in_given_order(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
@@ -814,7 +799,6 @@ __all__ = [
     "DashboardNotViewable",
     "DashboardRef",
     "DashboardSummary",
-    "DashboardTileBasicSerializer",
     "InsightTilePlacement",
     "MembershipChange",
     "PlacedInsightTile",

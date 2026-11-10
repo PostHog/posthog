@@ -21,7 +21,7 @@ For a public share, check every field in the response and every UI action.
 - Keep the shared cache clamp. Anonymous demand must not trigger expensive recomputation.
 - Test an error response. Error serialization must not reveal fields that normal shared serialization hides.
 
-`DashboardTileSerializer`, `SharedDashboardWidgetMetadataSerializer`, and `DashboardTileErrorSerializer` in `products/dashboards/backend/api/dashboard.py` define important response boundaries.
+`DashboardTileSerializer`, `SharedDashboardWidgetMetadataSerializer`, and `DashboardTileErrorSerializer` in `products/dashboards/backend/presentation/views/dashboard.py` define important response boundaries.
 
 ## Embedded dashboards
 

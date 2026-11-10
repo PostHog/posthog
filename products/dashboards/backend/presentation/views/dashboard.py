@@ -129,22 +129,6 @@ from products.access_control.backend.presentation.access_control import (
 from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_access, record_dashboard_view
-from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
-    DashboardTemplateCreationJSONSchemaParser,
-)
-from products.dashboards.backend.api.widget_openapi_serializers import (
-    DASHBOARD_TILE_GROUP_DEFAULTS,
-    GROUP_TITLES_HELP_TEXT,
-    GROUPS_HELP_TEXT,
-    WIDGET_BATCH_ADD_OPENAPI_HELP,
-    AddDashboardWidgetRequestOpenApi,
-    BreakdownColorConfigSerializer,
-    DashboardTileGroupSerializer,
-    DashboardWidgetConfigField,
-    PatchedDashboardOpenApiSerializer,
-    UpdateDashboardWidgetRequestOpenApi,
-    WidgetCatalogResponseSerializer,
-)
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
     MAX_GROUP_KEY_LENGTH,
@@ -166,12 +150,7 @@ from products.dashboards.backend.customization import (
     validated_group_keys,
     without_default_settings,
 )
-from products.dashboards.backend.facade.api import (
-    CannotAddToDashboard,
-    DashboardTileBasicSerializer,
-    add_insight_to_dashboard,
-    tile_ids_prefetch,
-)
+from products.dashboards.backend.facade.api import CannotAddToDashboard, add_insight_to_dashboard, tile_ids_prefetch
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
@@ -180,6 +159,23 @@ from products.dashboards.backend.models.dashboard import (
 )
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, DashboardTileBadge, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+from products.dashboards.backend.presentation.dashboard_template_json_schema_parser import (
+    DashboardTemplateCreationJSONSchemaParser,
+)
+from products.dashboards.backend.presentation.serializers import DashboardTileBasicSerializer
+from products.dashboards.backend.presentation.widget_openapi_serializers import (
+    DASHBOARD_TILE_GROUP_DEFAULTS,
+    GROUP_TITLES_HELP_TEXT,
+    GROUPS_HELP_TEXT,
+    WIDGET_BATCH_ADD_OPENAPI_HELP,
+    AddDashboardWidgetRequestOpenApi,
+    BreakdownColorConfigSerializer,
+    DashboardTileGroupSerializer,
+    DashboardWidgetConfigField,
+    PatchedDashboardOpenApiSerializer,
+    UpdateDashboardWidgetRequestOpenApi,
+    WidgetCatalogResponseSerializer,
+)
 from products.dashboards.backend.run_insights_output import (
     bound_formatted_result,
     parse_max_result_chars,
@@ -1262,7 +1258,7 @@ class InsightResultSerializer(InsightSerializer):
 
 
 class InsightResultSerializerExtension(OpenApiSerializerExtension):
-    target_class = "products.dashboards.backend.api.dashboard.InsightResultSerializer"
+    target_class = "products.dashboards.backend.presentation.views.dashboard.InsightResultSerializer"
 
     def map_serializer(self, auto_schema: AutoSchema, direction: Direction) -> dict[str, Any]:
         schema: dict[str, Any] = auto_schema._map_serializer(self.target, direction, bypass_extensions=True)

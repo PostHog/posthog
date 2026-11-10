@@ -3,7 +3,7 @@ from rest_framework import serializers
 
 from posthog.schema import DashboardFilter
 
-from products.dashboards.backend.api.test.dashboard_openapi_test_helpers import (
+from products.dashboards.backend.tests.api.dashboard_openapi_test_helpers import (
     dashboard_patch_runtime_openapi_field_names,
 )
 from products.dashboards.backend.widget_specs.openapi import PatchedDashboardOpenApiSerializer

@@ -8,7 +8,7 @@ from posthog.models.user import User
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 
-# Lives here, not in api/dashboard.py, so these can wire at AppConfig.ready() without dragging the
+# Lives here, not in presentation/views/dashboard.py, so these can wire at AppConfig.ready() without dragging the
 # dashboard viewset (which pulls scipy via the error-tracking widget query runners) onto the
 # django.setup() path. Dashboards are mutated outside web requests, so the audit log must connect
 # in every process.

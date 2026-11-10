@@ -125,10 +125,10 @@ Run the focused tests for each edited layer. Then run the relevant checks from [
 
 | Concern                                                                 | Start here                                                                                                             |
 | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Dashboard API, serializers, tile operations, insight and widget runners | `products/dashboards/backend/api/dashboard.py`                                                                         |
+| Dashboard API, serializers, tile operations, insight and widget runners | `products/dashboards/backend/presentation/views/dashboard.py`                                                          |
 | Dashboard model and tile model                                          | `products/dashboards/backend/models/dashboard.py`, `models/dashboard_tile.py`                                          |
 | Sharing routes                                                          | `products/dashboards/backend/routes.py`                                                                                |
-| Templates                                                               | `products/dashboards/backend/api/dashboard_templates.py`, `models/dashboard_templates.py`                              |
+| Templates                                                               | `products/dashboards/backend/presentation/views/dashboard_templates.py`, `models/dashboard_templates.py`               |
 | Main scene, state, refresh, and layout persistence                      | `frontend/src/scenes/dashboard/Dashboard.tsx`, `dashboardLogic.tsx`, `products/dashboards/frontend/DashboardItems.tsx` |
 | Layout geometry and tile size constraints                               | `products/dashboards/frontend/tileLayouts.ts`, `frontend/src/scenes/dashboard/dashboardUtils.ts`                       |
 | Shared and export rendering                                             | `frontend/src/exporter/scenes/ExporterDashboardScene.tsx`, `frontend/src/exporter/Exporter.tsx`                        |

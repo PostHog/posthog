@@ -27,7 +27,6 @@ from posthog.slo.types import SloOperation, SloOutcome
 from posthog.test.persons import create_person
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
-from products.dashboards.backend.api import widget_openapi_serializers as widget_openapi_serializers_module
 from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_DEFAULT_LIMIT,
     ACTIVITY_EVENTS_MAX_LIMIT,
@@ -39,6 +38,7 @@ from products.dashboards.backend.constants import (
     MAX_WIDGET_RESULT_LIMIT,
     MAX_WIDGETS_BATCH_SIZE,
 )
+from products.dashboards.backend.presentation import widget_openapi_serializers as widget_openapi_serializers_module
 from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
 from products.dashboards.backend.widget_specs.configs import (

@@ -3,7 +3,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import serializers
 
-from products.dashboards.backend.api.dashboard import DashboardSerializer
+from products.dashboards.backend.presentation.views.dashboard import DashboardSerializer
 
 
 class TestDashboardFiltersValidation(SimpleTestCase):
