@@ -57,12 +57,16 @@ ORGANIZATION_BLOCKED = "This organization can't use the sandbox sender. Verify a
 
 def set_up_sandbox_sender(team: Team, user: User) -> IntegrationRecord:
     """The team's sandbox sender, set up on the first call. Raise when the team may not use it."""
+    check_sandbox_sender_available(team, user)
+    return provision_sandbox_sender(team, user)
+
+
+def check_sandbox_sender_available(team: Team, user: User) -> None:
     status = sandbox_sender_status(team, user)
     if not status.adoption_enabled:
         raise SandboxSenderUnavailable(ADOPTION_UNAVAILABLE)
     if status.organization_blocked:
         raise SandboxSenderUnavailable(ORGANIZATION_BLOCKED)
-    return provision_sandbox_sender(team, user)
 
 
 def has_verified_own_sender(team_id: int) -> bool:

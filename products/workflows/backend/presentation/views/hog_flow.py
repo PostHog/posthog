@@ -272,11 +272,12 @@ from products.workflows.backend.facade.sandbox_email import (
     SANDBOX_EMAIL_ACTION_TYPE,
     SandboxSenderUnavailable,
     can_default_to_sandbox,
+    check_sandbox_sender_available,
     has_verified_own_sender,
     is_verified_own_sender,
     own_only_settings,
+    provision_sandbox_sender,
     sandbox_adoption_enabled,
-    set_up_sandbox_sender,
     to_own_email_action,
     to_sandbox_action,
     valid_sandbox_action_id,
@@ -1072,6 +1073,7 @@ def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, contex
     user = getattr(context.get("request"), "user", None)
     if (
         not isinstance(actions, list)
+        or not context.get("default_new_email_steps_to_sandbox")
         or context.get("event_source") in (None, EventSource.WEB)
         or get_team is None
         or not isinstance(user, User)
@@ -1098,17 +1100,37 @@ def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, contex
     if has_verified_own_sender(team.id) or not _can_set_up_sandbox_sender(team, user):
         return data
     try:
-        set_up_sandbox_sender(team, user)
+        check_sandbox_sender_available(team, user)
     except SandboxSenderUnavailable:
         return data
     converted = list(actions)
+    moved = False
     for index in new_steps:
-        step = deepcopy(actions[index])
-        _apply_email_template_content(step["config"], team, False, context)
-        if step["config"].get("template_uuid") and not _has_email_body(step):
-            continue
-        converted[index] = to_sandbox_action(step)
+        step = _with_saved_template_content(actions[index], team, context)
+        if step is not None:
+            converted[index] = to_sandbox_action(step)
+            moved = True
+    if not moved:
+        return data
+    provision_sandbox_sender(team, user)
     return {**data, "actions": converted}
+
+
+def _with_saved_template_content(action: dict, team: Team, context: dict) -> Optional[dict]:
+    """A copy of the step with its saved template's content filled in, or None when the reference doesn't
+    resolve, so the step stays as sent and normal validation reports it."""
+    step = deepcopy(action)
+    config = step["config"]
+    try:
+        _apply_fixed_template_id(
+            config, config.get("template_id") or "", _FIXED_TEMPLATE_IDS["function_email"], strict=False
+        )
+    except serializers.ValidationError:
+        return None
+    _apply_email_template_content(config, team, False, context)
+    if config.get("template_uuid") and not _has_email_body(step):
+        return None
+    return step
 
 
 def _can_set_up_sandbox_sender(team: Team, user: User) -> bool:
@@ -5480,6 +5502,7 @@ class HogFlowViewSet(
         # command). See _should_validate_strictly.
         context = super().get_serializer_context()
         context["event_source"] = get_event_source(self.request)
+        context["default_new_email_steps_to_sandbox"] = True
         if self._workflow_last_runs is not None:
             context["workflow_last_runs"] = self._workflow_last_runs
         if self._proposals_hog_flow is not None:
@@ -6088,7 +6111,7 @@ class HogFlowViewSet(
         # Authorize + team-scope via the normal lookup; the service re-reads FOR UPDATE inside the transaction.
         unlocked = self._edit_state()
         if sender == "sandbox":
-            self._set_up_sandbox_sender(request)
+            self._check_sandbox_sender_available(request)
         if sender == "own" and not is_verified_own_sender(self.team.id, _patched_sender_id(email_patch)):
             raise exceptions.ValidationError(
                 {
@@ -6119,6 +6142,8 @@ class HogFlowViewSet(
                 sender=sender,
                 drop_own_sender_settings=drop_own_sender_settings,
             )
+            if sender == "sandbox":
+                provision_sandbox_sender(self.team, cast(User, request.user))
             return self._validate_locked_content(state, {"actions": new_actions}, enforce_graph_structure=True)
 
         # Same staleness and draft contract as /graph, but no action-redirect refresh or timing
@@ -6152,7 +6177,7 @@ class HogFlowViewSet(
 
         return Response(self.get_serializer(instance).data)
 
-    def _set_up_sandbox_sender(self, request: Request) -> None:
+    def _check_sandbox_sender_available(self, request: Request) -> None:
         if not isinstance(request.user, User):
             raise exceptions.ValidationError({"sender": "Switching to the sandbox sender needs a signed-in user."})
         if not _can_set_up_sandbox_sender(self.team, request.user):
@@ -6160,7 +6185,7 @@ class HogFlowViewSet(
                 "Setting up the sandbox sender needs edit access to all workflows in this project."
             )
         try:
-            set_up_sandbox_sender(self.team, request.user)
+            check_sandbox_sender_available(self.team, request.user)
         except SandboxSenderUnavailable as error:
             raise exceptions.ValidationError({"sender": str(error)})
 

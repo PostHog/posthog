@@ -78,7 +78,11 @@ def written_in_liquid(action: dict[str, Any]) -> bool:
 
 def can_default_to_sandbox(action: dict[str, Any]) -> bool:
     """A new own-sender email step that names no sender and sets nothing the sandbox sender would drop."""
-    if action.get("type") != OWN_EMAIL_ACTION_TYPE or not valid_sandbox_action_id(action.get("id")):
+    if (
+        action.get("type") != OWN_EMAIL_ACTION_TYPE
+        or not valid_sandbox_action_id(action.get("id"))
+        or not isinstance(action.get("config"), dict)
+    ):
         return False
     sender = _sender(_value(_email(_config(action))))
     return not sender.get("integrationId") and not sender.get("integrationIds") and not own_only_settings(action)

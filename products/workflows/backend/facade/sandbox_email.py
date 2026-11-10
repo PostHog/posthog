@@ -12,6 +12,7 @@ from products.workflows.backend.services.sandbox_email.conversion import (
 from products.workflows.backend.services.sandbox_email.provisioning import (
     SANDBOX_SENDER_ADOPTION_FLAG,
     SANDBOX_SENDER_INTEGRATION_ID,
+    check_sandbox_sender_available,
     has_verified_own_sender,
     is_verified_own_sender,
     provision_sandbox_sender,
@@ -34,6 +35,7 @@ __all__ = [
     "SANDBOX_SENDER_INTEGRATION_ID",
     "SandboxSenderUnavailable",
     "can_default_to_sandbox",
+    "check_sandbox_sender_available",
     "has_verified_own_sender",
     "is_verified_own_sender",
     "own_only_settings",

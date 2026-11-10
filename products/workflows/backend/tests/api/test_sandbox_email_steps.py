@@ -283,6 +283,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
             assert response.status_code == 400, response.json()
             assert refusal in response.json()["detail"]
             assert self._stored_step(flow) == own_step
+            assert not self._sandbox_sender_is_set_up()
             return
         assert response.status_code == 200, response.json()
         stored = self._stored_step(flow)
@@ -377,7 +378,8 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("from_a_saved_template", "template", "Library subject"),
+            ("from_a_saved_template", "template_uuid", "Library subject"),
+            ("from_a_saved_template_named_in_template_id", "template_id", "Library subject"),
             ("without_a_templating_language", "inline", "Hello"),
         ]
     )
@@ -385,7 +387,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         self, _name: str, content: str, subject: str
     ) -> None:
         step = _own_email_step(None)
-        if content == "template":
+        if content != "inline":
             template_id = create_message_template_for_test(
                 team_id=self.team.id,
                 name="Welcome",
@@ -394,7 +396,7 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
                     "email": {"subject": "Library subject", "text": "Hi {{ person.properties.name }}", "html": ""},
                 },
             )
-            step["config"]["template_uuid"] = str(template_id)
+            step["config"][content] = str(template_id)
             step["config"]["inputs"]["email"]["value"] = {"to": {"email": "{{ person.properties.email }}"}}
         else:
             step["config"]["inputs"]["email"].pop("templating")
@@ -410,9 +412,20 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         assert stored["config"]["inputs"]["email"]["templating"] == "liquid"
         assert stored["config"]["inputs"]["email"]["value"]["subject"] == subject
 
-    def test_an_api_save_with_a_step_id_that_is_not_text_is_refused(self) -> None:
+    @parameterized.expand(
+        [
+            ("a_step_id_that_is_not_text", "id", ["not", "an", "id"]),
+            ("no_config", "config", None),
+            ("a_saved_template_that_does_not_exist", "template_uuid", "00000000-0000-4000-8000-000000000002"),
+        ]
+    )
+    def test_a_new_api_email_step_that_is_refused_sets_up_nothing(self, _name: str, key: str, value: Any) -> None:
         step = _own_email_step(None)
-        step["id"] = ["not", "an", "id"]
+        if key == "template_uuid":
+            step["config"]["template_uuid"] = value
+            step["config"]["inputs"]["email"]["value"] = {"to": {"email": "{{ person.properties.email }}"}}
+        else:
+            step[key] = value
 
         with _flag(True):
             response = self.client.post(
