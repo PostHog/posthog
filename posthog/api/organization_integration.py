@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
-from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 from posthog.permissions import OrganizationAdminWritePermissions
@@ -124,7 +124,9 @@ class OrganizationIntegrationViewSet(
 
         team_integrations_deleted = 0
         org_team_ids = Team.objects.filter(organization_id=instance.organization_id).values_list("id", flat=True)
-        for resource in IntegrationManager.vercel.oauth.list_in_teams(org_team_ids):
+        for resource in IntegrationManager.vercel.oauth.list_across_teams(
+            CrossTeamFilter(team_ids=tuple(org_team_ids))
+        ):
             try:
                 IntegrationManager.vercel.oauth.delete(resource.team_id, resource.id, ignore_usages=True)
             except IntegrationNotFound:

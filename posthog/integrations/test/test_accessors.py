@@ -249,52 +249,6 @@ class TestIntegrationAccessors(BaseTest):
 
     @parameterized.expand(
         [
-            ("both_teams", lambda: IntegrationManager.github.oauth, ["own", "other"], {}, ["github_oauth", "other"]),
-            ("other_team_only", lambda: IntegrationManager.github.oauth, ["other"], {}, ["other"]),
-            ("empty", lambda: IntegrationManager.github.oauth, [], {}, []),
-            ("unknown_team", lambda: IntegrationManager.github.oauth, [10**9], {}, []),
-            ("scope_applies", lambda: IntegrationManager.github.token, ["own", "other"], {}, ["github_token"]),
-            ("skips_source_rows", lambda: IntegrationManager.stripe.token, ["own"], {}, ["stripe_token"]),
-            (
-                "external_id",
-                lambda: IntegrationManager.github.any,
-                ["own", "other"],
-                {"external_id": "github_token"},
-                ["github_token"],
-            ),
-            (
-                "where",
-                lambda: IntegrationManager.postgresql.credentials,
-                ["own"],
-                {"where": {"host": "db.example.com"}},
-                ["postgres"],
-            ),
-            (
-                "where_no_match",
-                lambda: IntegrationManager.postgresql.credentials,
-                ["own"],
-                {"where": {"host": "other.example.com"}},
-                [],
-            ),
-        ]
-    )
-    def test_list_in_teams(
-        self,
-        _name: str,
-        accessor: Callable[[], IntegrationReader],
-        teams: list[Any],
-        filters: dict[str, Any],
-        expected: list[str],
-    ) -> None:
-        by_name = {"own": self.team.id, "other": self.other_team.id}
-        rows_by_name = {**self.rows, "other": self.other_row}
-
-        rows = accessor().list_in_teams(iter([by_name.get(team, team) for team in teams]), **filters)
-
-        assert rows == [rows_by_name[name] for name in expected]
-
-    @parameterized.expand(
-        [
             ("neither", {}),
             ("both", {"team_id": 1, "team_ids": [1]}),
         ]

@@ -40,7 +40,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
-from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationRecord
 from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import Team
 from posthog.models.integration import (
@@ -478,7 +478,9 @@ def _org_linked_github_installation_ids(organization: Organization) -> set[str]:
     access error rather than being offered up for adoption, or the access boundary in
     ``_accessible_org_team_ids`` would leak through the adoption path.
     """
-    org_github = IntegrationManager.github.oauth.list_in_teams(organization.teams.values_list("id", flat=True))
+    org_github = IntegrationManager.github.oauth.list_across_teams(
+        CrossTeamFilter(team_ids=tuple(organization.teams.values_list("id", flat=True)))
+    )
     return {
         str(installation_id)
         for integration in org_github
@@ -543,8 +545,8 @@ def link_existing_team_github_integration(
         # No source specified: auto-resolve the org's existing GitHub installation. This backs the
         # one-click "Link existing installation" UI, where a second project reuses the org's single
         # install without the caller having to know a sibling team id or the installation id.
-        org_github = sorted(
-            IntegrationManager.github.oauth.list_in_teams(accessible_team_ids - {team_id}), key=lambda row: row.id
+        org_github = IntegrationManager.github.oauth.list_across_teams(
+            CrossTeamFilter(team_ids=tuple(accessible_team_ids - {team_id}))
         )
         distinct_installation_ids = {
             str(config_installation_id)
@@ -649,7 +651,7 @@ def list_org_github_installations(
     """
     accessible_team_ids = _accessible_org_team_ids(user, organization)
     team_names = dict(organization.teams.values_list("id", "name"))
-    org_github = sorted(IntegrationManager.github.oauth.list_in_teams(team_names), key=lambda row: row.id)
+    org_github = IntegrationManager.github.oauth.list_across_teams(CrossTeamFilter(team_ids=tuple(team_names)))
 
     # One pass over the org's rows yields both the sibling entries and the org-wide linked set the
     # adoption merge below excludes against, instead of two near-identical queries.

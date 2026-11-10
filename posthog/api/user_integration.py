@@ -62,7 +62,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
-from posthog.integrations import IntegrationManager
+from posthog.integrations import CrossTeamFilter, IntegrationManager
 from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, GitHubIntegrationError
 from posthog.models.integration.github_audit import GitHubAudit
@@ -777,7 +777,9 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         }
         candidates = [
             integration
-            for integration in IntegrationManager.slack.oauth.list_in_teams(teams_by_id)
+            for integration in IntegrationManager.slack.oauth.list_across_teams(
+                CrossTeamFilter(team_ids=tuple(teams_by_id))
+            )
             if integration.integration_id not in already_linked_slack_team_ids
         ]
 

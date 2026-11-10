@@ -18,7 +18,7 @@ from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.oauth_pending_connection import shared_cookie_domain
-from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
@@ -323,7 +323,9 @@ def _delete_orphaned_integration(integration: OrganizationIntegration) -> None:
         unclaimed_team_ids = Team.objects.filter(organization_id=integration.organization_id).exclude(
             pk__in=claimed_team_ids
         )
-        for resource in IntegrationManager.vercel.oauth.list_in_teams(unclaimed_team_ids.values_list("id", flat=True)):
+        for resource in IntegrationManager.vercel.oauth.list_across_teams(
+            CrossTeamFilter(team_ids=tuple(unclaimed_team_ids.values_list("id", flat=True)))
+        ):
             try:
                 IntegrationManager.vercel.oauth.delete(resource.team_id, resource.id, ignore_usages=True)
             except IntegrationNotFound:
@@ -693,8 +695,8 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
 
         teams_with_vercel = {
             resource.team_id
-            for resource in IntegrationManager.vercel.oauth.list_in_teams(
-                team.pk for teams in teams_by_org.values() for team in teams
+            for resource in IntegrationManager.vercel.oauth.list_across_teams(
+                CrossTeamFilter(team_ids=tuple(team.pk for teams in teams_by_org.values() for team in teams))
             )
         }
 
