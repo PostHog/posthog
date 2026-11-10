@@ -23,9 +23,9 @@ const node = (id: string, kind: TraceNodeApi['kind'], name: string, children: Tr
 
 const tree = [
     node('trace-1', 'trace', 'answer-billing-question', [
-        node('gen-1', 'generation', 'gpt-4.1-mini (openai)'),
+        node('gen-1', 'generation', 'gpt-6-luna (openai)'),
         node('span-1', 'span', 'lookup-invoice'),
-        node('gen-2', 'generation', 'gpt-4.1-mini (openai)'),
+        node('gen-2', 'generation', 'gpt-6-luna (openai)'),
     ]),
 ]
 
@@ -36,7 +36,7 @@ describe('toEvalResults', () => {
             'a result on a generation seen on the root names that generation apart from its namesake',
             'trace-1',
             'gen-2',
-            { nodeId: 'gen-2', label: 'gpt-4.1-mini (openai) #2' },
+            { nodeId: 'gen-2', label: 'gpt-6-luna (openai) #2' },
         ],
         ['a result on the viewed generation targets nothing', 'gen-1', 'gen-1', null],
         [

@@ -13,7 +13,7 @@ export const Default: StoryObj<typeof NodeRawTab> = {
         raw: {
             event: '$ai_generation',
             id: 'gen-answer',
-            properties: { $ai_model: 'gpt-4.1-mini', $ai_latency: 1.88, $ai_input_tokens: 1822 },
+            properties: { $ai_model: 'gpt-6-luna', $ai_latency: 1.88, $ai_input_tokens: 1822 },
         },
     },
 }

@@ -40,7 +40,7 @@ python benchmark.py --streaming-only
 python benchmark.py --non-streaming-only
 
 # Specific models
-python benchmark.py --models gpt-4.1-mini claude-haiku-4-5-20251001
+python benchmark.py --models gpt-6-luna claude-haiku-4-5-20251001
 
 # Custom prompt and token limit
 python benchmark.py --prompt "Explain quantum computing" --max-tokens 500
@@ -53,7 +53,7 @@ python benchmark.py --report results/benchmark_YYYYMMDD_HHMMSS.json
 
 | Model                      | Provider  |
 | -------------------------- | --------- |
-| gpt-4.1-mini               | OpenAI    |
+| gpt-6-luna                 | OpenAI    |
 | gpt-4.1-nano               | OpenAI    |
 | claude-sonnet-4-5-20250514 | Anthropic |
 | claude-haiku-4-5-20251001  | Anthropic |

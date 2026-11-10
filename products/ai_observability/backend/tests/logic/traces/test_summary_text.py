@@ -25,7 +25,7 @@ def test_each_step_owns_its_rendered_lines() -> None:
         "trace-1",
         [
             make_row(uuid=SPAN, span_id="span-1", span_name="router"),
-            make_row(uuid=GENERATION, event="$ai_generation", parent_id="span-1", model="gpt-4.1-mini"),
+            make_row(uuid=GENERATION, event="$ai_generation", parent_id="span-1", model="gpt-6-luna"),
         ],
         None,
     )

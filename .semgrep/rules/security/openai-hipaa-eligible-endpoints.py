@@ -44,7 +44,7 @@ def test_chat_completions_ok() -> None:
 
 def test_responses_ok() -> None:
     # ok: openai-non-hipaa-assistants-threads
-    client.responses.create(model="gpt-4.1-mini", input="hi")
+    client.responses.create(model="gpt-6-luna", input="hi")
 
 
 # ============================================================
