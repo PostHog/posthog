@@ -25,6 +25,28 @@ class SandboxSenderOrganizationBlockAdmin(admin.ModelAdmin):
         return ("created_at",)
 
     def get_changeform_initial_data(self, request: HttpRequest) -> dict[str, Any]:
-        # The add form prefills the signed-in staff member, so the row records who blocked the
-        # organization. A save hook would do the same, but admin pages stay plain CRUD.
         return {**super().get_changeform_initial_data(request), "created_by": request.user.pk}
+
+    def get_form(
+        self,
+        request: HttpRequest,
+        obj: SandboxSenderOrganizationBlock | None = None,
+        change: bool = False,
+        **kwargs: Any,
+    ) -> Any:
+        form_class = super().get_form(request, obj, change=change, **kwargs)
+        if obj is not None:
+            return form_class
+        staff_member = request.user
+
+        # The row records the signed-in staff member whatever the add form posts. A save hook
+        # would do the same, but admin pages stay plain CRUD.
+        class AddBlockForm(form_class):  # type: ignore[valid-type,misc]
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                super().__init__(*args, **kwargs)
+                self.fields["created_by"].disabled = True
+
+            def clean_created_by(self) -> Any:
+                return staff_member
+
+        return AddBlockForm
