@@ -53,6 +53,8 @@ _PATCH_COLLECT_BATCH = "collect-batch-signals-v1"
 
 _PATCH_TERMINAL_BATCH = "terminal-batch-errors-v1"
 
+_PATCH_RETRY_CAP = "grouping-v2-retry-cap-v1"
+
 
 @dataclass(frozen=False)
 class CollectedBatch:
@@ -265,20 +267,25 @@ class TeamSignalGroupingV2Workflow:
             else:
                 # Stash keys back so they're retried after continue_as_new.
                 # Sleep first to avoid hot-looping on deterministic failures.
-                retry_keys = []
-                for key in collected.object_keys:
-                    failed_rounds = self._failed_rounds_by_batch_key.get(key, 0) + 1
-                    if failed_rounds >= MAX_FAILED_ROUNDS:
-                        logger.warning(
-                            "Dropping signal batch after repeated failures",
-                            team_id=input.team_id,
-                            object_key=key,
-                            failed_rounds=failed_rounds,
-                        )
-                        self._failed_rounds_by_batch_key.pop(key, None)
-                    else:
-                        self._failed_rounds_by_batch_key[key] = failed_rounds
-                        retry_keys.append(key)
+                if workflow.patched(_PATCH_RETRY_CAP):
+                    retry_keys = []
+                    for key in collected.object_keys:
+                        failed_rounds = self._failed_rounds_by_batch_key.get(key, 0) + 1
+                        if failed_rounds >= MAX_FAILED_ROUNDS:
+                            logger.warning(
+                                "Dropping signal batch after repeated failures",
+                                team_id=input.team_id,
+                                object_key=key,
+                                failed_rounds=failed_rounds,
+                            )
+                            self._failed_rounds_by_batch_key.pop(key, None)
+                        else:
+                            self._failed_rounds_by_batch_key[key] = failed_rounds
+                            retry_keys.append(key)
+                else:
+                    retry_keys = list(collected.object_keys)
+                    for key in retry_keys:
+                        self._failed_rounds_by_batch_key[key] = self._failed_rounds_by_batch_key.get(key, 0) + 1
                 if retry_keys:
                     self._batch_key_buffer = retry_keys + self._batch_key_buffer
                     if self._batch_buffer_size_gauge is not None:
