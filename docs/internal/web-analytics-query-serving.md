@@ -224,17 +224,18 @@ The eager and demand jobs can still overlap if either pass runs long.
 
 ## Flags and team allowlists
 
-| Gate                                                  | Type              | Controls                                                                                                        |
-| ----------------------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------- |
-| `web-analytics-precompute-toggle`                     | Org feature flag  | Lazy precompute enrollment; enrolled teams read by default (opt-out). Evaluated locally, fails closed           |
-| `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`              | Env allowlist     | Flag-independent precompute enrollment (shared with Dagster warmers, where flag evaluation is unreliable)       |
-| `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` | Env allowlist     | Lifts the single-`$host` filter-shape restriction — any filter combo becomes precomputable (own cache key each) |
-| `WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS`               | Env allowlist     | Filtered fast path (live tier)                                                                                  |
-| `web-analytics-session-id-set`                        | Team rollout flag | Filtered fast path enrollment without the env allowlist — either gate admits the team                           |
-| `WEB_ANALYTICS_NO_JOIN_TEAM_IDS` + rollout %          | Env + percentage  | Unfiltered fast path — 100% on Cloud                                                                            |
-| `useWebAnalyticsPrecompute`                           | Per-query field   | User opt-out switch (WebAnalyticsMenu toggle); explicit `false` always wins                                     |
-| `useWebAnalyticsPreAggregatedTables`                  | Query modifier    | Preaggregated-tables tier (deprecated — largest existing customers only, no new enrollments)                    |
-| `webQueryModifiers.useDimensionalTables`              | Per-query field   | Tries the dimensional tables first; a gap or a failure falls back to the normal dispatch                        |
+| Gate                                                  | Type              | Controls                                                                                                                                                                                         |
+| ----------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `web-analytics-precompute-toggle`                     | Org feature flag  | Lazy precompute enrollment; enrolled teams read by default (opt-out). Evaluated locally, fails closed                                                                                            |
+| `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`              | Env allowlist     | Flag-independent precompute enrollment (shared with Dagster warmers, where flag evaluation is unreliable)                                                                                        |
+| `WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS` | Env allowlist     | Lifts the single-`$host` filter-shape restriction — any filter combo becomes precomputable (own cache key each)                                                                                  |
+| `WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS`               | Env allowlist     | Filtered fast path (live tier)                                                                                                                                                                   |
+| `web-analytics-session-id-set`                        | Team rollout flag | Filtered fast path enrollment without the env allowlist — either gate admits the team                                                                                                            |
+| `WEB_ANALYTICS_NO_JOIN_TEAM_IDS` + rollout %          | Env + percentage  | Unfiltered fast path — 100% on Cloud                                                                                                                                                             |
+| `useWebAnalyticsPrecompute`                           | Per-query field   | User opt-out switch (WebAnalyticsMenu toggle); explicit `false` always wins                                                                                                                      |
+| `useWebAnalyticsPreAggregatedTables`                  | Query modifier    | Preaggregated-tables tier (deprecated — largest existing customers only, no new enrollments)                                                                                                     |
+| `webQueryModifiers.useDimensionalTables`              | Per-query field   | Tries the dimensional tables first; a gap or a failure falls back to the normal dispatch                                                                                                         |
+| `web-analytics-dimensional-for-preaggregated`         | Experiment flag   | For teams with `useWebAnalyticsPreAggregatedTables`, reads the dimensional tables when the user gets the `test` variant (or a boolean rollout) and the query leaves `useDimensionalTables` unset |
 
 ## query_type tag reference
 

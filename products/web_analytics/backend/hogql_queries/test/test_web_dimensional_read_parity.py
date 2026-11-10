@@ -102,6 +102,12 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         )
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
+        variant_patcher = patch(
+            "products.web_analytics.backend.hogql_queries.web_dimensional_read.get_feature_flag_or_none",
+            return_value=None,
+        )
+        variant_patcher.start()
+        self.addCleanup(variant_patcher.stop)
         super().setUp()
 
     def _pageview(self, distinct_id: str, session: str, ts: str, **props) -> None:

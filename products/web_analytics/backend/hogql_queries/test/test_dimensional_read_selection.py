@@ -132,6 +132,9 @@ class TestDimensionalReadSelection(SimpleTestCase):
         flag_patcher = patch(f"{_READ}.feature_enabled_or_false", return_value=True)
         self.flag_enabled = flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
+        variant_patcher = patch(f"{_READ}.get_feature_flag_or_none", return_value=None)
+        self.experiment_variant = variant_patcher.start()
+        self.addCleanup(variant_patcher.stop)
 
     @parameterized.expand(
         [
@@ -258,16 +261,30 @@ class TestDimensionalReadSelection(SimpleTestCase):
         ):
             assert ready_dimensional_job_ids(runner, _BOTH_TABLES) is None
 
-    def test_request_modifier_is_ignored_when_the_flag_is_off(self):
-        self.flag_enabled.return_value = False
+    @parameterized.expand(
+        [
+            ("request_opts_in_with_the_modifiers_flag", True, False, True, None, True),
+            ("request_opts_in_without_the_modifiers_flag", True, False, False, "test", False),
+            ("legacy_team_in_the_test_variant", None, True, False, "test", True),
+            ("legacy_team_in_a_boolean_rollout", None, True, False, True, True),
+            ("legacy_team_in_the_control_variant", None, True, False, "control", False),
+            ("team_without_the_legacy_modifier", None, False, False, "test", False),
+            ("request_opts_out_of_the_experiment", False, True, False, "test", False),
+        ]
+    )
+    def test_opt_in_follows_the_request_then_the_legacy_experiment(
+        self, _name, opted_in, legacy_modifier, modifiers_flag, variant, serves
+    ):
+        self.flag_enabled.return_value = modifiers_flag
+        self.experiment_variant.return_value = variant
+        runner = _runner(opted_in, modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=legacy_modifier))
         with (
             patch(f"{_READ}.team_has_property_access_rules", return_value=False),
             patch(f"{_READ}.dimensional_job_ids", return_value=_JOB_IDS) as mock_job_ids,
         ):
-            assert ready_dimensional_job_ids(_runner(True), _BOTH_TABLES) is None
+            assert ready_dimensional_job_ids(runner, _BOTH_TABLES) == (_JOB_IDS if serves else None)
 
-        assert self.flag_enabled.call_args.args[0] == "web-analytics-query-modifiers"
-        mock_job_ids.assert_not_called()
+        assert mock_job_ids.called == serves
 
     @parameterized.expand(
         [
