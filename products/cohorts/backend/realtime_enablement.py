@@ -25,6 +25,7 @@ from products.cohorts.backend.backfill.runs import (
 )
 from products.cohorts.backend.backfill.sizing import estimate_behavioral_scan_events
 from products.cohorts.backend.models.backfill import (
+    ACTIVE_COHORT_BACKFILL_RUN_STATUSES,
     CohortBackfillKind,
     CohortBackfillRun,
     CohortBackfillRunStatus,
@@ -106,9 +107,9 @@ def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpos
     """Put the team at `processing` with its cohorts ready for the pipeline, create its two team
     backfill runs, and promote it to `serving` only when neither run was refused.
 
-    Raises ``ValueError`` before it writes anything for a team the grant refuses, or when an operator
-    attestation is missing. A first call clears the readiness stamps on the team's cohorts. A call
-    after a refusal keeps the runs earlier calls created.
+    Raises ``ValueError`` before it writes anything for a team the grant refuses, when an operator
+    attestation is missing, or when a first call finds an active backfill run. A first call clears the
+    readiness stamps on the team's cohorts. A call after a refusal keeps the runs earlier calls created.
     """
     row = grantable_access_rows([team_id], purpose, RealtimeCohortTeamAccess.objects.all()).get(team_id)
     # The steps below go through `processing`, which would hide a serving team's realtime state.
@@ -119,6 +120,17 @@ def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpos
     if missing:
         raise ValueError(f"Missing operator attestations: {', '.join(missing)}")
     if row is None:
+        old_runs = list(
+            CohortBackfillRun.objects.for_team(team_id)
+            .filter(status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES)
+            .values_list("id", flat=True)
+        )
+        if old_runs:
+            raise ValueError(
+                "Active backfill runs from before the grant, which can stamp the cohorts after enable clears them: "
+                f"{', '.join(str(run_id) for run_id in old_runs)}. Cancel them with manage_cohort_backfill_runs "
+                "terminalize --run-id, then run enable again."
+            )
         # Written by the legacy calculation workflow, or by runs from a time the env list named the team.
         # Nothing has maintained that membership since, and `serving` routes flags to it. Deleted cohorts
         # too, because an undelete keeps the stamps. Before the grant, because from `processing` on the

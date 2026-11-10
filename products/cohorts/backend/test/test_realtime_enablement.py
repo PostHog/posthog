@@ -102,6 +102,17 @@ class TestEnableRealtimeCohorts(BaseTest):
     def _team_runs(self, kind: CohortBackfillKind) -> list[CohortBackfillRun]:
         return list(CohortBackfillRun.objects.for_team(self.team.id).filter(backfill_kind=kind))
 
+    def _old_team_run(self, status: CohortBackfillRunStatus) -> CohortBackfillRun:
+        return CohortBackfillRun.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            backfill_kind=CohortBackfillKind.BEHAVIORAL,
+            trigger_kind=CohortBackfillTrigger.TEAM_ENABLEMENT,
+            scope=CohortBackfillScope.TEAM,
+            status=status,
+            timezone="UTC",
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
     def _enable(self) -> TeamEnablement:
         enablement = enable_realtime_cohorts(self.team.id, purpose=RealtimeCohortAccessPurpose.BETA)
         assert isinstance(enablement, TeamEnablement)
@@ -118,15 +129,7 @@ class TestEnableRealtimeCohorts(BaseTest):
         )
         Cohort.objects.filter(id=person_only.id).update(last_realtime_cohort_calculation_at=STAMPED_AT)
         Cohort.objects.filter(id=deleted.id).update(deleted=True, last_backfill_events_at=STAMPED_AT)
-        CohortBackfillRun.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            backfill_kind=CohortBackfillKind.BEHAVIORAL,
-            trigger_kind=CohortBackfillTrigger.TEAM_ENABLEMENT,
-            scope=CohortBackfillScope.TEAM,
-            status=CohortBackfillRunStatus.COMPLETED,
-            timezone="UTC",
-            created_at=datetime(2026, 1, 1, tzinfo=UTC),
-        )
+        self._old_team_run(CohortBackfillRunStatus.COMPLETED)
 
         with (
             mock.patch("products.cohorts.backend.backfill.finalize.current_app") as celery,
@@ -212,25 +215,38 @@ class TestEnableRealtimeCohorts(BaseTest):
             (
                 "missing_attestation",
                 lambda _team_id: {"BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED": False},
+                None,
                 "Missing operator attestations: processor durability",
             ),
             (
                 "env_listed",
                 lambda team_id: {"REALTIME_COHORT_TEAM_ALLOWLIST": str(team_id)},
+                None,
                 "On REALTIME_COHORT_TEAM_ALLOWLIST",
+            ),
+            (
+                "active_run_from_before_the_grant",
+                lambda _team_id: {},
+                CohortBackfillRunStatus.SEEDING,
+                "Active backfill runs from before the grant",
             ),
         ]
     )
     def test_refuses_the_team_before_any_write(
-        self, _name: str, overrides: Callable[[int], dict[str, Any]], message: str
+        self,
+        _name: str,
+        overrides: Callable[[int], dict[str, Any]],
+        old_run_status: CohortBackfillRunStatus | None,
+        message: str,
     ) -> None:
         cohort = self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
         Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=STAMPED_AT)
+        old_runs = [] if old_run_status is None else [self._old_team_run(old_run_status).id]
 
         with override_settings(**overrides(self.team.id)), self.assertRaisesMessage(ValueError, message):
             enable_realtime_cohorts(self.team.id, purpose=RealtimeCohortAccessPurpose.BETA)
 
         assert not RealtimeCohortTeamAccess.objects.filter(team=self.team).exists()
-        assert not CohortBackfillRun.objects.for_team(self.team.id).exists()
+        assert list(CohortBackfillRun.objects.for_team(self.team.id).values_list("id", flat=True)) == old_runs
         cohort.refresh_from_db()
         assert (cohort.condition_type, cohort.last_backfill_events_at) == (None, STAMPED_AT)
