@@ -1,6 +1,6 @@
 import type { EventPropertyFilter, PersonPropertyFilter } from '~/types'
 
-import { AssistantDateRangeFilter } from './schema-assistant-queries'
+import { AssistantBasicDateRangeFilter } from './schema-assistant-queries'
 import {
     CompareFilter,
     NodeKind,
@@ -34,7 +34,7 @@ export interface AssistantWebAnalyticsQueryBase {
      * the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can
      * be expensive.
      */
-    dateRange?: AssistantDateRangeFilter
+    dateRange?: AssistantBasicDateRangeFilter
 
     /**
      * Property filters applied to the query. Accepts event, person, session,
@@ -159,7 +159,7 @@ export interface AssistantWebVitalsPathBreakdownQuery {
      * Date range for the query. Defaults to the last 7 days when omitted —
      * a good window for a stable percentile.
      */
-    dateRange?: AssistantDateRangeFilter
+    dateRange?: AssistantBasicDateRangeFilter
 
     /**
      * Property filters applied to the query. Accepts event and person filters

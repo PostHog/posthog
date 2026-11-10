@@ -111,6 +111,12 @@ All operators take a single value except for `equals` and `doesn't equal` which 
 
 You should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.
 
+### Incomplete periods
+
+The last interval of a relative range is often still collecting data, so its value looks low.
+To leave that interval out, set `"excludeIncompletePeriods": true` in `dateRange`.
+Do not set `date_to` to `-1d` for this. It removes only today, and keeps the current week or month on a weekly or monthly chart.
+
 # Trends guidelines
 
 Trends insights enable users to plot data from people, events, and properties however they want. They're useful for finding patterns in data, as well as monitoring product usage. Users can use multiple independent series in a single query to see trends. They can also use a formula to calculate a metric. Each series has its own set of property filters. Trends insights do not require breakdowns or filters by default.

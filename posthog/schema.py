@@ -570,6 +570,36 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
     property: str = Field(..., description="Property name from the plan to break down by.")
 
 
+class AssistantBasicDateRange(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: str = Field(..., description="ISO8601 date string.")
+    date_to: str | None = Field(
+        default=None,
+        description=(
+            "ISO8601 date string. A calendar day without a time (`2026-09-01`) is"
+            " inclusive to the last moment of that day."
+        ),
+    )
+
+
+class AssistantBasicDurationRange(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: str = Field(
+        ...,
+        description=(
+            "Duration in the past. Supported units are: `h` (hour), `d` (day), `w`"
+            " (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix"
+            " to define the exact left date boundary. Examples: `-1d` last day from"
+            " now, `-180d` last 180 days from now, `mStart` this month start,"
+            " `-1dStart` yesterday's start."
+        ),
+    )
+
+
 class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -730,6 +760,10 @@ class AssistantDateRange(BaseModel):
             " inclusive to the last moment of that day."
         ),
     )
+    excludeIncompletePeriods: bool | None = Field(
+        default=False,
+        description="Exclude the current, still-collecting interval from the result.",
+    )
 
 
 class AssistantDurationRange(BaseModel):
@@ -745,6 +779,10 @@ class AssistantDurationRange(BaseModel):
             " now, `-180d` last 180 days from now, `mStart` this month start,"
             " `-1dStart` yesterday's start."
         ),
+    )
+    excludeIncompletePeriods: bool | None = Field(
+        default=False,
+        description="Exclude the current, still-collecting interval from the result.",
     )
 
 
@@ -4945,7 +4983,7 @@ class AssistantTraceQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+    dateRange: AssistantBasicDateRange | AssistantBasicDurationRange | None = Field(
         default=None, description="Date range for the query."
     )
     kind: Literal["TraceQuery"] = "TraceQuery"
@@ -4982,7 +5020,7 @@ class AssistantTracesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+    dateRange: AssistantBasicDateRange | AssistantBasicDurationRange | None = Field(
         default=None, description="Date range for the query."
     )
     filterSupportTraces: bool | None = Field(default=False, description="Exclude support impersonation traces.")
@@ -11906,7 +11944,7 @@ class AssistantWebVitalsPathBreakdownQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+    dateRange: AssistantBasicDateRange | AssistantBasicDurationRange | None = Field(
         default=None,
         description=(
             "Date range for the query. Defaults to the last 7 days when omitted — a"
@@ -28579,7 +28617,7 @@ class AssistantWebAnalyticsQueryBase(BaseModel):
             " about a conversion."
         ),
     )
-    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+    dateRange: AssistantBasicDateRange | AssistantBasicDurationRange | None = Field(
         default=None,
         description=(
             "Date range for the query. Defaults to the last 7 days when omitted. Keep"
@@ -28625,7 +28663,7 @@ class AssistantWebOverviewQuery(BaseModel):
             " about a conversion."
         ),
     )
-    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+    dateRange: AssistantBasicDateRange | AssistantBasicDurationRange | None = Field(
         default=None,
         description=(
             "Date range for the query. Defaults to the last 7 days when omitted. Keep"
@@ -28684,7 +28722,7 @@ class AssistantWebStatsTableQuery(BaseModel):
             " about a conversion."
         ),
     )
-    dateRange: AssistantDateRange | AssistantDurationRange | None = Field(
+    dateRange: AssistantBasicDateRange | AssistantBasicDurationRange | None = Field(
         default=None,
         description=(
             "Date range for the query. Defaults to the last 7 days when omitted. Keep"
