@@ -676,7 +676,9 @@ class SESProvider:
         """
         self.ses_v2_client.put_email_identity_feedback_attributes(EmailIdentity=domain, EmailForwardingEnabled=False)
 
-    def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int) -> EmailDomainVerification:
+    def verify_email_domain(
+        self, domain: str, mail_from_subdomain: str, team_id: int, *, keep_existing_mail_from: bool = False
+    ) -> EmailDomainVerification:
         # Validate the domain contains valid characters for a domain name
         DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
         if not re.match(DOMAIN_REGEX, domain):
@@ -702,7 +704,7 @@ class SESProvider:
                 raise
 
         # Start/ensure MAIL FROM setup (MX + TXT) ---
-        if (ses_mail_from_subdomain := self.get_mail_from_subdomain(domain)) is not None:
+        if keep_existing_mail_from and (ses_mail_from_subdomain := self.get_mail_from_subdomain(domain)) is not None:
             mail_from_subdomain = ses_mail_from_subdomain
         else:
             try:

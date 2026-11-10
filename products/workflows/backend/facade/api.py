@@ -391,7 +391,9 @@ def update_ses_mail_from_subdomain(domain: str, *, mail_from_subdomain: str) -> 
 def verify_ses_email_domain(domain: str, *, mail_from_subdomain: str, team_id: int) -> EmailDomainVerification:
     from products.workflows.backend import providers  # noqa: PLC0415
 
-    return providers.SESProvider().verify_email_domain(domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id)
+    return providers.SESProvider().verify_email_domain(
+        domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id, keep_existing_mail_from=True
+    )
 
 
 def get_ses_email_domain_status(domain: str, *, mail_from_subdomain: str, team_id: int) -> EmailDomainCheck:

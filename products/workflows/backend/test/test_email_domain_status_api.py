@@ -358,6 +358,14 @@ class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
         assert stored.startswith("returns")
         assert self.world.ses.identities[DOMAIN].mail_from_domain == f"{stored}.{DOMAIN}"
 
+    def test_re_adding_a_domain_ses_still_holds_sets_the_senders_mail_from_subdomain(self) -> None:
+        self.world.ses.add_identity(DOMAIN, mail_from_domain=f"bounce.{DOMAIN}")
+
+        sender = self.create_sender(f"hello@{DOMAIN}")
+
+        stored = Integration.objects.get(id=sender).config["mail_from_subdomain"]
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"{stored}.{DOMAIN}"
+
     def test_a_sender_of_another_organization_is_not_found(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
         foreign_sender = Integration.objects.create(

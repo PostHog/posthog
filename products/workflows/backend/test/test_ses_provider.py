@@ -171,7 +171,6 @@ class TestSESProvider(TestCase):
             # Mock the domain verification and DKIM setup calls
             mock_ses_client.verify_domain_identity.return_value = {"VerificationToken": "test-token-123"}
             mock_ses_client.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
-            mock_ses_client.get_identity_mail_from_domain_attributes.return_value = {"MailFromDomainAttributes": {}}
 
             result = provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
