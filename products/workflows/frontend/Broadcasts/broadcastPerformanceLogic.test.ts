@@ -3,10 +3,89 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
+import { useMocks } from '~/mocks/jest'
+import type { MockSignature } from '~/mocks/utils'
 import type { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { broadcastPerformanceLogic, sendActivityParams } from './broadcastPerformanceLogic'
+
+interface AppMetricRow {
+    app_source_id: string
+    metric_name: string
+    instance_id: string
+    count: number
+}
+
+interface LogEntryRow {
+    log_source_id: string
+    level: string
+    timestamp: string
+    message: string
+}
+
+// Answers HogQL queries from in-memory app_metrics and log_entries rows, applying the clauses the query states.
+// A clause it can't evaluate fails the request, so a query it doesn't understand can't pass silently.
+function hogQLFake(appMetrics: AppMetricRow[], logEntries: LogEntryRow[]): MockSignature {
+    return async ({ request }) => {
+        const sql = ((await request.json()) as { query: { query: string } }).query.query
+        const matches = (column: string, value: string): boolean => {
+            const wanted = sql.match(new RegExp(`\\b${column} = '([^']*)'`))?.[1]
+            return wanted === undefined || wanted === value
+        }
+        if (/FROM app_metrics/.test(sql)) {
+            const metricNames = sql.match(/metric_name IN \[([^\]]*)\]/)?.[1].match(/'[^']*'/g)
+            const groupBy =
+                sql
+                    .match(/GROUP BY ([\w, ]+)/)?.[1]
+                    .trim()
+                    .split(/,\s*/) ?? []
+            if (groupBy.some((column) => column !== 'metric_name' && column !== 'instance_id')) {
+                return [400, { detail: `Unexpected GROUP BY ${groupBy.join(', ')}` }]
+            }
+            const totals = new Map<string, [number, ...string[]]>()
+            for (const row of appMetrics) {
+                if (!matches('app_source_id', row.app_source_id)) {
+                    continue
+                }
+                if (metricNames && !metricNames.includes(`'${row.metric_name}'`)) {
+                    continue
+                }
+                const groups = groupBy.map((column) => row[column as 'metric_name' | 'instance_id'])
+                const total = totals.get(groups.join('\0'))?.[0] ?? 0
+                totals.set(groups.join('\0'), [total + row.count, ...groups])
+            }
+            return [200, { results: [...totals.values()] }]
+        }
+        if (/FROM log_entries/.test(sql)) {
+            const order = sql.match(/ORDER BY (.*?)\s+LIMIT (\d+)/s)
+            const keys = (order?.[1].split(/,\s*(?![^(]*\))/) ?? []).map((term) => {
+                const prefix = term.match(/^startsWith\(message, '([^']*)'\) DESC$/)?.[1]
+                if (prefix !== undefined) {
+                    return (row: LogEntryRow): number => (row.message.startsWith(prefix) ? 1 : 0)
+                }
+                if (term === 'timestamp DESC') {
+                    return (row: LogEntryRow): number => Date.parse(row.timestamp)
+                }
+                throw new Error(`Unexpected ORDER BY term ${term}`)
+            })
+            const rows = logEntries
+                .filter((row) => matches('log_source_id', row.log_source_id))
+                .filter((row) => !/lower\(level\) = 'error'/.test(sql) || row.level.toLowerCase() === 'error')
+                .sort((a, b) => {
+                    for (const key of keys) {
+                        if (key(a) !== key(b)) {
+                            return key(b) - key(a)
+                        }
+                    }
+                    return 0
+                })
+                .slice(0, order ? Number(order[2]) : undefined)
+            return [200, { results: rows.map((row) => [row.message]) }]
+        }
+        return [400, { detail: 'Unexpected table' }]
+    }
+}
 
 describe('sendActivityParams', () => {
     const started = '2026-09-20T09:17:00Z'
@@ -70,27 +149,47 @@ describe('broadcastPerformanceLogic', () => {
     it.each(['email', 'push'] as const)(
         'counts %s sends that stopped at an error before reaching the provider, and says why',
         async (channel) => {
-            // An aborting step records `failed` at step and run level, so the run-level row must not count twice.
-            const rows: [number, string, string][] = [
-                [0, 'email_sent', 'step_1'],
-                [0, 'push_sent', 'step_1'],
-                [245, 'failed', 'step_1'],
-                [245, 'failed', ''],
-            ]
-            const errorLog = '[Action:step_1] Errored: Error: invalid value expression: "person.name |", line:3, col:1'
-            jest.spyOn(api, 'queryHogQL').mockImplementation(
-                async (query) =>
-                    ({
-                        results: String(query).includes('log_entries')
-                            ? [[errorLog]]
-                            : rows.filter(([, name]) => String(query).includes(`'${name}'`)),
-                    }) as HogQLQueryResponse
-            )
-            const logic = broadcastPerformanceLogic({
-                runId: `run-errored-${channel}`,
-                runStartedAt: '2026-10-19T22:28:56Z',
-                channel,
+            const runId = `run-errored-${channel}`
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/:kind/': hogQLFake(
+                        [
+                            // An aborting step records `failed` at step and run level, so the run-level row must not count twice.
+                            { app_source_id: runId, metric_name: 'failed', instance_id: 'step_1', count: 245 },
+                            { app_source_id: runId, metric_name: 'failed', instance_id: '', count: 245 },
+                            { app_source_id: 'another-run', metric_name: 'failed', instance_id: 'step_1', count: 7 },
+                        ],
+                        [
+                            {
+                                log_source_id: runId,
+                                level: 'ERROR',
+                                timestamp: '2026-10-19T22:29:00Z',
+                                message:
+                                    '[Action:step_1] Errored: Error: invalid value expression: "person.name |", line:3, col:1',
+                            },
+                            {
+                                log_source_id: runId,
+                                level: 'ERROR',
+                                timestamp: '2026-10-19T22:29:01Z',
+                                message: 'Workflow run aborted: socket hang up',
+                            },
+                            {
+                                log_source_id: runId,
+                                level: 'INFO',
+                                timestamp: '2026-10-19T22:29:02Z',
+                                message: '[Action:step_1] Errored: Error: Failed to send email via SES',
+                            },
+                            {
+                                log_source_id: 'another-run',
+                                level: 'ERROR',
+                                timestamp: '2026-10-19T22:29:03Z',
+                                message: '[Action:step_1] Errored: Error: Email integration not found',
+                            },
+                        ]
+                    ),
+                },
             })
+            const logic = broadcastPerformanceLogic({ runId, runStartedAt: '2026-10-19T22:28:56Z', channel })
             logic.mount()
 
             await expectLogic(logic).toDispatchActions(['loadTotalsSuccess', 'loadLatestErrorLogSuccess'])

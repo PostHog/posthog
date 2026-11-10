@@ -17,15 +17,15 @@ describe('emailActivity', () => {
     it('splits at the send, folds repeats, and keeps other emails in order', () => {
         const timeline = buildActivityTimeline(
             [
-                event('before', '2026-06-15T08:59:00Z', 's1'),
-                event('after-1', '2026-06-15T09:03:00Z', 's2'),
-                { ...event('after-2', '2026-06-15T09:04:00Z', 's2'), pathname: '/pricing' },
                 { ...event('after-3', '2026-06-15T09:04:10Z', 's2'), pathname: '/pricing' },
+                event('after-1', '2026-06-15T09:03:00Z', 's2'),
+                event('before', '2026-06-15T08:59:00Z', 's1'),
+                { ...event('after-2', '2026-06-15T09:04:00Z', 's2'), pathname: '/pricing' },
             ],
             [
                 {
                     message_id: 'receipt',
-                    created_at: '2026-06-15T09:05:00Z',
+                    created_at: '2026-06-15T09:03:30Z',
                     status: 'delivered',
                     status_at: '2026-06-15T09:05:01Z',
                     reason: null,
@@ -42,9 +42,9 @@ describe('emailActivity', () => {
         )
 
         const shape = (rows: ActivityRow[]): string[] =>
-            rows.map((row) => (row.kind === 'event' ? `event(${row.count})` : row.kind))
-        expect(shape(timeline.before)).toEqual(['event(1)'])
-        expect(shape(timeline.after)).toEqual(['event(1)', 'event(2)', 'otherEmail'])
+            rows.map((row) => (row.kind === 'event' ? `${row.key} x${row.count}` : `email ${row.key}`))
+        expect(shape(timeline.before)).toEqual(['before x1'])
+        expect(shape(timeline.after)).toEqual(['after-1 x1', 'email receipt', 'after-2 x2'])
     })
 
     it('does not count a server-side event as the person coming back', () => {
