@@ -47,7 +47,6 @@ import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesLogic'
 import { WorkflowsListV2 } from './Workflows/WorkflowsListV2/WorkflowsListV2'
-import { WorkflowsListV2ColumnsMenu } from './Workflows/WorkflowsListV2/WorkflowsListV2ColumnsMenu'
 import { workflowsListV2Logic } from './Workflows/WorkflowsListV2/workflowsListV2Logic'
 import { workflowsLogic } from './Workflows/workflowsLogic'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
@@ -219,7 +218,6 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const customerioImportEnabled = useFeatureFlag('WORKFLOWS_CUSTOMERIO_IMPORT')
     const listV2 = useFeatureFlag('WORKFLOWS_LIST_V2')
-    const projectFiles = useFeatureFlag('WORKFLOWS_PROJECT_FILES')
     const { openImportModal } = useActions(customerioImportLogic)
 
     const workflowsTab = {
@@ -230,7 +228,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     }
     const showsWorkflowActions = currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar'
     // The folder view has its own New workflow button, which creates the workflow in the open folder.
-    const showsNewWorkflowButton = showsWorkflowActions && !(currentTab === 'workflows' && listV2 && projectFiles)
+    const showsNewWorkflowButton = showsWorkflowActions && !(currentTab === 'workflows' && listV2)
     const onNewWorkflow = (): void => {
         void addProductIntent({
             product_type: ProductKey.WORKFLOWS,
@@ -304,7 +302,6 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                 )}
                             </AccessControlAction>
                         )}
-                        {currentTab === 'workflows' && listV2 && !projectFiles && <WorkflowsListV2ColumnsMenu />}
                         {currentTab !== 'workflows' && currentTab !== 'templates' && currentTab !== 'calendar' && (
                             <MessagingTabActions tab={currentTab} channelsUrl={urls.workflows('channels')} />
                         )}

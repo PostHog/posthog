@@ -157,9 +157,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
         composerFolder: [
             (s) => [s.featureFlags, s.location],
             (featureFlags: FeatureFlagsSet, location: { search: string }): string | null =>
-                featureFlags[FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES] && featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
-                    ? newWorkflowFolder(location.search)
-                    : null,
+                featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2] ? newWorkflowFolder(location.search) : null,
         ],
         // Deep links with a starting point stay on the editor. Checked here so the scene never reads the flag early.
         aiComposerAvailable: [
@@ -192,8 +190,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
                 router.actions.push(urls.workflowNew(), {
                     ...newWorkflowFolderParams(
                         values.searchParams,
-                        !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2] &&
-                            !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]
+                        !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
                     ),
                     [EDITOR_MODE_PARAM]: AI_COMPOSER_MODE_VALUE,
                 })
@@ -207,8 +204,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
         createWorkflowFromTemplate: ({ template }) => {
             const folderParams = newWorkflowFolderParams(
                 values.searchParams,
-                !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2] &&
-                    !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]
+                !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
             )
             actions.hideNewWorkflowModal()
             router.actions.push(urls.workflowNew(), {
@@ -219,8 +215,7 @@ export const newWorkflowLogic = kea<newWorkflowLogicType>([
         createEmptyWorkflow: () => {
             const folderParams = newWorkflowFolderParams(
                 values.searchParams,
-                !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2] &&
-                    !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]
+                !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
             )
             actions.hideNewWorkflowModal()
             router.actions.push(urls.workflowNew(), {

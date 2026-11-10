@@ -63,7 +63,7 @@ from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 from posthog.models.file_system.constants import (
     RETIRED_FILE_SYSTEM_TYPES,
     WORKFLOW_FILE_SYSTEM_TYPES,
-    workflow_project_files_enabled,
+    workflows_list_v2_enabled,
 )
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
@@ -686,7 +686,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @cached_property
     def _workflow_files_enabled(self) -> bool:
-        return workflow_project_files_enabled(self.team, cast(User, self.request.user))
+        return workflows_list_v2_enabled(self.team, cast(User, self.request.user))
 
     def _visible_files(self, queryset: QuerySet) -> QuerySet:
         if self._workflow_files_enabled:

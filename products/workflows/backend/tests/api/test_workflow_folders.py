@@ -215,7 +215,7 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual([entry["path"] for entry in response.json()["results"]], ["Unfiled"])
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_disabled_project_files_write_no_rows_and_hide_the_ones_filed_earlier(self, _reload: MagicMock) -> None:
+    def test_list_v2_off_writes_no_rows_and_hides_the_ones_filed_earlier(self, _reload: MagicMock) -> None:
         trigger = [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}]
         hog_flows_url = f"/api/projects/{self.team.id}/hog_flows/"
         templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
@@ -317,7 +317,7 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertTrue({"Campaigns", "Campaigns/Hidden workflow", "Campaigns/Hidden email"} <= paths)
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_deleting_workflow_through_project_files_records_activity(self, _reload: MagicMock) -> None:
+    def test_deleting_workflow_through_the_project_tree_records_activity(self, _reload: MagicMock) -> None:
         created = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/",
             {
@@ -343,7 +343,7 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertTrue(any(entry["item_id"] == workflow_id and entry["activity"] == "deleted" for entry in activity))
 
     @parameterized.expand([("flag_on", True), ("local_evaluation_inconclusive", None)])
-    def test_email_template_can_be_created_and_moved_in_project_files(self, _name: str, local: bool | None) -> None:
+    def test_email_template_can_be_created_and_moved_in_the_project_tree(self, _name: str, local: bool | None) -> None:
         self._local_flag_answer(local)
         created = self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/",
@@ -392,7 +392,7 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual([file["path"] for file in files], ["Campaigns/Retention/Renewal"])
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_folder_files_nothing_while_project_files_are_off(self, _reload: MagicMock) -> None:
+    def test_folder_files_nothing_while_list_v2_is_off(self, _reload: MagicMock) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=False):
             created = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/",

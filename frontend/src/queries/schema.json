@@ -26742,6 +26742,12 @@
                     "$ref": "#/definitions/ExperimentMetricOutlierHandling",
                     "description": "For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds."
                 },
+                "quantile": {
+                    "description": "For quantile metrics: the quantile level, for example 0.9 for p90. The metric takes this quantile of `source.math_property` over all qualifying events of a variant.",
+                    "maximum": 0.99,
+                    "minimum": 0.01,
+                    "type": "number"
+                },
                 "retention_window_end": {
                     "$ref": "#/definitions/integer"
                 },
@@ -26760,7 +26766,7 @@
                 },
                 "source": {
                     "$ref": "#/definitions/ExperimentApiEventSource",
-                    "description": "For mean metrics: event source."
+                    "description": "For mean and quantile metrics: event source. Quantile metrics need `math_property`."
                 },
                 "start_event": {
                     "$ref": "#/definitions/ExperimentApiRetentionStart",
@@ -27915,7 +27921,7 @@
             "type": "object"
         },
         "ExperimentMetricType": {
-            "enum": ["funnel", "mean", "ratio", "retention"],
+            "enum": ["funnel", "mean", "ratio", "retention", "quantile"],
             "type": "string"
         },
         "ExperimentMetricTypeProps": {
@@ -27931,6 +27937,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentRetentionMetricTypeProps"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentQuantileMetricTypeProps"
                 }
             ]
         },
@@ -27950,6 +27959,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentRetentionMetric"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentQuantileMetric"
                 }
             ],
             "required": ["metric_type"],
@@ -27970,6 +27982,105 @@
                     "type": "object"
                 }
             },
+            "type": "object"
+        },
+        "ExperimentQuantileMetric": {
+            "additionalProperties": false,
+            "description": "Event-level quantile of `source.math_property`, pooled over all qualifying events of a variant.",
+            "properties": {
+                "breakdownFilter": {
+                    "$ref": "#/definitions/BreakdownFilter"
+                },
+                "conversion_window": {
+                    "$ref": "#/definitions/integer"
+                },
+                "conversion_window_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "fingerprint": {
+                    "type": "string"
+                },
+                "goal": {
+                    "$ref": "#/definitions/ExperimentMetricGoal"
+                },
+                "isSharedMetric": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "ExperimentMetric",
+                    "type": "string"
+                },
+                "metric_type": {
+                    "const": "quantile",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "quantile": {
+                    "description": "Quantile level, for example 0.9 for p90.",
+                    "maximum": 0.99,
+                    "minimum": 0.01,
+                    "type": "number"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "sharedMetricId": {
+                    "type": "number"
+                },
+                "source": {
+                    "$ref": "#/definitions/ExperimentQuantileMetricSource",
+                    "description": "Must set `math_property`, the numeric property to take the quantile of. `math` is ignored."
+                },
+                "uuid": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "metric_type", "quantile", "source"],
+            "type": "object"
+        },
+        "ExperimentQuantileMetricSource": {
+            "$ref": "#/definitions/ExperimentQuantileMetricSourceUnion"
+        },
+        "ExperimentQuantileMetricSourceUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                }
+            ],
+            "required": ["kind"],
+            "type": "object"
+        },
+        "ExperimentQuantileMetricTypeProps": {
+            "additionalProperties": false,
+            "properties": {
+                "metric_type": {
+                    "const": "quantile",
+                    "type": "string"
+                },
+                "quantile": {
+                    "description": "Quantile level, for example 0.9 for p90.",
+                    "maximum": 0.99,
+                    "minimum": 0.01,
+                    "type": "number"
+                },
+                "source": {
+                    "$ref": "#/definitions/ExperimentQuantileMetricSource",
+                    "description": "Must set `math_property`, the numeric property to take the quantile of. `math` is ignored."
+                }
+            },
+            "required": ["metric_type", "source", "quantile"],
             "type": "object"
         },
         "ExperimentQuery": {
@@ -28364,6 +28475,13 @@
                 "numerator_denominator_sum_product": {
                     "type": "number"
                 },
+                "quantile_grid": {
+                    "description": "For quantile metrics: the quantile, then the lower and upper bound for each reference sample size.",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
                 "step_counts": {
                     "items": {
                         "$ref": "#/definitions/integer"
@@ -28415,6 +28533,13 @@
                 },
                 "numerator_denominator_sum_product": {
                     "type": "number"
+                },
+                "quantile_grid": {
+                    "description": "For quantile metrics: the quantile, then the lower and upper bound for each reference sample size.",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
                 },
                 "step_counts": {
                     "items": {
@@ -28527,6 +28652,13 @@
                 "numerator_denominator_sum_product": {
                     "type": "number"
                 },
+                "quantile_grid": {
+                    "description": "For quantile metrics: the quantile, then the lower and upper bound for each reference sample size.",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
                 "significant": {
                     "type": "boolean"
                 },
@@ -28602,6 +28734,13 @@
                 },
                 "p_value": {
                     "type": "number"
+                },
+                "quantile_grid": {
+                    "description": "For quantile metrics: the quantile, then the lower and upper bound for each reference sample size.",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
                 },
                 "significant": {
                     "type": "boolean"
@@ -35450,6 +35589,10 @@
             "additionalProperties": false,
             "description": "One row of the per-tool \"Failures\" table: a failure bucket (error type/status) for a tool.",
             "properties": {
+                "cause": {
+                    "description": "$mcp_error_message with ids and numbers masked; the grouping key within a type. Empty when no message was captured.",
+                    "type": "string"
+                },
                 "error_status": {
                     "description": "Raw $mcp_error_status as a string; empty when the bucket has no HTTP status.",
                     "type": "string"
@@ -35474,9 +35617,22 @@
                 },
                 "occurrences": {
                     "$ref": "#/definitions/integer"
+                },
+                "sample_message": {
+                    "description": "Newest raw error message in this group.",
+                    "type": "string"
                 }
             },
-            "required": ["message", "error_type", "error_status", "occurrences", "last_seen", "harnesses"],
+            "required": [
+                "message",
+                "error_type",
+                "error_status",
+                "occurrences",
+                "last_seen",
+                "harnesses",
+                "cause",
+                "sample_message"
+            ],
             "type": "object"
         },
         "MCPToolFailureOccurrenceItem": {
@@ -35525,6 +35681,10 @@
             "additionalProperties": false,
             "description": "Individual errored calls of a single MCP tool within one failure bucket, newest first.",
             "properties": {
+                "cause": {
+                    "description": "When set, only events whose masked message equals this failures-table `cause` match; \"\" selects events without a message.",
+                    "type": "string"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -37700,7 +37860,7 @@
                     "type": "array"
                 },
                 "subject": {
-                    "description": "The campaign name or the search term the recommendation is about.",
+                    "description": "The ad account, campaign or search term the recommendation is about.",
                     "type": "string"
                 }
             },
@@ -37755,7 +37915,7 @@
             "type": "string"
         },
         "MarketingAnalyticsRecommendationLevel": {
-            "enum": ["campaign", "search_term"],
+            "enum": ["account", "campaign", "search_term"],
             "type": "string"
         },
         "MarketingAnalyticsRecommendationRule": {
@@ -37769,7 +37929,8 @@
                 "content_gap",
                 "keyword_gap",
                 "spend_without_conversions",
-                "striking_distance"
+                "striking_distance",
+                "keyword_tracking"
             ],
             "type": "string"
         },
@@ -43557,6 +43718,7 @@
                 "metrics_docs_viewed",
                 "metrics_viewer_query_run",
                 "metrics_sql_query_run",
+                "metrics_derived_query_run",
                 "metrics_query_saved",
                 "metrics_first_ingested",
                 "metrics_scrape_agent_snippet_copied",
@@ -62857,6 +63019,22 @@
         },
         "isExperimentMeanMetric": {
             "$comment": "(metric: ExperimentMetric) => metric is ExperimentMeanMetric",
+            "properties": {
+                "namedArgs": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "metric": {
+                            "$ref": "#/definitions/ExperimentMetric"
+                        }
+                    },
+                    "required": ["metric"],
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "isExperimentQuantileMetric": {
+            "$comment": "(metric: ExperimentMetric) => metric is ExperimentQuantileMetric",
             "properties": {
                 "namedArgs": {
                     "additionalProperties": false,

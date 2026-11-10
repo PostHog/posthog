@@ -80,8 +80,8 @@ describe('workflowsListV2Logic', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES], {
-            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_LIST_V2], {
+            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
         })
     })
 
@@ -104,18 +104,6 @@ describe('workflowsListV2Logic', () => {
             text: '',
         })
         expect(logic.values.templateTypeFilter).toBe('all')
-    })
-
-    it('keeps the existing list facets when project files are disabled', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
-        logic = workflowsListV2Logic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.facets.map((facet) => facet.key)).not.toContain('in')
-        await expectLogic(logic, () =>
-            router.actions.push(urls.workflows(), { q: 'in:Campaigns' })
-        ).toFinishAllListeners()
-        expect(logic.values.value.filters).toEqual([])
     })
 
     it.each(['in', 'path', 'folder', 'Folder'])(

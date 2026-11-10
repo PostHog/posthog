@@ -20,7 +20,8 @@ from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_resp
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
-from posthog.permissions import FEATURE_FLAG_REQUIRED_ERROR_CODE, get_authenticator_client, posthog_feature_flag_enabled
+from posthog.models.file_system.constants import workflows_list_v2_enabled
+from posthog.permissions import FEATURE_FLAG_REQUIRED_ERROR_CODE
 
 from products.workflows.backend.facade.contracts import WorkflowViewConflict, WorkflowViewNotFound, WorkflowViewState
 from products.workflows.backend.facade.workflow_views import (
@@ -173,22 +174,11 @@ class WorkflowViewsFeatureFlagPermission(BasePermission):
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         workflow_views = cast(WorkflowViewViewSet, view)
-        user = cast(User, request.user)
-        for flag in ("workflows-saved-views", "workflows-list-v2"):
-            try:
-                enabled = posthog_feature_flag_enabled(
-                    flag,
-                    str(user.distinct_id),
-                    organization_id=workflow_views.team.organization_id,
-                    team_id=workflow_views.team.id,
-                    caller_properties=get_authenticator_client(request.successful_authenticator),
-                )
-            except Exception as error:
-                capture_exception(error, {"flag": flag})
-                return False
-            if not enabled:
-                return False
-        return True
+        try:
+            return workflows_list_v2_enabled(workflow_views.team, cast(User, request.user))
+        except Exception as error:
+            capture_exception(error, {"flag": "workflows-list-v2"})
+            return False
 
 
 class WorkflowViewViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

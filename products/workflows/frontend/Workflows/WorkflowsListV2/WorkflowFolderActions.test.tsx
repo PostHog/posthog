@@ -36,7 +36,7 @@ describe('WorkflowFolderActions', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: true })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         workflowFoldersLogic.mount()
     })
 

@@ -68,6 +68,7 @@ from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
+from posthog.models.file_system.constants import workflows_list_v2_enabled
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.paging import Page, PageRequest
 from posthog.permissions import (
@@ -75,7 +76,6 @@ from posthog.permissions import (
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
     is_service_auth,
-    posthog_feature_flag_enabled,
 )
 from posthog.ph_client import feature_enabled_or_false
 from posthog.plugins.plugin_server_api import (
@@ -407,15 +407,6 @@ def _cohort_conditions_rolled_out(user: Any, organization_id: str) -> bool:
 LISTED_ORIGIN_PRODUCTS: list[str] = [
     origin for origin in HogFlowOriginProduct.values if origin != HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS
 ]
-
-
-WORKFLOWS_LIST_V2_FLAG = "workflows-list-v2"
-
-
-def _rolled_out_to(flag: str, user: User, team: Team) -> bool:
-    return posthog_feature_flag_enabled(
-        flag, str(user.distinct_id), organization_id=team.organization_id, team_id=team.id
-    )
 
 
 def _code_sends_rolled_out(team: Any) -> bool:
@@ -7259,7 +7250,7 @@ class HogFlowViewSet(
             before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
 
         # The list that reads these counts launches behind its flag, and so does the way it counts runs.
-        if _rolled_out_to(WORKFLOWS_LIST_V2_FLAG, cast(User, request.user), self.team):
+        if workflows_list_v2_enabled(self.team, cast(User, request.user)):
             totals = fetch_run_totals_by_workflow(team_id=self.team_id, after=after_date, before=before_date)
         else:
             totals = fetch_app_metric_totals_by_source(

@@ -1670,7 +1670,7 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
 
-    def test_a_member_denied_the_workflow_cannot_delete_or_restore_it_through_project_files(self, mock_post, _flag):
+    def test_a_member_denied_the_workflow_cannot_delete_or_restore_it_through_the_project_tree(self, mock_post, _flag):
         self.template.refresh_from_db()
         self.template.save()
         entry = FileSystem.objects.get(team=self.team, type="message_template", ref=str(self.template.id))
