@@ -187,8 +187,8 @@ def preview_resync_static_cohorts(request: HttpRequest, form: forms.Form) -> Pag
         blocks=(
             Notice(
                 text=(
-                    f"Replaces the members of {pluralize(resync_count, 'static cohort')} with the current result "
-                    "of each cohort's source query. The count shows the members before the re-sync."
+                    f"Adds to {pluralize(resync_count, 'static cohort')} the people who match its source query now "
+                    "and are not members yet. Existing members stay. The count shows the members before the re-sync."
                 )
             ),
             Table(
@@ -256,10 +256,10 @@ class ResaveCohortsTool(ConsoleTool):
                 handler=resync_static_cohorts,
                 preview=preview_resync_static_cohorts,
                 danger=True,
-                description="Replaces the members of each static cohort with the current result of its source query.",
+                description="Adds the people who match each static cohort's source query now. Existing members stay.",
                 form_class=ResyncStaticCohortsForm,
                 # The Django admin action sends staff here with the cohorts they picked.
                 form_initial={"cohorts": "\n".join(request.GET.getlist("cohort"))},
-                undo_hint="This cannot be undone. The previous members of each cohort are not kept.",
+                undo_hint="PostHog Admin cannot remove the added people. Remove them from the cohort in the app.",
             ),
         ]

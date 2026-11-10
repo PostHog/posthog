@@ -126,7 +126,7 @@ def get_static_cohort_resync_candidates(*, cohort_ids: list[int]) -> list[Static
 
 
 def queue_static_cohort_resyncs(*, cohort_ids: list[int]) -> StaticCohortResync:
-    """Queues a re-sync of each static cohort from its source query, which replaces the cohort's members.
+    """Queues a re-sync of each static cohort from its source query, which adds the people who match it now and keeps existing members.
 
     It reads the cohorts again rather than trusting an earlier preview, because a cohort can change in between.
     """
