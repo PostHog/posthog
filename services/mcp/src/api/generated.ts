@@ -54761,7 +54761,7 @@ export namespace Schemas {
       readonly status: HogFlowStateEnum;
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
-      readonly created_by: UserBasic;
+      readonly created_by: UserBasic | null;
       readonly updated_at: string;
       readonly trigger: unknown;
       /**
