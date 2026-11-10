@@ -102,7 +102,7 @@ def create_team_github_integration_from_oauth_code(
     installation_id: str | None,
     state_token: str | None,
     code: str | None,
-) -> Integration:
+) -> IntegrationRecord:
     if not installation_id:
         raise ValidationError("An installation_id must be provided")
 
@@ -149,8 +149,9 @@ def create_team_github_integration_from_oauth_code(
 
     instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, user)
 
-    instance.config["connecting_user_github_login"] = authorization.gh_login
-    instance.save(update_fields=["config"])
+    instance = IntegrationManager.github.oauth.update(
+        team_id, instance.id, config_patch={"connecting_user_github_login": authorization.gh_login}
+    )
     refreshed_at = instance.config.get("refreshed_at", 0)
     expires_in = instance.config.get("expires_in", 3600)
     token_expires_at = datetime.fromtimestamp(refreshed_at + expires_in, tz=UTC).isoformat()
@@ -165,10 +166,10 @@ def create_team_github_integration_from_oauth_code(
         ),
         authorization,
         create_only=True,
-        originating_organization_id=instance.team.organization_id,
+        originating_organization_id=Team.objects.only("organization_id").get(id=instance.team_id).organization_id,
     )
 
-    audit.record("link_completed", path="oauth", linked_integration_id=instance.pk, after_commit=True)
+    audit.record("link_completed", path="oauth", linked_integration_id=instance.id, after_commit=True)
     return instance
 
 
@@ -218,7 +219,7 @@ GITHUB_ADOPTION_ADMIN_REQUIRED_MESSAGE = (
 
 def adopt_orphan_installation(
     *, user: User, team: Team, installation_id: str, discovery_id: str | None = None
-) -> Integration:
+) -> IntegrationRecord:
     """Create the team's first ``Integration`` row for a GitHub App installation that exists on
     GitHub but was never linked to any PostHog team — e.g. a non-admin clicked "Connect
     organization", GitHub created an install *request*, and a GitHub org admin approved it
@@ -259,8 +260,9 @@ def adopt_orphan_installation(
         credential.integration, source="github_callback", priority=Priority.NORMAL
     ).github_login
     if login:
-        instance.config["connecting_user_github_login"] = login
-        instance.save(update_fields=["config"])
+        instance = IntegrationManager.github.oauth.update(
+            team.id, instance.id, config_patch={"connecting_user_github_login": login}
+        )
 
     return instance
 

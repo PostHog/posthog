@@ -11,7 +11,7 @@ from posthog.egress.gitlab.transport import gitlab_request
 from posthog.integrations.contracts import IntegrationRecord
 from posthog.security.url_validation import is_url_allowed
 
-from . import common, model
+from . import common, model, row_writes
 from .assignees import MAX_ASSIGNEES, Assignee, AssigneeLookupFailed
 
 
@@ -96,7 +96,7 @@ class GitLabIntegration:
         )
 
     @classmethod
-    def create_integration(cls, hostname, project_id, project_access_token, team_id, user) -> model.Integration:
+    def create_integration(cls, hostname, project_id, project_access_token, team_id, user) -> IntegrationRecord:
         try:
             response = cls._request(
                 "GET",
@@ -117,17 +117,16 @@ class GitLabIntegration:
             )
         project = cls._json(response)
 
-        integration = model.Integration.objects.create(
-            team_id=team_id,
-            kind=model.Integration.IntegrationKind.GITLAB,
-            integration_id=project.get("name_with_namespace"),
+        integration = row_writes.creator_accessor(model.Integration.IntegrationKind.GITLAB.value).create(
+            team_id,
+            external_id=project.get("name_with_namespace"),
             config={
                 "hostname": hostname,
                 "path_with_namespace": project.get("path_with_namespace"),
                 "project_id": project.get("id"),
             },
             sensitive_config={"access_token": project_access_token},
-            created_by=user,
+            created_by_id=user.id if user else None,
         )
 
         return integration

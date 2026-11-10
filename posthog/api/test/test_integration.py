@@ -2119,7 +2119,7 @@ class TestIntegrationAPIKeyAccess:
             == "Unable to fetch GitHub teams. Please check integration settings and try again."
         )
 
-    @patch("posthog.api.integration._ensure_oauth_token_valid")
+    @patch("posthog.api.integration._ensure_oauth_token_valid", side_effect=lambda instance: instance)
     @patch("posthog.api.integration.JiraIntegration.list_projects")
     def test_jira_projects_with_scope_succeeds(self, mock_list_projects, mock_ensure_token_valid, client: HttpClient):
         mock_list_projects.return_value = [{"id": "10000", "key": "ENG", "name": "Engineering"}]
@@ -2148,7 +2148,7 @@ class TestIntegrationAPIKeyAccess:
         mock_ensure_token_valid.assert_called_once_with(jira_integration)
         mock_list_projects.assert_called_once_with()
 
-    @patch("posthog.api.integration._ensure_oauth_token_valid")
+    @patch("posthog.api.integration._ensure_oauth_token_valid", side_effect=lambda instance: instance)
     @patch("posthog.api.integration.LinearIntegration.list_teams")
     def test_linear_teams_with_scope_succeeds(self, mock_list_teams, mock_ensure_token_valid, client: HttpClient):
         mock_list_teams.return_value = [{"id": "team-id", "name": "Engineering"}]
@@ -2201,7 +2201,7 @@ class TestIntegrationAPIKeyAccess:
             ),
         ],
     )
-    @patch("posthog.api.integration._ensure_oauth_token_valid")
+    @patch("posthog.api.integration._ensure_oauth_token_valid", side_effect=lambda instance: instance)
     def test_assignee_lookups_with_read_scope_succeed(
         self, _mock_ensure_token_valid, kind, url_suffix, list_method, expected_call, client: HttpClient
     ):
@@ -2231,7 +2231,7 @@ class TestIntegrationAPIKeyAccess:
             (AssigneeLookupFailed("Could not list users"), status.HTTP_400_BAD_REQUEST, None),
         ],
     )
-    @patch("posthog.api.integration._ensure_oauth_token_valid")
+    @patch("posthog.api.integration._ensure_oauth_token_valid", side_effect=lambda instance: instance)
     def test_assignee_lookup_failures(
         self, _mock_ensure_token_valid, side_effect, expected_status, expected_body, client: HttpClient
     ):

@@ -6,19 +6,19 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.integrations.contracts import IntegrationRecord
 
-from . import model
+from . import row_writes
 
 if TYPE_CHECKING:
     from products.workflows.backend.facade.contracts import TwilioPhoneNumber
 
 
 class TwilioIntegration:
-    integration: model.Integration
+    integration: IntegrationRecord
 
     def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "twilio":
             raise Exception("TwilioIntegration init called with Integration with wrong 'kind'")
-        self.integration = model.integration_model(integration)
+        self.integration = integration
         self._account_sid = self.integration.config["account_sid"]
         self._auth_token = self.integration.sensitive_config["auth_token"]
 
@@ -34,7 +34,7 @@ class TwilioIntegration:
 
         return twilio_phone_numbers
 
-    def integration_from_keys(self) -> model.Integration:
+    def integration_from_keys(self) -> IntegrationRecord:
         from products.workflows.backend.facade.api import (
             get_twilio_account_info,  # noqa: PLC0415 — keeps the workflows facade off the model import path
         )
@@ -44,20 +44,16 @@ class TwilioIntegration:
         if not account_info.get("sid"):
             raise ValidationError({"account_info": "Failed to get account info"})
 
-        integration, created = model.Integration.objects.update_or_create(
-            team_id=self.integration.team_id,
-            kind="twilio",
-            integration_id=account_info["sid"],
-            defaults={
-                "config": {
-                    "account_sid": account_info["sid"],
-                },
-                "sensitive_config": {
-                    "auth_token": self.integration.sensitive_config["auth_token"],
-                },
-                "created_by_id": self.integration.created_by_id,
-                "errors": "",
+        integration, _ = row_writes.creator_accessor("twilio").upsert(
+            self.integration.team_id,
+            account_info["sid"],
+            config={
+                "account_sid": account_info["sid"],
             },
+            sensitive_config={
+                "auth_token": self.integration.sensitive_config["auth_token"],
+            },
+            created_by_id=self.integration.created_by_id,
         )
 
         return integration

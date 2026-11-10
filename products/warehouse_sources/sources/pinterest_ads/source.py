@@ -144,7 +144,7 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
         oauth = OauthIntegration(integration)
         if oauth.access_token_expired():
             try:
-                oauth.refresh_access_token()
+                integration = oauth.refresh_access_token()
             except (requests.RequestException, ValueError) as e:
                 # `refresh_access_token` only records failure in `integration.errors` when Pinterest
                 # answers with a parseable body. A network error, or an HTML error page it then fails

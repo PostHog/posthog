@@ -1,5 +1,6 @@
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -10,7 +11,13 @@ from parameterized import parameterized, parameterized_class
 from posthog.integrations import IntegrationManager, IntegrationPatch, IntegrationRecord, usages
 from posthog.integrations.accessors import IntegrationReader
 from posthog.integrations.backend.fake_backend import FakeBackend
-from posthog.integrations.contracts import IntegrationConflict, IntegrationInUse, IntegrationNotFound, IntegrationUsage
+from posthog.integrations.contracts import (
+    IntegrationConflict,
+    IntegrationInUse,
+    IntegrationNotFound,
+    IntegrationUsage,
+    RepositoryCache,
+)
 from posthog.integrations.references import IntegrationReference
 from posthog.integrations.testing import fake_integrations_backend
 from posthog.models import Team
@@ -270,17 +277,20 @@ class TestBackendsBehaveTheSame(BaseTest):
 
         assert first.id != second.id
 
-    def test_upsert_creates_then_replaces_and_keeps_the_creator(self) -> None:
+    def test_upsert_creates_then_replaces_clears_errors_and_keeps_the_creator(self) -> None:
         accessor = IntegrationManager.github.token
         row, created = accessor.upsert(self.team.id, "new", config={"a": 1}, created_by_id=self.user.id)
+        accessor.update(self.team.id, row.id, errors="TOKEN_REFRESH_FAILED")
         again, created_again = accessor.upsert(self.team.id, "new", config={"b": 2}, sensitive_config={"s": 1})
 
         stored = self._stored(row.id)
         assert (created, created_again, again.id) == (True, False, row.id)
-        assert (stored.config, stored.sensitive_config, stored.created_by_id) == (
+        assert (again.errors, again.created_by_id) == ("", self.user.id)
+        assert (stored.config, stored.sensitive_config, stored.errors, stored.created_by_id) == (
             {"b": 2, "auth_type": "token"},
             # The encrypted field stores every secret value as a string.
             {"s": "1"},
+            "",
             self.user.id,
         )
 
@@ -375,6 +385,84 @@ class TestBackendsBehaveTheSame(BaseTest):
         if row_patch.errors:
             assert self._stored(self.other_id, self.other_team).errors == "SUSPENDED"
 
+    @parameterized.expand(
+        [
+            ("changes_the_unverified_rows", {"domain": "a.com"}, ["mixed_a", "verified_a"], ["mixed_a"]),
+            ("second_key_narrows", {"domain": "a.com", "verified": True}, ["verified_a"], []),
+            ("no_match", {"domain": "c.com"}, [], []),
+        ]
+    )
+    def test_update_where_patches_the_matching_rows_of_the_team(
+        self, _name: str, where: dict[str, Any], matched: list[str], changed: list[str]
+    ) -> None:
+        for name, config in [
+            ("mixed_a", {"domain": "a.com", "verified": False}),
+            ("verified_a", {"domain": "a.com", "verified": True}),
+            ("other_domain", {"domain": "b.com"}),
+            ("token_a", {"domain": "a.com", "auth_type": "token"}),
+        ]:
+            self.ids[name] = self._seed(name, "github", config)
+        other_team_row = self._seed("other_team_a", "github", {"domain": "a.com"}, team=self.other_team)
+
+        result = IntegrationManager.github.oauth.update_where(
+            self.team.id, where=where, patch=IntegrationPatch(config_patch={"verified": True})
+        )
+
+        assert self._names(list(result.records)) == matched
+        assert result.changed_ids == {self.ids[name] for name in changed}
+        assert all(record.config["verified"] is True for record in result.records)
+        assert self._stored(self.ids["other_domain"]).config == {"domain": "b.com"}
+        assert "verified" not in self._stored(self.ids["token_a"]).config
+        assert "verified" not in self._stored(other_team_row, self.other_team).config
+
+    def test_update_where_needs_a_filter(self) -> None:
+        with self.assertRaises(ValueError):
+            IntegrationManager.github.oauth.update_where(self.team.id, where={}, patch=IntegrationPatch(errors=""))
+
+    def test_repository_cache_round_trip_keeps_the_config(self) -> None:
+        accessor = IntegrationManager.github.oauth
+        row_id = self.ids["github_oauth"]
+        first, second = datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 2, tzinfo=UTC)
+        assert accessor.get_repository_cache(self.team.id, row_id) == RepositoryCache(repositories=[], updated_at=None)
+
+        accessor.set_repository_cache(self.team.id, row_id, repositories=[{"id": 1}], updated_at=first)
+        accessor.update(self.team.id, row_id, config_patch={"login": "x"})
+        # None keeps the stored list and moves only the fetch time.
+        accessor.set_repository_cache(self.team.id, row_id, repositories=None, updated_at=second)
+
+        assert accessor.get_repository_cache(self.team.id, row_id) == RepositoryCache(
+            repositories=[{"id": 1}], updated_at=second
+        )
+        assert self._stored(row_id).config == {"account": {"name": "octo"}, "login": "x"}
+
+    @parameterized.expand([("get",), ("set",)])
+    def test_repository_cache_stays_in_scope(self, operation: str) -> None:
+        with self.assertRaises(IntegrationNotFound):
+            if operation == "get":
+                IntegrationManager.github.oauth.get_repository_cache(self.team.id, self.ids["github_token"])
+            else:
+                IntegrationManager.github.oauth.set_repository_cache(
+                    self.other_team.id, self.ids["github_oauth"], repositories=[], updated_at=datetime.now(tz=UTC)
+                )
+
+    def test_expire_repository_cache_by_external_id_reaches_every_team(self) -> None:
+        accessor = IntegrationManager.github.oauth
+        fetched = datetime(2026, 1, 1, tzinfo=UTC)
+        for team, row_id in ((self.team, self.ids["github_oauth"]), (self.other_team, self.other_id)):
+            accessor.set_repository_cache(team.id, row_id, repositories=[{"id": 1}], updated_at=fetched)
+        IntegrationManager.github.token.set_repository_cache(
+            self.team.id, self.ids["github_token"], repositories=[], updated_at=fetched
+        )
+
+        assert accessor.expire_repository_cache_by_external_id("github_oauth") == 2
+
+        for team, row_id in ((self.team, self.ids["github_oauth"]), (self.other_team, self.other_id)):
+            assert accessor.get_repository_cache(team.id, row_id) == RepositoryCache(
+                repositories=[{"id": 1}], updated_at=None
+            )
+        token_cache = IntegrationManager.github.token.get_repository_cache(self.team.id, self.ids["github_token"])
+        assert token_cache.updated_at == fetched
+
     def test_delete_checks_usages_and_stays_in_scope(self) -> None:
         row_id = self.ids["github_oauth"]
         usage = IntegrationUsage(type="workflow", id="1", name="Flow")
@@ -391,6 +479,24 @@ class TestBackendsBehaveTheSame(BaseTest):
 
         assert not IntegrationManager.github.any.exists(self.team.id, external_id="github_oauth")
         assert IntegrationManager.github.any.exists(self.team.id, external_id="github_token")
+
+    @parameterized.expand(
+        [
+            ("every_team", lambda: IntegrationManager.github.oauth, ["github_oauth"], {"github_oauth": 2}),
+            ("scope_skips_other_auth_types", lambda: IntegrationManager.github.token, ["github_oauth"], {}),
+            (
+                "ids_without_rows_are_left_out",
+                lambda: IntegrationManager.github.any,
+                ["github_token", "none"],
+                {"github_token": 1},
+            ),
+            ("no_ids", lambda: IntegrationManager.github.oauth, [], {}),
+        ]
+    )
+    def test_count_by_external_ids(
+        self, _name: str, accessor: Callable[[], Any], external_ids: list[str], expected: dict[str, int]
+    ) -> None:
+        assert accessor().count_by_external_ids(external_ids) == expected
 
     def test_delete_by_external_id_reaches_every_team(self) -> None:
         assert IntegrationManager.github.oauth.delete_by_external_id("github_oauth") == 2

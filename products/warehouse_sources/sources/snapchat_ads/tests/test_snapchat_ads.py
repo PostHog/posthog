@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from posthog.integrations import IntegrationRecord
+
 from products.warehouse_sources.sources.sdk import (
     IntegrationAccount,
     IntegrationAccountListingError,
@@ -580,11 +582,12 @@ class TestSourceForPipelineTokenRefresh:
         integration = _snapchat_integration(refreshed_seconds_ago=refreshed_seconds_ago, **config)
         refreshes: list[bool] = []
 
-        def fake_refresh(oauth: OauthIntegration) -> None:
+        def fake_refresh(oauth: OauthIntegration) -> IntegrationRecord:
             refreshes.append(True)
             if minted_token is not None:
                 oauth.integration.sensitive_config["access_token"] = minted_token
                 oauth.integration.config["refreshed_at"] = int(time.time())
+            return oauth.integration
 
         source = SnapchatAdsSource()
         with (
@@ -610,9 +613,10 @@ class TestSourceForPipelineTokenRefresh:
     ) -> None:
         integration = _snapchat_integration(refreshed_seconds_ago=7200, **config)
 
-        def fake_refresh(oauth: OauthIntegration) -> None:
+        def fake_refresh(oauth: OauthIntegration) -> IntegrationRecord:
             if terminal_after_refresh:
                 oauth.integration.config["refresh_terminal"] = True
+            return oauth.integration
 
         source = SnapchatAdsSource()
         with (

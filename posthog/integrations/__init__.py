@@ -17,12 +17,15 @@ from posthog.integrations.contracts import (
     IntegrationRecord,
     IntegrationUsage,
     KindSpec,
+    RepositoryCache,
     UnknownIntegrationKind,
     UnsupportedAuthType,
     UnsupportedIntegrationFilter,
+    UpdatedRows,
 )
 from posthog.integrations.enums import AuthType, IntegrationAuthType
 from posthog.integrations.references import IntegrationReference
+from posthog.integrations.secret_reads import UndecryptedIntegrationSecretError
 
 if TYPE_CHECKING:
     from posthog.integrations.kinds_generated import IntegrationKind
@@ -84,10 +87,13 @@ __all__ = [
     "IntegrationUsage",
     "KindSpec",
     "OAuthAccessor",
+    "RepositoryCache",
     "SourceKindAccessor",
     "UnknownIntegrationKind",
     "UnsupportedAuthType",
+    "UndecryptedIntegrationSecretError",
     "UnsupportedIntegrationFilter",
+    "UpdatedRows",
     "UsageProvider",
     "register_source_kinds",
     "register_usage_provider",

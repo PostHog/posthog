@@ -66,13 +66,17 @@ These reads go across teams, for example to the teams that share one GitHub inst
 - `list_by_external_id(external_id, team_ids=None)` returns the rows with this external id.
 - `get_by_external_id(external_id, id)` returns the row with this id and this external id, or raises `IntegrationNotFound`.
 - `count_by_external_id(external_id)` and `exists_by_external_id(external_id)`.
+- `count_by_external_ids(external_ids)` returns `{external_id: count}` in one read, for a list page.
 
 They need an accessor with a kind: on `IntegrationManager.any` they raise `ValueError`, because external ids are unique only per provider.
 Do not take the first row of `list_by_external_id` without `team_ids`: the rule `github-installation-first-team` flags it for GitHub.
 
 `IntegrationManager.kinds(...)` takes `auth_types`: `"default"` (the default auth type of each kind), `"any"` for every auth type, or a list of auth types.
 
-Reads do not load the GitHub repository cache columns (`repository_cache`, `repository_cache_updated_at`). Django loads them with one more query when code reads them.
+Reads do not load the GitHub repository cache (`repository_cache`, `repository_cache_updated_at`), because the list can be large.
+Read it with `get_repository_cache(team_id, id)`, which returns a `RepositoryCache`.
+Store a fetch with `set_repository_cache(team_id, id, repositories=..., updated_at=...)`. Pass `repositories=None` when the list did not change, so the list is not written again.
+`expire_repository_cache_by_external_id(external_id)` marks the list of every team's row with this external id as stale.
 
 `where` compares named config keys for equality, for example `where={"region": "eu"}`.
 Equality also compares the JSON type, so `where={"installation_id": "123"}` misses a row that stores the number `123`.
@@ -87,8 +91,9 @@ Each operation has an async form with an `a` prefix: `aget`, `alist`, `aupdate`,
 Only an accessor with one auth type can write, because a new row has exactly one auth type.
 
 - `create(team_id, external_id=..., config=..., sensitive_config=..., created_by_id=...)`. It raises `IntegrationConflict` when the team already has a row of the kind with this external id, of any auth type.
-- `upsert(team_id, external_id, config=..., ...)` returns `(row, created)`. It replaces the config of an existing row. It raises `IntegrationConflict` when the existing row is not in the scope, for example a row with another auth type.
+- `upsert(team_id, external_id, config=..., ...)` returns `(row, created)`. It replaces the config of an existing row and clears its `errors`, because a new config is a reconnect. `created_by_id=None` keeps the creator of an existing row. It raises `IntegrationConflict` when the existing row is not in the scope, for example a row with another auth type.
 - `update(team_id, id, config_patch=..., config_remove=..., sensitive_config_patch=..., errors=...)` merges a patch. `errors=None` keeps the errors.
+- `update_where(team_id, where={...}, patch=...)` patches every row of the team whose config matches `where`, under row locks, all or none. It returns `UpdatedRows`: the matched rows after the write, and the ids of the rows that changed.
 - `update_by_external_id(external_id, patch)` patches the rows of every team that are in the scope. It writes only the rows that the patch changes, in one `bulk_update`, and returns their count. A `bulk_update` sends no `post_save` signal.
 
 Delete rows with `delete(team_id, id)`. It raises `IntegrationInUse` with the usages when other objects use the row. Pass `ignore_usages=True` to delete it anyway.

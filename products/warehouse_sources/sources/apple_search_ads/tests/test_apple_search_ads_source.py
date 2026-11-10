@@ -8,6 +8,8 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
+from posthog.integrations import IntegrationRecord
+
 from products.warehouse_sources.sources.apple_search_ads._config import (
     AppleSearchAdsAuthMethodConfig,
     AppleSearchAdsSourceConfig,
@@ -456,8 +458,9 @@ class TestAppleAdsAccessToken:
         # would have disabled a sync over one self-recovering blip.
         integration = _apple_ads_integration(refreshed_seconds_ago=7200)
 
-        def fake_refresh(oauth: OauthIntegration) -> None:
+        def fake_refresh(oauth: OauthIntegration) -> IntegrationRecord:
             oauth.integration.errors = "TOKEN_REFRESH_FAILED"
+            return oauth.integration
 
         with mock.patch.object(OauthIntegration, "refresh_access_token", fake_refresh):
             token = apple_ads_access_token(integration)
@@ -467,8 +470,9 @@ class TestAppleAdsAccessToken:
     def test_a_terminal_refresh_failure_raises_the_reconnect_error(self) -> None:
         integration = _apple_ads_integration(refreshed_seconds_ago=7200)
 
-        def fake_refresh(oauth: OauthIntegration) -> None:
+        def fake_refresh(oauth: OauthIntegration) -> IntegrationRecord:
             oauth.integration.config["refresh_terminal"] = True
+            return oauth.integration
 
         with mock.patch.object(OauthIntegration, "refresh_access_token", fake_refresh):
             with pytest.raises(AppleAdsOauthError, match=TOKEN_REFRESH_FAILED_MESSAGE):

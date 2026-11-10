@@ -185,7 +185,7 @@ def linkedin_ads_client_for_integration(
     # the integration has no refresh token or expiry metadata, leaving those integrations untouched.
     oauth_integration = OauthIntegration(integration)
     if oauth_integration.access_token_expired():
-        oauth_integration.refresh_access_token()
+        integration = oauth_integration.refresh_access_token()
         if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
             raise LinkedinAdsTokenRefreshError(
                 "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration."

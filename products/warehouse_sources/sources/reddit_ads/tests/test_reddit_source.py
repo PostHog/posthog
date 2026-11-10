@@ -6,6 +6,8 @@ from unittest import mock
 
 from requests.exceptions import Timeout
 
+from posthog.integrations import IntegrationRecord
+
 from products.warehouse_sources.sources.reddit_ads._config import RedditAdsSourceConfig
 from products.warehouse_sources.sources.reddit_ads.reddit_ads import RedditAdsApiError, RedditAdsResumeConfig
 from products.warehouse_sources.sources.reddit_ads.source import RedditAdsSource
@@ -198,9 +200,10 @@ class TestRedditAdsSource:
             sensitive_config={"access_token": "stale-token", "refresh_token": "refresh"},
         )
 
-        def _succeed(oauth_integration: OauthIntegration) -> None:
+        def _succeed(oauth_integration: OauthIntegration) -> IntegrationRecord:
             oauth_integration.integration.errors = ""
             oauth_integration.integration.sensitive_config["access_token"] = "refreshed-token"
+            return oauth_integration.integration
 
         with (
             mock.patch.object(RedditAdsSource, "get_oauth_integration", return_value=integration),

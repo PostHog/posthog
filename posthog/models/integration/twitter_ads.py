@@ -11,8 +11,9 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_many_or_settings
+from posthog.integrations.contracts import IntegrationRecord
+from posthog.models.integration import row_writes
 from posthog.models.integration.common import OauthClientCredentials
-from posthog.models.integration.model import Integration
 from posthog.models.integration.oauth import OauthIntegration
 
 if TYPE_CHECKING:
@@ -88,7 +89,7 @@ class TwitterAdsIntegration:
         return f"https://api.x.com/oauth/authorize?{urlencode({'oauth_token': tokens['oauth_token']})}"
 
     @classmethod
-    def integration_from_callback(cls, team_id: int, user: "User", config: dict[str, object]) -> Integration:
+    def integration_from_callback(cls, team_id: int, user: "User", config: dict[str, object]) -> IntegrationRecord:
         consumer = cls.consumer_credentials()
         token = config.get("oauth_token")
         verifier = config.get("oauth_verifier")
@@ -114,17 +115,14 @@ class TwitterAdsIntegration:
             ),
             ("oauth_token", "oauth_token_secret", "user_id", "screen_name"),
         )
-        integration, _ = Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="twitter-ads",
-            integration_id=tokens["user_id"],
-            defaults={
-                "created_by": user,
-                "config": {"screen_name": tokens["screen_name"], "user_id": tokens["user_id"], "next": binding["next"]},
-                "sensitive_config": {
-                    "oauth_token": tokens["oauth_token"],
-                    "oauth_token_secret": tokens["oauth_token_secret"],
-                },
+        integration, _ = row_writes.creator_accessor("twitter-ads").upsert(
+            team_id,
+            tokens["user_id"],
+            config={"screen_name": tokens["screen_name"], "user_id": tokens["user_id"], "next": binding["next"]},
+            sensitive_config={
+                "oauth_token": tokens["oauth_token"],
+                "oauth_token_secret": tokens["oauth_token_secret"],
             },
+            created_by_id=user.id,
         )
         return integration

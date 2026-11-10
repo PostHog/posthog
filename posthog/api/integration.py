@@ -290,14 +290,16 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         return False
 
 
-def _ensure_oauth_token_valid(instance: Integration) -> None:
+def _ensure_oauth_token_valid(instance: IntegrationRecord) -> IntegrationRecord:
     """Check that an OAuth integration's token is usable, attempting refresh if needed.
+
+    Returns the current row. Use it instead of `instance` after the call, because a refresh replaces the row.
 
     Raises ValidationError with a clear message instead of letting stale tokens
     cause unhandled 500s from external API calls.
     """
     if instance.kind not in OauthIntegration.supported_kinds:
-        return
+        return instance
 
     if instance.errors == ERROR_TOKEN_REFRESH_FAILED:
         raise ValidationError(
@@ -307,12 +309,13 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
 
     oauth = OauthIntegration(instance)
     if oauth.access_token_expired():
-        oauth.refresh_access_token()
+        instance = oauth.refresh_access_token()
         if instance.errors == ERROR_TOKEN_REFRESH_FAILED:
             raise ValidationError(
                 "This integration's authentication token could not be refreshed. "
                 "Please reconnect or disconnect this integration and connect a different account."
             )
+    return instance
 
 
 # Keyed by the `IntegrationUsage.type` that each product's `integration_usages.py` reports. The order
@@ -2261,7 +2264,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="google_conversion_actions")
     def conversion_actions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         google_ads = GoogleAdsIntegration(instance)
         customer_id = request.query_params.get("customerId")
         parent_id = request.query_params.get("parentId")
@@ -2285,7 +2288,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="google_accessible_accounts")
     def accessible_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         google_ads = GoogleAdsIntegration(instance)
 
         key = f"google_ads/{google_ads.integration.integration_id}/accessible_accounts"
@@ -2301,7 +2304,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")
     def linkedin_ad_conversion_rules(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         linkedin_ads = LinkedInAdsIntegration(instance)
         account_id = request.query_params.get("accountId")
 
@@ -2319,7 +2322,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_accounts")
     def linkedin_ad_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         linkedin_ads = LinkedInAdsIntegration(instance)
 
         accounts = [
@@ -2336,7 +2339,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="clickup_spaces")
     def clickup_spaces(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         clickup = ClickUpIntegration(instance)
         workspace_id = request.query_params.get("workspaceId")
 
@@ -2353,7 +2356,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="clickup_lists")
     def clickup_lists(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         clickup = ClickUpIntegration(instance)
         space_id = request.query_params.get("spaceId")
 
@@ -2385,7 +2388,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="clickup_workspaces")
     def clickup_workspaces(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         clickup = ClickUpIntegration(instance)
 
         workspaces = [
@@ -2404,7 +2407,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         if instance.kind != "linear":
             raise ValidationError("linear_teams endpoint is only supported for Linear integrations")
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         linear = LinearIntegration(instance)
         return Response({"teams": linear.list_teams()})
 
@@ -2419,7 +2422,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         if instance.kind != "linear":
             raise ValidationError("linear_team_members endpoint is only supported for Linear integrations")
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         query = query_serializer.validated_data
         return assignees_response(lambda: LinearIntegration(instance).list_assignees(query["team_id"], query["search"]))
 
@@ -2859,7 +2862,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         if instance.kind != "jira":
             raise ValidationError("jira_projects endpoint is only supported for Jira integrations")
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         jira = JiraIntegration(instance)
         return Response({"projects": jira.list_projects()})
 
@@ -2874,7 +2877,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         if instance.kind != "jira":
             raise ValidationError("jira_assignable_users endpoint is only supported for Jira integrations")
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         query = query_serializer.validated_data
         return assignees_response(
             lambda: JiraIntegration(instance).list_assignees(query["project_key"], query["search"])
@@ -3160,17 +3163,23 @@ class IntegrationViewSet(
         page = self.paginate_queryset(queryset)
         instances = page if page is not None else list(queryset)
         # Only App installations have an installation id to heal from. A typed-in token row does not.
-        github_apps = [
-            instance
+        github_adapters = {
+            instance.id: GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL)
             for instance in instances
             if instance.kind == "github" and instance.auth_type == IntegrationAuthType.OAUTH
-        ]
-        for instance in github_apps:
-            GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL).ensure_account_name()
+        }
+        for adapter in github_adapters.values():
+            adapter.ensure_account_name()
+        # The heal replaces the adapter's row, so serialize the adapter's row.
+        instances = [github_adapters[i.id].integration if i.id in github_adapters else i for i in instances]
         # One grouped lookup for the whole page instead of an `exists()` per row, so
         # `installation_shared` stays a fixed one query however many GitHub rows there are.
         reference_counts = GitHubIntegration.installation_reference_counts(
-            {instance.integration_id for instance in github_apps if instance.integration_id},
+            {
+                adapter.integration.integration_id
+                for adapter in github_adapters.values()
+                if adapter.integration.integration_id
+            },
             include_personal=False,
         )
         serializer = self.get_serializer(
@@ -3187,5 +3196,7 @@ class IntegrationViewSet(
         # second query and permission check for the row already in hand.
         instance = self.get_object()
         if instance.kind == "github" and instance.auth_type == IntegrationAuthType.OAUTH:
-            GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL).ensure_account_name()
+            github = GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL)
+            github.ensure_account_name()
+            instance = github.integration
         return Response(self.get_serializer(instance).data)

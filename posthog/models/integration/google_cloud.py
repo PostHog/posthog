@@ -86,7 +86,7 @@ class GoogleCloudServiceAccountIntegration:
         private_key_id: str | None = None,
         token_uri: str | None = None,
         created_by: User | None = None,
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         if private_key is None:
             if not is_unique_service_account_by_organization_id(service_account_email, organization_id):
                 raise ValidationError("Cannot create Google Cloud service account integration: Invalid service account")
@@ -102,21 +102,19 @@ class GoogleCloudServiceAccountIntegration:
 
         variant = "impersonated" if is_impersonated else "key-file"
 
-        integration, _ = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind=model.Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT.value,
+        integration, _ = row_writes.creator_accessor(
+            model.Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT.value
+        ).upsert(
+            team_id,
             # Including team_id to allow teams from the same organization to use the
             # same service account. Otherwise different teams would overwrite each other.
-            integration_id=f"{service_account_email}-{team_id}-{variant}",
-            defaults={
-                "config": {
-                    "project_id": project_id,
-                    "service_account_email": service_account_email,
-                },
-                "sensitive_config": sensitive_config,
-                "created_by": created_by,
-                "errors": "",
+            f"{service_account_email}-{team_id}-{variant}",
+            config={
+                "project_id": project_id,
+                "service_account_email": service_account_email,
             },
+            sensitive_config=sensitive_config,
+            created_by_id=created_by.id if created_by else None,
         )
 
         return integration
@@ -162,7 +160,7 @@ class GoogleCloudIntegration:
     @classmethod
     def integration_from_key(
         cls, kind: str, key_info: dict, team_id: int, created_by: User | None = None
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         if kind == "google-pubsub":
             scope = "https://www.googleapis.com/auth/pubsub"
         elif kind == "google-cloud-storage":
@@ -178,22 +176,18 @@ class GoogleCloudIntegration:
         except Exception:
             raise ValidationError(f"Failed to authenticate with provided service account key")
 
-        integration, created = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind=kind,
-            integration_id=credentials.service_account_email,
-            defaults={
-                "config": {
-                    "expires_in": credentials.expiry.timestamp() - int(time.time()),
-                    "refreshed_at": int(time.time()),
-                },
-                "sensitive_config": {
-                    "key_info": key_info,
-                    "access_token": credentials.token,
-                },
-                "created_by": created_by,
-                "errors": "",
+        integration, _ = row_writes.creator_accessor(kind).upsert(
+            team_id,
+            credentials.service_account_email,
+            config={
+                "expires_in": credentials.expiry.timestamp() - int(time.time()),
+                "refreshed_at": int(time.time()),
             },
+            sensitive_config={
+                "key_info": key_info,
+                "access_token": credentials.token,
+            },
+            created_by_id=created_by.id if created_by else None,
         )
 
         return integration
