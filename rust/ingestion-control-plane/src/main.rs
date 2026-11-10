@@ -101,7 +101,7 @@ fn record_changelog_cluster(state: &AppState) {
     let cluster = match state.config.current_changelog_cluster() {
         Ok(Some(cluster)) => cluster,
         Ok(None) => {
-            info!("no CHANGELOG_KAFKA_CLUSTERS entry matches PERSONHOG_KAFKA_HOSTS; the changelog's cluster stays unrecorded");
+            info!("no CHANGELOG_KAFKA_CLUSTERS entry matches PERSONHOG_KAFKA_HOSTS; a changelog config that records no cluster keeps none");
             return;
         }
         Err(e) => {

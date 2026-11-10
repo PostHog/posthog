@@ -11,29 +11,11 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from products.warehouse_sources.sources.sdk import make_tracked_session
 
-from .auth import HubspotRetryableError, hubspot_refresh_access_token
+from .auth import HubspotRetryableError, _is_retryable_status, hubspot_refresh_access_token
 from .scopes import HubspotForbiddenError, missing_scope_error, scope_gated_object_for_url
 from .settings import OBJECT_TYPE_PLURAL, apply_crm_api_version
 
 BASE_URL = "https://api.hubapi.com/"
-
-
-def _is_retryable_status(status_code: int) -> bool:
-    """Transient HubSpot statuses that warrant a backoff-and-retry rather than failing the sync.
-
-    408, 429 and 5xx are the usual transient signals. Unrecognised 4xx codes (e.g. the
-    non-standard 477 HubSpot's edge has been observed returning during brief incidents) aren't
-    actionable client errors, so treat any unknown 4xx as transient too instead of crashing the
-    import on it.
-    """
-    if status_code in (408, 429) or status_code >= 500:
-        return True
-    if 400 <= status_code < 500:
-        try:
-            HTTPStatus(status_code)
-        except ValueError:
-            return True
-    return False
 
 
 def get_url(endpoint: str) -> str:

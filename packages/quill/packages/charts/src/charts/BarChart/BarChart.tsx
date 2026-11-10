@@ -66,7 +66,7 @@ export interface BarChartProps<Meta = unknown> {
 
 export function BarChart<Meta = unknown>({ onError, ...rest }: BarChartProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary onError={onError} resetKey={rest.series}>
             <BarChartInner {...rest} />
         </ChartErrorBoundary>
     )

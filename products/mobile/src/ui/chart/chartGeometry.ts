@@ -1,5 +1,7 @@
 import { lineHeight } from '@/ui/tokens'
 
+import type { ChartAxisData } from './chartAxes'
+
 import {
     BAR_MIN_HEIGHT,
     formatAxisDate,
@@ -38,6 +40,9 @@ export interface ChartGeometry {
     /** Gridlines, with their labels when the variant shows y labels. */
     yTicks: { value: number; y: number; text: string | null }[]
     yLabelWidth: number
+    rightYDomain?: [number, number]
+    rightYTicks?: { value: number; y: number; text: string | null }[]
+    rightYLabelWidth?: number
     xLabels: { index: number; left: number; width: number; text: string }[]
     /** The slot each bar sits in. */
     bandWidth: number
@@ -52,6 +57,9 @@ export interface GeometryInput {
     /** Every visible value, across series. The y axis fits them. */
     values: number[]
     dates: number[]
+    labels?: (string | undefined)[]
+    primaryAxis?: ChartAxisData
+    rightAxis?: ChartAxisData
     interval: ChartInterval
     uses24hourClock: boolean
     formatValue: (value: number) => string
@@ -78,13 +86,30 @@ export function barSpan(valueY: number, zeroY: number): { top: number; height: n
 export function chartGeometry(input: GeometryInput): ChartGeometry {
     const { width, height, kind, variant, count, values, dates, interval, formatValue } = input
     const compact = variant === 'compact'
-    const axis = yAxisTicks(values, kind, compact ? COMPACT_Y_TICKS : undefined)
-    const yTexts = compact ? [] : axis.ticks.map((tick) => formatValue(tick))
+    const { primaryAxis, rightAxis } = input
+    const leftValues = primaryAxis?.values ?? values
+    const axis = yAxisTicks(
+        primaryAxis?.startAtZero ? [0, ...leftValues] : leftValues,
+        primaryAxis?.kind ?? kind,
+        compact ? COMPACT_Y_TICKS : undefined
+    )
+    const right = rightAxis
+        ? yAxisTicks(
+              rightAxis.startAtZero ? [0, ...rightAxis.values] : rightAxis.values,
+              rightAxis.kind,
+              compact ? COMPACT_Y_TICKS : undefined
+          )
+        : undefined
+    // Mixed units need both scales even on a compact pin.
+    const showYLabels = !compact || Boolean(rightAxis)
+    const yTexts = showYLabels ? axis.ticks.map((tick) => (primaryAxis?.formatValue ?? formatValue)(tick)) : []
+    const rightTexts = right?.ticks.map((tick) => (rightAxis?.formatValue ?? formatValue)(tick)) ?? []
+    const rightYLabelWidth = Math.max(0, ...rightTexts.map((text) => monoTextWidth(text)))
     const yLabelWidth = Math.max(0, ...yTexts.map((text) => monoTextWidth(text)))
-    const left = compact ? 0 : yLabelWidth + TICK_GAP
+    const left = showYLabels ? yLabelWidth + TICK_GAP : 0
     const plot: PlotRect = {
         left,
-        right: Math.max(left + 1, width - PLOT_RIGHT),
+        right: Math.max(left + 1, width - (rightAxis ? rightYLabelWidth + TICK_GAP : PLOT_RIGHT)),
         top: PLOT_TOP,
         bottom: Math.max(PLOT_TOP + 1, height - PLOT_BOTTOM),
     }
@@ -107,7 +132,7 @@ export function chartGeometry(input: GeometryInput): ChartGeometry {
         text: yTexts[index] ?? null,
     }))
 
-    const texts = dates.map((at) => formatAxisDate(at, interval, input.uses24hourClock))
+    const texts = dates.map((at, index) => input.labels?.[index] ?? formatAxisDate(at, interval, input.uses24hourClock))
     const labelWidth = Math.max(0, ...texts.map((text) => monoTextWidth(text)))
     const indices = compact
         ? count > 1
@@ -128,5 +153,26 @@ export function chartGeometry(input: GeometryInput): ChartGeometry {
         return { index, left: Math.min(width - textWidth, Math.max(0, labelLeft)), width: textWidth, text }
     })
 
-    return { width, height, plot, xs, yDomain: axis.domain, yTicks, yLabelWidth, xLabels, bandWidth }
+    return {
+        width,
+        height,
+        plot,
+        xs,
+        yDomain: axis.domain,
+        yTicks,
+        yLabelWidth,
+        xLabels,
+        bandWidth,
+        ...(right
+            ? {
+                  rightYDomain: right.domain,
+                  rightYLabelWidth,
+                  rightYTicks: right.ticks.map((value, index) => ({
+                      value,
+                      y: yPosition(value, right.domain, plot),
+                      text: rightTexts[index] ?? null,
+                  })),
+              }
+            : {}),
+    }
 }

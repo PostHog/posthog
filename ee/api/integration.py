@@ -7,13 +7,12 @@ from rest_framework.response import Response
 
 from posthog.api.integration import IntegrationSerializer
 from posthog.api.utils import action
-from posthog.models.integration import Integration, SlackIntegration, SlackIntegrationError
+from posthog.models.integration import SlackIntegration, SlackIntegrationError
 
 from ee.tasks.slack import handle_slack_event
 
 
 class PublicIntegrationViewSet(viewsets.GenericViewSet):
-    queryset = Integration.objects.all()
     serializer_class = IntegrationSerializer
 
     authentication_classes = []

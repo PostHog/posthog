@@ -11,7 +11,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Exists, F, Max, QuerySet
+from django.db.models import Count, Exists, F, Max, QuerySet, prefetch_related_objects
 from django.db.models.query_utils import Q
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
@@ -909,22 +909,39 @@ class InsightSerializer(InsightBasicSerializer):
     @transaction.atomic()
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="PATCH")
     def update(self, instance: Insight, validated_data: dict, **kwargs) -> Insight:
-        dashboards_before_change: list[Union[str, dict]] = []
+        # `instance` was read before this transaction and save() writes every field, so a PATCH applied
+        # to it would write back stale values of fields it did not send. A no-key lock serializes writers
+        # without blocking inserts of rows that reference the insight.
         try:
-            # since it is possible to be restoring a soft deleted insight
-            # the state captured before the update has to include soft deleted insights
-            # or we can't capture undeletes to the activity log
-            before_update = Insight.objects_including_soft_deleted.prefetch_related(
-                "tagged_items__tag", "dashboards"
-            ).get(pk=instance.id)
-
-            dashboards_before_change = [describe_change(dt.dashboard) for dt in instance.dashboard_tiles.all()]
-            dashboards_before_change = sorted(
-                dashboards_before_change,
-                key=lambda x: -1 if isinstance(x, str) else x["id"],
+            instance.refresh_from_db(
+                from_queryset=Insight.objects_including_soft_deleted.select_related(
+                    "team", "created_by", "last_modified_by"
+                ).select_for_update(no_key=True, of=("self",))
             )
         except Insight.DoesNotExist:
-            before_update = None
+            raise NotFound()
+        # save() regenerates query_metadata only when the query differs from this snapshot.
+        instance._original_query = instance.query
+        # A delete can commit while this request waits for the lock.
+        if instance.deleted and validated_data.get("deleted") is not False:
+            raise NotFound()
+        # refresh_from_db() empties the prefetch cache, so reload the tiles with their dashboards.
+        prefetch_related_objects([instance], tile_permissions_prefetch())
+
+        # since it is possible to be restoring a soft deleted insight
+        # the state captured before the update has to include soft deleted insights
+        # or we can't capture undeletes to the activity log
+        before_update = Insight.objects_including_soft_deleted.prefetch_related("tagged_items__tag", "dashboards").get(
+            pk=instance.id
+        )
+
+        dashboards_before_change: list[Union[str, dict]] = [
+            describe_change(dt.dashboard) for dt in instance.dashboard_tiles.all()
+        ]
+        dashboards_before_change = sorted(
+            dashboards_before_change,
+            key=lambda x: -1 if isinstance(x, str) else x["id"],
+        )
 
         # Remove is_sample if it's set as user has altered the sample configuration
         validated_data["is_sample"] = False
@@ -957,8 +974,7 @@ class InsightSerializer(InsightBasicSerializer):
                 lock_insight_for_evaluation(team_id=instance.team_id, insight_id=instance.id)
                 delete_insight_subscriptions(project_id=instance.team.project_id, insight_ids=[instance.id])
                 hide_tiles_for_insights([instance.id])
-                for alert in instance.alertconfiguration_set.all():
-                    alert.delete()
+                delete_insight_alerts([instance.id])
             else:
                 dashboard_ids = validated_data.pop("dashboards", None)
                 if dashboard_ids is not None:
@@ -974,8 +990,7 @@ class InsightSerializer(InsightBasicSerializer):
         # mismatch (see validate_alert_config + disable_invalid_alert in the alerts temporal activity),
         # so the alert and its history are preserved and the user can reconfigure rather than lose it.
         if updated_insight.alertable_query_kind is None:
-            for alert in instance.alertconfiguration_set.all():
-                alert.delete()
+            delete_insight_alerts([instance.id])
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
@@ -1655,6 +1670,21 @@ class MCPInsightSerializer(InsightSerializer):
             )
         except PydanticValidationError as exc:
             raise serializers.ValidationError(f"This query can't be saved: {_pydantic_error_details(exc)}")
+
+
+def parse_property_names_param(raw: str) -> list[str]:
+    invalid = ValidationError({"properties": 'Pass a JSON list of property names, for example ["$browser"].'})
+    if not raw:
+        return []
+    try:
+        decoded = json.loads(raw)
+    except json.JSONDecodeError:
+        raise invalid
+    if not isinstance(decoded, list):
+        raise invalid
+    # Old clients sent full property-filter dicts under this param. Only plain names filter, so those
+    # payloads stay a no-op.
+    return [item for item in decoded if isinstance(item, str) and item]
 
 
 # Insights can be looked up by either the numeric primary key or the 8-character `short_id`
@@ -2441,6 +2471,13 @@ class InsightViewSet(
                 events = json.loads(events_filter) if events_filter else []
                 for event in events:
                     queryset = queryset.filter(Q(query_metadata__events__contains=[event]))
+            elif key == "properties":
+                property_names = parse_property_names_param(request.GET["properties"])
+                if property_names:
+                    # Containment on the whole column, so the GIN index on query_metadata applies.
+                    queryset = queryset.filter(
+                        query_metadata__contains={"properties": [{"name": name} for name in property_names]}
+                    )
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":

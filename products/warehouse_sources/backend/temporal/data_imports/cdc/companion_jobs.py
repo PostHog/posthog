@@ -17,6 +17,8 @@ if TYPE_CHECKING:
 # On the schema's own job row: the companion job ids this run opened, so the listing proof can
 # check them by primary key rather than by an unindexed JSON predicate over the schema's history.
 COMPANION_JOB_IDS_KEY = "cdc_companion_job_ids"
+COMPANION_OF_KEY = "companion_of"
+COMPANION_RUN_SUFFIX = "-cdc"
 
 COMPANION_RETIRED_ERROR = "Extraction ended before this table's changes were written"
 
@@ -64,6 +66,30 @@ def retire_orphaned_companions(schema: ExternalDataSchema) -> list[str]:
     for job_id in orphans:
         retire_companion_job(str(job_id))
     return [str(j) for j in orphans]
+
+
+def companions_completed(companion_job_ids: list[str]) -> bool:
+    """Whether every companion table this run also wrote finished with it."""
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    if not companion_job_ids:
+        return True
+    statuses = ExternalDataJob.objects.filter(id__in=companion_job_ids).values_list("status", flat=True)
+    return len(statuses) == len(companion_job_ids) and all(
+        status == ExternalDataJob.Status.COMPLETED for status in statuses
+    )
+
+
+def run_completed_on_every_table(job_id: str, team_id: int) -> bool:
+    """Whether the run of this job, or of the job it is a companion of, completed on every table it writes."""
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    job = ExternalDataJob.objects.get(id=job_id, team_id=team_id)
+    parent_id = (job.schema_snapshot or {}).get(COMPANION_OF_KEY)
+    parent = ExternalDataJob.objects.get(id=parent_id, team_id=team_id) if parent_id else job
+    return parent.status == ExternalDataJob.Status.COMPLETED and companions_completed(
+        (parent.schema_snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []
+    )
 
 
 def record_companion_job(parent_job_id: str, team_id: int, companion_job_id: str, *, first_of_attempt: bool) -> None:

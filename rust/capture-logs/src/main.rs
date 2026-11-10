@@ -8,6 +8,7 @@ use capture_logs::config::Config;
 use capture_logs::endpoints::aws_firehose;
 use capture_logs::endpoints::datadog;
 use capture_logs::endpoints::prometheus;
+use capture_logs::endpoints::vercel;
 use capture_logs::kafka::KafkaSink;
 use capture_logs::middleware::translate_compression_query_param;
 use capture_logs::service::Service;
@@ -120,6 +121,8 @@ async fn main() {
         .expect("could not bind management port");
 
     let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
+    let vercel_drain_gate =
+        vercel::VercelDrainGate::new(&config.vercel_drain_enabled_tokens.unwrap_or_default());
     let authorizer = Authorizer::new(Arc::new(token_dropper));
     let logs_service = match Service::new(
         kafka_sink,
@@ -127,6 +130,7 @@ async fn main() {
         config.max_request_body_size_bytes,
         config.firehose_max_request_body_size_bytes,
         config.max_backfill_days,
+        config.max_expanded_request_bytes,
     )
     .await
     {
@@ -189,7 +193,16 @@ async fn main() {
             "/i/v1/logs/datadog/:token/api/v2/logs",
             post(datadog::export_datadog_logs_http).options(options_handler),
         )
+        .route(
+            "/i/v1/logs/vercel",
+            post(vercel::export_vercel_logs_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/logs/vercel/:token",
+            post(vercel::export_vercel_logs_http).options(options_handler),
+        )
         .with_state(logs_service.clone())
+        .layer(axum::Extension(vercel_drain_gate))
         .layer(DefaultBodyLimit::max(config.max_request_body_size_bytes))
         .layer(axum::middleware::from_fn(track_metrics))
         .layer(RequestDecompressionLayer::new())

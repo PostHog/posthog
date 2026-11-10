@@ -1,8 +1,6 @@
 # Command K search: UX spec
 
-Source of truth for the new Command K search.
-Gated by the `new-command-k-search` feature flag (`FEATURE_FLAGS.NEW_COMMAND_K_SEARCH`).
-Flag off keeps the current `Search.tsx` / `searchLogic.tsx` palette untouched.
+Source of truth for the Command K search.
 When a change disagrees with this file, change this file in the same PR or don't ship the change.
 
 ## Goals, in priority order

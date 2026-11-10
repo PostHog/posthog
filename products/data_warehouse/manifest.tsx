@@ -65,6 +65,11 @@ export const manifest: ProductManifest = {
             projectBased: true,
             name: 'Connect data warehouse source',
         },
+        DataWarehouseMigrationConnect: {
+            import: () => import('./frontend/scenes/MigrationConnectScene/MigrationConnectScene'),
+            projectBased: true,
+            name: 'Import from Fivetran',
+        },
         DataWarehouseSourceSchema: {
             import: () => import('./frontend/scenes/SchemaScene/SchemaScene'),
             projectBased: true,
@@ -102,6 +107,7 @@ export const manifest: ProductManifest = {
         '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
         '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
         '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
+        '/data-warehouse/migrate/connect': ['DataWarehouseMigrationConnect', 'dataWarehouseMigrationConnect'],
         '/data-warehouse/connect-destination': ['WarehouseDestinationConnect', 'warehouseDestinationConnect'],
     },
     redirects: {
@@ -175,6 +181,7 @@ export const manifest: ProductManifest = {
             `/data-management/warehouse-destinations?destination=${encodeURIComponent(id)}`,
         dataWarehouseSourceConnect: (kind?: string): string =>
             `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
+        dataWarehouseMigrationConnect: (): string => '/data-warehouse/migrate/connect',
         warehouseDestinationConnect: (kind?: string): string =>
             `/data-warehouse/connect-destination${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     },
@@ -215,6 +222,7 @@ export const manifest: ProductManifest = {
                 'DataWarehouseSource',
                 'DataWarehouseSourceNew',
                 'DataWarehouseSourceConnect',
+                'DataWarehouseMigrationConnect',
                 'DataWarehouseSourceSchema',
                 'WarehouseDestinations',
                 'WarehouseDestinationConnect',
@@ -271,6 +279,7 @@ export const manifest: ProductManifest = {
                 'DataWarehouseSource',
                 'DataWarehouseSourceNew',
                 'DataWarehouseSourceConnect',
+                'DataWarehouseMigrationConnect',
                 'DataWarehouseSourceSchema',
                 'WarehouseDestinations',
                 'WarehouseDestinationConnect',

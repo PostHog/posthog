@@ -59,7 +59,7 @@ const BAR_MARGINS = { top: 2, right: 0, bottom: 0, left: 0 }
 
 export function Sparkline(props: SparklineProps): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={props.onError}>
+        <ChartErrorBoundary onError={props.onError} resetKey={props.series ?? props.data}>
             <SparklineInner {...props} />
         </ChartErrorBoundary>
     )

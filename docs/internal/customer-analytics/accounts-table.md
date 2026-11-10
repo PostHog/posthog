@@ -84,6 +84,7 @@ On a fresh load, restoration uses this order:
 
 Accounts and Notes have independent My accounts filters.
 Changing one does not change the other, including when switching tabs.
+Notes saved views retain the selected assignee IDs when shared. Their summaries show those members' names, not the current viewer's accounts.
 Removing My accounts on the Accounts list restores all assignment statuses.
 Fresh Accounts loads do not restore unsaved filters or the Notes preference.
 Saved-view restoration waits for the project, user, and saved configuration to resolve before issuing list and overview queries.
@@ -106,6 +107,22 @@ An explicit query-string view ID takes precedence over a legacy snapshot.
 Browser storage failures do not prevent URL-based selection.
 `accountsLogic.viewState` supplies the snapshot for working state and explicit saves.
 The parent scene preserves the selected view ID when changing date or test-account filters.
+
+### Notes saved views
+
+Accounts and Notes use the same saved-view picker and management dialogs.
+The Notes toolbar starts with search. View tooltips describe the saved filters and sorting.
+Edit and Delete remain in each view's Manage menu.
+Select "All notes" to clear the selected view and restore that Notes list's default filters and sorting.
+
+A Notes tile saves search, tags, authors, sorting, and the selected view ID in its configuration.
+Switching account tabs keeps the selected Notes view with its filters.
+A view's account and assignment filters apply only on the team Notes list.
+Sorting by account also applies only there. Within one account, the table uses creation-date sorting while preserving the saved account sort.
+Changing other filters and updating that view does not replace its team-only sort.
+
+Note tag edits appear immediately and save in order for each note.
+An earlier response cannot replace a later pending edit. A failed write restores the last saved tags unless another edit is pending.
 
 ## Sorting
 

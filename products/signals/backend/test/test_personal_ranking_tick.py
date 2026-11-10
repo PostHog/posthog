@@ -39,6 +39,7 @@ from products.signals.backend.personal_ranking.config import parse_config
 from products.signals.backend.personal_ranking.tick import (
     STOP_ERROR_RATE,
     STOP_MAX_BUILDS_PER_DAY,
+    STOP_MAX_PAIRS_PER_TICK,
     STOP_MAX_TICK_BUILDS_PER_DAY,
     STOP_TIME_BUDGET,
     PersonalRankingPairResult,
@@ -162,37 +163,46 @@ class TestTickEnrollment(_TickTest):
 
 
 class TestTickSelection(_TickTest):
-    def test_selects_due_pairs_paying_first_then_by_activity_and_oldest_list_within_the_org_share(self) -> None:
+    def test_selects_overdue_pairs_first_then_paying_and_recent_activity_within_the_org_share(self) -> None:
         paying = Team.objects.create(
             organization=Organization.objects.create(name="Paying", has_active_subscription=True), name="Paying"
         )
         free = Team.objects.create(organization=Organization.objects.create(name="Free"), name="Free")
         with time_machine.travel(NOW, tick=False):
             users = {
-                "paying": self._pair(paying, "paying@example.com", active_hours_ago=30),
-                "recent_no_list": self._pair(free, "a@example.com", active_hours_ago=1),
-                "recent_old_list": self._pair(free, "b@example.com", active_hours_ago=1, list_hours_ago=3),
+                "paying_recent": self._pair(paying, "paying@example.com", active_hours_ago=0.5, list_hours_ago=2),
+                "free_no_list": self._pair(free, "a@example.com", active_hours_ago=30),
+                "free_overdue": self._pair(free, "b@example.com", active_hours_ago=10, list_hours_ago=6),
                 # Past this organization's share of the tick.
-                "older": self._pair(free, "c@example.com", active_hours_ago=2),
-                "oldest_activity": self._pair(self.team, "d@example.com", active_hours_ago=3, list_hours_ago=5),
-                "fresh_list": self._pair(self.team, "e@example.com", active_hours_ago=1, list_hours_ago=0.2),
+                "free_recent": self._pair(free, "c@example.com", active_hours_ago=1, list_hours_ago=3),
+                "old_activity_overdue": self._pair(self.team, "d@example.com", active_hours_ago=20, list_hours_ago=30),
+                # Past the limit: the most recent activity does not beat an overdue pair.
+                "recent_not_overdue": self._pair(self.team, "e@example.com", active_hours_ago=0.2, list_hours_ago=1.5),
+                "fresh_list": self._pair(self.team, "f@example.com", active_hours_ago=1, list_hours_ago=0.2),
                 "checked_recently": self._pair(
-                    self.team, "f@example.com", active_hours_ago=1, list_hours_ago=3, checked_hours_ago=0.2
+                    self.team, "g@example.com", active_hours_ago=1, list_hours_ago=30, checked_hours_ago=0.2
                 ),
-                "inactive": self._pair(self.team, "g@example.com", active_hours_ago=24 * 10),
+                "inactive": self._pair(self.team, "h@example.com", active_hours_ago=24 * 10),
             }
             selection = select_pairs(
-                parse_config({"tick": {"enabled": True, "max_org_share": 0.5}}),
+                parse_config({"tick": {"enabled": True, "max_org_share": 0.5, "overdue_after_minutes": 240}}),
                 NOW,
                 4,
                 [paying.id, free.id, self.team.id],
             )
 
         assert [pair.user_id for pair in selection.pairs] == [
-            users[name].id for name in ("paying", "recent_no_list", "recent_old_list", "oldest_activity")
+            users[name].id for name in ("free_no_list", "old_activity_overdue", "free_overdue", "paying_recent")
         ]
-        assert (selection.due_pairs, selection.due_without_list, selection.oldest_due_hours) == (5, 3, 5.0)
-        assert selection.fresh_share == 2 / 7
+        assert (selection.due_pairs, selection.due_without_list, selection.oldest_due_hours) == (6, 1, 30.0)
+        assert (selection.due_overdue, selection.picked_overdue) == (3, 3)
+        assert (selection.oldest_due_activity_hours, selection.oldest_due_summary_hours) == (20.0, 0.0)
+        assert selection.fresh_share == 2 / 8
+        assert (selection.pair_list_hours, selection.unpicked_without_list, selection.unpicked_oldest_hours) == (
+            [None, 30.0, 6.0, 2.0],
+            0,
+            3.0,
+        )
 
 
 class TestTickPair(_TickTest):
@@ -310,11 +320,15 @@ def _plan(pairs: int, **overrides: Any) -> PersonalRankingTickPlan:
     fields: dict[str, Any] = {
         "enabled": True,
         "pairs": [TickPair(team_id=1, user_id=user_id) for user_id in range(pairs)],
+        # The first pair has no list, and pair `n` has a list `n` hours old.
+        "pair_list_hours": [None, *(float(hours) for hours in range(1, pairs))],
         "max_concurrency": 2,
         "max_error_rate": 0.5,
         "time_budget_seconds": 600.0,
         "stop_reason": None,
         "due_pairs": pairs,
+        "due_overdue": pairs,
+        "picked_overdue": 2,
         "enrolled_teams": 3,
     }
     return PersonalRankingTickPlan(**{**fields, **overrides})
@@ -386,20 +400,41 @@ async def _run_tick(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sliding_window", [True, False])
 @pytest.mark.parametrize(
-    "plan,pair_status,picked,stop_reason",
+    "plan,pair_status,picked,stop_reason,remaining",
     [
-        (_plan(5), "built", 5, None),
-        (_plan(5), "unchanged", 5, None),
+        (_plan(5), "built", 5, None, (0, 0, None)),
+        (_plan(5), "unchanged", 5, None, (0, 0, None)),
         # The pairs running when the limit refused a build finish, and no later pair starts.
-        (_plan(5), "tick_limited", 2, STOP_MAX_TICK_BUILDS_PER_DAY),
-        (_plan(5), "shared_limited", 2, STOP_MAX_BUILDS_PER_DAY),
+        (_plan(5), "tick_limited", 2, STOP_MAX_TICK_BUILDS_PER_DAY, (5, 1, 4.0)),
+        (_plan(5), "shared_limited", 2, STOP_MAX_BUILDS_PER_DAY, (5, 1, 4.0)),
         # The breaker waits for a sample of 10 model calls.
-        (_plan(20, max_concurrency=1), "failed", 10, STOP_ERROR_RATE),
-        (_plan(5, time_budget_seconds=0.0), "built", 0, STOP_TIME_BUDGET),
+        (_plan(20, max_concurrency=1), "failed", 10, STOP_ERROR_RATE, (20, 1, 19.0)),
+        (_plan(5, time_budget_seconds=0.0), "built", 0, STOP_TIME_BUDGET, (5, 1, 4.0)),
+        # The due pairs past the per-tick cap stay in the backlog after every picked pair is built.
+        (
+            _plan(
+                5,
+                due_pairs=8,
+                stop_reason=STOP_MAX_PAIRS_PER_TICK,
+                unpicked_without_list=2,
+                unpicked_oldest_hours=30.0,
+            ),
+            "built",
+            5,
+            STOP_MAX_PAIRS_PER_TICK,
+            (3, 2, 30.0),
+        ),
+        # A tick planned before a deploy replays with a plan that has no list ages.
+        (_plan(5, pair_list_hours=[]), "built", 5, None, None),
     ],
 )
 async def test_the_tick_bounds_concurrency_and_stops_at_each_limit(
-    plan: PersonalRankingTickPlan, pair_status: str, picked: int, stop_reason: str | None, sliding_window: bool
+    plan: PersonalRankingTickPlan,
+    pair_status: str,
+    picked: int,
+    stop_reason: str | None,
+    remaining: tuple[int, int, float | None] | None,
+    sliding_window: bool,
 ) -> None:
     result, peak, captured = await _run_tick(plan, pair_status, sliding_window=sliding_window)
 
@@ -410,6 +445,18 @@ async def test_the_tick_bounds_concurrency_and_stops_at_each_limit(
         stop_reason,
     )
     assert (result.due_pairs, result.enrolled_teams) == (plan.due_pairs, plan.enrolled_teams)
+    assert (result.due_overdue, result.picked_overdue) == (plan.due_overdue, min(picked, 2))
+    backlog = result.remaining
+    # The tick takes a few milliseconds, which adds to the age of the oldest remaining list.
+    assert (
+        None
+        if backlog is None
+        else (
+            backlog.due_pairs,
+            backlog.due_without_list,
+            None if backlog.oldest_due_hours is None else round(backlog.oldest_due_hours, 2),
+        )
+    ) == remaining
     assert result.changed_parts == (
         {"scores": picked, "needs_you": picked} if pair_status == "built" and picked else {}
     )
