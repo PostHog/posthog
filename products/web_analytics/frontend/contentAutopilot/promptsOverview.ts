@@ -3,10 +3,19 @@ import { pluralize } from 'lib/utils/strings'
 
 import type {
     AEOPromptSetCountsApi,
+    AEOPromptSetModeComparisonApi,
     AEOPromptSetOverviewApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { type KpiCardContent, countDelta, pointsDelta, positionDelta, positionLabel } from './promptReport'
+import {
+    type KpiCardContent,
+    type KpiDelta,
+    countDelta,
+    pointsDelta,
+    positionDelta,
+    positionLabel,
+} from './promptReport'
+import { engineLabel, sortEngines } from './utils'
 
 export interface PromptsOverviewKpis {
     promptsTracked: KpiCardContent
@@ -94,3 +103,46 @@ export const promptsOverviewKpis = (overview: AEOPromptSetOverviewApi): PromptsO
 /** Without a single check in either window, the overview has nothing to show. */
 export const promptsOverviewHasChecks = (overview: AEOPromptSetOverviewApi): boolean =>
     overview.current.checks > 0 || overview.previous.checks > 0
+
+export interface MemoryVsSearchRow {
+    engine: string
+    label: string
+    memoryRate: string | null
+    searchRate: string | null
+    /** "Without searching, Claude mentions you in 31% of answers; with search, 47%." */
+    summary: string
+    gap: KpiDelta | null
+    note: string
+}
+
+const memoryVsSearchRow = (row: AEOPromptSetModeComparisonApi): MemoryVsSearchRow => {
+    const label = engineLabel(row.engine)
+    const memory = row.no_search_mention_rate
+    const search = row.web_search_mention_rate
+    const memoryRate = memory === null ? null : percentage(memory, 0)
+    const searchRate = search === null ? null : percentage(search, 0)
+    const withoutSearch = `Without searching, ${label} mentions you in ${memoryRate ?? '0%'} of answers`
+    return {
+        engine: row.engine,
+        label,
+        memoryRate,
+        searchRate,
+        summary:
+            searchRate === null
+                ? `${withoutSearch}. It has no answers with search for the same prompts yet.`
+                : `${withoutSearch}; with search, ${searchRate}.`,
+        gap:
+            memory === null || search === null
+                ? null
+                : pointsDelta(search - memory, 'Mention rate with search minus without, in percentage points'),
+        note: `Over ${pluralize(row.prompts, 'prompt')}: ${pluralize(row.no_search_answers, 'answer')} without search, ${pluralize(row.web_search_answers, 'answer')} with search`,
+    }
+}
+
+/** One row per engine that answered without search in the window, in the usual engine order. */
+export const memoryVsSearchRows = (overview: AEOPromptSetOverviewApi): MemoryVsSearchRow[] => {
+    const order = sortEngines(overview.memory_vs_search.map((row) => row.engine))
+    return [...overview.memory_vs_search]
+        .sort((a, b) => order.indexOf(a.engine) - order.indexOf(b.engine))
+        .map(memoryVsSearchRow)
+}

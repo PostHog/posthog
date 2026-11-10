@@ -2,6 +2,7 @@ import type {
     AEOPromptApi,
     AEOPromptCheckApi,
     AEOPromptSetCountsApi,
+    AEOPromptSetModeComparisonApi,
     AEOPromptSetOverviewApi,
     AEOPromptSetRankingsApi,
     AEOPromptStatsApi,
@@ -563,6 +564,30 @@ const setCounts = (
     }
 }
 
+/** Claude names the brand more often with search; ChatGPT less, so both gap directions show. */
+export const EXAMPLE_MEMORY_VS_SEARCH: AEOPromptSetModeComparisonApi[] = [
+    {
+        engine: 'openai-web-search',
+        prompts: 42,
+        no_search_answers: 41,
+        no_search_mentioned: 21,
+        web_search_answers: 205,
+        web_search_mentioned: 92,
+        no_search_mention_rate: 21 / 41,
+        web_search_mention_rate: 92 / 205,
+    },
+    {
+        engine: 'claude-web-search',
+        prompts: 42,
+        no_search_answers: 42,
+        no_search_mentioned: 13,
+        web_search_answers: 210,
+        web_search_mentioned: 99,
+        no_search_mention_rate: 13 / 42,
+        web_search_mention_rate: 99 / 210,
+    },
+]
+
 export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
     days: 30,
     window_from: '2026-09-01',
@@ -668,6 +693,7 @@ export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
             ],
         },
     ],
+    memory_vs_search: EXAMPLE_MEMORY_VS_SEARCH,
 }
 
 const RANKED_BRANDS: AEOPromptSetRankingsApi['brands'] = [

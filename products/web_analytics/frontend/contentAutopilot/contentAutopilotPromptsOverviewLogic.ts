@@ -17,7 +17,13 @@ import {
     promptsErrorFrom,
 } from './contentAutopilotPromptsLogic'
 import { PromptSetWindow, promptSetCitationQuery, promptSetSourcesQuery } from './promptReportQueries'
-import { PromptsOverviewKpis, promptsOverviewHasChecks, promptsOverviewKpis } from './promptsOverview'
+import {
+    MemoryVsSearchRow,
+    PromptsOverviewKpis,
+    memoryVsSearchRows,
+    promptsOverviewHasChecks,
+    promptsOverviewKpis,
+} from './promptsOverview'
 
 export const OVERVIEW_DAYS = 30
 
@@ -26,6 +32,7 @@ export interface contentAutopilotPromptsOverviewLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     citationQuery: DataVisualizationNode | null
     hasChecks: boolean
+    memoryVsSearch: MemoryVsSearchRow[]
     overview: AEOPromptSetOverviewApi | null
     overviewError: ContentAutopilotPromptsError | null
     overviewKpis: PromptsOverviewKpis | null
@@ -95,6 +102,7 @@ export interface contentAutopilotPromptsOverviewLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         overviewKpis: (overview: AEOPromptSetOverviewApi | null) => PromptsOverviewKpis | null
         hasChecks: (overview: AEOPromptSetOverviewApi | null) => boolean
+        memoryVsSearch: (overview: AEOPromptSetOverviewApi | null) => MemoryVsSearchRow[]
         overviewWindow: (overview: AEOPromptSetOverviewApi | null) => PromptSetWindow | null
         citationQuery: (overviewWindow: PromptSetWindow | null) => DataVisualizationNode | null
         sourcesQuery: (overviewWindow: PromptSetWindow | null) => DataTableNode | null
@@ -165,6 +173,11 @@ export const contentAutopilotPromptsOverviewLogic = kea<contentAutopilotPromptsO
             (s) => [s.overview],
             (overview: AEOPromptSetOverviewApi | null): boolean =>
                 overview ? promptsOverviewHasChecks(overview) : false,
+        ],
+        memoryVsSearch: [
+            (s) => [s.overview],
+            (overview: AEOPromptSetOverviewApi | null): MemoryVsSearchRow[] =>
+                overview ? memoryVsSearchRows(overview) : [],
         ],
         overviewWindow: [
             (s) => [s.overview],

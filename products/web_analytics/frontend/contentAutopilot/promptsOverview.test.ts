@@ -1,6 +1,6 @@
 import type { AEOPromptSetOverviewApi } from '../generated/api.schemas'
-import { EXAMPLE_PROMPT_SET_OVERVIEW } from './contentAutopilotStoryFixtures'
-import { promptsOverviewHasChecks, promptsOverviewKpis } from './promptsOverview'
+import { EXAMPLE_MEMORY_VS_SEARCH, EXAMPLE_PROMPT_SET_OVERVIEW } from './contentAutopilotStoryFixtures'
+import { memoryVsSearchRows, promptsOverviewHasChecks, promptsOverviewKpis } from './promptsOverview'
 
 const overview = (
     current: Partial<AEOPromptSetOverviewApi['current']>,
@@ -95,5 +95,61 @@ describe('promptsOverview', () => {
         expect(promptsOverviewHasChecks(EXAMPLE_PROMPT_SET_OVERVIEW)).toBe(true)
         expect(promptsOverviewHasChecks(overview({ checks: 0 }, { checks: 3 }))).toBe(true)
         expect(promptsOverviewHasChecks(overview({ checks: 0 }, { checks: 0 }))).toBe(false)
+    })
+
+    it.each([
+        [
+            'search answers for the same prompts',
+            EXAMPLE_MEMORY_VS_SEARCH,
+            [
+                {
+                    label: 'Claude',
+                    summary: 'Without searching, Claude mentions you in 31% of answers; with search, 47%.',
+                    gap: '+16 pts',
+                    note: 'Over 42 prompts: 42 answers without search, 210 answers with search',
+                },
+                {
+                    label: 'ChatGPT',
+                    summary: 'Without searching, ChatGPT mentions you in 51% of answers; with search, 45%.',
+                    gap: '-6 pts',
+                    note: 'Over 42 prompts: 41 answers without search, 205 answers with search',
+                },
+            ],
+        ],
+        [
+            'no search answers for the same prompts',
+            [
+                {
+                    ...EXAMPLE_MEMORY_VS_SEARCH[1],
+                    prompts: 1,
+                    no_search_answers: 1,
+                    no_search_mentioned: 1,
+                    no_search_mention_rate: 1,
+                    web_search_answers: 0,
+                    web_search_mentioned: 0,
+                    web_search_mention_rate: null,
+                },
+            ],
+            [
+                {
+                    label: 'Claude',
+                    summary:
+                        'Without searching, Claude mentions you in 100% of answers. It has no answers with search for the same prompts yet.',
+                    gap: null,
+                    note: 'Over 1 prompt: 1 answer without search, 0 answers with search',
+                },
+            ],
+        ],
+        ['no no-search checks yet', [], []],
+    ])('compares memory and search with %s', (_name, comparison, expected) => {
+        const rows = memoryVsSearchRows({ ...EXAMPLE_PROMPT_SET_OVERVIEW, memory_vs_search: comparison })
+        expect(
+            rows.map((row) => ({
+                label: row.label,
+                summary: row.summary,
+                gap: row.gap?.label ?? null,
+                note: row.note.replace(/\u00a0/g, ' '),
+            }))
+        ).toEqual(expected)
     })
 })
