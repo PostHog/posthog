@@ -1,5 +1,5 @@
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, CancelledError
 
 from posthog.temporal.common.utils import asyncify
 
@@ -11,6 +11,7 @@ from products.wizard.backend.logic.workers import (
     service as cloud_worker,
 )
 from products.wizard.backend.logic.workers.service import GitRepositoryHandoffRequest
+from products.wizard.backend.observability.service import wizard_observability
 from products.wizard.backend.observability.tracing import annotate_run_span, wizard_span
 from products.wizard.backend.temporal.activities.errors import (
     WIZARD_WORKER_EXECUTION_ERROR_TYPE,
@@ -39,11 +40,31 @@ def create_run_artifacts(input: PreparedGitRepositoryWorkspace) -> None:
             )
         )
     except cloud_worker.WizardWorkerExecutionError as error:
+        wizard_observability.handoff_failed(
+            input.team_id,
+            input.run_id,
+            error_type=WIZARD_WORKER_EXECUTION_ERROR_TYPE,
+            retryable=error.retryable,
+            stage=error.stage,
+            exit_code=error.exit_code,
+        )
         raise ApplicationError(
             str(error),
             type=WIZARD_WORKER_EXECUTION_ERROR_TYPE,
-            non_retryable=True,
+            non_retryable=not error.retryable,
         ) from error
+    except CancelledError:
+        raise
+    except Exception as error:
+        status_code = getattr(error, "status_code", None)
+        wizard_observability.handoff_failed(
+            input.team_id,
+            input.run_id,
+            error_type=type(error).__name__,
+            retryable=True,
+            status_code=status_code if isinstance(status_code, int) else None,
+        )
+        raise
 
     with wizard_span("wizard.artifacts.persist_diff") as span:
         span.set_attribute("wizard.diff.size_bytes", len(result.diff))

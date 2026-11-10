@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 import unittest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
@@ -1815,12 +1816,13 @@ class TestSignupAPI(APIBaseTest):
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
     def test_signup_rate_limit_by_ip(self, mock_get_ip):
-        """Test that signup is rate limited by IP address to 5 signups per day"""
         # Ensure the internal system metrics org doesn't prevent org-creation
         Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
-
-        # Clear any existing rate limit cache
         cache.clear()
+
+        for i in range(3):
+            failed = self.client.post("/api/signup/", {"first_name": "Failed", "email": f"failed{i}@example.com"})
+            self.assertEqual(failed.status_code, status.HTTP_400_BAD_REQUEST)
 
         for i in range(6):
             response = self.client.post(
@@ -1840,8 +1842,40 @@ class TestSignupAPI(APIBaseTest):
                 User.objects.filter(email=f"user{i}@example.com").delete()
             else:
                 self.assertEqual(
-                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, "6th request should be rate limited"
+                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, "6th signup should be rate limited"
                 )
+                self.assertIn("Retry-After", response.headers)
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
+    def test_signup_rate_limits_failed_attempts_by_ip(self, mock_get_ip):
+        Organization.objects.create(name="PostHog Internal Metrics", for_internal_metrics=True)
+        cache.clear()
+
+        def signup(i: int):
+            return self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": f"User{i}",
+                    "email": f"user{i}@example.com",
+                    "password": VALID_TEST_PASSWORD,
+                    "organization_name": f"Org{i}",
+                },
+            )
+
+        with time_machine.travel(datetime(2026, 1, 1, 12, 0, 0), tick=False) as traveller:
+            for i in range(10):
+                failed = self.client.post("/api/signup/", {"first_name": "Failed", "email": f"failed{i}@example.com"})
+                self.assertEqual(failed.status_code, status.HTTP_400_BAD_REQUEST)
+
+            self.assertEqual(signup(0).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+            traveller.shift(timedelta(hours=2))
+
+            for i in range(5):
+                self.assertEqual(signup(i).status_code, status.HTTP_201_CREATED, f"Signup {i + 1} should succeed")
+                Organization.objects.filter(for_internal_metrics=False).delete()
+                User.objects.filter(email=f"user{i}@example.com").delete()
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_rate_limit_different_ips(self):

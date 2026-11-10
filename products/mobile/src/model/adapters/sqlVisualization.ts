@@ -40,7 +40,7 @@ const LINE_DISPLAYS: ReadonlySet<string> = new Set([
     'ActionsAreaGraph',
 ])
 const BAR_DISPLAYS: ReadonlySet<string> = new Set(['ActionsBar', 'ActionsStackedBar', 'ActionsUnstackedBar'])
-// Displays that total one value per x value. `ActionsBar` joins them when its x axis is not a date.
+// Displays that total one value per x value. Auto category bars use the same ranking rules.
 const RANKING_DISPLAYS: ReadonlySet<string> = new Set([
     'ActionsBarValue',
     'ActionsPie',
@@ -296,6 +296,77 @@ export function sqlValuePresentation(query: unknown, columns: unknown, types: un
     return sqlAxes(query, sqlColumns(columns, types, query)).y[0]?.format ?? raw
 }
 
+/** A specific explanation for a SQL chart the native renderer cannot represent faithfully. */
+export function sqlChartReason(query: unknown, table: SqlTableView | null = null): string | undefined {
+    const display = effectiveSqlDisplay(query, table)
+    if (display === 'BoldNumber') return 'Saved as a big number'
+    if (display === 'Metric') return 'SQL metric cards are not supported on mobile yet'
+    if (isTransposed(query)) return 'Transposed SQL charts are not supported on mobile yet'
+    if (!display || (!LINE_DISPLAYS.has(display) && !BAR_DISPLAYS.has(display))) {
+        return 'This SQL visualization cannot be pinned as a chart yet'
+    }
+    const settings = chartSettingsOf(query)
+    if (settings?.stackBars100) return '100% stacked SQL charts are not supported on mobile yet'
+    for (const key of ['leftYAxisSettings', 'rightYAxisSettings']) {
+        const scale = asRecord(settings?.[key])?.scale
+        if (scale && scale !== 'linear') return 'Logarithmic SQL axes are not supported on mobile yet'
+    }
+    const ys = settings?.yAxis
+    if (
+        Array.isArray(ys) &&
+        ys.some((y) => {
+            const series = asRecord(asRecord(asRecord(y)?.settings)?.display)
+            return (
+                series?.trendLine ||
+                (series?.displayType && !['auto', 'line', 'bar', 'area'].includes(String(series.displayType)))
+            )
+        })
+    )
+        return 'This SQL series style is not supported on mobile yet'
+    if (table) {
+        const savedX = asRecord(settings?.xAxis)?.column
+        const savedYs = Array.isArray(ys) ? ys.map((y) => asRecord(y)?.column) : []
+        if (
+            [savedX, ...savedYs].some(
+                (name) => typeof name === 'string' && !table.columns.some((column) => column.name === name)
+            )
+        ) {
+            return 'Saved chart columns are unavailable'
+        }
+        const { x, y } = sqlAxes(query, table.columns)
+        if (!x || !y.length) return 'Choose chart axes on the web first'
+        if (!x.isDate && breakdownColumnOf(query))
+            return 'SQL category breakdown charts are not supported on mobile yet'
+    }
+    return undefined
+}
+
+function seriesPresentation(
+    query: unknown,
+    column: SqlColumnView,
+    kind: MetricChartKind
+): Pick<InsightSeriesView, 'color' | 'chartKind' | 'axis' | 'area' | 'startAtZero' | 'format'> {
+    const settings = chartSettingsOf(query)
+    const saved = settingsFor(settings?.yAxis, column.name)
+    const display = asRecord(asRecord(saved)?.display)
+    const axis = display?.yAxisPosition === 'right' ? 'right' : 'left'
+    const axisSettings = asRecord(settings?.[axis === 'right' ? 'rightYAxisSettings' : 'leftYAxisSettings'])
+    return {
+        color: typeof display?.color === 'string' ? display.color : undefined,
+        chartKind:
+            display?.displayType === 'bar'
+                ? 'bar'
+                : display?.displayType === 'line' || display?.displayType === 'area'
+                  ? 'line'
+                  : kind,
+        axis,
+        area: display?.displayType === 'area' || savedDisplay(query) === 'ActionsAreaGraph',
+        startAtZero:
+            typeof axisSettings?.startAtZero === 'boolean' ? axisSettings.startAtZero : settings?.yAxisAtZero === true,
+        format: sqlPresentation(saved) ?? column.format ?? { kind: 'sql', style: null, prefix: '', suffix: '' },
+    }
+}
+
 /**
  * The phone's display from the saved query alone, so a tile keeps one display while it loads. Auto is a table until
  * the result arrives, since the phone can draw any result as a table.
@@ -312,14 +383,14 @@ export function sqlQueryDisplay(query: unknown): SqlPhoneDisplay {
         return 'number'
     }
     if (LINE_DISPLAYS.has(display) || BAR_DISPLAYS.has(display)) {
-        return 'chart'
+        return sqlChartReason(query) ? 'web' : 'chart'
     }
     return RANKING_DISPLAYS.has(display) ? 'bars' : 'web'
 }
 
 /**
- * The phone's display once the result is known. A chart over time needs a date x axis; `ActionsBar` over any other x
- * axis ranks its values as bars. A chart the phone cannot build from the columns opens on the web.
+ * Saved line and bar charts accept dates or categories. Auto retains its table, date-chart and ranking rules.
+ * A chart the phone cannot build faithfully opens on the web.
  */
 export function sqlResultDisplay(query: unknown, table: SqlTableView): SqlPhoneDisplay {
     if (isTransposed(query)) {
@@ -336,8 +407,8 @@ export function sqlResultDisplay(query: unknown, table: SqlTableView): SqlPhoneD
     if (!x || y.length === 0) {
         return 'web'
     }
-    if ((LINE_DISPLAYS.has(display) || BAR_DISPLAYS.has(display)) && x.isDate) {
-        return 'chart'
+    if ((LINE_DISPLAYS.has(display) || BAR_DISPLAYS.has(display)) && (x.isDate || savedDisplay(query) !== null)) {
+        return sqlChartReason(query, table) ? 'web' : 'chart'
     }
     // A breakdown column or a second y column gives several values per x value, which one bar per row cannot show.
     if ((display === 'ActionsBar' || RANKING_DISPLAYS.has(display)) && breakdownColumnOf(query) === null) {
@@ -409,7 +480,7 @@ function groupValue(cell: SqlCell | undefined): string | number | null {
     return typeof cell === 'boolean' ? String(cell) : cell
 }
 
-function runningSum(points: MetricPoint[]): MetricPoint[] {
+function runningSum<T extends MetricPoint>(points: T[]): T[] {
     let total = 0
     return points.map((point) => {
         if (!Number.isFinite(point.value)) {
@@ -424,20 +495,23 @@ function columnIndex(table: SqlTableView, column: SqlColumnView | null | undefin
     return column ? table.columns.findIndex((candidate) => candidate.name === column.name) : -1
 }
 
-/** True when a chart over time has something to draw: a y column and a row with a date. Cheaper than the series. */
+/** Valid chart columns can be pinned even when the current result is empty. */
 export function hasSqlChartSeries(query: unknown, table: SqlTableView): boolean {
     if (sqlResultDisplay(query, table) !== 'chart') {
         return false
     }
     const { x, y } = sqlAxes(query, table.columns)
     const xIndex = columnIndex(table, x)
-    return y.length > 0 && table.rows.some((row) => dateKey(row[xIndex]) !== null)
+    return (
+        y.length > 0 &&
+        (!x?.isDate || table.rows.length === 0 || table.rows.some((row) => dateKey(row[xIndex]) !== null))
+    )
 }
 
 /**
- * The series of a chart over time, one per y column, or one per y column and breakdown value. Every series has a
+ * Category charts preserve row order and labels. Date charts have one series per y column and breakdown. Every series has a
  * point at every date of the result, in date order, because the chart pairs series by index. A date with no finite
- * value is NaN, and rows that share a date and a series add up. Empty when the display is not a chart over time.
+ * value is NaN, and rows that share a date and a series add up. Empty when the display is not a supported chart.
  */
 export function sqlSeriesViews(query: unknown, table: SqlTableView): InsightSeriesView[] {
     if (sqlResultDisplay(query, table) !== 'chart') {
@@ -445,6 +519,31 @@ export function sqlSeriesViews(query: unknown, table: SqlTableView): InsightSeri
     }
     const { x, y } = sqlAxes(query, table.columns)
     const xIndex = columnIndex(table, x)
+    const display = effectiveSqlDisplay(query, table)
+    const kind = BAR_DISPLAYS.has(display ?? '') ? 'bar' : 'line'
+    const cumulative = display === 'ActionsLineGraphCumulative'
+    if (!x?.isDate) {
+        return y.map((column, seriesIndex) => {
+            const columnIndex = table.columns.indexOf(column)
+            const display = asRecord(asRecord(settingsFor(chartSettingsOf(query)?.yAxis, column.name))?.display)
+            const points = table.rows.map((row, index) => ({
+                at: String(index),
+                label: cellLabel(row[xIndex] ?? null),
+                value:
+                    sqlCellNumber(row[columnIndex]) ??
+                    (chartSettingsOf(query)?.showNullsAsZero && row[columnIndex] === null ? 0 : Number.NaN),
+            }))
+            return {
+                key: `sql:${column.name}:null`,
+                label: typeof display?.label === 'string' && display.label ? display.label : column.name,
+                ...seriesPresentation(query, column, kind),
+                points: cumulative ? runningSum(points) : points,
+                compare: null,
+                seriesIndex,
+                breakdownValue: null,
+            }
+        })
+    }
     const breakdown = breakdownColumnOf(query)
     const breakdownIndex = breakdown ? table.columns.findIndex((column) => column.name === breakdown) : -1
     const yIndexes = y.map((column) => columnIndex(table, column))
@@ -474,21 +573,21 @@ export function sqlSeriesViews(query: unknown, table: SqlTableView): InsightSeri
         })
     }
     const axis = [...dates.entries()].sort((a, b) => a[1] - b[1]).map(([at]) => at)
-    const cumulative = effectiveSqlDisplay(query, table) === 'ActionsLineGraphCumulative'
     return y.flatMap((column, seriesIndex) =>
         [...groups].map((group): InsightSeriesView => {
             const byDate = sums[seriesIndex]?.get(group)
-            const points = axis.map((at) => ({ at, value: byDate?.get(at) ?? Number.NaN }))
-            const label =
-                breakdownIndex < 0
-                    ? column.name
-                    : y.length > 1
-                      ? `${column.name} - ${cellLabel(group)}`
-                      : cellLabel(group)
+            const points = axis.map((at) => ({
+                at,
+                value: byDate?.get(at) ?? (chartSettingsOf(query)?.showNullsAsZero ? 0 : Number.NaN),
+            }))
+            const display = asRecord(asRecord(settingsFor(chartSettingsOf(query)?.yAxis, column.name))?.display)
+            const name = typeof display?.label === 'string' && display.label ? display.label : column.name
+            const label = breakdownIndex < 0 ? name : y.length > 1 ? `${name} - ${cellLabel(group)}` : cellLabel(group)
             return {
                 // JSON keeps NULL and the empty string apart.
                 key: `sql:${column.name}:${JSON.stringify(group)}`,
                 label,
+                ...seriesPresentation(query, column, kind),
                 points: cumulative ? runningSum(points) : points,
                 compare: null,
                 seriesIndex,

@@ -15,6 +15,7 @@ import {
     PostHogValidationError,
     ToolInputValidationError,
 } from '@/lib/errors'
+import { parseInsufficientScopeChallenge } from '@/lib/missing-scope'
 import { getSearchParamsFromRecord, sanitizeHeaders, sanitizeHeaderValue } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -627,6 +628,7 @@ export class ApiClient {
             return new PostHogPermissionError({
                 detail: errorData.detail || 'permission denied',
                 missingScope,
+                challengeScopes: parseInsufficientScopeChallenge(response.headers.get('WWW-Authenticate')),
                 url,
                 method,
             })
@@ -1387,6 +1389,34 @@ export class ApiClient {
                         message: `No insight found with short_id: ${insightId} in project ${projectId}. Use insights-list to find the insight. If the insight is in a different project, use switch-project.`,
                     }),
                 }
+            },
+
+            saveExplanation: async ({
+                insightId,
+                data,
+            }: {
+                insightId: number
+                data: Record<string, unknown>
+            }): Promise<Result<Schemas.ChartExplanation>> => {
+                return this.fetchJson<Schemas.ChartExplanation>(
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/explanations/`,
+                    { method: 'POST', body: JSON.stringify({ data }) }
+                )
+            },
+
+            updateExplanation: async ({
+                insightId,
+                explanationId,
+                data,
+            }: {
+                insightId: number
+                explanationId: string
+                data: Record<string, unknown>
+            }): Promise<Result<Schemas.ChartExplanation>> => {
+                return this.fetchJson<Schemas.ChartExplanation>(
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/explanations/${encodeURIComponent(explanationId)}/`,
+                    { method: 'PUT', body: JSON.stringify({ data }) }
+                )
             },
 
             create: async ({ data }: { data: Record<string, any> }): Promise<Result<Schemas.Insight>> => {

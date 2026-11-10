@@ -45,7 +45,7 @@ class TestBedrockSpecific:
         mock_litellm.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -78,7 +78,7 @@ class TestBedrockSpecific:
         mock_litellm.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -105,7 +105,7 @@ class TestBedrockSpecific:
         mock_litellm.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -124,6 +124,7 @@ class TestBedrockSpecific:
             pytest.param("claude-opus-4-8", "bedrock/us.anthropic.claude-opus-4-8", id="opus_4_8_inference_profile"),
             pytest.param("claude-fable-5", "bedrock/us.anthropic.claude-fable-5", id="fable_5_inference_profile"),
             pytest.param("claude-fable-5-1", "bedrock/us.anthropic.claude-fable-5-1", id="fable_5_1_inference_profile"),
+            pytest.param("claude-fable-5-2", "bedrock/us.anthropic.claude-fable-5-2", id="fable_5_2_inference_profile"),
             pytest.param("claude-sonnet-5", "bedrock/us.anthropic.claude-sonnet-5", id="sonnet_5_inference_profile"),
             pytest.param(
                 "claude-sonnet-5-5", "bedrock/global.anthropic.claude-sonnet-5-5", id="sonnet_5_5_inference_profile"
@@ -154,7 +155,7 @@ class TestBedrockSpecific:
         mock_litellm.return_value = mock_response
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json={"model": model, "messages": [{"role": "user", "content": "Hello"}]},
             headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "bedrock"},
         )
@@ -197,7 +198,7 @@ class TestBedrockFallback:
         ]
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -229,7 +230,7 @@ class TestBedrockFallback:
         )
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -255,7 +256,7 @@ class TestBedrockFallback:
         )
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -288,7 +289,7 @@ class TestBedrockFallback:
         mock_handle.side_effect = [anthropic_error, bedrock_error]
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -321,7 +322,7 @@ class TestBedrockFallback:
         ]
 
         response = authenticated_client.post(
-            "/v1/messages",
+            "/django/v1/messages",
             json={
                 "model": "claude-sonnet-4-6",
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -369,7 +370,7 @@ class TestBedrockCountTokensViaProvider:
         mock_count_tokens.return_value = 42
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json=valid_request_body,
             headers=valid_request_headers,
         )
@@ -402,7 +403,7 @@ class TestBedrockCountTokensViaProvider:
         mock_count_tokens.return_value = 10
 
         authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json={"model": model, "messages": [{"role": "user", "content": "Hello"}]},
             headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "bedrock"},
         )
@@ -424,7 +425,7 @@ class TestBedrockCountTokensViaProvider:
         mock_get_settings.return_value = mock_settings
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json=valid_request_body,
             headers=valid_request_headers,
         )
@@ -460,16 +461,16 @@ class TestBedrockCountTokensViaProvider:
         runtime_errors_before = BEDROCK_COUNT_TOKENS_ERRORS.labels(
             transport="runtime",
             error_type="Exception",
-            product="llm_gateway",
+            product="django",
         )._value.get()
         mantle_errors_before = BEDROCK_COUNT_TOKENS_ERRORS.labels(
             transport="mantle",
             error_type="HTTPException",
-            product="llm_gateway",
+            product="django",
         )._value.get()
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json=valid_request_body,
             headers=valid_request_headers,
         )
@@ -481,7 +482,7 @@ class TestBedrockCountTokensViaProvider:
             BEDROCK_COUNT_TOKENS_ERRORS.labels(
                 transport="runtime",
                 error_type="Exception",
-                product="llm_gateway",
+                product="django",
             )._value.get()
             == runtime_errors_before + 1
         )
@@ -489,7 +490,7 @@ class TestBedrockCountTokensViaProvider:
             BEDROCK_COUNT_TOKENS_ERRORS.labels(
                 transport="mantle",
                 error_type="HTTPException",
-                product="llm_gateway",
+                product="django",
             )._value.get()
             == mantle_errors_before + 1
         )
@@ -534,12 +535,12 @@ class TestBedrockCountTokensViaProvider:
         runtime_errors_before = BEDROCK_COUNT_TOKENS_ERRORS.labels(
             transport="runtime",
             error_type="ClientError",
-            product="llm_gateway",
+            product="django",
         )._value.get()
 
         with patch("llm_gateway.api.anthropic.logger") as mock_logger:
             response = authenticated_client.post(
-                "/v1/messages/count_tokens",
+                "/django/v1/messages/count_tokens",
                 json=valid_request_body,
                 headers=valid_request_headers,
             )
@@ -550,18 +551,18 @@ class TestBedrockCountTokensViaProvider:
             BEDROCK_COUNT_TOKENS_ERRORS.labels(
                 transport="runtime",
                 error_type="ClientError",
-                product="llm_gateway",
+                product="django",
             )._value.get()
             == runtime_errors_before + 1
         )
         assert mock_mantle_count_tokens.await_count == 1
         mantle_count_tokens_call = mock_mantle_count_tokens.await_args
         assert mantle_count_tokens_call is not None
-        assert mantle_count_tokens_call.kwargs["product"] == "llm_gateway"
+        assert mantle_count_tokens_call.kwargs["product"] == "django"
         mock_logger.exception.assert_called_once_with(
             "Bedrock CountTokens failed",
             model="us.anthropic.claude-sonnet-4-6",
-            product="llm_gateway",
+            product="django",
             runtime_status=400,
             runtime_error_type="ClientError",
             runtime_error_message="prompt is too long: 290010 tokens > 200000 maximum",
@@ -570,7 +571,7 @@ class TestBedrockCountTokensViaProvider:
         mock_logger.info.assert_any_call(
             "Attempting bedrock-mantle count_tokens fallback",
             model="us.anthropic.claude-sonnet-4-6",
-            product="llm_gateway",
+            product="django",
         )
 
     @pytest.mark.parametrize(
@@ -604,7 +605,7 @@ class TestBedrockCountTokensViaProvider:
         mock_mantle_count_tokens.return_value = 55
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json={"model": model, "messages": [{"role": "user", "content": "Hello"}]},
             headers=valid_request_headers,
         )
@@ -642,7 +643,7 @@ class TestBedrockCountTokensViaProvider:
         )
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json={"model": "claude-fable-5", "messages": [{"role": "user", "content": "Hello"}]},
             headers=valid_request_headers,
         )
@@ -669,7 +670,7 @@ class TestBedrockCountTokensViaProvider:
         mock_count_tokens.return_value = 42
 
         response = authenticated_client.post(
-            "/ci/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json=valid_request_body,
             headers=valid_request_headers,
         )
@@ -707,7 +708,7 @@ class TestBedrockCountTokensViaProvider:
         }
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json=body,
             headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "bedrock"},
         )
@@ -738,7 +739,7 @@ class TestBedrockCountTokensViaProvider:
         mock_to_thread.return_value = 42
 
         response = authenticated_client.post(
-            "/v1/messages/count_tokens",
+            "/django/v1/messages/count_tokens",
             json=valid_request_body,
             headers=valid_request_headers,
         )
@@ -773,17 +774,17 @@ class TestBedrockCountTokensViaProvider:
         unsigned_thinking_drops_before = BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES.labels(
             transport="runtime",
             property="messages.content.thinking_without_signature",
-            product="llm_gateway",
+            product="django",
         )._value.get()
         empty_message_drops_before = BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES.labels(
             transport="runtime",
             property="messages.empty_after_sanitization",
-            product="llm_gateway",
+            product="django",
         )._value.get()
         top_level_system_drops_before = BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES.labels(
             transport="runtime",
             property="top_level.system",
-            product="llm_gateway",
+            product="django",
         )._value.get()
 
         with patch("llm_gateway.bedrock.logger") as mock_logger:
@@ -792,7 +793,7 @@ class TestBedrockCountTokensViaProvider:
                 "us.anthropic.claude-sonnet-4-6",
                 "us-east-1",
                 123.0,
-                product="llm_gateway",
+                product="django",
             )
 
         assert result == 42
@@ -813,7 +814,7 @@ class TestBedrockCountTokensViaProvider:
             BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES.labels(
                 transport="runtime",
                 property="messages.content.thinking_without_signature",
-                product="llm_gateway",
+                product="django",
             )._value.get()
             == unsigned_thinking_drops_before + 2
         )
@@ -821,7 +822,7 @@ class TestBedrockCountTokensViaProvider:
             BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES.labels(
                 transport="runtime",
                 property="messages.empty_after_sanitization",
-                product="llm_gateway",
+                product="django",
             )._value.get()
             == empty_message_drops_before + 1
         )
@@ -829,14 +830,14 @@ class TestBedrockCountTokensViaProvider:
             BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES.labels(
                 transport="runtime",
                 property="top_level.system",
-                product="llm_gateway",
+                product="django",
             )._value.get()
             == top_level_system_drops_before + 1
         )
         mock_logger.warning.assert_called_once_with(
             "Bedrock CountTokens request sanitized",
             model="us.anthropic.claude-sonnet-4-6",
-            product="llm_gateway",
+            product="django",
             transport="runtime",
             dropped_properties=[
                 "messages.content.thinking_without_signature",
@@ -1023,7 +1024,7 @@ class TestBedrockMantleCountTokens:
                 "us.anthropic.claude-opus-4-8",
                 "us-east-1",
                 300.0,
-                product="llm_gateway",
+                product="django",
             )
 
         assert result == 99
@@ -1031,7 +1032,7 @@ class TestBedrockMantleCountTokens:
             "bedrock-mantle count_tokens request succeeded",
             model="us.anthropic.claude-opus-4-8",
             mantle_model="anthropic.claude-opus-4-8",
-            product="llm_gateway",
+            product="django",
             region_name="us-east-1",
             status_code=200,
             duration_ms=ANY,
@@ -1050,7 +1051,7 @@ class TestBedrockMantleCountTokens:
         mock_logger.warning.assert_called_once_with(
             "Bedrock CountTokens request sanitized",
             model="us.anthropic.claude-opus-4-8",
-            product="llm_gateway",
+            product="django",
             transport="mantle",
             dropped_properties=[
                 "messages.content.thinking_without_signature",
@@ -1093,7 +1094,7 @@ class TestBedrockMantleCountTokens:
                 "us.anthropic.claude-opus-4-8",
                 "us-east-1",
                 300.0,
-                product="llm_gateway",
+                product="django",
             )
 
         assert exc_info.value.status_code == 400

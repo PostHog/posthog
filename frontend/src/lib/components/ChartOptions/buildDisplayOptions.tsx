@@ -150,11 +150,20 @@ export function buildDisplayOptions<C>(
             continue
         }
         const group = definition.group
+        const changed = Number(binding.changedCount?.(c) ?? 0)
         shownByGroup.set(group, [
             ...(shownByGroup.get(group) ?? []),
-            { definition, item: { name, element: renderOption(definition, binding, c) } },
+            {
+                definition,
+                item: {
+                    name,
+                    element: renderOption(definition, binding, c),
+                    changed,
+                    advanced: !!definition.advanced,
+                },
+            },
         ])
-        countByGroup.set(group, (countByGroup.get(group) ?? 0) + Number(binding.changedCount?.(c) ?? 0))
+        countByGroup.set(group, (countByGroup.get(group) ?? 0) + changed)
     }
 
     const groupSections = (group: (typeof DISPLAY_OPTION_GROUPS)[number]): DisplayOptionSection[] => {
@@ -169,11 +178,12 @@ export function buildDisplayOptions<C>(
                 isFirstRun
                     ? {
                           key: group.key,
+                          group: group.key,
                           title: overrides[group.key]?.title ?? ('title' in group ? group.title : undefined),
                           dataAttr: 'dataAttr' in group ? group.dataAttr : undefined,
                           items: run,
                       }
-                    : { key: `${group.key}-${sections.length}`, items: run }
+                    : { key: `${group.key}-${sections.length}`, group: group.key, items: run }
             )
             run = []
         }
@@ -182,6 +192,7 @@ export function buildDisplayOptions<C>(
                 flushRun()
                 sections.push({
                     key: definition.name,
+                    group: group.key,
                     title: definition.label,
                     tooltip: definition.info,
                     items: [item],

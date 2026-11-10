@@ -30,6 +30,7 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 
 from products.data_modeling.backend.facade.api import (
+    HasDependentsError,
     SchedulingUnavailableError,
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
@@ -41,6 +42,7 @@ from products.data_modeling.backend.facade.api import (
 )
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.logic.activity import EndpointContext
+from products.endpoints.backend.logic.materialization_dependencies import EndpointMaterializationDependencyService
 from products.endpoints.backend.logic.strategies import apply_where_filter, strategy_for
 from products.endpoints.backend.materialization_transforms import (
     MaterializationNotSupportedError,
@@ -62,6 +64,40 @@ class OrphanedEndpointSavedQueryError(Exception):
     pass
 
 
+class EndpointMaterializationTurnedOffError(MaterializationNotSupportedError):
+    pass
+
+
+def log_materialization_activity(
+    team: Team,
+    endpoint: Endpoint,
+    version: EndpointVersion,
+    activity: str,
+    *,
+    saved_query_id: str,
+    saved_query_name: str,
+    user: User | None = None,
+    was_impersonated: bool = False,
+    reason: str | None = None,
+) -> None:
+    # Two rows: the model's history reads the saved query, the endpoint's history reads the
+    # endpoint. A read-time join can't replace this, since disabling unlinks the saved query.
+    for item_id, scope, name in (
+        (saved_query_id, "DataWarehouseSavedQuery", saved_query_name),
+        (str(endpoint.id), "EndpointVersion", endpoint.name),
+    ):
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.pk,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=item_id,
+            scope=scope,
+            activity=activity,
+            detail=Detail(name=name, context=EndpointContext(version=version.version, reason=reason)),
+        )
+
+
 def prepare_executable_query(saved_query: DataWarehouseSavedQuery) -> None:
     """Rebuild the saved query's executable HogQL from its endpoint version.
 
@@ -74,13 +110,39 @@ def prepare_executable_query(saved_query: DataWarehouseSavedQuery) -> None:
             f"Saved query {saved_query.id} ({saved_query.name}) has no linked EndpointVersion"
         )
 
-    saved_query.query = build_endpoint_hogql(
-        version.query,
-        saved_query.team,
-        bucket_overrides=version.bucket_overrides,
-        # Temporal rebuilds are userless and operate on an already-owned endpoint saved query.
-        bypass_warehouse_access_control=True,
-    )
+    try:
+        saved_query.query = build_endpoint_hogql(
+            version.query,
+            saved_query.team,
+            bucket_overrides=version.bucket_overrides,
+            # Temporal rebuilds are userless and operate on an already-owned endpoint saved query.
+            bypass_warehouse_access_control=True,
+        )
+    except MaterializationNotSupportedError as e:
+        # Readers of the backing table would break, so keep failing until they are updated.
+        try:
+            EndpointMaterializationDependencyService(saved_query.team_id).check_deletable(version)
+        except HasDependentsError:
+            raise e
+        # The version can never materialize again, so turn it off once instead of failing every run.
+        saved_query_id, saved_query_name = str(saved_query.id), saved_query.name
+        with transaction.atomic():
+            version.disable_materialization()
+        clear_endpoint_materialization_cache(saved_query.team_id, version.endpoint.name, versions=[version.version])
+        reason = str(e).rstrip(".")
+        log_materialization_activity(
+            saved_query.team,
+            version.endpoint,
+            version,
+            "materialization_disabled",
+            saved_query_id=saved_query_id,
+            saved_query_name=saved_query_name,
+            reason=reason,
+        )
+        raise EndpointMaterializationTurnedOffError(
+            f"Materialization was turned off for this endpoint version: {reason}. "
+            "The endpoint now runs its query directly."
+        ) from e
     saved_query.save(update_fields=["query", "updated_at"])
 
 
@@ -239,7 +301,7 @@ class EndpointMaterializationService:
             # immediate first run; a retained enable (e.g. a metadata-only endpoint update
             # re-reconciling materialization) must not restart the workflow.
             newly_materialized = saved_query._state.adding
-            self._configure_saved_query(saved_query, version, data_freshness_seconds, bucket_overrides)
+            self._configure_saved_query(saved_query, version, bucket_overrides)
             version.enable_materialization(saved_query, bucket_overrides)
 
             # The DAG node must exist before scheduling: the v2 detection and the freshness-target
@@ -282,7 +344,9 @@ class EndpointMaterializationService:
             # query (deferred to on_commit, so it sees the version link above).
             try:
                 saved_query.schedule_materialization(
-                    trigger_immediate_run=newly_materialized, triggered_by_id=self.user.pk
+                    frequency_target=timedelta(seconds=data_freshness_seconds),
+                    trigger_immediate_run=newly_materialized,
+                    triggered_by_id=self.user.pk,
                 )
             except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
                 # The chosen data freshness can't be honored (e.g. finer than an upstream import
@@ -330,10 +394,9 @@ class EndpointMaterializationService:
         self,
         saved_query: DataWarehouseSavedQuery,
         version: EndpointVersion,
-        data_freshness_seconds: int,
         bucket_overrides: dict[str, str] | None,
     ) -> None:
-        """Point the saved query at the version's materializable HogQL and sync cadence."""
+        """Point the saved query at the version's materializable HogQL."""
         saved_query.query = build_endpoint_hogql(
             version.query,
             self.team,
@@ -342,7 +405,6 @@ class EndpointMaterializationService:
         )
         saved_query.external_tables = saved_query.s3_tables
         saved_query.is_materialized = True
-        saved_query.sync_frequency_interval = timedelta(seconds=data_freshness_seconds)
         saved_query.save()
 
     def disable_materialization(
@@ -378,22 +440,16 @@ class EndpointMaterializationService:
         saved_query_id: str,
         saved_query_name: str,
     ) -> None:
-        # Two rows: the model's history reads the saved query, the endpoint's history reads the
-        # endpoint. A read-time join can't replace this, since disabling unlinks the saved query.
-        for item_id, scope, name in (
-            (saved_query_id, "DataWarehouseSavedQuery", saved_query_name),
-            (str(endpoint.id), "EndpointVersion", endpoint.name),
-        ):
-            log_activity(
-                organization_id=self.team.organization_id,
-                team_id=self.team.pk,
-                user=self.user,
-                was_impersonated=is_impersonated(self.request),
-                item_id=item_id,
-                scope=scope,
-                activity=activity,
-                detail=Detail(name=name, context=EndpointContext(version=version.version)),
-            )
+        log_materialization_activity(
+            self.team,
+            endpoint,
+            version,
+            activity,
+            saved_query_id=saved_query_id,
+            saved_query_name=saved_query_name,
+            user=self.user,
+            was_impersonated=is_impersonated(self.request),
+        )
 
     def preview(
         self,

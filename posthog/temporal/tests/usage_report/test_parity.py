@@ -84,6 +84,7 @@ def _seed_all_data(team_a_id: int, team_b_id: int, team_c_id: int) -> dict[str, 
         "teams_with_recording_bytes_in_period": {team_a_id: 1_234_567, team_c_id: 89_012},
         "teams_with_decide_requests_count_in_period": {team_a_id: 1_000, team_b_id: 200, team_c_id: 50},
         "teams_with_local_evaluation_requests_count_in_period": {team_b_id: 5},
+        "teams_with_local_evaluation_not_modified_requests_count_in_period": {team_b_id: 40, team_c_id: 9},
         "teams_with_dashboard_count": {team_a_id: 4, team_b_id: 2, team_c_id: 1},
         "teams_with_ff_count": {team_a_id: 7, team_b_id: 3},
         "teams_with_survey_count": {team_a_id: 1, team_c_id: 2},
@@ -296,6 +297,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         (UsageCounter.LOGS_RETENTION_BYTE_DAYS, "get_teams_with_logs_retention_byte_days_in_period"),
         (UsageCounter.AI_CREDITS, "get_teams_with_ai_credits_used_in_period"),
         (UsageCounter.SIGNALS_CREDITS, "get_teams_with_signals_credits_used_in_period"),
+        (UsageCounter.SIGNALS_SPEND_CREDITS, "get_teams_with_signals_spend_credits_used_in_period"),
         (UsageCounter.POSTHOG_CODE_CREDITS, "get_teams_with_posthog_code_credits_used_in_period"),
         (UsageCounter.REPLAY_VISION_CREDITS, "get_teams_with_replay_vision_credits_used_in_period"),
         (UsageCounter.EVENTS, "get_teams_with_billable_event_count_in_period"),
@@ -361,9 +363,13 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         lambda begin, end, kind: [
             (str(team_id), total)
             for team_id, total in seeded[
-                UsageCounter.FEATURE_FLAG_REQUESTS
-                if kind == usage_report.FlagRequestType.DECIDE
-                else UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS
+                {
+                    usage_report.FlagRequestType.DECIDE: UsageCounter.FEATURE_FLAG_REQUESTS,
+                    usage_report.FlagRequestType.LOCAL_EVALUATION: UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
+                    usage_report.FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED: (
+                        UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS
+                    ),
+                }[kind]
             ].items()
         ],
     )

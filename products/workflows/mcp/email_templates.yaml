@@ -50,8 +50,8 @@ tools:
         description: >
             Get an email template by ID, including content.email (subject, text, design). Use this to fetch before
             updating — content is replaced as a whole and humans may have edited the design in the visual editor since
-            you last saw it, so build your update payload from this response. To display a template to the user, use
-            workflows-show-email-template instead.
+            you last saw it, so build the content of your update from this response. To display a template to the user,
+            use workflows-show-email-template instead.
         response:
             exclude:
                 - content.email.html
@@ -81,7 +81,7 @@ tools:
         operation: messaging_templates_make_transactional_create
         enabled: true
         scopes:
-            - hog_flow:write
+            - transactional_email:write
         annotations:
             readOnly: false
             destructive: true
@@ -95,10 +95,11 @@ tools:
             subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one,
             otherwise the project's default sender is used). Requires human typed confirmation. The response has
             transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user
-            can review and publish it. Then tell the user what is left: create a project secret API key with Workflow
-            set to Write, and send from their backend with posthog.emails.send in the Node.js or Python SDK, or POST
-            /api/projects/@current/messaging/send/email/ with template.id in the body. Each send returns a message ID,
-            and posthog.emails.get or GET /api/projects/@current/messaging/emails/{message_id}/ reads its status.
+            can review and publish it. Then tell the user what is left: create a project secret API key with
+            Transactional email set to Write, and send from their backend with posthog.emails.send in the Node.js or
+            Python SDK, or POST /api/projects/@current/messaging/send/email/ with template.id in the body. Each send
+            returns a message ID, and posthog.emails.get or GET /api/projects/@current/messaging/emails/{message_id}/
+            reads its status.
         feature_flag: workflows-transactional-email-api
         response:
             exclude:
@@ -138,6 +139,60 @@ tools:
                 - content
                 - created_by
                 - draft_content
+    workflows-send-email:
+        operation: messaging_send_email_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Send transactional email
+        description: >
+            Send one transactional email to one recipient with the content you pass, such as a receipt or an order
+            update. No template has to exist in PostHog first. Name the email with template_key (for example welcome);
+            sends under one key share a workflow, so their metrics and runs group together. Pass the subject and the
+            body as html, text or both, exactly as the recipient should see it: PostHog renders nothing, so {{ }} goes
+            out as typed. When the user points you at a local file, such as an HTML email in their repository, read the
+            file yourself and pass its content as html. This tool can't read files or URLs. from must be an address on a
+            domain the project verified; sender_not_verified means nothing was sent. Leave from out to send from the
+            project's default sender; sender_required means the project has several senders and no default, so ask the
+            user which address to send from. Sending takes two calls: prepare checks only the arguments and returns a
+            message for the user, and execute sends it only after the user replies with the literal word 'confirm'.
+            PostHog checks the sender and the content when execute runs, so settle from before prepare, and tell the
+            user which address the email goes out from (the address you pass, or the project's default sender). Each
+            execute call sends an email, so never repeat one that succeeded. A 503, a timeout or a connection error
+            means PostHog did not confirm the send, and the email may still go out: do not try again on your own, tell
+            the user. A 404 with code not_found means sending email from code is not enabled for this project, or the
+            project does not exist: stop and tell the user.
+        exclude_params:
+            - template_id
+            - message_data
+            - cc
+            - bcc
+            - attachments
+        param_overrides:
+            template_key:
+                required: true
+            subject:
+                required: true
+            html:
+                description: >
+                    HTML body of the email, exactly as the recipient should see it. Through this tool the whole request
+                    as JSON, html and text included, must stay under 1 MiB, and quotes and line breaks count twice. A
+                    larger email can't be sent here.
+            text:
+                description: >
+                    Plain text body of the email. Without it, PostHog derives the text from html. Through this tool the
+                    whole request as JSON, html and text included, must stay under 1 MiB.
+            distinct_id:
+                description: >
+                    Distinct ID of the recipient's person. The send and its engagement events are recorded against that
+                    person. Defaults to the recipient's email address.
+        feature_flag: workflows-email-from-code
+        confirmed_action:
+            message: |
+                About to send the email '{subject}' to {to}. Reply 'confirm' to send it.
+            action_label: send email
     workflows-show-email-template:
         operation: messaging_templates_retrieve
         enabled: true
@@ -175,9 +230,10 @@ tools:
             button color, one paragraph), prefer workflows-patch-email-template — it sends just the changed fields
             instead of the entire design JSON. Use this tool to set content from scratch or replace it wholesale: call
             workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send
-            back the complete content.email with your edited design. The server re-renders the sent email from the
-            design on save. After updating, call workflows-show-email-template so the user sees the result, and share
-            the returned _posthogUrl edit link.
+            back the complete content with your edited design, plus only the other writable fields you change. The tool
+            refuses the read-only fields of a fetched template: created_at, updated_at, transactional_hog_flow_id and
+            _posthogUrl. The server re-renders the sent email from the design on save. After updating, call
+            workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link.
         exclude_params:
             - content.email.html
             - draft_content

@@ -9,8 +9,14 @@
                 "backend/webhook_consumers.py",
                 "backend/tasks/**",
                 "backend/temporal/**",
+                "backend/receivers.py",
                 "backend/models.py",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/scopes.py",
+                "backend/activity_logging.py",
+                "backend/apps.py",
+                "backend/ownership.py",
+                "backend/task_profiles.py"
             ],
             "outputs": [],
             "cache": true

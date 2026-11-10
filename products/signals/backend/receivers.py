@@ -25,11 +25,14 @@ from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalFirstReportNotification, SignalReport, SignalReportArtefact
+from products.signals.backend.ranking.cache import refresh_report_ranking_cache
+from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
 from products.signals.backend.report_embeddings import (
     emit_report_embeddings,
     emit_report_tombstone,
     render_report_documents,
 )
+from products.signals.backend.report_priority import refresh_report_priority_rank
 from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
 from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
 
@@ -376,6 +379,32 @@ def _status_changed_on_this_save(
     if update_fields is not None and "status" not in update_fields:
         return False
     return prior_status is not None and prior_status != instance.status
+
+
+@receiver(post_save, sender=SignalReport)
+def schedule_github_writeback_on_status_change(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Comment on the report's GitHub issues, or edit that comment, after a status transition.
+
+    A report born visible gets its first comment when its source issues are recorded (see
+    `source_issues.append_source_issues`), so only a later transition starts the writeback here.
+    """
+    if not _status_changed_on_this_save(
+        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+    ):
+        return
+    from products.signals.backend.source_issues import schedule_writeback_for_status_change  # noqa: PLC0415
+
+    team_id, report_id, status = instance.team_id, str(instance.id), instance.status
+    transaction.on_commit(
+        lambda: schedule_writeback_for_status_change(team_id=team_id, report_id=report_id, status=status),
+        robust=True,
+    )
 
 
 def _pr_close_reason(
@@ -837,20 +866,27 @@ def _sync_report_latest_actionability(instance: SignalReportArtefact) -> None:
     SignalReport.refresh_latest_actionability(team_id=instance.team_id, report_id=instance.report_id)
 
 
+def _sync_report_inbox_sort_cache(instance: SignalReportArtefact) -> None:
+    if instance.type == SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
+        refresh_report_priority_rank(team_id=instance.team_id, report_id=instance.report_id)
+    elif instance.type == SignalReportArtefact.ArtefactType.RANKING_SCORE or instance.type in EDIT_ARTEFACT_TYPES:
+        refresh_report_ranking_cache(team_id=instance.team_id, report_id=instance.report_id)
+
+
 @receiver(post_save, sender=SignalReportArtefact)
-def sync_report_latest_actionability_on_save(
+def sync_report_cached_artefact_state_on_save(
     sender: type[SignalReportArtefact],
     instance: SignalReportArtefact,
     created: bool,
     **kwargs: Any,
 ) -> None:
-    """Keep the report's cached actionability equal to its newest judgment.
+    """Keep report-row filters and ordering equal to their latest artefacts.
 
-    On the artefact write path rather than at each producer, because a judgment reaches a report
-    from the research pipeline, a custom agent, a scout edit, the artefact REST API and the MCP
-    tools. Not gated on `created`, because `update_content` edits a judgment row in place.
+    This runs on the artefact write path because judgments and edits have several producers. It is
+    not gated on `created`, because `update_content` edits a status row in place.
     """
     _sync_report_latest_actionability(instance)
+    _sync_report_inbox_sort_cache(instance)
     if instance.type == SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
         _schedule_first_report_notification(instance.team_id)
 
@@ -890,13 +926,13 @@ def reconcile_report_embedding_on_verdict_deleted(
 
 
 @receiver(post_delete, sender=SignalReportArtefact)
-def sync_report_latest_actionability_on_delete(
+def sync_report_cached_artefact_state_on_delete(
     sender: type[SignalReportArtefact],
     instance: SignalReportArtefact,
     origin: Any = None,
     **kwargs: Any,
 ) -> None:
-    """Deleting the newest judgment reverts the report to the one before it.
+    """Deleting the newest cached artefact reverts the report to the one before it.
 
     Skipped for a cascade, where the report itself is going away, so a team teardown does not pay
     a read and a write per artefact for a row nobody will read.
@@ -904,6 +940,7 @@ def sync_report_latest_actionability_on_delete(
     if not _deleted_directly(origin):
         return
     _sync_report_latest_actionability(instance)
+    _sync_report_inbox_sort_cache(instance)
 
 
 def _status_change_properties(

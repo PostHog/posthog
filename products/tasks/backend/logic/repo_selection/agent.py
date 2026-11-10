@@ -3,11 +3,12 @@ from __future__ import annotations
 import re
 import json
 import logging
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from typing import TYPE_CHECKING
 
 from django.db.models import Case, IntegerField, Value, When
 
+from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
@@ -19,11 +20,12 @@ from posthog.models.team.team import Team
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
 
+from products.tasks.backend.facade.profiles import TaskProfile, TaskSource
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
 from products.tasks.backend.logic.services.sandbox import SandboxResources
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import TaskRun
 
 if TYPE_CHECKING:
     from products.tasks.backend.logic.services.custom_prompt_internals import OutputFn
@@ -35,6 +37,13 @@ logger = logging.getLogger(__name__)
 REPO_SELECTION_DUMMY_REPOSITORY = "PostHog/.github"
 
 _MAX_GITHUB_REPOS = 1000
+
+# Applied when a caller names no model, so the selector does not follow the agent server's
+# default model. No service tier is set, because the flex tier queues requests and Slack users
+# wait in the thread for the answer.
+DEFAULT_REPO_SELECTION_RUNTIME_ADAPTER = "codex"
+DEFAULT_REPO_SELECTION_MODEL = "gpt-6-luna"
+DEFAULT_REPO_SELECTION_REASONING_EFFORT = "medium"
 
 # The prompt-injection guard shared by every optional guidance section rendered from stored,
 # member-written text. Keep it one definition so an edit cannot weaken one section silently.
@@ -133,7 +142,12 @@ def _account_type_sort_key(row: IntegrationRecord) -> tuple[bool, str]:
 
 
 def resolve_team_github_integration(
-    team_id: int, team: Team | None = None, requester_user_id: int | None = None, team_only: bool = False
+    team_id: int,
+    team: Team | None = None,
+    requester_user_id: int | None = None,
+    team_only: bool = False,
+    *,
+    include_unavailable: bool = False,
 ) -> GitHubIntegrationBase | None:
     """Resolve the GitHub source the agent should use for this team.
 
@@ -161,7 +175,10 @@ def resolve_team_github_integration(
             for row in IntegrationManager.github.oauth.list(team_id)
             # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
             # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
-            if row.errors != ERROR_TOKEN_REFRESH_FAILED and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+            if include_unavailable
+            or (
+                row.errors != ERROR_TOKEN_REFRESH_FAILED and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+            )
         ),
         # Prioritize orgs vs users (alphabetically), then oldest first. `list` is already oldest
         # first and `sorted` is stable.
@@ -276,11 +293,57 @@ def list_team_connected_repositories(team_id: int) -> list[str]:
     return _list_candidate_repos(github, team_id, allow_refresh=False, exclude_archived=True)
 
 
+def team_repository_names(
+    team_id: int, *, team: Team | None = None, refresh_stale_snapshot: bool = True
+) -> dict[str, str] | None:
+    """The repositories the team's own GitHub installation can reach, keyed by lowercased `owner/repo`.
+
+    Each value keeps GitHub's casing, for display. Returns None when the team has no GitHub installation.
+    `team_only` because callers show these names to any project member and run work as the installation's
+    bot, so a member's personal connection must not answer for the team. Callers apply their own precedence
+    to pick one repository from the result.
+
+    With `refresh_stale_snapshot=False`, a stale snapshot is used as it is, and GitHub is called only when no
+    snapshot exists yet. A refresh lists every page of the installation inside the request.
+    """
+    github = resolve_team_github_integration(team_id, team=team, team_only=True)
+    if github is None:
+        return None
+    repositories = (
+        None if refresh_stale_snapshot else github.list_all_cached_repositories(max_repos=1000, allow_refresh=False)
+    ) or github.list_all_cached_repositories(max_repos=1000)
+    return {full_name.lower(): full_name for repo in repositories if (full_name := repo.get("full_name"))}
+
+
 def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> set[str]:
     """Repos the agent can reason about: present in the heavy cache and not archived.
     Anything else is dropped from the candidate list (no SQL evidence, or unfixable code)."""
     qs = github.integration.repository_cache_entries.filter(team_id=team_id, archived=False)
     return set(qs.values_list("full_name", flat=True))
+
+
+@frozen
+class _SelectorRuntime:
+    model: str | None
+    runtime_adapter: str | None
+    reasoning_effort: str | None
+
+
+def _resolve_repo_selection_runtime(
+    model: str | None, runtime_adapter: str | None, reasoning_effort: str | None
+) -> _SelectorRuntime:
+    """The caller's runtime, or the selector default when it names no model.
+
+    The default replaces the model and the adapter together, because the agent server derives the
+    provider from the adapter and a Codex model on the Claude adapter cannot be routed.
+    """
+    if model is not None or runtime_adapter is not None:
+        return _SelectorRuntime(model=model, runtime_adapter=runtime_adapter, reasoning_effort=reasoning_effort)
+    return _SelectorRuntime(
+        model=DEFAULT_REPO_SELECTION_MODEL,
+        runtime_adapter=DEFAULT_REPO_SELECTION_RUNTIME_ADAPTER,
+        reasoning_effort=reasoning_effort or DEFAULT_REPO_SELECTION_REASONING_EFFORT,
+    )
 
 
 def _routing_rules_block(team_id: int, candidate_repos: list[str]) -> str | None:
@@ -338,6 +401,43 @@ def _filter_candidates_by_source_visibility(
     if source_repository is None or visibility.get(source_repository) is False:
         return candidate_repos
     return [repo for repo in candidate_repos if repo == source_repository or visibility.get(repo) is True]
+
+
+def _filter_repository_sources(
+    candidate_repos: list[str],
+    source_repositories: Collection[str],
+    visibility: Mapping[str, bool | None],
+    require_private_destination: bool,
+) -> list[str]:
+    allowed = candidate_repos
+    for source in source_repositories:
+        allowed = _filter_candidates_by_source_visibility(source, allowed, visibility)
+    if require_private_destination:
+        allowed = [repository for repository in allowed if visibility.get(repository) is True]
+    return allowed
+
+
+def filter_repository_candidates_for_sources(
+    team_id: int,
+    candidate_repos: list[str],
+    source_repositories: Collection[str],
+    require_private_destination: bool = False,
+) -> list[str]:
+    github = resolve_team_github_integration(team_id)
+    if github is None:
+        return []
+    sources = {repository.strip().lower() for repository in source_repositories}
+    normalized = {repository: repository.strip().lower() for repository in candidate_repos}
+    if github.repository_cache_is_stale():
+        try:
+            github.sync_repository_cache(priority=Priority.BATCH)
+        except Exception:
+            logger.warning("repo_selection.visibility_refresh_failed", exc_info=True)
+    visibility = (
+        {} if github.repository_cache_is_stale() else _candidate_visibility(github, [*normalized.values(), *sources])
+    )
+    allowed = _filter_repository_sources(list(normalized.values()), sources, visibility, require_private_destination)
+    return [repository for repository, name in normalized.items() if name in allowed]
 
 
 def _build_repo_selection_prompt(
@@ -630,12 +730,12 @@ async def select_repository(
     user_id: int,
     context: str,
     *,
-    origin_product: Task.OriginProduct,
+    profile: TaskProfile,
     priority: Priority,
+    source: TaskSource | None = None,
     github: GitHubIntegrationBase | None = None,
     candidate_repos: list[str] | None = None,
     step_name: str = "repo_selection",
-    signal_report_id: str | None = None,
     spend_signal_id: str | None = None,
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
@@ -647,6 +747,8 @@ async def select_repository(
     service_tier: str | None = None,
     past_corrections: str | None = None,
     source_repository: str | None = None,
+    source_repositories: Collection[str] = (),
+    require_private_destination: bool = False,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request context.
 
@@ -710,10 +812,13 @@ async def select_repository(
         )
 
     source_repository = (source_repository or "").strip().lower() or None
+    sources = {repository.lower() for repository in source_repositories}
+    if source_repository:
+        sources.add(source_repository)
     visibility = await database_sync_to_async(_candidate_visibility, thread_sensitive=False)(
-        github, [*candidate_repos, source_repository] if source_repository else candidate_repos
+        github, [*candidate_repos, *sources]
     )
-    candidate_repos = _filter_candidates_by_source_visibility(source_repository, candidate_repos, visibility)
+    candidate_repos = _filter_repository_sources(candidate_repos, sources, visibility, require_private_destination)
     if not candidate_repos:
         return RepoSelectionResult(
             repository=None,
@@ -739,6 +844,7 @@ async def select_repository(
         visibility=visibility,
         source_repository=_eligible_source_repository(source_repository, candidate_repos),
     )
+    runtime = _resolve_repo_selection_runtime(model, runtime_adapter, reasoning_effort)
     sandbox_context = CustomPromptSandboxContext(
         team_id=team_id,
         user_id=user_id,
@@ -749,11 +855,10 @@ async def select_repository(
         github_read_access=True,
         disable_skills=True,
         sandbox_resources=SandboxResources(cpu_cores=2, memory_gb=8),
-        # Optional agent runtime/model override (e.g. the Codex runtime + gpt-5.5). All-None keeps
-        # the agent-server default; threaded through from the caller's per-step resolution.
-        model=model,
-        runtime_adapter=runtime_adapter,
-        reasoning_effort=reasoning_effort,
+        # The caller's per-step runtime/model override, or the selector default when it names none.
+        model=runtime.model,
+        runtime_adapter=runtime.runtime_adapter,
+        reasoning_effort=runtime.reasoning_effort,
         service_tier=service_tier,
     )
 
@@ -779,11 +884,10 @@ async def select_repository(
             step_name=step_name,
             verbose=verbose,
             output_fn=output_fn,
-            origin_product=origin_product,
-            signal_report_id=signal_report_id,
+            profile=profile,
+            source=source,
             spend_signal_id=spend_signal_id,
             ai_stage="repo_selection",
-            internal=True,
             on_task_run_created=_session_created,
             fallback_from_text=_salvage,
             json_retry_prompt=REPO_SELECTION_JSON_RETRY_PROMPT,

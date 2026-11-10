@@ -80,6 +80,7 @@ def execute_managed_trino_query(
     settings: HogQLGlobalSettings,
     timings: HogQLTimings,
     limit_context: LimitContext | None,
+    canary: bool = False,
 ) -> HogQLQueryResponse:
     validate_managed_trino_query(query, team, user)
     assert user is not None
@@ -87,10 +88,9 @@ def execute_managed_trino_query(
 
     def paginate(parsed: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
         nonlocal paginator
-        if limit_context == LimitContext.SQL_ALERT:
-            paginator = HogQLHasMorePaginator.from_alert_query(parsed, limit_context=limit_context)
-        elif isinstance(parsed, ast.SelectQuery) and not parsed.limit:
-            paginator = HogQLHasMorePaginator.from_limit_context(limit_context=limit_context or LimitContext.QUERY)
+        paginator = HogQLHasMorePaginator.for_hogql_query(
+            parsed, limit_context=limit_context or LimitContext.QUERY, offset=query.offset
+        )
         return paginator.paginate(parsed) if paginator is not None else parsed
 
     if query.sendRawQuery:
@@ -131,7 +131,9 @@ def execute_managed_trino_query(
             cancellation_token=cancellation_token,
         ),
         connect_managed_warehouse_trino(
-            str(team.organization_id), principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}"
+            str(team.organization_id),
+            principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}",
+            canary=canary,
         ),
     )
     response = HogQLQueryResponse(

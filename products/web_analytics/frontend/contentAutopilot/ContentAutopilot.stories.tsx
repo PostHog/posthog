@@ -13,13 +13,21 @@ import type {
     ContentAutopilotSiteProfileApi,
 } from '../generated/api.schemas'
 import { ContentAutopilot } from './ContentAutopilot'
-import { type ContentAutopilotProposalTab, contentAutopilotLogic } from './contentAutopilotLogic'
+import {
+    type ContentAutopilotProposalTab,
+    type ContentAutopilotWorkspaceTab,
+    contentAutopilotLogic,
+} from './contentAutopilotLogic'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import {
     EXAMPLE_FAILED_DRAFT_OPPORTUNITY,
     EXAMPLE_FAILED_PROPOSAL_LIST,
     EXAMPLE_OPPORTUNITIES,
     EXAMPLE_PROFILE,
+    EXAMPLE_PROMPT_SET_OVERVIEW,
+    EXAMPLE_PROMPT_SET_RANKINGS,
+    EXAMPLE_PROMPT_TOPICS,
+    EXAMPLE_PROMPTS,
     EXAMPLE_PROPOSAL,
     EXAMPLE_PROPOSAL_LIST,
     EXAMPLE_RUN,
@@ -55,6 +63,13 @@ const workspaceHandlers = ({
                 200,
                 EXAMPLE_PROPOSAL,
             ],
+            '/api/projects/:team_id/aeo_prompts/': () => [
+                200,
+                { count: EXAMPLE_PROMPTS.length, next: null, previous: null, results: EXAMPLE_PROMPTS },
+            ],
+            '/api/projects/:team_id/aeo_prompts/topics/': () => [200, EXAMPLE_PROMPT_TOPICS],
+            '/api/projects/:team_id/aeo_prompts/overview/': () => [200, EXAMPLE_PROMPT_SET_OVERVIEW],
+            '/api/projects/:team_id/aeo_prompts/rankings/': () => [200, EXAMPLE_PROMPT_SET_RANKINGS],
             '/api/projects/:team_id/web_analytics_content_autopilot_opportunities/': () => [
                 200,
                 { count: opportunities.length, next: null, previous: null, results: opportunities },
@@ -81,7 +96,7 @@ const meta: Meta<typeof ContentAutopilot> = {
     component: ContentAutopilot,
     parameters: {
         layout: 'fullscreen',
-        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE, FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT],
+        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT],
         // The fixtures carry fixed dates and the UI shows them relative to now, so the clock is pinned near them.
         mockDate: '2026-09-30',
     },
@@ -89,18 +104,22 @@ const meta: Meta<typeof ContentAutopilot> = {
 
 export default meta
 
-export const Onboarding: StoryFn<typeof ContentAutopilot> = () => (
-    <div className="p-6">
-        <ContentAutopilot />
-    </div>
-)
+const WorkspaceTabStory = ({ tab }: { tab: ContentAutopilotWorkspaceTab }): JSX.Element => {
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    useEffect(() => {
+        setWorkspaceTab(tab)
+    }, [setWorkspaceTab, tab])
+    return (
+        <div className="p-6">
+            <ContentAutopilot />
+        </div>
+    )
+}
+
+export const Onboarding: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="opportunities" />
 Onboarding.decorators = [workspaceHandlers({ profiles: [] })]
 
-export const MultipleSites: StoryFn<typeof ContentAutopilot> = () => (
-    <div className="p-6">
-        <ContentAutopilot />
-    </div>
-)
+export const MultipleSites: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="opportunities" />
 MultipleSites.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE, EXAMPLE_SECOND_PROFILE] })]
 
 export const SiteSettings: StoryFn<typeof ContentAutopilotSetup> = () => (
@@ -110,11 +129,7 @@ export const SiteSettings: StoryFn<typeof ContentAutopilotSetup> = () => (
 )
 SiteSettings.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE] })]
 
-export const ReadyForReview: StoryFn<typeof ContentAutopilot> = () => (
-    <div className="p-6">
-        <ContentAutopilot />
-    </div>
-)
+export const ReadyForReview: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="opportunities" />
 ReadyForReview.decorators = [
     workspaceHandlers({
         profiles: [EXAMPLE_PROFILE],
@@ -124,11 +139,7 @@ ReadyForReview.decorators = [
     }),
 ]
 
-export const FailedRun: StoryFn<typeof ContentAutopilot> = () => (
-    <div className="p-6">
-        <ContentAutopilot />
-    </div>
-)
+export const FailedRun: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="opportunities" />
 FailedRun.decorators = [
     workspaceHandlers({
         profiles: [EXAMPLE_PROFILE],
@@ -175,22 +186,7 @@ ProposalReview.decorators = [
     }),
 ]
 
-const DraftsTabStory = (): JSX.Element => {
-    const { profileDataLoaded } = useValues(contentAutopilotLogic)
-    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
-    useEffect(() => {
-        if (profileDataLoaded) {
-            setWorkspaceTab('drafts')
-        }
-    }, [profileDataLoaded, setWorkspaceTab])
-    return (
-        <div className="p-6">
-            <ContentAutopilot />
-        </div>
-    )
-}
-
-export const ActiveRun: StoryFn<typeof ContentAutopilot> = () => <DraftsTabStory />
+export const ActiveRun: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="drafts" />
 ActiveRun.parameters = { testOptions: { waitForLoadersToDisappear: false } }
 ActiveRun.decorators = [
     workspaceHandlers({
@@ -201,7 +197,7 @@ ActiveRun.decorators = [
     }),
 ]
 
-export const DraftsTab: StoryFn<typeof ContentAutopilot> = () => <DraftsTabStory />
+export const DraftsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="drafts" />
 DraftsTab.decorators = [
     workspaceHandlers({
         profiles: [EXAMPLE_PROFILE],
@@ -223,3 +219,14 @@ DraftsTab.decorators = [
 
 export const ProposalPreview: StoryFn<typeof ContentAutopilot> = () => <ProposalStory />
 ProposalPreview.decorators = ProposalReview.decorators
+
+export const PromptsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="prompts" />
+PromptsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
+
+export const OverviewTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
+OverviewTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
+OverviewTab.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+export const RankingsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="rankings" />
+RankingsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
+RankingsTab.parameters = { testOptions: { snapshotBrowsers: [] } }

@@ -1176,8 +1176,20 @@ export const HogFunctionsMetricsRetrieveQueryParams = () => zod.object({
         .describe(
             "Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.\n\n\* `hour` - hour\n\* `day` - day\n\* `week` - week"
         ),
-    kind: zod.string().min(1).optional().describe("Comma-separated metric kinds to filter by, e.g. 'success,failure'."),
-    name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
+    kind: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows."
+        ),
+    name: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.'
+        ),
 })
 
 export const HogFunctionsPublishCreateParams = () => zod.object({
@@ -1262,9 +1274,18 @@ export const HogFunctionsRearrangePartialUpdateParams = () => zod.object({
         ),
 })
 
+export const hogFunctionsRearrangePartialUpdateBodyOrdersMinOne = 0
+export const hogFunctionsRearrangePartialUpdateBodyOrdersMaxOne = 32767
+
 export const HogFunctionsRearrangePartialUpdateBody = () => zod.object({
     orders: zod
-        .record(zod.string(), zod.number())
+        .record(
+            zod.string(),
+            zod
+                .number()
+                .min(hogFunctionsRearrangePartialUpdateBodyOrdersMinOne)
+                .max(hogFunctionsRearrangePartialUpdateBodyOrdersMaxOne)
+        )
         .optional()
-        .describe('Map of hog function UUIDs to their new execution_order values.'),
+        .describe('Map of hog function UUIDs to their new execution_order values, from 0 to 32767.'),
 })

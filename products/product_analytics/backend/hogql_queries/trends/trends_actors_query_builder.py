@@ -32,7 +32,8 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.product_analytics.backend.hogql_queries.trends.aggregation_operations import (
     AggregationOperations,
     FirstTimeForUserEventsQueryAlternator,
@@ -390,9 +391,9 @@ class TrendsActorsQueryBuilder:
         if isinstance(self.entity, ActionsNode):
             # Actions
             try:
-                action = Action.objects.get(pk=int(self.entity.id), team__project_id=self.team.project_id)
+                action = get_action(action_id=int(self.entity.id), project_id=self.team.project_id)
                 return action_to_expr(action)
-            except Action.DoesNotExist:
+            except ActionNotFound:
                 # If an action doesn't exist, we want to return no events
                 return parse_expr("1 = 2")
         elif isinstance(self.entity, EventsNode):

@@ -13,8 +13,9 @@ from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyItem, Te
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
+from posthog.models import Team
 
+from products.event_definitions.backend.models import EventDefinition, EventProperty, PropertyDefinition
 from products.subscriptions.backend.facade.contracts import PromptRejectedError
 from products.subscriptions.backend.models.subscription import AIQueryPlanStatus, Subscription
 from products.subscriptions.backend.temporal.ai_subscription.schemas import QueryPlan, QueryPlanStep, RelevantEvents

@@ -25,6 +25,7 @@ use serde::Deserialize;
 use serde_json::json;
 use tracing::{debug, error, instrument};
 
+use crate::k8s_resource_attributes::K8sResourceAttributes;
 use crate::series_label_gate::SeriesLabelGate;
 
 #[derive(Clone)]
@@ -34,6 +35,7 @@ pub struct MetricsService {
     pub(crate) max_request_body_size_bytes: usize,
     pub(crate) remote_write_max_expanded_bytes: u64,
     pub(crate) series_label_gate: Arc<SeriesLabelGate>,
+    pub(crate) k8s_resource_attributes: Arc<K8sResourceAttributes>,
 }
 
 #[derive(Deserialize)]
@@ -48,6 +50,7 @@ impl MetricsService {
         max_request_body_size_bytes: usize,
         remote_write_max_expanded_bytes: u64,
         series_label_gate: Arc<SeriesLabelGate>,
+        k8s_resource_attributes: Arc<K8sResourceAttributes>,
     ) -> Self {
         Self {
             sink: kafka_sink,
@@ -55,6 +58,7 @@ impl MetricsService {
             max_request_body_size_bytes,
             remote_write_max_expanded_bytes,
             series_label_gate,
+            k8s_resource_attributes,
         }
     }
 }

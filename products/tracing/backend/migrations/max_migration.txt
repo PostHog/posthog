@@ -1,1 +1,1 @@
-0007_tracesretentionrule
+0009_squash_2026_11_02_schema_addons

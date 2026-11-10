@@ -306,11 +306,13 @@ def train_candidate(
     vs_baseline = None
     if baseline_reports is not None and family.baseline is not None:
         baseline_inputs = NetworkInputs(reports=baseline_reports, context=baseline_context or inputs.context)
+        experiment_seeds = family.experiment_seeds(EXPERIMENT_SEEDS)
         vs_baseline = vs_baseline_block(
             examples.table,
             baseline=family.baseline,
             seeds=EXPERIMENT_SEEDS,
-            experiment_scores=seed_scores(examples.table, inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
+            experiment_seeds=experiment_seeds,
+            experiment_scores=seed_scores(examples.table, inputs, NN_HEADS, NETWORK_CONFIG, experiment_seeds),
             baseline_scores=seed_scores(examples.table, baseline_inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
         )
     metadata = write_candidate(

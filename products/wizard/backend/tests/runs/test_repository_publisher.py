@@ -3,10 +3,16 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from products.wizard.backend.logic.workers.publishable_paths import select_publishable_paths
-from products.wizard.backend.logic.workers.repository_publisher import create_signed_commit, stage_publishable_changes
+from products.wizard.backend.logic.workers.repository_publisher import (
+    RepositoryPublishingError,
+    create_pull_request,
+    create_signed_commit,
+    stage_publishable_changes,
+)
 
 
 def _execution_result(*, stdout: str = "", exit_code: int = 0) -> SimpleNamespace:
@@ -141,17 +147,26 @@ def test_stage_publishable_changes_replaces_existing_staging(tmp_path: Path) -> 
     assert _git(repository, "diff", "--cached", "--name-only").splitlines() == ["src/component's name.tsx"]
 
 
+@pytest.mark.parametrize("branch_created_by_earlier_attempt", [False, True])
 @patch("products.wizard.backend.logic.workers.repository_publisher.GitHubIntegration")
 @patch("products.wizard.backend.logic.workers.repository_publisher.IntegrationManager")
 def test_create_signed_commit_strips_head_sha_and_supports_binary_files(
     integration_manager: MagicMock,
     github_integration_class: MagicMock,
+    branch_created_by_earlier_attempt: bool,
 ) -> None:
     integration_manager.github.oauth.get_many.return_value = {13: MagicMock()}
     github = github_integration_class.return_value
+    existing_ref = {"target": {"oid": "7a6e71985f4e0058f10517fc662813a39818f805"}}
     github.api_request.side_effect = [
-        _graphql_response({"data": {"repository": {"id": "R_1", "ref": None}}}),
-        _graphql_response({"data": {"createRef": {"ref": {"name": "refs/heads/posthog/wizard-123"}}}}),
+        _graphql_response(
+            {"data": {"repository": {"id": "R_1", "ref": existing_ref if branch_created_by_earlier_attempt else None}}}
+        ),
+        *(
+            []
+            if branch_created_by_earlier_attempt
+            else [_graphql_response({"data": {"createRef": {"ref": {"name": "refs/heads/posthog/wizard-123"}}}})]
+        ),
         _graphql_response({"data": {"createCommitOnBranch": {"commit": {"oid": "newsha456"}}}}),
     ]
 
@@ -173,8 +188,65 @@ def test_create_signed_commit_strips_head_sha_and_supports_binary_files(
         source="wizard",
     )
 
-    create_ref_input = github.api_request.call_args_list[1].kwargs["json_body"]["variables"]["input"]
-    commit_input = github.api_request.call_args_list[2].kwargs["json_body"]["variables"]["input"]
-    assert create_ref_input["oid"] == "7a6e71985f4e0058f10517fc662813a39818f805"
+    if not branch_created_by_earlier_attempt:
+        create_ref_input = github.api_request.call_args_list[1].kwargs["json_body"]["variables"]["input"]
+        assert create_ref_input["oid"] == "7a6e71985f4e0058f10517fc662813a39818f805"
+    commit_input = github.api_request.call_args_list[-1].kwargs["json_body"]["variables"]["input"]
     assert commit_input["expectedHeadOid"] == "7a6e71985f4e0058f10517fc662813a39818f805"
+    assert not any("fetch" in call.args[0] for call in sandbox.execute.call_args_list)
     assert result.commit_shas == ("newsha456",)
+
+
+@pytest.mark.parametrize(
+    "operation, status_code, retryable",
+    [
+        ("commit", 502, True),
+        ("commit", 401, False),
+        ("pull_request", 503, True),
+        ("pull_request", 429, True),
+        ("pull_request", 422, False),
+    ],
+)
+@patch("products.wizard.backend.logic.workers.repository_publisher.GitHubIntegration")
+@patch("products.wizard.backend.logic.workers.repository_publisher.IntegrationManager")
+def test_github_failures_are_retryable_only_for_transient_status_codes(
+    integration_manager: MagicMock,
+    github_integration_class: MagicMock,
+    operation: str,
+    status_code: int,
+    retryable: bool,
+) -> None:
+    integration_manager.github.oauth.get_many.return_value = {13: MagicMock()}
+    github = github_integration_class.return_value
+    github.organization.return_value = "posthog"
+    github.list_pull_requests.return_value = {"success": True, "pull_requests": []}
+    github.create_pull_request.return_value = {"success": False, "status_code": status_code}
+    github.api_request.return_value = SimpleNamespace(status_code=status_code)
+    sandbox = MagicMock()
+    sandbox.execute.return_value = _execution_result(stdout="7a6e71985f4e0058f10517fc662813a39818f805\n")
+
+    with pytest.raises(RepositoryPublishingError) as error:
+        if operation == "commit":
+            create_signed_commit(
+                sandbox,
+                team_id=7,
+                integration_id=13,
+                repository="posthog/posthog",
+                branch="posthog/wizard-123",
+                message="Set up PostHog",
+                source="wizard",
+            )
+        else:
+            create_pull_request(
+                team_id=7,
+                integration_id=13,
+                repository="posthog/posthog",
+                head_branch="posthog/wizard-123",
+                base_branch="main",
+                title="Set up PostHog",
+                body="Body",
+                source="wizard",
+            )
+
+    assert error.value.retryable is retryable
+    assert str(status_code) in str(error.value)

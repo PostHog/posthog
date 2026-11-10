@@ -106,11 +106,13 @@ Your team ID is required by the current SmartReach API. Find it in your SmartRea
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # The table set (prospects, campaigns) is identical across v1 and v3, so discovery does not
-        # branch on api_version. Every endpoint is full refresh only — we deliberately do not use
-        # SmartReach's newer_than/older_than filters, so there is no incremental cursor to advance
+        # Only prospects and campaigns exist on v1, so a source pinned there lists just those. Every
+        # endpoint is full refresh only — we deliberately do not use SmartReach's
+        # newer_than/older_than filters, so there is no incremental cursor to advance
         # (INCREMENTAL_FIELDS is empty, so build_endpoint_schemas marks all endpoints full-refresh).
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        resolved_version = self.resolve_api_version(api_version)
+        endpoints = [name for name in ENDPOINTS if resolved_version in SMARTREACH_ENDPOINTS[name].api_versions]
+        return build_endpoint_schemas(endpoints, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self,

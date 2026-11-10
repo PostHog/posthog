@@ -1,7 +1,7 @@
 """Start a review of a pull request because a PostHog user asked for it.
 
-The review trigger in the Code review UI and the `@posthog review` pull request command both come
-here, so one place decides which requests start a run. The caller has already authenticated the
+The review trigger in the Code review UI, the `@posthog review` pull request command and a review
+request for the `posthog-review` team all come here, so one place decides which requests start a run. The caller has already authenticated the
 requester and checked their access to the project.
 """
 
@@ -9,6 +9,10 @@ import logging
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration
+from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.permissions import posthog_feature_flag_enabled
 
 from products.review_hog.backend.facade.contracts import (
     RUN_MODE_FLASH,
@@ -34,6 +38,8 @@ from products.review_hog.backend.temporal.client import (
 from products.review_hog.backend.temporal.types import TRIGGER_UI, resolve_pr_workflow_id, review_pr_workflow_id
 
 logger = logging.getLogger(__name__)
+
+REVIEW_HOG_FLAG = "review-hog"
 
 
 def fetch_pr_metadata(github: GitHubIntegration, owner: str, repo: str, pr_number: int) -> PRMetadata:
@@ -255,4 +261,35 @@ def request_pr_review(
         report=report,
         review_mode=review_mode,
         resolve_skip_reason=resolve_skip_reason,
+    )
+
+
+def request_member_review(
+    *, team_id: int, requester_id: int, repository: str, pr_number: int, run_mode: str, trigger_source: str
+) -> PRReviewRequestOutcome:
+    """Start the run a project member asked for from GitHub, as themselves.
+
+    Applies the `review-hog` flag, which the review API applies through its permission class. The
+    caller has already checked that the requester is a member of the project.
+    Raises `GitHubRateLimitError` when GitHub rate-limits the App's token.
+    """
+    requester = User.objects.get(id=requester_id)
+    organization_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
+    # Access is gated per environment, like the review API's permission class, while review data
+    # is shared under the parent project.
+    if not posthog_feature_flag_enabled(
+        REVIEW_HOG_FLAG, str(requester.distinct_id), organization_id=organization_id, team_id=team_id
+    ):
+        return PRReviewRequestOutcome(
+            status=PRReviewRequestStatus.NOT_ALLOWED, error="PostHog Review isn't enabled for this project."
+        )
+    owner, _, repo = repository.partition("/")
+    return request_pr_review(
+        team_id=resolve_effective_team_id(team_id),
+        requester_id=requester_id,
+        owner=owner,
+        repo=repo,
+        pr_number=pr_number,
+        run_mode=run_mode,
+        trigger_source=trigger_source,
     )

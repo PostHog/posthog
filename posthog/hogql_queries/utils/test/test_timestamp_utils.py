@@ -38,7 +38,7 @@ from posthog.models.event.new_events_schema import events_route_scope
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.team import WeekStartDay
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus, DataWarehouseSavedQuery
 
 
@@ -290,8 +290,8 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
     def test_returns_earliest_timestamp_multiple_actions(self):
         """Test that multiple actions return the earliest timestamp across all actions"""
-        action1 = Action.objects.create(team=self.team, name="Action 1", steps_json=[{"event": "$pageview"}])
-        action2 = Action.objects.create(team=self.team, name="Action 2", steps_json=[{"event": "$pageleave"}])
+        action1 = create_action(team=self.team, name="Action 1", steps_json=[{"event": "$pageview"}])
+        action2 = create_action(team=self.team, name="Action 2", steps_json=[{"event": "$pageleave"}])
 
         _create_event(
             team=self.team,
@@ -313,7 +313,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
     def test_returns_earliest_timestamp_mixed_nodes(self):
         """Test that mixing EventsNode and ActionsNode returns earliest timestamp across all"""
-        action = Action.objects.create(team=self.team, name="Action 1", steps_json=[{"event": "$pageview"}])
+        action = create_action(team=self.team, name="Action 1", steps_json=[{"event": "$pageview"}])
 
         _create_event(
             team=self.team,

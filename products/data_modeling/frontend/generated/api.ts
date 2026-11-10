@@ -18,6 +18,7 @@ import type {
     LineageResponseApi,
     ModelUsageApi,
     NodeApi,
+    NodeFrequencyBoundsApi,
     NodeResumeApi,
     NodeRunApi,
     NodeRunResponseApi,
@@ -239,6 +240,24 @@ export const dataModelingNodesDestroy = async (projectId: string, id: string, op
     })
 }
 
+export const getDataModelingNodesFrequencyBoundsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_modeling_nodes/${id}/frequency_bounds/`
+}
+
+/**
+ * The cadences this view could refresh at, and what pinning it to each one would delay downstream.
+ */
+export const dataModelingNodesFrequencyBoundsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<NodeFrequencyBoundsApi> => {
+    return apiMutator<NodeFrequencyBoundsApi>(getDataModelingNodesFrequencyBoundsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getDataModelingNodesMaterializeCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/data_modeling_nodes/${id}/materialize/`
 }
@@ -249,14 +268,11 @@ export const getDataModelingNodesMaterializeCreateUrl = (projectId: string, id: 
 export const dataModelingNodesMaterializeCreate = async (
     projectId: string,
     id: string,
-    nodeApi: NonReadonly<NodeApi>,
     options?: RequestInit
-): Promise<NodeApi> => {
-    return apiMutator<NodeApi>(getDataModelingNodesMaterializeCreateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getDataModelingNodesMaterializeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(nodeApi),
     })
 }
 

@@ -105,6 +105,21 @@ def _bucket_supports_virtual_hosted_style() -> bool:
     return bool(bucket) and "." not in bucket
 
 
+def _region_options() -> dict[str, str]:
+    """Pin the bucket's region instead of letting delta-rs read it from the process environment.
+
+    deltalake writes the AWS_REGION storage option of every open into the process environment. A
+    worker that opens a customer's table in another region (an object store source, for example)
+    therefore changes AWS_REGION for every later open in that process. An open of this bucket without
+    a region then addresses the wrong regional endpoint, and S3 answers with a redirect that
+    object_store cannot follow.
+    """
+    region = settings.DATA_WAREHOUSE_S3_REGION
+    if not _using_real_bucket() or not region:
+        return {}
+    return {"AWS_REGION": region}
+
+
 def _addressing_style_options() -> dict[str, str]:
     if not _using_real_bucket() or not _bucket_supports_virtual_hosted_style():
         return {}
@@ -121,13 +136,13 @@ def _addressing_style_options() -> dict[str, str]:
 
 
 def delta_proxy_storage_options() -> dict[str, str]:
-    """delta-rs storage options for the warehouse bucket: forced virtual-hosted addressing (see
-    module docstring), plus keeping this bucket's traffic off the egress proxy where one is
-    configured.
+    """delta-rs storage options for the warehouse bucket: the bucket's region (see _region_options),
+    forced virtual-hosted addressing (see module docstring), plus keeping this bucket's traffic off
+    the egress proxy where one is configured.
 
     Empty when not using a real bucket, so callers can merge it unconditionally.
     """
-    options = _addressing_style_options()
+    options = {**_region_options(), **_addressing_style_options()}
     if not _using_real_bucket() or not _bucket_supports_virtual_hosted_style():
         # A dotted bucket name never gets addressed virtual-hosted (see
         # _bucket_supports_virtual_hosted_style), so a host-based proxy exclusion below would name

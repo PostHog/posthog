@@ -20,7 +20,7 @@ def consistent_dataset_item_versions(
 def latest_dataset_revision(*, team_id: int, dataset_id: UUID) -> DatasetRevision | None:
     return (
         DatasetRevision.objects.for_team(team_id, canonical=True)
-        .filter(dataset_id=dataset_id)
+        .filter(dataset_id=dataset_id, expired_at__isnull=True, dataset__expired_at__isnull=True)
         .order_by("-revision")
         .first()
     )

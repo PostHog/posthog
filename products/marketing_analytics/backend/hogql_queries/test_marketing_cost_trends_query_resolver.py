@@ -149,7 +149,9 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
             self.query.compareFilter = CompareFilter(compare=True, compare_to="-1y")
         self.ensure.side_effect = [LazyComputationResult(ready=ready, job_ids=[]) for ready in coverage]
         runner = self.runner()
-        result = runner.resolve_query()
+        resolved = runner.resolve_query()
+        result = resolved.query
+        assert resolved.warning is None
         assert result.marketingAnalyticsCostFallback is None
         assert result.dateRange == self.query.dateRange
         assert result.compareFilter == self.query.compareFilter
@@ -185,8 +187,13 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
             self.ensure.assert_not_called()
             self.database.assert_not_called()
 
-    @parameterized.expand([("unmaterializable",), ("check_error",), ("inaccessible_source",), ("expired",)])
+    @parameterized.expand(
+        [("unmaterializable",), ("check_error",), ("inaccessible_source",), ("expired",), ("all_time",)]
+    )
     def test_uncertain_coverage_uses_live(self, case: str) -> None:
+        self.query.breakdownFilter = BreakdownFilter(
+            breakdowns=[Breakdown(type="data_warehouse", property="campaign_name")]
+        )
         self.ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
         if case == "unmaterializable":
             self.adapters[1].build_materialization_query.return_value = None
@@ -194,13 +201,47 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
             self.ensure.side_effect = RuntimeError("Coverage service unavailable")
         elif case == "expired":
             self.ensure.return_value = LazyComputationResult(ready=True, job_ids=[], stale=True)
+        elif case == "all_time":
+            self.query.dateRange = DateRange(date_from="all")
         else:
             assert self.query.marketingAnalyticsCostFallback is not None
             self.query.marketingAnalyticsCostFallback.sourceIds = ["b"]
             self.factory.return_value.get_valid_adapters.return_value = self.adapters[:1]
-        result = self.runner().resolve_query()
+        resolved = self.runner().resolve_query()
+        assert resolved.warning is not None
+        assert resolved.warning.type == "breakdown_not_applied"
+        assert ("all time" in resolved.warning.message) == (case == "all_time")
+        result = resolved.query
         assert result.series == self.live_series
         assert result.breakdownFilter is None
+        if case == "all_time":
+            self.factory.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("no_breakdown", None, False),
+            ("legacy_campaign", BreakdownFilter(breakdown="campaign_name"), True),
+            ("legacy_source_list", BreakdownFilter(breakdown=["source_name"]), False),
+            (
+                "source_and_campaign",
+                BreakdownFilter(
+                    breakdowns=[
+                        Breakdown(type="data_warehouse", property="source_name"),
+                        Breakdown(type="data_warehouse", property="campaign_name"),
+                    ]
+                ),
+                True,
+            ),
+        ]
+    )
+    def test_live_warning_only_for_a_breakdown_the_sources_cannot_reproduce(
+        self, _name: str, breakdown_filter: BreakdownFilter | None, warns: bool
+    ) -> None:
+        self.config.return_value.costs_precomputation_enabled = False
+        self.query.breakdownFilter = breakdown_filter
+        resolved = self.runner().resolve_query()
+        assert resolved.query.series == self.live_series
+        assert (resolved.warning is not None) == warns
 
     @parameterized.expand([(True,), (False,)])
     def test_only_selected_sources_and_current_period_need_coverage(self, ready: bool) -> None:
@@ -209,7 +250,7 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
         self.query.marketingAnalyticsCostFallback.series = self.live_series[1:]
         self.query.compareFilter = CompareFilter(compare=False)
         self.ensure.return_value = LazyComputationResult(ready=ready, job_ids=[])
-        result = self.runner().resolve_query()
+        result = self.runner().resolve_query().query
         if ready:
             series = result.series[0]
             assert isinstance(series, DataWarehouseNode)
@@ -228,7 +269,9 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
     def test_edited_insight_executes_requested_series(self, case: str) -> None:
         event = EventsNode(event="$pageview")
         self.query.series = [event] if case == "replace_series" else [*self.query.series, event]
-        result = self.runner().resolve_query()
+        resolved = self.runner().resolve_query()
+        assert resolved.warning is None
+        result = resolved.query
         assert result.series == self.query.series
         assert result.breakdownFilter == self.query.breakdownFilter
         assert result.marketingAnalyticsCostFallback is None
@@ -274,7 +317,7 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
                 LazyComputationExecutor, "execute", return_value=LazyComputationResult(ready=True, job_ids=[])
             ) as execute,
         ):
-            series = runner.resolve_query().series[0]
+            series = runner.resolve_query().query.series[0]
             assert isinstance(series, DataWarehouseNode)
             assert series.table_name == "marketing_costs_precomputed"
             trend_hashes = [compute_query_hash(call.args[1]) for call in execute.call_args_list]
