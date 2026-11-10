@@ -1699,7 +1699,9 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
 
     trial = bool((ctx.state or {}).get("self_driving_funding", {}).get("funding") == "trial")
     if trial:
-        if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access) or ctx.task_runtime == "pi":
+        if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access) or (
+            ctx.task_runtime == "pi" and ctx.origin_product != "signals_scout"
+        ):
             raise TrialExecutionRefused()
         start_task_trial(team=task.team, run_id=UUID(str(ctx.run_id)))
     if task.is_scout_experiment is True:

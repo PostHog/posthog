@@ -8,7 +8,6 @@ from posthog.temporal.health_checks.framework import (
     build_signal_extra,
 )
 from posthog.temporal.health_checks.models import HealthCheckResult
-from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 
@@ -22,16 +21,6 @@ REVERSE_PROXY_LOOKBACK_DAYS = 7
 # Judge a team only when the window holds this many browser events. Below it, the query
 # cannot tell "no reverse proxy" apart from "not enough browser traffic to know".
 REVERSE_PROXY_MIN_BROWSER_EVENTS = 50
-REVERSE_PROXY_SQL = """
-SELECT team_id
-FROM events
-WHERE team_id IN %(team_ids)s
-  AND event IN ('$pageview', '$screen')
-  AND timestamp >= now() - INTERVAL %(lookback_days)s DAY
-GROUP BY team_id
-HAVING count() >= %(min_browser_events)s
-   AND countIf(JSONHas(properties, '$lib_custom_api_host')) = 0
-"""
 
 
 class ReverseProxyCheck(RollupHealthCheck):
@@ -40,7 +29,6 @@ class ReverseProxyCheck(RollupHealthCheck):
     owner = JobOwners.TEAM_WEB_ANALYTICS
     schedule = "30 6 * * *"
     active_since_days = 30
-    reads_rollup = False
     rollup_model = EventsHealthDaily
     window_days = REVERSE_PROXY_LOOKBACK_DAYS
     remediation = Remediation(
@@ -92,15 +80,6 @@ class ReverseProxyCheck(RollupHealthCheck):
             for team_id, totals in events_health_totals(team_ids, window).items()
             if totals.browser_events >= REVERSE_PROXY_MIN_BROWSER_EVENTS and totals.proxied_browser_events == 0
         }
-
-    def detect_from_events(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        rows = execute_clickhouse_health_team_query(
-            REVERSE_PROXY_SQL,
-            team_ids=team_ids,
-            lookback_days=REVERSE_PROXY_LOOKBACK_DAYS,
-            params={"min_browser_events": REVERSE_PROXY_MIN_BROWSER_EVENTS},
-        )
-        return {team_id: [_reverse_proxy_result()] for (team_id,) in rows}
 
 
 def _reverse_proxy_result() -> HealthCheckResult:
