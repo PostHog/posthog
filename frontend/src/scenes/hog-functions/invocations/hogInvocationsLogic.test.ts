@@ -161,6 +161,42 @@ describe('hogInvocationsLogic', () => {
         })
     })
 
+    describe('run window', () => {
+        it('lists and charts a run by its start, in the project timezone', async () => {
+            // A run with a delay step writes lifecycle rows on several days. A `scheduled_at` bound
+            // keeps only the rows inside the range, so the run shows as running in its start range
+            // and appears again in the range of its last row.
+            const timezone = 'America/Los_Angeles'
+            const queries: string[] = []
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': async ({ request }) => {
+                        const { query } = (await request.json()) as { query: { query: string } }
+                        queries.push(query.query)
+                        return [200, { results: [] }]
+                    },
+                },
+            })
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, timezone })
+
+            const logic = hogInvocationsLogic({ id: 'flow-1', functionKind: 'hog_flow' })
+            logic.mount()
+            logic.actions.setFilters({ date_from: '2026-08-01', date_to: '2026-08-12' })
+            await expectLogic(logic).toDispatchActions(['loadRunsSuccess', 'loadSparklineSuccess'])
+
+            const runQueries = queries.filter((q) => q.includes('hog_invocation_results'))
+            expect(runQueries.length).toBeGreaterThanOrEqual(2)
+            for (const query of runQueries) {
+                expect(query).toContain(
+                    "first_scheduled_at >= '2026-08-01 00:00:00.000' AND first_scheduled_at < '2026-08-12 00:00:00.000'"
+                )
+                expect(query).not.toMatch(/(?<!first_)scheduled_at\s*[<>]/)
+            }
+
+            logic.unmount()
+        })
+    })
+
     describe('sparkline buckets', () => {
         // ClickHouse buckets `toStartOf*` in the project timezone and returns the boundary with that
         // offset. Generating the lookup keys on the UTC grid instead lands them on a different instant,
