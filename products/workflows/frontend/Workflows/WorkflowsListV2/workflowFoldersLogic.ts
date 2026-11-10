@@ -236,7 +236,11 @@ export interface workflowFoldersLogicMeta {
             currentFolder: string | null,
             hasActiveQuery: boolean
         ) => number
-        takenFolderPaths: (savedItems: FileSystemEntry[], otherFilesReady: boolean) => string[] | null
+        takenFolderPaths: (
+            savedItems: FileSystemEntry[],
+            browserReady: boolean,
+            otherFilesReady: boolean
+        ) => string[] | null
         folderPaths: (savedItems: FileSystemEntry[], rows: WorkflowListRow[]) => string[]
         folderTreeEntries: (
             folderPaths: string[],
@@ -653,9 +657,9 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         ],
         // Names collide with every folder in the project, including folders the list hides because only other products use them.
         takenFolderPaths: [
-            (s) => [s.savedItems, s.otherFilesReady],
-            (items: FileSystemEntry[], otherFilesReady: boolean): string[] | null =>
-                otherFilesReady
+            (s) => [s.savedItems, s.browserReady, s.otherFilesReady],
+            (items: FileSystemEntry[], browserReady: boolean, otherFilesReady: boolean): string[] | null =>
+                browserReady && otherFilesReady
                     ? [
                           ...new Set(
                               items

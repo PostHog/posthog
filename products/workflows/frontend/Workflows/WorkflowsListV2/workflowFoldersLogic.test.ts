@@ -657,6 +657,36 @@ describe('workflowFoldersLogic', () => {
         await waitFor(() => expect(logic.values.folderDraftError).toBe(EXISTS))
     })
 
+    it("checks folder names only once the folder scan has loaded, even when other products' files load first", async () => {
+        logic.unmount()
+        let releaseFolders!: () => void
+        const foldersHeld = new Promise<void>((resolve) => (releaseFolders = resolve))
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': async ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search') ?? ''
+                    if (search === 'type:folder') {
+                        await foldersHeld
+                        return [200, paginated([{ id: 'billing', path: 'Billing', type: 'folder' }])]
+                    }
+                    return [200, paginated([])]
+                },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        logic = workflowFoldersLogic()
+        logic.mount()
+
+        await waitFor(() => expect(logic.values.otherFilesReady).toBe(true))
+        logic.actions.startFolderDraft('')
+        logic.actions.setFolderDraftName('billing')
+        expect(logic.values.folderDraftError).toBe('Checking existing folder names. Try again in a moment.')
+
+        releaseFolders()
+        await waitFor(() => expect(logic.values.folderDraftError).toBe(EXISTS))
+    })
+
     it.each([
         ['a case-only rename of the same folder', 'billing', 'Billing', ['Billing'], null],
         ['a case-only rename onto a separate folder', 'billing', 'Billing', ['Billing', 'billing'], EXISTS],
