@@ -290,10 +290,15 @@ class SlackSettings(UUIDModel):
         return f"{self.slack_workspace_id} / {who} → integration {target}"
 
 
-class SlackDailyFocus(UUIDModel):
+class SlackDailyFocus(TeamScopedRootMixin, UUIDModel):
     """One row per Slack user who set up the daily work focus. Turning it off keeps the row, so a later onboarding
-    does not turn it back on and the picked time stays."""
+    does not turn it back on and the picked time stays.
 
+    The row is keyed by the Slack user, so a person gets one daily DM also when their workspace connects several
+    teams. ``team`` is the team of the installation the runs use."""
+
+    # db_constraint=False: a foreign key constraint to posthog_team locks that hot table when the table is created.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     slack_workspace_id = models.CharField(max_length=64)
     slack_user_id = models.CharField(max_length=64)
     # An id, not a relation, because integration rows are read through the integrations SDK. A run whose

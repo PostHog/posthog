@@ -748,7 +748,11 @@ class TestDailyFocusControls:
         with time_machine.travel(datetime(2026, 11, 9, 12, 0, tzinfo=UTC), tick=False):
             self._click(action)
 
-        row = SlackDailyFocus.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").first()
+        row = (
+            SlackDailyFocus.objects.unscoped()
+            .filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
+            .first()
+        )
         assert (row is not None) is stored
         assert (row.next_run_at if row else None) == expected_next_run
 
@@ -765,7 +769,8 @@ class TestDailyFocusControls:
         self, slack_integration, mock_slack_client, flag_on, link_user, last_run_at, expected_next_run
     ):
         self._link(slack_integration, link_user, "search:read.public")
-        SlackDailyFocus.objects.create(
+        SlackDailyFocus.objects.for_team(slack_integration.team_id).create(
+            team_id=slack_integration.team_id,
             slack_workspace_id=SLACK_WORKSPACE_ID,
             slack_user_id="U001",
             integration_id=slack_integration.id,
@@ -776,7 +781,7 @@ class TestDailyFocusControls:
         with time_machine.travel(datetime(2026, 11, 9, 12, 0, tzinfo=UTC), tick=False):
             self._click({"action_id": ACTION_SET_DAILY_FOCUS_TIME, "selected_time": "14:30"})
 
-        row = SlackDailyFocus.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
+        row = SlackDailyFocus.objects.unscoped().get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
         assert row.at == time(14, 30)
         assert row.next_run_at == expected_next_run
 

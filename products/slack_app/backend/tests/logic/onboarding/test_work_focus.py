@@ -362,8 +362,8 @@ def test_the_onboarding_turns_the_daily_work_focus_on_unless_the_person_chose(
     integration = _install(team)
     link_user(user, user_scopes="search:read.public")
     if chose_before is not None:
-        SlackDailyFocus.objects.create(
-            slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID, integration_id=integration.id
+        SlackDailyFocus.objects.for_team(team.id).create(
+            team=team, slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID, integration_id=integration.id
         )
 
     if quiet:
@@ -387,7 +387,8 @@ SINCE = datetime(2026, 11, 6, 8, 0, tzinfo=UTC)
 
 
 def _turn_on_daily(integration: WorkspaceIntegration) -> None:
-    SlackDailyFocus.objects.create(
+    SlackDailyFocus.objects.for_team(integration.team_id).create(
+        team_id=integration.team_id,
         slack_workspace_id=SLACK_TEAM_ID,
         slack_user_id=SLACK_USER_ID,
         integration_id=integration.id,
@@ -405,7 +406,7 @@ def test_a_daily_run_reads_since_the_last_run_and_sends_once(
     link_user(user, user_scopes="search:read.public")
     _turn_on_daily(integration)
     # The sweep claimed Monday's run and scheduled Tuesday's with the cached profile, which has no timezone yet.
-    SlackDailyFocus.objects.update(
+    SlackDailyFocus.objects.unscoped().update(
         last_run_at=datetime(2026, 11, 9, 8, 0, tzinfo=UTC), next_run_at=datetime(2026, 11, 10, 8, 0, tzinfo=UTC)
     )
     SlackUserProfileCache.objects.create(
@@ -434,7 +435,7 @@ def test_a_daily_run_reads_since_the_last_run_and_sends_once(
     assert "I read your messages since Friday" in all_block_text(blocks)
     assert "(America/New_York)" in all_block_text(blocks)
     # The run fetched the timezone again, so Tuesday's run moves to 09:00 in New York.
-    assert SlackDailyFocus.objects.get().next_run_at == datetime(2026, 11, 10, 14, 0, tzinfo=UTC)
+    assert SlackDailyFocus.objects.unscoped().get().next_run_at == datetime(2026, 11, 10, 14, 0, tzinfo=UTC)
 
 
 @pytest.mark.django_db
@@ -448,7 +449,7 @@ def test_a_daily_run_sends_nothing_on_a_quiet_day_or_when_turned_off(
     link_user(user, user_scopes="search:read.public")
     _turn_on_daily(integration)
     if reason == "turned_off":
-        SlackDailyFocus.objects.update(next_run_at=None)
+        SlackDailyFocus.objects.unscoped().update(next_run_at=None)
     if reason == "no_project_access":
         OrganizationMembership.objects.filter(user=user).delete()
     if reason == "quiet_day":

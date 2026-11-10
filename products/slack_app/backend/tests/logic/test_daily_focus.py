@@ -61,7 +61,8 @@ def test_a_due_person_runs_once_and_moves_to_the_next_workday(org_team_user) -> 
         ("U_LATER", datetime(2026, 11, 9, 10, 0, tzinfo=PRAGUE), None),
         ("U_OFF", None, None),
     ]:
-        SlackDailyFocus.objects.create(
+        SlackDailyFocus.objects.for_team(team.id).create(
+            team=team,
             slack_workspace_id=SLACK_TEAM_ID,
             slack_user_id=slack_user_id,
             integration_id=integration.id,
@@ -79,7 +80,9 @@ def test_a_due_person_runs_once_and_moves_to_the_next_workday(org_team_user) -> 
     ]
     # Both runs share the workspace's search budget, so the second one waits.
     assert sorted(run.start_delay_seconds for run in due) == [0, 12]
-    assert SlackDailyFocus.objects.get(slack_user_id="U_DUE").next_run_at == datetime(2026, 11, 10, 8, 0, tzinfo=UTC)
+    assert SlackDailyFocus.objects.unscoped().get(slack_user_id="U_DUE").next_run_at == datetime(
+        2026, 11, 10, 8, 0, tzinfo=UTC
+    )
     # The next sweep sends Monday's run of the person who missed Friday's, and nothing more.
     assert [(run.slack_user_id, run.since) for run in claim_due_daily_focus(now)] == [
         ("U_MISSED", int(friday_nine.timestamp()))
@@ -88,8 +91,10 @@ def test_a_due_person_runs_once_and_moves_to_the_next_workday(org_team_user) -> 
 
 
 @pytest.mark.django_db
-def test_a_run_whose_installation_is_gone_turns_the_daily_work_focus_off() -> None:
-    row = SlackDailyFocus.objects.create(
+def test_a_run_whose_installation_is_gone_turns_the_daily_work_focus_off(org_team_user) -> None:
+    _, team, _ = org_team_user
+    row = SlackDailyFocus.objects.for_team(team.id).create(
+        team=team,
         slack_workspace_id=SLACK_TEAM_ID,
         slack_user_id="U_GONE",
         integration_id=999_999,
