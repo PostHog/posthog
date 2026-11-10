@@ -90,7 +90,7 @@ export function SpinnerOverlay({
     mode?: 'spinning' | 'editing'
 }): JSX.Element {
     const ref = useCancelAnimationsOnUnmount<HTMLDivElement>()
-    const smokeFilterId = useId()
+    const effectId = useId()
     const isSceneLoading = sceneLevel && mode === 'spinning'
 
     return (
@@ -109,52 +109,43 @@ export function SpinnerOverlay({
             {isSceneLoading && (
                 <>
                     <svg
-                        className="SpinnerOverlay__smoke"
+                        className="SpinnerOverlay__ribbon"
                         viewBox="0 0 1000 600"
                         preserveAspectRatio="none"
                         aria-hidden
                     >
                         <defs>
-                            <filter id={smokeFilterId} x="-30%" y="-50%" width="160%" height="200%">
-                                <feTurbulence
-                                    type="fractalNoise"
-                                    baseFrequency="0.008 0.028"
-                                    numOctaves={3}
-                                    seed={8}
-                                    result="noise"
-                                />
-                                <feColorMatrix
-                                    in="noise"
-                                    type="matrix"
-                                    values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  3 0 0 0 -1"
-                                    result="density"
-                                />
-                                <feGaussianBlur in="SourceGraphic" stdDeviation={12} result="soft" />
-                                <feComposite in="soft" in2="density" operator="in" result="smoke" />
-                                <feDisplacementMap
-                                    in="smoke"
-                                    in2="noise"
-                                    scale={90}
-                                    xChannelSelector="R"
-                                    yChannelSelector="G"
-                                />
-                                <feGaussianBlur stdDeviation={2} />
+                            <filter id={effectId} x="-30%" y="-50%" width="160%" height="200%">
+                                <feGaussianBlur stdDeviation={18} />
                             </filter>
+                            <path
+                                id={`${effectId}-secondary`}
+                                d="M-100 460C80 200 400 160 500 290L410 240L620 200L530 160C700 100 780 360 1100 160"
+                            />
+                            <path
+                                id={`${effectId}-accent`}
+                                d="M-100 200C180 40 480 460 480 310L600 260L560 330L740 200C880 100 940 300 1100 240"
+                            />
                         </defs>
-                        <g filter={`url(#${smokeFilterId})`}>
-                            <path d="M-100 480C120 80 420 620 650 300S950 80 1100 220" />
-                            <path d="M-100 300C250 600 350 80 650 380S900 480 1100 100" />
-                        </g>
+                        <use
+                            href={`#${effectId}-secondary`}
+                            className="SpinnerOverlay__haze"
+                            filter={`url(#${effectId})`}
+                        />
+                        <use href={`#${effectId}-secondary`} className="SpinnerOverlay__trace" />
                     </svg>
                     <svg
-                        className="SpinnerOverlay__smoke SpinnerOverlay__smoke--accent"
+                        className="SpinnerOverlay__ribbon SpinnerOverlay__ribbon--accent"
                         viewBox="0 0 1000 600"
                         preserveAspectRatio="none"
                         aria-hidden
                     >
-                        <g filter={`url(#${smokeFilterId})`}>
-                            <path d="M-100 100C200 440 450 0 650 260S900 600 1100 320" />
-                        </g>
+                        <use
+                            href={`#${effectId}-accent`}
+                            className="SpinnerOverlay__haze"
+                            filter={`url(#${effectId})`}
+                        />
+                        <use href={`#${effectId}-accent`} className="SpinnerOverlay__trace" />
                     </svg>
                 </>
             )}

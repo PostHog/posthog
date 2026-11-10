@@ -108,7 +108,7 @@
             display: none;
         }
 
-        .SpinnerOverlay__smoke {
+        .SpinnerOverlay__ribbon {
             position: absolute;
             inset: -20%;
             width: 140%;
@@ -119,18 +119,28 @@
                 var(--color-brand-secondary-saturation),
                 var(--color-brand-secondary-lightness)
             );
-            stroke-width: 70px;
-            opacity: 0.32;
+            opacity: 0.4;
+            mask-image: repeating-linear-gradient(to bottom, #000 0 2px, rgb(0 0 0 / 65%) 2px 4px);
             transform-origin: center;
             animation: SpinnerOverlay__think 6s ease-in-out infinite alternate;
 
             &--accent {
                 stroke: var(--color-accent);
-                stroke-width: 50px;
                 animation-duration: 9s;
                 animation-delay: -3s;
                 animation-direction: alternate-reverse;
             }
+        }
+
+        .SpinnerOverlay__haze {
+            stroke-width: 90px;
+            opacity: 0.25;
+        }
+
+        .SpinnerOverlay__trace {
+            stroke-width: 4px;
+            stroke-dasharray: 180 16 60 12;
+            animation: SpinnerOverlay__flow 4s linear infinite;
         }
 
         .Spinner {
@@ -139,7 +149,8 @@
 
         &.SpinnerOverlay--frozen,
         &[aria-hidden='true'] {
-            .SpinnerOverlay__smoke {
+            .SpinnerOverlay__ribbon,
+            .SpinnerOverlay__trace {
                 animation-play-state: paused;
             }
         }
@@ -147,13 +158,14 @@
         @media (prefers-reduced-motion: reduce) {
             transition: none;
 
-            .SpinnerOverlay__smoke {
+            .SpinnerOverlay__ribbon,
+            .SpinnerOverlay__trace {
                 animation: none;
             }
         }
 
         @media (forced-colors: active) {
-            .SpinnerOverlay__smoke {
+            .SpinnerOverlay__ribbon {
                 display: none;
             }
 
@@ -175,12 +187,18 @@
 
 @keyframes SpinnerOverlay__think {
     0% {
-        opacity: 0.32;
+        opacity: 0.4;
         transform: translate(-12%, 8%) rotate(-18deg) scale(1.05, 0.85);
     }
 
     100% {
-        opacity: 0.5;
+        opacity: 0.7;
         transform: translate(12%, -10%) rotate(15deg) scale(1.25, 1.15);
+    }
+}
+
+@keyframes SpinnerOverlay__flow {
+    to {
+        stroke-dashoffset: -268;
     }
 }
