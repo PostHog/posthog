@@ -8,6 +8,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
+import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -21,8 +22,15 @@ import { SandboxEmailAction } from '../../hogflows/actions/email_sandbox'
 import { RateLimitedQueueOptions } from '../../job-queue/job-queue-rate-limited-postgres-v2'
 import { RecipientTokensService } from '../recipient-tokens.service'
 import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
+import { StallingValkeyProxy } from './_tests/stalling-valkey-proxy'
+import { SANDBOX_TEST_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxEventProperties, SandboxTerminalOutcome } from './sandbox-email-events'
-import { SANDBOX_TEST_SEND_PATH, sandboxEmailTestRouter } from './sandbox-email-test-route'
+import {
+    SANDBOX_TEST_SEND_PATH,
+    SandboxEmailTestRouteDeps,
+    sandboxEmailTestRouter,
+    sandboxTestSendBucket,
+} from './sandbox-email-test-route'
 import { SandboxEmailTester, SandboxEmailTesterDeps } from './sandbox-email-tester'
 
 type RecordedEvent = { teamId: number; outcome: SandboxTerminalOutcome; properties: SandboxEventProperties }
@@ -51,7 +59,7 @@ describe('sandbox email test sends', () => {
         sendingOn = true,
         faults,
         bucket = null,
-    }: { sendingOn?: boolean; faults?: SandboxFaults; bucket?: RateLimitedQueueOptions | null } = {}): void => {
+    }: { sendingOn?: boolean; faults?: SandboxFaults; bucket?: SandboxEmailTestRouteDeps['sesBucket'] } = {}): void => {
         server?.close()
         app = setupExpressApp({ internalApiSecret: 'shared-internal-secret' })
         app.use(
@@ -237,6 +245,42 @@ describe('sandbox email test sends', () => {
 
         await expect(tester().send(testRun())).resolves.toEqual({ status: 'failed', reason: 'send_rate_limited' })
         expect(world.ses.delivered).toEqual([])
+    })
+
+    it('refuses a test send before the editor stops waiting when the SES send rate store stops answering', async () => {
+        const store = new StallingValkeyProxy({
+            host: defaultConfig.CDP_REDIS_HOST,
+            port: defaultConfig.CDP_REDIS_PORT,
+        })
+        try {
+            const bucket = sandboxTestSendBucket({
+                ...defaultConfig,
+                SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                SES_RATE_LIMITER_VALKEY_PORT: await store.start(),
+                SES_RATE_LIMITER_VALKEY_PASSWORD: defaultConfig.CDP_REDIS_PASSWORD,
+                SES_RATE_LIMITER_VALKEY_TLS: false,
+            })!
+            serveWorker({ bucket })
+            const answering = { key: sesBucketKey, requested: 1, capacity: 5, refillPerSecond: 1 }
+            expect(await bucket.limiter.claimUpTo(answering)).toBe(1)
+            store.stopAnswering()
+
+            let editorGivesUp: NodeJS.Timeout | undefined
+            const answer = await Promise.race([
+                tester().send(testRun()),
+                new Promise((resolve) => {
+                    editorGivesUp = setTimeout(
+                        () => resolve('no answer before the editor gave up'),
+                        SANDBOX_TEST_TIMEOUT_MS
+                    )
+                }),
+            ]).finally(() => clearTimeout(editorGivesUp))
+
+            expect(answer).toEqual({ status: 'failed', reason: 'send_rate_limited' })
+            expect(world.ses.delivered).toEqual([])
+        } finally {
+            store.stop()
+        }
     })
 
     it.each([

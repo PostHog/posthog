@@ -57,7 +57,10 @@ import { createFrequencyCapValkeyPool } from './cdp/services/messaging/frequency
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
 import { SandboxEmailEvents } from './cdp/services/messaging/sandbox/sandbox-email-events'
 import { createSandboxEmailRuntime } from './cdp/services/messaging/sandbox/sandbox-email-runtime'
-import { sandboxEmailTestRouter } from './cdp/services/messaging/sandbox/sandbox-email-test-route'
+import {
+    sandboxEmailTestRouter,
+    sandboxTestSendBucket,
+} from './cdp/services/messaging/sandbox/sandbox-email-test-route'
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
@@ -392,12 +395,11 @@ export class PluginServer implements NodeServer {
                     teamManager: cdpDeps!.teamManager,
                 })
                 const sesValkey = createSesRateLimiterValkeyPool(this.config)
-                const sesBucket = sesValkey ? sesRateLimitedQueueOptions(this.config, sesValkey) : null
-                const queue = sesBucket
+                const queue = sesValkey
                     ? new CyclotronJobQueueRateLimitedPostgresV2(
                           this.config.CONSUMER_BATCH_SIZE,
                           this.config,
-                          sesBucket
+                          sesRateLimitedQueueOptions(this.config, sesValkey)
                       )
                     : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
                 const worker = new CdpCyclotronWorkerEmailSandbox(
@@ -413,7 +415,7 @@ export class PluginServer implements NodeServer {
                         ),
                         service: sandboxEmail?.service ?? null,
                         events: sandboxEmail?.events ?? new SandboxEmailEvents(cdpDeps!.teamManager),
-                        sesBucket,
+                        sesBucket: sandboxTestSendBucket(this.config),
                     })
                 )
                 await worker.start()
