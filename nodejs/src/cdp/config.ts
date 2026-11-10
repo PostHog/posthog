@@ -70,7 +70,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
     // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
-    // Kill switch for sandbox email steps. While off, every worker skips them and the run continues.
     WORKFLOWS_SANDBOX_SENDER_ENABLED: boolean
     SES_SANDBOX_FROM_ADDRESS: string
     SES_SANDBOX_CONFIGURATION_SET: string

@@ -95,6 +95,12 @@ function withoutSendRetryState(
     return rest
 }
 
+function dropErrorContinuedPast(result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>): void {
+    if (!result.finished) {
+        result.error = undefined
+    }
+}
+
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
     hogFlow: HogFlow,
@@ -395,11 +401,7 @@ export class HogFlowExecutorService {
             conversionWatchers.push(...result.conversionWatchers)
 
             if (runsOneActionOnly) {
-                // The hogflow queue drops an error that on_error continued past when its next loop
-                // starts a fresh result. This loop stops first, and a kept error would fail the job.
-                if (!result.finished) {
-                    result.error = undefined
-                }
+                dropErrorContinuedPast(result)
                 break
             }
             if (this.shouldEndHogFlowExecution(result, logs)) {
