@@ -5,9 +5,12 @@ import { RecipientsManagerService } from '../../managers/recipients-manager.serv
 import { EmailSuppressionService } from '../email-suppression.service'
 import { FrequencyCapCheck } from '../recipient-preferences.service'
 
+export const RECIPIENT_READ_TIMEOUT_MS = 2_000
+
 export type SandboxRecipientCheckDependencies = {
     suppression: Pick<EmailSuppressionService, 'isSuppressed'>
     recipients: Pick<RecipientsManagerService, 'get' | 'getPreference' | 'getAllMarketingMessagingPreference'>
+    timeoutMs?: number
 }
 
 export type SandboxRecipientCheckRequest = {
@@ -25,28 +28,59 @@ export type SandboxRecipientCheck =
     | { ok: false; reason: 'suppressed' | 'opted_out' | 'frequency_capped' | 'authorization_unavailable' }
 
 export async function checkSandboxRecipient(
-    { suppression, recipients }: SandboxRecipientCheckDependencies,
+    { suppression, recipients, timeoutMs = RECIPIENT_READ_TIMEOUT_MS }: SandboxRecipientCheckDependencies,
     { teamId, address, categoryId, categoryType, optOuts, isTest, frequencyCap }: SandboxRecipientCheckRequest
 ): Promise<SandboxRecipientCheck> {
     const transactional = categoryType === 'transactional'
+    let blocked: 'suppressed' | 'opted_out' | null
     try {
-        if (await suppression.isSuppressed(teamId, address, { transactional })) {
-            return { ok: false, reason: 'suppressed' }
-        }
-        if (transactional) {
-            return { ok: true }
-        }
-        if (await isOptedOut(recipients, { teamId, address, categoryId: categoryId || '$all', optOuts })) {
-            return { ok: false, reason: 'opted_out' }
-        }
+        blocked = await beforeDeadline(
+            (async () => {
+                if (await suppression.isSuppressed(teamId, address, { transactional })) {
+                    return 'suppressed'
+                }
+                if (transactional) {
+                    return null
+                }
+                const optedOut = await isOptedOut(recipients, {
+                    teamId,
+                    address,
+                    categoryId: categoryId || '$all',
+                    optOuts,
+                })
+                return optedOut ? 'opted_out' : null
+            })(),
+            timeoutMs
+        )
     } catch (error) {
         logger.warn('Could not read sandbox recipient suppression or preferences', { teamId, error: String(error) })
         return { ok: false, reason: 'authorization_unavailable' }
+    }
+    if (blocked) {
+        return { ok: false, reason: blocked }
+    }
+    if (transactional) {
+        return { ok: true }
     }
     if (!isTest && (await frequencyCap()).capped) {
         return { ok: false, reason: 'frequency_capped' }
     }
     return { ok: true }
+}
+
+async function beforeDeadline<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+    let timer: NodeJS.Timeout | undefined
+    const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+            () => reject(new Error(`The sandbox recipient read passed its ${timeoutMs} ms deadline`)),
+            timeoutMs
+        )
+    })
+    try {
+        return await Promise.race([work, deadline])
+    } finally {
+        clearTimeout(timer)
+    }
 }
 
 async function isOptedOut(

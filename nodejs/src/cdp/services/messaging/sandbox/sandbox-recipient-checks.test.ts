@@ -1,3 +1,5 @@
+import { Client } from 'pg'
+
 import { defaultConfig } from '~/common/config/config'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
@@ -19,9 +21,9 @@ describe('checkSandboxRecipient', () => {
     let frequencyCap: FrequencyCapCheck
     let optOuts: MessageOptOutRecord[]
 
-    const check = (request: Partial<SandboxRecipientCheckRequest> = {}) =>
+    const check = (request: Partial<SandboxRecipientCheckRequest> = {}, timeoutMs?: number) =>
         checkSandboxRecipient(
-            { suppression, recipients },
+            { suppression, recipients, timeoutMs },
             {
                 teamId,
                 address,
@@ -117,6 +119,24 @@ describe('checkSandboxRecipient', () => {
     ])('blocks for a retry when %s fails', async (_case, arrange, request) => {
         arrange()
         expect(await check(request)).toEqual({ ok: false, reason: 'authorization_unavailable' })
+    })
+
+    it.each([
+        ['the suppression lookup', 'posthog_messagesuppression'],
+        ['the opt-out lookup', 'posthog_messagerecipientpreference'],
+    ])('blocks for a retry when %s waits behind a lock past the deadline', async (_case, table) => {
+        const lockHolder = new Client({ connectionString: defaultConfig.DATABASE_URL })
+        lockHolder.on('error', () => undefined)
+        await lockHolder.connect()
+        try {
+            await lockHolder.query('BEGIN')
+            await lockHolder.query(`SET LOCAL idle_in_transaction_session_timeout = '3s'`)
+            await lockHolder.query(`LOCK TABLE ${table} IN ACCESS EXCLUSIVE MODE`)
+
+            expect(await check({}, 200)).toEqual({ ok: false, reason: 'authorization_unavailable' })
+        } finally {
+            await lockHolder.end()
+        }
     })
 
     it.each<[string, () => unknown, Partial<SandboxRecipientCheckRequest>]>([
