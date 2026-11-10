@@ -1,4 +1,5 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '~/cdp/services/managers/postgres-integration-source'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from '~/common/config/redis-pools'
@@ -552,7 +553,10 @@ export class PluginServer implements NodeServer {
         const groupRepository = new PersonHogGroupReadRepository(personhogClient, clientLabel)
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub!, this.postgres!, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub!,
+            new PostgresIntegrationSource(this.postgres!, encryptedFields)
+        )
         const internalCaptureService = new InternalCaptureService(this.config)
 
         return {
