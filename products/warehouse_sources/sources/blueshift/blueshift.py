@@ -60,7 +60,6 @@ class BlueshiftRetryableError(Exception):
 class BlueshiftResumeConfig:
     # Next page of a paginated list endpoint.
     next_page: Optional[int] = None
-    # Index into the endpoint's `passes` that `next_page` belongs to. None is the first pass.
     list_pass: Optional[int] = None
     # Next UTC day (ISO date) the stats walk fetches.
     next_date: Optional[str] = None
@@ -386,7 +385,6 @@ def blueshift_source(
 
         pass_params = config.passes[pass_index]
         emitted = _EmittedKeys()
-        # Page 1 can repeat page 0, which the run before this one already wrote.
         replay_first_page = page == FIRST_PAGE + 1
         if replay_first_page:
             page = FIRST_PAGE

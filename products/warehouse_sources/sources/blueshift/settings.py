@@ -44,13 +44,12 @@ class BlueshiftEndpointConfig:
     incremental_fields: list[IncrementalField] | None = None
     partition_key: Optional[str] = None
     params: dict[str, str] = field(default_factory=dict)
-    # One page walk per entry, each adding its params to the request. Rows seen in an earlier walk are skipped.
     passes: tuple[dict[str, str], ...] = ({},)
 
 
 BLUESHIFT_ENDPOINTS: dict[str, BlueshiftEndpointConfig] = {
     # Full refresh only: the list takes no sort param, and `created_after` would miss status
-    # changes. The list returns archived campaigns only when asked, so it is walked twice.
+    # changes.
     "campaigns": BlueshiftEndpointConfig(
         name="campaigns",
         path="/api/v2/campaigns.json",
