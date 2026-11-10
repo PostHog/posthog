@@ -3,8 +3,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useCallback, useEffect } from 'react'
 
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -12,6 +11,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -21,7 +21,8 @@ import { isTracesQuery } from '~/queries/utils'
 
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
-import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { AIObservabilityMetricChart } from './components/AIObservabilityMetricChart'
+import { metricChartTableProps } from './components/metricChartTableProps'
 import { normalizeMessages } from './messageNormalization'
 import { toFullPageListParams } from './redesign/trace/adapter/toBackLink'
 import { TRACE_DRAWER_LISTS, TraceDrawerListId } from './redesign/trace/traceDrawerLists'
@@ -33,6 +34,7 @@ import { aiObservabilityTracesTabLogic } from './tabs/aiObservabilityTracesTabLo
 import { TraceMessages, traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
 import {
+    extractText,
     formatAiErrorForDisplay,
     formatLLMCost,
     formatLLMLatency,
@@ -59,6 +61,7 @@ export function AIObservabilityTraces(): JSX.Element {
     const appliedSearchTerm = isTracesQuery(tracesQuery.source) ? tracesQuery.source.searchTerm : undefined
 
     const drawerContext = useTracesDrawerContext(TRACE_DRAWER_LIST_ID, TRACES_DATA_NODE_KEY)
+    const chartTable = metricChartTableProps(TRACES_DATA_NODE_KEY, <AIObservabilityMetricChart />)
     const context: QueryContext<DataTableNode> = {
         ...drawerContext,
         ...(appliedSearchTerm
@@ -67,7 +70,7 @@ export function AIObservabilityTraces(): JSX.Element {
                   emptyStateDetail: 'Try a different search term, date range, or filters.',
               }
             : {}),
-        customActions: <TracesOptionsMenu key="traces-options-menu" />,
+        ...chartTable.context,
     }
 
     return (
@@ -77,6 +80,7 @@ export function AIObservabilityTraces(): JSX.Element {
                 query={{
                     ...tracesQuery,
                     showSavedFilters: true,
+                    ...chartTable.query,
                 }}
                 setQuery={(query) => {
                     if (!isTracesQuery(query.source)) {
@@ -108,48 +112,6 @@ export function AIObservabilityTraces(): JSX.Element {
                 toRow={toTraceDrawerRow}
             />
         </div>
-    )
-}
-
-function TracesOptionsMenu(): JSX.Element | null {
-    const { showInputOutputColumns, showSentimentColumn } = useValues(aiObservabilityTracesTabLogic)
-    const { setShowInputOutputColumns, setShowSentimentColumn } = useActions(aiObservabilityTracesTabLogic)
-
-    return (
-        <LemonDropdown
-            closeOnClickInside={false}
-            placement="bottom-end"
-            overlay={
-                <div className="flex flex-col gap-2 py-1 px-2 min-w-64">
-                    <LemonSwitch
-                        checked={showInputOutputColumns}
-                        onChange={setShowInputOutputColumns}
-                        label="Show input/output"
-                        fullWidth
-                        tooltip="Preview each trace's first input and last output in the table. Turn off for a denser view."
-                        data-attr="llm-traces-show-input-output-toggle"
-                    />
-                    <LemonSwitch
-                        checked={showSentimentColumn}
-                        onChange={setShowSentimentColumn}
-                        label="Show sentiment"
-                        fullWidth
-                        tooltip="Show the sentiment column from stored sentiment evaluation results."
-                        data-attr="llm-traces-show-sentiment-toggle"
-                    />
-                </div>
-            }
-        >
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconGear />}
-                tooltip="Customize traces view"
-                data-attr="llm-traces-options-menu"
-            >
-                Options
-            </LemonButton>
-        </LemonDropdown>
     )
 }
 
@@ -260,7 +222,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 render: TimestampColumn,
             },
             traceName: {
-                title: 'Trace Name',
+                title: 'Trace name',
                 render: TraceNameColumn,
             },
             review: aiObservabilityColumnRenderers.review,
@@ -285,7 +247,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
             },
             usage: {
                 renderTitle: () => (
-                    <Tooltip title="Total token usage (input + output) for this trace">Token Usage</Tooltip>
+                    <Tooltip title="Total token usage (input + output) for this trace">Token usage</Tooltip>
                 ),
                 render: UsageColumn,
             },
@@ -430,10 +392,25 @@ CostColumn.displayName = 'CostColumn'
 
 const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
-    if (typeof row.errorCount === 'number' && row.errorCount > 0) {
-        return <LemonTag type="danger">{row.errorCount}</LemonTag>
+    if (typeof row.errorCount !== 'number' || row.errorCount <= 0) {
+        return <>–</>
     }
-    return <>–</>
+    // The row only carries top-level events, so an error on a nested span has no message here.
+    const errorEvent = traceEvents(row).find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
+    if (!errorEvent) {
+        return <LemonTag type="danger">{pluralize(row.errorCount, 'error')}</LemonTag>
+    }
+    const error = formatAiErrorForDisplay(errorEvent.properties?.$ai_error)
+    return (
+        <div className="flex items-center gap-1">
+            <Tooltip title={error}>
+                <LemonTag type="danger" className="font-mono max-w-60 truncate">
+                    {error}
+                </LemonTag>
+            </Tooltip>
+            {row.errorCount > 1 && <span className="text-secondary text-xs">{`+${row.errorCount - 1}`}</span>}
+        </div>
+    )
 }
 ErrorsColumn.displayName = 'ErrorsColumn'
 
@@ -465,23 +442,13 @@ const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     if (!inputMessage) {
         return <>–</>
     }
-    return <LLMMessageDisplay message={inputMessage} isOutput={false} minimal />
+    return <MessagePreview message={inputMessage} />
 }
 InputMessageColumn.displayName = 'InputMessageColumn'
 
 const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const messages = useTraceMessagesForRow(row)
-
-    const errorEventFound = traceEvents(row).find((e) => e.properties?.$ai_error || e.properties?.$ai_is_error)
-    if (errorEventFound) {
-        return (
-            <LemonTag type="danger" className="font-mono max-w-50 truncate">
-                {formatAiErrorForDisplay(errorEventFound.properties?.$ai_error)}
-            </LemonTag>
-        )
-    }
-
     if (messages === undefined) {
         return <LemonSkeleton className="h-4 w-40" />
     }
@@ -493,11 +460,18 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     if (!lastOutput) {
         return <>–</>
     }
-    return <LLMMessageDisplay message={lastOutput} isOutput={true} minimal />
+    return <MessagePreview message={lastOutput} />
 }
 OutputMessageColumn.displayName = 'OutputMessageColumn'
 
 type NormalizedMessage = ReturnType<typeof normalizeMessages>['messages'][number]
+
+function MessagePreview({ message }: { message: NormalizedMessage }): JSX.Element {
+    const { tool_calls } = message as NormalizedMessage & { tool_calls?: unknown }
+    // Tool-only messages have no text, so show the call payload instead of a blank cell.
+    const text = extractText(message) || JSON.stringify(tool_calls ?? message.content)
+    return <span className="block max-w-80 truncate">{text}</span>
+}
 
 function hasDisplayableContent(message: NormalizedMessage): boolean {
     const { content, tool_calls } = message as NormalizedMessage & { tool_calls?: unknown }

@@ -690,20 +690,6 @@ describe('AI observability persisted preferences', () => {
         }
     )
 
-    it('persists traces table preferences across remount', () => {
-        const firstLogic = aiObservabilityTracesTabLogic()
-        firstLogic.mount()
-        firstLogic.actions.setShowInputOutputColumns(false)
-        firstLogic.unmount()
-
-        const secondLogic = aiObservabilityTracesTabLogic()
-        secondLogic.mount()
-
-        expect(secondLogic.values.showInputOutputColumns).toBe(false)
-
-        secondLogic.unmount()
-    })
-
     it('restores persisted event dates on clean tabs and lets URL dates override them', () => {
         router.actions.push(urls.aiObservabilityTraces())
         const firstLogic = aiObservabilitySharedLogic()
