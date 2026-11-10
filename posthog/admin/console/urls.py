@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import path, re_path
 
 from posthog.admin.console import views
-from posthog.admin.console.moved import MovedToConsole
+from posthog.admin.console.moved import MovedKeyActions, MovedToConsole
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.constants import GROUP_TYPES_LIMIT
 
@@ -25,7 +25,20 @@ MOVED_ORGANIZATION_ACTIONS = {
     "limit-product": "#panel-billing",
     "unlimit-product": "#panel-billing",
     "sync-to-billing": "#panel-billing",
-    "trigger-deletion": "deletion/delete/",
+    "trigger-deletion": "#panel-deletion",
+}
+
+# The panel, not the form: each deletion operation is offered only in one deletion state, so its form would 404.
+MOVED_PROJECT_ACTIONS = {
+    "trigger-deletion": "#panel-deletion",
+    "delete-now": "#panel-deletion",
+}
+
+MOVED_USER_ACTIONS = {
+    "delete": "deletion/delete/",
+    # Django's set-password form, which PostHog turns off. The Reset password button on the Django admin user page
+    # still links to it, and staff email a reset link from the Sign-in panel instead.
+    "password": "#panel-sign-in",
 }
 
 MOVED_DELETION_REQUEST_ACTIONS = {
@@ -89,6 +102,29 @@ urlpatterns = [
         )
         for old, target in MOVED_ORGANIZATION_ACTIONS.items()
     ],
+    *[
+        path(
+            f"admin/posthog/project/<int:pk>/{old}/",
+            admin.site.admin_view(MovedToConsole.record_redirect("projects", target)),
+        )
+        for old, target in MOVED_PROJECT_ACTIONS.items()
+    ],
+    *[
+        path(
+            f"admin/posthog/user/<int:pk>/{old}/",
+            admin.site.admin_view(MovedToConsole.record_redirect("users", target)),
+        )
+        for old, target in MOVED_USER_ACTIONS.items()
+    ],
+    # API keys have no console page of their own. Their actions moved to the page of the user or team that owns them.
+    path(
+        "admin/posthog/personalapikey/<str:pk>/roll/",
+        admin.site.admin_view(MovedToConsole.owner_redirect(MovedKeyActions.personal_api_key)),
+    ),
+    path(
+        "admin/posthog/projectsecretapikey/<str:pk>/roll/",
+        admin.site.admin_view(MovedToConsole.owner_redirect(MovedKeyActions.project_secret_api_key)),
+    ),
     *[
         path(
             f"admin/posthog/datadeletionrequest/<uuid:pk>/{old}/",
