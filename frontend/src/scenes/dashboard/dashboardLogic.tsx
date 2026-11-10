@@ -6779,17 +6779,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const variableDefinition = values.variables.find((candidate) => candidate.id === variableId)
             if (variableDefinition) {
                 const variable = { code_name: variableDefinition.code_name, variableId, value, isNull }
-                const variables = { ...values.currentDashboardSettings.variables }
-                if (
-                    dashboardVariableValuesEqual(variable, {
-                        value: variableDefinition.default_value,
-                        isNull: variableDefinition.isNull,
-                    })
-                ) {
-                    delete variables[variableId]
-                } else {
-                    variables[variableId] = variable
-                }
+                const variables = { ...values.currentDashboardSettings.variables, [variableId]: variable }
                 actions.setDashboardSettingsDraft({
                     ...values.currentDashboardSettings,
                     variables,

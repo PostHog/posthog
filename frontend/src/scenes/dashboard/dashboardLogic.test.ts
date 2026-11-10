@@ -5624,7 +5624,7 @@ describe('dashboardLogic', () => {
             )
         })
 
-        it('keeps the chosen default in the URL when the dashboard saved another value', async () => {
+        it('keeps the chosen default in the URL and draft when the dashboard saved another value', async () => {
             await mountDashboardWithVariable({ dashboardOverride: { value: 'persisted', isNull: false } })
 
             await expectLogic(logic, () => {
@@ -5635,6 +5635,9 @@ describe('dashboardLogic', () => {
                 organization: 'Default org',
             })
             expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
+            expect(logic.values.currentDashboardSettings.variables[variableId]).toEqual(
+                expect.objectContaining({ value: 'Default org', isNull: false })
+            )
         })
 
         it('discards filter and SQL variable changes and restores the saved settings', async () => {
