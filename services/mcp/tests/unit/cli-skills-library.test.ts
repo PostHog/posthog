@@ -2,12 +2,20 @@ import { strToU8, zipSync } from 'fflate'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { LearnResult, SkillsFetch, SkillsResult } from '@/cli/library-types'
 import { createSkillsLibrary, rewriteLearnCommands } from '@/cli/skills-library'
 import { CONTEXT_MILL_URL } from '@/resources/internals'
 import { PRODUCT_SKILL_ARCHIVE_URL } from '@/skills/skill-catalog'
+
+// A filesystem boundary that tests can pause, to interleave two runs that share a cache folder.
+vi.mock('node:fs/promises', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('node:fs/promises')>()
+    return { ...actual, readFile: vi.fn(actual.readFile) }
+})
+
+const MIB = 1024 * 1024
 
 function skillFile(name: string, description: string, body: string): Uint8Array {
     return strToU8(`---\nname: ${name}\ndescription: ${description}\n---\n\n${body}`)
@@ -176,6 +184,11 @@ describe('CLI skills library', () => {
         ['an HTTP error', new Response('down', { status: 503 }), 'HTTP 503'],
         ['an archive that does not parse', strToU8('not a zip'), 'The downloaded archive is not valid'],
         ['no response before the timeout', 'hang' as const, 'No response within 0.05 seconds'],
+        [
+            'an archive past the extraction limit',
+            zipSync({ 'padding/big.bin': new Uint8Array(9 * MIB) }),
+            'exceeds the extraction limit',
+        ],
     ])('serves the cached copy after %s, and says when it was fetched', async (_name, answer, failure) => {
         const dir = await cacheDir()
         await warmCache(dir)
@@ -195,6 +208,94 @@ describe('CLI skills library', () => {
             fetchedAt: '2026-01-01T00:00:00.000Z',
             failure: expect.stringContaining(failure),
         })
+        expect(result.ok && result.value.assets[1]).toMatchObject({
+            name: 'context-mill',
+            origin: 'cache',
+            failure: expect.stringContaining(failure),
+        })
+    })
+
+    it.each([
+        ['an HTTP error', 503, {}],
+        ['a Content-Length over the limit', 200, { 'content-length': String(65 * MIB) }],
+        ['a body that grows past the limit', 200, {}],
+    ])('stops reading the body after %s and serves the cached copy', async (_name, status, headers) => {
+        const dir = await cacheDir()
+        await warmCache(dir)
+        const chunk = new Uint8Array(MIB)
+        let chunks = 0
+        let cancelled = false
+        const body = new ReadableStream<Uint8Array>({
+            pull(controller) {
+                chunks += 1
+                if (chunks > 80) {
+                    controller.close()
+                } else {
+                    controller.enqueue(chunk)
+                }
+            },
+            cancel() {
+                cancelled = true
+            },
+        })
+        const library = createSkillsLibrary({
+            cacheDir: dir,
+            fetch: fakeFetch({ ...ONLINE, [PRODUCT_SKILL_ARCHIVE_URL]: new Response(body, { status, headers }) }).fetch,
+        })
+
+        const result = await library.learn(['posthog:funnels'])
+
+        expect(text(result)).toContain('Build a conversion funnel.')
+        expect(result.ok && result.value.assets[0]?.origin).toBe('cache')
+        expect(cancelled).toBe(true)
+    })
+
+    it('keeps the copy another run cached while this run was answering a 304', async () => {
+        const dir = await cacheDir()
+        await warmCache(dir)
+        const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+        const readFile = vi.mocked(fs.readFile)
+        let raced = false
+        readFile.mockImplementation(async (...args: Parameters<typeof actual.readFile>) => {
+            const contents = await actual.readFile(...args)
+            if (!raced && /product-skills-[a-f0-9]+\.zip$/.test(String(args[0]))) {
+                raced = true
+                await warmCache(dir, { ...ONLINE, [PRODUCT_SKILL_ARCHIVE_URL]: productSkills('Newer body.') })
+            }
+            return contents
+        })
+        const notModified = { [PRODUCT_SKILL_ARCHIVE_URL]: new Response(null, { status: 304 }) }
+        const offlineAnswers = {
+            [PRODUCT_SKILL_ARCHIVE_URL]: new TypeError('Unable to connect'),
+            [CONTEXT_MILL_URL]: new TypeError('Unable to connect'),
+        }
+
+        try {
+            await createSkillsLibrary({ cacheDir: dir, fetch: fakeFetch({ ...ONLINE, ...notModified }).fetch }).learn([
+                'posthog:funnels',
+            ])
+        } finally {
+            readFile.mockImplementation(actual.readFile)
+        }
+        const offline = await createSkillsLibrary({ cacheDir: dir, fetch: fakeFetch(offlineAnswers).fetch }).learn([
+            'posthog:funnels',
+        ])
+
+        expect(raced).toBe(true)
+        expect(text(offline)).toContain('Newer body.')
+    })
+
+    it('never deletes outside the cache folder for a record whose digest is a path', async () => {
+        const root = await cacheDir()
+        const dir = path.join(root, 'cache')
+        await fs.mkdir(dir)
+        await fs.writeFile(path.join(root, 'old.zip'), 'keep')
+        const record = { url: PRODUCT_SKILL_ARCHIVE_URL, sha256: '/../../old', fetchedAt: '2026-01-01T00:00:00.000Z' }
+        await fs.writeFile(path.join(dir, 'product-skills.json'), JSON.stringify(record))
+
+        await warmCache(dir)
+
+        await expect(fs.readFile(path.join(root, 'old.zip'), 'utf8')).resolves.toBe('keep')
     })
 
     it('fails as offline when nothing downloads and nothing is cached', async () => {
@@ -313,21 +414,44 @@ describe('CLI skills library', () => {
     })
 
     it.each([
-        ['a backticked command', 'Run `learn -s <query>`.', 'Run `hog learn -s <query>`.'],
-        ['an exec tool call', 'posthog:exec({"command": "learn posthog:funnels"})', 'hog learn posthog:funnels'],
+        ['a backticked command', 'hog learn', 'Run `learn -s <query>`.', 'Run `hog learn -s <query>`.'],
+        [
+            'an exec tool call',
+            'hog learn',
+            'posthog:exec({"command": "learn posthog:funnels"})',
+            'hog learn posthog:funnels',
+        ],
+        [
+            'an exec tool call with the default command',
+            'learn',
+            'posthog:exec({"command": "learn posthog:funnels"})',
+            'learn posthog:funnels',
+        ],
         [
             'an exec call to another verb',
+            'hog learn',
             'posthog:exec({"command": "search flags"})',
             'posthog:exec({"command": "search flags"})',
         ],
-        ['a usage line', 'Usage: learn <source>:<skill> <path>', 'Usage: hog learn <source>:<skill> <path>'],
-        ['a command already in the caller syntax', 'Run `hog learn -s <query>`.', 'Run `hog learn -s <query>`.'],
+        [
+            'a usage line',
+            'hog learn',
+            'Usage: learn <source>:<skill> <path>',
+            'Usage: hog learn <source>:<skill> <path>',
+        ],
+        [
+            'a command already in the caller syntax',
+            'hog learn',
+            'Run `hog learn -s <query>`.',
+            'Run `hog learn -s <query>`.',
+        ],
         [
             'prose',
+            'hog learn',
             'Agents learn skills fast. To learn more, see the docs.',
             'Agents learn skills fast. To learn more, see the docs.',
         ],
-    ])('rewrites %s', (_name, input, expected) => {
-        expect(rewriteLearnCommands(input, 'hog learn')).toBe(expected)
+    ])('rewrites %s', (_name, learnCommand, input, expected) => {
+        expect(rewriteLearnCommands(input, learnCommand)).toBe(expected)
     })
 })
