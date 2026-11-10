@@ -70,14 +70,16 @@ export function QuillInsightsTableHead({
             content = (
                 <>
                     {model.hasCheckboxes && (
-                        <Checkbox
-                            aria-label="Show all series"
-                            checked={allShown}
-                            indeterminate={anyShown && !allShown}
-                            onCheckedChange={(checked) => toggleAllResultsHidden(indexedResults, !checked)}
-                            disabledReason={checkboxDisabledReason}
-                            className="mr-3 inline-flex align-middle"
-                        />
+                        // The checkbox renders inside a tooltip wrapper, so this span is what lines it up with the label.
+                        <span className="mr-3 inline-flex align-middle">
+                            <Checkbox
+                                aria-label="Show all series"
+                                checked={allShown}
+                                indeterminate={anyShown && !allShown}
+                                onCheckedChange={(checked) => toggleAllResultsHidden(indexedResults, !checked)}
+                                disabledReason={checkboxDisabledReason}
+                            />
+                        </span>
                     )}
                     <QuillColumnSortButton order={order} onClick={sort}>
                         {model.isSingleSeriesWithBreakdown ? (

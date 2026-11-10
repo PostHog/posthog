@@ -96,7 +96,12 @@ export function QuillInsightsTable({
     }
 
     return (
-        <Table size="sm" className="rounded-lg border" data-attr="insights-table-graph">
+        <Table
+            size="sm"
+            // Sticky cells paint their own background, so they take the card color too.
+            className="rounded-lg border bg-card [--quill-table-sticky-bg:var(--card)]"
+            data-attr="insights-table-graph"
+        >
             <TableHeader>
                 <TableRow ref={headerRowRef}>
                     {columns.map((column) => (
