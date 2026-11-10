@@ -116,6 +116,17 @@ jobs:
             contents: read
             pull-requests: write
 
+    unowned-paths:
+        # Also on a base retarget: the list is base-relative, so a retarget
+        # changes it with no push to recompute it on.
+        if: >-
+            contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+            || (github.event.action == 'edited' && github.event.changes.base != null)
+        uses: ./.github/workflows/pr-unowned-paths.yml
+        permissions:
+            contents: read
+            pull-requests: write
+
     resolve-bot-comments:
         if: github.event.action == 'synchronize'
         uses: ./.github/workflows/pr-resolve-outdated-bot-comments.yml

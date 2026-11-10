@@ -4,7 +4,7 @@ map. A static read of the tree, so it carries the denominator the signal-only CI
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from .resolver import OwnersResolver, Resolution
 
@@ -32,17 +32,6 @@ def runner_for_path(path: str) -> str | None:
     if _JEST_FILE.search(path):
         return "jest"
     return None
-
-
-def is_unowned_test(resolver: OwnersResolver, path: str) -> bool:
-    """A file that only ``@handles`` own counts as unowned, because a person is not a routing target."""
-    return runner_for_path(path) is not None and owning_team(resolver.resolve(path)) == UNOWNED_TEAM
-
-
-def unowned_test_directories(resolver: OwnersResolver, paths: Iterable[str]) -> set[str]:
-    """Returns directories, not files, so that adding or removing a file in a listed directory does not
-    change the baseline."""
-    return {str(PurePosixPath(path).parent) for path in paths if is_unowned_test(resolver, path)}
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)

@@ -20,6 +20,7 @@ export const SECTIONS = [
     { id: 'duplication-python', title: 'Duplication (Python)' },
     { id: 'duplication-ts', title: 'Duplication (TypeScript)' },
     { id: 'comment-density', title: 'Comment density' },
+    { id: 'unowned-paths', title: 'Unowned paths' },
     { id: 'cached-schema-removals', title: 'Cached schema removals' },
     { id: 'bundle-size', title: 'Bundle size' },
     { id: 'eager-graph', title: 'Eager graph' },
