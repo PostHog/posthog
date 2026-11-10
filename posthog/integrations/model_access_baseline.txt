@@ -51,17 +51,7 @@ products/signals/backend/report_generation/resolve_reviewers.py 3
 products/signals/backend/slack_inbox_notifications.py 2
 products/signals/backend/slack_notification_targets.py 1
 products/signals/backend/tracker_issues.py 3
-products/slack_app/backend/api.py 1
-products/slack_app/backend/facade/api.py 3
 products/slack_app/backend/models.py 3
-products/slack_app/backend/services/integration_resolver.py 3
-products/slack_app/backend/services/slack_app_home.py 2
-products/slack_app/backend/services/slack_app_home_stats.py 1
-products/slack_app/backend/services/slack_user_info.py 2
-products/slack_app/backend/slack_thread.py 2
-products/slack_app/backend/temporal/activities/classifiers.py 1
-products/slack_app/backend/temporal/activities/messaging.py 1
-products/slack_app/backend/temporal/activities/onboarding.py 2
 products/subscriptions/backend/models/subscription.py 1
 products/subscriptions/backend/temporal/activities.py 2
 products/tasks/backend/facade/api.py 5

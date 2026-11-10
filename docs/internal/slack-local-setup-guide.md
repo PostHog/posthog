@@ -122,6 +122,12 @@ oauth_config:
       - search:read.private
       - search:read.im
       - search:read.mpim
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - mpim:history
+      - mpim:read
       - users:read
       - users:read.email
     user_optional:
@@ -157,7 +163,7 @@ Django must be up at that moment.
 > once. It needs the Temporal worker running. The thread checks each step again before it shows it,
 > so a person who already linked their account or chose a model sees that step as already set.
 > To see the thread again in a dev workspace, clear the `onboarding` field of your row in
-> `slack_app_slacksettings`. The
+> `slack_app_slacksettings`. That also lets the work focus DM run again the next time you link your account. The
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). With the `slack-app-link-search-scopes` flag on, the
 > link asks for the `search:read.*` and `users:read*` user scopes at `oauth.v2.authorize` instead, so the
@@ -166,6 +172,8 @@ Django must be up at that moment.
 > identity link appears only when the install holds the `users:read` and `users:read.email` scopes.
 
 > The `canvases:read` user scope lets the Slack MCP connection read canvases that the authorizing user can access.
+> The `search:read.private`, `search:read.im`, and `search:read.mpim` user scopes let the dev Slack MCP connection search private channels, DMs, and group DMs.
+> The `groups:history`, `groups:read`, `im:history`, `im:read`, `mpim:history`, and `mpim:read` user scopes let it list and read the private channels, DMs, and group DMs the authorizing user is a member of. Existing connections keep their old scopes until the person disconnects and connects again.
 
 > `reaction_added` + `reactions:read` power thumbs-reaction feedback on agent replies. Without
 > them a 👍/👎 reaction on a reply records nothing, again with no error.

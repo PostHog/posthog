@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getMissingScopes } from 'lib/integrations/integrationScopes'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 import { OAUTH_INTEGRATION_ID_PARAM } from 'lib/integrations/integrationsLogic'
@@ -41,10 +40,9 @@ function useSlackStatus(integrations: IntegrationType[]): IntegrationStatus {
 
 // Only the install that the OAuth callback just created has its id in the URL, so a later visit keeps "Go to PostHog".
 function useSlackSetupUrl(integrations: IntegrationType[]): string | null {
-    const enabled = useFeatureFlag('SLACK_APP_WORKSPACE_SETUP')
     const { searchParams } = useValues(router)
     const newIntegrationId = Number(searchParams[OAUTH_INTEGRATION_ID_PARAM])
-    if (!enabled || !integrations.some((integration) => integration.id === newIntegrationId)) {
+    if (!integrations.some((integration) => integration.id === newIntegrationId)) {
         return null
     }
     const returnTo = parseSlackSetupReturnTarget(searchParams[SLACK_SETUP_RETURN_PARAM])
@@ -60,9 +58,8 @@ function SlackSettingsSection({
     centered,
     connectSurface,
 }: Parameters<SettingsSectionComponent>[0]): JSX.Element {
-    const setupEnabled = useFeatureFlag('SLACK_APP_WORKSPACE_SETUP')
     const returnNext =
-        setupEnabled && connectSurface === 'settings'
+        connectSurface === 'settings'
             ? combineUrl(urls.integration('slack'), { [SLACK_SETUP_RETURN_PARAM]: 'settings' }).url
             : next
     return <SlackIntegration next={returnNext} centered={centered} connectSurface={connectSurface} />

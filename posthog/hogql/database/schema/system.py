@@ -36,6 +36,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.activity_log_visibility import CANVASES_TABLE, activity_visibility_predicates
 from posthog.hogql.database.schema.information_schema import information_schema_node
+from posthog.hogql.database.schema.integrations import integrations
 from posthog.hogql.database.schema.tagged_items import TaggedItemsTable
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -49,6 +50,7 @@ if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 from products.aeo.backend.facade.hogql import aeo_citation_checks
+from products.annotations.backend.facade.hogql import annotations
 from products.customer_analytics.backend.facade.customer_tasks_hogql import customer_tasks
 from products.customer_analytics.backend.facade.hogql import (
     account_channel_summaries,
@@ -1376,27 +1378,6 @@ group_type_mappings: PostgresTable = PostgresTable(
     },
 )
 
-integrations: PostgresTable = PostgresTable(
-    name="integrations",
-    postgres_table_name="posthog_integration",
-    access_scope="integration",
-    description="Third-party integrations connected to the project (Slack, GitHub, etc.); one row per integration.",
-    fields={
-        "id": IntegerDatabaseField(name="id", description="Integration id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "kind": StringDatabaseField(name="kind", description="Integration type, e.g. 'slack', 'github', 'salesforce'."),
-        "integration_id": StringDatabaseField(
-            name="integration_id", description="Identifier of the account/workspace in the external system."
-        ),
-        "config": StringJSONDatabaseField(name="config", description="JSON non-sensitive integration config."),
-        "errors": StringDatabaseField(
-            name="errors", description="Most recent error encountered using the integration."
-        ),
-        "created_at": DateTimeDatabaseField(name="created_at", description="When the integration was connected."),
-        "created_by_id": IntegerDatabaseField(name="created_by_id", description="User who connected the integration."),
-    },
-)
-
 integration_repository_cache: PostgresTable = PostgresTable(
     name="integration_repository_cache",
     postgres_table_name="posthog_integrationrepositorycacheentry",
@@ -1876,51 +1857,6 @@ actions: PostgresTable = PostgresTable(
         "steps_json": StringJSONDatabaseField(
             name="steps_json", description="JSON array of match steps (event/selector/url conditions)."
         ),
-    },
-)
-
-annotations: PostgresTable = PostgresTable(
-    name="annotations",
-    postgres_table_name="posthog_annotation",
-    access_scope="annotation",
-    description="Annotations: dated notes overlaid on insight/dashboard charts; one row per annotation.",
-    fields={
-        "id": IntegerDatabaseField(name="id", description="Annotation id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "content": StringDatabaseField(name="content", nullable=True, description="Annotation text."),
-        "scope": StringDatabaseField(
-            name="scope",
-            description="Where the annotation applies: 'project', 'organization', 'dashboard', 'dashboard_item' (insight), or 'recording'.",
-        ),
-        "creation_type": StringDatabaseField(
-            name="creation_type", description="How the annotation was created, e.g. user-created vs GitHub."
-        ),
-        "date_marker": DateTimeDatabaseField(
-            name="date_marker", nullable=True, description="The point in time the annotation marks on a chart."
-        ),
-        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
-        "deleted": ExpressionField(
-            name="deleted",
-            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
-            description="1 if the annotation has been deleted, 0 otherwise.",
-        ),
-        "dashboard_item_id": IntegerDatabaseField(
-            name="dashboard_item_id",
-            nullable=True,
-            description="Insight this annotation is scoped to; joins to insights.id.",
-        ),
-        "dashboard_id": IntegerDatabaseField(
-            name="dashboard_id",
-            nullable=True,
-            description="Dashboard this annotation is scoped to; joins to dashboards.id.",
-        ),
-        "created_by_id": IntegerDatabaseField(
-            name="created_by_id", nullable=True, description="User who created the annotation."
-        ),
-        "created_at": DateTimeDatabaseField(
-            name="created_at", nullable=True, description="When the annotation was created."
-        ),
-        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the annotation was last updated."),
     },
 )
 
