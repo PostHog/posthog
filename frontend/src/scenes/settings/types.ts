@@ -149,6 +149,7 @@ export type SettingId =
     | 'conversations-channels'
     | 'conversations-general'
     | 'conversations-imports'
+    | 'conversations-learn-from-support'
     | 'conversations-macros'
     | 'conversations-notifications'
     | 'cookieless-server-hash-mode'
