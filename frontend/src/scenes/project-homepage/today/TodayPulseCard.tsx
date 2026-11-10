@@ -13,7 +13,7 @@ import { todayNumber } from './todayNumbers'
 import {
     experimentComparison,
     experimentLiftDecimals,
-    experimentPeople,
+    experimentExposures,
     experimentVerdict,
 } from './todayPulseExperiment'
 import { pulseChange, pulsePeriodCaption, pulsePriorLabel } from './todayPulseFacts'
@@ -79,7 +79,7 @@ export function TodayPulseCard({
                                 </span>
                             </div>
                             <Text size="xs" variant="muted" render={<span />}>
-                                {`${experimentVerdict(experiment)} · ${experimentPeople(experiment)}`}
+                                {`${experimentVerdict(experiment)} · ${experimentExposures(experiment)}`}
                             </Text>
                         </>
                     ) : (

@@ -811,7 +811,7 @@ const EXPERIMENT_METRIC: HighlightsApi['pulse'][number] = {
         variants: 1,
         significant: true,
         favorable: true,
-        people: 4120,
+        exposures: 4120,
     },
 }
 

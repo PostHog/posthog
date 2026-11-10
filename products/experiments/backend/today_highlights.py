@@ -106,7 +106,7 @@ def _number(experiment: RunningExperiment, result: StoredPrimaryResult) -> Highl
             variants=len(result.variants),
             significant=bool(shown.significant),
             favorable=shown.change * direction > 0,
-            people=result.baseline.number_of_samples + sum(variant.number_of_samples for variant in result.variants),
+            exposures=result.baseline.number_of_samples + sum(variant.number_of_samples for variant in result.variants),
         ),
     )
 

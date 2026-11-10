@@ -28,6 +28,6 @@ export function experimentVerdict(experiment: HighlightExperimentResultApi): str
     return experiment.significant ? 'Significant' : 'Not significant'
 }
 
-export function experimentPeople(experiment: HighlightExperimentResultApi): string {
-    return `${experiment.people.toLocaleString('en-US')} ${experiment.people === 1 ? 'person' : 'people'}`
+export function experimentExposures(experiment: HighlightExperimentResultApi): string {
+    return `${experiment.exposures.toLocaleString('en-US')} exposed`
 }

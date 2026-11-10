@@ -139,8 +139,8 @@ export interface HighlightExperimentResultApi {
     significant: boolean
     /** Whether `variant` moves the metric toward its goal: up, or down for a metric that should decrease. */
     favorable: boolean
-    /** How many people the result counts, across every variant. */
-    people: number
+    /** How many people the result counts across every variant, or groups for an experiment on groups. */
+    exposures: number
 }
 
 export interface HighlightMetricApi {

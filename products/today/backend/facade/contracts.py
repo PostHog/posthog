@@ -182,7 +182,7 @@ class HighlightExperimentResult:
     variants: int
     significant: bool
     favorable: bool
-    people: int
+    exposures: int
 
 
 @dataclass(frozen=True)

@@ -3,7 +3,7 @@ import type { HighlightExperimentResultApi } from 'products/today/frontend/gener
 import {
     experimentComparison,
     experimentLiftDecimals,
-    experimentPeople,
+    experimentExposures,
     experimentTone,
     experimentVerdict,
 } from './todayPulseExperiment'
@@ -15,32 +15,31 @@ const RESULT: HighlightExperimentResultApi = {
     variants: 1,
     significant: true,
     favorable: true,
-    people: 4100,
+    exposures: 4100,
 }
 
 describe('todayPulseExperiment', () => {
     test.each([
-        ['a significant win', {}, 'good', 'vs control', 'Significant', '4,100 people'],
-        ['a significant loss', { favorable: false }, 'risk', 'vs control', 'Significant', '4,100 people'],
-        ['an unclear lead', { significant: false }, 'neutral', 'vs control', 'Not significant', '4,100 people'],
+        ['a significant win', {}, 'good', 'vs control', 'Significant', '4,100 exposed'],
+        ['a significant loss', { favorable: false }, 'risk', 'vs control', 'Significant', '4,100 exposed'],
+        ['an unclear lead', { significant: false }, 'neutral', 'vs control', 'Not significant', '4,100 exposed'],
         [
             'one of several variants',
             { variants: 2, variant: 'calm' },
             'good',
             'calm vs control',
             'Significant',
-            '4,100 people',
+            '4,100 exposed',
         ],
-        ['one person', { people: 1 }, 'good', 'vs control', 'Significant', '1 person'],
-    ])('%s', (_name, overrides, tone, comparison, verdict, people) => {
+    ])('%s', (_name, overrides, tone, comparison, verdict, exposed) => {
         const experiment = { ...RESULT, ...overrides }
 
         expect([
             experimentTone(experiment),
             experimentComparison(experiment),
             experimentVerdict(experiment),
-            experimentPeople(experiment),
-        ]).toEqual([tone, comparison, verdict, people])
+            experimentExposures(experiment),
+        ]).toEqual([tone, comparison, verdict, exposed])
     })
 
     test.each([
