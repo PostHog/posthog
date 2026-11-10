@@ -28,6 +28,16 @@ REGISTRY = "https://registry.npmjs.org/"
 RELEASE_AGE_LOOKUPS = 50
 # The whole block, since its entries are what the frozen registry view below must not exempt.
 RELEASE_AGE_EXCLUSIONS = re.compile(rb"^minimumReleaseAgeExclude:\n(?:(?:[ \t]+.*|)\n)*", re.MULTILINE)
+COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
+PULL_REQUEST_NUMBER = re.compile(r"[1-9][0-9]*")
+PROVER_FILES = (
+    ".github/scripts/dependency_proof/__init__.py",
+    ".github/scripts/dependency_proof/__main__.py",
+    ".github/scripts/dependency_proof/policy.py",
+    ".github/scripts/dependency_proof/prove.py",
+    ".github/workflows/dependency-proof-trigger.yml",
+    ".github/workflows/dependency-proof.yml",
+)
 Runner = Callable[[list[str], Path], None]
 
 
@@ -49,10 +59,16 @@ class StrictLoader(YAML_LOADER):  # type: ignore[misc,valid-type]
 
 
 @dataclass(frozen=True)
-class Proof:
-    files: list[str]
+class Identified:
     pr: int
     merge_base: str
+    eligible: bool
+
+
+@dataclass(frozen=True)
+class Proof:
+    files: list[str]
+    blobs: dict[str, str | None]
 
 
 class Git:
@@ -147,8 +163,7 @@ def registry_metadata(name: str) -> Mapping[str, Any]:
 
 
 def run_command(command: list[str], cwd: Path) -> None:
-    environment = {key: value for key, value in os.environ.items() if key != "GITHUB_TOKEN"}
-    subprocess.run(command, cwd=cwd, check=True, env=environment)
+    subprocess.run(command, cwd=cwd, check=True)
 
 
 def replay_commands(pnpm: list[str], updates: list[str], recursive: bool, release_age_minutes: int) -> list[list[str]]:
@@ -207,30 +222,46 @@ def replay_lockfile(
     return (worktree / join(directory, LOCKFILE)).read_bytes()
 
 
+def identify(env: Mapping[str, str], github: GitHub) -> Identified:
+    """The pull request for the head named in ``env``, and whether its author may have a proof."""
+    head, base_branch = env["HEAD_SHA"], env["BASE_BRANCH"]
+    pr = github.pull_request(head, base_branch)
+    merge_base = github.merge_base(base_branch, head)
+    author = pr["user"]["id"]
+    if author not in policy.ALLOWED_AUTHOR_IDS:
+        return Identified(pr["number"], merge_base, False)
+    if (pr["head"].get("repo") or {}).get("full_name") != env["REPOSITORY"]:
+        raise Refused("the head branch is not in this repository")
+    if env["TRIGGERING_ACTOR_ID"] != str(author):
+        raise Refused("the run was not triggered by the pull request author")
+    return Identified(pr["number"], merge_base, True)
+
+
+def handed_over(env: Mapping[str, str]) -> Identified:
+    """What the identification job handed over, refused unless every value has its exact shape."""
+    pr, merge_base, eligible = env["PULL_REQUEST"], env["MERGE_BASE"], env["ELIGIBLE"]
+    if not PULL_REQUEST_NUMBER.fullmatch(pr):
+        raise Refused("the pull request number is not a positive integer")
+    if not COMMIT_SHA.fullmatch(merge_base):
+        raise Refused("the merge base is not a commit id")
+    if eligible not in ("true", "false"):
+        raise Refused("the eligibility is neither true nor false")
+    return Identified(int(pr), merge_base, eligible == "true")
+
+
 def prove(
     env: Mapping[str, str],
-    github: GitHub,
     git: Git,
     registry: Callable[[str], Mapping[str, Any]],
     run: Runner,
     now: datetime,
 ) -> Proof:
-    """The proof for the head named in ``env``, or a Refused saying what stops it."""
-    repository, head, workflow_sha, base_branch = (
-        env["REPOSITORY"],
-        env["HEAD_SHA"],
-        env["WORKFLOW_SHA"],
-        env["BASE_BRANCH"],
-    )
-    pr = github.pull_request(head, base_branch)
-    merge_base = github.merge_base(base_branch, head)
-    author = pr["user"]["id"]
-    if author not in policy.ALLOWED_AUTHOR_IDS:
-        return Proof([], pr["number"], merge_base)
-    if (pr["head"].get("repo") or {}).get("full_name") != repository:
-        raise Refused("the head branch is not in this repository")
-    if env["TRIGGERING_ACTOR_ID"] != str(author):
-        raise Refused("the run was not triggered by the pull request author")
+    """The proof for the pull request named in ``env``, or a Refused saying what stops it."""
+    head, workflow_sha = env["HEAD_SHA"], env["WORKFLOW_SHA"]
+    pull_request = handed_over(env)
+    if not pull_request.eligible:
+        return Proof([], {})
+    merge_base = pull_request.merge_base
 
     git.fetch(merge_base, head)
     files = policy.eligible_paths(git.changed_files(merge_base, head))
@@ -246,8 +277,9 @@ def prove(
     release_age_minutes = (
         int((now - committed).total_seconds() // 60) + 1 + int(policy.MINIMUM_RELEASE_AGE.total_seconds() // 60)
     )
+    pinned = set(PROVER_FILES)
     for directory, manifests in groups.items():
-        prove_group(
+        pinned |= prove_group(
             git,
             registry,
             run,
@@ -261,7 +293,7 @@ def prove(
             manifests,
             release_age_minutes,
         )
-    return Proof(files, pr["number"], merge_base)
+    return Proof(files, {path: git.blob(workflow_sha, path) for path in sorted(pinned)})
 
 
 def lockfile_groups(files: list[str], git: Git, merge_base: str) -> dict[str, list[str]]:
@@ -296,10 +328,12 @@ def prove_group(
     directory: str,
     manifests: list[str],
     release_age_minutes: int,
-) -> None:
+) -> set[str]:
+    """Proves one lockfile directory and returns the settings paths its proof read."""
     lockfile, root_manifest = join(directory, LOCKFILE), join(directory, MANIFEST)
     workspace = load_yaml(git.show(workflow_sha, join(directory, WORKSPACE_FILE)))
-    for path in policy.settings_paths(directory, workspace):
+    settings = policy.settings_paths(directory, workspace)
+    for path in settings:
         if git.blob(head, path) != git.blob(workflow_sha, path):
             raise Refused(f"{path} differs from the default branch")
     default_manifest = policy.load_manifest(require(git.show(workflow_sha, root_manifest), root_manifest))
@@ -344,6 +378,7 @@ def prove_group(
     commands = replay_commands(["pnpm"], updates, bool(workspace.get("packages")), release_age_minutes)
     if comparable(replay_lockfile(worktree, directory, head_manifests, commands, run)) != comparable(head_lock_text):
         raise Refused(f"pnpm writes a different {lockfile} for this update")
+    return set(settings)
 
 
 def load_yaml(text: bytes | None) -> dict[str, Any]:
@@ -374,24 +409,26 @@ def log(line: str) -> None:
 
 def main() -> int:
     env = os.environ
-    outputs = {"files": "[]", "pr": "0", "merge_base": ""}
+    job = sys.argv[1]
+    outputs = (
+        {"pr": "0", "merge_base": "", "eligible": "false"} if job == "identify" else {"files": "[]", "blobs": "{}"}
+    )
     # Package names and paths from the pull request reach the log, so the runner must not read commands from it.
     token = secrets.token_hex(16)
     log(f"::stop-commands::{token}")
     try:
-        proof = prove(
-            env,
-            GitHub(env["REPOSITORY"], env["GITHUB_TOKEN"]),
-            Git(Path.cwd()),
-            registry_metadata,
-            run_command,
-            datetime.now(UTC),
-        )
+        if job == "identify":
+            found = identify(env, GitHub(env["REPOSITORY"], env["GITHUB_TOKEN"]))
+            outputs = {"pr": str(found.pr), "merge_base": found.merge_base, "eligible": json.dumps(found.eligible)}
+            summary = f"Pull request {found.pr} is {'eligible' if found.eligible else 'not eligible'} for a proof"
+        else:
+            proof = prove(env, Git(Path.cwd()), registry_metadata, run_command, datetime.now(UTC))
+            outputs = {"files": json.dumps(proof.files), "blobs": json.dumps(proof.blobs)}
+            summary = f"Attested {', '.join(proof.files)}" if proof.files else "Nothing to attest"
     except Refused as refusal:
         summary, failed = f"Refused: {refusal}", True
     else:
-        outputs = {"files": json.dumps(proof.files), "pr": str(proof.pr), "merge_base": proof.merge_base}
-        summary, failed = (f"Attested {', '.join(proof.files)}" if proof.files else "Nothing to attest"), False
+        failed = False
     log(f"::{token}::")
     log(printable(summary))
     with open(env["GITHUB_OUTPUT"], "a") as handle:

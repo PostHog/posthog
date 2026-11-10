@@ -1,4 +1,4 @@
-"""Entry point for `python -I .github/scripts/dependency_proof/__main__.py` from the repository root."""
+"""Entry point for `python -I .github/scripts/dependency_proof/__main__.py identify|prove` from the repository root."""
 
 import sys
 from pathlib import Path

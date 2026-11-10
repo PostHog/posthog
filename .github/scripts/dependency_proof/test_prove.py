@@ -3,6 +3,7 @@ import json
 import stat
 import hashlib
 import subprocess
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -16,6 +17,7 @@ REPOSITORY = "PostHog/posthog"
 HEAD, MERGE_BASE, WORKFLOW_SHA = "a" * 40, "b" * 40, "c" * 40
 NOW = datetime(2026, 11, 9, 12, tzinfo=UTC)
 WORKSPACE = b"packages:\n    - '.'\nminimumReleaseAge: 10080\nminimumReleaseAgeExclude:\n    - posthog-js\n    - '@posthog/*'\nallowBuilds:\n    esbuild: true\n"
+PROVER = ".github/scripts/dependency_proof/prove.py"
 RENOVATE = b"{ packageRules: [ { matchPackageNames: ['posthog-js'], minimumReleaseAge: null, }, ], }"
 
 
@@ -119,15 +121,42 @@ def environment(tmp_path: Path, actor: str = str(RENOVATE_BOT_USER_ID)) -> dict[
     }
 
 
+def handover(found: prover.Identified) -> dict[str, str]:
+    return {"PULL_REQUEST": str(found.pr), "MERGE_BASE": found.merge_base, "ELIGIBLE": json.dumps(found.eligible)}
+
+
+def prove(
+    env: dict[str, str], github: FakeGitHub, git: FakeGit, registry: Callable[[str], dict], pnpm: FakePnpm
+) -> prover.Proof:
+    return prover.prove({**env, **handover(prover.identify(env, github))}, git, registry, pnpm, NOW)
+
+
 def test_a_pull_request_by_a_person_attests_nothing(tmp_path: Path) -> None:
-    proof = prover.prove(environment(tmp_path), FakeGitHub(42), FakeGit({}), registry, FakePnpm(b""), NOW)
-    assert proof == prover.Proof([], 123, MERGE_BASE)
+    env, github = environment(tmp_path), FakeGitHub(42)
+    assert prover.identify(env, github) == prover.Identified(123, MERGE_BASE, False)
+    assert prove(env, github, FakeGit({}), registry, FakePnpm(b"")) == prover.Proof([], {})
 
 
 def test_an_eligible_update_is_attested_after_a_frozen_targeted_replay(tmp_path: Path) -> None:
     pnpm = FakePnpm(lockfile("left-pad", "^1.3.1", "1.3.1", deprecated=True))
-    proof = prover.prove(environment(tmp_path), FakeGitHub(RENOVATE_BOT_USER_ID), FakeGit(trees()), registry, pnpm, NOW)
-    assert proof == prover.Proof(["package.json", "pnpm-lock.yaml"], 123, MERGE_BASE)
+    git = FakeGit({**trees(), WORKFLOW_SHA: {**trees()[WORKFLOW_SHA], PROVER: b"the prover"}})
+    proof = prove(environment(tmp_path), FakeGitHub(RENOVATE_BOT_USER_ID), git, registry, pnpm)
+    assert proof == prover.Proof(
+        ["package.json", "pnpm-lock.yaml"],
+        {
+            ".github/renovate.json5": hashlib.sha1(RENOVATE).hexdigest(),
+            ".github/scripts/dependency_proof/__init__.py": None,
+            ".github/scripts/dependency_proof/__main__.py": None,
+            ".github/scripts/dependency_proof/policy.py": None,
+            PROVER: hashlib.sha1(b"the prover").hexdigest(),
+            ".github/workflows/dependency-proof-trigger.yml": None,
+            ".github/workflows/dependency-proof.yml": None,
+            ".npmrc": None,
+            ".pnpmfile.cjs": None,
+            "pnpm-workspace.yaml": hashlib.sha1(WORKSPACE).hexdigest(),
+            "pnpmfile.cjs": None,
+        },
+    )
     worktree = tmp_path / "merge-base"
     assert pnpm.commands == [
         (["npm", "install", "--global", "--no-audit", "--no-fund", "pnpm@11.28.5"], worktree),
@@ -226,7 +255,21 @@ def test_refusals(
 ) -> None:
     env = environment(tmp_path) if actor is None else environment(tmp_path, actor)
     with pytest.raises(Refused, match=reason):
-        prover.prove(env, github, git, registry, FakePnpm(replayed or b""), NOW)
+        prove(env, github, git, registry, FakePnpm(replayed or b""))
+
+
+@pytest.mark.parametrize(
+    ("forged", "reason"),
+    [
+        ({"PULL_REQUEST": "123; id"}, "not a positive integer"),
+        ({"MERGE_BASE": "B" * 40}, "not a commit id"),
+        ({"ELIGIBLE": "no"}, "neither true nor false"),
+    ],
+)
+def test_a_malformed_handover_is_refused(tmp_path: Path, forged: dict[str, str], reason: str) -> None:
+    env = {**environment(tmp_path), **handover(prover.Identified(123, MERGE_BASE, False)), **forged}
+    with pytest.raises(Refused, match=reason):
+        prover.prove(env, FakeGit({}), registry, FakePnpm(b""), NOW)
 
 
 @pytest.mark.parametrize(
@@ -241,14 +284,7 @@ def test_a_young_or_undated_release_is_refused(tmp_path: Path, published: str | 
         return {"time": {} if published is None else {"1.3.1": published}}
 
     with pytest.raises(Refused, match=reason):
-        prover.prove(
-            environment(tmp_path),
-            FakeGitHub(RENOVATE_BOT_USER_ID),
-            FakeGit(trees()),
-            young_registry,
-            FakePnpm(b""),
-            NOW,
-        )
+        prove(environment(tmp_path), FakeGitHub(RENOVATE_BOT_USER_ID), FakeGit(trees()), young_registry, FakePnpm(b""))
 
 
 def test_comparable_ignores_only_a_deprecation_under_a_package() -> None:

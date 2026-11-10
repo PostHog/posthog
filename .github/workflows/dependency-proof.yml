@@ -21,21 +21,59 @@ concurrency:
 permissions: {}
 
 jobs:
-    prove:
-        name: Prove the dependency update
+    # The only job that reads the GitHub API. It runs no package manager.
+    identify:
+        name: Identify the pull request
+        # `prove` fetches without a credential, which only a public repository allows, so the
+        # private mirror posts no proof.
+        if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-24.04
-        timeout-minutes: 20
+        timeout-minutes: 5
         permissions:
             contents: read
         outputs:
+            pr: ${{ steps.identify.outputs.pr }}
+            merge_base: ${{ steps.identify.outputs.merge_base }}
+            eligible: ${{ steps.identify.outputs.eligible }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/scripts/dependency_proof
+                      .github/actions/setup-uv
+                  sparse-checkout-cone-mode: false
+
+            - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Identify the pull request
+              id: identify
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  BASE_BRANCH: ${{ github.event.repository.default_branch }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  TRIGGERING_ACTOR_ID: ${{ github.event.workflow_run.triggering_actor.id }}
+              run: uv run --no-project --with pyyaml==6.0.3 python -I .github/scripts/dependency_proof/__main__.py identify
+
+    # pnpm resolves packages here, so this job holds no permission and no step is given a token.
+    prove:
+        name: Prove the dependency update
+        needs: identify
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        permissions: {}
+        outputs:
             files: ${{ steps.prove.outputs.files }}
-            pr: ${{ steps.prove.outputs.pr }}
-            merge_base: ${{ steps.prove.outputs.merge_base }}
+            blobs: ${{ steps.prove.outputs.blobs }}
         steps:
             # The prover reads the merge base and the head from the object database, so the
             # working tree only needs the prover itself.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  persist-credentials: false
                   sparse-checkout: |
                       .github/scripts/dependency_proof
                       .github/actions/setup-uv
@@ -45,7 +83,6 @@ jobs:
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
 
             - uses: ./.github/actions/setup-uv
               with:
@@ -54,29 +91,31 @@ jobs:
             - name: Prove the update
               id: prove
               env:
-                  GITHUB_TOKEN: ${{ github.token }}
-                  REPOSITORY: ${{ github.repository }}
-                  BASE_BRANCH: ${{ github.event.repository.default_branch }}
                   HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-                  TRIGGERING_ACTOR_ID: ${{ github.event.workflow_run.triggering_actor.id }}
                   WORKFLOW_SHA: ${{ github.sha }}
                   MERGE_BASE_DIR: ${{ runner.temp }}/merge-base
-              run: uv run --no-project --with pyyaml==6.0.3 python -I .github/scripts/dependency_proof/__main__.py
+                  PULL_REQUEST: ${{ needs.identify.outputs.pr }}
+                  MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
+                  ELIGIBLE: ${{ needs.identify.outputs.eligible }}
+              run: uv run --no-project --with pyyaml==6.0.3 python -I .github/scripts/dependency_proof/__main__.py prove
 
-    # Any outcome of `prove` other than a success with a readable file list posts a neutral check
-    # that attests nothing, so stamphog lifts nothing and a person can still merge after review.
-    # The run itself still fails, so a broken prover shows up in the Actions tab.
+    # Any outcome other than a success of both jobs with a readable file list and blob map posts a
+    # neutral check that attests nothing, so stamphog lifts nothing and a person can still merge
+    # after review. The run itself still fails, so a broken prover shows up in the Actions tab.
     publish:
         name: Publish the Dependency proof check
-        needs: prove
+        needs: [identify, prove]
         if: ${{ !cancelled() }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions: {}
         environment: dependency-proof
         steps:
+            # The private mirror skips `identify`, so this job posts no check there. The guard is
+            # on the steps because a required-check gate may not skip itself.
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
+              if: github.repository == 'PostHog/posthog'
               with:
                   client-id: ${{ vars.DEPENDENCY_PROOF_APP_ID }}
                   private-key: ${{ secrets.DEPENDENCY_PROOF_APP_PRIVATE_KEY }}
@@ -89,30 +128,37 @@ jobs:
                   HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
                   WORKFLOW_SHA: ${{ github.sha }}
                   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  IDENTIFY_RESULT: ${{ needs.identify.result }}
+                  IDENTIFY_PR: ${{ needs.identify.outputs.pr }}
+                  IDENTIFY_MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
                   PROVE_RESULT: ${{ needs.prove.result }}
                   PROVE_FILES: ${{ needs.prove.outputs.files }}
-                  PROVE_PR: ${{ needs.prove.outputs.pr }}
-                  PROVE_MERGE_BASE: ${{ needs.prove.outputs.merge_base }}
+                  PROVE_BLOBS: ${{ needs.prove.outputs.blobs }}
               run: |
                   set -euo pipefail
 
-                  if [[ "$PROVE_RESULT" == "success" ]] \
-                      && files="$(jq -ce 'select(type == "array" and all(.[]; type == "string"))' <<< "$PROVE_FILES")"; then
+                  if [[ "$REPOSITORY" != "PostHog/posthog" ]]; then
+                      exit 0
+                  fi
+                  if [[ "$IDENTIFY_RESULT" == "success" && "$PROVE_RESULT" == "success" ]] \
+                      && files="$(jq -ce 'select(type == "array" and all(.[]; type == "string"))' <<< "$PROVE_FILES")" \
+                      && blobs="$(jq -ce 'select(type == "object" and all(.[]; . == null or (type == "string" and test("^[0-9a-f]{40}$"))))' <<< "$PROVE_BLOBS")"; then
                       conclusion=success
                       title="Attested $(jq length <<< "$files") dependency file(s)"
                       [[ "$files" != "[]" ]] || title="Nothing to attest"
                   else
                       conclusion=neutral
                       files='[]'
+                      blobs='{}'
                       title="The dependency update could not be proved"
                   fi
-                  pr="${PROVE_PR:-0}"
-                  merge_base="${PROVE_MERGE_BASE:-}"
+                  pr="${IDENTIFY_PR:-0}"
+                  merge_base="${IDENTIFY_MERGE_BASE:-}"
                   [[ "$pr" =~ ^[0-9]+$ ]] || pr=0
                   [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]] || merge_base=""
-                  marker="$(jq -cn --argjson files "$files" --argjson pr "$pr" --arg head_sha "$HEAD_SHA" \
-                      --arg merge_base "$merge_base" --arg workflow_sha "$WORKFLOW_SHA" \
-                      '{files: $files, pr: $pr, head_sha: $head_sha, merge_base: $merge_base, workflow_sha: $workflow_sha}' \
+                  marker="$(jq -cn --argjson files "$files" --argjson blobs "$blobs" --argjson pr "$pr" \
+                      --arg head_sha "$HEAD_SHA" --arg merge_base "$merge_base" --arg workflow_sha "$WORKFLOW_SHA" \
+                      '{files: $files, blobs: $blobs, pr: $pr, head_sha: $head_sha, merge_base: $merge_base, workflow_sha: $workflow_sha}' \
                       | python3 -c 'import json, sys; print(json.dumps(json.load(sys.stdin)))')"
                   jq -n --arg head_sha "$HEAD_SHA" --arg conclusion "$conclusion" --arg details_url "$RUN_URL" \
                       --arg title "$title" --arg summary "<!-- stamphog:v1 $marker -->" \
@@ -120,6 +166,9 @@ jobs:
                         details_url: $details_url, output: {title: $title, summary: $summary}}' \
                       | gh api --method POST "repos/$REPOSITORY/check-runs" --input - > /dev/null
 
+                  if [[ "$IDENTIFY_RESULT" != "success" ]]; then
+                      exit 1
+                  fi
                   if [[ "$PROVE_RESULT" != "success" ]]; then
                       exit 1
                   fi
