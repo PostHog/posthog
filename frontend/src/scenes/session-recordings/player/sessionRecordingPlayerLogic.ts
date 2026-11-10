@@ -752,6 +752,7 @@ export interface sessionRecordingPlayerLogicValues {
     hasReachedExportFullVideoLimit: boolean // exportsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
+    ambientBackground: boolean // playerSettingsLogic
     playerControlsOverlay: boolean // playerSettingsLogic
     showMetadataFooter: boolean // playerSettingsLogic
     skipInactivitySetting: boolean // playerSettingsLogic
@@ -934,6 +935,9 @@ export interface sessionRecordingPlayerLogicActions {
         sessionRecordingId: string
         timestamp: number | undefined
     } // exportsLogic
+    setAmbientBackground: (ambientBackground: boolean) => {
+        ambientBackground: boolean
+    } // playerSettingsLogic
     setPlayerControlsOverlay: (playerControlsOverlay: boolean) => {
         playerControlsOverlay: boolean
     } // playerSettingsLogic
@@ -1537,7 +1541,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'recordingTooLargeToPlay',
             ],
             playerSettingsLogic,
-            ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay'],
+            ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay', 'ambientBackground'],
             userLogic,
             ['user', 'hasAvailableFeature'],
             preflightLogic,
@@ -1568,7 +1572,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess', 'snapshotProcessingFailed'],
             playerSettingsLogic,
-            ['setSpeed', 'setSkipInactivitySetting', 'setPlayerControlsOverlay'],
+            ['setSpeed', 'setSkipInactivitySetting', 'setPlayerControlsOverlay', 'setAmbientBackground'],
             sessionRecordingEventUsageLogic,
             ['reportNextRecordingTriggered', 'reportRecordingExportedToFile', 'reportRecordingDebuggedWithAI'],
             sidePanelStateLogic,
