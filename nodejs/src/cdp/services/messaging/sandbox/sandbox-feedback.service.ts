@@ -199,7 +199,7 @@ export class SandboxFeedbackService {
             return null
         }
 
-        const { teamId } = attribution
+        const { teamId, isTest } = attribution
         const strict = { throwOnFailure: true }
         switch (record.eventType) {
             case 'Delivery': {
@@ -211,12 +211,14 @@ export class SandboxFeedbackService {
                     count('not_sent_to')
                     return null
                 }
-                await this.suppression.recordDeliveries(
-                    teamId,
-                    delivered.map((r) => r.emailAddress),
-                    record.delivery.timestamp,
-                    { clearGlobal: true, ...strict }
-                )
+                if (!isTest) {
+                    await this.suppression.recordDeliveries(
+                        teamId,
+                        delivered.map((r) => r.emailAddress),
+                        record.delivery.timestamp,
+                        { clearGlobal: true, ...strict }
+                    )
+                }
                 count('processed')
                 return { attribution, kind: 'delivered' }
             }
@@ -228,13 +230,13 @@ export class SandboxFeedbackService {
                 }
                 const addresses = bounced.map((r) => r.emailAddress)
                 const diagnostic = bounced.find((r) => r.diagnosticCode)?.diagnosticCode
-                if (record.bounce.bounceType === 'Permanent') {
+                if (!isTest && record.bounce.bounceType === 'Permanent') {
                     await this.suppression.recordHardBounces(teamId, addresses, diagnostic, strict)
                     const nonexistent = nonexistentRecipients({ ...record.bounce, bouncedRecipients: bounced })
                     if (nonexistent.length > 0) {
                         await this.suppression.recordGlobalHardBounces(nonexistent, record.bounce.timestamp, strict)
                     }
-                } else if (record.bounce.bounceType === 'Transient') {
+                } else if (!isTest && record.bounce.bounceType === 'Transient') {
                     await this.suppression.recordTransientBounces(teamId, addresses, diagnostic, strict)
                 }
                 count('processed')
@@ -254,12 +256,14 @@ export class SandboxFeedbackService {
                     count('not_sent_to')
                     return null
                 }
-                await this.suppression.recordComplaints(
-                    teamId,
-                    complained.map((r) => r.emailAddress),
-                    record.complaint.complaintFeedbackType,
-                    strict
-                )
+                if (!isTest) {
+                    await this.suppression.recordComplaints(
+                        teamId,
+                        complained.map((r) => r.emailAddress),
+                        record.complaint.complaintFeedbackType,
+                        strict
+                    )
+                }
                 count('processed')
                 return { attribution, kind: 'complained' }
             }

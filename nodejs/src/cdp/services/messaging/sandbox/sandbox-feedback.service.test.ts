@@ -568,24 +568,40 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             })
         })
 
-        it('still suppresses after a test send, and reports it as an event only', async () => {
-            const tags = sandboxTags(team.id, { ph_sbx_test: ['true'] })
+        it.each([
+            { label: 'a permanent bounce', event: permanentBounce, kind: 'bounced', global: [] },
+            { label: 'a transient bounce', event: transientBounce, kind: 'bounced', global: [] },
+            { label: 'a complaint', event: complaint, kind: 'complained', global: [] },
+            { label: 'a delivery', event: delivery, kind: 'delivered', global: [RECIPIENT] },
+        ])(
+            'leaves the suppression list alone after a test send, and reports $label as an event only',
+            async ({ event, kind, global }) => {
+                if (global.length > 0) {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO posthog_emailhardbounce (email, first_bounced_at, last_bounced_at) VALUES ($1, NOW() - INTERVAL '1 hour', NOW() - INTERVAL '1 hour')`,
+                        [RECIPIENT],
+                        'test-seed-sandbox-global-bounce'
+                    )
+                }
+                const tags = sandboxTags(team.id, { ph_sbx_test: ['true'] })
 
-            const res = await post(notification(sesRecord(team.id, complaint(), { tags })))
+                const res = await post(notification(sesRecord(team.id, event(), { tags })))
 
-            expect(res.status).toBe(200)
-            expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, source: 'COMPLAINT' }])
-            await waitForExpect(() => {
-                expect(capturedEvents()).toEqual([
-                    capturedEvent('workflows sandbox email complained', {
-                        workflow_id: FLOW_ID,
-                        action_id: ACTION_ID,
-                        is_test: true,
-                    }),
-                ])
-            })
-            expect(sandboxMetrics()).toEqual([])
-        })
+                expect(res.status).toBe(200)
+                expect(await suppressionRows()).toEqual([])
+                expect(await globalHardBounces()).toEqual(global)
+                await waitForExpect(() => {
+                    expect(capturedEvents()).toEqual([
+                        expect.objectContaining({
+                            event: `workflows sandbox email ${kind}`,
+                            properties: expect.objectContaining({ is_test: true }),
+                        }),
+                    ])
+                })
+                expect(sandboxMetrics()).toEqual([])
+            }
+        )
 
         it('answers 500 when the suppression list cannot be written, so SNS retries', async () => {
             await hub.postgres.end()

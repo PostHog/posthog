@@ -1,5 +1,8 @@
+import { Client } from 'pg'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '~/types'
@@ -705,6 +708,40 @@ describe('EmailSuppressionService', () => {
 
             await expect(write(svc)).resolves.toBeUndefined()
             await expect(write(svc, true)).rejects.toThrow()
+        })
+
+        it('recordDeliveries rejects when only the global clear fails, when asked to', async () => {
+            const email = `held-global-${team.id}@example.com`
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            await svc.recordGlobalHardBounces([email], new Date(Date.now() - 120_000).toISOString())
+            const holder = new Client({ connectionString: hub.DATABASE_URL })
+            await holder.connect()
+            try {
+                await holder.query('BEGIN')
+                await holder.query('SELECT email FROM posthog_emailhardbounce WHERE email = $1 FOR UPDATE', [email])
+                const write = expect(
+                    svc.recordDeliveries(team.id, [email], new Date().toISOString(), {
+                        clearGlobal: true,
+                        throwOnFailure: true,
+                    })
+                ).rejects.toThrow('canceling statement due to user request')
+
+                // pg_stat_activity is a snapshot per transaction, so the poll runs outside the holder's transaction.
+                await waitForExpect(async () => {
+                    const cancelled = await hub.postgres.query(
+                        PostgresUse.COMMON_READ,
+                        `SELECT pg_cancel_backend(pid) AS cancelled FROM pg_stat_activity
+                         WHERE datname = current_database() AND wait_event_type = 'Lock'
+                           AND query LIKE '%DELETE FROM posthog_emailhardbounce%'`,
+                        [],
+                        'test-cancel-global-clear'
+                    )
+                    expect(cancelled.rows).toEqual([{ cancelled: true }])
+                })
+                await write
+            } finally {
+                await holder.end()
+            }
         })
     })
 })
