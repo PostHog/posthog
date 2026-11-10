@@ -1,6 +1,6 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { buildMetricsTableDrilldownQueries } from './metricsTableDrilldown'
+import { buildMetricsTableDrilldown } from './metricsTableDrilldown'
 
 const CONFIG = {
     groupBy: 'http.route',
@@ -22,9 +22,9 @@ const CONFIG = {
     ],
 }
 
-describe('buildMetricsTableDrilldownQueries', () => {
+describe('buildMetricsTableDrilldown', () => {
     it('builds one full chart query per column, split by the label of the table', () => {
-        const [errors, latency] = buildMetricsTableDrilldownQueries(CONFIG, ['GET /api/traces/{id}'])
+        const [errors, latency] = buildMetricsTableDrilldown(CONFIG, ['GET /api/traces/{id}']).charts
 
         expect(errors.title).toEqual('Errors/s')
         expect(errors.query).toEqual({
@@ -50,7 +50,7 @@ describe('buildMetricsTableDrilldownQueries', () => {
     })
 
     it('escapes a dollar sign so a single row is not read as a dashboard variable', () => {
-        const [errors] = buildMetricsTableDrilldownQueries(CONFIG, ['/api/$tenant'])
+        const [errors] = buildMetricsTableDrilldown(CONFIG, ['/api/$tenant']).charts
 
         expect(errors.query.clauses[0].filters?.at(-1)).toEqual({
             key: 'http.route',
@@ -60,21 +60,46 @@ describe('buildMetricsTableDrilldownQueries', () => {
     })
 
     it.each([
-        ['keeps the point spacing for one row', '-1h', 1, 'minute'],
-        ['coarsens the point spacing for many rows over a long range', '-14d', 50, 'hour_6'],
-    ])('%s', (_name, dateFrom, rowCount, expectedInterval) => {
+        ['keeps the point spacing for one row', '-1h', 'minute', null, 1, 'minute'],
+        ['coarsens the point spacing for many rows over a long range', '-14d', 'minute', null, 50, 'hour_6'],
+        ['picks about 60 points when the widget sets no interval', '-24h', null, null, 1, 'minute_30'],
+        ['uses the dashboard interval over the widget one', '-24h', 'minute', { interval: 'hour' }, 1, 'hour'],
+        [
+            'coarsens a dashboard interval that would draw more than 500 points',
+            '-1h',
+            'minute',
+            { date_from: '-30d', interval: 'minute' },
+            1,
+            'hour_6',
+        ],
+    ] as const)('%s', (_name, dateFrom, interval, dashboardFilters, rowCount, expectedInterval) => {
         const keys = Array.from({ length: rowCount }, (_, index) => `/api/${index}`)
 
-        const [errors] = buildMetricsTableDrilldownQueries(
-            { ...CONFIG, dateRange: { date_from: dateFrom as '-1h' } },
-            keys
+        const drilldown = buildMetricsTableDrilldown(
+            { ...CONFIG, dateRange: { date_from: dateFrom as '-1h' }, interval },
+            keys,
+            dashboardFilters
         )
 
-        expect(errors.query.interval).toEqual(expectedInterval)
+        expect(drilldown.interval).toEqual(expectedInterval)
+        expect(drilldown.charts.map((chart) => chart.query.interval)).toEqual([expectedInterval, expectedInterval])
+    })
+
+    it.each([
+        ['the widget date range without a dashboard one', null, { date_from: '-3h' }],
+        [
+            'the dashboard date range over the widget one',
+            { date_from: '-7d', date_to: '-1d' },
+            { date_from: '-7d', date_to: '-1d' },
+        ],
+    ])('queries %s', (_name, dashboardFilters, expectedDateRange) => {
+        const [errors] = buildMetricsTableDrilldown(CONFIG, ['/api/0'], dashboardFilters).charts
+
+        expect(errors.query.dateRange).toEqual(expectedDateRange)
     })
 
     it('matches several rows with one anchored regex that escapes the values', () => {
-        const [errors] = buildMetricsTableDrilldownQueries(CONFIG, ['GET /api/traces/{id}', 'POST /api/chat'])
+        const [errors] = buildMetricsTableDrilldown(CONFIG, ['GET /api/traces/{id}', 'POST /api/chat']).charts
 
         expect(errors.query.clauses[0].filters?.at(-1)).toEqual({
             key: 'http.route',

@@ -1,4 +1,13 @@
-import { type MetricsQuery, type MetricsQueryClause, NodeKind } from '~/queries/schema/schema-general'
+import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
+
+import {
+    type DashboardFilter,
+    type MetricsQuery,
+    type MetricsQueryClause,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import type { IntervalType } from '~/types'
 
 import type { MetricsTableWidgetConfig } from '../../generated/widget-configs.zod'
 import type { MetricsTableColumn } from './metricsTableWidgetConfigValidation'
@@ -8,8 +17,19 @@ export type MetricsTableDrilldownChart = {
     query: MetricsQuery & { clauses: MetricsQueryClause[] }
 }
 
+export type MetricsTableDrilldown = {
+    dateFrom: string
+    dateTo: string | null
+    /** Shared by every chart, so their points line up. Null only when the range can't be measured. */
+    interval: string | null
+    charts: MetricsTableDrilldownChart[]
+}
+
+export type MetricsTableDrilldownDashboardFilters = Pick<DashboardFilter, 'date_from' | 'date_to' | 'interval'>
+
 type DrilldownConfig = Pick<MetricsTableWidgetConfig, 'groupBy' | 'dateRange' | 'interval' | 'columns'>
 
+const DEFAULT_DATE_FROM = '-1h'
 const COUNTER_FUNCTIONS = new Set(['rate', 'increase'])
 
 function escapeRegex(value: string): string {
@@ -23,6 +43,9 @@ function rowFilter(groupBy: string, keys: string[]): NonNullable<MetricsQueryCla
 
 // The metrics query fails at 10,000 (bucket, series) rows, and each selected row is one series.
 const DRILLDOWN_ROW_BUDGET = 9_000
+// The same numbers the backend uses: about 60 points when no interval is set, and never more than 500.
+const DRILLDOWN_TARGET_BUCKETS = 60
+const DRILLDOWN_MAX_BUCKETS = 500
 const INTERVAL_SECONDS: [string, number][] = [
     ['minute', 60],
     ['minute_5', 300],
@@ -33,18 +56,49 @@ const INTERVAL_SECONDS: [string, number][] = [
     ['day', 86_400],
     ['week', 604_800],
 ]
-const DATE_FROM_UNIT_SECONDS: Record<string, number> = { M: 60, h: 3_600, d: 86_400, w: 604_800 }
+// A dashboard interval is an insight interval, which goes finer and coarser than a metrics query can.
+const DASHBOARD_INTERVALS: Record<IntervalType, string> = {
+    second: 'minute',
+    minute: 'minute',
+    hour: 'hour',
+    day: 'day',
+    week: 'week',
+    month: 'week',
+    quarter: 'week',
+    year: 'week',
+}
 
-/** The requested point spacing, made coarser until the selected rows fit in the row budget of the query. */
-function drilldownInterval(interval: string | null | undefined, dateFrom: string, rowCount: number): string | null {
-    const match = /^-(\d+)([Mhdw])$/.exec(dateFrom)
-    const start = INTERVAL_SECONDS.findIndex(([name]) => name === interval)
-    if (!interval || !match || start === -1) {
-        return interval ?? null
+function spanSeconds(dateFrom: string, dateTo: string | null): number | null {
+    const from = dateStringToDayJs(dateFrom)
+    const to = dateTo ? dateStringToDayJs(dateTo) : dayjs()
+    if (!from?.isValid() || !to?.isValid() || !to.isAfter(from)) {
+        return null
     }
-    const spanSeconds = Number(match[1]) * DATE_FROM_UNIT_SECONDS[match[2]]
+    return to.diff(from, 'second')
+}
+
+/** The point spacing all charts share: the requested one, or the backend's pick for the range when there is none,
+ * made coarser until the selected rows fit in the row budget of the query. */
+function drilldownInterval(
+    interval: string | null,
+    dateFrom: string,
+    dateTo: string | null,
+    rowCount: number
+): string | null {
+    const span = spanSeconds(dateFrom, dateTo)
+    if (span === null) {
+        return interval
+    }
+    const start = interval
+        ? INTERVAL_SECONDS.findIndex(([name]) => name === interval)
+        : INTERVAL_SECONDS.findIndex(([, seconds]) => span / seconds <= DRILLDOWN_TARGET_BUCKETS)
+    if (start === -1) {
+        return interval ?? INTERVAL_SECONDS[INTERVAL_SECONDS.length - 1][0]
+    }
     const fits = INTERVAL_SECONDS.slice(start).find(
-        ([, seconds]) => (Math.ceil(spanSeconds / seconds) + 1) * rowCount <= DRILLDOWN_ROW_BUDGET
+        ([, seconds]) =>
+            span / seconds <= DRILLDOWN_MAX_BUCKETS &&
+            (Math.ceil(span / seconds) + 1) * rowCount <= DRILLDOWN_ROW_BUDGET
     )
     return (fits ?? INTERVAL_SECONDS[INTERVAL_SECONDS.length - 1])[0]
 }
@@ -66,24 +120,36 @@ function columnClause(column: MetricsTableColumn, groupBy: string, keys: string[
     }
 }
 
-/** One full chart per column for the selected rows. Each row is its own line, split by the table's label. */
-export function buildMetricsTableDrilldownQueries(
+/** One full chart per column for the selected rows. Each row is its own line, split by the table's label.
+ * A dashboard date range or interval wins over the widget's, as it does for the insights on the dashboard. */
+export function buildMetricsTableDrilldown(
     config: DrilldownConfig,
-    keys: string[]
-): MetricsTableDrilldownChart[] {
+    keys: string[],
+    dashboardFilters?: MetricsTableDrilldownDashboardFilters | null
+): MetricsTableDrilldown {
+    const hasDashboardRange = !!(dashboardFilters?.date_from || dashboardFilters?.date_to)
+    const dateFrom =
+        (hasDashboardRange ? dashboardFilters?.date_from : config.dateRange?.date_from) ?? DEFAULT_DATE_FROM
+    const dateTo = (hasDashboardRange ? dashboardFilters?.date_to : null) ?? null
     const groupBy = config.groupBy
     if (!groupBy || keys.length === 0) {
-        return []
+        return { dateFrom, dateTo, interval: null, charts: [] }
     }
-    const dateFrom = config.dateRange?.date_from ?? '-1h'
-    const interval = drilldownInterval(config.interval, dateFrom, keys.length)
-    return (config.columns ?? []).map((column) => ({
-        title: column.label,
-        query: {
-            kind: NodeKind.MetricsQuery,
-            dateRange: { date_from: dateFrom },
-            ...(interval ? { interval } : {}),
-            clauses: [columnClause(column, groupBy, keys)],
-        },
-    }))
+    const requested = dashboardFilters?.interval ? DASHBOARD_INTERVALS[dashboardFilters.interval] : config.interval
+    const interval = drilldownInterval(requested ?? null, dateFrom, dateTo, keys.length)
+    const dateRange = dateTo ? { date_from: dateFrom, date_to: dateTo } : { date_from: dateFrom }
+    return {
+        dateFrom,
+        dateTo,
+        interval,
+        charts: (config.columns ?? []).map((column) => ({
+            title: column.label,
+            query: {
+                kind: NodeKind.MetricsQuery,
+                dateRange,
+                ...(interval ? { interval } : {}),
+                clauses: [columnClause(column, groupBy, keys)],
+            },
+        })),
+    }
 }

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, waitFor } from '@testing-library/react'
 
 import { useMocks } from '~/mocks/jest'
 import { Query } from '~/queries/Query/Query'
@@ -27,6 +27,24 @@ describe('metrics query nodes', () => {
     })
 
     afterEach(() => cleanup())
+
+    it('loads a failed time series again from its error banner', async () => {
+        let queryCalls = 0
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () =>
+                    ++queryCalls === 1 ? [500, { detail: 'ClickHouse was busy' }] : [200, { results: [] }],
+            },
+        })
+        const { findAllByText, findByText, queryByText } = render(<Query query={METRICS_QUERY} readOnly />)
+        await findByText('ClickHouse was busy')
+
+        // The banner renders its action twice and shows one, depending on its width.
+        ;(await findAllByText('Try again'))[0].click()
+
+        await waitFor(() => expect(queryCalls).toBe(2))
+        await waitFor(() => expect(queryByText('ClickHouse was busy')).toBeNull())
+    })
 
     it.each([
         ['time series in a dashboard tile', METRICS_QUERY, true, false],

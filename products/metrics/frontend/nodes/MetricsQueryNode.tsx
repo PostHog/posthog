@@ -1,4 +1,4 @@
-import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
@@ -129,6 +129,7 @@ function MetricsQueryResults({ dataKey: key, ...props }: MetricsQueryNodeProps &
     useAttachedLogic(logic, props.attachTo)
 
     const { response, responseLoading, responseError } = useValues(logic)
+    const { loadData } = useActions(logic)
     const series = seriesFromMetricsResponse(response)
     const hasPoints = series.some((s) => s.points.length > 0)
     // A formula query returns only the formula result (metricName is null on it),
@@ -150,7 +151,15 @@ function MetricsQueryResults({ dataKey: key, ...props }: MetricsQueryNodeProps &
         >
             {responseError && !responseLoading ? (
                 <div className="flex-1 flex items-center p-4 min-w-0">
-                    <LemonBanner type="error" className="w-full">
+                    <LemonBanner
+                        type="error"
+                        className="w-full"
+                        action={{
+                            children: 'Try again',
+                            onClick: () => loadData('force_blocking'),
+                            'data-attr': 'metrics-query-retry',
+                        }}
+                    >
                         {responseError}
                     </LemonBanner>
                 </div>
