@@ -1,1 +1,1 @@
-0017_squash_2026_11_02_finalize_fks
+0018_insight_alert_investigation_no_row

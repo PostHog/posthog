@@ -3741,7 +3741,7 @@ export interface ExperimentHealthInputsFlagHistoryApi {
     /** Whether the changes were compared with the exposures. False when not_checked_reason is set. */
     checked: boolean
     /**
-     * Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were.
+     * Why the changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action', 'exposure_criteria', 'too_many_saves' or 'too_many_conditions'. Null when they were.
      * @nullable
      */
     not_checked_reason: string | null
@@ -4214,9 +4214,9 @@ export interface ExperimentMetricsRecalculationJobApi {
     readonly status: MetricsRecalculationStatusEnumApi
     /** Total number of metrics to recalculate */
     readonly total_metrics: number
-    /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+    /** Number of metrics with a COMPLETED result row that did not fail in this run (derived, not stored) */
     readonly completed_metrics: number
-    /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+    /** Number of failed metrics in this run (derived): metrics with a FAILED result row or a metric_errors entry. A metric that fails keeps its earlier completed result, so it can count here and still have a completed row in results. The error of a rejected run counts only for a metric without a row */
     readonly failed_metrics: number
     /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
     readonly metric_errors: unknown
@@ -4242,6 +4242,20 @@ export interface ExperimentMetricsRecalculationJobApi {
 }
 
 /**
+ * * `current` - Current settings
+ * * `previous` - Earlier settings
+ * * `unknown` - Settings not recorded
+ */
+export type ExperimentResultConfigurationStatusEnumApi =
+    (typeof ExperimentResultConfigurationStatusEnumApi)[keyof typeof ExperimentResultConfigurationStatusEnumApi]
+
+export const ExperimentResultConfigurationStatusEnumApi = {
+    Current: 'current',
+    Previous: 'previous',
+    Unknown: 'unknown',
+} as const
+
+/**
  * * `pending` - pending
  * * `completed` - completed
  * * `failed` - failed
@@ -4259,6 +4273,12 @@ export const MetricRecalculationResultStatusEnumApi = {
  * One metric's recalculated result row, read back from ExperimentMetricResult.
  */
 export interface MetricRecalculationResultApi {
+    /** Whether this result uses current settings, earlier settings, or settings that were not recorded.
+     *
+     * * `current` - Current settings
+     * * `previous` - Earlier settings
+     * * `unknown` - Settings not recorded */
+    readonly configuration_status: ExperimentResultConfigurationStatusEnumApi
     /** UUID of the metric this result belongs to */
     readonly metric_uuid: string
     /** Status of this metric's calculation in the run
@@ -4293,9 +4313,9 @@ export interface ExperimentMetricsRecalculationRunApi {
     readonly status: MetricsRecalculationStatusEnumApi
     /** Total number of metrics to recalculate */
     readonly total_metrics: number
-    /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+    /** Number of metrics with a COMPLETED result row that did not fail in this run (derived, not stored) */
     readonly completed_metrics: number
-    /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+    /** Number of failed metrics in this run (derived): metrics with a FAILED result row or a metric_errors entry. A metric that fails keeps its earlier completed result, so it can count here and still have a completed row in results. The error of a rejected run counts only for a metric without a row */
     readonly failed_metrics: number
     /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
     readonly metric_errors: unknown
@@ -4318,7 +4338,7 @@ export interface ExperimentMetricsRecalculationRunApi {
     readonly query_to: string | null
     /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
     readonly metric_retries: unknown
-    /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+    /** Per-metric results of this run, scoped by the run's recalc fingerprint. When a metric fails, its earlier completed result at the same window stays here and the failure is in metric_errors */
     readonly results: readonly MetricRecalculationResultApi[]
     /**
      * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
@@ -4375,9 +4395,9 @@ export interface ExperimentMetricsRecalculationLatestApi {
     readonly status: MetricsRecalculationStatusEnumApi
     /** Total number of metrics to recalculate */
     readonly total_metrics: number
-    /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+    /** Number of metrics with a COMPLETED result row that did not fail in this run (derived, not stored) */
     readonly completed_metrics: number
-    /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+    /** Number of failed metrics in this run (derived): metrics with a FAILED result row or a metric_errors entry. A metric that fails keeps its earlier completed result, so it can count here and still have a completed row in results. The error of a rejected run counts only for a metric without a row */
     readonly failed_metrics: number
     /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp, exposures_path}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first. exposures_path is where the query read the exposures, and is missing when the query failed before it was built */
     readonly metric_errors: unknown
@@ -4400,7 +4420,7 @@ export interface ExperimentMetricsRecalculationLatestApi {
     readonly query_to: string | null
     /** Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale. */
     readonly metric_retries: unknown
-    /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+    /** Per-metric results of this run, scoped by the run's recalc fingerprint. When a metric fails, its earlier completed result at the same window stays here and the failure is in metric_errors */
     readonly results: readonly MetricRecalculationResultApi[]
     /**
      * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
@@ -4419,6 +4439,8 @@ export interface ExperimentMetricsRecalculationLatestApi {
      * * `recalculation` - recalculation
      * * `timeseries_fallback` - timeseries_fallback */
     readonly result_source: ResultSourceEnumApi
+    /** True when the experiment started too long ago for its metrics to be recalculated. A recalculation request then returns a rejected run with the recalculation_window_too_long error, and the saved results stay as they are */
+    readonly exceeds_recalculation_age_limit: boolean
 }
 
 export interface DetectableEffectCheckpointApi {
@@ -4748,6 +4770,85 @@ export interface ShipVariantApi {
     variant_key: string
     /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
     release_to_everyone?: boolean
+}
+
+/**
+ * Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start date to the end date or today. Null for a day without a completed result.
+ */
+export type ExperimentTimeseriesResultsApiTimeseries = { [key: string]: unknown }
+
+/**
+ * Configuration provenance for each stored day: current, previous, or unknown.
+ */
+export type ExperimentTimeseriesResultsApiConfigurationByDay = { [key: string]: 'current' | 'previous' | 'unknown' }
+
+/**
+ * Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.
+ * @nullable
+ */
+export type ExperimentTimeseriesResultsApiErrors = { [key: string]: string } | null
+
+/**
+ * * `pending` - Pending
+ * * `completed` - Completed
+ * * `partial` - Partial
+ * * `failed` - Failed
+ */
+export type ExperimentTimeseriesResultsStatusEnumApi =
+    (typeof ExperimentTimeseriesResultsStatusEnumApi)[keyof typeof ExperimentTimeseriesResultsStatusEnumApi]
+
+export const ExperimentTimeseriesResultsStatusEnumApi = {
+    Pending: 'pending',
+    Completed: 'completed',
+    Partial: 'partial',
+    Failed: 'failed',
+} as const
+
+/**
+ * Day-by-day results of one metric under the experiment's current settings.
+ */
+export interface ExperimentTimeseriesResultsApi {
+    /** Experiment id. */
+    experiment_id: number
+    /** UUID of the metric the series belongs to. */
+    metric_uuid: string
+    /** 'completed' when every day has a result, 'partial' when some do, 'failed' when no day has a result and some failed, 'pending' when no day was calculated yet.
+     *
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `partial` - Partial
+     * * `failed` - Failed */
+    status: ExperimentTimeseriesResultsStatusEnumApi
+    /** Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start date to the end date or today. Null for a day without a completed result. */
+    timeseries: ExperimentTimeseriesResultsApiTimeseries
+    /** Configuration provenance for each stored day: current, previous, or unknown. */
+    configuration_by_day: ExperimentTimeseriesResultsApiConfigurationByDay
+    /**
+     * When the most recent day's result was computed, or null.
+     * @nullable
+     */
+    computed_at: string | null
+    /** When the oldest stored day was written. */
+    created_at: string
+    /** When the newest stored day was last written. */
+    updated_at: string
+    /**
+     * 'pending' or 'in_progress' while a backfill of this series runs, otherwise null.
+     * @nullable
+     */
+    recalculation_status: string | null
+    /**
+     * When the running backfill was requested, or null.
+     * @nullable
+     */
+    recalculation_created_at: string | null
+    /** The series as a compact text table, one row per day, for language model consumers. */
+    formatted_results: string
+    /**
+     * Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.
+     * @nullable
+     */
+    errors: ExperimentTimeseriesResultsApiErrors
 }
 
 /**
