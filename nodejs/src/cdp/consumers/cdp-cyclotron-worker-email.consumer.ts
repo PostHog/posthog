@@ -34,8 +34,6 @@ const CALLS_SETTLE_BEFORE_WRITE_MS = CONSUMER_STOP_DEADLINE_MS - ATTACHMENT_SEND
 export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     protected override name = 'CdpCyclotronWorkerEmail'
     private readonly sendsWithFiles: InFlightRegistry
-    // A send runs on the workflow its admission checked. Read again, a reloaded workflow could put an email step with
-    // files ahead of a send that admission let through without taking room.
     private readonly workflowAtAdmission = new WeakMap<CyclotronJobInvocation, HogFlow | null>()
 
     constructor(
@@ -89,6 +87,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
                 fileBytes === null ||
                 exceedsLargestSend(fileBytes) ||
                 invocation.cancelRequestedAt ||
+                hogFlows[invocation.functionId]?.status !== 'active' ||
                 !sendStepAhead(invocation, hogFlows[invocation.functionId])
             ) {
                 plain.push(invocation)
