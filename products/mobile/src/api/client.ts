@@ -172,6 +172,16 @@ function isSameSession(a: ApiAuth, b: ApiAuth): boolean {
     return a.session === b.session && a.host === b.host
 }
 
+function instrumentedFetch(fetcher: Fetcher, url: string, path: string, options: RequestInit): Promise<Response> {
+    return instrumentApiRequest(
+        path,
+        options.method ?? 'GET',
+        (traceparent) =>
+            fetcher(url, traceparent ? { ...options, headers: { ...options.headers, traceparent } } : options),
+        options.signal
+    )
+}
+
 async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: string): Promise<Response> {
     const auth = requireAuth()
     const url = apiUrl(path, init.query)
@@ -180,21 +190,12 @@ async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: strin
         throw new BudgetExceededError(family)
     }
     const sent = auth.accessToken as string
-    const method = init.method ?? 'GET'
     const fetchResponse = (token: string): Promise<Response> => {
         if (init.signal?.aborted) {
             throw abortError()
         }
         const options = buildInit(init, token, accept)
-        return transport(() =>
-            instrumentApiRequest(
-                path,
-                method,
-                (traceparent) =>
-                    fetcher(url, traceparent ? { ...options, headers: { ...options.headers, traceparent } } : options),
-                options.signal
-            )
-        )
+        return transport(() => instrumentedFetch(fetcher, url, path, options))
     }
     let response = await fetchResponse(sent)
     if (init.signal?.aborted) {
