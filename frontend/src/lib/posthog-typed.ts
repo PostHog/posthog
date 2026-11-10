@@ -645,6 +645,9 @@ interface EventSchemas {
     '@@d3l9r': Record<string, any>
     'Daisy Cole': Record<string, any>
     'Dario Renner': Record<string, any>
+    'dashboard activity summary viewed': {
+        dashboard_id?: number
+    }
     'dashboard analyzed': Record<string, any>
     'dashboard created': Record<string, any>
     'dashboard created during onboarding': Record<string, any>

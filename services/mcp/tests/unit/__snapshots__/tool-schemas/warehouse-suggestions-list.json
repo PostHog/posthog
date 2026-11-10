@@ -27,6 +27,11 @@
         "subject_id": {
             "description": "Only return suggestions about the view or table with this ID.",
             "type": "string"
+        },
+        "surface": {
+            "description": "Only return the kinds of suggestions this page shows. models: materialize, stop materializing and view deprecations. catalog: certify and deprecate.\n\n* `models` - Models\n* `catalog` - Data catalog",
+            "enum": ["models", "catalog"],
+            "type": "string"
         }
     },
     "type": "object"

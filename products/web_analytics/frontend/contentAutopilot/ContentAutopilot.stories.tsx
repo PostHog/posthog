@@ -18,6 +18,7 @@ import {
     type ContentAutopilotWorkspaceTab,
     contentAutopilotLogic,
 } from './contentAutopilotLogic'
+import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import {
     EXAMPLE_FAILED_DRAFT_OPPORTUNITY,
@@ -25,8 +26,12 @@ import {
     EXAMPLE_OPPORTUNITIES,
     EXAMPLE_PROFILE,
     EXAMPLE_PROMPT_SET_OVERVIEW,
+    EXAMPLE_PROMPT_SET_RANKINGS,
     EXAMPLE_PROMPT_TOPICS,
     EXAMPLE_PROMPTS,
+    EXAMPLE_PROMPT_CHECKS,
+    EXAMPLE_PROMPT_VERSIONS,
+    EXAMPLE_PROMPT_STATS,
     EXAMPLE_PROPOSAL,
     EXAMPLE_PROPOSAL_LIST,
     EXAMPLE_RUN,
@@ -68,6 +73,14 @@ const workspaceHandlers = ({
             ],
             '/api/projects/:team_id/aeo_prompts/topics/': () => [200, EXAMPLE_PROMPT_TOPICS],
             '/api/projects/:team_id/aeo_prompts/overview/': () => [200, EXAMPLE_PROMPT_SET_OVERVIEW],
+            '/api/projects/:team_id/aeo_prompts/rankings/': () => [200, EXAMPLE_PROMPT_SET_RANKINGS],
+            '/api/projects/:team_id/aeo_prompts/:id/': () => [200, EXAMPLE_PROMPTS[0]],
+            '/api/projects/:team_id/aeo_prompts/:id/stats/': () => [200, EXAMPLE_PROMPT_STATS],
+            '/api/projects/:team_id/aeo_prompts/:id/versions/': () => [200, EXAMPLE_PROMPT_VERSIONS],
+            '/api/projects/:team_id/aeo_prompts/:id/checks/': () => [
+                200,
+                { count: EXAMPLE_PROMPT_CHECKS.length, next: null, previous: null, results: EXAMPLE_PROMPT_CHECKS },
+            ],
             '/api/projects/:team_id/web_analytics_content_autopilot_opportunities/': () => [
                 200,
                 { count: opportunities.length, next: null, previous: null, results: opportunities },
@@ -220,3 +233,27 @@ ProposalPreview.decorators = ProposalReview.decorators
 
 export const PromptsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="prompts" />
 PromptsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
+
+export const OverviewTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
+OverviewTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
+OverviewTab.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+export const RankingsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="rankings" />
+RankingsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
+RankingsTab.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+const PromptPageStory = (): JSX.Element => {
+    const { openPromptDetail } = useActions(contentAutopilotPromptDetailLogic)
+    useEffect(() => {
+        openPromptDetail(EXAMPLE_PROMPTS[0].id)
+    }, [openPromptDetail])
+    return (
+        <div className="p-6">
+            <ContentAutopilot />
+        </div>
+    )
+}
+
+export const PromptPage: StoryFn<typeof ContentAutopilot> = () => <PromptPageStory />
+PromptPage.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], opportunities: EXAMPLE_OPPORTUNITIES })]
+PromptPage.parameters = { testOptions: { snapshotBrowsers: [] } }
