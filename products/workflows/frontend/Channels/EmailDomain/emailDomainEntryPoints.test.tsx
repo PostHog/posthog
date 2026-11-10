@@ -1,12 +1,15 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -15,7 +18,6 @@ import { initKeaTests } from '~/test/init'
 import { EmailSetupModal } from '../EmailSetup/EmailSetupModal'
 import { MessageChannels } from '../MessageChannels'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
-import { addEmailSenderLogic } from './addEmailSenderLogic'
 
 const DOMAIN = 'mail.acme.com'
 const SENDER_ID = 42
@@ -32,6 +34,12 @@ const element = (attr: string): HTMLElement => {
 const flush = async (): Promise<void> => {
     await act(async () => {
         await jest.advanceTimersByTimeAsync(0)
+    })
+}
+
+const waitForModalToClose = async (): Promise<void> => {
+    await act(async () => {
+        await jest.advanceTimersByTimeAsync(300)
     })
 }
 
@@ -229,20 +237,45 @@ describe('email domain setup entry points', () => {
             fireEvent.click(element('email-sender-add-submit'))
             await flush()
 
-            expect(backend.requestsTo('integration_create').map((request) => request.body)).toEqual([
-                {
-                    kind: 'email',
-                    config: expect.objectContaining({
-                        email: `billing@${OTHER_DOMAIN}`,
-                        name: 'Acme news',
-                        provider: 'ses',
-                    }),
-                },
-            ])
-            const created = backend.senderConfig(44)
-            expect(created).toMatchObject({ email: `billing@${OTHER_DOMAIN}`, verified: true })
-            expect(addEmailSenderLogic.values.isOpen).toBe(false)
+            await waitForModalToClose()
+
+            expect(backend.senderConfig(44)).toMatchObject({
+                email: `billing@${OTHER_DOMAIN}`,
+                name: 'Acme news',
+                provider: 'ses',
+                domain: OTHER_DOMAIN,
+                verified: true,
+            })
+            expect(screen.queryByText('Add a sender')).not.toBeInTheDocument()
             expect(screen.getByText('2 senders')).toBeInTheDocument()
+        })
+
+        it('creates one sender when Enter is pressed again while the first is saving', async () => {
+            await renderInApp(<MessageChannels />)
+            fireEvent.click(addSenderButtonOf(OTHER_DOMAIN))
+            await flush()
+            const address = element('email-sender-add-local-part')
+            fireEvent.change(address, { target: { value: 'billing' } })
+            fireEvent.keyDown(address, { key: 'Enter' })
+            fireEvent.change(address, { target: { value: 'support' } })
+            fireEvent.keyDown(address, { key: 'Enter' })
+            await flush()
+
+            expect(backend.senderConfig(44)).toMatchObject({ email: `billing@${OTHER_DOMAIN}` })
+            expect(backend.senderConfig(45)).toBeUndefined()
+        })
+
+        it('keeps the add sender button disabled for project members below admin', async () => {
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                effective_membership_level: OrganizationMembershipLevel.Member,
+            })
+            await renderInApp(<MessageChannels />)
+            fireEvent.click(addSenderButtonOf(OTHER_DOMAIN))
+            await flush()
+
+            expect(addSenderButtonOf(OTHER_DOMAIN).closest('button')).toHaveAttribute('aria-disabled', 'true')
+            expect(screen.queryByText('Add a sender')).not.toBeInTheDocument()
         })
 
         it('picks the domain of the row whose add sender button was clicked', async () => {
@@ -260,9 +293,10 @@ describe('email domain setup entry points', () => {
             await flush()
             fireEvent.click(element('email-sender-add-new-domain'))
             await flush()
+            await waitForModalToClose()
 
             expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain('new')}$`))
-            expect(addEmailSenderLogic.values.isOpen).toBe(false)
+            expect(screen.queryByText('Add a sender')).not.toBeInTheDocument()
         })
 
         it('sends an unverified domain to finish its verification instead of adding a sender', async () => {
@@ -274,9 +308,30 @@ describe('email domain setup entry points', () => {
             expect(element('email-sender-add-submit')).toHaveAttribute('aria-disabled', 'true')
             fireEvent.click(element('email-sender-add-finish-verification'))
             await flush()
+            await waitForModalToClose()
 
             expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(unverified.id)}$`))
-            expect(backend.requestsTo('integration_create')).toEqual([])
+            expect(
+                within(screen.getByText('pending.example.com').closest('.rounded') as HTMLElement).getByText('1 sender')
+            ).toBeInTheDocument()
+        })
+
+        it('offers to finish verification when the new sender does not verify', async () => {
+            backend.addSender({ email: 'hi@stale.example.com', name: 'Stale', verified: true })
+            await renderInApp(<MessageChannels />)
+            fireEvent.click(addSenderButtonOf('stale.example.com'))
+            await flush()
+            fireEvent.change(element('email-sender-add-local-part'), { target: { value: 'billing' } })
+            fireEvent.click(element('email-sender-add-submit'))
+            await flush()
+            await waitForModalToClose()
+
+            expect(screen.getByText('Add a sender')).toBeInTheDocument()
+            fireEvent.click(element('email-sender-add-finish-verification'))
+            await flush()
+
+            expect(backend.senderConfig(45)).toMatchObject({ email: 'billing@stale.example.com', verified: false })
+            expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(45)}$`))
         })
     })
 })

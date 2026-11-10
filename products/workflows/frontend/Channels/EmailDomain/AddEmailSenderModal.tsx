@@ -15,7 +15,7 @@ export function AddEmailSenderModal(): JSX.Element {
         localPart,
         submitDisabledReason,
         submitError,
-        createdSenderLoading,
+        addedSenderLoading,
     } = useValues(addEmailSenderLogic)
     const {
         closeAddSender,
@@ -46,7 +46,7 @@ export function AddEmailSenderModal(): JSX.Element {
                         <LemonButton
                             type="primary"
                             onClick={addSender}
-                            loading={createdSenderLoading}
+                            loading={addedSenderLoading}
                             disabledReason={submitDisabledReason}
                             data-attr="email-sender-add-submit"
                         >
@@ -109,7 +109,7 @@ export function AddEmailSenderModal(): JSX.Element {
                                 placeholder="hello"
                                 autoFocus
                                 suffix={<span className="text-secondary">@{selectedDomain?.domain}</span>}
-                                onPressEnter={() => !submitDisabledReason && addSender()}
+                                onPressEnter={() => !submitDisabledReason && !addedSenderLoading && addSender()}
                                 data-attr="email-sender-add-local-part"
                             />
                         </LemonField.Pure>

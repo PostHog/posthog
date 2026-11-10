@@ -18,6 +18,11 @@ import { openEmailDomainSetupPage } from './useStartEmailDomainSetup'
 
 export type AddEmailSenderEntry = 'catalog' | 'domain_row'
 
+export interface AddedSender {
+    sender: IntegrationConfigApi
+    verified: boolean
+}
+
 export interface SenderDomain {
     domain: string
     verified: boolean
@@ -33,8 +38,8 @@ export interface addEmailSenderLogicValues {
     domainGroupedEmailIntegrations: EmailIntegrationDomainGroupedType[] // integrationsLogic
     integrations: IntegrationType[] | null // integrationsLogic
     currentTeamId: number | null // teamLogic
-    createdSender: IntegrationConfigApi | null
-    createdSenderLoading: boolean
+    addedSender: AddedSender | null
+    addedSenderLoading: boolean
     domains: SenderDomain[]
     entry: AddEmailSenderEntry
     fromAddress: string | null
@@ -60,10 +65,10 @@ export interface addEmailSenderLogicActions {
         errorObject?: any
     }
     addSenderSuccess: (
-        createdSender: IntegrationConfigApi | null,
+        addedSender: AddedSender | null,
         payload?: any
     ) => {
-        createdSender: IntegrationConfigApi | null
+        addedSender: AddedSender | null
         payload?: any
     }
     closeAddSender: () => {
@@ -245,10 +250,10 @@ export const addEmailSenderLogic = kea<addEmailSenderLogicType>([
         ],
     }),
     loaders(({ values, actions }) => ({
-        createdSender: [
-            null as IntegrationConfigApi | null,
+        addedSender: [
+            null as AddedSender | null,
             {
-                addSender: async (): Promise<IntegrationConfigApi | null> => {
+                addSender: async (): Promise<AddedSender | null> => {
                     const { selectedDomain, fromAddress, currentTeamId, submitDisabledReason } = values
                     const sibling = selectedDomain?.senders[0]
                     if (submitDisabledReason || !fromAddress || !currentTeamId || !sibling) {
@@ -273,11 +278,9 @@ export const addEmailSenderLogic = kea<addEmailSenderLogicType>([
                         )
                         return null
                     }
-                    // The domain is already verified, so this only records it on the new sender. When it fails,
-                    // the sender shows as unverified and the person can finish it from the domain page.
                     // nosemgrep: prefer-codegen-api-namespaced-integrations -- the generated integrationsEmailVerifyCreate returns void and demands a config body the endpoint ignores
-                    await api.integrations.verifyEmail(created.id).catch(() => null)
-                    return created
+                    const verification = await api.integrations.verifyEmail(created.id).catch(() => null)
+                    return { sender: created, verified: verification?.status === 'success' }
                 },
             },
         ],
@@ -287,25 +290,30 @@ export const addEmailSenderLogic = kea<addEmailSenderLogicType>([
             // pinned: analytics event name
             posthog.capture('email sender add started', { entry, domain_count: values.domains.length })
         },
-        addSenderSuccess: ({ createdSender }) => {
-            if (!createdSender) {
+        addSenderSuccess: ({ addedSender }) => {
+            if (!addedSender) {
                 return
             }
             // pinned: analytics event name
             posthog.capture('email sender added', {
                 entry: values.entry,
+                verified: addedSender.verified,
                 existing_senders_on_domain: values.selectedDomain?.senders.length ?? 0,
             })
-            lemonToast.success(`Added ${values.fromAddress} as a sender`)
             actions.loadIntegrations()
-            actions.closeAddSender()
+            // An unverified sender leaves the modal open on the domain, which now offers to finish verification.
+            if (addedSender.verified) {
+                lemonToast.success(`Added ${values.fromAddress} as a sender`)
+                actions.closeAddSender()
+            }
         },
         useNewDomain: () => {
             actions.closeAddSender()
             openEmailDomainSetupPage('add_sender')
         },
         finishVerification: () => {
-            const sender = values.selectedDomain?.senders[0]
+            const senders = values.selectedDomain?.senders ?? []
+            const sender = senders.find((candidate) => !isVerifiedSender(candidate)) ?? senders[0]
             actions.closeAddSender()
             if (sender) {
                 router.actions.push(urls.workflowsEmailDomain(sender.id))

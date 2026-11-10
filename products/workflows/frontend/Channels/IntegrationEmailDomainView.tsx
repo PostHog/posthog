@@ -5,6 +5,8 @@ import { useState } from 'react'
 import { IconCollapse, IconExpand, IconGear, IconLetter, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -51,6 +53,10 @@ export function IntegrationEmailDomainView({
     const { openAddSender } = useActions(addEmailSenderLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const addSenderRestrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
     const defaultSenderId = currentTeam?.workflows_config?.default_email_integration_id ?? null
 
     const makeDefault = (integrationId: number): void => {
@@ -100,6 +106,7 @@ export function IntegrationEmailDomainView({
                                 event.stopPropagation()
                                 openAddSender(domain, 'domain_row')
                             }}
+                            disabledReason={addSenderRestrictedReason}
                             data-attr="email-domain-add-sender"
                         >
                             Add sender
