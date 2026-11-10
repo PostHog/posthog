@@ -11,7 +11,7 @@ import requests
 from parameterized import parameterized
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, IntegrationAuthType
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.customer_analytics.backend.logic import calendar_sync
@@ -249,11 +249,8 @@ class TestCalendarSync(BaseTest):
         assert len(selected) == 4
 
     def test_collector_skips_credentials_rows(self) -> None:
-        Integration.objects.create(
-            team=self.team,
-            kind="google-calendar",
-            integration_id="google-sub-credentials",
-            config={"auth_type": "credentials"},
+        Integration.objects._with_auth(IntegrationAuthType.CREDENTIALS).create(
+            team=self.team, kind="google-calendar", integration_id="google-sub-credentials", config={}
         )
 
         selected = temporal_calendar_sync._collect_calendar_integrations()
