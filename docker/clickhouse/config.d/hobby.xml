@@ -1,6 +1,7 @@
 <?xml version="1.0"?>
-<!-- Mounted only by docker-compose.hobby.yml. On an idle hobby install, merges of ClickHouse's own
-     log tables use more CPU and disk than the event data does. PostHog reads none of these tables. -->
+<!-- Mounted by docker-compose.hobby.yml and docker-compose.dev.yml. On an idle install, merges of
+     ClickHouse's own log tables use more CPU and disk than the event data does. PostHog reads none
+     of these tables. -->
 <clickhouse>
     <query_views_log remove="1"/>
     <query_thread_log remove="1"/>
