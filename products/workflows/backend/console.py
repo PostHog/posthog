@@ -7,12 +7,9 @@ from django.http import HttpRequest, HttpResponse
 
 import structlog
 
-from posthog.admin.admins.team_admin import TeamAdmin
-from posthog.admin.console.bridge import AdminViewBridge
 from posthog.admin.console.panels import Fact, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.registry import console
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.workflows.backend.facade.api import (
@@ -22,6 +19,8 @@ from products.workflows.backend.facade.api import (
     max_email_sending_tier,
     recompute_email_sending_tier,
     set_email_sending_tier,
+    suspend_email_sending,
+    unsuspend_email_sending,
 )
 
 logger = structlog.get_logger(__name__)
@@ -100,6 +99,50 @@ def recompute_tier(request: HttpRequest, obj: Model, form: forms.Form | None) ->
     return None
 
 
+def suspend(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    assert form is not None
+    change = suspend_email_sending(
+        obj.pk,
+        form.cleaned_data["reason"],
+        user_id=cast(User, request.user).pk,
+        was_impersonated=is_impersonated(request),
+    )
+    if change.previously_suspended_at is not None:
+        messages.info(
+            request, f"Email sending was already suspended, since {change.previously_suspended_at.isoformat()}."
+        )
+        return None
+    if change.notification_failed:
+        messages.error(
+            request,
+            "Suspended email sending, but the email or the notification to the team failed. "
+            "Check the logs and tell the team yourself.",
+        )
+        return HttpResponse(status=500)
+    messages.warning(
+        request, "Suspended workflow email sending. Workers pick this up within a few minutes. The team was told."
+    )
+    return None
+
+
+def unsuspend(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
+    change = unsuspend_email_sending(
+        obj.pk, user_id=cast(User, request.user).pk, was_impersonated=is_impersonated(request)
+    )
+    if change.changed_at is None:
+        messages.info(request, "Email sending is not suspended.")
+        return None
+    if change.notification_failed:
+        messages.error(
+            request,
+            "Re-enabled email sending, but the email or the notification to the team failed. "
+            "Check the logs and tell the team yourself.",
+        )
+        return HttpResponse(status=500)
+    messages.success(request, "Re-enabled workflow email sending. The team was told.")
+    return None
+
+
 @console.register_panel
 class EmailSendingPanel(Panel):
     record = "team"
@@ -157,7 +200,7 @@ class EmailSendingPanel(Panel):
                 Operation(
                     key="unsuspend",
                     label="Re-enable sending",
-                    handler=AdminViewBridge(Team, TeamAdmin.unsuspend_email_sending_view),
+                    handler=unsuspend,
                     description="Workers pick this up within a few minutes. The team gets an email and a notification.",
                 ),
                 *tier_operations,
@@ -166,7 +209,7 @@ class EmailSendingPanel(Panel):
             Operation(
                 key="suspend",
                 label="Suspend sending",
-                handler=AdminViewBridge(Team, TeamAdmin.suspend_email_sending_view),
+                handler=suspend,
                 danger=True,
                 description="Stops workflow email for this team. The team gets an email and a notification.",
                 form_class=SuspendEmailSendingForm,

@@ -53,7 +53,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { tagsModel } from '~/models/tagsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -100,7 +99,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
             setOriginalAction(loadedAction)
         }
     }, [loadedAction, action, setAction, setOriginalAction])
-    const { tags } = useValues(tagsModel)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -192,7 +190,6 @@ export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }
                                 setActionValue('tags', tags)
                             }}
                             tags={action.tags || []}
-                            tagsAvailable={tags}
                             dataAttrKey={RESOURCE_TYPE}
                             canEdit={canEdit}
                         />
