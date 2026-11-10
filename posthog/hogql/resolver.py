@@ -2208,7 +2208,16 @@ class Resolver(CloningVisitor):
             node.name = "toDate"
 
         if node.name in ("toDate", "to_date") and len(node.args) == 2 and self.dialect not in ("clickhouse", "hogql"):
-            raise QueryError(f"toDate with a timezone argument is not supported in {self.dialect} dialect")
+            metadata = self.context.direct_postgres_connection_metadata
+            native_postgres_to_date = (
+                self.dialect == "postgres"
+                and node.name == "to_date"
+                and isinstance(metadata, dict)
+                and isinstance(metadata.get("available_functions"), list)
+                and any(isinstance(name, str) and name.lower() == "to_date" for name in metadata["available_functions"])
+            )
+            if not native_postgres_to_date:
+                raise QueryError(f"toDate with a timezone argument is not supported in {self.dialect} dialect")
 
         # Expand *COLUMNS(...) in function arguments
         expanded_args: list[ast.Expr] = []
