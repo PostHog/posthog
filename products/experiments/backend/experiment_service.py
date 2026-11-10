@@ -72,6 +72,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
+from products.experiments.backend.flag_ownership import assert_experiment_deletable, assert_experiment_restorable
 from products.experiments.backend.health.context import load_health_context
 from products.experiments.backend.health.registry import (
     EXPERIMENT_HEALTH_CHECKS,
@@ -123,7 +124,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
     ExposureFreezeBlocker,
     experiment_has_legacy_metrics,
-    live_experiments_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
@@ -152,13 +152,7 @@ from products.feature_flags.backend.facade.filters import (
     strip_group_cohort_restriction,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
-from products.feature_flags.backend.ownership import (
-    FLAG_OWNER_EXPERIMENT,
-    assert_flag_available_for,
-    assert_flag_releasable_by,
-    flag_owner_kind,
-    flag_owner_label,
-)
+from products.feature_flags.backend.ownership import FLAG_OWNER_EXPERIMENT, assert_flag_available_for
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -4156,27 +4150,18 @@ class ExperimentService:
         # rejects a null before this point, but this service has callers of its own.
         restoring = experiment.deleted and "deleted" in update_data and not update_data["deleted"]
         if restoring:
-            if feature_flag.deleted:
+            assert_experiment_restorable(experiment)
+            # The launch below writes the flag before the restore reaches the database, so the
+            # flag still reads as owned by nothing and the experiment approval policies do not
+            # match it. Ordering the two writes the other way would put the flag change outside
+            # the approval gate it has to pass, so the combination is refused instead.
+            if update_data.get("start_date") is not None:
                 raise ValidationError(
-                    "Cannot restore experiment: the linked feature flag has been deleted. "
-                    "Restore the feature flag first, then restore the experiment."
+                    "Cannot restore and launch an experiment in one step. Restore the experiment first, then launch it."
                 )
-            # A deleted experiment does not own its flag, so another product can adopt that flag
-            # while the experiment is deleted. The restore would then give the flag two owners.
-            owner = flag_owner_kind(feature_flag)
-            if owner is not None and owner != FLAG_OWNER_EXPERIMENT:
-                raise ValidationError(
-                    f"Cannot restore experiment: its feature flag {feature_flag.key} now belongs to "
-                    f"{flag_owner_label(owner)}. Unlink the flag there first, then restore the experiment."
-                )
-            # The restore takes a flag that no product owns, which is an adoption and carries the
-            # same approval risk as every other one.
-            assert_flag_available_for(feature_flag, product=FLAG_OWNER_EXPERIMENT)
 
         if not experiment.deleted and update_data.get("deleted") is True:
-            # This deletion releases the flag, unless a second experiment still holds it.
-            if not live_experiments_for_flag(feature_flag.id).exclude(pk=experiment.pk).exists():
-                assert_flag_releasable_by(feature_flag, product=FLAG_OWNER_EXPERIMENT)
+            assert_experiment_deletable(experiment)
 
         # Launching a draft via PATCH (start_date) is an alternate launch path, so it must
         # run the same flag guards as the dedicated launch_experiment action: flag not

@@ -15,6 +15,7 @@ from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, Cha
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.testing import create_experiment
 from products.experiments.backend.models.experiment import Experiment
+from products.surveys.backend.models import Survey
 
 
 @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
@@ -398,23 +399,27 @@ class TestExperimentFlagOwnershipTransitions(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_family_has_no_policy", False, False, True),
-            ("flag_family_keeps_the_cover", True, False, False),
-            ("a_second_experiment_still_holds_the_flag", False, True, False),
+            ("flag_family_has_no_policy", False, "none", True),
+            ("flag_family_keeps_the_cover", True, "none", False),
+            ("a_live_sibling_still_holds_the_flag", False, "live", False),
+            # `deleted` is nullable and the ownership manager counts a null as an owner, so this
+            # sibling keeps the flag and the deletion releases nothing.
+            ("a_null_deleted_sibling_still_holds_the_flag", False, "null_deleted", False),
         ]
     )
     def test_delete_against_the_release_cover_check(
-        self, _mock_enabled, _name: str, flag_policy: bool, second_experiment: bool, refused: bool
+        self, _mock_enabled, _name: str, flag_policy: bool, sibling: str, refused: bool
     ) -> None:
         experiment = self._create("released-flag")
         self._policy("experiment.update")
         if flag_policy:
             self._policy("feature_flag.update")
-        if second_experiment:
+        if sibling != "none":
             create_experiment(
                 team_id=self.team.id,
                 feature_flag_id=experiment.feature_flag.id,
                 name="sibling",
+                deleted=None if sibling == "null_deleted" else False,
             )
 
         with self._scoped_by_owner(True):
@@ -439,3 +444,52 @@ class TestExperimentFlagOwnershipTransitions(APIBaseTest):
                 self._service().update_experiment(experiment, {"deleted": False})
 
         assert "need approval" in str(caught.exception)
+
+    def test_restore_and_launch_in_one_step_is_refused(self, _mock_enabled) -> None:
+        experiment = self._create("restore-and-launch")
+        self._service().update_experiment(experiment, {"deleted": True})
+        experiment.refresh_from_db()
+
+        with self.assertRaises(ValidationError) as caught:
+            self._service().update_experiment(
+                experiment, {"deleted": False, "start_date": datetime(2026, 1, 1, tzinfo=UTC)}
+            )
+
+        assert "Restore the experiment first" in str(caught.exception)
+        experiment.refresh_from_db()
+        assert experiment.deleted is True
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.active is False
+
+    @parameterized.expand([("delete", True), ("restore", False)])
+    def test_the_file_system_path_runs_the_same_guards(self, _mock_enabled, _name: str, deleting: bool) -> None:
+        from posthog.api.file_system.deletion import delete_file_system_object, undo_delete
+        from posthog.models.file_system.file_system import FileSystem
+
+        experiment = self._create("file-system-flag")
+        self._policy("experiment.update")
+
+        with self._scoped_by_owner(True):
+            if deleting:
+                entry = FileSystem.objects.get(team=self.team, type="experiment", ref=str(experiment.id))
+                with self.assertRaises(ValidationError) as caught:
+                    delete_file_system_object(entry, user=self.user, team=self.team, organization=self.organization)
+                assert "need approval" in str(caught.exception)
+                experiment.refresh_from_db()
+                assert experiment.deleted is not True
+            else:
+                Experiment.objects.filter(pk=experiment.pk).update(deleted=True)
+                Survey.objects.create(
+                    team=self.team, name="adopter", type="popover", targeting_flag=experiment.feature_flag
+                )
+                with self.assertRaises(ValidationError) as caught:
+                    undo_delete(
+                        type_string="experiment",
+                        ref=str(experiment.id),
+                        user=self.user,
+                        team=self.team,
+                        organization=self.organization,
+                    )
+                assert "now belongs to a survey" in str(caught.exception)
+                experiment.refresh_from_db()
+                assert experiment.deleted is True
