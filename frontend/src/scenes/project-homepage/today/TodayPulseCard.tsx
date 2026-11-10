@@ -28,6 +28,7 @@ export function TodayPulseCard({
     pinned,
     pinDisabledReason,
     onTogglePin,
+    hideDisabledReason,
     onHide,
 }: {
     metric: HighlightMetricApi
@@ -37,6 +38,7 @@ export function TodayPulseCard({
     pinned: boolean
     pinDisabledReason?: string
     onTogglePin: () => void
+    hideDisabledReason: string | null
     onHide: () => void
 }): JSX.Element {
     const change = pulseChange(metric)
@@ -106,8 +108,9 @@ export function TodayPulseCard({
                     {!pinned && (
                         <Button
                             size="icon-xs"
-                            aria-label="Hide from Today"
-                            tooltip="Hide from Today"
+                            aria-label="Ignore"
+                            tooltip="Ignore"
+                            disabledReason={hideDisabledReason}
                             onClick={onHide}
                             className="text-muted-foreground"
                             data-attr="today-pulse-card-hide"

@@ -128,6 +128,7 @@ def _choices_hash(value: Any) -> str | None:
 
 
 def _all_subclasses(cls: type) -> Iterator[type]:
+    sub: type
     for sub in cls.__subclasses__():
         yield sub
         yield from _all_subclasses(sub)

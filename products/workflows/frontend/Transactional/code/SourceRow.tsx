@@ -49,7 +49,7 @@ export function SourceRow(): JSX.Element | null {
                         <Link to={file.url} target="_blank" className="font-mono truncate max-w-full" title={file.url}>
                             {file.path.split('/').pop()}
                         </Link>
-                        <span className="whitespace-nowrap">
+                        <span className="truncate max-w-full" title={file.repo}>
                             in{' '}
                             <Link to={repo} target="_blank">
                                 {file.repo}
