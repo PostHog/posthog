@@ -36,6 +36,24 @@
         "has_unsubscribe_link": true
     },
     {
+        "name": "text_link_in_brackets",
+        "html": "",
+        "text": "News\n\nUnsubscribe ({{ unsubscribe_url }}).",
+        "has_unsubscribe_link": true
+    },
+    {
+        "name": "text_link_right_after_a_colon",
+        "html": "",
+        "text": "News\n\nUnsubscribe:{{ unsubscribe_url }}",
+        "has_unsubscribe_link": true
+    },
+    {
+        "name": "link_after_a_head_left_open",
+        "html": "<html><head><title>News</title><body><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a></body></html>",
+        "text": "",
+        "has_unsubscribe_link": true
+    },
+    {
         "name": "no_placeholder",
         "html": "<p>News</p>",
         "text": "",
@@ -111,6 +129,12 @@
         "name": "link_only_in_the_text_of_an_html_email",
         "html": "<p>News</p>",
         "text": "Unsubscribe: {{ unsubscribe_url }}",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "text_link_inside_another_url",
+        "html": "",
+        "text": "Unsubscribe: https://redirect.example.com/?to={{ unsubscribe_url }}",
         "has_unsubscribe_link": false
     }
 ]
