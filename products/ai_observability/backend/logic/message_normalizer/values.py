@@ -67,15 +67,22 @@ def is_truthy(value: Value) -> bool:
 def has_field(value: Value, field: str) -> bool:
     if is_mapping(value):
         return field in value
-    return is_list(value) and _list_index(value, field) is not None
+    return is_list(value) and (field == _LIST_LENGTH or _list_index(value, field) is not None)
 
 
 def read_field(value: Value, field: str) -> Value:
     if is_mapping(value) and field in value:
         return value[field]
-    if is_list(value) and (index := _list_index(value, field)) is not None:
-        return value[index]
+    if is_list(value):
+        if field == _LIST_LENGTH:
+            return len(value)
+        if (index := _list_index(value, field)) is not None:
+            return value[index]
     return MISSING
+
+
+# The frontend engine reads a field with JavaScript's `in`, which finds an array's `length`, so recipes can count items.
+_LIST_LENGTH: Final = "length"
 
 
 _LIST_INDEX: Final = re.compile(r"0|[1-9][0-9]*")

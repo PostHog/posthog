@@ -1,7 +1,7 @@
 import pytest
 
 from products.ai_observability.backend.logic.message_normalizer.errors import RecipeCompileError
-from products.ai_observability.backend.logic.message_normalizer.yaml_loader import load_recipe_yaml
+from products.ai_observability.backend.logic.message_normalizer.yaml_loader import MAX_FLOW_DEPTH, load_recipe_yaml
 
 
 def test_reads_yaml_1_2() -> None:
@@ -39,6 +39,7 @@ def test_keeps_timestamps_as_text_like_the_frontend_parser(source: str, expected
         "%YAML 1.3\n---\nrules: []\n",
         "a: !!bool invalid\n",
         'a: !!float ""\n',
+        "a: " + "[" * (MAX_FLOW_DEPTH + 1) + "]" * (MAX_FLOW_DEPTH + 1) + "\n",
     ],
     ids=[
         "duplicate key",
@@ -51,6 +52,7 @@ def test_keeps_timestamps_as_text_like_the_frontend_parser(source: str, expected
         "YAML 1.3 directive",
         "malformed bool tag",
         "malformed float tag",
+        "flow nesting past the cap",
     ],
 )
 def test_rejects_sources_that_cannot_load(source: str) -> None:
