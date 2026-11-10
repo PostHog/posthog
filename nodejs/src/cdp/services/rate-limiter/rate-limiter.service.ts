@@ -137,8 +137,8 @@ return {0, math.ceil(slotAt - now), 1}
 `
 
 const MARK_CLAIM_SPENT_LUA = `
-if redis.call('get', KEYS[1]) == ARGV[1] then
-    redis.call('set', KEYS[1], 'spent', 'KEEPTTL')
+if redis.call('hexists', KEYS[1], 'attempt:' .. ARGV[1]) == 1 then
+    redis.call('hset', KEYS[1], 'spent', 1)
     return 1
 end
 return 0
@@ -154,12 +154,11 @@ local claimTtlSeconds = tonumber(ARGV[#ARGV])
 if claimTtlSeconds == nil or claimTtlSeconds < 1 or claimTtlSeconds > 2147483647 or claimTtlSeconds % 1 ~= 0 then
     return redis.error_reply('invalid ttl for ' .. claimKey)
 end
-if claimAttempt == '' or claimAttempt == 'spent' then
+if claimAttempt == nil or claimAttempt == '' then
     return redis.error_reply('invalid attempt for ' .. claimKey)
 end
-local claimState = redis.call('get', claimKey)
-if claimState and claimState ~= 'spent' then
-    redis.call('set', claimKey, claimAttempt, 'KEEPTTL')
+if redis.call('exists', claimKey) == 1 and not redis.call('hget', claimKey, 'spent') then
+    redis.call('hset', claimKey, 'attempt:' .. claimAttempt, 1)
     return 1
 end
 
@@ -195,7 +194,9 @@ for i = 1, #KEYS - 1 do
     redis.call('hset', KEYS[i], 'ts', now, 'pool', after[i])
     redis.call('expire', KEYS[i], tonumber(ARGV[(i - 1) * 4 + 4]))
 end
-redis.call('set', claimKey, claimAttempt, 'EX', claimTtlSeconds)
+redis.call('del', claimKey)
+redis.call('hset', claimKey, 'attempt:' .. claimAttempt, 1)
+redis.call('expire', claimKey, claimTtlSeconds)
 return 1
 `
 
