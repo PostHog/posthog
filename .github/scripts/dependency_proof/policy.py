@@ -26,7 +26,7 @@ BLOCKING_SETTINGS = (
 )
 SETTINGS_FILES = (WORKSPACE_FILE, ".npmrc", ".pnpmfile.cjs", "pnpmfile.cjs")
 RANGE = re.compile(r"(?P<operator>[~^]?)(?P<major>[0-9]+)\.(?P<minor>[0-9]+)\.(?P<patch>[0-9]+)")
-# A package name with `*` wildcards. Other pattern syntax is refused, because pnpm and Renovate each read it their own way.
+# A package name with `*` wildcards. pnpm reads more pattern syntax, such as a leading `!`, and that is refused.
 PACKAGE_PATTERN = re.compile(r"(@[A-Za-z0-9._~*-]+/)?[A-Za-z0-9._~*-]+")
 SAFE_PATH = re.compile(r"^[A-Za-z0-9._@-]+(/[A-Za-z0-9._@-]+)*$")
 WORKSPACE_GLOB = re.compile(r"[A-Za-z0-9._@/*-]+")
@@ -41,49 +41,6 @@ def package_name(spec: str) -> str:
     """The name in `name`, `name@selector` or `@scope/name@selector`."""
     at = spec.find("@", 1)
     return spec if at < 0 else spec[:at]
-
-
-def json5_loads(text: str) -> Any:
-    """Parse the JSON5 subset Renovate configs use: comments, unquoted keys, single quotes, trailing commas."""
-    out: list[str] = []
-    i = 0
-    while i < len(text):
-        char = text[i]
-        if char in "\"'":
-            end = i + 1
-            while end < len(text) and text[end] != char:
-                end += 2 if text[end] == "\\" else 1
-            if end >= len(text):
-                raise ValueError("unterminated string")
-            body = text[i + 1 : end]
-            out.append('"' + (body.replace("\\'", "'").replace('"', '\\"') if char == "'" else body) + '"')
-            i = end + 1
-        elif text.startswith("//", i):
-            newline = text.find("\n", i)
-            i = len(text) if newline < 0 else newline
-        elif text.startswith("/*", i):
-            end = text.find("*/", i + 2)
-            if end < 0:
-                raise ValueError("unterminated comment")
-            i = end + 2
-        elif char.isalpha() or char in "_$":
-            end = i
-            while end < len(text) and (text[end].isalnum() or text[end] in "_$"):
-                end += 1
-            after = end
-            while after < len(text) and text[after].isspace():
-                after += 1
-            out.append(f'"{text[i:end]}"' if text.startswith(":", after) else text[i:end])
-            i = end
-        elif char in "}]":
-            while out and out[-1] in (" ", "\t", "\n", "\r", ","):
-                out.pop()
-            out.append(char)
-            i += 1
-        else:
-            out.append(char)
-            i += 1
-    return json.loads("".join(out))
 
 
 def load_manifest(text: bytes) -> dict[str, Any]:
@@ -243,7 +200,7 @@ def new_packages(base_lock: Mapping[str, Any], head_lock: Mapping[str, Any]) -> 
 
 
 def blocked_patterns(
-    workspace: Mapping[str, Any], manifest: Mapping[str, Any], renovate: Mapping[str, Any], only_built_file: str | None
+    workspace: Mapping[str, Any], manifest: Mapping[str, Any], only_built_file: str | None
 ) -> dict[str, list[str]]:
     """Package patterns the settings exempt from a policy or allow to run scripts, keyed by setting."""
     patterns: dict[str, list[str]] = {}
@@ -252,10 +209,6 @@ def blocked_patterns(
             patterns.setdefault(key, []).extend(str(entry) for entry in settings.get(key) or ())
     if only_built_file is not None:
         patterns["onlyBuiltDependenciesFile"] = [str(entry) for entry in json.loads(only_built_file)]
-    for rule in renovate.get("packageRules") or []:
-        if rule.get("minimumReleaseAge", "") is None:
-            names = (rule.get("matchPackageNames") or []) + (rule.get("matchDepNames") or [])
-            patterns.setdefault("renovate minimumReleaseAge", []).extend(names)
     return patterns
 
 
@@ -265,8 +218,8 @@ def blocked_reason(name: str, patterns: Mapping[str, Iterable[str]]) -> str | No
             pattern = package_name(entry)
             if not PACKAGE_PATTERN.fullmatch(pattern):
                 raise Refused(f"{setting} uses a pattern this proof does not read: {entry}")
-            # `*` crosses `/` as it does for pnpm, and case is ignored as it is for Renovate.
-            if re.fullmatch(".*".join(map(re.escape, pattern.split("*"))), name, re.IGNORECASE):
+            # `*` crosses `/` as it does for pnpm.
+            if re.fullmatch(".*".join(map(re.escape, pattern.split("*"))), name):
                 return f"{name} is named in {setting}"
     return None
 
@@ -286,7 +239,7 @@ def release_age_reason(name: str, version: str, metadata: Mapping[str, Any], now
 
 def settings_paths(directory: str, workspace: Mapping[str, Any]) -> list[str]:
     """Files whose head blob must equal the default branch for the proof to hold."""
-    paths = [".github/renovate.json5", *SETTINGS_FILES]
+    paths = list(SETTINGS_FILES)
     if directory:
         paths += [join(directory, name) for name in SETTINGS_FILES]
     if only_built := workspace.get("onlyBuiltDependenciesFile"):

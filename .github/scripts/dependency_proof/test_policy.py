@@ -1,12 +1,10 @@
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 
 from dependency_proof import policy
 from dependency_proof.policy import Refused
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 NOW = datetime(2026, 11, 9, tzinfo=UTC)
 
 
@@ -107,12 +105,6 @@ BLOCKED = policy.blocked_patterns(
         "trustPolicyExclude": ["semver@5.7.2 || 6.3.1"],
     },
     {"pnpm": {"ignoredBuiltDependencies": ["core-js"]}},
-    {
-        "packageRules": [
-            {"matchPackageNames": ["shiki", "@shikijs/*"], "minimumReleaseAge": None},
-            {"matchPackageNames": ["left-pad"], "minimumReleaseAge": "7 days"},
-        ]
-    },
     '["lmdb"]',
 )
 
@@ -131,9 +123,6 @@ BLOCKED = policy.blocked_patterns(
         ("@posthog/icons", "minimumReleaseAgeExclude"),
         ("kea", "minimumReleaseAgeExclude"),
         ("semver", "trustPolicyExclude"),
-        ("shiki", "renovate minimumReleaseAge"),
-        ("@shikijs/core", "renovate minimumReleaseAge"),
-        ("Shiki", "renovate minimumReleaseAge"),
         ("left-pad", None),
         ("esbuild-wasm", None),
     ],
@@ -146,7 +135,7 @@ def test_blocked_reason(name: str, setting: str | None) -> None:
 @pytest.mark.parametrize("pattern", ["!left-pad", "/^left-/", "/left.*/", "@scope/{one,two}", "left-pa?", "[l]eft-pad"])
 def test_blocked_reason_refuses_patterns_it_cannot_read(pattern: str) -> None:
     with pytest.raises(Refused, match="pattern this proof does not read"):
-        policy.blocked_reason("left-pad", {"renovate minimumReleaseAge": [pattern]})
+        policy.blocked_reason("left-pad", {"minimumReleaseAgeExclude": [pattern]})
 
 
 @pytest.mark.parametrize(
@@ -165,18 +154,6 @@ def test_blocked_reason_refuses_patterns_it_cannot_read(pattern: str) -> None:
 def test_release_age_reason(metadata: dict, reason: str | None) -> None:
     found = policy.release_age_reason("pkg", "1.0.0", metadata, NOW)
     assert found == reason if reason is None else reason in found
-
-
-def test_json5_loads_reads_the_renovate_config() -> None:
-    config = policy.json5_loads((REPO_ROOT / ".github/renovate.json5").read_text())
-    assert "config:best-practices" in config["extends"]
-    exempt = [rule for rule in config["packageRules"] if rule.get("minimumReleaseAge", "") is None]
-    assert any("posthog-js" in rule["matchPackageNames"] for rule in exempt)
-
-
-def test_json5_loads_subset() -> None:
-    text = '{a: \'x"y\', // c\n b: [1, 2,], /* d */ $c: {d: true,}, e: "f:g",}'
-    assert policy.json5_loads(text) == {"a": 'x"y', "b": [1, 2], "$c": {"d": True}, "e": "f:g"}
 
 
 def importers(specifier: str, version: str, peer: str = "18.3.1", extra: dict | None = None) -> dict:
@@ -278,7 +255,6 @@ def test_lockfile_dir() -> None:
 
 def test_settings_paths() -> None:
     assert policy.settings_paths("", {}) == [
-        ".github/renovate.json5",
         "pnpm-workspace.yaml",
         ".npmrc",
         ".pnpmfile.cjs",
