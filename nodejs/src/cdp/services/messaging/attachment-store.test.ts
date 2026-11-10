@@ -1,16 +1,11 @@
-import {
-    CopyObjectCommand,
-    CreateBucketCommand,
-    HeadObjectCommand,
-    PutObjectCommand,
-    S3Client,
-} from '@aws-sdk/client-s3'
+import { CopyObjectCommand, CreateBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { createHash, randomBytes } from 'node:crypto'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
 import { FetchResponse, internalFetch } from '~/common/utils/request'
 
 import {
+    ATTACHMENT_LIFETIME_MS,
     AttachmentMissingError,
     AttachmentStoreUnavailableError,
     DAY_MS,
@@ -24,8 +19,12 @@ jest.setTimeout(30000)
 
 const config = { ...getDefaultCdpConfig(), CDP_EMAIL_ATTACHMENTS_S3_PREFIX: `attachments-test/${Date.now()}` }
 const BUCKET = config.CDP_EMAIL_ATTACHMENTS_S3_BUCKET
+const MINUTE_MS = 60 * 1000
+const BUCKET_CLOCK_PRECISION_MS = 1000
 
 type TestFile = { bytes: Buffer; sha256: string }
+type UploadUrl = Extract<UploadSlot, { status: 'upload' }>
+type Present = Extract<UploadSlot, { status: 'present' }>
 
 const file = (): TestFile => {
     const bytes = Buffer.from(`%PDF-1.4 ${randomBytes(16).toString('hex')}`)
@@ -39,32 +38,33 @@ const put = (slot: UploadSlot, body: Buffer): Promise<FetchResponse> => {
     return internalFetch(slot.url, { method: slot.method, headers: slot.headers, body })
 }
 
+const minutesFromNow = (minutes: number): Date => new Date(Date.now() + minutes * MINUTE_MS)
+
+const withTheClockAt = async <T>(at: Date, act: () => Promise<T>): Promise<T> => {
+    jest.useFakeTimers({
+        now: at,
+        doNotFake: [
+            'hrtime',
+            'nextTick',
+            'performance',
+            'queueMicrotask',
+            'setImmediate',
+            'clearImmediate',
+            'setInterval',
+            'clearInterval',
+            'setTimeout',
+            'clearTimeout',
+        ],
+    })
+    try {
+        return await act()
+    } finally {
+        jest.useRealTimers()
+    }
+}
+
 describe('S3AttachmentStore', () => {
-    let s3: S3Client
     let store: S3AttachmentStore
-
-    const keyOf = (teamId: number, sha256: string): string =>
-        `${config.CDP_EMAIL_ATTACHMENTS_S3_PREFIX}/team/${teamId}/${sha256}`
-
-    const lastModified = async (teamId: number, sha256: string): Promise<Date> =>
-        (await s3.send(new HeadObjectCommand({ Bucket: BUCKET, Key: keyOf(teamId, sha256) }))).LastModified!
-
-    const upload = async (teamId: number, f: TestFile): Promise<void> => {
-        const [slot] = await store.prepareUploads(teamId, [{ sha256: f.sha256, size: f.bytes.length }])
-        expect((await put(slot, f.bytes)).status).toBe(200)
-    }
-
-    const storedWithAnotherChecksum = async (teamId: number, f: TestFile): Promise<void> => {
-        const other = file()
-        await s3.send(
-            new PutObjectCommand({
-                Bucket: BUCKET,
-                Key: keyOf(teamId, f.sha256),
-                Body: other.bytes,
-                ChecksumSHA256: Buffer.from(other.sha256, 'hex').toString('base64'),
-            })
-        )
-    }
 
     const storeAt = (now: Date, signer: S3Client = store.s3, timeoutMs = 10000): S3AttachmentStore =>
         new S3AttachmentStore(
@@ -76,42 +76,60 @@ describe('S3AttachmentStore', () => {
 
     const signerWith = (credentials: Parameters<typeof credentialsThatOutliveUploadUrls>[0]): S3Client =>
         new S3Client({
-            region: 'us-east-1',
-            endpoint: 'https://uploads.example.com',
+            region: config.CDP_EMAIL_ATTACHMENTS_S3_REGION,
+            endpoint: config.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT,
             forcePathStyle: true,
             credentials: credentialsThatOutliveUploadUrls(credentials),
         })
 
-    const expiringIn = (minutes: number): Date => new Date(Date.now() + minutes * 60 * 1000)
+    const realCredentials = {
+        accessKeyId: config.CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID,
+        secretAccessKey: config.CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY,
+    }
 
-    const untilTheBucketClockPasses = async (secondStoredAs: Date): Promise<void> => {
-        while (Date.now() <= secondStoredAs.getTime() + 1000) {
-            await new Promise((resolve) => setTimeout(resolve, secondStoredAs.getTime() + 1001 - Date.now()))
+    const askFor = async (at: S3AttachmentStore, teamId: number, f: TestFile): Promise<UploadSlot> => {
+        const [slot] = await at.prepareUploads(teamId, [{ sha256: f.sha256, size: f.bytes.length }])
+        return slot
+    }
+
+    const expiryOf = async (teamId: number, f: TestFile): Promise<Date> => {
+        const slot = await askFor(store, teamId, f)
+        if (slot.status !== 'present') {
+            throw new Error(`expected ${f.sha256} to be present, got ${slot.status}`)
+        }
+        return slot.expiresAt
+    }
+
+    const uploaded = async (teamId: number, f: TestFile): Promise<Date> => {
+        expect((await put(await askFor(store, teamId, f), f.bytes)).status).toBe(200)
+        return await expiryOf(teamId, f)
+    }
+
+    const uploadedAt = async (teamId: number, f: TestFile): Promise<Date> =>
+        new Date((await uploaded(teamId, f)).getTime() - ATTACHMENT_LIFETIME_MS)
+
+    const untilAKeepWouldMoveTheExpiry = async (expiresAt: Date): Promise<void> => {
+        const storedAt = expiresAt.getTime() - ATTACHMENT_LIFETIME_MS
+        while (Date.now() <= storedAt + BUCKET_CLOCK_PRECISION_MS) {
+            await new Promise((resolve) => setTimeout(resolve, storedAt + BUCKET_CLOCK_PRECISION_MS + 1 - Date.now()))
         }
     }
 
-    const expiryAnsweredFor = async (sha256: string, size: number): Promise<Date> => {
-        const [slot] = await store.prepareUploads(1, [{ sha256, size }])
-        return (slot as Extract<UploadSlot, { status: 'present' }>).expiresAt
+    const storedUnderItsHashWithAnotherFilesChecksum = async (teamId: number, f: TestFile): Promise<void> => {
+        const other = file()
+        await store.s3.send(
+            new PutObjectCommand({
+                Bucket: BUCKET,
+                Key: `${config.CDP_EMAIL_ATTACHMENTS_S3_PREFIX}/team/${teamId}/${f.sha256}`,
+                Body: other.bytes,
+                ChecksumSHA256: Buffer.from(other.sha256, 'hex').toString('base64'),
+            })
+        )
     }
-
-    const selfCopiesOf = (send: jest.SpyInstance, teamId: number, sha256: string): number =>
-        send.mock.calls.filter(
-            ([command]) => command instanceof CopyObjectCommand && command.input.Key === keyOf(teamId, sha256)
-        ).length
 
     beforeAll(async () => {
         store = buildAttachmentStore(config)!
-        s3 = new S3Client({
-            region: config.CDP_EMAIL_ATTACHMENTS_S3_REGION,
-            endpoint: config.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT,
-            forcePathStyle: true,
-            credentials: {
-                accessKeyId: config.CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID,
-                secretAccessKey: config.CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY,
-            },
-        })
-        await s3.send(new CreateBucketCommand({ Bucket: BUCKET })).catch((error: Error) => {
+        await store.s3.send(new CreateBucketCommand({ Bucket: BUCKET })).catch((error: Error) => {
             if (error.name !== 'BucketAlreadyOwnedByYou' && error.name !== 'BucketAlreadyExists') {
                 throw error
             }
@@ -120,41 +138,45 @@ describe('S3AttachmentStore', () => {
 
     afterEach(() => jest.restoreAllMocks())
 
-    afterAll(() => s3.destroy())
+    afterAll(() => store.s3.destroy())
 
     describe('prepareUploads', () => {
-        it('signs a 15-minute PUT for a missing file, then answers present with its expiry once uploaded', async () => {
+        it('answers upload with a URL for the next 15 minutes, then present until 37 days after the upload', async () => {
             const f = file()
-            const before = Date.now()
+            const asked = Date.now()
 
-            const [slot] = await store.prepareUploads(1, [{ sha256: f.sha256, size: f.bytes.length }])
+            const slot = await askFor(store, 1, f)
 
-            expect(slot).toMatchObject({
-                sha256: f.sha256,
-                status: 'upload',
-                method: 'PUT',
-                headers: {
-                    'Content-Length': String(f.bytes.length),
-                    'x-amz-checksum-sha256': createHash('sha256').update(f.bytes).digest('base64'),
-                },
-            })
-            const { url, urlExpiresAt } = slot as Extract<UploadSlot, { status: 'upload' }>
-            expect(new URL(url).searchParams.get('X-Amz-Expires')).toBe('900')
-            expect(urlExpiresAt.getTime() - before).toBeGreaterThanOrEqual(15 * 60 * 1000)
+            expect(slot).toMatchObject({ sha256: f.sha256, status: 'upload', method: 'PUT' })
+            const { urlExpiresAt } = slot as UploadUrl
+            expect(urlExpiresAt.getTime()).toBeGreaterThanOrEqual(asked + 15 * MINUTE_MS)
+            expect(urlExpiresAt.getTime()).toBeLessThanOrEqual(Date.now() + 15 * MINUTE_MS)
+
+            const putAt = Date.now()
             expect((await put(slot, f.bytes)).status).toBe(200)
+            const putDone = Date.now()
 
-            const [again] = await store.prepareUploads(1, [{ sha256: f.sha256, size: f.bytes.length }])
-            const createdAt = await lastModified(1, f.sha256)
-            expect(again).toEqual({
-                sha256: f.sha256,
-                status: 'present',
-                expiresAt: new Date(createdAt.getTime() + 37 * DAY_MS),
-            })
+            const again = (await askFor(store, 1, f)) as Present
+            expect(again).toEqual({ sha256: f.sha256, status: 'present', expiresAt: expect.any(Date) })
+            expect(again.expiresAt.getTime()).toBeGreaterThanOrEqual(
+                putAt - BUCKET_CLOCK_PRECISION_MS + ATTACHMENT_LIFETIME_MS
+            )
+            expect(again.expiresAt.getTime()).toBeLessThanOrEqual(putDone + ATTACHMENT_LIFETIME_MS)
+        })
+
+        it.each([
+            ['takes the file 14 minutes after it was signed', 14, 200],
+            ['refuses the file 16 minutes after it was signed', 16, 403],
+        ])('gives a URL that %s', async (_, minutesAgo, status) => {
+            const f = file()
+            const slot = await withTheClockAt(minutesFromNow(-minutesAgo), () => askFor(store, 1, f))
+
+            expect((await put(slot, f.bytes)).status).toBe(status)
         })
 
         it('lets the bucket refuse a body that differs from the declared hash, and stores nothing', async () => {
             const f = file()
-            const [slot] = await store.prepareUploads(1, [{ sha256: f.sha256, size: f.bytes.length }])
+            const slot = await askFor(store, 1, f)
 
             const response = await put(slot, Buffer.from(f.bytes).fill(0x41, f.bytes.length - 1))
 
@@ -165,17 +187,22 @@ describe('S3AttachmentStore', () => {
         })
 
         it.each([
-            ['would expire within a day of the URL', upload, 1, 36 * DAY_MS],
-            ['belongs to another team', upload, 2, 0],
-            ['is stored with another checksum, as send refuses it', storedWithAnotherChecksum, 1, 0],
-        ])('answers upload for a file that %s', async (_, keep, askingTeam, clockOffsetMs) => {
+            [
+                'would expire within a day of the URL',
+                async (f: TestFile) => new Date((await uploaded(1, f)).getTime() - DAY_MS),
+                1,
+            ],
+            ['belongs to another team', async (f: TestFile) => (await uploaded(2, f), new Date()), 1],
+            [
+                'is stored under its hash with another checksum, as send refuses it',
+                async (f: TestFile) => (await storedUnderItsHashWithAnotherFilesChecksum(1, f), new Date()),
+                1,
+            ],
+        ])('answers upload for a file that %s', async (_, storedAndAskedAt, askingTeam) => {
             const f = file()
-            await keep(1, f)
-            const createdAt = await lastModified(1, f.sha256)
+            const askedAt = await storedAndAskedAt(f)
 
-            const [slot] = await storeAt(new Date(createdAt.getTime() + clockOffsetMs)).prepareUploads(askingTeam, [
-                { sha256: f.sha256, size: f.bytes.length },
-            ])
+            const slot = await askFor(storeAt(askedAt), askingTeam, f)
 
             expect(slot.status).toBe('upload')
         })
@@ -186,37 +213,36 @@ describe('S3AttachmentStore', () => {
             )
         })
 
-        it('signs with credentials that outlive the URL, keeping the ones a forced refresh returned', async () => {
-            const chainThatForgetsRefreshes = jest.fn(({ forceRefresh }: { forceRefresh?: boolean } = {}) =>
+        it('gives URLs that work when the cached credentials expire too soon and a forced refresh renews them', async () => {
+            const chainThatForgetsRefreshes = ({ forceRefresh }: { forceRefresh?: boolean } = {}): Promise<{
+                accessKeyId: string
+                secretAccessKey: string
+                expiration: Date
+            }> =>
                 Promise.resolve(
                     forceRefresh
-                        ? { accessKeyId: 'fresh', secretAccessKey: 'secret', expiration: expiringIn(60) }
-                        : { accessKeyId: 'stale', secretAccessKey: 'secret', expiration: expiringIn(10) }
+                        ? { ...realCredentials, expiration: minutesFromNow(60) }
+                        : { accessKeyId: 'revoked', secretAccessKey: 'revoked', expiration: minutesFromNow(10) }
                 )
-            )
+            const [pdf, logo] = [file(), file()]
 
             const slots = await storeAt(new Date(), signerWith(chainThatForgetsRefreshes)).prepareUploads(1, [
-                { sha256: file().sha256, size: 10 },
-                { sha256: file().sha256, size: 10 },
+                { sha256: pdf.sha256, size: pdf.bytes.length },
+                { sha256: logo.sha256, size: logo.bytes.length },
             ])
 
-            for (const slot of slots) {
-                const url = new URL((slot as Extract<UploadSlot, { status: 'upload' }>).url)
-                expect(url.host).toBe('uploads.example.com')
-                expect(url.searchParams.get('X-Amz-Credential')).toMatch(/^fresh\//)
-            }
+            expect((await put(slots[0], pdf.bytes)).status).toBe(200)
+            expect((await put(slots[1], logo.bytes)).status).toBe(200)
         })
 
         it.each([
             [
                 'expire before the URL even after a forced refresh',
-                () => Promise.resolve({ accessKeyId: 'stale', secretAccessKey: 'secret', expiration: expiringIn(10) }),
+                () => Promise.resolve({ ...realCredentials, expiration: minutesFromNow(10) }),
             ],
             ['never arrive', () => new Promise<never>(() => {})],
         ])('throws unavailable instead of signing when the credentials %s', async (_, credentials) => {
-            const signing = storeAt(new Date(), signerWith(credentials), 200).prepareUploads(1, [
-                { sha256: file().sha256, size: 10 },
-            ])
+            const signing = askFor(storeAt(new Date(), signerWith(credentials), 200), 1, file())
 
             await expect(signing).rejects.toThrow(AttachmentStoreUnavailableError)
         })
@@ -225,8 +251,8 @@ describe('S3AttachmentStore', () => {
     describe('acceptForSend', () => {
         it('accepts files present under the team, with their stored sizes', async () => {
             const [pdf, logo] = [file(), file()]
-            await upload(1, pdf)
-            await upload(1, logo)
+            await uploaded(1, pdf)
+            await uploaded(1, logo)
 
             const answer = await store.acceptForSend(
                 1,
@@ -250,25 +276,25 @@ describe('S3AttachmentStore', () => {
             })
         })
 
-        it('refuses a send naming the first file that is missing under the team, and copies none of the others', async () => {
-            const [uploaded, othersTeam, never] = [file(), file(), file()]
-            await upload(1, uploaded)
-            await upload(2, othersTeam)
-            const createdAt = await lastModified(1, uploaded.sha256)
-            const send = jest.spyOn(store.s3, 'send')
+        it('refuses a send naming the first file missing under the team, and keeps none of the others longer', async () => {
+            const [stored, othersTeam, never] = [file(), file(), file()]
+            const expiresAt = await uploaded(1, stored)
+            await uploaded(2, othersTeam)
+            await untilAKeepWouldMoveTheExpiry(expiresAt)
+            const storedAt = expiresAt.getTime() - ATTACHMENT_LIFETIME_MS
 
-            const answer = await storeAt(new Date(createdAt.getTime() + 2 * DAY_MS)).acceptForSend(
+            const answer = await storeAt(new Date(storedAt + 2 * DAY_MS)).acceptForSend(
                 1,
                 [
-                    { sha256: uploaded.sha256, filename: 'a.pdf' },
+                    { sha256: stored.sha256, filename: 'a.pdf' },
                     { sha256: othersTeam.sha256, filename: 'b.pdf' },
                     { sha256: never.sha256, filename: 'c.pdf' },
                 ],
-                new Date(createdAt.getTime() + 38 * DAY_MS)
+                new Date(storedAt + 38 * DAY_MS)
             )
 
             expect(answer).toEqual({ refusal: 'attachment_not_uploaded', sha256: othersTeam.sha256 })
-            expect(selfCopiesOf(send, 1, uploaded.sha256)).toBe(0)
+            expect(await expiryOf(1, stored)).toEqual(expiresAt)
         })
 
         it('throws unavailable when the bucket cannot be reached', async () => {
@@ -286,38 +312,49 @@ describe('S3AttachmentStore', () => {
 
         it('keeps a file through the latest time a use can need it, past its expiry at upload', async () => {
             const f = file()
-            await upload(1, f)
-            await untilTheBucketClockPasses(await lastModified(1, f.sha256))
+            const expiresAt = await uploaded(1, f)
+            await untilAKeepWouldMoveTheExpiry(expiresAt)
             const now = new Date()
-            const needsUntil = new Date(now.getTime() + 37 * DAY_MS - 1000)
-            expect((await expiryAnsweredFor(f.sha256, f.bytes.length)).getTime()).toBeLessThan(needsUntil.getTime())
+            const needsUntil = new Date(now.getTime() + ATTACHMENT_LIFETIME_MS - BUCKET_CLOCK_PRECISION_MS)
+            expect(expiresAt.getTime()).toBeLessThan(needsUntil.getTime())
 
             await use(storeAt(now), f.sha256, needsUntil)
 
-            expect((await expiryAnsweredFor(f.sha256, f.bytes.length)).getTime()).toBeGreaterThanOrEqual(
-                needsUntil.getTime()
-            )
+            expect((await expiryOf(1, f)).getTime()).toBeGreaterThanOrEqual(needsUntil.getTime())
         })
 
-        it('leaves a file alone when it outlives the use', async () => {
+        it.each([
+            ['the use needs it no longer than it lives', (expiresAt: Date) => ({ at: DAY_MS, needsUntil: expiresAt })],
+            [
+                'the use needs it until the expiry prepareUploads answered for a fresh upload',
+                (expiresAt: Date) => ({ at: 0, needsUntil: expiresAt }),
+            ],
+        ])('leaves the expiry alone when %s', async (_, timing) => {
             const f = file()
-            await upload(1, f)
-            const createdAt = await lastModified(1, f.sha256)
-            const send = jest.spyOn(store.s3, 'send')
+            const expiresAt = await uploaded(1, f)
+            await untilAKeepWouldMoveTheExpiry(expiresAt)
+            const { at, needsUntil } = timing(expiresAt)
 
-            await use(
-                storeAt(new Date(createdAt.getTime() + DAY_MS)),
-                f.sha256,
-                new Date(createdAt.getTime() + 37 * DAY_MS)
-            )
+            await use(storeAt(new Date(Date.now() + at)), f.sha256, needsUntil)
 
-            expect(selfCopiesOf(send, 1, f.sha256)).toBe(0)
+            expect(await expiryOf(1, f)).toEqual(expiresAt)
         })
 
-        it('throws unavailable when the copy a use needs does not settle in time', async () => {
+        it('refuses a use that needs a file past what a keep now can reach, and leaves its expiry alone', async () => {
             const f = file()
-            await upload(1, f)
-            const createdAt = await lastModified(1, f.sha256)
+            const expiresAt = await uploaded(1, f)
+            await untilAKeepWouldMoveTheExpiry(expiresAt)
+            const now = new Date()
+
+            await expect(
+                use(storeAt(now), f.sha256, new Date(now.getTime() + ATTACHMENT_LIFETIME_MS + 1000))
+            ).rejects.toThrow(RangeError)
+            expect(await expiryOf(1, f)).toEqual(expiresAt)
+        })
+
+        it('throws unavailable when the bucket stalls on the keep a use needs', async () => {
+            const f = file()
+            const storedAt = await uploadedAt(1, f)
             const send = store.s3.send.bind(store.s3)
             jest.spyOn(store.s3, 'send').mockImplementation(((command: unknown, ...rest: unknown[]) =>
                 command instanceof CopyObjectCommand
@@ -326,42 +363,18 @@ describe('S3AttachmentStore', () => {
 
             await expect(
                 use(
-                    storeAt(new Date(createdAt.getTime() + DAY_MS), store.s3, 200),
+                    storeAt(new Date(storedAt.getTime() + DAY_MS), store.s3, 200),
                     f.sha256,
-                    new Date(createdAt.getTime() + 37 * DAY_MS + 1000)
+                    new Date(storedAt.getTime() + ATTACHMENT_LIFETIME_MS + 1000)
                 )
             ).rejects.toThrow(AttachmentStoreUnavailableError)
         })
 
-        it('keeps a fresh upload through the expiry that prepareUploads answered for it', async () => {
+        it('keeps the file whole when two uses keep it at once', async () => {
             const f = file()
-            await upload(1, f)
-            const [present] = await store.prepareUploads(1, [{ sha256: f.sha256, size: f.bytes.length }])
-            const send = jest.spyOn(store.s3, 'send')
-
-            await use(store, f.sha256, (present as Extract<UploadSlot, { status: 'present' }>).expiresAt)
-
-            expect(selfCopiesOf(send, 1, f.sha256)).toBe(0)
-        })
-
-        it('refuses a use that needs a file past what a copy now can keep', async () => {
-            const f = file()
-            await upload(1, f)
-            const now = new Date()
-            const send = jest.spyOn(store.s3, 'send')
-
-            await expect(use(storeAt(now), f.sha256, new Date(now.getTime() + 37 * DAY_MS + 1000))).rejects.toThrow(
-                RangeError
-            )
-            expect(selfCopiesOf(send, 1, f.sha256)).toBe(0)
-        })
-
-        it('keeps the file whole when two uses copy it at once', async () => {
-            const f = file()
-            await upload(1, f)
-            const createdAt = await lastModified(1, f.sha256)
-            const later = storeAt(new Date(createdAt.getTime() + 2 * DAY_MS))
-            const needsUntil = new Date(createdAt.getTime() + 38 * DAY_MS)
+            const storedAt = (await uploadedAt(1, f)).getTime()
+            const later = storeAt(new Date(storedAt + 2 * DAY_MS))
+            const needsUntil = new Date(storedAt + 38 * DAY_MS)
 
             await Promise.all([use(later, f.sha256, needsUntil), use(later, f.sha256, needsUntil)])
 
@@ -377,8 +390,8 @@ describe('S3AttachmentStore', () => {
     describe('load', () => {
         it('returns the bytes of every file in order', async () => {
             const [pdf, logo] = [file(), file()]
-            await upload(1, pdf)
-            await upload(1, logo)
+            await uploaded(1, pdf)
+            await uploaded(1, logo)
             const files = [
                 { sha256: pdf.sha256, filename: 'invoice.pdf', sizeBytes: pdf.bytes.length },
                 { sha256: logo.sha256, filename: 'logo.png', contentId: 'logo', sizeBytes: logo.bytes.length },
@@ -397,7 +410,7 @@ describe('S3AttachmentStore', () => {
             ['an aborted load', 1, (): AbortSignal => AbortSignal.abort(), AttachmentStoreUnavailableError],
         ])('throws for %s', async (_, ownerTeam, signal, error) => {
             const f = file()
-            await upload(ownerTeam, f)
+            await uploaded(ownerTeam, f)
 
             await expect(
                 store.load(1, [{ sha256: f.sha256, filename: 'a.pdf', sizeBytes: f.bytes.length }], signal())
@@ -421,7 +434,7 @@ describe('S3AttachmentStore', () => {
             ],
         ])('%s throws unavailable once its time is up', async (_, use) => {
             const stalled = new S3Client({
-                region: 'us-east-1',
+                region: config.CDP_EMAIL_ATTACHMENTS_S3_REGION,
                 endpoint: config.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT,
                 forcePathStyle: true,
                 credentials: () => new Promise<never>(() => {}),
