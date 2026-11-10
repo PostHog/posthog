@@ -32,6 +32,7 @@ from hogli_commands.db_template import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APPLIED, PENDING = sorted(path.stem for path in (REPO_ROOT / "posthog" / "migrations").glob("0*.py"))[1:3]
 FROM_NEWER_BRANCH = "9999_from_a_newer_branch"
+APPLIED_MIGRATION = f"posthog/migrations/{APPLIED}.py"
 NOT_IN_HISTORY = "0123456789ab"
 
 
@@ -253,6 +254,35 @@ def test_prime_test_database_leaves_the_database_alone_without_a_template_that_f
 
 
 @pytest.mark.parametrize(
+    "later_commit, uncommitted, outcome, ledger",
+    [
+        ({APPLIED_MIGRATION: "operations = ['edited']"}, {}, PrimeOutcome.SKIPPED, None),
+        ({}, {APPLIED_MIGRATION: "operations = ['edited']"}, PrimeOutcome.SKIPPED, None),
+        ({"README.md": "edited"}, {}, PrimeOutcome.CLONED, {APPLIED, PENDING}),
+    ],
+    ids=["committed-migration-edit", "uncommitted-migration-edit", "other-file-edit"],
+)
+def test_prime_test_database_clones_a_template_only_while_the_checkout_keeps_its_migrations(
+    scratch: Scratch,
+    tmp_path: Path,
+    later_commit: dict[str, str],
+    uncommitted: dict[str, str],
+    outcome: PrimeOutcome,
+    ledger: set[str] | None,
+) -> None:
+    history = tmp_path / "history"
+    dumped, _ = git_history(history, [{APPLIED_MIGRATION: "operations = []", "README.md": ""}, later_commit])
+    for path, content in uncommitted.items():
+        (history / path).write_text(content)
+    store = TemplateStore(scratch.server, Checkout(history), allow_download=False, prefix=scratch.store.prefix)
+    scratch.build_template(dumped, [APPLIED, PENDING], tmp_path, store)
+
+    result = prime_test_database(scratch.server, scratch.target, store)
+
+    assert (result.outcome, scratch.ledger()) == (outcome, ledger)
+
+
+@pytest.mark.parametrize(
     "routing, other_apps, ledger",
     [
         ("routes:\n  - app_label: posthog\n", (), set()),
@@ -376,8 +406,9 @@ def test_usable_template_retries_a_failed_download_only_after_the_retry_window(
             'weak sslmode "require" may not be used with sslrootcert=system',
         ),
         ({"sslmode": "disable", "channel_binding": "require"}, "channel binding required, but SSL not in use"),
+        ({"require_auth": "not-a-method", "pool": {"min_size": 1}}, "invalid require_auth value"),
     ],
-    ids=["tls", "channel-binding"],
+    ids=["tls", "channel-binding", "require-auth"],
 )
 def test_postgres_server_connects_with_the_security_settings_of_the_django_database(
     options: dict[str, str], refusal: str

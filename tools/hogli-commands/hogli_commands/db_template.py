@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import psycopg
-from psycopg import sql
+from psycopg import pq, sql
 from psycopg.conninfo import make_conninfo
 
 from hogli_commands.db_schema import (
@@ -47,19 +47,19 @@ TEMPLATE_MAX_LAG_SECONDS = 24 * 60 * 60
 TEMPLATE_BUILD_LOCK = 0x7465_6D70_6C61_7465
 MODE_ENV = "POSTHOG_TEST_DB_TEMPLATE"
 REFRESH_RETRY_SECONDS = 15 * 60
-LIBPQ_SECURITY_OPTIONS = (
-    "sslmode",
-    "sslrootcert",
-    "sslcert",
-    "sslkey",
-    "sslcrl",
-    "sslnegotiation",
-    "channel_binding",
-)
+KEYWORDS_SET_PER_CONNECTION = frozenset({"host", "port", "user", "dbname"})
 
 
 class TemplateUnavailable(Exception):
     pass
+
+
+def _forwardable_libpq_keywords() -> frozenset[str]:
+    """Every libpq connection keyword except the secret ones, which psql would otherwise see in its argv."""
+    return (
+        frozenset(option.keyword.decode() for option in pq.Conninfo.get_defaults() if option.dispchar != b"*")
+        - KEYWORDS_SET_PER_CONNECTION
+    )
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -68,7 +68,7 @@ class PostgresServer:
     port: str
     user: str
     password: str = field(repr=False)
-    security: Mapping[str, str] = field(default_factory=dict)
+    libpq_options: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_django(cls, database: Mapping[str, Any]) -> PostgresServer:
@@ -78,12 +78,16 @@ class PostgresServer:
             port=str(database.get("PORT") or "5432"),
             user=database.get("USER") or "posthog",
             password=database.get("PASSWORD") or "",
-            security={key: str(options[key]) for key in LIBPQ_SECURITY_OPTIONS if options.get(key)},
+            libpq_options={
+                key: str(value)
+                for key, value in options.items()
+                if key in _forwardable_libpq_keywords() and value is not None and value != ""
+            },
         )
 
     def conninfo(self, dbname: str) -> str:
         """Everything but the password, which psql takes from its environment rather than its argv."""
-        return make_conninfo(host=self.host, port=self.port, user=self.user, dbname=dbname, **self.security)
+        return make_conninfo(host=self.host, port=self.port, user=self.user, dbname=dbname, **self.libpq_options)
 
     def connect(self, dbname: str) -> psycopg.Connection:
         return psycopg.connect(self.conninfo(dbname), password=self.password, autocommit=True, connect_timeout=5)
@@ -158,6 +162,11 @@ class Checkout:
         if sha not in self._contains:
             self._contains[sha] = self._git("merge-base", "--is-ancestor", sha, "HEAD") is not None
         return self._contains[sha]
+
+    def edits_migrations_since(self, sha: str) -> bool:
+        """Whether a Django migration that existed at sha differs in this working tree, or git cannot tell."""
+        edited = self._git("diff", "--name-only", "--diff-filter=MT", sha, "--", ":(glob)**/migrations/[0-9]*.py")
+        return edited is None or edited != ""
 
     def file_at(self, sha: str, path: Path) -> str | None:
         return self._git("show", f"{sha}:{path.as_posix()}")
@@ -272,11 +281,13 @@ class TemplateStore:
                 dump = Path(scratch) / "schema.sql.gz"
                 download_schema_artifact(artifact, token=token, destination=dump, session=session)
                 self.build(name, dump, sha=dump_sha)
-        elif not self._fits_checkout(name):
-            raise TemplateUnavailable(f"{name} records migrations this checkout lacks")
+        if not self._fits_checkout(name):
+            raise TemplateUnavailable(f"{name} does not fit the migrations of this checkout")
         return name
 
     def _fits_checkout(self, name: str) -> bool:
+        if self.checkout.edits_migrations_since(name.removeprefix(self.prefix)):
+            return False
         return not migrations_missing_from_checkout(self.server.recorded_migrations(name))
 
     def _prune(self, *, keep: str) -> None:
