@@ -83,7 +83,7 @@ ACCEPTED_SEND_KEYS: dict[str, set[str] | None] = {
 
 class FakeCdpApi:
     def __init__(self) -> None:
-        self.queued_sends: list[dict[str, Any]] = []
+        self._queued: list[dict[str, Any]] = []
 
     @contextmanager
     def serving(self, client_post: MagicMock) -> Iterator["FakeCdpApi"]:
@@ -93,14 +93,23 @@ class FakeCdpApi:
             yield self
 
     def _send(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
-        send = json.loads(request.body or "{}")["send"]
+        payload = json.loads(request.body or "{}")
+        send = payload["send"]
         issues = self._unrecognized_keys(send)
         if not isinstance(send.get("tracking", {}).get("captureEngagement"), bool):
             issues.append({"code": "invalid_type", "path": ["send", "tracking", "captureEngagement"]})
         if issues:
             return 400, {}, json.dumps({"error": json.dumps(issues)})
-        self.queued_sends.append(send)
-        return 202, {}, json.dumps({"invocation_id": f"invocation-{len(self.queued_sends)}"})
+        self._queued.append(payload)
+        return 202, {}, json.dumps({"invocation_id": f"invocation-{len(self._queued)}"})
+
+    def deliver(self) -> list[tuple[str, str]]:
+        delivered, self._queued = self._queued, []
+        return [
+            ("$workflows_email_sent", payload["distinct_id"])
+            for payload in delivered
+            if payload["send"]["tracking"]["captureEngagement"] is not False
+        ]
 
     def _unrecognized_keys(self, send: dict[str, Any]) -> list[dict[str, Any]]:
         issues = [
@@ -776,7 +785,7 @@ class TestTransactionalEmail(APIBaseTest):
             )
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert [send["tracking"] for send in cdp.queued_sends] == [{"captureEngagement": True}]
+        assert cdp.deliver() == [("$workflows_email_sent", "user-1")]
 
     @parameterized.expand(
         [

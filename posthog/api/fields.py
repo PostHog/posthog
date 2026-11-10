@@ -23,8 +23,6 @@ class OptionalBooleanField(serializers.BooleanField):
 
 
 class OmittableBooleanField(serializers.BooleanField):
-    """BooleanField that leaves a field missing from a form-encoded body out, instead of reading it as False."""
-
     default_empty_html = empty
 
 
