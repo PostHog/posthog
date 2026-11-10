@@ -902,6 +902,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ),
         ]
     )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_scan_that_only_resolution_shows_reads_flag_calls_swaps_once_events_gets_no_flag_calls(
         self, _name: str, query: str | ast.SelectQuery | ast.SelectSetQuery, expected: list[tuple]
     ):
@@ -1018,6 +1019,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ),
         ]
     )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_query_flag_evaluations_cannot_answer_reads_events_until_events_gets_no_flag_calls(
         self,
         _name: str,
@@ -1124,6 +1126,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ),
         ]
     )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_query_reads_flag_evaluations_without_coverage_once_events_gets_no_flag_calls(self, _name: str, query: str):
         self._create_events_only_flag_call()
 
@@ -1518,6 +1521,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ("mode_2", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False),
         ]
     )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_flag_key_typed_as_boolean_selects_the_same_calls_with_and_without_the_rewrite(
         self, _name: str, mode: FlagEvaluationsMode, with_events_only_call: bool
     ):
