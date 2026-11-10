@@ -4,6 +4,7 @@ import { IconDatabase, IconLeave, IconPeople, IconServer, IconShieldLock, IconTo
 import {
     Button,
     DropdownMenu,
+    DropdownMenuCheckboxItem,
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
@@ -17,6 +18,8 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { newEventsTableLogic } from '~/layout/navigation/NewEventsTable/newEventsTableLogic'
+
 import { todayMenuLinkItem } from './todayMenuLinkItem'
 
 export function TodayAccountMenu(): JSX.Element {
@@ -24,6 +27,8 @@ export function TodayAccountMenu(): JSX.Element {
     const { logout } = useActions(userLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
+    const { newEventsTableAvailable, newEventsTableEnabled } = useValues(newEventsTableLogic)
+    const { setNewEventsTable } = useActions(newEventsTableLogic)
 
     return (
         <DropdownMenu open={isAccountMenuOpen} onOpenChange={setAccountMenuOpen}>
@@ -93,6 +98,15 @@ export function TodayAccountMenu(): JSX.Element {
                             </DropdownMenuItem>
                         </DropdownMenuGroup>
                     </>
+                )}
+                {newEventsTableAvailable && (
+                    <DropdownMenuCheckboxItem
+                        checked={newEventsTableEnabled}
+                        onCheckedChange={setNewEventsTable}
+                        data-attr="new-events-table-switch"
+                    >
+                        New events table
+                    </DropdownMenuCheckboxItem>
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => logout()} data-attr="new-account-menu-logout-button">

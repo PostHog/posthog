@@ -203,7 +203,9 @@ rules:
       owners: team-devex
     - match: '/products/stamphog/packages/pr-approval-agent/'
       owners: team-devex
-    - match: '/tools/query-performance-ai/'
+    - match:
+          - '/frontend/src/layout/navigation/NewEventsTable/'
+          - '/tools/query-performance-ai/'
       owners: team-analytics-platform
     # A new root file or folder, product, provider, domain, or top-level package shapes
     # the monorepo layout. The rule names who owns that decision and claims none of the

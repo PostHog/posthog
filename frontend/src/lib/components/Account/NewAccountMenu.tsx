@@ -35,6 +35,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
+import { NewEventsTableSwitch } from '~/layout/navigation/NewEventsTable/NewEventsTableSwitch'
 import { AvailableFeature } from '~/types'
 
 import { RenderKeybind } from '../Shortcuts/RenderKeybind'
@@ -455,6 +456,7 @@ export function NewAccountMenu({
                                         />
                                     </>
                                 )}
+                                <NewEventsTableSwitch />
 
                                 <Label intent="menu" className="px-2 mt-2">
                                     Account
