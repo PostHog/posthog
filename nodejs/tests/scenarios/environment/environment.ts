@@ -7,7 +7,7 @@ import { ROLE_RESTART_BACKOFF_MS } from '../cards'
 import { ProviderEdge, startProviderEdge } from '../provider-edge'
 import { StackConflictError, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ROLE_PORTS, Role, RoleSpec, roleSpecs, secretsOf } from './roles'
-import { STACK, downServices, eventsGroupMembers, hogli, missingTemplates, poll } from './stack'
+import { STACK, downServices, eventsGroupMembers, missingTemplates, poll, startStack } from './stack'
 
 export interface Environment {
     up(): Promise<void>
@@ -76,8 +76,6 @@ export function createEnvironment(options: EnvironmentOptions = {}): Environment
         })
     }
 
-    const hogliStep = (args: string[]): Promise<void> => hogli(repoRoot, args, path.join(stateDir, 'hogli.log'))
-
     return {
         async up() {
             if (!existsSync(TSX)) {
@@ -90,9 +88,7 @@ export function createEnvironment(options: EnvironmentOptions = {}): Environment
                 throw strangerConflict(plan.strangers)
             }
             await terminate(plan, stopGraceMs)
-            await hogliStep(['dev:generate', '--with', 'workflows', '--without', 'nodejs'])
-            await hogliStep(['up', '-d'])
-            await hogliStep(['wait'])
+            await startStack(repoRoot, stateDir, env)
             const killedLeftovers = plan.groups.length + plan.pids.length > 0
             const drained = await poll(
                 async () => ((await eventsGroupMembers()) === 0 ? true : undefined),

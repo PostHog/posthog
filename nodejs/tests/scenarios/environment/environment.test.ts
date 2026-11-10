@@ -1,10 +1,13 @@
 import { ChildProcess, spawn } from 'child_process'
 import { once } from 'events'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
+import os from 'os'
+import path from 'path'
 
 import { CdpRole } from '../cards'
 import { ProcEntry, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { roleSpecs, secretsOf } from './roles'
-import { membersOf } from './stack'
+import { membersOf, startStack } from './stack'
 
 const SELF = 100
 const MARKED_ENV = ['PATH=/usr/bin', 'SCENARIO_RUNNER=1']
@@ -150,6 +153,27 @@ describe('scenario environment', () => {
         ['output it cannot read', 'unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused\n', null],
     ])('reads the members of %s from rpk', (_name, output, members) => {
         expect(membersOf(output)).toBe(members)
+    })
+
+    it('starts the stack from its own config, without the combined Node process or the orphan sweep', async () => {
+        const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'scenario-repo-'))
+        const stateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-state-'))
+        const calls = path.join(repoRoot, 'calls')
+        mkdirSync(path.join(repoRoot, 'bin'))
+        writeFileSync(
+            path.join(repoRoot, 'bin', 'hogli'),
+            `#!/bin/sh\necho "$HOGLI_MPROCS_PATH|$HOGLI_SKIP_ZOMBIE_CHECK|$*" >> ${calls}\n`,
+            { mode: 0o755 }
+        )
+
+        await startStack(repoRoot, stateDir, process.env)
+
+        const config = path.join(stateDir, 'mprocs.yaml')
+        expect(readFileSync(calls, 'utf8').trim().split('\n')).toEqual([
+            `${config}|1|dev:generate --with workflows --without nodejs`,
+            `${config}|1|up -d --custom ${config}`,
+            `${config}|1|wait`,
+        ])
     })
 
     describe('leftover scan on real processes', () => {
