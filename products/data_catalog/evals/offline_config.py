@@ -12,7 +12,6 @@ _SCORERS: dict[str, OfflineScorer] = {
     "answer_table_queried": OfflineScorer(kind="boolean", version=UUID("01a16878-7805-7322-8f32-f1f5f8f36428")),
     "answer_value_stated": OfflineScorer(kind="boolean", version=UUID("01a16878-7117-7e4a-b1d0-421050827937")),
     "canonical_metric_run": OfflineScorer(kind="boolean", version=UUID("01a15a27-fa96-71e0-b904-13f14079440e")),
-    "catalog_search_used": OfflineScorer(kind="boolean", version=UUID("01a1893a-2359-7da2-9fc1-31e2d533c393")),
     "claim_measured": OfflineScorer(kind="boolean", version=UUID("01a1893a-9950-7589-b838-312317553fdb")),
     "context_applied": OfflineScorer(kind="boolean", version=UUID("01a1893a-b26b-7129-8484-d570eab3476b")),
     "deprecation_proposed": OfflineScorer(kind="boolean", version=UUID("01a15a28-7a51-7732-838a-34de17d02bbf")),

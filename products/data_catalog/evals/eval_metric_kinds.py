@@ -104,7 +104,8 @@ async def eval_metric_kinds(ctx: EvalContext) -> None:
             expected={
                 "run_override_used": {
                     "metric_name": ACCOUNT_ENGAGEMENT_METRIC.name,
-                    "overrides": {"interval": "day", "date_from": None},
+                    # "-4w" is 28 days, so it does not count as the requested 30.
+                    "overrides": {"interval": "day", "date_from": ["-30d", "-1m"]},
                 },
                 "no_data_sql_run": {},
             },

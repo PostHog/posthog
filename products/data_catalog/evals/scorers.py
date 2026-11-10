@@ -62,6 +62,9 @@ METRIC_RUN_TOOL = "data-catalog-metric-run"
 QUESTION_TOOL = "askuserquestion"
 CERTIFICATION_PROPOSE_TOOL = "data-catalog-certification-propose"
 _INFO_SCHEMA = "information_schema"
+# String literals are blanked first, so `WHERE table_name = 'events'` does not count as a read of `events`.
+_STRING_LITERAL_RE = re.compile(r"'(?:[^'\\]|\\.)*'")
+_TABLE_REF_RE = re.compile(r"\b(?:from|join)\s+(`?[\w$]+(?:`?\.`?[\w$]+)*`?)")
 _INFO_SYNTHETIC_PREFIX = "__info__:"
 # Matches the PostHog MCP namespace across regional server names —
 # ``mcp__posthog__``, ``mcp__posthog_us__``, ``mcp__posthog_eu__``, etc.
@@ -113,6 +116,12 @@ def _is_question_call(call: ToolCall) -> bool:
 
 def _is_discovery(call: ToolCall) -> bool:
     return _INFO_SCHEMA in _query_text(call)
+
+
+def _reads_only_system_tables(call: ToolCall) -> bool:
+    code = _STRING_LITERAL_RE.sub("''", _query_text(call))
+    tables = [ref.replace("`", "") for ref in _TABLE_REF_RE.findall(code)]
+    return bool(tables) and all(table.startswith("system.") for table in tables)
 
 
 def _is_tool_discovery(call: ToolCall) -> bool:
@@ -303,7 +312,8 @@ class CanonicalMetricRun(Scorer):
             return Score(name=self._name(), score=0.0, metadata={"reason": "metric_name is required"})
 
         called_names = [call.input.get("name") for call in run_calls]
-        if any(name not in metric_names for name in called_names):
+        # Some prompts make extra relevant metrics a valid choice, so the case can allow them.
+        if not spec.get("allow_other_metrics") and any(name not in metric_names for name in called_names):
             return Score(
                 name=self._name(),
                 score=0.0,
@@ -1081,39 +1091,12 @@ def _is_metric_catalog_sql(call: ToolCall) -> bool:
     return call.name == SQL_TOOL and METRICS_CATALOG_MARKER in _query_text(call)
 
 
-class CatalogSearchUsed(Scorer):
-    """Binary: did the agent search the catalog instead of reading only its first page?
-
-    A ``metric-list`` call with ``search``, SQL over ``information_schema.metrics`` (which returns every
-    row the query selects), or ``metric-list`` calls at two or more offsets each count.
-    """
-
-    def _name(self) -> str:
-        return "catalog_search_used"
-
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        if _spec(expected, self._name()) is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
-        parser = _parser_for(output)
-        if parser is None:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
-        calls = [call for call in parser.get_tool_calls() if not call.is_error]
-        searched = any(call.name == METRIC_LIST_TOOL and call.input.get("search") for call in calls)
-        queried = any(_is_metric_catalog_sql(call) for call in calls)
-        offsets = {call.input.get("offset") or 0 for call in calls if call.name == METRIC_LIST_TOOL}
-        paged = len(offsets) >= 2
-        return Score(
-            name=self._name(),
-            score=1.0 if searched or queried or paged else 0.0,
-            metadata={"search_param": searched, "catalog_sql": queried, "list_offsets": sorted(offsets, key=str)},
-        )
-
-
 class RunOverrideUsed(Scorer):
     """Binary: did a successful run of the expected metric pass the expected run-time overrides?
 
-    ``expected[name]["overrides"]`` maps each override key to a required value, or to ``None`` when any value
-    passes. The run tool applies ``date_from`` and ``interval`` to insight and node metrics only.
+    ``expected[name]["overrides"]`` maps each override key to a required value, a list of accepted values, or
+    ``None`` when any value passes. The run tool applies ``date_from`` and ``interval`` to insight and node
+    metrics only.
     """
 
     def _name(self) -> str:
@@ -1134,7 +1117,12 @@ class RunOverrideUsed(Scorer):
             call
             for call in runs
             if all(
-                call.input.get(key) not in (None, "") and (value is None or call.input.get(key) == value)
+                call.input.get(key) not in (None, "")
+                and (
+                    value is None
+                    or call.input.get(key) == value
+                    or (isinstance(value, list) and call.input.get(key) in value)
+                )
                 for key, value in overrides.items()
             )
         ]
@@ -1149,7 +1137,8 @@ class NoDataSqlRun(Scorer):
     """Binary: did the agent answer without re-deriving the number in SQL?
 
     For a metric the run tool can re-window, hand-written SQL is the failure under test. SQL against
-    ``information_schema`` is discovery and does not count.
+    ``information_schema`` or that reads only ``system.*`` tables, such as ``system.group_type_mappings``,
+    is discovery and does not count.
     """
 
     def _name(self) -> str:
@@ -1161,7 +1150,11 @@ class NoDataSqlRun(Scorer):
         parser = _parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
-        data_sql = [_query_text(call) for call in _successful_sql(parser) if not _is_discovery(call)]
+        data_sql = [
+            _query_text(call)
+            for call in _successful_sql(parser)
+            if not _is_discovery(call) and not _reads_only_system_tables(call)
+        ]
         return Score(name=self._name(), score=0.0 if data_sql else 1.0, metadata={"data_queries": data_sql})
 
 

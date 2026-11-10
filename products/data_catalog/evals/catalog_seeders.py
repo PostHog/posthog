@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from unittest.mock import patch
 
@@ -53,6 +54,7 @@ from products.data_catalog.evals.catalog_synthesizer import (
     LOCAL_AMOUNT_TABLE,
     MRR_METRIC,
     NOISE_METRICS,
+    OPERATIONS_NOISE_METRICS,
     PAYING_CUSTOMERS_METRIC,
     USD_AMOUNT_DESCRIPTION,
     USD_AMOUNT_ROWS,
@@ -62,7 +64,7 @@ from products.data_catalog.evals.catalog_synthesizer import (
 )
 from products.data_catalog.evals.seeders import _FLOAT_COLUMN, _INTEGER_COLUMN, _STRING_COLUMN, _synced_table
 from products.data_tools.backend.facade.models import DataWarehouseJoin
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.api import record_table_row_count
 from products.warehouse_sources.backend.facade.types import (
     ExternalDataSourceType,
     WarehouseColumnAnnotationDescriptionSource,
@@ -110,13 +112,11 @@ def _install(context: CustomPromptSandboxContext, metrics: Iterable[CatalogMetri
     return installed
 
 
-def _catalog(context: CustomPromptSandboxContext, *needles: CatalogMetric) -> dict[str, Any]:
-    installed = _install(context, (*NOISE_METRICS, *needles))
+def _catalog(
+    context: CustomPromptSandboxContext, *needles: CatalogMetric, noise: tuple[CatalogMetric, ...] = NOISE_METRICS
+) -> dict[str, Any]:
+    installed = _install(context, (*noise, *needles))
     return {"catalog": {"size": len(installed), "needles": [needle.name for needle in needles]}}
-
-
-def seed_noise_catalog(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    return _catalog(context)
 
 
 def seed_catalog_with_mrr(context: CustomPromptSandboxContext) -> dict[str, Any]:
@@ -128,7 +128,10 @@ def seed_catalog_with_account_engagement(context: CustomPromptSandboxContext) ->
 
 
 def seed_catalog_for_board_update(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    return _catalog(context, MRR_METRIC, PAYING_CUSTOMERS_METRIC, ACCOUNT_ENGAGEMENT_METRIC)
+    # The case grades that the agent runs only the needles, so no noise metric may fit a growth update.
+    return _catalog(
+        context, MRR_METRIC, PAYING_CUSTOMERS_METRIC, ACCOUNT_ENGAGEMENT_METRIC, noise=OPERATIONS_NOISE_METRICS
+    )
 
 
 def seed_mrr_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
@@ -168,9 +171,7 @@ def seed_warehouse_signups_metric(context: CustomPromptSandboxContext) -> dict[s
     return {"metrics": _install(context, [WAREHOUSE_SIGNUPS_METRIC])}
 
 
-def _deals_table(
-    team: Team, user: User, *, name: str, description: str, rows: tuple[tuple[Any, ...], ...]
-) -> DataWarehouseTable:
+def _deals_table(team: Team, user: User, *, name: str, description: str, rows: tuple[tuple[Any, ...], ...]) -> UUID:
     synced = _synced_table(
         team,
         user,
@@ -183,8 +184,9 @@ def _deals_table(
         description_source=WarehouseColumnAnnotationDescriptionSource.USER_EDITED,
     )
     # information_schema.tables reports row_count from the table row, which a real sync fills in.
-    DataWarehouseTable.objects.filter(pk=synced.table_id).update(row_count=len(rows))
-    return DataWarehouseTable.objects.get(pk=synced.table_id)
+    table_id = UUID(str(synced.table_id))
+    record_table_row_count(team.id, table_id, len(rows))
+    return table_id
 
 
 def seed_deal_tables(context: CustomPromptSandboxContext) -> dict[str, Any]:
@@ -194,8 +196,8 @@ def seed_deal_tables(context: CustomPromptSandboxContext) -> dict[str, Any]:
         team, user, name=DEALS_LEGACY_TABLE, description=DEALS_LEGACY_TABLE_DESCRIPTION, rows=DEALS_LEGACY_ROWS
     )
     _deals_table(team, user, name=DEALS_V3_TABLE, description=DEALS_V3_TABLE_DESCRIPTION, rows=())
-    certify(propose_certification(team=team, user=user, table_id=str(current.id)), user)
-    deprecate(propose_certification(team=team, user=user, table_id=str(legacy.id)), user)
+    certify(propose_certification(team=team, user=user, table_id=str(current)), user)
+    deprecate(propose_certification(team=team, user=user, table_id=str(legacy)), user)
     return {"deal_tables": {"certified": DEALS_TABLE, "deprecated": DEALS_LEGACY_TABLE, "empty": DEALS_V3_TABLE}}
 
 
