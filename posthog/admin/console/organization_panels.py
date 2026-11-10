@@ -178,3 +178,9 @@ class BillingPanel(Panel):
                 description="Sends the current member list to the billing service.",
             ),
         ]
+
+
+for old in ("limit-product", "unlimit-product", "sync-to-billing"):
+    console.register_moved_action(
+        old_path=f"admin/posthog/organization/<uuid:pk>/{old}/", record="organization", target="#panel-billing"
+    )

@@ -146,3 +146,12 @@ class ApiTokenPanel(Panel):
                 undo_hint="This cannot be undone automatically. To go back, set the old token again.",
             )
         ]
+
+
+# Old Django admin URLs of team actions that moved. Staff keep bookmarks to them, query parameters included.
+console.register_moved_action(
+    old_path="admin/posthog/team/<int:pk>/set-api-token/", record="team", target="api-token/set/"
+)
+console.register_moved_action(
+    old_path="admin/posthog/team/<int:pk>/rebuild-cache/", record="team", target="#panel-remote-config"
+)

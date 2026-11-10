@@ -66,3 +66,10 @@ class UsageReportsTool(ConsoleTool):
                 gate=Gate.owner(),
             )
         ]
+
+
+console.register_moved_page(
+    old_path="admin/posthog/organization/send-usage-report/",
+    title="Sending usage reports",
+    url="/admin/console/tools/usage-reports/",
+)

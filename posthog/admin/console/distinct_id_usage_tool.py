@@ -373,3 +373,8 @@ class DistinctIdUsageTool(ConsoleTool):
                 ),
             ),
         ]
+
+
+console.register_moved_page(
+    old_path="admin/distinct-id-usage/", title="Distinct ID usage", url=TOOL_URL, name="distinct-id-usage"
+)

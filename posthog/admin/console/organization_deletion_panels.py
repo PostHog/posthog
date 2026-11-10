@@ -232,3 +232,13 @@ class OrganizationDataTool(ConsoleTool):
                 *data_counts(organization),
             )
         )
+
+
+console.register_moved_action(
+    old_path="admin/posthog/organization/<uuid:pk>/trigger-deletion/", record="organization", target="#panel-deletion"
+)
+console.register_moved_page(
+    old_path="admin/posthog/organization/<uuid:pk>/model-counts/",
+    title="Child model counts",
+    url="/admin/console/tools/organization-data/?organization={pk}",
+)

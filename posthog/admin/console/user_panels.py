@@ -500,3 +500,9 @@ class UserDeletionPanel(Panel):
                 undo_hint="This cannot be undone.",
             )
         ]
+
+
+console.register_moved_action(old_path="admin/posthog/user/<int:pk>/delete/", record="user", target="deletion/delete/")
+# Django's set-password form, which PostHog turns off. The Reset password button on the Django admin user page
+# still links to it, and staff email a reset link from the Sign-in panel instead.
+console.register_moved_action(old_path="admin/posthog/user/<int:pk>/password/", record="user", target="#panel-sign-in")

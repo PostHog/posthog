@@ -758,3 +758,22 @@ class NewDeletionRequestTool(ConsoleTool):
                 description="Creates a draft and opens it. Nothing is deleted yet.",
             )
         ]
+
+
+for old, target in {
+    "submit": "workflow/submit/",
+    "approve": "workflow/approve/",
+    "retry": "workflow/retry/",
+    "revert-to-draft": "#panel-workflow",
+    "verify": "#panel-workflow",
+    "fetch-stats": "#panel-stats",
+    "preview-stats": "#panel-stats",
+}.items():
+    console.register_moved_action(
+        old_path=f"admin/posthog/datadeletionrequest/<uuid:pk>/{old}/", record="deletion-request", target=target
+    )
+console.register_moved_page(
+    old_path="admin/posthog/datadeletionrequest/add/",
+    title="Creating a deletion request",
+    url="/admin/console/tools/new-deletion-request/create/",
+)

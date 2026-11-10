@@ -53,3 +53,10 @@ class RemoteConfigCacheTool(ConsoleTool):
                 )
             )
         return _cached_config(team)
+
+
+console.register_moved_page(
+    old_path="admin/posthog/team/<int:pk>/view-cache/",
+    title="The cached config view",
+    url="/admin/console/tools/remote-config-cache/?team={pk}",
+)

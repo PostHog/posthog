@@ -5,6 +5,7 @@ from pathlib import Path
 
 from django.utils.module_loading import autodiscover_modules
 
+from posthog.admin.console.moved import MovedAction, MovedPage, MovedRecordResolver
 from posthog.admin.console.panels import Owner, Panel
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.tools import ConsoleTool
@@ -12,7 +13,8 @@ from posthog.admin.console.tools import ConsoleTool
 # Navigation headings. Add one here, in the shell, only when no existing group fits a new tool.
 TOOL_GROUPS = frozenset({"Data", "Billing", "Organizations", "Access"})
 KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-# A shell module whose name ends in one of these registers panels or tools, and discover() imports it.
+PK_PARAMETER = re.compile(r"<(?:\w+:)?pk>")
+# A shell module whose name ends in one of these registers panels, tools or moved URLs, and discover() imports it.
 CONTRIBUTION_SUFFIXES = ("_panels", "_tool", "_tools")
 
 
@@ -27,6 +29,7 @@ class ConsoleRegistry:
     def __init__(self) -> None:
         self._panels: dict[str, dict[str, type[Panel]]] = {record: {} for record in RECORD_TYPES}
         self._tools: dict[str, type[ConsoleTool]] = {}
+        self._moved: dict[str, MovedAction | MovedPage] = {}
         self._discovered = False
 
     def register_panel(self, panel_class: type[Panel]) -> type[Panel]:
@@ -74,6 +77,35 @@ class ConsoleRegistry:
         self.discover()
         tool_class = self._tools.get(key)
         return tool_class() if tool_class else None
+
+    def _register_moved(self, moved: MovedAction | MovedPage) -> None:
+        # Every console route sits under /admin/, so AdminOAuth2Middleware adds its Google step-up to old URLs too.
+        if not moved.old_path.startswith("admin/") or moved.old_path.startswith("admin/console/"):
+            raise ValueError(f"Moved URL {moved.old_path!r} must be an old Django admin path under admin/")
+        existing = self._moved.get(moved.old_path)
+        if existing is not None and existing != moved:
+            raise ValueError(f"Moved URL {moved.old_path!r} is already registered")
+        self._moved[moved.old_path] = moved
+
+    def register_moved_action(
+        self, *, old_path: str, record: str, target: str, resolver: MovedRecordResolver | None = None
+    ) -> None:
+        """Redirect the old Django admin URL of a record action to where it lives on the console record page."""
+        if record not in RECORD_TYPES:
+            raise ValueError(f"Unknown console record type {record!r} for moved URL {old_path!r}")
+        if resolver is None and not PK_PARAMETER.search(old_path):
+            raise ValueError(f"Moved URL {old_path!r} needs a <pk> path parameter, or a resolver that finds the record")
+        self._register_moved(MovedAction(old_path=old_path, record=record, target=target, resolver=resolver))
+
+    def register_moved_page(self, *, old_path: str, title: str, url: str, name: str | None = None) -> None:
+        """Redirect the old URL of a Django admin page to the console page that replaced it."""
+        if not url.startswith("/admin/console/"):
+            raise ValueError(f"Moved URL {old_path!r} must lead to a console page, not {url!r}")
+        self._register_moved(MovedPage(old_path=old_path, title=title, url=url, name=name))
+
+    def moved(self) -> list[MovedAction | MovedPage]:
+        self.discover()
+        return list(self._moved.values())
 
     def owners(self) -> set[Owner]:
         self.discover()
