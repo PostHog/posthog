@@ -68,6 +68,7 @@ import {
     GroupsQuery,
     HogQLQuery,
     MarketingAnalyticsTableQuery,
+    NodeKind,
     PersonsNode,
     SessionAttributionExplorerQuery,
     SessionsQuery,
