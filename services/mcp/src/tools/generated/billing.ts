@@ -496,7 +496,7 @@ const BillingUsageTimeseriesGetSchema = () => {
             'JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are "type" (by usage type) and "team" (by project). Pass `["type"]` for per-usage-type series, or `["type","team"]` for per-project series within each usage type. Team breakdowns require "type"; do not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400 error.'
         ),
         interval: BillingUsageTimeseriesRetrieveQueryParams.shape['interval'].describe(
-            'Time bucket size, one of "day" or "week". Default "day".'
+            'Time bucket size, one of "day", "week" or "month". Default "day".'
         ),
         top_projects: BillingUsageTimeseriesRetrieveQueryParams.shape['top_projects'].describe(
             'Maximum number of projects to return, ranked by total, when breakdowns includes "team". The projects beyond it are folded into one "All other projects (N)" series rather than dropped, so totals still reconcile. Ignored without a team breakdown. Omit it to get every project, which is the default and the right choice for most questions. Set it only when an organization has enough projects that the full response is unwieldy, and say so in your answer, because a limited response names only the largest projects.'
