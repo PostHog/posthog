@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
@@ -86,16 +88,16 @@ describe('hogFunctionBackfillsLogic', () => {
         expect(mockApi.enableBackfills).not.toHaveBeenCalled()
     })
 
-    it('does not throw when enableBackfills API fails', async () => {
+    it('shows an error and stops loading when enabling backfills fails', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
         mockApi.get.mockResolvedValue(makeHogFunction())
         mockApi.enableBackfills.mockRejectedValue(new Error('Network error'))
 
         logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['enableHogFunctionBackfills']).toFinishAllListeners()
+        await expectLogic(logic).toFinishAllListeners()
 
-        // The error is caught gracefully — logic stays mounted and isn't in a broken state
-        expect(mockApi.enableBackfills).toHaveBeenCalled()
-        expect(logic.isMounted()).toBeTruthy()
+        await expectLogic(logic).toMatchValues({ isLoading: false, isReady: false })
+        expect(errorToast).toHaveBeenCalledWith('Failed to enable backfills for this destination.')
     })
 })
