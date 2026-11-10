@@ -106,6 +106,50 @@ describe('stored logins', () => {
         expect(runtime.keychain).toEqual({})
     })
 
+    test('logout revokes an OAuth login when hog cannot save settings.json after removing its secret', async () => {
+        const record = {
+            store: 'keychain',
+            type: 'oauth',
+            projectId: '42',
+            host: EU,
+            expiresAt: Date.UTC(2026, 0, 2),
+            scopes: ['openid'],
+            loginId: 'login-1',
+        }
+        const runtime = fakeRuntime({
+            files: { [SETTINGS_FILE]: JSON.stringify({ logins: { [EU]: { '42': record } } }) },
+            keychain: { [`${EU}#42`]: JSON.stringify({ accessToken: `pha_${'a'.repeat(43)}`, refreshToken: 'phr_1' }) },
+            respond: () => ({ status: 200, body: {} }),
+        })
+        runtime.writePrivateFile = async () => {
+            throw new Error('disk full')
+        }
+
+        await expect(logout(runtime, { host: EU, projectId: parseProjectId('42') })).rejects.toThrow('disk full')
+
+        expect(runtime.keychain).toEqual({})
+        expect(runtime.requests.map((request) => request.url)).toEqual([`${EU}/oauth/revoke/`])
+    })
+
+    test('logoutAll keeps a pending removal another hog process adds while it runs', async () => {
+        const runtime = fakeRuntime()
+        await writeLogin(runtime, new FileStore(runtime), login(EU, 'phx_eu'))
+        const added = { store: 'keychain', host: US, projectId: '7' }
+        const { secrets } = runtime
+        runtime.secrets = {
+            ...secrets,
+            delete: async (name) => {
+                const settings = readJson(runtime.files[SETTINGS_FILE] ?? '{}', z.looseObject({}))
+                runtime.files[SETTINGS_FILE] = JSON.stringify({ ...settings, pendingRemovals: [added] })
+                return secrets.delete(name)
+            },
+        }
+
+        await logoutAll(runtime)
+
+        expect(readJson(runtime.files[SETTINGS_FILE] ?? '{}')).toMatchObject({ pendingRemovals: [added] })
+    })
+
     test('a login in the old shape stays readable when hog cannot write to its folder', async () => {
         const runtime = fakeRuntime({
             files: {
