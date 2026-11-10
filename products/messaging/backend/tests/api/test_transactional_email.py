@@ -80,6 +80,10 @@ ACCEPTED_SEND_KEYS: dict[str, set[str] | None] = {
     "tracking": {"captureEngagement"},
 }
 ACCEPTED_ATTACHMENT_KEYS = {"filename", "content", "contentType", "contentId"}
+RECEIVER_ADDRESS = re.compile(
+    r"[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
+    r"(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+"
+)
 WELCOME_DELIVERED = {
     "subject": "Welcome, Jane",
     "html": "<p>Hi Jane</p>",
@@ -102,7 +106,7 @@ class CapturedEvents:
 
 
 class FakeCdpApi:
-    def __init__(self, *, takes_attachments: bool = True) -> None:
+    def __init__(self, *, takes_attachments: bool = False) -> None:
         self._queued: list[dict[str, Any]] = []
         self._accepted_keys = {
             key: allowed for key, allowed in ACCEPTED_SEND_KEYS.items() if takes_attachments or key != "attachments"
@@ -118,13 +122,15 @@ class FakeCdpApi:
     def _send(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
         payload = json.loads(request.body or "{}")
         send = payload["send"]
-        issues = self._unrecognized_keys(send)
-        if not isinstance(send.get("tracking", {}).get("captureEngagement"), bool):
-            issues.append({"code": "invalid_type", "path": ["send", "tracking", "captureEngagement"]})
-        for index, file in enumerate(send.get("attachments", [])):
-            if file.keys() - ACCEPTED_ATTACHMENT_KEYS or not {"filename", "content"} <= file.keys():
-                issues.append({"code": "invalid_attachment", "path": ["send", "attachments", index]})
-        if issues:
+        issues = self._unrecognized_keys(send) + self._invalid_values(send)
+        unreachable = [
+            address
+            for address in [payload["to"], *send.get("cc", []), *send.get("bcc", [])]
+            if not RECEIVER_ADDRESS.fullmatch(address)
+        ]
+        if unreachable and not issues:
+            return 422, {}, json.dumps({"error": "recipient_unreachable"})
+        if issues or unreachable:
             return 400, {}, json.dumps({"error": json.dumps(issues)})
         self._queued.append(payload)
         return 202, {}, json.dumps({"invocation_id": f"invocation-{len(self._queued)}"})
@@ -149,6 +155,25 @@ class FakeCdpApi:
             for payload in delivered
             if payload["send"]["tracking"]["captureEngagement"] is not False
         ]
+
+    @staticmethod
+    def _invalid_values(send: dict[str, Any]) -> list[dict[str, Any]]:
+        issues = []
+        if not isinstance(send.get("tracking", {}).get("captureEngagement"), bool):
+            issues.append({"code": "invalid_type", "path": ["send", "tracking", "captureEngagement"]})
+        if "content" in send and not (send["content"].get("html") or send["content"].get("text")):
+            issues.append({"code": "custom", "path": ["send", "content"]})
+        if "from" in send and not isinstance(send["from"].get("integrationId"), int):
+            issues.append({"code": "invalid_type", "path": ["send", "from", "integrationId"]})
+        issues += [
+            {"code": "too_big", "path": ["send", field]} for field in ("cc", "bcc") if len(send.get(field, [])) > 10
+        ]
+        for index, file in enumerate(send.get("attachments", [])):
+            if file.keys() - ACCEPTED_ATTACHMENT_KEYS:
+                issues.append({"code": "unrecognized_keys", "path": ["send", "attachments", index]})
+            if not {"filename", "content"} <= file.keys():
+                issues.append({"code": "invalid_type", "path": ["send", "attachments", index]})
+        return issues
 
     def _unrecognized_keys(self, send: dict[str, Any]) -> list[dict[str, Any]]:
         issues = [
@@ -797,7 +822,7 @@ class TestTransactionalEmail(APIBaseTest):
         )
         TeamWorkflowsConfig.objects.filter(team_id=self.team.id).update(default_email_integration_id=newer_default.id)
 
-        with FakeCdpApi().serving(mock_post) as cdp:
+        with FakeCdpApi(takes_attachments=True).serving(mock_post) as cdp:
             response = self._psak_client(["hog_flow:write"]).post(
                 self.send_email_url, self._code_send(**fields), format="json"
             )
@@ -927,6 +952,34 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
+            (
+                "a_header_too_long",
+                {"attachments": [{"filename": "logo.png", "content": "aGk=", "content_id": "x" * 79}]},
+                "attachments__0__content_id",
+                "Shorten `content_id` to 78 characters",
+            ),
+            ("too_many_copies", {"bcc": [f"user{i}@example.com" for i in range(11)]}, "bcc", "at most 10 addresses"),
+            (
+                "an_attachment_that_is_not_an_object",
+                {"attachments": ["logo.png"]},
+                "attachments__0",
+                "`{filename, content}`",
+            ),
+        ]
+    )
+    def test_a_refused_extra_field_names_its_remedy(self, mock_post, _flag, _capture, _name, fields, attr, fix):
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, self._code_send(**fields), format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["code"], response.json()["attr"]) == ("invalid_request", attr)
+        assert fix in response.json()["fix"]
+        assert cdp.emails() == []
+
+    @parameterized.expand(
+        [
             ("the_only_verified_sender", ["verified"], status.HTTP_202_ACCEPTED, None),
             (
                 "one_of_several_verified_senders",
@@ -1025,7 +1078,7 @@ class TestTransactionalEmail(APIBaseTest):
     def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, capture):
         events = CapturedEvents(capture)
 
-        with FakeCdpApi(takes_attachments=False).serving(mock_post) as cdp:
+        with FakeCdpApi().serving(mock_post) as cdp:
             response = self._psak_client(["hog_flow:write"]).post(
                 self.send_email_url,
                 self._code_send(attachments=[{"filename": "receipt.pdf", "content": "JVBERg=="}]),
