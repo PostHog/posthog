@@ -1,10 +1,13 @@
 import { DateTime } from 'luxon'
+import { AddressInfo, Socket, connect, createServer } from 'node:net'
+import { Pool, PoolClient } from 'pg'
 import { register } from 'prom-client'
-import { v4 as uuidv4 } from 'uuid'
+import { v4 as uuidv4, v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
-import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2DequeuedJob } from '../cyclotron-v2'
 import {
     CONSUMER_STOP_DEADLINE_MS,
@@ -13,11 +16,6 @@ import {
     extractDistinctId,
     extractPersonId,
 } from './job-queue-postgres-v2'
-
-jest.mock('../cyclotron-v2', () => ({
-    CyclotronV2Manager: jest.fn(),
-    CyclotronV2Worker: jest.fn(),
-}))
 
 describe('CyclotronJobQueuePostgresV2', () => {
     const baseInvocation = {
@@ -291,26 +289,6 @@ describe('CyclotronJobQueuePostgresV2', () => {
             expect(retryArg.scheduledAt).toEqual(scheduledAt.toJSDate())
         })
 
-        it.each([
-            { from: 'hog', to: 'email', persisted: 3 },
-            { from: 'email', to: 'hogflow', persisted: 3 },
-            { from: 'email', to: 'email', persisted: 3 },
-            { from: 'hog', to: 'hog', persisted: undefined },
-        ] as const)(
-            'persists the invocation priority on $from -> $to only when the email queue is on either side',
-            async ({ from, to, persisted }) => {
-                const { queue } = createQueue()
-                const job = createDequeuedJob({ queueName: from })
-                ;(queue as any).pendingJobs.set(job.id, job)
-
-                await queue.queueInvocationResults([
-                    createResult({ invocation: { ...baseInvocation, id: job.id, queue: to, queuePriority: 3 } }),
-                ])
-
-                expect(job.reschedule.mock.calls[0][0].priority).toBe(persisted)
-            }
-        )
-
         it('should pass undefined scheduledAt when queueScheduledAt is not set', async () => {
             const { queue } = createQueue()
             const job = createDequeuedJob()
@@ -341,31 +319,6 @@ describe('CyclotronJobQueuePostgresV2', () => {
             ])
 
             expect(bulkCreateJobs).not.toHaveBeenCalled()
-        })
-
-        it('settles once every write of the batch settled, then reports the one that failed', async () => {
-            const { queue } = createQueue()
-            let finishSecond: () => void = () => {}
-            const failing = createDequeuedJob({ ack: jest.fn().mockRejectedValue(new Error('connection reset')) })
-            const pending = createDequeuedJob({
-                ack: jest.fn(() => new Promise<void>((resolve) => (finishSecond = resolve))),
-            })
-            for (const job of [failing, pending]) {
-                ;(queue as any).pendingJobs.set(job.id, job)
-            }
-
-            const written = queue.queueInvocationResults(
-                [failing, pending].map((job) =>
-                    createResult({ invocation: { ...baseInvocation, id: job.id }, finished: true })
-                )
-            )
-            let settled = false
-            void written.catch(() => undefined).finally(() => (settled = true))
-            await new Promise((resolve) => setImmediate(resolve))
-            expect(settled).toBe(false)
-            finishSecond()
-
-            await expect(written).rejects.toThrow('connection reset')
         })
     })
 
@@ -441,184 +394,7 @@ describe('CyclotronJobQueuePostgresV2', () => {
         })
     })
 
-    describe('stopConsumer', () => {
-        type BatchOptions = {
-            stopConsuming?: () => Promise<void>
-            disconnect?: () => Promise<void>
-            disconnectProducer?: () => Promise<void>
-            jobs?: CyclotronV2DequeuedJob[]
-        }
-
-        async function consumeOneBatch(
-            backgroundTask: (queue: any) => Promise<void>,
-            options: BatchOptions = {}
-        ): Promise<{ queue: any; steps: string[] }> {
-            const { queue } = createQueue()
-            const steps: string[] = []
-            ;(queue as any).manager.disconnect = async () => {
-                steps.push('close producer pool')
-                await options.disconnectProducer?.()
-            }
-            let consume: (jobs: CyclotronV2DequeuedJob[]) => Promise<void> = () => Promise.resolve()
-            jest.spyOn(queue as any, 'createWorker').mockReturnValue({
-                connect: (fn: typeof consume) => {
-                    consume = fn
-                    return Promise.resolve()
-                },
-                stopConsuming: async () => {
-                    steps.push('stop dequeuing')
-                    await options.stopConsuming?.()
-                },
-                disconnect: async () => {
-                    steps.push('close pool')
-                    await options.disconnect?.()
-                },
-            })
-            await queue.startAsConsumer('hog', () => Promise.resolve({ backgroundTask: backgroundTask(queue) }))
-            await consume(
-                options.jobs ?? [
-                    createDequeuedJob({
-                        scheduled: DateTime.now(),
-                        created: DateTime.now(),
-                    }) as unknown as CyclotronV2DequeuedJob,
-                ]
-            )
-            return { queue, steps }
-        }
-
-        it('stops dequeuing, waits for the result writes, then closes the pool', async () => {
-            let finishWrite: () => void = () => {}
-            const { queue, steps } = await consumeOneBatch(
-                () =>
-                    new Promise<void>((resolve) => {
-                        finishWrite = () => {
-                            steps.push('results written')
-                            resolve()
-                        }
-                    })
-            )
-
-            const stopped = queue.stopConsumer()
-            await new Promise((resolve) => setImmediate(resolve))
-            finishWrite()
-            await stopped
-
-            expect(steps).toEqual(['stop dequeuing', 'results written', 'close pool'])
-        })
-
-        it.each<[string, () => Promise<void>, BatchOptions]>([
-            ['a result write never settles', () => new Promise<void>(() => {}), {}],
-            [
-                'the batch in progress takes most of it and its write never settles',
-                () => new Promise<void>(() => {}),
-                { stopConsuming: () => new Promise<void>((resolve) => setTimeout(resolve, 20_000)) },
-            ],
-            [
-                'closing the pool hangs on a blocked query',
-                () => Promise.resolve(),
-                { disconnect: () => new Promise<void>(() => {}) },
-            ],
-            [
-                'closing the producer pool hangs on a blocked insert',
-                () => Promise.resolve(),
-                { disconnectProducer: () => new Promise<void>(() => {}) },
-            ],
-        ])(
-            'returns at the stop deadline, counted from the start of the stop, when %s',
-            async (_name, write, options) => {
-                jest.useFakeTimers()
-                try {
-                    const { queue, steps } = await consumeOneBatch(write, options)
-                    let returned = false
-
-                    const stopped = queue
-                        .stopConsumer()
-                        .then(() => queue.stopProducer())
-                        .then(() => (returned = true))
-                    await jest.advanceTimersByTimeAsync(CONSUMER_STOP_DEADLINE_MS - 1)
-                    expect(returned).toBe(false)
-                    await jest.advanceTimersByTimeAsync(1)
-                    await stopped
-
-                    expect(steps).toEqual(['stop dequeuing', 'close pool', 'close producer pool'])
-                } finally {
-                    jest.useRealTimers()
-                }
-            }
-        )
-
-        it('waits for every result write of a batch when one of them fails', async () => {
-            let finishSecond: () => void = () => {}
-            const failing = createDequeuedJob({ ack: jest.fn().mockRejectedValue(new Error('connection reset')) })
-            const pending = createDequeuedJob({
-                ack: jest.fn(() => new Promise<void>((resolve) => (finishSecond = resolve))),
-            })
-            const jobs = [failing, pending].map(
-                (job) =>
-                    ({
-                        ...job,
-                        scheduled: DateTime.now(),
-                        created: DateTime.now(),
-                    }) as unknown as CyclotronV2DequeuedJob
-            )
-            const { queue, steps } = await consumeOneBatch(
-                (q) =>
-                    q.queueInvocationResults(
-                        jobs.map((job) =>
-                            createResult({ invocation: { ...baseInvocation, id: job.id }, finished: true })
-                        )
-                    ),
-                { jobs }
-            )
-
-            const stopped = queue.stopConsumer()
-            await new Promise((resolve) => setImmediate(resolve))
-            expect(steps).toEqual(['stop dequeuing'])
-            finishSecond()
-            await stopped
-
-            expect(steps).toEqual(['stop dequeuing', 'close pool'])
-        })
-    })
-
     describe('heartbeatInvocations', () => {
-        it('heartbeats a job until its result write settles', async () => {
-            const { queue } = createQueue()
-            let finishWrite: () => void = () => {}
-            const job = createDequeuedJob({
-                ack: jest.fn(() => new Promise<void>((resolve) => (finishWrite = resolve))),
-            })
-            ;(queue as any).pendingJobs.set(job.id, job)
-            const invocation = { ...baseInvocation, id: job.id }
-
-            const written = queue.queueInvocationResults([createResult({ invocation, finished: true })])
-            await queue.heartbeatInvocations([invocation])
-            finishWrite()
-            await written
-            await queue.heartbeatInvocations([invocation])
-
-            expect(job.heartbeat).toHaveBeenCalledTimes(1)
-        })
-
-        it('keeps heartbeating a new claim of the same job once the earlier claim finishes writing', async () => {
-            const { queue } = createQueue()
-            let finishWrite: () => void = () => {}
-            const earlier = createDequeuedJob({
-                ack: jest.fn(() => new Promise<void>((resolve) => (finishWrite = resolve))),
-            })
-            const later = createDequeuedJob({ id: earlier.id })
-            ;(queue as any).pendingJobs.set(earlier.id, earlier)
-            const invocation = { ...baseInvocation, id: earlier.id }
-
-            const written = queue.queueInvocationResults([createResult({ invocation, finished: true })])
-            ;(queue as any).pendingJobs.set(later.id, later)
-            finishWrite()
-            await written
-            await queue.heartbeatInvocations([invocation])
-
-            expect(later.heartbeat).toHaveBeenCalledTimes(1)
-        })
-
         it('proxies to heartbeat, skips unknown ids, and distinguishes released races from real failures', async () => {
             const { queue } = createQueue()
             const warnSpy = jest.spyOn(require('~/common/utils/logger').logger, 'warn').mockImplementation(() => {})
@@ -656,6 +432,435 @@ describe('CyclotronJobQueuePostgresV2', () => {
             expect((queue as any).pendingJobs.size).toBe(3)
 
             warnSpy.mockRestore()
+        })
+    })
+    describe('on Cyclotron Postgres', () => {
+        const CYCLOTRON_DB = { host: 'localhost', port: 5432, database: 'test_cyclotron_node' }
+        const dbUrl = (host: string, port: number): string =>
+            `postgres://posthog:posthog@${host}:${port}/${CYCLOTRON_DB.database}`
+
+        type Lock = { client: PoolClient; pid: number }
+        type StallableProxy = { url: string; stall: () => void; close: () => Promise<void> }
+
+        let db: Pool
+        let queueName: string
+        let teamId: number
+        let jobIds: string[]
+        let queues: CyclotronJobQueuePostgresV2[]
+        let locks: Lock[]
+        let proxies: StallableProxy[]
+
+        beforeAll(() => {
+            db = new Pool({ connectionString: dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port) })
+        })
+
+        afterAll(async () => {
+            await db.end()
+        })
+
+        // The database is shared with other suites and runs, so each test owns its queue name,
+        // team and jobs, and cleans up only those.
+        beforeEach(() => {
+            queueName = `job-queue-v2-test-${uuidv4()}`
+            teamId = 1_000_000 + Math.floor(Math.random() * 1_000_000_000)
+            jobIds = []
+            queues = []
+            locks = []
+            proxies = []
+        })
+
+        afterEach(async () => {
+            jest.useRealTimers()
+            await Promise.all(proxies.map((proxy) => proxy.close()))
+            for (const lock of locks) {
+                await lock.client.query('ROLLBACK')
+                lock.client.release()
+            }
+            for (const queue of queues) {
+                await queue.stopConsumer()
+                await queue.stopProducer()
+            }
+            await db.query('DELETE FROM cyclotron_jobs WHERE id = ANY($1)', [jobIds])
+            await db.query('DELETE FROM cyclotron_email_team_seq WHERE team_id = $1', [teamId])
+        })
+
+        async function startQueue(url = dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port)) {
+            const queue = new CyclotronJobQueuePostgresV2(10, {
+                CYCLOTRON_NODE_DATABASE_URL: url,
+                CYCLOTRON_SHARD_DEPTH_LIMIT: 1_000_000,
+                CDP_CYCLOTRON_BATCH_DELAY_MS: 10,
+                CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
+                CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
+                CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+            })
+            queues.push(queue)
+            await queue.startAsProducer()
+            return queue
+        }
+
+        async function enqueue(
+            queue: CyclotronJobQueuePostgresV2,
+            overrides: Partial<CyclotronJobInvocation> = {}
+        ): Promise<string> {
+            const id = uuidv7()
+            jobIds.push(id)
+            await queue.queueInvocations([
+                { ...baseInvocation, id, teamId, queue: queueName as CyclotronJobQueueKind, ...overrides },
+            ])
+            return id
+        }
+
+        async function consume(
+            queue: CyclotronJobQueuePostgresV2,
+            from: string,
+            work: (invocations: CyclotronJobInvocation[]) => Promise<unknown> = () => Promise.resolve()
+        ): Promise<{ claimed: (count?: number) => Promise<CyclotronJobInvocation[]> }> {
+            const claims: CyclotronJobInvocation[] = []
+            await queue.startAsConsumer(from as CyclotronJobQueueKind, (invocations) => {
+                const ours = invocations.filter((invocation) => jobIds.includes(invocation.id))
+                const others = invocations.filter((invocation) => !jobIds.includes(invocation.id))
+                claims.push(...ours)
+                // Other suites share the email queue: hand their jobs back as they were.
+                const handedBack = queue.queueInvocationResults(
+                    others.map((invocation) => createResult({ invocation }))
+                )
+                return Promise.resolve({
+                    backgroundTask: Promise.all([handedBack, ours.length ? work(ours) : undefined]),
+                })
+            })
+            return {
+                claimed: (count = 1) =>
+                    waitForExpect(
+                        () => {
+                            expect(claims.length).toBeGreaterThanOrEqual(count)
+                            return claims.slice(0, count)
+                        },
+                        10_000,
+                        10
+                    ),
+            }
+        }
+
+        const finished = (invocation: CyclotronJobInvocation): CyclotronJobInvocationResult =>
+            createResult({ invocation, finished: true })
+
+        const movedToEmail = (invocation: CyclotronJobInvocation): CyclotronJobInvocationResult =>
+            createResult({
+                invocation: { ...invocation, queue: 'email', queueScheduledAt: DateTime.now().plus({ hours: 1 }) },
+            })
+
+        async function jobRow(id: string): Promise<{ status: string; queue_name: string; priority: number }> {
+            const { rows } = await db.query('SELECT status, queue_name, priority FROM cyclotron_jobs WHERE id = $1', [
+                id,
+            ])
+            return rows[0]
+        }
+
+        async function leaseOf(id: string): Promise<bigint> {
+            const { rows } = await db.query(
+                `SELECT (extract(epoch FROM last_heartbeat) * 1000000)::bigint::text AS lease
+                 FROM cyclotron_jobs WHERE id = $1`,
+                [id]
+            )
+            return BigInt(rows[0].lease)
+        }
+
+        async function lock(sql: string, params: unknown[]): Promise<Lock> {
+            const client = await db.connect()
+            await client.query('BEGIN')
+            const held = { client, pid: (await client.query('SELECT pg_backend_pid() AS pid')).rows[0].pid }
+            locks.push(held)
+            await client.query(sql, params)
+            return held
+        }
+
+        const lockJobRow = (id: string): Promise<Lock> =>
+            lock('SELECT 1 FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
+
+        // A move into the email queue first takes the team's next email sequence number, so
+        // locking that row holds the move without touching the job row itself.
+        async function lockEmailSequence(): Promise<Lock> {
+            await db.query(
+                'INSERT INTO cyclotron_email_team_seq (team_id, counter) VALUES ($1, 1) ON CONFLICT (team_id) DO NOTHING',
+                [teamId]
+            )
+            return lock('SELECT 1 FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [teamId])
+        }
+
+        const unlock = async (held: Lock): Promise<void> => {
+            await held.client.query('ROLLBACK')
+        }
+
+        const writeWaitingOn = (held: Lock): Promise<number> =>
+            waitForExpect(
+                async () => {
+                    const { rows } = await db.query(
+                        'SELECT pid FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))',
+                        [held.pid]
+                    )
+                    expect(rows).toHaveLength(1)
+                    return rows[0].pid as number
+                },
+                10_000,
+                10
+            )
+
+        async function dropConnectionOfWriteWaitingOn(held: Lock): Promise<void> {
+            await db.query('SELECT pg_terminate_backend($1)', [await writeWaitingOn(held)])
+        }
+
+        // Proves a promise pending only for this window, which is long enough for a write
+        // nobody waits on to finish against a local database.
+        const PENDING_WINDOW_MS = 250
+        const stillPending = (promise: Promise<unknown>): Promise<boolean> =>
+            Promise.race([
+                promise.then(
+                    () => false,
+                    () => false
+                ),
+                new Promise<boolean>((resolve) => setTimeout(() => resolve(true), PENDING_WINDOW_MS)),
+            ])
+
+        async function startStallableProxy(): Promise<StallableProxy> {
+            const sockets = new Set<Socket>()
+            const server = createServer((client) => {
+                const upstream = connect(CYCLOTRON_DB.port, CYCLOTRON_DB.host)
+                for (const socket of [client, upstream]) {
+                    sockets.add(socket)
+                    socket.on('error', () => undefined)
+                }
+                client.pipe(upstream)
+                upstream.pipe(client)
+            })
+            await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+            const proxy = {
+                url: dbUrl('127.0.0.1', (server.address() as AddressInfo).port),
+                stall: () => {
+                    for (const socket of sockets) {
+                        socket.unpipe()
+                        socket.pause()
+                    }
+                },
+                close: async () => {
+                    for (const socket of sockets) {
+                        socket.destroy()
+                    }
+                    await new Promise((resolve) => server.close(resolve))
+                },
+            }
+            proxies.push(proxy)
+            return proxy
+        }
+
+        function stopBoth(queue: CyclotronJobQueuePostgresV2): { returned: () => boolean; stopped: Promise<void> } {
+            let returned = false
+            const stopped = queue
+                .stopConsumer()
+                .then(() => queue.stopProducer())
+                .then(() => {
+                    returned = true
+                })
+            return { returned: () => returned, stopped }
+        }
+
+        // Each bounded step left after the deadline still waits one timer turn, which runs 1 ms later.
+        const TIMER_SLACK_MS = 5
+
+        const useFakeClock = (): void => {
+            jest.useFakeTimers({
+                doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'queueMicrotask', 'hrtime', 'performance'],
+            })
+        }
+
+        it.each([
+            { from: 'email', to: 'email', persisted: true },
+            { from: 'email', to: 'another queue', persisted: true },
+            { from: 'another queue', to: 'email', persisted: true },
+            { from: 'another queue', to: 'another queue', persisted: false },
+        ])(
+            'persists the invocation priority on $from -> $to only when the email queue is on either side',
+            async ({ from, to, persisted }) => {
+                const on = (name: string): CyclotronJobQueueKind =>
+                    (name === 'email' ? 'email' : queueName) as CyclotronJobQueueKind
+                const queue = await startQueue()
+                const id = await enqueue(queue, { queue: on(from), queuePriority: 1 })
+                const [claimed] = await (await consume(queue, on(from))).claimed()
+
+                await queue.queueInvocationResults([
+                    createResult({
+                        invocation: {
+                            ...claimed,
+                            queue: on(to),
+                            queuePriority: 3,
+                            queueScheduledAt: DateTime.now().plus({ hours: 1 }),
+                        },
+                    }),
+                ])
+
+                expect(await jobRow(id)).toMatchObject({ queue_name: on(to), priority: persisted ? 3 : 1 })
+            }
+        )
+
+        it('settles once every write of the batch settled, then reports the one that failed', async () => {
+            const queue = await startQueue()
+            const failingId = await enqueue(queue)
+            const heldId = await enqueue(queue)
+            const claims = await (await consume(queue, queueName)).claimed(2)
+            const failingRow = await lockJobRow(failingId)
+            const emailSequence = await lockEmailSequence()
+
+            const written = queue.queueInvocationResults([
+                finished(claims.find(({ id }) => id === failingId)!),
+                movedToEmail(claims.find(({ id }) => id === heldId)!),
+            ])
+            await dropConnectionOfWriteWaitingOn(failingRow)
+            await writeWaitingOn(emailSequence)
+            expect(await stillPending(written)).toBe(true)
+            await unlock(emailSequence)
+
+            await expect(written).rejects.toThrow('terminating connection')
+            expect(await jobRow(heldId)).toMatchObject({ queue_name: 'email', status: 'available' })
+            expect(await jobRow(failingId)).toMatchObject({ status: 'running' })
+        })
+
+        it('stops dequeuing, then returns once the batch in progress has written its results', async () => {
+            const queue = await startQueue()
+            const id = await enqueue(queue)
+            let finishWork: () => void = () => {}
+            const workDone = new Promise<void>((resolve) => (finishWork = resolve))
+            await (
+                await consume(queue, queueName, (claims) =>
+                    workDone.then(() => queue.queueInvocationResults(claims.map(finished)))
+                )
+            ).claimed()
+
+            const stopped = queue.stopConsumer()
+            const enqueuedDuringStop = await enqueue(queue)
+            expect(await stillPending(stopped)).toBe(true)
+            finishWork()
+            await stopped
+
+            expect(await jobRow(id)).toMatchObject({ status: 'completed' })
+            expect(await jobRow(enqueuedDuringStop)).toMatchObject({ status: 'available' })
+        })
+
+        it('waits for every result write of a batch when one of them fails', async () => {
+            const queue = await startQueue()
+            const failingId = await enqueue(queue)
+            const heldId = await enqueue(queue)
+            let writeResults: (results: CyclotronJobInvocationResult[]) => void = () => {}
+            const claims = await (
+                await consume(
+                    queue,
+                    queueName,
+                    () =>
+                        new Promise((resolve) => {
+                            writeResults = (results) => resolve(queue.queueInvocationResults(results))
+                        })
+                )
+            ).claimed(2)
+            const failingRow = await lockJobRow(failingId)
+            const emailSequence = await lockEmailSequence()
+
+            writeResults([
+                finished(claims.find(({ id }) => id === failingId)!),
+                movedToEmail(claims.find(({ id }) => id === heldId)!),
+            ])
+            await dropConnectionOfWriteWaitingOn(failingRow)
+            await writeWaitingOn(emailSequence)
+            const stopped = queue.stopConsumer()
+            expect(await stillPending(stopped)).toBe(true)
+            await unlock(emailSequence)
+            await stopped
+
+            expect(await jobRow(heldId)).toMatchObject({ queue_name: 'email', status: 'available' })
+        })
+
+        it('returns at the stop deadline, counted from the start of the stop, when the batch in progress takes most of it and its work never finishes', async () => {
+            const queue = await startQueue()
+            await enqueue(queue)
+            let batchArrived: () => void = () => {}
+            const arrived = new Promise<void>((resolve) => (batchArrived = resolve))
+            let returnBatch: () => void = () => {}
+            const batchMayReturn = new Promise<void>((resolve) => (returnBatch = resolve))
+            await queue.startAsConsumer(queueName as CyclotronJobQueueKind, async (invocations) => {
+                if (invocations.length === 0) {
+                    return { backgroundTask: Promise.resolve() }
+                }
+                batchArrived()
+                await batchMayReturn
+                return { backgroundTask: new Promise(() => {}) }
+            })
+            await arrived
+
+            useFakeClock()
+            const { returned, stopped } = stopBoth(queue)
+            await jest.advanceTimersByTimeAsync(20_000)
+            returnBatch()
+            await jest.advanceTimersByTimeAsync(CONSUMER_STOP_DEADLINE_MS - 20_000 - 1)
+            expect(returned()).toBe(false)
+            await jest.advanceTimersByTimeAsync(1 + TIMER_SLACK_MS)
+
+            expect(returned()).toBe(true)
+            await stopped
+        })
+
+        it('returns at the stop deadline, counted from the start of the stop, when the database stops answering mid-write', async () => {
+            const proxy = await startStallableProxy()
+            const queue = await startQueue(proxy.url)
+            await enqueue(queue)
+            const [claimed] = await (await consume(queue, queueName)).claimed()
+
+            proxy.stall()
+            void queue.queueInvocationResults([finished(claimed)]).catch(() => undefined)
+            void enqueue(queue).catch(() => undefined)
+            useFakeClock()
+            const { returned, stopped } = stopBoth(queue)
+            await jest.advanceTimersByTimeAsync(CONSUMER_STOP_DEADLINE_MS - 1)
+            expect(returned()).toBe(false)
+            await jest.advanceTimersByTimeAsync(1 + TIMER_SLACK_MS)
+
+            expect(returned()).toBe(true)
+            await stopped
+        })
+
+        it('renews the lease of a job while its result write runs', async () => {
+            const queue = await startQueue()
+            const id = await enqueue(queue)
+            const [claimed] = await (await consume(queue, queueName)).claimed()
+            const emailSequence = await lockEmailSequence()
+            const written = queue.queueInvocationResults([movedToEmail(claimed)])
+            await writeWaitingOn(emailSequence)
+            const leaseBefore = await leaseOf(id)
+
+            await queue.heartbeatInvocations([claimed])
+
+            expect(await leaseOf(id)).toBeGreaterThan(leaseBefore)
+            await unlock(emailSequence)
+            await written
+        })
+
+        it('keeps heartbeating a new claim of the same job once the earlier claim finishes writing', async () => {
+            const queue = await startQueue()
+            const id = await enqueue(queue)
+            const consumer = await consume(queue, queueName)
+            const [earlier] = await consumer.claimed()
+            const emailSequence = await lockEmailSequence()
+            const written = queue.queueInvocationResults([movedToEmail(earlier)])
+            await writeWaitingOn(emailSequence)
+            // What the janitor does to a job whose claim stopped heartbeating.
+            await db.query(
+                `UPDATE cyclotron_jobs SET status = 'available', lock_id = NULL, last_heartbeat = NULL WHERE id = $1`,
+                [id]
+            )
+            const [, later] = await consumer.claimed(2)
+            await unlock(emailSequence)
+            await written
+            const leaseBefore = await leaseOf(id)
+
+            await queue.heartbeatInvocations([later])
+
+            expect(await leaseOf(id)).toBeGreaterThan(leaseBefore)
         })
     })
 })
