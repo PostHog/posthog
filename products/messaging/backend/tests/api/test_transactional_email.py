@@ -761,6 +761,11 @@ class TestTransactionalEmail(APIBaseTest):
                 "marketing",
             ),
             (
+                "placeholder_with_a_no_break_space",
+                {"category": NEWSLETTER, "html": "<a href='{{\u00a0unsubscribe_url }}'>x</a>"},
+                "marketing",
+            ),
+            (
                 "transactional_category_needs_no_link",
                 {"category": {"key": "receipts", "type": "transactional", "name": "Receipts"}},
                 "transactional",
@@ -841,6 +846,12 @@ class TestTransactionalEmail(APIBaseTest):
                 "category_mismatch",
             ),
             ("no_unsubscribe_link", None, {"category": NEWSLETTER}, "unsubscribe_link_required"),
+            (
+                "placeholder_spaced_with_a_character_the_email_worker_reads_as_text",
+                None,
+                {"category": NEWSLETTER, "html": "<a href='{{\x85unsubscribe_url}}'>x</a>"},
+                "unsubscribe_link_required",
+            ),
             (
                 "copies_on_marketing",
                 None,
