@@ -33,7 +33,7 @@ def has_bound_auth(entry: Any) -> bool:
 def stored_secrets(inputs: Optional[dict], inputs_schema: Optional[list], encrypted_inputs: Optional[dict]) -> dict:
     """Every secret the worker resolves for a stored function. A secret saved before inputs were encrypted is still
     in plaintext `inputs`, and the worker merges both columns by name."""
-    plaintext = inputs or {}
+    plaintext = inputs if isinstance(inputs, dict) else {}
     secret_keys = {
         schema.get("key") for schema in inputs_schema or [] if isinstance(schema, dict) and schema.get("secret")
     }
@@ -44,7 +44,9 @@ def stored_secrets(inputs: Optional[dict], inputs_schema: Optional[list], encryp
 
 
 def legacy_secret_keys(secrets: dict) -> set[str]:
-    return {key for key, entry in secrets.items() if not has_bound_auth(entry)}
+    return {
+        key for key, entry in secrets.items() if entry.get("value") not in (None, "", {}) and not has_bound_auth(entry)
+    }
 
 
 def replaces_stored_value(value: Any, stored: Any) -> bool:
@@ -74,12 +76,23 @@ def _schema_signature(inputs_schema: Any) -> dict:
 
 def _inputs_signature(inputs: Any, inputs_schema: Any, skipped: set[str]) -> dict:
     # Only inputs the schema declares are validated and kept, so an undeclared stored one is left out on both sides.
-    # Values compare as JSON text because Python equates `True` with `1`, which the worker prints differently. Key
-    # order counts because code can read it. The editor sends back the order the API returned.
+    items = dict(inputs) if isinstance(inputs, dict) else {}
+    for schema in inputs_schema or []:
+        # Validation fills in the default of a missing required input, so a function stored without it compares
+        # as if it held the default.
+        if isinstance(schema, dict) and schema.get("required") and schema.get("default") is not None:
+            if not items.get(schema.get("key")):
+                items[str(schema["key"])] = {
+                    "value": schema["default"],
+                    "templating": _templating(schema.get("templating")),
+                }
     declared = _schema_signature(inputs_schema).keys() - skipped
+    # Values compare as JSON text because Python equates `True` with `1`, which the worker prints differently. Keys
+    # are sorted because Postgres `jsonb` stores object keys in its own order, so the worker never sees the order a
+    # client sent.
     return {
-        key: (json.dumps(item.get("value"), default=str), item.get("templating") == "liquid")
-        for key, item in (inputs or {}).items()
+        key: (json.dumps(item.get("value"), default=str, sort_keys=True), item.get("templating") == "liquid")
+        for key, item in items.items()
         if isinstance(item, dict) and key in declared
     }
 
@@ -88,7 +101,8 @@ def guarded_content(hog: Optional[str], inputs: Any, inputs_schema: Any, mapping
     """What decides where the code sends a secret it reads. Derived values such as bytecode are left out, because the
     editor sends the whole config on every save and a recompile must not count as a change."""
     return (
-        hog or "",
+        # The serializer trims the code it saves.
+        (hog or "").strip(),
         _schema_signature(inputs_schema),
         _inputs_signature(inputs, inputs_schema, secret_keys),
         [

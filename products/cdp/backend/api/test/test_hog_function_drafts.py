@@ -187,7 +187,7 @@ class TestHogFunctionDrafts(DraftTestCase):
 
         def live_edit_lands_after_initial_fetch(viewset, serializer):
             # Stand in for a builder edit committing between the request's initial unlocked fetch
-            # and its write: draft routing resolves after get_object() and before the transaction.
+            # and its write: draft routing resolves in get_serializer(), after get_object() and before the transaction.
             HogFunction.objects.filter(id=function_id).update(hog=concurrent_hog)
             return real_should_route_to_draft(viewset, serializer)
 
@@ -390,23 +390,43 @@ class TestHogFunctionDrafts(DraftTestCase):
 
     @parameterized.expand(
         [
-            ("changes_the_url", [{"inputs": sender_inputs(MOVED_URL)}], {"staged": 1}, status.HTTP_400_BAD_REQUEST),
+            (
+                "changes_the_url",
+                [{"inputs": sender_inputs(MOVED_URL)}],
+                {"staged": 1},
+                status.HTTP_400_BAD_REQUEST,
+                "live",
+            ),
             (
                 "enters_the_secret_with_the_change",
                 [{"inputs": sender_inputs(MOVED_URL, {"value": "new"})}],
                 {"reentered": 1},
                 status.HTTP_200_OK,
+                "new",
             ),
             (
                 "enters_the_secret_after_staging_code",
                 [{"hog": MOVED_SENDER_HOG}, {"inputs": sender_inputs(SENDER_URL, {"value": "new"})}],
                 {"staged": 1, "reentered": 1},
                 status.HTTP_200_OK,
+                "new",
+            ),
+            (
+                "enters_the_same_value_again",
+                [{"hog": MOVED_SENDER_HOG, "inputs": sender_inputs(SENDER_URL, {"value": "live"})}],
+                {"reentered": 1},
+                status.HTTP_200_OK,
+                "live",
             ),
         ]
     )
     def test_draft_that_changes_a_legacy_function_needs_the_secret_to_test_or_publish(
-        self, _name: str, edits: list[dict], expected_staged_outcomes: dict[str, int], expected_status: int
+        self,
+        _name: str,
+        edits: list[dict],
+        expected_staged_outcomes: dict[str, int],
+        expected_status: int,
+        expected_live_token: str,
     ):
         function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
 
@@ -420,8 +440,7 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert (tested.status_code, published.status_code) == (expected_status, expected_status), published.json()
         assert mock_invoke.called == (expected_status == status.HTTP_200_OK)
         assert staged_outcomes == expected_staged_outcomes
-        live_token = HogFunction.objects.get(id=function_id).encrypted_inputs["token"]["value"]
-        assert live_token == ("live" if expected_status == status.HTTP_400_BAD_REQUEST else "new")
+        assert HogFunction.objects.get(id=function_id).encrypted_inputs["token"]["value"] == expected_live_token
 
     @parameterized.expand(
         [
@@ -590,30 +609,6 @@ class TestHogFunctionDrafts(DraftTestCase):
                     "inputs": {**sender_inputs(SENDER_URL), "target": {"value": new}},
                 },
             )
-
-        assert response.status_code == expected_status, response.json()
-
-    @parameterized.expand([("same_order", False, status.HTTP_200_OK), ("reordered", True, status.HTTP_400_BAD_REQUEST)])
-    def test_test_invocation_that_reorders_a_dictionary_input_needs_the_secret(
-        self, _name: str, reorder: bool, expected_status: int
-    ):
-        targets_schema = {"key": "targets", "type": "dictionary", "label": "Targets"}
-        function_id = self._create(
-            hog="fetch(values(inputs.targets)[1], {'headers': {'Authorization': inputs.token}});",
-            inputs_schema=[*BASE_FUNCTION["inputs_schema"], targets_schema],
-            inputs={
-                **sender_inputs(SENDER_URL, {"value": "live"}),
-                "targets": {"value": {"a": "https://hooks.example.com", "b": MOVED_URL}},
-            },
-        )
-        # The test sends back the function as the API returns it, as the editor does.
-        configuration = self.client.get(self._url(function_id)).json()
-        targets = configuration["inputs"]["targets"]["value"]
-        if reorder:
-            configuration["inputs"]["targets"]["value"] = dict(reversed(targets.items()))
-
-        with secret_host_binding_flag(True):
-            response, _ = self._test_invoke(function_id, {"configuration": configuration})
 
         assert response.status_code == expected_status, response.json()
 
