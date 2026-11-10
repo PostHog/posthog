@@ -16,11 +16,11 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
+import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
-import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../types'
-import { HogExecutorAsyncService } from '../../hog-executor-async.service'
+import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, DBHogFunctionTemplate } from '../../../types'
+import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
@@ -799,16 +799,61 @@ describe('HogFunctionHandler', () => {
         )
     })
 
-    const acceptEmailSends = (): void => {
-        const executeWithAsyncFunctions =
-            mockHogFlowFunctionsService.executeWithAsyncFunctions.bind(mockHogFlowFunctionsService)
-        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
-            async (hogFunctionInvocation, options) => {
-                const functionResult = await executeWithAsyncFunctions(hogFunctionInvocation, options)
-                functionResult.emailSendResult = { status: 'accepted' }
-                return functionResult
+    const useEmailStep = async (): Promise<void> => {
+        const senderId = uniqueTestId()
+        await insertIntegration(hub.postgres, team.id, {
+            id: senderId,
+            kind: 'email',
+            config: {
+                email: 'sender@posthog.com',
+                name: 'Sender',
+                domain: 'posthog.com',
+                verified: true,
+                provider: 'maildev',
+            },
+        })
+        const emailTemplate = await insertHogFunctionTemplate(hub.postgres, {
+            id: `template-test-hogflow-send-email-${team.id}`,
+            name: 'Test Send Email Template',
+            code: `sendEmail(inputs.email)`,
+            inputs_schema: [{ key: 'email', type: 'native_email', integration: 'email', required: true }],
+        })
+        action.config.template_id = emailTemplate.template_id
+        action.config.inputs = {
+            email: {
+                value: {
+                    to: { email: 'person@example.com', name: 'Person' },
+                    from: { integrationId: senderId },
+                    subject: 'Subject',
+                    text: 'Text',
+                    html: 'HTML',
+                },
+            },
+        }
+    }
+
+    // A production send leaves the step on the email queue, so run the step again there, as the worker does.
+    const executeStep = async (
+        handler: HogFunctionHandler,
+        flowInvocation: CyclotronJobInvocationHogFlow,
+        hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> => {
+        let current = flowInvocation
+        const metrics: CyclotronJobInvocationResult['metrics'] = []
+        for (;;) {
+            const result = createInvocationResult<CyclotronJobInvocationHogFlow>(current, {
+                queue: current.queue,
+                queuePriority: current.queuePriority,
+                queueParameters: current.queueParameters,
+                queueMetadata: current.queueMetadata,
+            })
+            const handlerResult = await handler.execute({ invocation: current, action, result, hogExecutorOptions })
+            metrics.push(...result.metrics)
+            if (!handlerResult.scheduledAt || result.invocation.queue === current.queue) {
+                return { ...result, metrics }
             }
-        )
+            current = result.invocation
+        }
     }
 
     // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
@@ -844,30 +889,29 @@ describe('HogFunctionHandler', () => {
                 usageReporter
             )
             if (billingType === 'email') {
-                acceptEmailSends()
+                await useEmailStep()
             }
 
-            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
-                queue: 'hog',
-                queuePriority: 0,
-            })
-
-            await handler.execute({
-                invocation,
-                action,
-                result: invocationResult,
-                hogExecutorOptions: {
-                    isTest,
-                    ...(mockFunctions
-                        ? { asyncFunctionsNames: [], functions: { fetch: () => ({ status: 200, body: {} }) } }
-                        : {}),
-                },
+            const invocationResult = await executeStep(handler, invocation, {
+                isTest,
+                ...(mockFunctions
+                    ? {
+                          asyncFunctionsNames: [],
+                          functions: { fetch: () => ({ status: 200, body: {} }), sendEmail: () => ({ success: true }) },
+                      }
+                    : {}),
             })
 
             const billableMetrics = invocationResult.metrics.filter(
                 (metric) => metric.metric_name === 'billable_invocation'
             )
 
+            // A mocked email test reaches no provider, so there is nothing to bill.
+            if (billingType === 'email' && mockFunctions) {
+                expect(billableMetrics).toEqual([])
+                expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
+                return
+            }
             expect(billableMetrics).toHaveLength(1)
 
             expect(billableMetrics[0]).toMatchObject({
@@ -962,7 +1006,7 @@ describe('HogFunctionHandler', () => {
                 null
             )
             if (billingType === 'email') {
-                acceptEmailSends()
+                await useEmailStep()
             }
             // The run entered on v1; v3 is what is live now and what this step executes under.
             const republished = {
@@ -978,12 +1022,7 @@ describe('HogFunctionHandler', () => {
                 }
             )
 
-            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(republished, {
-                queue: 'hog',
-                queuePriority: 0,
-            })
-
-            await handler.execute({ invocation: republished, action, result: invocationResult })
+            const invocationResult = await executeStep(handler, republished)
 
             expect(invocationResult.invocation.state.flowVersion).toBe(expected)
             expect(
