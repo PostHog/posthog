@@ -200,15 +200,11 @@ export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-w
 async function withDefaultEmailSender(workflow: HogFlow): Promise<HogFlow> {
     try {
         const team = teamLogic.findMounted()?.values.currentTeam
+        const workflowsConfig = team && 'workflows_config' in team ? team.workflows_config : null
         const integrations = (await api.integrations.list()).results
-        const sender = resolveDefaultEmailSender(
-            integrations,
-            team && 'workflows_config' in team ? team.workflows_config?.default_email_integration_id : null
-        )
+        const sender = resolveDefaultEmailSender(integrations, workflowsConfig?.default_email_integration_id)
         if (!sender) {
-            const teamUtmDefaults = getTeamUtmDefaults(
-                team && 'workflows_config' in team ? team.workflows_config : null
-            )
+            const teamUtmDefaults = getTeamUtmDefaults(workflowsConfig)
             const needsSender =
                 !hasOwnSender(integrations) &&
                 sandboxSenderAllowed(workflow, false) &&
