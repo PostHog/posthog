@@ -125,8 +125,7 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
     // The widget result is cached, so it keeps saying "unwatched" after the player marks a recording viewed.
     // Flip opened rows locally, as the recordings list does when a recording is selected.
     const [openedRecordingIds, setOpenedRecordingIds] = useState<ReadonlySet<string>>(() => new Set())
-    const markOpened = (recordingId: string): void =>
-        setOpenedRecordingIds((ids) => (ids.has(recordingId) ? ids : new Set(ids).add(recordingId)))
+    const markOpened = (recordingId: string): void => setOpenedRecordingIds((ids) => new Set(ids).add(recordingId))
 
     if (loading) {
         return (
@@ -165,9 +164,7 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
                         <SessionReplayWidgetRecordingRow
                             key={recording.id}
                             recording={
-                                openedRecordingIds.has(recording.id) && !recording.viewed
-                                    ? { ...recording, viewed: true }
-                                    : recording
+                                openedRecordingIds.has(recording.id) ? { ...recording, viewed: true } : recording
                             }
                             order={order}
                             matchingEventsQuery={matchingEventsQuery}

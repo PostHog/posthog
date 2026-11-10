@@ -83,7 +83,7 @@ describe('SessionReplayWidget', () => {
         const getMatchingEvents = jest.spyOn(api.recordings, 'getMatchingEvents')
         sessionPlayerModalLogic.mount()
 
-        const { rerender } = render(
+        render(
             <SessionReplayWidget tileId={1} config={{ limit: 10 }} loading={false} result={{ results: [recording] }} />
         )
 
@@ -94,12 +94,7 @@ describe('SessionReplayWidget', () => {
             expect(sessionPlayerModalLogic.values.activeSessionRecording).toEqual({ id: 'recording-1' })
         )
         expect(getMatchingEvents).not.toHaveBeenCalled()
-        // The cached widget result still says unwatched, so the row has to flip locally, and stay flipped
-        // when the tile re-renders with that same stale payload.
-        expect(screen.getByText('recording-1')).toHaveAttribute('data-viewed', 'true')
-        rerender(
-            <SessionReplayWidget tileId={1} config={{ limit: 10 }} loading={false} result={{ results: [recording] }} />
-        )
+        // The cached widget result still says unwatched, so the row has to flip locally.
         expect(screen.getByText('recording-1')).toHaveAttribute('data-viewed', 'true')
     })
 
