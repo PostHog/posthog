@@ -59,7 +59,7 @@ export const scene: SceneExport = {
 export default function TracingScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneLogic = tracingSceneLogic()
-    const { activeSceneTab } = useValues(sceneLogic)
+    const { sceneTab } = useValues(sceneLogic)
     // Keep filters + data + viewer logic alive across React unmounts by attaching them to the scene root.
     useAttachedLogic(tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
     useAttachedLogic(tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
@@ -76,7 +76,7 @@ export default function TracingScene(): JSX.Element {
         <BindLogic logic={tracingFiltersLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
             <BindLogic logic={tracingDataLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
                 <BindLogic logic={tracingViewerLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
-                    <TracingAgentIntegration sceneTabIsViewer={activeSceneTab === 'viewer'} />
+                    <TracingAgentIntegration sceneTabIsViewer={sceneTab === 'viewer'} />
                     <TracingSceneContents />
                 </BindLogic>
             </BindLogic>
@@ -126,8 +126,7 @@ function TracingSceneContents(): JSX.Element {
         showHeatmap,
         displayMode,
         compareActive,
-        sceneTabsEnabled,
-        activeSceneTab,
+        sceneTab,
     } = useValues(tracingSceneLogic())
     const { traceLoadFiltersActive } = useValues(tracingDataLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -270,18 +269,16 @@ function TracingSceneContents(): JSX.Element {
                     )
                 }
             />
-            {sceneTabsEnabled && (
-                <LemonTabs<TracingSceneTab>
-                    activeKey={activeSceneTab}
-                    onChange={selectSceneTab}
-                    tabs={[
-                        { key: 'viewer', label: 'Viewer' },
-                        { key: 'sql', label: 'SQL' },
-                    ]}
-                    sceneInset
-                />
-            )}
-            <div className={cn('flex flex-col gap-y-4 flex-1 min-h-0', activeSceneTab !== 'viewer' && 'hidden')}>
+            <LemonTabs<TracingSceneTab>
+                activeKey={sceneTab}
+                onChange={selectSceneTab}
+                tabs={[
+                    { key: 'viewer', label: 'Viewer' },
+                    { key: 'sql', label: 'SQL' },
+                ]}
+                sceneInset
+            />
+            <div className={cn('flex flex-col gap-y-4 flex-1 min-h-0', sceneTab !== 'viewer' && 'hidden')}>
                 <TracingFilterBar />
                 <SceneDivider />
                 <TracingSparkline
@@ -384,7 +381,7 @@ function TracingSceneContents(): JSX.Element {
                     </div>
                 </div>
             </div>
-            {activeSceneTab === 'sql' && <TracingSqlEditor id={TRACING_SCENE_VIEWER_ID} />}
+            {sceneTab === 'sql' && <TracingSqlEditor id={TRACING_SCENE_VIEWER_ID} />}
             <TraceDrawer
                 viewId={traceViewId(TRACING_SCENE_VIEWER_ID)}
                 isOpen={isTraceOpen}
