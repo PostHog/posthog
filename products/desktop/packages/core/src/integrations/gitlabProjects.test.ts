@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   combineGitlabProjects,
+  findGitlabProjectForRepository,
   type GitlabProjectsResult,
 } from "./gitlabProjects";
+import type { Integration } from "./selectors";
 
 const result = (
   integrationId: number,
@@ -49,4 +51,29 @@ describe("combineGitlabProjects", () => {
       });
     },
   );
+});
+
+describe("findGitlabProjectForRepository", () => {
+  const integrations = [
+    { id: 4, kind: "gitlab", config: { path_with_namespace: "acme/web" } },
+    {
+      id: 9,
+      kind: "gitlab",
+      config: { path_with_namespace: "Acme/Platform/API" },
+    },
+  ] as Integration[];
+
+  it.each([
+    [
+      "a nested project, any case",
+      "acme/platform/api",
+      { project: "Acme/Platform/API", integrationId: 9 },
+    ],
+    ["a GitHub repository", "acme/github-only", null],
+    ["no repository", undefined, null],
+  ])("resolves %s", (_, repository, expected) => {
+    expect(findGitlabProjectForRepository(repository, integrations)).toEqual(
+      expected,
+    );
+  });
 });

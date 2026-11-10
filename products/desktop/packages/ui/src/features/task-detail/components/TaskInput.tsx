@@ -3,6 +3,7 @@ import type { AutoresearchService } from "@posthog/core/autoresearch/autoresearc
 import { AUTORESEARCH_SERVICE } from "@posthog/core/autoresearch/identifiers";
 import { buildKickoffPreamble } from "@posthog/core/autoresearch/prompts";
 import { buildFileLineReferencePrompt } from "@posthog/core/code-review/reviewPrompts";
+import { findGitlabProjectForRepository } from "@posthog/core/integrations/gitlabProjects";
 import type { EditorContent } from "@posthog/core/message-editor/content";
 import { xmlToContent } from "@posthog/core/message-editor/content";
 import type {
@@ -864,6 +865,38 @@ export function TaskInput({
     setSelectedRepository: applyRepositoryPrefill,
     switchWorkspaceMode: overrideWorkspaceMode,
   });
+
+  // The GitHub prefill above skips a GitLab project, so a sidebar "+" on a
+  // GitLab group would otherwise leave the previous repository selected.
+  const gitlabPrefillRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!view.folderRepository) {
+      gitlabPrefillRef.current = undefined;
+      return;
+    }
+    const requestKey = `${view.taskInputRequestId ?? ""}:${view.folderRepository}`;
+    if (gitlabPrefillRef.current === requestKey) return;
+    if (!gitlabTasksEnabled || activeReportAssociation) return;
+    const match = findGitlabProjectForRepository(
+      view.folderRepository,
+      gitlabTaskIntegrations,
+    );
+    if (!match) return;
+    gitlabPrefillRef.current = requestKey;
+    setSelectedGitlabProject(match);
+    if (!view.folderId || view.folderRunEnvironment === "cloud") {
+      overrideWorkspaceMode("cloud");
+    }
+  }, [
+    view.folderRepository,
+    view.taskInputRequestId,
+    view.folderId,
+    view.folderRunEnvironment,
+    gitlabTasksEnabled,
+    activeReportAssociation,
+    gitlabTaskIntegrations,
+    overrideWorkspaceMode,
+  ]);
 
   useEffect(() => {
     setCloudBranchSearchQuery("");
