@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
@@ -8,6 +10,8 @@ import { Card } from '@posthog/quill'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { App } from 'scenes/App'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { todayListAppearanceLogic } from '~/layout/today/todayListAppearanceLogic'
@@ -19,7 +23,7 @@ import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
 
-import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
+import { makeReport, mockSignals, mockSourceConfigs } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { reportMetricQueryHandler } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportPriority, SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -1090,6 +1094,29 @@ export const HomeWithoutAiAndNothingNew: Story = {
     ],
 }
 
+export const HomeOnNewProject: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
+    },
+    decorators: [
+        keepNumbers([]),
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/': { ...MOCK_DEFAULT_TEAM, ingested_event: false },
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
+                '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [], pulse: [], pulse_slots: [] },
+                '/api/environments/:team_id/file_system/': { results: [], count: 0 },
+                '/api/projects/:team_id/file_system/frequent/': [],
+            },
+        }),
+        (Story) => {
+            teamLogic.mount()
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false })
+            return <Story />
+        },
+    ],
+}
+
 export const HomeWhenReportsFailToLoad: Story = {
     decorators: [
         mswDecorator({
@@ -1511,4 +1538,40 @@ export const HomeWithComposer: Story = {
             FEATURE_FLAGS.PHAI_SANDBOX_MODE,
         ],
     },
+}
+
+export const HomeWithAiOff: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
+                '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [] },
+                '/api/organizations/:id/': { ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: false },
+            },
+        }),
+        (Story) => {
+            organizationLogic.mount()
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
+            return <Story />
+        },
+    ],
+}
+
+export const HomeWhileSelfDrivingReviews: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.PRODUCT_AUTONOMY],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
+                '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [] },
+                '/api/projects/:team_id/signals/source_configs/': mockSourceConfigs,
+                '/api/projects/:team_id/signals/scout/configs/': [],
+            },
+        }),
+    ],
 }
