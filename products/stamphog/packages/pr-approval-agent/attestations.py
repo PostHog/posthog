@@ -94,7 +94,7 @@ def pending_attestations(
     return [
         attestation
         for attestation in attestations
-        if any(_matches(attestation, path) for path in pr_file_paths)
+        if any(covers(attestation, path) for path in pr_file_paths)
         and _latest_completed(check_runs, attestation) is None
     ]
 
@@ -114,10 +114,10 @@ def _attested_files(
     proven = _proven_files(latest, attestation, reviewed)
     if proven is None:
         return set()
-    return {path for path in proven & pr_paths if _matches(attestation, path)}
+    return {path for path in proven & pr_paths if covers(attestation, path)}
 
 
-def _matches(attestation: Attestation, path: str) -> bool:
+def covers(attestation: Attestation, path: str) -> bool:
     return any(re.search(pattern, path) for pattern in attestation.paths)
 
 

@@ -419,6 +419,9 @@ def _attach_familiarity(pipeline: Pipeline, context: dict) -> None:
     pipeline.classification["familiarity"] = fam
 
 
+_TIER_OR_LIFTED_GATES = ATTESTATION_LIFTED_GATES | {"tier"}
+
+
 def _blocked_only_by_pending_attestations(pipeline: Pipeline) -> list[Attestation]:
     """The unfinished checks that alone keep this PR from a review, or nothing.
 
@@ -453,7 +456,6 @@ def _blocked_only_by_pending_attestations(pipeline: Pipeline) -> list[Attestatio
 # Gates the pre-check evaluates from the same inputs the sandbox uses, so a failure here is a
 # failure there. The size gate is not in this set: see _size_denial_is_final.
 _CHECKOUT_FREE_GATES = frozenset({"prerequisites", "deny-list", "every_file_attested", "tier"})
-_TIER_OR_LIFTED_GATES = ATTESTATION_LIFTED_GATES | {"tier"}
 
 
 def _size_denial_is_final(pipeline: Pipeline, folder_policies_known: bool) -> bool:

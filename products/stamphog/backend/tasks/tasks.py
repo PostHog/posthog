@@ -1225,7 +1225,8 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         except Exception as e:
             logger.exception("stamphog_pr_event_bot_admission_failed", delivery_id=delivery_id, error=str(e))
             carve_out_error = e
-    if skip_reason is not None and inbox_review is None and bot_admission is None:
+    carved_out = inbox_review is not None or bot_admission is not None
+    if skip_reason is not None and not carved_out:
         # A head-changing event skipped here still invalidates any standing approval — the author may
         # have lost their trusted association, or the PR flipped to draft, since the approval was
         # granted. Same hazard as the mode/permission skips below: without retraction the old approval
@@ -1298,11 +1299,7 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
 
     # Inbox re-reviews bypass the per-repo review mode: the reviewer's opt-in is the gate, and the
     # bot author can't apply a LABEL-mode trigger label anyway. review_mode still governs human PRs.
-    mode_skip_reason = (
-        _review_mode_skip_reason(repo_config, action, payload, pr)
-        if inbox_review is None and bot_admission is None
-        else None
-    )
+    mode_skip_reason = None if carved_out else _review_mode_skip_reason(repo_config, action, payload, pr)
     if mode_skip_reason is not None:
         # Safety net before dropping the event: a LABEL-mode head change skipped for a missing trigger
         # label still invalidates any standing approval. Retract it before marking the delivery processed,
@@ -1326,11 +1323,7 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # legitimate reviews to the same blip. Inbox re-reviews skip the check: the App's machine user is
     # never a collaborator, so the task linkage and the reviewer's toggle stand in for author trust.
     try:
-        author_below_write = (
-            False
-            if inbox_review is not None or bot_admission is not None
-            else _author_lacks_write_permission(repo_config, repo, pr)
-        )
+        author_below_write = False if carved_out else _author_lacks_write_permission(repo_config, repo, pr)
     except GitHubRateLimitError as e:
         # Honor GitHub's own backoff hint: the default 5s retry delay lands inside the same rate
         # window and burns the attempt budget without ever succeeding.
@@ -1358,7 +1351,7 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
     # This check sits after every trust gate above, so the code retains an approval only on a push
     # that this same path would have reviewed. Self-driving inbox runs are excluded, which keeps
     # their head-pinning carve-out untouched.
-    if action in _HEAD_CHANGING_ACTIONS and inbox_review is None and bot_admission is None:
+    if action in _HEAD_CHANGING_ACTIONS and not carved_out:
         try:
             retention_reason = _standing_approval_retention(repo_config, pr)
         except Exception:

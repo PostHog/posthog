@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from attestations import ReviewedHead, lifted_files, pending_attestations, pending_check_names, pinned_files
+from attestations import ReviewedHead, covers, lifted_files, pending_attestations, pending_check_names, pinned_files
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
     DENY_EXEMPT_AUTHOR_TEAMS,
@@ -327,7 +327,7 @@ class Pipeline:
         if not deny and not unproven:
             return []
         pending = pending_attestations(self._attestations, self.pr.check_runs, self.pr.file_paths)
-        if any(not pending_attestations(pending, self.pr.check_runs, [path]) for path in unproven):
+        if any(not any(covers(attestation, path) for attestation in pending) for path in unproven):
             return []
         if not pending or not deny <= set().union(*(set(a.lifts) for a in pending)):
             return []

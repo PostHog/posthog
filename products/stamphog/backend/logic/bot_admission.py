@@ -54,7 +54,7 @@ def _repo_bot_authors(repo_config: StamphogRepoConfig) -> list[dict[str, Any]]:
 
 
 def _parse_bot_authors(raw_text: str | None, repository: str) -> list[dict[str, Any]]:
-    """Each well-formed entry as a plain mapping. A malformed entry admits nobody and is logged."""
+    """Each well-formed entry. A malformed entry admits nobody and is logged."""
     if raw_text is None:
         return []
     try:
@@ -70,7 +70,7 @@ def _parse_bot_authors(raw_text: str | None, repository: str) -> list[dict[str, 
         if not isinstance(entry, dict) or not _is_identity(entry):
             logger.warning("stamphog_bot_author_entry_ignored", repository=repository)
             continue
-        bot_authors.append({"name": entry["name"], "login": entry["login"], "id": entry["id"]})
+        bot_authors.append(entry)
     return bot_authors
 
 

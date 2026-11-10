@@ -1920,7 +1920,6 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
     # but both the label-strip and the ReviewHog handoff below treat a gate-blocked refusal the same
     # as an engine-refused one.
-
     # Action parity: in label-triggered mode a refused/escalated verdict strips the trigger label, so
     # the author re-requests the next review by re-adding it.
     # A failure here raises on purpose: the activity retries and the sticky upsert above is idempotent.
