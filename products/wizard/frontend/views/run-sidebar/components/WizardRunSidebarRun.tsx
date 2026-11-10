@@ -1,5 +1,5 @@
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -17,15 +17,11 @@ import {
 export function WizardRunSidebarRun({
     run,
     tasks,
-    selected,
-    onSelect,
     onDismiss,
     onNavigate,
 }: {
     run: WizardRunApi
     tasks: readonly WizardRunTaskApi[]
-    selected: boolean
-    onSelect: (selected: boolean) => void
     onDismiss: () => void
     onNavigate: () => void
 }): JSX.Element {
@@ -35,12 +31,6 @@ export function WizardRunSidebarRun({
             className="flex min-w-0 items-start gap-2 rounded px-2 py-2 hover:bg-fill-highlight-50"
             data-run-id={run.id}
         >
-            <LemonCheckbox
-                checked={selected}
-                onChange={onSelect}
-                aria-label={`Select ${run.program.name}`}
-                data-attr="wizard-run-sidebar-select"
-            />
             <LinkPrimitive
                 to={`${urls.wizardRuns()}?run=${encodeURIComponent(run.id)}`}
                 onClick={onNavigate}
@@ -55,7 +45,7 @@ export function WizardRunSidebarRun({
                 <span className="flex min-w-0 gap-1 text-xs text-muted ph-no-capture">
                     <span className="truncate">{wizardRunActivityLabel(run, tasks)}</span>
                     {wizardRunIsActive(run) && total > 0 && (
-                        <span className="shrink-0">{`· ${completed} of ${total} steps`}</span>
+                        <span className="shrink-0">{`· ${completed} of ${total} ${total === 1 ? 'step' : 'steps'}`}</span>
                     )}
                 </span>
                 <span className="flex justify-center text-xs text-muted">

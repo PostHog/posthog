@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -23,9 +23,7 @@ export function WizardRunSidebarPanel({
     detectedSources?: WizardDetectedWarehouseSourceApi[]
     onDetectedSourceClick?: (sourceType: string) => void
 }): JSX.Element {
-    const [selectedIds, setSelectedIds] = useState<string[]>([])
     const panelRef = useRef<HTMLDivElement>(null)
-    const selectedRuns = runs.filter((run) => selectedIds.includes(run.id))
     useEffect(() => {
         panelRef.current?.focus()
     }, [])
@@ -64,10 +62,6 @@ export function WizardRunSidebarPanel({
                         key={run.id}
                         run={run}
                         tasks={tasksByRunId[run.id] ?? []}
-                        selected={selectedIds.includes(run.id)}
-                        onSelect={(selected) =>
-                            setSelectedIds((ids) => (selected ? [...ids, run.id] : ids.filter((id) => id !== run.id)))
-                        }
                         onDismiss={() => onDismissRuns([run.id])}
                         onNavigate={onNavigate}
                     />
@@ -95,17 +89,6 @@ export function WizardRunSidebarPanel({
                     >
                         View all runs
                     </LemonButton>
-                )}
-                {selectedRuns.length > 0 && (
-                    <LemonButton
-                        type="secondary"
-                        size="xsmall"
-                        onClick={() => {
-                            onDismissRuns(selectedRuns.map((run) => run.id))
-                            setSelectedIds([])
-                        }}
-                        data-attr="wizard-run-sidebar-dismiss-selected"
-                    >{`Dismiss selected (${selectedRuns.length})`}</LemonButton>
                 )}
             </div>
         </div>
