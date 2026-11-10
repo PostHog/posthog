@@ -21,7 +21,7 @@ export function TodayPulseExperimentValue({
                 <span className="TodayPulse__value">
                     <TodayChange change={lift} tone={tone} decimals={experimentLiftDecimals(lift)} />
                 </span>
-                <span className="TodayChange">{experimentComparison(experiment)}</span>
+                <span className="TodayChange min-w-0 truncate">{experimentComparison(experiment)}</span>
             </span>
             <span className="TodayPulse__verdict">{experimentVerdict(experiment)}</span>
         </>

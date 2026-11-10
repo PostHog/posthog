@@ -29,7 +29,9 @@ export function TodayPulseExperimentResult({
                 <Heading size="xl" render={<span />} className="tabular-nums">
                     <TodayChange change={lift} tone={tone} decimals={experimentLiftDecimals(lift)} />
                 </Heading>
-                <span className="text-sm text-muted-foreground">{experimentComparison(experiment)}</span>
+                <span className="min-w-0 text-sm text-muted-foreground wrap-anywhere">
+                    {experimentComparison(experiment)}
+                </span>
             </div>
             <Text size="xs" variant="muted" render={<span />}>
                 {`${experimentVerdict(experiment)} · ${experimentExposures(experiment)}`}
