@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { Pool } from 'pg'
+import { Pool, PoolClient } from 'pg'
 import { Counter, Histogram } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -17,6 +17,8 @@ import {
     CyclotronV2CancelJobsOptions,
     CyclotronV2CancelJobsResult,
     CyclotronV2CancelUnclaimedResult,
+    CyclotronV2IdempotentJobInit,
+    CyclotronV2IdempotentOutcome,
     CyclotronV2InFlightCounts,
     CyclotronV2JobInit,
     CyclotronV2JobInitSchema,
@@ -153,6 +155,15 @@ const dbWriteFailureCounter = new Counter({
     name: 'cdp_cyclotron_v2_db_write_failure',
     help: 'Failed Postgres writes to cyclotron_jobs (input already validated), split by kind=logical|transient.',
     labelNames: ['kind'] as const,
+})
+
+// How long an idempotency key deduplicates repeats of its request, counted from when its job is due.
+export const IDEMPOTENCY_KEY_TTL_MS = 24 * 60 * 60 * 1000
+
+const idempotentInsertsCounter = new Counter({
+    name: 'cdp_cyclotron_v2_idempotent_inserts_total',
+    help: 'Jobs submitted with an idempotency key, by outcome: created queued the job, replayed found the same request already queued, mismatch found the key used for a different request.',
+    labelNames: ['outcome'] as const,
 })
 
 const rescheduleSweptCounter = new Counter({
@@ -385,34 +396,7 @@ export class CyclotronV2Manager {
 
         await this.insertGuard()
 
-        const ids: string[] = []
-        const teamIds: number[] = []
-        const functionIds: (string | null)[] = []
-        const queueNames: string[] = []
-        const priorities: number[] = []
-        const scheduleds: Date[] = []
-        const parentRunIds: (string | null)[] = []
-        const states: (Buffer | null)[] = []
-        const distinctIds: (string | null)[] = []
-        const personIds: (string | null)[] = []
-        const actionIds: (string | null)[] = []
-
-        const now = new Date()
-
-        for (const job of jobs) {
-            const id = job.id ?? uuidv7()
-            ids.push(id)
-            teamIds.push(job.teamId)
-            functionIds.push(job.functionId ?? null)
-            queueNames.push(job.queueName)
-            priorities.push(job.priority ?? 0)
-            scheduleds.push(job.scheduled ?? now)
-            parentRunIds.push(job.parentRunId ?? null)
-            states.push(job.state ?? null)
-            distinctIds.push(job.distinctId ?? null)
-            personIds.push(job.personId ?? null)
-            actionIds.push(job.actionId ?? null)
-        }
+        const ids = jobs.map((job) => job.id ?? uuidv7())
 
         // Fair-dequeue sort key for email-queue jobs. NULL for everything else.
         // Atomically bumps the per-team counter (one UPSERT for the whole batch
@@ -442,48 +426,7 @@ export class CyclotronV2Manager {
         let result: { rows: { id: string }[] }
         try {
             result = await timeEnqueuePhase('insert', 'manager', () =>
-                this.pool.query<{ id: string }>(
-                    `INSERT INTO cyclotron_jobs
-                 (id, team_id, function_id, queue_name, status, priority, scheduled, created,
-                  lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
-                  parent_run_id, state, distinct_id, person_id, action_id, dequeue_seq)
-                 SELECT
-                    unnest($1::uuid[]),
-                    unnest($2::int[]),
-                    unnest($3::uuid[]),
-                    unnest($4::text[]),
-                    'available'::CyclotronJobStatus,
-                    unnest($5::smallint[]),
-                    unnest($6::timestamptz[]),
-                    $12::timestamptz,
-                    NULL::uuid,
-                    NULL::timestamptz,
-                    0::smallint,
-                    0::smallint,
-                    $12::timestamptz,
-                    unnest($7::text[]),
-                    unnest($8::bytea[]),
-                    unnest($9::text[]),
-                    unnest($10::text[]),
-                    unnest($11::text[]),
-                    unnest($13::bigint[])
-                 ${upsertClause}`,
-                    [
-                        ids,
-                        teamIds,
-                        functionIds,
-                        queueNames,
-                        priorities,
-                        scheduleds,
-                        parentRunIds,
-                        states,
-                        distinctIds,
-                        personIds,
-                        actionIds,
-                        now,
-                        dequeueSeqs,
-                    ]
-                )
+                this.insertJobRows(this.pool, jobs, ids, dequeueSeqs, upsertClause)
             )
         } catch (err) {
             dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
@@ -499,6 +442,191 @@ export class CyclotronV2Manager {
         }
 
         return ids
+    }
+
+    /**
+     * Queues each job unless an earlier call already queued a job with the same id, and returns one
+     * outcome per input, in input order.
+     *
+     * The idempotency key row and the job are written in one transaction. A failure between the two
+     * writes therefore leaves neither, and the caller's retry can queue the job. A concurrent call
+     * with the same id waits on this call's row lock until it commits, and then reports `replayed`
+     * or `mismatch`. A key expires `IDEMPOTENCY_KEY_TTL_MS` after its job is due, and a later call
+     * with the same id then queues a new job.
+     */
+    async createJobsIdempotently(inputs: CyclotronV2IdempotentJobInit[]): Promise<CyclotronV2IdempotentOutcome[]> {
+        if (inputs.length === 0) {
+            return []
+        }
+
+        const jobs = inputs.map(({ job }) => CyclotronV2JobInitSchema.parse(job))
+        if (jobs.some((job) => job.overwriteExisting)) {
+            throw new Error('createJobsIdempotently does not support overwriteExisting')
+        }
+
+        await this.insertGuard()
+
+        // One statement cannot claim the same key row twice, so a batch that repeats an id, such as
+        // a retry that was produced twice, claims only its first occurrence. The rest compare their
+        // fingerprint against that first occurrence.
+        const firstIndexById = new Map<string, number>()
+        inputs.forEach(({ job }, i) => {
+            if (!firstIndexById.has(job.id)) {
+                firstIndexById.set(job.id, i)
+            }
+        })
+        const firstIndices = [...firstIndexById.values()]
+        const firstIds = firstIndices.map((i) => inputs[i].job.id)
+        const firstJobs = firstIndices.map((i) => jobs[i])
+
+        // Assigned before the transaction so that the per-team counter row is not locked until
+        // commit. A job that turns out to be a repeat leaves a gap in its team's sequence, and the
+        // fair dequeue order does not need the sequence to be contiguous.
+        const firstDequeueSeqs = await this.computeEmailDequeueSeqs(firstJobs)
+
+        const now = Date.now()
+        const client = await this.pool.connect()
+        const claimedIds = new Set<string>()
+        const storedFingerprints = new Map<string, string>()
+        try {
+            await client.query('BEGIN')
+
+            // An expired key that the janitor has not swept yet is claimed again, so the key's
+            // window ends at expires_at and not at the next sweep.
+            const claimed = await client.query<{ id: string }>(
+                `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
+                 SELECT unnest($1::uuid[]), unnest($2::int[]), unnest($3::text[]), unnest($4::timestamptz[])
+                 ON CONFLICT (id) DO UPDATE SET
+                     team_id = EXCLUDED.team_id,
+                     fingerprint = EXCLUDED.fingerprint,
+                     expires_at = EXCLUDED.expires_at,
+                     created_at = NOW()
+                 WHERE cyclotron_idempotency_keys.expires_at <= NOW()
+                 RETURNING id`,
+                [
+                    firstIds,
+                    firstJobs.map((job) => job.teamId),
+                    firstIndices.map((i) => inputs[i].fingerprint),
+                    firstJobs.map(
+                        (job) => new Date(Math.max(now, job.scheduled?.getTime() ?? now) + IDEMPOTENCY_KEY_TTL_MS)
+                    ),
+                ]
+            )
+            for (const { id } of claimed.rows) {
+                claimedIds.add(id)
+            }
+
+            const claimedPositions = firstIds.flatMap((id, position) => (claimedIds.has(id) ? [position] : []))
+            if (claimedPositions.length > 0) {
+                await this.insertJobRows(
+                    client,
+                    claimedPositions.map((position) => firstJobs[position]),
+                    claimedPositions.map((position) => firstIds[position]),
+                    claimedPositions.map((position) => firstDequeueSeqs[position]),
+                    ''
+                )
+            }
+
+            // Each statement in a read committed transaction reads a new snapshot, so this sees a
+            // key that a concurrent call committed while the claim above waited on its lock.
+            const unclaimedIds = firstIds.filter((id) => !claimedIds.has(id))
+            if (unclaimedIds.length > 0) {
+                const stored = await client.query<{ id: string; fingerprint: string }>(
+                    `SELECT id, fingerprint FROM cyclotron_idempotency_keys WHERE id = ANY($1::uuid[])`,
+                    [unclaimedIds]
+                )
+                for (const { id, fingerprint } of stored.rows) {
+                    storedFingerprints.set(id, fingerprint)
+                }
+                if (storedFingerprints.size < unclaimedIds.length) {
+                    // The key expired and was swept between the claim and this read. Failing lets the
+                    // caller's retry claim it.
+                    throw new Error('Idempotency key was swept before its outcome could be read')
+                }
+            }
+
+            await client.query('COMMIT')
+        } catch (err) {
+            try {
+                await client.query('ROLLBACK')
+            } catch (rollbackErr) {
+                logger.warn('createJobsIdempotently rollback failed', {
+                    error: String(rollbackErr),
+                    originalError: String(err),
+                })
+            }
+            dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
+            throw err
+        } finally {
+            client.release()
+        }
+
+        return inputs.map(({ job, fingerprint }, i) => {
+            const firstIndex = firstIndexById.get(job.id)!
+            let outcome: CyclotronV2IdempotentOutcome
+            if (i === firstIndex && claimedIds.has(job.id)) {
+                outcome = 'created'
+            } else {
+                const storedFingerprint = claimedIds.has(job.id)
+                    ? inputs[firstIndex].fingerprint
+                    : storedFingerprints.get(job.id)
+                outcome = storedFingerprint === fingerprint ? 'replayed' : 'mismatch'
+            }
+            idempotentInsertsCounter.labels({ outcome }).inc()
+            return outcome
+        })
+    }
+
+    private insertJobRows(
+        db: Pool | PoolClient,
+        jobs: CyclotronV2JobInit[],
+        ids: string[],
+        dequeueSeqs: (string | null)[],
+        conflictClause: string
+    ): Promise<{ rows: { id: string }[] }> {
+        const now = new Date()
+        return db.query<{ id: string }>(
+            `INSERT INTO cyclotron_jobs
+             (id, team_id, function_id, queue_name, status, priority, scheduled, created,
+              lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
+              parent_run_id, state, distinct_id, person_id, action_id, dequeue_seq)
+             SELECT
+                unnest($1::uuid[]),
+                unnest($2::int[]),
+                unnest($3::uuid[]),
+                unnest($4::text[]),
+                'available'::CyclotronJobStatus,
+                unnest($5::smallint[]),
+                unnest($6::timestamptz[]),
+                $12::timestamptz,
+                NULL::uuid,
+                NULL::timestamptz,
+                0::smallint,
+                0::smallint,
+                $12::timestamptz,
+                unnest($7::text[]),
+                unnest($8::bytea[]),
+                unnest($9::text[]),
+                unnest($10::text[]),
+                unnest($11::text[]),
+                unnest($13::bigint[])
+             ${conflictClause}`,
+            [
+                ids,
+                jobs.map((job) => job.teamId),
+                jobs.map((job) => job.functionId ?? null),
+                jobs.map((job) => job.queueName),
+                jobs.map((job) => job.priority ?? 0),
+                jobs.map((job) => job.scheduled ?? now),
+                jobs.map((job) => job.parentRunId ?? null),
+                jobs.map((job) => job.state ?? null),
+                jobs.map((job) => job.distinctId ?? null),
+                jobs.map((job) => job.personId ?? null),
+                jobs.map((job) => job.actionId ?? null),
+                now,
+                dequeueSeqs,
+            ]
+        )
     }
 
     private async computeEmailDequeueSeqs(jobs: CyclotronV2JobInit[]): Promise<(string | null)[]> {

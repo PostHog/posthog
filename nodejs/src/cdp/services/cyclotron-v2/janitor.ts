@@ -72,6 +72,11 @@ const conversionWatchersSweptCounter = new Counter({
     help: 'Expired conversion watcher rows deleted. These are runs that reached the end of their attribution window without converting.',
 })
 
+const idempotencyKeysSweptCounter = new Counter({
+    name: 'cdp_cyclotron_v2_idempotency_keys_swept',
+    help: 'Expired idempotency key rows deleted by the janitor.',
+})
+
 const queueDepthGauge = new Gauge({
     name: 'cdp_cyclotron_v2_queue_depth',
     help: 'Number of available jobs per queue',
@@ -165,10 +170,11 @@ export class CyclotronV2Janitor {
     async runOnce(): Promise<CyclotronV2CleanupResult> {
         // Sweep first, before the cyclotron-cleanup stages below. Each of those issues an unguarded
         // pool.query, so a failure specific to cyclotron_jobs (a statement timeout or lock pressure on
-        // that hot table) rejects out of runOnce and would skip the sweep for as long as it lasts. The
-        // sweep touches a different table and swallows its own errors, so running it up front keeps
-        // expired watchers draining even while cyclotron cleanup is failing.
+        // that hot table) rejects out of runOnce and would skip the sweeps for as long as it lasts. The
+        // sweeps touch other tables and swallow their own errors, so running them up front keeps
+        // expired rows draining even while cyclotron cleanup is failing.
         await this.sweepExpiredConversionWatchers()
+        await this.sweepExpiredIdempotencyKeys()
 
         const deletedCounts = await this.cleanupTerminalJobs()
         const deleted = Object.values(deletedCounts).reduce((a, b) => a + b, 0)
@@ -489,23 +495,38 @@ export class CyclotronV2Janitor {
      * and it must not stop the janitor finishing its cyclotron work. The report matters because the
      * catch hides the failure from the run otherwise — a persistent one grows the table unbounded.
      */
-    async sweepExpiredConversionWatchers(): Promise<number> {
+    sweepExpiredConversionWatchers(): Promise<number> {
+        return this.sweepExpiredRows('conversion_watchers', conversionWatchersSweptCounter)
+    }
+
+    /**
+     * Deletes idempotency keys whose window has closed. A key is only ever claimed again after it
+     * expires, so a missed sweep costs space and never a duplicate send.
+     */
+    sweepExpiredIdempotencyKeys(): Promise<number> {
+        return this.sweepExpiredRows('cyclotron_idempotency_keys', idempotencyKeysSweptCounter)
+    }
+
+    private async sweepExpiredRows(
+        table: 'conversion_watchers' | 'cyclotron_idempotency_keys',
+        sweptCounter: Counter
+    ): Promise<number> {
         try {
             const result = await this.pool.query(
-                `DELETE FROM conversion_watchers
+                `DELETE FROM ${table}
                  WHERE id IN (
-                     SELECT id FROM conversion_watchers WHERE expires_at <= NOW() LIMIT $1
+                     SELECT id FROM ${table} WHERE expires_at <= NOW() LIMIT $1
                  )`,
                 [this.cleanupBatchSize]
             )
             const deleted = result.rowCount ?? 0
             if (deleted > 0) {
-                conversionWatchersSweptCounter.inc(deleted)
-                logger.info('CyclotronV2Janitor swept expired conversion watchers', { count: deleted })
+                sweptCounter.inc(deleted)
+                logger.info('CyclotronV2Janitor swept expired rows', { table, count: deleted })
             }
             return deleted
         } catch (err) {
-            logger.error('CyclotronV2Janitor conversion watcher sweep failed', { error: String(err) })
+            logger.error('CyclotronV2Janitor sweep failed', { table, error: String(err) })
             captureException(err)
             return 0
         }

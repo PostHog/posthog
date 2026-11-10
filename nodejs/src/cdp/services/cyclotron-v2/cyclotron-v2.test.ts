@@ -30,6 +30,7 @@ import {
     CyclotronV2BatchLimit,
     CyclotronV2CleanupResult,
     CyclotronV2DequeuedJob,
+    CyclotronV2IdempotentJobInit,
     CyclotronV2JobInit,
 } from './types'
 import { CyclotronV2Worker } from './worker'
@@ -1519,6 +1520,67 @@ describe('Cyclotron V2', () => {
 
                 expect(result).toEqual(expected)
                 expect(await queryJob(before.id)).toEqual(before)
+            })
+        })
+
+        describe('createJobsIdempotently', () => {
+            const keyed = (
+                id: string,
+                fingerprint: string,
+                job: Partial<CyclotronV2JobInit> = {}
+            ): CyclotronV2IdempotentJobInit => ({
+                job: { teamId: 1, queueName: QUEUE, ...job, id },
+                fingerprint,
+            })
+
+            it('queues one job per id and tells a repeat from a reused key, within a batch and across calls', async () => {
+                const id = uuidv7()
+
+                expect(await manager.createJobsIdempotently([keyed(id, 'a'), keyed(id, 'a'), keyed(id, 'b')])).toEqual([
+                    'created',
+                    'replayed',
+                    'mismatch',
+                ])
+                expect(await manager.createJobsIdempotently([keyed(id, 'a'), keyed(id, 'b')])).toEqual([
+                    'replayed',
+                    'mismatch',
+                ])
+                expect(await totalJobCount()).toBe(1)
+            })
+
+            it('leaves no key behind when the job insert fails, so the retry queues the job', async () => {
+                const id = uuidv7()
+
+                // Out of range for the SMALLINT priority column, so the job insert fails after the key is written.
+                await expect(manager.createJobsIdempotently([keyed(id, 'a', { priority: 40_000 })])).rejects.toThrow()
+
+                expect(await manager.createJobsIdempotently([keyed(id, 'a')])).toEqual(['created'])
+                expect(await totalJobCount()).toBe(1)
+            })
+
+            it('reclaims an expired key the janitor has not swept yet', async () => {
+                const id = uuidv7()
+                await manager.createJobsIdempotently([keyed(id, 'a')])
+                await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
+                await assertPool.query(
+                    `UPDATE cyclotron_idempotency_keys SET expires_at = NOW() - interval '1 second' WHERE id = $1`,
+                    [id]
+                )
+
+                expect(await manager.createJobsIdempotently([keyed(id, 'b')])).toEqual(['created'])
+                expect(await totalJobCount()).toBe(1)
+            })
+
+            it('queues once when concurrent calls carry the same id', async () => {
+                const id = uuidv7()
+
+                const outcomes = await Promise.all([
+                    manager.createJobsIdempotently([keyed(id, 'a')]),
+                    manager.createJobsIdempotently([keyed(id, 'a')]),
+                ])
+
+                expect(outcomes.flat().sort()).toEqual(['created', 'replayed'])
+                expect(await totalJobCount()).toBe(1)
             })
         })
     })
@@ -4112,7 +4174,7 @@ describe('Cyclotron V2', () => {
             expect(oldestAgeMs).toBeLessThan(60_000)
         })
 
-        it('sweeps expired conversion watchers and keeps live ones', async () => {
+        it('sweeps expired conversion watchers and idempotency keys and keeps live ones', async () => {
             // The sweep is the only thing that removes a watcher that never converts. If a refactor
             // drops it from runOnce the table grows without bound and nothing else fails, so assert
             // the delete happens on a real row.
@@ -4128,6 +4190,17 @@ describe('Cyclotron V2', () => {
             const live = uuidv7()
             await insertWatcher(expired, new Date(Date.now() - 60_000))
             await insertWatcher(live, new Date(Date.now() + 3_600_000))
+            const insertKey = async (id: string, expiresAt: Date): Promise<void> => {
+                await assertPool.query(
+                    `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
+                     VALUES ($1, 1, 'fingerprint', $2)`,
+                    [id, expiresAt]
+                )
+            }
+            const expiredKey = uuidv7()
+            const liveKey = uuidv7()
+            await insertKey(expiredKey, new Date(Date.now() - 60_000))
+            await insertKey(liveKey, new Date(Date.now() + 3_600_000))
 
             const janitor = createJanitor()
             await janitor.runOnce()
@@ -4136,6 +4209,11 @@ describe('Cyclotron V2', () => {
                 [expired, live],
             ])
             expect(remaining.rows.map((r) => r.id)).toEqual([live])
+            const remainingKeys = await assertPool.query(
+                `SELECT id FROM cyclotron_idempotency_keys WHERE id = ANY($1::uuid[])`,
+                [[expiredKey, liveKey]]
+            )
+            expect(remainingKeys.rows.map((r) => r.id)).toEqual([liveKey])
 
             await janitor.stop()
         })
