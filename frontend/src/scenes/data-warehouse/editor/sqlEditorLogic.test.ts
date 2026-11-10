@@ -3833,6 +3833,68 @@ describe('sqlEditorLogic', () => {
             editorDataNodeLogic.unmount()
             viewsLogic.unmount()
         })
+
+        // Regression: a refused unique key used to close the dialog behind a toast, so the user
+        // lost the form and never saw which field to fix.
+        it.each([
+            { name: 'returns a refused key to the dialog', blockedKeys: ['unique_key'], keepsDialogOpen: true },
+            { name: 'returns nothing for a refusal that names no field', blockedKeys: [], keepsDialogOpen: false },
+        ])('$name', async ({ blockedKeys, keepsDialogOpen }) => {
+            jest.spyOn(lemonToast, 'error').mockImplementation(() => 'x')
+            const viewsLogic = dataWarehouseViewsLogic()
+            viewsLogic.mount()
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            logic.actions.setQueryInput('SELECT 1')
+
+            const editorDataNodeLogic = dataNodeLogic({
+                key: logic.values.dataLogicKey,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+            })
+            editorDataNodeLogic.mount()
+
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/warehouse_saved_queries/': () => [
+                        400,
+                        {
+                            type: 'validation_error',
+                            code: 'invalid_input',
+                            detail: 'Unique key column "id" can be null.',
+                            attr: 'incremental',
+                            extra: { blocked_keys: blockedKeys },
+                        },
+                    ],
+                },
+            })
+
+            const save = logic.asyncActions.saveAsViewSubmit(
+                'Incremental view',
+                true,
+                undefined,
+                undefined,
+                false,
+                undefined,
+                { enabled: true, incremental_key: 'timestamp', unique_key: ['id'], lookback_seconds: 0 }
+            )
+
+            if (keepsDialogOpen) {
+                await expect(save).resolves.toMatchObject({ attr: 'incremental' })
+            } else {
+                await expect(save).resolves.toBeUndefined()
+            }
+
+            editorDataNodeLogic.unmount()
+            viewsLogic.unmount()
+        })
     })
 
     describe('query history', () => {
