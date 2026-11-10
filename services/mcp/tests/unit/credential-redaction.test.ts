@@ -345,14 +345,31 @@ describe('credential redaction', () => {
                     { key: 'request.api_key', value: 'secret', count: 3 },
                     { key: 'trace_id', value: 'abc123', count: 1 },
                 ],
-                next: [{ query: { anchor: { attribute: { key: 'password', value: 'secret' } } } }],
+                next: [
+                    { query: { anchor: { attribute: { key: 'password', value: 'secret' } } } },
+                    { query: { anchor: { attribute: { key: 'request_id', value: 'req-1' } } } },
+                ],
             },
             expected: {
                 correlation_keys: [
                     { key: 'request.api_key', value: '[REDACTED]', count: 3 },
                     { key: 'trace_id', value: 'abc123', count: 1 },
                 ],
-                next: [{ query: { anchor: { attribute: { key: 'password', value: '[REDACTED]' } } } }],
+                next: [{ query: { anchor: { attribute: { key: 'request_id', value: 'req-1' } } } }],
+            },
+        },
+        {
+            tool: 'logs-patterns-diff',
+            response: {
+                next: [
+                    { query: { filterGroup: [{ key: 'message', value: 'timeout', operator: 'regex', type: 'log' }] } },
+                    { query: { filterGroup: [{ key: 'api_key', value: 'secret', operator: 'exact', type: 'log' }] } },
+                ],
+            },
+            expected: {
+                next: [
+                    { query: { filterGroup: [{ key: 'message', value: 'timeout', operator: 'regex', type: 'log' }] } },
+                ],
             },
         },
         {
