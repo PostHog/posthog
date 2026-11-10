@@ -168,6 +168,7 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
             ariaLabel={stat.title}
             onClick={onSelect}
             selected={selected}
+            selectedAppearance="raised"
             loading={loading}
             error={responseError ? 'Could not load' : undefined}
             dataAttr={`home-tab-metric-${stat.key}`}

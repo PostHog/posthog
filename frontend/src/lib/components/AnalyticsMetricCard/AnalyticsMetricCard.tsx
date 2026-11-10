@@ -26,6 +26,8 @@ export interface AnalyticsMetricCardProps extends Omit<
     emptyMessage?: ReactNode
     onClick?: () => void
     selected?: boolean
+    /** How a selected card is marked: an accent border with a tint and accent title, or an accent border with a raised accent edge. */
+    selectedAppearance?: 'tinted' | 'raised'
     ariaLabel?: string
     /** Rendered above the clickable area, so it can hold its own buttons. */
     header?: ReactNode
@@ -39,6 +41,7 @@ export function AnalyticsMetricCard({
     emptyMessage = 'No data for this period',
     onClick,
     selected,
+    selectedAppearance = 'tinted',
     ariaLabel,
     header,
     adornment,
@@ -50,9 +53,10 @@ export function AnalyticsMetricCard({
 }: AnalyticsMetricCardProps): JSX.Element {
     const Content = onClick ? 'button' : 'div'
     const hasValue = metricProps.value != null || metricProps.data?.some(Number.isFinite)
+    const tinted = selectedAppearance === 'tinted'
     const label =
         title != null ? (
-            <span className={clsx('inline-flex items-center gap-1', selected && 'text-accent')}>{title}</span>
+            <span className={clsx('inline-flex items-center gap-1', selected && tinted && 'text-accent')}>{title}</span>
         ) : null
 
     return (
@@ -61,7 +65,12 @@ export function AnalyticsMetricCard({
                 // overflow-hidden clips the edge-to-edge sparkline to the rounded corners, so the focus ring
                 // sits on this element rather than on the button inside it.
                 'relative flex min-w-0 flex-col overflow-hidden rounded border transition-colors has-[>button:focus-visible]:ring-2 has-[>button:focus-visible]:ring-accent',
-                selected ? 'border-accent bg-accent-highlight-secondary' : 'border-primary bg-surface-primary',
+                selected
+                    ? tinted
+                        ? 'border-accent bg-accent-highlight-secondary'
+                        : // The elevation shadow's 3px solid edge, in the accent colour.
+                          'border-accent bg-surface-primary shadow-[0_3px_0_var(--color-accent)]'
+                    : 'border-primary bg-surface-primary',
                 onClick && 'hover:border-accent',
                 className
             )}
