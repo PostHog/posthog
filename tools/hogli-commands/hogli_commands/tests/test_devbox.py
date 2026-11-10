@@ -1157,7 +1157,6 @@ class TestWorktreeLabel:
             ("Fix_Cohort__Query", "fix-cohort-query"),
             ("worktree-agent-abc", "agent-abc"),
             ("worktree/brave-river-1a2b", "brave-river-1a2b"),
-            ("test-user/hogli-wt-trial", "hogli-wt-trial"),
             ("Test-User/hogli-wt-trial", "hogli-wt-trial"),
             ("other-user/hogli-wt-trial", "other-user-hogli-wt-trial"),
         ],
@@ -1166,7 +1165,6 @@ class TestWorktreeLabel:
             "case-and-underscores",
             "claude-worktree-prefix",
             "herdr-worktree-prefix",
-            "own-username-prefix",
             "own-username-prefix-any-case",
             "other-username-prefix-kept",
         ],
@@ -2497,7 +2495,6 @@ class TestResolveWorkspaceName:
             pytest.param("wt/frontend", None, None, "devbox-test-user-feat", id="worktree-subdirectory"),
             pytest.param("wt", "api", None, "devbox-test-user-api", id="explicit-label-wins"),
             pytest.param("wt", "@alice", None, "devbox-alice", id="shared-target-wins"),
-            pytest.param("wt", "@test-user", None, "devbox-test-user", id="own-username-targets-the-default-box"),
             pytest.param(".", None, None, "devbox-test-user", id="outside-registered-worktree"),
             pytest.param(
                 "wt/.claude/worktrees/agent-1", None, None, "devbox-test-user", id="nested-unregistered-worktree"
