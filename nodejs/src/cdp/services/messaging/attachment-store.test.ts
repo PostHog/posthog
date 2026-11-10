@@ -1,4 +1,4 @@
-import { CopyObjectCommand, CreateBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+import { CreateBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { createHash, randomBytes } from 'node:crypto'
 import { ServerResponse, createServer, request as httpRequest } from 'node:http'
 import { AddressInfo } from 'node:net'
@@ -57,6 +57,7 @@ const settledWithin = async <T>(ms: number, promise: Promise<T>): Promise<T> => 
 }
 
 type FileBody = 'stall after its first byte' | 'change its last byte'
+type BucketFault = FileBody | 'stall every copy'
 
 type BucketProxy = { endpoint: string; bodyAnswered: Promise<void>; cut: () => void; close: () => Promise<void> }
 
@@ -79,17 +80,21 @@ const answerTheFileBody = (body: FileBody, file: NodeJS.ReadableStream, response
         })
     })
 
-const bucketProxyThatMangles = async (body: FileBody): Promise<BucketProxy> => {
+const bucketProxyThat = async (fault: BucketFault): Promise<BucketProxy> => {
     let bodyAnswered: () => void = () => undefined
     const answered = new Promise<void>((resolve) => (bodyAnswered = resolve))
     const server = createServer((request, response) => {
+        if (fault === 'stall every copy' && request.headers['x-amz-copy-source']) {
+            request.resume()
+            return
+        }
         const upstream = httpRequest(
             new URL(request.url!, config.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT),
             { method: request.method, headers: request.headers },
             (answer) => {
                 response.writeHead(answer.statusCode!, answer.headers)
-                if (request.method === 'GET' && answer.statusCode === 200) {
-                    void answerTheFileBody(body, answer, response).then(bodyAnswered)
+                if (fault !== 'stall every copy' && request.method === 'GET' && answer.statusCode === 200) {
+                    void answerTheFileBody(fault, answer, response).then(bodyAnswered)
                     return
                 }
                 answer.pipe(response)
@@ -205,8 +210,6 @@ describe('S3AttachmentStore', () => {
             }
         })
     })
-
-    afterEach(() => jest.restoreAllMocks())
 
     afterAll(() => store.s3.destroy())
 
@@ -425,19 +428,22 @@ describe('S3AttachmentStore', () => {
         it('throws unavailable when the bucket stalls on the keep a use needs', async () => {
             const f = file()
             const storedAt = await uploadedAt(1, f)
-            const send = store.s3.send.bind(store.s3)
-            jest.spyOn(store.s3, 'send').mockImplementation(((command: unknown, ...rest: unknown[]) =>
-                command instanceof CopyObjectCommand
-                    ? new Promise<never>(() => {})
-                    : (send as (...args: unknown[]) => Promise<unknown>)(command, ...rest)) as typeof store.s3.send)
-
-            await expect(
-                use(
-                    storeAt(new Date(storedAt.getTime() + DAY_MS), store.s3, 200),
-                    f.sha256,
-                    new Date(storedAt.getTime() + ATTACHMENT_LIFETIME_MS + 1000)
-                )
-            ).rejects.toThrow(AttachmentStoreUnavailableError)
+            const bucket = await bucketProxyThat('stall every copy')
+            const viaBucket = buildAttachmentStore({ ...config, CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint })!
+            const aDayLater = new S3AttachmentStore(
+                viaBucket.s3,
+                viaBucket.s3,
+                { bucket: BUCKET, prefix: config.CDP_EMAIL_ATTACHMENTS_S3_PREFIX, timeoutMs: 200 },
+                () => new Date(storedAt.getTime() + DAY_MS)
+            )
+            try {
+                await expect(
+                    use(aDayLater, f.sha256, new Date(storedAt.getTime() + ATTACHMENT_LIFETIME_MS + 1000))
+                ).rejects.toThrow(AttachmentStoreUnavailableError)
+            } finally {
+                viaBucket.s3.destroy()
+                await bucket.close()
+            }
         })
 
         it('keeps the file whole when two uses keep it at once', async () => {
@@ -502,7 +508,7 @@ describe('S3AttachmentStore', () => {
         ] as const)('throws unavailable at once when %s', async (_, body, interrupt) => {
             const f = file()
             await uploaded(1, f)
-            const bucket = await bucketProxyThatMangles(body)
+            const bucket = await bucketProxyThat(body)
             const viaBucket = buildAttachmentStore({ ...config, CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint })!
             const caller = new AbortController()
             try {
