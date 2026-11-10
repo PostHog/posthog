@@ -1,4 +1,5 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
@@ -9,21 +10,30 @@ import express from 'ultimate-express'
 
 import { CdpApi } from '~/cdp/cdp-api'
 import { setupExpressApp } from '~/common/api/router'
+import { KAFKA_APP_METRICS_2 } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
+import { captureTeamEvent } from '~/common/utils/posthog'
 import { FetchResponse } from '~/common/utils/request'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
-import { SandboxFeedbackService } from './sandbox-feedback.service'
+jest.mock('~/common/utils/posthog', () => ({
+    ...jest.requireActual('~/common/utils/posthog'),
+    captureTeamEvent: jest.fn(),
+}))
+
+const capturedEvents = jest.mocked(captureTeamEvent)
 
 const TOPIC_ARN = 'arn:aws:sns:us-east-1:123456789012:workflows-sandbox-feedback'
 const FROM_ADDRESS = 'sandbox@mail.example.com'
 const RECIPIENT = 'member@example.com'
 const FLOW_ID = '0190a7f2-1c2b-7d3e-8f40-5a6b7c8d9e0f'
 const RUN_ID = '0190a7f2-1c2b-7d3e-8f40-000000000001'
+const ACTION_ID = 'action_email_sandbox_1'
 const CERT_URL = 'https://sns.us-east-1.amazonaws.com/SimpleNotificationService-test.pem'
 
 const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
@@ -41,13 +51,15 @@ const signed = (envelope: Record<string, string>): Record<string, string> => {
     return { ...envelope, Signature: signer.sign(privateKey, 'base64') }
 }
 
+const secondsFromNow = (seconds: number): string => new Date(Date.now() + seconds * 1000).toISOString()
+
 const sandboxTags = (teamId: number, overrides: Record<string, string[] | undefined> = {}): Record<string, string[]> =>
     Object.fromEntries(
         Object.entries({
             ph_sbx_team: [String(teamId)],
             ph_sbx_flow: [FLOW_ID],
             ph_sbx_run: [RUN_ID],
-            ph_sbx_action: ['action_email_sandbox_1'],
+            ph_sbx_action: [ACTION_ID],
             ph_sbx_version: ['3'],
             ph_sbx_test: ['false'],
             ...overrides,
@@ -56,7 +68,7 @@ const sandboxTags = (teamId: number, overrides: Record<string, string[] | undefi
 
 const sesRecord = (teamId: number, event: Record<string, unknown>, mail: Record<string, unknown> = {}) => ({
     mail: {
-        timestamp: '2026-01-01T00:00:00.000Z',
+        timestamp: secondsFromNow(-120),
         source: `"Example via PostHog" <${FROM_ADDRESS}>`,
         messageId: 'ses-message-id',
         destination: [RECIPIENT],
@@ -73,7 +85,7 @@ const notification = (record: unknown, topicArn = TOPIC_ARN, certUrl = CERT_URL)
             MessageId: 'sns-message-id',
             TopicArn: topicArn,
             Message: JSON.stringify(record),
-            Timestamp: '2026-01-01T00:00:01.000Z',
+            Timestamp: secondsFromNow(-60),
             SignatureVersion: '1',
             Signature: '',
             SigningCertURL: certUrl,
@@ -86,7 +98,16 @@ const permanentBounce = (address = RECIPIENT) => ({
         bounceType: 'Permanent',
         bounceSubType: 'General',
         bouncedRecipients: [{ emailAddress: address, status: '5.1.1', diagnosticCode: 'smtp; 550 5.1.1 user unknown' }],
-        timestamp: '2026-01-01T00:00:02.000Z',
+        timestamp: secondsFromNow(-60),
+    },
+})
+
+const transientBounce = () => ({
+    eventType: 'Bounce',
+    bounce: {
+        bounceType: 'Transient',
+        bouncedRecipients: [{ emailAddress: RECIPIENT, diagnosticCode: 'smtp; 452 mailbox full' }],
+        timestamp: secondsFromNow(-60),
     },
 })
 
@@ -95,8 +116,13 @@ const complaint = (feedbackType = 'abuse') => ({
     complaint: {
         complainedRecipients: [{ emailAddress: RECIPIENT }],
         complaintFeedbackType: feedbackType,
-        timestamp: '2026-01-01T00:00:02.000Z',
+        timestamp: secondsFromNow(-60),
     },
+})
+
+const delivery = () => ({
+    eventType: 'Delivery',
+    delivery: { timestamp: secondsFromNow(1), recipients: [RECIPIENT] },
 })
 
 const fetchResponse = (status: number): FetchResponse =>
@@ -113,51 +139,68 @@ const counterValue = async (name: string, labels: Record<string, string>): Promi
     return metric?.values.find((v) => Object.entries(labels).every(([k, value]) => v.labels[k] === value))?.value ?? 0
 }
 
-describe('SandboxFeedbackService', () => {
-    const TEAM_ID = 42
-    const team = { id: TEAM_ID, uuid: 'team-uuid', organization_id: 'org-uuid' } as Team
+describe('POST /public/m/ses_sandbox_webhook', () => {
+    let hub: Hub
+    let team: Team
+    let server: Server | undefined
+    let app: express.Application
 
-    let suppression: {
-        recordDeliveries: jest.Mock
-        recordHardBounces: jest.Mock
-        recordGlobalHardBounces: jest.Mock
-        recordTransientBounces: jest.Mock
-        recordComplaints: jest.Mock
+    const startApi = (config: { allowed?: string; from?: string } = {}): void => {
+        server?.close()
+        hub.SES_SANDBOX_ALLOWED_SNS_TOPIC_ARNS = config.allowed ?? TOPIC_ARN
+        hub.SES_SANDBOX_FROM_ADDRESS = config.from ?? FROM_ADDRESS
+        const api = new CdpApi(hub, createCdpConsumerDeps(hub), {
+            hogQueue: createMockJobQueue(),
+            hogflowQueue: createMockJobQueue(),
+        })
+        app = setupExpressApp()
+        app.use('/', api.router())
+        server = app.listen(0, () => {})
     }
-    let monitoring: { queueAppMetric: jest.Mock; flush: jest.Mock }
-    let capture: jest.Mock
-    let service: SandboxFeedbackService
 
-    const build = (config: { allowed?: string; from?: string } = {}): SandboxFeedbackService =>
-        new SandboxFeedbackService(
-            {
-                SES_SANDBOX_ALLOWED_SNS_TOPIC_ARNS: config.allowed ?? TOPIC_ARN,
-                SES_SANDBOX_FROM_ADDRESS: config.from ?? FROM_ADDRESS,
-            },
-            suppression,
-            monitoring,
-            { getTeam: (teamId) => Promise.resolve(teamId === TEAM_ID ? team : null) },
-            capture
+    const post = (body: string): supertest.Test =>
+        supertest(app).post('/public/m/ses_sandbox_webhook').set('Content-Type', 'text/plain').send(body)
+
+    const suppressionRows = async (): Promise<Record<string, unknown>[]> =>
+        (
+            await hub.postgres.query(
+                PostgresUse.COMMON_READ,
+                `SELECT identifier, source, suppressed, transient_bounce_count
+                 FROM posthog_messagesuppression WHERE team_id = $1 ORDER BY identifier`,
+                [team.id],
+                'test-read-sandbox-suppression'
+            )
+        ).rows
+
+    const globalHardBounces = async (): Promise<string[]> =>
+        (
+            await hub.postgres.query<{ email: string }>(
+                PostgresUse.COMMON_READ,
+                `SELECT email FROM posthog_emailhardbounce WHERE email = $1`,
+                [RECIPIENT],
+                'test-read-sandbox-global-bounces'
+            )
+        ).rows.map((row) => row.email)
+
+    const sandboxMetrics = (): Record<string, any>[] =>
+        mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+            .map((message) => message.value as Record<string, any>)
+            .filter((value) => String(value.metric_name).startsWith('email_sandbox_'))
+
+    const capturedEventNames = (): string[] => capturedEvents.mock.calls.map(([, event]) => event)
+
+    beforeEach(async () => {
+        hub = await createHub({})
+        team = (await createTestTeamFixture(hub.postgres)).team
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `DELETE FROM posthog_emailhardbounce WHERE email = $1`,
+            [RECIPIENT],
+            'test-reset-sandbox-global-bounces'
         )
-
-    const writes = (): Record<string, unknown[][]> =>
-        Object.fromEntries(
-            Object.entries(suppression)
-                .filter(([, fn]) => fn.mock.calls.length > 0)
-                .map(([name, fn]) => [name, fn.mock.calls])
-        )
-
-    beforeEach(() => {
-        suppression = {
-            recordDeliveries: jest.fn().mockResolvedValue(undefined),
-            recordHardBounces: jest.fn().mockResolvedValue(undefined),
-            recordGlobalHardBounces: jest.fn().mockResolvedValue(undefined),
-            recordTransientBounces: jest.fn().mockResolvedValue(undefined),
-            recordComplaints: jest.fn().mockResolvedValue(undefined),
-        }
-        monitoring = { queueAppMetric: jest.fn(), flush: jest.fn().mockResolvedValue(undefined) }
-        capture = jest.fn()
-        service = build()
+        mockProducerObserver.resetKafkaProducer()
+        capturedEvents.mockReset()
         mockFetch.mockReset()
         mockFetch.mockImplementation((url) =>
             Promise.resolve({
@@ -167,6 +210,13 @@ describe('SandboxFeedbackService', () => {
                 text: () => Promise.resolve(url.endsWith('.pem') ? publicKeyPem : ''),
             } as FetchResponse)
         )
+        startApi()
+    })
+
+    afterEach(async () => {
+        server?.close()
+        server = undefined
+        await closeHub(hub)
     })
 
     describe('request authentication', () => {
@@ -175,38 +225,49 @@ describe('SandboxFeedbackService', () => {
             ['a blank topic allowlist', { allowed: ' , ' }],
             ['no sandbox From address', { from: '' }],
         ])('refuses every request with %s', async (_label, config) => {
-            const result = await build(config).handle({ body: notification(sesRecord(TEAM_ID, complaint())) })
+            startApi(config)
 
-            expect(result.status).toBe(503)
-            expect(writes()).toEqual({})
+            const res = await post(notification(sesRecord(team.id, complaint())))
+
+            expect(res.status).toBe(503)
+            expect(await suppressionRows()).toEqual([])
         })
 
         it.each([
             [
                 'an unsigned raw delivery',
-                JSON.stringify([sesRecord(TEAM_ID, complaint())]),
+                () => JSON.stringify([sesRecord(team.id, complaint())]),
                 403,
                 'Unsigned raw delivery not allowed',
             ],
             [
                 'a forged signature',
-                JSON.stringify({ ...parseJSON(notification(sesRecord(TEAM_ID, complaint()))), Signature: 'Zm9yZ2Vk' }),
+                () =>
+                    JSON.stringify({
+                        ...parseJSON(notification(sesRecord(team.id, complaint()))),
+                        Signature: 'Zm9yZ2Vk',
+                    }),
                 403,
                 'Invalid SNS signature',
             ],
             [
                 'a topic outside the allowlist',
-                notification(sesRecord(TEAM_ID, complaint()), 'arn:aws:sns:us-east-1:999999999999:other'),
+                () => notification(sesRecord(team.id, complaint()), 'arn:aws:sns:us-east-1:999999999999:other'),
                 403,
                 'SNS TopicArn not allowed',
             ],
-            ['a body that is not JSON', 'not json', 400, 'Invalid SNS message'],
-            ['a body that is neither an envelope nor SES records', '{"hello":"world"}', 400, 'Invalid SNS message'],
+            ['a body that is not JSON', () => 'not json', 400, 'Invalid SNS message'],
+            [
+                'a body that is neither an envelope nor SES records',
+                () => '{"hello":"world"}',
+                400,
+                'Invalid SNS message',
+            ],
         ])('rejects %s', async (_label, body, status, message) => {
-            const result = await service.handle({ body })
+            const res = await post(body())
 
-            expect(result).toEqual({ status, message })
-            expect(writes()).toEqual({})
+            expect({ status: res.status, body: res.body }).toEqual({ status, body: { message } })
+            expect(await suppressionRows()).toEqual([])
         })
 
         it.each([
@@ -215,13 +276,14 @@ describe('SandboxFeedbackService', () => {
             ['an AWS-looking host prefix', 'https://sns.us-east-1.amazonaws.com.attacker.example/cert.pem'],
             ['a path that is not a PEM file', 'https://sns.us-east-1.amazonaws.com/cert.txt'],
         ])('rejects a signing certificate served over %s without fetching it', async (_label, certUrl) => {
-            const result = await service.handle({
-                body: notification(sesRecord(TEAM_ID, complaint()), TOPIC_ARN, certUrl),
-            })
+            const res = await post(notification(sesRecord(team.id, complaint()), TOPIC_ARN, certUrl))
 
-            expect(result).toEqual({ status: 403, message: 'Invalid SNS signature' })
+            expect({ status: res.status, body: res.body }).toEqual({
+                status: 403,
+                body: { message: 'Invalid SNS signature' },
+            })
             expect(mockFetch).not.toHaveBeenCalled()
-            expect(writes()).toEqual({})
+            expect(await suppressionRows()).toEqual([])
         })
 
         it.each([
@@ -234,11 +296,12 @@ describe('SandboxFeedbackService', () => {
             'answers %s from the certificate download with %s, then verifies once it recovers',
             async (_label, fail, status) => {
                 fail()
-                const body = notification(sesRecord(TEAM_ID, complaint()))
+                const body = notification(sesRecord(team.id, complaint()))
 
-                expect((await service.handle({ body })).status).toBe(status)
-                expect(suppression.recordComplaints).not.toHaveBeenCalled()
-                expect((await service.handle({ body })).status).toBe(200)
+                expect((await post(body)).status).toBe(status)
+                expect(await suppressionRows()).toEqual([])
+                expect((await post(body)).status).toBe(200)
+                expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, source: 'COMPLAINT' }])
             }
         )
 
@@ -254,54 +317,52 @@ describe('SandboxFeedbackService', () => {
                     TopicArn: TOPIC_ARN,
                     Message: 'You have chosen to subscribe to the topic.',
                     SubscribeURL: subscribeUrl,
-                    Timestamp: '2026-01-01T00:00:01.000Z',
+                    Timestamp: secondsFromNow(-60),
                     SignatureVersion: '1',
                     Signature: '',
                     SigningCertURL: CERT_URL,
                 })
             )
 
-            const result = await service.handle({ body })
+            const res = await post(body)
 
-            expect(result.status).toBe(status)
+            expect(res.status).toBe(status)
             expect(mockFetch.mock.calls.filter(([url]) => url === subscribeUrl)).toHaveLength(confirmations)
         })
     })
 
     describe('attribution', () => {
         it('ignores feedback about mail from another sender', async () => {
-            const record = sesRecord(TEAM_ID, complaint(), { source: 'someone@example.com' })
+            const res = await post(notification(sesRecord(team.id, complaint(), { source: 'someone@example.com' })))
 
-            const result = await service.handle({ body: notification(record) })
-
-            expect(result.status).toBe(200)
-            expect(writes()).toEqual({})
-            expect(monitoring.queueAppMetric).not.toHaveBeenCalled()
-            expect(capture).not.toHaveBeenCalled()
+            expect(res.status).toBe(200)
+            expect(await suppressionRows()).toEqual([])
         })
 
         it.each([
-            ['no tags', undefined],
-            ['a missing team tag', sandboxTags(TEAM_ID, { ph_sbx_team: undefined })],
-            ['a non-numeric team tag', sandboxTags(TEAM_ID, { ph_sbx_team: ['42abc'] })],
-            ['two team tag values', sandboxTags(TEAM_ID, { ph_sbx_team: ['42', '43'] })],
-            ['a flow tag that is not a UUID', sandboxTags(TEAM_ID, { ph_sbx_flow: ['not-a-uuid'] })],
-            ['a run tag that is not a UUID', sandboxTags(TEAM_ID, { ph_sbx_run: ['run'] })],
-            ['an action tag with a forbidden character', sandboxTags(TEAM_ID, { ph_sbx_action: ['action.1'] })],
-            ['a non-numeric version tag', sandboxTags(TEAM_ID, { ph_sbx_version: ['v3'] })],
-            ['a test tag that is not a boolean', sandboxTags(TEAM_ID, { ph_sbx_test: ['yes'] })],
-            ['an empty parent run tag', sandboxTags(TEAM_ID, { ph_sbx_parent_run: [] })],
-            ['a parent run tag with a forbidden character', sandboxTags(TEAM_ID, { ph_sbx_parent_run: ['run.1'] })],
+            ['no tags', () => undefined],
+            ['a missing team tag', () => sandboxTags(team.id, { ph_sbx_team: undefined })],
+            ['a non-numeric team tag', () => sandboxTags(team.id, { ph_sbx_team: [`${team.id}abc`] })],
+            ['two team tag values', () => sandboxTags(team.id, { ph_sbx_team: [String(team.id), '43'] })],
+            ['a flow tag that is not a UUID', () => sandboxTags(team.id, { ph_sbx_flow: ['not-a-uuid'] })],
+            ['a run tag that is not a UUID', () => sandboxTags(team.id, { ph_sbx_run: ['run'] })],
+            ['an action tag with a forbidden character', () => sandboxTags(team.id, { ph_sbx_action: ['action.1'] })],
+            ['a non-numeric version tag', () => sandboxTags(team.id, { ph_sbx_version: ['v3'] })],
+            ['a test tag that is not a boolean', () => sandboxTags(team.id, { ph_sbx_test: ['yes'] })],
+            ['an empty parent run tag', () => sandboxTags(team.id, { ph_sbx_parent_run: [] })],
+            [
+                'a parent run tag with a forbidden character',
+                () => sandboxTags(team.id, { ph_sbx_parent_run: ['run.1'] }),
+            ],
         ])('acknowledges and counts a record with %s', async (_label, tags) => {
             const before = await counterValue('cdp_sandbox_email_feedback_unattributed_total', {
                 event_type: 'Complaint',
             })
 
-            const result = await service.handle({ body: notification(sesRecord(TEAM_ID, complaint(), { tags })) })
+            const res = await post(notification(sesRecord(team.id, complaint(), { tags: tags() })))
 
-            expect(result.status).toBe(200)
-            expect(writes()).toEqual({})
-            expect(capture).not.toHaveBeenCalled()
+            expect(res.status).toBe(200)
+            expect(await suppressionRows()).toEqual([])
             expect(
                 await counterValue('cdp_sandbox_email_feedback_unattributed_total', { event_type: 'Complaint' })
             ).toBe(before + 1)
@@ -309,226 +370,162 @@ describe('SandboxFeedbackService', () => {
     })
 
     describe('suppression and reporting', () => {
-        const strict = { throwOnFailure: true }
-
         it.each([
             {
                 label: 'a permanent bounce suppresses the address for the team and globally',
-                event: permanentBounce(),
-                writes: {
-                    recordHardBounces: [[TEAM_ID, [RECIPIENT], 'smtp; 550 5.1.1 user unknown', strict]],
-                    recordGlobalHardBounces: [[[RECIPIENT], '2026-01-01T00:00:02.000Z', strict]],
-                },
+                event: permanentBounce,
+                rows: [{ identifier: RECIPIENT, source: 'BOUNCE', suppressed: true }],
+                global: [RECIPIENT],
                 metric: 'email_sandbox_bounced',
-                event_name: 'workflows sandbox email bounced',
-                bounce_type: 'hard',
+                eventName: 'workflows sandbox email bounced',
+                bounceType: 'hard',
             },
             {
                 label: 'a transient bounce counts toward suppression',
-                event: {
-                    eventType: 'Bounce',
-                    bounce: {
-                        bounceType: 'Transient',
-                        bouncedRecipients: [{ emailAddress: RECIPIENT, diagnosticCode: 'smtp; 452 mailbox full' }],
-                        timestamp: '2026-01-01T00:00:02.000Z',
-                    },
-                },
-                writes: { recordTransientBounces: [[TEAM_ID, [RECIPIENT], 'smtp; 452 mailbox full', strict]] },
+                event: transientBounce,
+                rows: [{ identifier: RECIPIENT, source: 'BOUNCE', suppressed: false, transient_bounce_count: 1 }],
+                global: [],
                 metric: 'email_sandbox_bounced',
-                event_name: 'workflows sandbox email bounced',
-                bounce_type: 'soft',
+                eventName: 'workflows sandbox email bounced',
+                bounceType: 'soft',
             },
             {
                 label: 'a complaint suppresses the address',
-                event: complaint(),
-                writes: { recordComplaints: [[TEAM_ID, [RECIPIENT], 'abuse', strict]] },
+                event: complaint,
+                rows: [{ identifier: RECIPIENT, source: 'COMPLAINT', suppressed: true }],
+                global: [],
                 metric: 'email_sandbox_complained',
-                event_name: 'workflows sandbox email complained',
+                eventName: 'workflows sandbox email complained',
+                bounceType: undefined,
             },
-            {
-                label: 'a delivery resets the bounce counters, global list included',
-                event: {
-                    eventType: 'Delivery',
-                    delivery: { timestamp: '2026-01-01T00:00:02.000Z', recipients: [RECIPIENT] },
-                },
-                writes: {
-                    recordDeliveries: [
-                        [TEAM_ID, [RECIPIENT], '2026-01-01T00:00:02.000Z', { clearGlobal: true, ...strict }],
-                    ],
-                },
-                metric: 'email_sandbox_delivered',
-                event_name: 'workflows sandbox email delivered',
-            },
-        ])('$label', async ({ event, writes: expectedWrites, metric, event_name, bounce_type }) => {
-            const result = await service.handle({ body: notification(sesRecord(TEAM_ID, event)) })
+        ])('$label', async ({ event, rows, global, metric, eventName, bounceType }) => {
+            const res = await post(notification(sesRecord(team.id, event())))
 
-            expect(result.status).toBe(200)
-            expect(writes()).toEqual(expectedWrites)
-            expect(monitoring.queueAppMetric.mock.calls).toEqual([
-                [
-                    {
-                        team_id: TEAM_ID,
-                        app_source_id: FLOW_ID,
-                        instance_id: 'action_email_sandbox_1',
-                        metric_kind: 'email',
-                        metric_name: metric,
-                        count: 1,
-                        app_source_version: { id: FLOW_ID, version: 3 },
-                    },
-                    'hog_flow',
-                ],
-            ])
-            expect(monitoring.flush).toHaveBeenCalled()
-            expect(capture.mock.calls).toEqual([
-                [
-                    team,
-                    event_name,
-                    {
-                        workflow_id: FLOW_ID,
-                        action_id: 'action_email_sandbox_1',
-                        is_test: false,
-                        ...(bounce_type ? { bounce_type } : {}),
-                    },
-                ],
-            ])
+            expect(res.status).toBe(200)
+            expect(await suppressionRows()).toMatchObject(rows)
+            expect(await globalHardBounces()).toEqual(global)
+            await waitForExpect(() => {
+                const expected = { team_id: team.id, instance_id: ACTION_ID, metric_kind: 'email', count: 1 }
+                expect(sandboxMetrics()).toMatchObject([
+                    { ...expected, app_source: 'hog_flow', app_source_id: FLOW_ID, metric_name: metric },
+                    { ...expected, app_source: 'hog_flow_version', app_source_id: `${FLOW_ID}/3`, metric_name: metric },
+                ])
+                expect(capturedEvents.mock.calls).toEqual([
+                    [
+                        expect.objectContaining({ id: team.id }),
+                        eventName,
+                        {
+                            workflow_id: FLOW_ID,
+                            action_id: ACTION_ID,
+                            is_test: false,
+                            ...(bounceType ? { bounce_type: bounceType } : {}),
+                        },
+                    ],
+                ])
+            })
+        })
+
+        it('a delivery resets the bounce counter and clears the global entry', async () => {
+            await post(notification(sesRecord(team.id, transientBounce())))
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_emailhardbounce (email, first_bounced_at, last_bounced_at) VALUES ($1, NOW(), NOW())`,
+                [RECIPIENT],
+                'test-seed-sandbox-global-bounce'
+            )
+
+            const res = await post(notification(sesRecord(team.id, delivery())))
+
+            expect(res.status).toBe(200)
+            expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, transient_bounce_count: 0 }])
+            expect(await globalHardBounces()).toEqual([])
+            await waitForExpect(() => {
+                expect(sandboxMetrics().map((m) => m.metric_name)).toContain('email_sandbox_delivered')
+                expect(capturedEventNames()).toContain('workflows sandbox email delivered')
+            })
         })
 
         it.each([
-            ['a "not-spam" complaint', complaint('not-spam')],
-            ['a bounce naming an address the email was not sent to', permanentBounce('other@example.com')],
-        ])('changes and reports nothing for %s', async (_label, event) => {
-            const result = await service.handle({ body: notification(sesRecord(TEAM_ID, event)) })
+            ['a "not-spam" complaint', () => complaint('not-spam')],
+            ['a bounce naming an address the email was not sent to', () => permanentBounce('other@example.com')],
+        ])('changes nothing for %s', async (_label, event) => {
+            const res = await post(notification(sesRecord(team.id, event())))
 
-            expect(result.status).toBe(200)
-            expect(writes()).toEqual({})
-            expect(monitoring.queueAppMetric).not.toHaveBeenCalled()
-            expect(capture).not.toHaveBeenCalled()
+            expect(res.status).toBe(200)
+            expect(await suppressionRows()).toEqual([])
+            expect(await globalHardBounces()).toEqual([])
         })
 
         it('counts feedback from a batch-triggered run under the parent run', async () => {
             const parentRunId = '0190a7f2-1c2b-7d3e-8f40-0000000000aa'
-            const tags = sandboxTags(TEAM_ID, { ph_sbx_parent_run: [parentRunId] })
+            const tags = sandboxTags(team.id, { ph_sbx_parent_run: [parentRunId] })
 
-            await service.handle({ body: notification(sesRecord(TEAM_ID, complaint(), { tags })) })
+            await post(notification(sesRecord(team.id, complaint(), { tags })))
 
-            expect(monitoring.queueAppMetric).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    app_source_id: parentRunId,
-                    app_source_version: { id: FLOW_ID, version: 3 },
-                }),
-                'hog_flow'
-            )
-        })
-
-        it('still suppresses after a test send, and reports it as an event only', async () => {
-            const record = sesRecord(TEAM_ID, complaint(), { tags: sandboxTags(TEAM_ID, { ph_sbx_test: ['true'] }) })
-
-            const result = await service.handle({ body: notification(record) })
-
-            expect(result.status).toBe(200)
-            expect(writes()).toEqual({ recordComplaints: [[TEAM_ID, [RECIPIENT], 'abuse', strict]] })
-            expect(monitoring.queueAppMetric).not.toHaveBeenCalled()
-            expect(capture).toHaveBeenCalledWith(team, 'workflows sandbox email complained', {
-                workflow_id: FLOW_ID,
-                action_id: 'action_email_sandbox_1',
-                is_test: true,
+            await waitForExpect(() => {
+                expect(sandboxMetrics()).toMatchObject([
+                    { app_source: 'hog_flow', app_source_id: parentRunId },
+                    { app_source: 'hog_flow_version', app_source_id: `${FLOW_ID}/3` },
+                ])
             })
         })
 
-        it('answers 500 without reporting when a suppression write fails, so SNS retries', async () => {
-            suppression.recordComplaints.mockRejectedValue(new Error('database unavailable'))
+        it('still suppresses after a test send, and reports it as an event only', async () => {
+            const tags = sandboxTags(team.id, { ph_sbx_test: ['true'] })
 
-            const result = await service.handle({ body: notification(sesRecord(TEAM_ID, complaint())) })
+            const res = await post(notification(sesRecord(team.id, complaint(), { tags })))
 
-            expect(result.status).toBe(500)
-            expect(monitoring.queueAppMetric).not.toHaveBeenCalled()
-            expect(capture).not.toHaveBeenCalled()
+            expect(res.status).toBe(200)
+            expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, source: 'COMPLAINT' }])
+            await waitForExpect(() => {
+                expect(capturedEvents.mock.calls).toEqual([
+                    [
+                        expect.objectContaining({ id: team.id }),
+                        'workflows sandbox email complained',
+                        { workflow_id: FLOW_ID, action_id: ACTION_ID, is_test: true },
+                    ],
+                ])
+            })
+            expect(sandboxMetrics()).toEqual([])
         })
 
-        it.each([
-            [
-                'fails',
-                () => {
-                    monitoring.flush.mockRejectedValue(new Error('kafka unavailable'))
-                    capture.mockImplementation(() => {
-                        throw new Error('capture failed')
-                    })
-                },
-            ],
-            ['stalls', () => monitoring.flush.mockReturnValue(new Promise(() => {}))],
-        ])('answers 200 when reporting %s after the suppression write', async (_label, breakReporting) => {
-            breakReporting()
+        it('answers 500 when the suppression list cannot be written, so SNS retries', async () => {
+            await hub.postgres.end()
 
-            const result = await service.handle({ body: notification(sesRecord(TEAM_ID, complaint())) })
+            const res = await post(notification(sesRecord(team.id, complaint())))
 
-            expect(result.status).toBe(200)
-            expect(suppression.recordComplaints).toHaveBeenCalled()
+            expect(res.status).toBe(500)
+            expect(capturedEvents).not.toHaveBeenCalled()
         })
-    })
-})
 
-describe('POST /public/m/ses_sandbox_webhook', () => {
-    let hub: Hub
-    let team: Team
-    let server: Server
-    let app: express.Application
+        it('answers 200 once the suppression write lands when Kafka and event capture fail', async () => {
+            jest.mocked((mockProducer as any).producer.produce).mockImplementationOnce((...args: any[]) =>
+                args[args.length - 1]?.(new Error('kafka unavailable'))
+            )
+            capturedEvents.mockImplementation(() => {
+                throw new Error('capture failed')
+            })
 
-    const startApi = (): void => {
-        const api = new CdpApi(hub, createCdpConsumerDeps(hub), {
-            hogQueue: createMockJobQueue(),
-            hogflowQueue: createMockJobQueue(),
+            const res = await post(notification(sesRecord(team.id, complaint())))
+
+            expect(res.status).toBe(200)
+            expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, source: 'COMPLAINT' }])
         })
-        app = setupExpressApp()
-        app.use('/', api.router())
-        server = app.listen(0, () => {})
-    }
 
-    beforeEach(async () => {
-        hub = await createHub({})
-        team = (await createTestTeamFixture(hub.postgres)).team
-        mockFetch.mockImplementation((url) =>
-            Promise.resolve({
-                status: 200,
-                headers: {},
-                json: () => Promise.resolve({}),
-                text: () => Promise.resolve(url.endsWith('.pem') ? publicKeyPem : ''),
-            } as FetchResponse)
-        )
-    })
+        it('answers 200 once the suppression write lands while Kafka and the team lookup stall', async () => {
+            jest.mocked((mockProducer as any).producer.produce).mockImplementationOnce(() => undefined)
+            const lockHolder = await hub.postgres.connect(PostgresUse.COMMON_WRITE)
+            await lockHolder.query('BEGIN')
+            await lockHolder.query('LOCK TABLE posthog_team IN ACCESS EXCLUSIVE MODE')
+            try {
+                const res = await post(notification(sesRecord(team.id, complaint())))
 
-    afterEach(async () => {
-        server.close()
-        await closeHub(hub)
-    })
-
-    it('fails closed when the topic allowlist is not configured', async () => {
-        startApi()
-
-        const res = await supertest(app)
-            .post('/public/m/ses_sandbox_webhook')
-            .set('Content-Type', 'text/plain')
-            .send(notification(sesRecord(team.id, complaint())))
-
-        expect(res.status).toBe(503)
-    })
-
-    it('suppresses the recipient of a signed sandbox complaint', async () => {
-        hub.SES_SANDBOX_ALLOWED_SNS_TOPIC_ARNS = TOPIC_ARN
-        hub.SES_SANDBOX_FROM_ADDRESS = FROM_ADDRESS
-        startApi()
-
-        const res = await supertest(app)
-            .post('/public/m/ses_sandbox_webhook')
-            .set('Content-Type', 'text/plain')
-            .send(notification(sesRecord(team.id, complaint())))
-
-        expect(res.status).toBe(200)
-        const rows = await hub.postgres.query<{ source: string; suppressed: boolean }>(
-            PostgresUse.COMMON_READ,
-            `SELECT source, suppressed FROM posthog_messagesuppression WHERE team_id = $1 AND identifier = $2`,
-            [team.id, RECIPIENT],
-            'test-read-sandbox-suppression'
-        )
-        expect(rows.rows).toEqual([{ source: 'COMPLAINT', suppressed: true }])
+                expect(res.status).toBe(200)
+                expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, source: 'COMPLAINT' }])
+            } finally {
+                await lockHolder.query('ROLLBACK')
+                lockHolder.release()
+            }
+        })
     })
 })

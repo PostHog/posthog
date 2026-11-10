@@ -14,7 +14,6 @@ import { BOUNCE_TYPE_TO_EVENT_PROPERTY, nonexistentRecipients, sentToRecipients 
 import { SesEventRecord } from '../helpers/ses-events'
 import { SnsEnvelopeVerifier } from '../helpers/sns-envelope'
 
-// Trusted because only the sandbox worker's role sends through the configuration set that feeds this topic.
 export const SANDBOX_SES_TAGS = {
     team: 'ph_sbx_team',
     flow: 'ph_sbx_flow',
@@ -183,7 +182,7 @@ export class SandboxFeedbackService {
             return { status: 500, message: 'Suppression update failed' }
         }
 
-        await this.report(feedback)
+        this.reportWithoutDelayingTheAnswer(feedback)
         return { status: 200 }
     }
 
@@ -275,24 +274,43 @@ export class SandboxFeedbackService {
         return addresses.length === 1 && addresses[0].address.trim().toLowerCase() === this.fromAddress
     }
 
-    private async report(feedback: SandboxFeedback[]): Promise<void> {
+    private reportWithoutDelayingTheAnswer(feedback: SandboxFeedback[]): void {
+        for (const item of feedback) {
+            this.queueMetric(item)
+        }
+        void this.monitoring.flush().catch((error) => {
+            logger.warn('[SandboxFeedbackService] Failed to flush sandbox email feedback metrics', { error })
+        })
+        void this.captureEvents(feedback)
+    }
+
+    private queueMetric({ attribution, kind }: SandboxFeedback): void {
+        const { teamId, hogFlowId, actionId, flowVersion, isTest, parentRunId } = attribution
+        if (isTest) {
+            return
+        }
+        try {
+            this.monitoring.queueAppMetric(
+                {
+                    team_id: teamId,
+                    app_source_id: parentRunId ?? hogFlowId,
+                    instance_id: actionId,
+                    metric_kind: 'email',
+                    metric_name: FEEDBACK_METRIC_NAME[kind],
+                    count: 1,
+                    app_source_version: { id: hogFlowId, version: flowVersion },
+                },
+                'hog_flow'
+            )
+        } catch (error) {
+            logger.warn('[SandboxFeedbackService] Failed to queue a sandbox email feedback metric', { teamId, error })
+        }
+    }
+
+    private async captureEvents(feedback: SandboxFeedback[]): Promise<void> {
         for (const { attribution, kind, bounceType } of feedback) {
-            const { teamId, hogFlowId, actionId, flowVersion, isTest, parentRunId } = attribution
+            const { teamId, hogFlowId, actionId, isTest } = attribution
             try {
-                if (!isTest) {
-                    this.monitoring.queueAppMetric(
-                        {
-                            team_id: teamId,
-                            app_source_id: parentRunId ?? hogFlowId,
-                            instance_id: actionId,
-                            metric_kind: 'email',
-                            metric_name: FEEDBACK_METRIC_NAME[kind],
-                            count: 1,
-                            app_source_version: { id: hogFlowId, version: flowVersion },
-                        },
-                        'hog_flow'
-                    )
-                }
                 const team = await this.teamManager.getTeam(teamId)
                 if (team) {
                     this.capture(team, `workflows sandbox email ${kind}`, {
@@ -303,12 +321,11 @@ export class SandboxFeedbackService {
                     })
                 }
             } catch (error) {
-                logger.warn('[SandboxFeedbackService] Failed to report sandbox email feedback', { teamId, error })
+                logger.warn('[SandboxFeedbackService] Failed to capture a sandbox email feedback event', {
+                    teamId,
+                    error,
+                })
             }
         }
-        // SNS redelivers after 15 seconds without an answer, so a stalled Kafka must not hold the response.
-        void this.monitoring.flush().catch((error) => {
-            logger.warn('[SandboxFeedbackService] Failed to flush sandbox email feedback metrics', { error })
-        })
     }
 }

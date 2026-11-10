@@ -98,7 +98,6 @@ const LEGACY_HARD_BOUNCE_REASONS = [
  *   follow-up should propagate invalidations via pubsub (see `IntegrationManagerService` for the
  *   pattern) if the staleness becomes a support issue.
  */
-// For a caller that must learn a write failed, such as a webhook that asks its sender to retry.
 export type SuppressionWriteOptions = { throwOnFailure?: boolean }
 
 export class EmailSuppressionService {
