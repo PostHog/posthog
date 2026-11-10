@@ -1052,11 +1052,10 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
 _WEEKDAYS = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
 
 
-def _reject_unmatchable_time_window_days(config: dict) -> None:
-    day = config.get("day")
+def _reject_unmatchable_time_window_days(day: Any) -> None:
     if day in ("any", "weekday", "weekend"):
         return
-    if isinstance(day, list) and day and all(name in _WEEKDAYS for name in day):
+    if isinstance(day, list) and day and all(isinstance(name, str) and name in _WEEKDAYS for name in day):
         return
     raise serializers.ValidationError(
         {"config": "day must be 'any', 'weekday', 'weekend', or a list of at least one weekday name."}
@@ -2455,7 +2454,10 @@ class HogFlowActionSerializer(serializers.Serializer):
             self._validate_delay(data, strict)
 
         if strict and data.get("type") == "wait_until_time_window":
-            _reject_unmatchable_time_window_days(data.get("config") or {})
+            day = (data.get("config") or {}).get("day")
+            stored_days = self.context.get("stored_time_window_days") or {}
+            if data.get("id") not in stored_days or stored_days[data.get("id")] != day:
+                _reject_unmatchable_time_window_days(day)
 
         return data
 
@@ -3579,6 +3581,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             action["id"]: (action.get("config") or {}).get("condition")
             for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
             if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
+        }
+
+        self.context["stored_time_window_days"] = {
+            action["id"]: (action.get("config") or {}).get("day")
+            for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
+            if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_time_window"
         }
 
         # Durations the flow already stores, so the cap check refuses new over-cap values only.
