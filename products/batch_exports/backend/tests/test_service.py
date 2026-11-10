@@ -254,8 +254,6 @@ DESTINATION_INPUTS = {
     "Redshift": RedshiftBatchExportInputs(
         batch_export_id="test",
         team_id=1,
-        user="user",
-        password="password",
         host="localhost",
         database="db",
         port="5439",  # type: ignore
@@ -265,10 +263,6 @@ DESTINATION_INPUTS = {
         team_id=1,
         project_id="project",
         dataset_id="dataset",
-        private_key="key",
-        private_key_id="key_id",
-        token_uri="https://oauth2.googleapis.com/token",
-        client_email="test@test.iam.gserviceaccount.com",
         use_json_type="true",  # type: ignore
     ),
     "AzureBlob": AzureBlobBatchExportInputs(
