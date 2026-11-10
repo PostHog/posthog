@@ -82,7 +82,6 @@ _SASL_MECHANISMS: dict[str, str] = {
     "sasl_scram_sha_512": "SCRAM-SHA-512",
 }
 
-# The client's type stubs leave out librdkafka's error code constants.
 _PARTITION_EOF: int = KafkaError._PARTITION_EOF
 # librdkafka reports these through `error_cb` while `list_topics` only reports a timeout, so the
 # callback's errors are what name the cause.
