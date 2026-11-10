@@ -9,21 +9,17 @@ export type SandboxCaps = { team: number; recipient: number }
 
 export type SandboxCapClaim = { ok: true } | { ok: false; reason: 'daily_cap_reached' | 'cap_storage_unavailable' }
 
+export type SandboxCapClaimRequest = { organizationId: string; teamId: number; storedAddress: string; claimId: string }
+
 export async function claimSandboxCaps(
     limiter: RateLimiterService,
     caps: SandboxCaps,
-    {
-        organizationId,
-        teamId,
-        storedAddress,
-        claimId,
-    }: { organizationId: string; teamId: number; storedAddress: string; claimId: string }
+    request: SandboxCapClaimRequest
 ): Promise<SandboxCapClaim> {
     if (!isValidCap(caps.team) || !isValidCap(caps.recipient)) {
         return { ok: false, reason: 'cap_storage_unavailable' }
     }
-    const recipientDigest = createHash('sha256').update(storedAddress.toLowerCase()).digest('hex')
-    const keyPrefix = `@posthog/sandbox-email/{${organizationId}}`
+    const { keyPrefix, recipientDigest, claimKey } = capKeys(request)
     const bucket = (key: string, cap: number) => ({
         key,
         requested: 1,
@@ -31,18 +27,35 @@ export async function claimSandboxCaps(
         refillPerSecond: cap / SECONDS_PER_DAY,
         ttlSeconds: BUCKET_TTL_SECONDS,
     })
-    const claimDigest = createHash('sha256').update(`${teamId}\n${recipientDigest}\n${claimId}`).digest('hex')
     const claim = await limiter.claimAllOrNothingAcross(
         [
             bucket(`${keyPrefix}/recipient/${recipientDigest}`, caps.recipient),
-            bucket(`${keyPrefix}/project/${teamId}`, caps.team),
+            bucket(`${keyPrefix}/project/${request.teamId}`, caps.team),
         ],
-        { key: `${keyPrefix}/claim/${claimDigest}`, ttlSeconds: BUCKET_TTL_SECONDS }
+        { key: claimKey, ttlSeconds: BUCKET_TTL_SECONDS }
     )
     if (claim === 'granted') {
         return { ok: true }
     }
     return { ok: false, reason: claim === 'denied' ? 'daily_cap_reached' : 'cap_storage_unavailable' }
+}
+
+export async function markSandboxCapsClaimSent(
+    limiter: RateLimiterService,
+    request: SandboxCapClaimRequest
+): Promise<boolean> {
+    return await limiter.markClaimSpent(capKeys(request).claimKey)
+}
+
+function capKeys({ organizationId, teamId, storedAddress, claimId }: SandboxCapClaimRequest): {
+    keyPrefix: string
+    recipientDigest: string
+    claimKey: string
+} {
+    const keyPrefix = `@posthog/sandbox-email/{${organizationId}}`
+    const recipientDigest = createHash('sha256').update(storedAddress.toLowerCase()).digest('hex')
+    const claimDigest = createHash('sha256').update(`${teamId}\n${recipientDigest}\n${claimId}`).digest('hex')
+    return { keyPrefix, recipientDigest, claimKey: `${keyPrefix}/claim/${claimDigest}` }
 }
 
 function isValidCap(cap: number): boolean {
