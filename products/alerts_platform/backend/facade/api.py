@@ -14,6 +14,7 @@ from uuid import UUID
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
+    ControlChangeKind,
     DestinationSend,
     HandbackRefusal,
     HeldDeliveryAddress,
@@ -30,6 +31,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformCheckEntry,
     PlatformCheckEventPage,
     PlatformCheckPage,
+    PlatformControlChangePage,
     PlatformHandback,
     PlatformLastCheck,
     PlatformOwnershipHandover,
@@ -328,6 +330,17 @@ def notable_checks_by_public_id(
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
     return platform_reads.notable_checks_by_public_id(team_id=team_id, public_id=public_id, since=since, limit=limit)
+
+
+def control_changes_by_public_id(
+    *, team_id: int, public_id: UUID, kinds: Collection[ControlChangeKind], limit: int
+) -> PlatformControlChangePage | None:
+    """The newest `limit` control-plane changes of `kinds` to a named alert, with their total and the
+    time of the oldest change of any kind, or None when the platform does not own the alert.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.control_changes_by_public_id(team_id=team_id, public_id=public_id, kinds=kinds, limit=limit)
 
 
 def update_configuration(

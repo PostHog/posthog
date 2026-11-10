@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -20,8 +20,8 @@ from products.alerts_platform.backend.facade.contracts import Grouping, Platform
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.logs.backend.models import LogsAlertConfiguration
-from products.logs.backend.platform_cutover import NATIVE_CREATE_FLAG
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.platform_cutover import NATIVE_CREATE_FLAG, cut_over_team
 from products.logs.backend.platform_source_config import logs_source_config
 
 _NOW = datetime(2026, 11, 6, 12, 0, tzinfo=UTC)
@@ -321,3 +321,101 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
 
         assert refused.status_code == status.HTTP_400_BAD_REQUEST, refused.json()
         assert [alert["name"] for alert in self.client.get(self.base_url).json()["results"]] == ["High error rate"]
+
+
+_CONTROL_STEPS: list[tuple[str, dict[str, Any] | None, tuple[str, str, str]]] = [
+    ("patch", {"enabled": False}, ("disable", "not_firing", "not_firing")),
+    ("patch", {"enabled": True}, ("enable", "not_firing", "not_firing")),
+    ("patch", {"snooze_until": (_NOW + timedelta(hours=1)).isoformat()}, ("snooze", "not_firing", "snoozed")),
+    ("patch", {"snooze_until": None}, ("unsnooze", "snoozed", "not_firing")),
+    ("patch", {"threshold_count": 20}, ("threshold_change", "not_firing", "not_firing")),
+    ("reset", None, ("reset", "broken", "not_firing")),
+]
+
+
+@time_machine.travel(_NOW, tick=False)
+class TestLogsAlertControlPlaneHistory(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+        patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _create_copy(self) -> tuple[str, str]:
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="High error rate",
+            filters=_FILTERS,
+            threshold_count=10,
+            enabled=True,
+            next_check_at=_NOW + timedelta(minutes=3),
+        )
+        # Written by the logs API before the platform recorded any change of this alert.
+        older = LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=LogsAlertEvent.Kind.DISABLE,
+            threshold_breached=False,
+            state_before="firing",
+            state_after="not_firing",
+        )
+        LogsAlertEvent.objects.filter(pk=older.pk).update(created_at=_NOW - timedelta(days=1))
+        [cutover] = cut_over_team(self.team.id, now=_NOW)
+        assert cutover.skipped is None
+        with team_scope(self.team.id):
+            return str(alert.id), str(platform_testing.copy_of(alert.id).id)
+
+    def _create_without_logs_row(self) -> str:
+        with team_scope(self.team.id):
+            created = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="High error rate",
+                enabled=True,
+                source_kind=SourceKind.LOGS.value,
+                source_config=logs_source_config(
+                    _FILTERS, {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
+                ),
+                check_interval_minutes=5,
+                next_check_at=_NOW,
+                owner=PlatformAlertOwner.PLATFORM,
+                created_by=self.user,
+                first_enabled_at=_NOW,
+            )
+        return str(created.id)
+
+    def _take_steps(self, alert_id: str, configuration_id: str) -> None:
+        for minute, (action, body, _) in enumerate(_CONTROL_STEPS, start=1):
+            with (
+                time_machine.travel(_NOW + timedelta(minutes=minute), tick=False),
+                self.captureOnCommitCallbacks(execute=True),
+            ):
+                if action == "reset":
+                    with team_scope(self.team.id):
+                        platform_testing.set_check_status(configuration_id, "broken")
+                    response = self.client.post(f"{self.base_url}{alert_id}/reset/")
+                else:
+                    response = self.client.patch(f"{self.base_url}{alert_id}/", body, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def _events(self, alert_id: str, query: str = "") -> list[tuple[str, str, str]]:
+        response = self.client.get(f"{self.base_url}{alert_id}/events/{query}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        rows = [(e["kind"], e["state_before"], e["state_after"]) for e in response.json()["results"]]
+        assert response.json()["count"] == len(rows)
+        return rows
+
+    @parameterized.expand([("no_logs_row", False), ("copy", True)])
+    def test_the_events_list_shows_each_control_plane_change_once_newest_first(
+        self, _name: str, has_logs_row: bool
+    ) -> None:
+        if has_logs_row:
+            alert_id, configuration_id = self._create_copy()
+        else:
+            alert_id = configuration_id = self._create_without_logs_row()
+        older = [("disable", "firing", "not_firing")] if has_logs_row else []
+
+        self._take_steps(alert_id, configuration_id)
+
+        assert self._events(alert_id) == [row for _, _, row in reversed(_CONTROL_STEPS)] + older
+        assert self._events(alert_id, "?kind=disable") == [("disable", "not_firing", "not_firing"), *older]
+        assert self.client.get(f"{self.base_url}{alert_id}/").json()["last_checked_at"] is None

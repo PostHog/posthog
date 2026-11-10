@@ -100,8 +100,10 @@ from products.logs.backend.alert_state_machine import (
 from products.logs.backend.facade.api import (
     ALLOWED_WINDOW_MINUTES,
     MAX_MERGED_EVENT_ROWS,
+    PLATFORM_CONTROL_KINDS,
     AlertLimitReached,
     PlatformCheckRow,
+    PlatformControlRow,
     claim_alert_slot,
     close_incident_on_commit,
     first_check_at,
@@ -110,6 +112,7 @@ from products.logs.backend.facade.api import (
     logs_state_of_platform,
     next_allowed_check_at,
     platform_check_rows,
+    platform_control_rows,
 )
 from products.logs.backend.facade.platform_ownership import (
     create_native,
@@ -1373,35 +1376,67 @@ class _EventWindow(Sequence[LogsAlertEvent]):
         return self.newest[index]
 
 
-def _with_platform_checks(
+def _with_platform_history(
     alert: LogsAlertConfiguration, events: QuerySet[LogsAlertEvent], *, kind: str | None, rows_needed: int
 ) -> QuerySet[LogsAlertEvent] | _EventWindow:
-    """`events` with the platform's checks in place of the shadow ones, newest first.
+    """`events` with the platform's checks in place of the shadow ones, and its control-plane changes
+    in place of the logs ones, newest first.
 
-    A logs check row written after the cutover is the shadow evaluation, so it is left out.
+    A logs check row written after the cutover is the shadow evaluation, so it is left out. The
+    logs API still writes a control-plane row for an alert with a logs row, so from the platform's
+    oldest kept change on, a logs row of a kind the platform records is a second copy of one of its
+    rows and is left out. Older logs rows are the only record of those changes, so they stay.
     `rows_needed` is the end of the requested page, because a merged page needs that many rows
     from each source.
 
     Returns `events` unchanged for an alert the logs stack owns, and when ClickHouse fails, because
-    the shadow checks are a better answer than a failed list.
+    the logs rows are a better answer than a failed list.
     """
+    if not alert.platform_owned:
+        return events
     cutover_at = alert.owner_changed_at
-    if not alert.platform_owned or cutover_at is None:
+    reads_checks = cutover_at is not None and kind in (None, LogsAlertEvent.Kind.CHECK)
+    reads_changes = kind is None or kind in PLATFORM_CONTROL_KINDS
+    if not reads_checks and not reads_changes:
         return events
-    if kind is not None and kind != LogsAlertEvent.Kind.CHECK:
-        return events
-    # The viewset adds the same tie-break to a queryset it pages, which this merge bypasses.
-    logs_events = stable_queryset_ordering(events.exclude(kind=LogsAlertEvent.Kind.CHECK, created_at__gte=cutover_at))
+    logs_events = events
+    if reads_checks:
+        logs_events = logs_events.exclude(kind=LogsAlertEvent.Kind.CHECK, created_at__gte=cutover_at)
     try:
-        checks = platform_check_rows(team_id=alert.team_id, alert_id=alert.id, since=cutover_at, limit=rows_needed)
+        checks = (
+            platform_check_rows(team_id=alert.team_id, alert_id=alert.id, since=cutover_at, limit=rows_needed)
+            if reads_checks and cutover_at is not None
+            else None
+        )
+        changes = (
+            platform_control_rows(
+                team_id=alert.team_id,
+                alert_id=alert.id,
+                kinds=PLATFORM_CONTROL_KINDS if kind is None else [kind],
+                limit=rows_needed,
+            )
+            if reads_changes
+            else None
+        )
     except Exception as error:
         capture_exception(error)
         return events
-    if checks is None:
+    if (reads_checks and checks is None) or (reads_changes and changes is None):
         return events
-    merged = [*logs_events[:rows_needed], *(_as_logs_event(alert, row) for row in checks.rows)]
+    if changes is not None and changes.oldest_at is not None:
+        logs_events = logs_events.exclude(kind__in=PLATFORM_CONTROL_KINDS, created_at__gte=changes.oldest_at)
+    # The viewset adds the same tie-break to a queryset it pages, which this merge bypasses.
+    logs_events = stable_queryset_ordering(logs_events)
+    merged: list[LogsAlertEvent] = [*logs_events[:rows_needed]]
+    total = logs_events.count()
+    if checks is not None:
+        merged.extend(_as_logs_event(alert, row) for row in checks.rows)
+        total += checks.total
+    if changes is not None:
+        merged.extend(_control_as_logs_event(alert, row) for row in changes.rows)
+        total += changes.total
     merged.sort(key=lambda event: event.created_at, reverse=True)
-    return _EventWindow(newest=merged[:rows_needed], total=logs_events.count() + checks.total)
+    return _EventWindow(newest=merged[:rows_needed], total=total)
 
 
 def _as_logs_event(alert: LogsAlertConfiguration, row: PlatformCheckRow) -> LogsAlertEvent:
@@ -1417,6 +1452,19 @@ def _as_logs_event(alert: LogsAlertConfiguration, row: PlatformCheckRow) -> Logs
         result_count=row.result_count,
         error_message=row.error_message,
         query_duration_ms=row.query_duration_ms,
+    )
+
+
+def _control_as_logs_event(alert: LogsAlertConfiguration, row: PlatformControlRow) -> LogsAlertEvent:
+    """An unsaved row in the shape `LogsAlertEventSerializer` reads."""
+    return LogsAlertEvent(
+        id=row.id,
+        alert=alert,
+        kind=row.kind,
+        created_at=row.created_at,
+        state_before=row.state_before,
+        state_after=row.state_after,
+        threshold_breached=False,
     )
 
 
@@ -1693,7 +1741,8 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "change and there was no error) are filtered out since only the last 10 are kept "
             "and they carry no forensic value. Optional `?kind=...` narrows to a single kind. "
             "For an alert the alerts platform evaluates, checks since it took the alert over come "
-            "from the platform's check history."
+            "from the platform's check history. So do control-plane rows from the oldest one the "
+            "platform recorded onward."
         ),
     )
     @action(detail=True, methods=["GET"], url_path="events", required_scopes=["logs:read"])
@@ -1718,7 +1767,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         rows_needed = paginator.get_offset(request) + (paginator.get_limit(request) or 0)
         if alert.platform_owned and rows_needed > MAX_MERGED_EVENT_ROWS:
             raise ValidationError({"offset": f"Offset plus limit must be at most {MAX_MERGED_EVENT_ROWS}."})
-        history = _with_platform_checks(alert, queryset, kind=kind, rows_needed=rows_needed)
+        history = _with_platform_history(alert, queryset, kind=kind, rows_needed=rows_needed)
         page = self.paginate_queryset(history)
         if page is not None:
             serializer = LogsAlertEventSerializer(page, many=True)

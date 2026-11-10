@@ -29,12 +29,15 @@ from posthog.dataclasses import frozen
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
+    ControlChangeKind,
     EvaluationAnnouncement,
     PlatformAlertHistory,
     PlatformCheckEntry,
     PlatformCheckEvent,
     PlatformCheckEventPage,
     PlatformCheckPage,
+    PlatformControlChange,
+    PlatformControlChangePage,
     PlatformLastCheck,
     PlatformStateChange,
     SourceKind,
@@ -293,9 +296,10 @@ def _snapshot(raw: str) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
-# Every read of checks leaves out follow-ups, which are messages about a check rather than checks.
-# Only `announcement` reads them, by their own evaluation key.
-CHECKS_ONLY: Final = f"kind != '{AlertEventKind.VERDICT_CHANGED.value}'"
+# Every read of checks leaves out follow-ups and control-plane changes. It lists the kinds it keeps,
+# so a kind added later stays out of the checks until a reader opts in.
+_CHECK_KINDS: Final = tuple(kind.value for kind in AlertEventKind if kind is not AlertEventKind.VERDICT_CHANGED)
+CHECKS_ONLY: Final = f"kind IN ({', '.join(repr(kind) for kind in _CHECK_KINDS)})"
 
 
 # The inner read deduplicates on the pair the writer names, as `announcement` does. The outer one
@@ -613,3 +617,72 @@ def last_checks(team_id: int, configuration_ids: Collection[UUID]) -> dict[UUID,
         configuration_id: PlatformLastCheck(checked_at=checked_at, value=value)
         for configuration_id, checked_at, value in rows
     }
+
+
+_CONTROL_CHANGES_SQL = f"""
+SELECT occurred_at, evaluation_key, kind, previous_state, state, count() OVER () AS total
+FROM (
+    SELECT evaluation_key, occurred_at, kind, previous_state, state
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id = %(configuration_id)s
+      AND kind IN %(kinds)s
+    ORDER BY occurred_at, evaluation_key
+    LIMIT 1 BY evaluation_key
+)
+ORDER BY occurred_at DESC, evaluation_key DESC
+LIMIT %(limit)s
+"""
+
+# Over every control-plane kind whatever the page asks for, so a source that hands over its own
+# rows at this moment hands them over at the same moment for every kind.
+_OLDEST_CONTROL_CHANGE_SQL = f"""
+SELECT min(occurred_at), count()
+FROM {PLATFORM_ALERT_EVENTS_TABLE}
+WHERE team_id = %(team_id)s
+  AND configuration_id = %(configuration_id)s
+  AND kind IN %(kinds)s
+"""
+
+
+def control_changes(
+    team_id: int, configuration_id: UUID, *, kinds: Collection[ControlChangeKind], limit: int
+) -> PlatformControlChangePage:
+    """The newest `limit` control-plane changes of `kinds` to a configuration, across its kept history,
+    and when the oldest kept change of any kind happened.
+
+    Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    parameters = {"team_id": team_id, "configuration_id": configuration_id}
+    # Not `_execute`, for the same reason as `history`.
+    [(oldest_at, kept)] = sync_execute(
+        _OLDEST_CONTROL_CHANGE_SQL,
+        {**parameters, "kinds": [kind.value for kind in ControlChangeKind]},
+        team_id=team_id,
+        settings=_READ_BUDGET,
+    )
+    rows = (
+        sync_execute(
+            _CONTROL_CHANGES_SQL,
+            {**parameters, "kinds": [kind.value for kind in kinds], "limit": limit},
+            team_id=team_id,
+            settings=_READ_BUDGET,
+        )
+        if kinds and kept
+        else []
+    )
+    return PlatformControlChangePage(
+        changes=tuple(
+            PlatformControlChange(
+                occurred_at=occurred_at,
+                evaluation_key=evaluation_key,
+                kind=ControlChangeKind(kind),
+                previous_state=PlatformAlertState(previous_state),
+                state=PlatformAlertState(state),
+            )
+            for occurred_at, evaluation_key, kind, previous_state, state, _ in rows
+        ),
+        total=rows[0][-1] if rows else 0,
+        oldest_at=oldest_at if kept else None,
+    )

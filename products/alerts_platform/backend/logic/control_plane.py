@@ -17,6 +17,7 @@ from posthog.dataclasses import frozen
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
+    ControlChangeKind,
     IncidentAction,
     PlatformAlertConfigurationEdit,
     SourceKind,
@@ -46,6 +47,29 @@ def ending_reason(
         return "regrouped"
     if any(getattr(current, field) != getattr(edit, field) for field in _DECIDING_SETTINGS):
         return "config_changed"
+    return None
+
+
+def change_kind(
+    current: PlatformAlertConfigurationEdit,
+    edit: PlatformAlertConfigurationEdit,
+    *,
+    regrouped: bool,
+    snooze_changed: bool,
+    snooze_until: datetime | None,
+) -> ControlChangeKind | None:
+    """The one control-plane change an edit records, or None. In the logs API's order, so an alert
+    shows the same row whichever stack recorded it: a toggle wins over a snooze, which wins over a
+    change to what the alert checks. A snooze the edit names is recorded even when it was already
+    set, as the logs API records it."""
+    if edit.enabled and not current.enabled:
+        return ControlChangeKind.ENABLE
+    if current.enabled and not edit.enabled:
+        return ControlChangeKind.DISABLE
+    if snooze_changed:
+        return ControlChangeKind.UNSNOOZE if snooze_until is None else ControlChangeKind.SNOOZE
+    if regrouped or any(getattr(current, field) != getattr(edit, field) for field in _DECIDING_SETTINGS):
+        return ControlChangeKind.CONFIG_CHANGE
     return None
 
 
