@@ -97,8 +97,14 @@
         h2.is-empty::before,
         h3.is-empty::before {
             float: left;
-            height: 0;
+            width: 100%;
+
+            // Takes no room, so the caret stays on the first line.
+            margin-bottom: -1lh;
+            overflow: hidden;
             color: #a0a0a0;
+            text-overflow: ellipsis;
+            white-space: nowrap;
             pointer-events: none;
             content: attr(data-placeholder);
         }

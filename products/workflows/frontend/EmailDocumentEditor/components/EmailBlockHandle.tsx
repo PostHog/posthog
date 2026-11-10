@@ -1,5 +1,6 @@
 import type { Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
+import clsx from 'clsx'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconCopy, IconDrag, IconEllipsis, IconTrash } from '@posthog/icons'
@@ -16,6 +17,7 @@ const HANDLE_GAP = 8
 interface HandlePosition {
     top: number
     left: number
+    above: boolean
     width: number
     height: number
     pos: number
@@ -63,9 +65,12 @@ export function EmailBlockHandle({
             }
             const rect = dom.getBoundingClientRect()
             const parent = container.getBoundingClientRect()
+            // Beside a block in a later column it would cover the column to its left, so it sits on top instead.
+            const column = dom.parentElement?.closest('.email-canvas-column')
             setPosition({
                 top: rect.top - parent.top + container.scrollTop,
                 left: rect.left - parent.left + container.scrollLeft - HANDLE_GAP,
+                above: !!column?.previousElementSibling,
                 width: rect.width,
                 height: rect.height,
                 pos: block.pos,
@@ -137,8 +142,15 @@ export function EmailBlockHandle({
             />
             <div
                 data-email-handle
-                className="absolute z-10 flex items-center rounded border bg-surface-primary shadow-sm -translate-x-full"
-                style={{ top: position.top + 4, left: position.left }}
+                className={clsx(
+                    'absolute z-10 flex items-center rounded border bg-surface-primary shadow-sm',
+                    position.above ? '-translate-y-full' : '-translate-x-full'
+                )}
+                style={
+                    position.above
+                        ? { top: position.top, left: position.left + HANDLE_GAP }
+                        : { top: position.top + 4, left: position.left }
+                }
                 contentEditable={false}
             >
                 <LemonMenu

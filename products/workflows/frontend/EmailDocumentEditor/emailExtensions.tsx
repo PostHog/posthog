@@ -510,7 +510,15 @@ export function buildEmailExtensions(placeholder: string): any[] {
         }),
         ...emailSchemaExtensions,
         Placeholder.configure({
-            placeholder: ({ node }) => (node.type.name === 'paragraph' ? placeholder : ''),
+            placeholder: ({ editor, node, pos }) => {
+                if (node.type.name !== 'paragraph') {
+                    return ''
+                }
+                const $pos = editor.state.doc.resolve(pos)
+                return $pos.depth > 0 && $pos.node($pos.depth).type.name === 'emailColumn'
+                    ? 'Type / for blocks'
+                    : placeholder
+            },
             includeChildren: true,
         }),
     ]
