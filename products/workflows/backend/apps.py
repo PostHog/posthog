@@ -1,8 +1,10 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from django.apps import AppConfig
 
 if TYPE_CHECKING:
+    from django.db.models import Model
+
     from posthog.api.file_system.deletion import DeletionContext, RestoreContext
 
     from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -64,5 +66,13 @@ class WorkflowsConfig(AppConfig):
 
             require_linked_workflow_editor(context, template)
 
-        register_pre_delete_hook("message_template", require_linked_workflow_editor)
+        def lock_then_require_linked_workflow_editor(context: "DeletionContext", template: "LinkedTemplate") -> None:
+            from products.workflows.backend.services.template_file_guard import (  # noqa: PLC0415 — keeps access control dependencies off startup
+                lock_template_for_delete,
+            )
+
+            lock_template_for_delete(cast("Model", template))
+            require_linked_workflow_editor(context, template)
+
+        register_pre_delete_hook("message_template", lock_then_require_linked_workflow_editor)
         register_pre_restore_hook("message_template", require_linked_workflow_editor)

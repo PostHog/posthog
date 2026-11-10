@@ -49,7 +49,7 @@ from posthog.api.app_metrics2 import (
     fetch_app_metrics_trends,
 )
 from posthog.api.documentation import _FallbackSerializer
-from posthog.api.file_system.file_system import validate_file_system_path
+from posthog.api.file_system.file_system import validate_file_system_path, validate_file_system_placement
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
@@ -3777,6 +3777,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def validate(self, data):
         instance = cast(Optional[WorkflowEditState], self.instance)
         is_draft = self.context.get("is_draft")
+        validate_file_system_placement(data.get("_create_in_folder"), data.get("name"))
 
         # Reject duplicate action ids on any client-submitted actions array (create/update/graph), on
         # every path - not just the surgical /graph endpoint where validate_graph enforces it. Secret

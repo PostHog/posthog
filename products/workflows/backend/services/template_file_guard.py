@@ -1,7 +1,12 @@
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
+from django.db import OperationalError, transaction
+from django.db.models import Model
+
 from rest_framework.exceptions import PermissionDenied
+
+from posthog.exceptions import Conflict
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import WorkflowAccessDenied, WorkflowNotFound
@@ -35,3 +40,11 @@ def require_linked_workflow_editor(context: "DeletionContext | RestoreContext", 
         raise PermissionDenied(denied) from None
     except WorkflowNotFound:
         return
+
+
+def lock_template_for_delete(template: Model) -> None:
+    try:
+        with transaction.atomic():
+            template.refresh_from_db(from_queryset=type(template)._base_manager.select_for_update(nowait=True))
+    except OperationalError:
+        raise Conflict("This template is being saved. Try again in a moment.", code="template_busy")
