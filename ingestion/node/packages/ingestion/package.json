@@ -61,6 +61,7 @@
         "@posthog/ingestion-common": "workspace:*",
         "@posthog/node-common": "workspace:*",
         "@posthog/replay-anonymizer": "workspace:*",
+        "@posthog/replay-storage": "workspace:*",
         "@posthog/siphash": "1.1.1",
         "@smithy/node-http-handler": "4.4.9",
         "@trybyte/robotstxt-parser": "1.2.0",

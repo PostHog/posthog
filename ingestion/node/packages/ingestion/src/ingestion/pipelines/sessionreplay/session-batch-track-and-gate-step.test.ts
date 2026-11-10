@@ -1,7 +1,7 @@
 import { PipelineResult, isDropResult, isOkResult } from '@posthog/ingestion-common/framework/results'
+import { RetentionPeriod } from '@posthog/replay-storage/constants'
+import { SessionMap, SessionSet } from '@posthog/replay-storage/session-map'
 
-import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { SessionReplayHeaders } from './pipeline-types'

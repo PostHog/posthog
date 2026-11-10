@@ -1,4 +1,4 @@
-import { DeleteKeyResult, KeyStore, SessionKey } from '@posthog/ingestion/pipelines/sessionreplay/shared/types'
+import { DeleteKeyResult, KeyStore, SessionKey } from '@posthog/replay-storage/types'
 
 import { RecordingApiMetrics } from './metrics'
 

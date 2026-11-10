@@ -1,7 +1,7 @@
 import { drop, ok } from '@posthog/ingestion-common/framework/results'
 import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
+import { TeamService } from '@posthog/replay-storage/teams/team-service'
 
-import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { SessionReplayHeaders } from './pipeline-types'

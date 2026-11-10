@@ -1,8 +1,7 @@
 import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
-
-import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
-import { MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+import { CAPTURE_TIMESTAMP_HEADER } from '@posthog/replay-storage/capture-watermark'
+import { MlImageScrubOutput } from '@posthog/replay-storage/outputs/index'
 
 import { MlMirrorMetrics } from './metrics'
 import { CollectedImage } from './parse-and-anonymize-step'

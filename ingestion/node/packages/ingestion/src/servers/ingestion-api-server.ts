@@ -10,6 +10,13 @@ import { TopHog } from '@posthog/ingestion-common/framework/tophog/index'
 import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
 import { ClickhouseGroupRepository } from '@posthog/ingestion-common/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '@posthog/ingestion-common/groups/repositories/postgres-group-repository'
+import {
+    KafkaDownstreamProducerEnvConfig,
+    KafkaUpstreamProducerEnvConfig,
+    ProducerName,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
+} from '@posthog/ingestion-common/outputs/producers'
 import { PersonHogClient } from '@posthog/ingestion-common/personhog/client'
 import { createIdentityClients } from '@posthog/ingestion-common/personhog/identity-clients'
 import {
@@ -56,13 +63,6 @@ import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { buildIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
-import {
-    KafkaDownstreamProducerEnvConfig,
-    KafkaUpstreamProducerEnvConfig,
-    ProducerName,
-    getDefaultKafkaDownstreamProducerEnvConfig,
-    getDefaultKafkaUpstreamProducerEnvConfig,
-} from '~/ingestion/common/outputs/producers'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
 import { PersonhogPersonsStore } from '~/ingestion/common/persons/personhog-persons-store'

@@ -1,10 +1,10 @@
+import { ProducerName } from '@posthog/ingestion-common/outputs/producers'
 import { newScope } from '@posthog/ingestion-common/scopes/index'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
 import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
 import { TeamManagerComponent } from '@posthog/node-common/utils/team-manager'
 
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
-import { ProducerName } from '~/ingestion/common/outputs/producers'
 import { IngestionOutputsConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'
 

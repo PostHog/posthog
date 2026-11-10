@@ -2,8 +2,7 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaDebugContext } from '@posthog/ingestion-common/framework/helpers'
-
-import { SessionKey } from './shared/types'
+import { SessionKey } from '@posthog/replay-storage/types'
 
 /** The per-message context threaded through every stage of the session replay pipeline. */
 export interface MessageContext {

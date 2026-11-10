@@ -6,15 +6,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import snappy from 'snappy'
 
-import {
-    SodiumRecordingDecryptor,
-    SodiumRecordingEncryptor,
-} from '@posthog/ingestion/pipelines/sessionreplay/shared/crypto/index'
-import { SessionFeatureStore } from '@posthog/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
-import { SessionMetadataStore } from '@posthog/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { SessionKey } from '@posthog/ingestion/pipelines/sessionreplay/shared/types'
 import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
 import * as envUtils from '@posthog/node-common/utils/env-utils'
+import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '@posthog/replay-storage/crypto/index'
+import { SessionFeatureStore } from '@posthog/replay-storage/features/session-feature-store'
+import { SessionMetadataStore } from '@posthog/replay-storage/metadata/session-metadata-store'
+import { SessionKey } from '@posthog/replay-storage/types'
 
 import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingService } from './recording-service'

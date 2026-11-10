@@ -2,8 +2,8 @@ import { DateTime } from 'luxon'
 
 import { sanitizeForUTF8 } from '@posthog/node-common/utils/strings'
 import { castTimestampOrNow } from '@posthog/node-common/utils/utils'
+import { ConsoleLogLevel, RRWebEventType } from '@posthog/replay-storage/rrweb-types'
 
-import { ConsoleLogLevel, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { TimestampFormat } from '~/types'
 

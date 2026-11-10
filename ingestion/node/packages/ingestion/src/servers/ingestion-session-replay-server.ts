@@ -1,3 +1,7 @@
+import {
+    KafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+} from '@posthog/ingestion-common/outputs/producers'
 import { initializePrometheusLabels } from '@posthog/node-common/api/router'
 import { CommonConfig } from '@posthog/node-common/config'
 import { KafkaBrokerConfig, RedisConnectionsConfig } from '@posthog/node-common/config/connections'
@@ -11,26 +15,22 @@ import {
 import { PostgresRouter, PostgresRouterConfig } from '@posthog/node-common/utils/db/postgres'
 import { RedisConnectionConfig, createRedisPoolFromConfig } from '@posthog/node-common/utils/db/redis'
 import { logger } from '@posthog/node-common/utils/logger'
-
-import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
-import {
-    KafkaDownstreamProducerEnvConfig,
-    getDefaultKafkaDownstreamProducerEnvConfig,
-} from '~/ingestion/common/outputs/producers'
 import {
     SessionReplayOutputsConfig,
     type SessionReplayProducerName,
     getDefaultSessionRecordingApiConfig,
     getDefaultSessionRecordingConfig,
     getDefaultSessionReplayOutputsConfig,
-} from '~/ingestion/pipelines/sessionreplay/config'
-import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '~/ingestion/pipelines/sessionreplay/consumer'
-import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
-import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
+} from '@posthog/replay-storage/config'
 import {
     KafkaSessionreplayProducerEnvConfig,
     getDefaultKafkaSessionreplayProducerEnvConfig,
-} from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
+} from '@posthog/replay-storage/outputs/producer-config'
+
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '~/ingestion/pipelines/sessionreplay/consumer'
+import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
+import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
 
 import { getDefaultIngestionConsumerConfig } from '../ingestion/config'
 import { RedisPool } from '../types'

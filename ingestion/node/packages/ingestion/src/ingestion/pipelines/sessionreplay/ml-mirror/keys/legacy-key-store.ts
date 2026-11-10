@@ -1,6 +1,7 @@
+import { CleartextKeyStore } from '@posthog/replay-storage/keystore/cleartext-keystore'
+import { SessionKey } from '@posthog/replay-storage/types'
+
 import { usesRawSessionIdentifiers } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
-import { CleartextKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cleartext-keystore'
-import { SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 export class LegacyMlKeyStore extends CleartextKeyStore {
     public override getKey(sessionId: string, teamId: number): Promise<SessionKey> {

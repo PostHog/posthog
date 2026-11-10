@@ -1,18 +1,18 @@
 /** Settings of the v4 AI research lanes. */
-import { KAFKA_CLICKHOUSE_TOPHOG } from '@posthog/node-common/config/kafka-topics'
-
-import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import {
     INGESTION_DOWNSTREAM_PRODUCER,
     getDefaultKafkaDownstreamProducerEnvConfig,
-} from '~/ingestion/common/outputs/producers'
-import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
+} from '@posthog/ingestion-common/outputs/producers'
+import { KAFKA_CLICKHOUSE_TOPHOG } from '@posthog/node-common/config/kafka-topics'
 import {
     getDefaultSessionRecordingApiConfig,
     getDefaultSessionRecordingConfig,
     getDefaultSessionReplayOutputsConfig,
-} from '~/ingestion/pipelines/sessionreplay/config'
-import { getDefaultKafkaSessionreplayProducerEnvConfig } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
+} from '@posthog/replay-storage/config'
+import { getDefaultKafkaSessionreplayProducerEnvConfig } from '@posthog/replay-storage/outputs/producer-config'
+
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
 import type { IngestionSessionReplayServerConfig } from '~/servers/ingestion-session-replay-server'
 
 import type { AiResearchV4ImageFetchProducerName } from './image-fetch-v4/producer'

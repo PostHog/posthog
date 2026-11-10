@@ -1,3 +1,8 @@
+import {
+    INGESTION_DOWNSTREAM_PRODUCER,
+    INGESTION_UPSTREAM_PRODUCER,
+    type ProducerName,
+} from '@posthog/ingestion-common/outputs/producers'
 import type { CommonConfig } from '@posthog/node-common/config'
 import type {
     DatabaseConnectionConfig,
@@ -24,11 +29,6 @@ import {
 import { isDevEnv, isProdEnv } from '@posthog/node-common/utils/env-utils'
 
 import { AI_MEDIA_OFFLOAD_MIN_BYTES } from '~/ingestion/common/ai-event-limits'
-import {
-    INGESTION_DOWNSTREAM_PRODUCER,
-    INGESTION_UPSTREAM_PRODUCER,
-    type ProducerName,
-} from '~/ingestion/common/outputs/producers'
 
 /** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '' disables the personless default so it is opt-in per team via config. */
 export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = ''

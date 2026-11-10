@@ -6,14 +6,14 @@ import { dlq, drop, ok } from '@posthog/ingestion-common/framework/results'
 import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { normalizeSessionId } from '@posthog/node-common/utils/utils'
-
 import {
     EventSchema,
     ParsedMessageData,
     RawEventMessageSchema,
     SnapshotEvent,
     SnapshotEventSchema,
-} from '~/ingestion/pipelines/sessionreplay/kafka/types'
+} from '@posthog/replay-storage/kafka/types'
+
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 
 import { SessionReplayHeaders } from './pipeline-types'

@@ -6,12 +6,8 @@ import { Message } from 'node-rdkafka'
 
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
-
-import {
-    SessionBlockMetadata,
-    createNoopBlockMetadata,
-} from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
-import { MlBlockMetadataOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+import { SessionBlockMetadata, createNoopBlockMetadata } from '@posthog/replay-storage/metadata/session-block-metadata'
+import { MlBlockMetadataOutput } from '@posthog/replay-storage/outputs/index'
 
 import { BlockMetadataBatcher, OffsetStore } from './block-metadata-batcher'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'

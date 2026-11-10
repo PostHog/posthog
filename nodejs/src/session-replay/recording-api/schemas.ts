@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { RetentionPeriodToDaysMap } from '@posthog/ingestion/pipelines/sessionreplay/shared/constants'
+import { RetentionPeriodToDaysMap } from '@posthog/replay-storage/constants'
 
 // Schema for positive integer string (e.g., "123" -> 123)
 const positiveIntString = (fieldName: string) =>

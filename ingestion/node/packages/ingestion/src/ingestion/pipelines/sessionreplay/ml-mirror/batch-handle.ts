@@ -3,10 +3,10 @@ import pLimit from 'p-limit'
 
 import { PipelineResult, PipelineResultType, ok } from '@posthog/ingestion-common/framework/results'
 import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { SessionKey } from '@posthog/replay-storage/types'
 
 import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
-import { SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { PartitionOwnership } from '~/ingestion/pipelines/sessionreplay/staged-batch'
 
 import { MlKeyBatchController } from './keys/batch-controller'

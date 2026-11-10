@@ -3,11 +3,11 @@ import { ok } from '@posthog/ingestion-common/framework/results'
 import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { logger } from '@posthog/node-common/utils/logger'
+import { CAPTURE_TIMESTAMP_HEADER } from '@posthog/replay-storage/capture-watermark'
+import { ML_IMAGE_FETCH_OUTPUT, MlImageFetchOutput } from '@posthog/replay-storage/outputs/index'
 
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
-import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
-import { ML_IMAGE_FETCH_OUTPUT, MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 
 import { MlSessionKeys } from './keys/key-store'
 import { mlKafkaRecord, mlWireVersion, validateImageOwner } from './keys/transport'

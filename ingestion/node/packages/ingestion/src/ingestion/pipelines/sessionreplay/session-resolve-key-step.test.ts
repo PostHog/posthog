@@ -1,8 +1,8 @@
 import { PipelineResult, isOkResult } from '@posthog/ingestion-common/framework/results'
+import { RetentionPeriod, RetentionPeriodToDaysMap } from '@posthog/replay-storage/constants'
+import { createMockSessionKey } from '@posthog/replay-storage/test-helpers'
+import { KeyStore, SessionKey } from '@posthog/replay-storage/types'
 
-import { RetentionPeriod, RetentionPeriodToDaysMap } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
-import { KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { Allowed, NewSessionFlag, Resolved, SessionReplayHeaders } from './pipeline-types'

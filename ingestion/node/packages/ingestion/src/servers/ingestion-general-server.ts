@@ -9,6 +9,12 @@ import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-ma
 import { ClickhouseGroupRepository } from '@posthog/ingestion-common/groups/repositories/clickhouse-group-repository'
 import { PostgresGroupRepository } from '@posthog/ingestion-common/groups/repositories/postgres-group-repository'
 import {
+    KafkaDownstreamProducerEnvConfig,
+    KafkaUpstreamProducerEnvConfig,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
+} from '@posthog/ingestion-common/outputs/producers'
+import {
     PersonHogConfig,
     buildGroupRepository,
     buildPersonRepository,
@@ -53,12 +59,6 @@ import { TeamManagerComponent } from '@posthog/node-common/utils/team-manager'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
 import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
-import {
-    KafkaDownstreamProducerEnvConfig,
-    KafkaUpstreamProducerEnvConfig,
-    getDefaultKafkaDownstreamProducerEnvConfig,
-    getDefaultKafkaUpstreamProducerEnvConfig,
-} from '~/ingestion/common/outputs/producers'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
 import { createClientWarningsConsumer } from '~/ingestion/pipelines/clientwarnings'
 import { createHeatmapsConsumer } from '~/ingestion/pipelines/heatmaps'

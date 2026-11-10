@@ -1,20 +1,17 @@
 import { PipelineResultType, isOkResult } from '@posthog/ingestion-common/framework/results'
+import { SessionBatchMetrics } from '@posthog/replay-storage/metrics'
+import { RetentionResolution, RetentionService } from '@posthog/replay-storage/retention/retention-service'
+import { SessionMap, SessionSet } from '@posthog/replay-storage/session-map'
 
-import {
-    RetentionResolution,
-    RetentionService,
-} from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
-import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { SessionReplayHeaders } from './pipeline-types'
 import { SessionBatchContext } from './session-batch-context'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
-import { SessionBatchMetrics } from './sessions/metrics'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 
 jest.mock('@posthog/node-common/utils/logger', () => ({ logger: { warn: jest.fn() } }))
-jest.mock('./sessions/metrics', () => ({
+jest.mock('@posthog/replay-storage/metrics', () => ({
     SessionBatchMetrics: { incrementSessionsDroppedMissingRetention: jest.fn() },
 }))
 

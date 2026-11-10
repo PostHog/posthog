@@ -1,8 +1,8 @@
+import { KafkaProducerRegistryBuilder } from '@posthog/node-common/outputs/kafka-producer-registry-builder'
 import {
     INGESTION_SESSIONREPLAY_PRODUCER,
     INGESTION_SESSIONREPLAY_PRODUCER_CONFIG_MAP,
-} from '@posthog/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
-import { KafkaProducerRegistryBuilder } from '@posthog/node-common/outputs/kafka-producer-registry-builder'
+} from '@posthog/replay-storage/outputs/producer-config'
 
 /** Recording API produces ClickHouse-bound deletion tombstones to the warpstream-replay cluster. */
 export function createProducerRegistry(kafkaClientRack: string | undefined) {

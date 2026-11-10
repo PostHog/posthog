@@ -3,12 +3,11 @@ import { brotliDecompressSync } from 'node:zlib'
 import snappy from 'snappy'
 
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
-
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-import { RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
+import { ParsedMessageData } from '@posthog/replay-storage/kafka/types'
+import { SessionBatchMetrics } from '@posthog/replay-storage/metrics'
+import { RRWebEventType } from '@posthog/replay-storage/rrweb-types'
 
 import { compressBlock } from './block-compression'
-import { SessionBatchMetrics } from './metrics'
 import { SessionBlockRecorder } from './session-block-recorder'
 
 jest.mock('./block-compression', () => {

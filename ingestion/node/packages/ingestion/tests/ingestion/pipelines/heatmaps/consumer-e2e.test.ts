@@ -1,15 +1,15 @@
 import { Message } from 'node-rdkafka'
 
+import {
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
+} from '@posthog/ingestion-common/outputs/producers'
 import { Component, newScope } from '@posthog/ingestion-common/scopes/index'
 import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
 import { waitForExpect } from '@posthog/node-common/testing/expectations'
 
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
 import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
-import {
-    getDefaultKafkaDownstreamProducerEnvConfig,
-    getDefaultKafkaUpstreamProducerEnvConfig,
-} from '~/ingestion/common/outputs/producers'
 import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
 import {
     HeatmapsConsumerConfig,

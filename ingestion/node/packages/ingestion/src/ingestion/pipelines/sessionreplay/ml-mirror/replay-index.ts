@@ -1,10 +1,7 @@
 import { ParquetSchema } from '@dsnp/parquetjs'
 
-import {
-    ReplayIndexEntry,
-    ReplayIndexEntrySchema,
-} from '~/ingestion/pipelines/sessionreplay/shared/metadata/replay-index-entry'
-import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
+import { ReplayIndexEntry, ReplayIndexEntrySchema } from '@posthog/replay-storage/metadata/replay-index-entry'
+import { parquetRecordsToBuffer } from '@posthog/replay-storage/parquet'
 
 import { MlBlockMetadataRow } from './block-metadata-row'
 import { MlDataKey, MlEncryptedEnvelope, encryptEnvelopeJson } from './keys/crypto'

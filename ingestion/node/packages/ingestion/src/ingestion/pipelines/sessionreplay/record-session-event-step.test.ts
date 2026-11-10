@@ -1,11 +1,11 @@
 import { DateTime } from 'luxon'
 
 import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
+import { ParsedMessageData } from '@posthog/replay-storage/kafka/types'
+import { createMockSessionKey } from '@posthog/replay-storage/test-helpers'
 
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
-import { createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { RecordSessionEventStepInput, createRecordSessionEventStep } from './record-session-event-step'

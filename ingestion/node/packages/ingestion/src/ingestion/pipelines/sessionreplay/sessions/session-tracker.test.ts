@@ -1,12 +1,13 @@
 import { Redis } from 'ioredis'
 
-import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
+import { SessionBatchMetrics } from '@posthog/replay-storage/metrics'
+import { SessionSet } from '@posthog/replay-storage/session-map'
+
 import { RedisPool } from '~/types'
 
-import { SessionBatchMetrics } from './metrics'
 import { SessionTracker } from './session-tracker'
 
-jest.mock('./metrics', () => ({
+jest.mock('@posthog/replay-storage/metrics', () => ({
     SessionBatchMetrics: {
         incrementNewSessionsDetected: jest.fn(),
         incrementSessionTrackerCacheHit: jest.fn(),

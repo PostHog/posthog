@@ -1,8 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
-
-import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
+import { CAPTURE_TIMESTAMP_HEADER } from '@posthog/replay-storage/capture-watermark'
 
 import { MAX_REPLAYS, replayBatch } from './dlq-replay'
 import { REPLAY_COUNT_HEADER } from './image-batcher'

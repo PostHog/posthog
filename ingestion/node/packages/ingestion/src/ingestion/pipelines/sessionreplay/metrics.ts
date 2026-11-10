@@ -1,6 +1,6 @@
 import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
-import { recordMessagesDroppedByRestrictions } from './otel-metrics'
+import { recordMessagesDroppedByRestrictions } from '@posthog/replay-storage/otel-metrics'
 
 const BUCKETS_KB_WRITTEN = [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity]
 

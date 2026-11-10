@@ -13,6 +13,7 @@ import { register } from 'prom-client'
 import { ok } from '@posthog/ingestion-common/framework/results'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { createNoopBlockMetadata } from '@posthog/replay-storage/metadata/session-block-metadata'
 
 import { MlBatchHandle } from '~/ingestion/pipelines/sessionreplay/ml-mirror/batch-handle'
 import { BlockMetadataBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-batcher'
@@ -20,7 +21,6 @@ import { BlockMetadataParquetStore } from '~/ingestion/pipelines/sessionreplay/m
 import { toBlockMetadataRow } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-row'
 import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
-import { createNoopBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 
 import { MlKeyBatchController } from './batch-controller'
 import { MlDataKey, MlKeyEncryption } from './crypto'

@@ -1,8 +1,8 @@
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
+import { ParsedMessageData } from '@posthog/replay-storage/kafka/types'
 
 import { SessionRateLimiter } from './session-rate-limiter'
 
-jest.mock('./metrics', () => ({
+jest.mock('@posthog/replay-storage/metrics', () => ({
     SessionBatchMetrics: {
         incrementSessionsRateLimited: jest.fn(),
         incrementEventsRateLimited: jest.fn(),

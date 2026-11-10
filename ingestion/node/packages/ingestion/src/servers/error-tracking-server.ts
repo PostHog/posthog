@@ -5,6 +5,12 @@ import {
 } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
+import {
+    KafkaDownstreamProducerEnvConfig,
+    KafkaUpstreamProducerEnvConfig,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
+} from '@posthog/ingestion-common/outputs/producers'
 import { PersonHogConfig } from '@posthog/ingestion-common/personhog/index'
 import { extend, newScope } from '@posthog/ingestion-common/scopes/index'
 import { initializePrometheusLabels } from '@posthog/node-common/api/router'
@@ -41,12 +47,6 @@ import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { CookielessManagerComponent, CookielessServerConfig } from '~/ingestion/common/cookieless/cookieless-manager'
 import { ingestionConsumerService } from '~/ingestion/common/ingestion-consumer'
 import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
-import {
-    KafkaDownstreamProducerEnvConfig,
-    KafkaUpstreamProducerEnvConfig,
-    getDefaultKafkaDownstreamProducerEnvConfig,
-    getDefaultKafkaUpstreamProducerEnvConfig,
-} from '~/ingestion/common/outputs/producers'
 import {
     ErrorTrackingConsumerConfig,
     ErrorTrackingOutputsConfig,

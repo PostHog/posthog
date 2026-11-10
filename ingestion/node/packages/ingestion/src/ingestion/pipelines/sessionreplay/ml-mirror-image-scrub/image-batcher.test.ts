@@ -1,6 +1,8 @@
 import { Message, MessageHeader, TopicPartitionOffset } from 'node-rdkafka'
 import { gzipSync } from 'node:zlib'
 
+import { CAPTURE_TIMESTAMP_HEADER } from '@posthog/replay-storage/capture-watermark'
+
 import { MlKeyReader } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/reader'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import {
@@ -9,7 +11,6 @@ import {
     tableKeyString,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 import { MlKafkaTransport } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
-import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import { hashImageBytes, imageRef, urlRef } from './content-ref'
 import { ImageBatcher, OffsetStore, WRITE_CONCURRENCY } from './image-batcher'

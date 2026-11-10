@@ -4,8 +4,8 @@ import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
 import { logger } from '@posthog/node-common/utils/logger'
+import { SessionBatchMetrics } from '@posthog/replay-storage/metrics'
 
-import { SessionBatchMetrics } from './metrics'
 import {
     SessionBatchFileStorage,
     SessionBatchFileWriter,

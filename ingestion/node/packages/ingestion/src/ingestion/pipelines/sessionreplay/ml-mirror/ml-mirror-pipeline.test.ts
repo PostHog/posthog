@@ -10,19 +10,16 @@ import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/eve
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'
 import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { RetentionResolution, RetentionService } from '@posthog/replay-storage/retention/retention-service'
+import { SessionMap, SessionSet } from '@posthog/replay-storage/session-map'
+import { TeamService } from '@posthog/replay-storage/teams/team-service'
+import { createMockKeyStore } from '@posthog/replay-storage/test-helpers'
 
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { defaultAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/default-dict'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
-import {
-    RetentionResolution,
-    RetentionService,
-} from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
-import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
-import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
-import { createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { buildMlMirrorStagedRunner, runMlMirrorBatch } from '~/tests/helpers/ml-mirror-staged-batch'
 

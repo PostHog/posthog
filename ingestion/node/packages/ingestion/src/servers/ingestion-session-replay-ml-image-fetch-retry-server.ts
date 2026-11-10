@@ -14,12 +14,12 @@ import {
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
 import { CleanupResources } from '@posthog/node-common/servers/base-server'
 import { logger } from '@posthog/node-common/utils/logger'
+import { CaptureWatermark, capturedRecords } from '@posthog/replay-storage/capture-watermark'
+import { SessionReplayProducerName } from '@posthog/replay-storage/config'
+import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '@posthog/replay-storage/outputs/producer-config'
 
-import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import { RetryDelayConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/retry-delay-consumer'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
-import { CaptureWatermark, capturedRecords } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
-import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
 import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 

@@ -1,13 +1,8 @@
+import { DeleteKeyResult, EncryptResult, KeyStore, RecordingEncryptor, SessionKey } from '@posthog/replay-storage/types'
+
 import { ML_BLOCK_COMPRESSION } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-compression'
 import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 import { usesRawSessionIdentifiers } from '~/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format'
-import {
-    DeleteKeyResult,
-    EncryptResult,
-    KeyStore,
-    RecordingEncryptor,
-    SessionKey,
-} from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 import { MlKeyEncryption, encryptEnvelope } from './crypto'
 import { MlKeyBatch, MlSessionKeyStore } from './key-store'

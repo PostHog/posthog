@@ -1,9 +1,9 @@
 import { v4 as uuidv4 } from 'uuid'
 
 import { createRedisPoolFromConfig } from '@posthog/node-common/utils/db/redis'
+import { SessionSet } from '@posthog/replay-storage/session-map'
 
 import { SessionFilter, SessionFilterConfig } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
-import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 
 // nosemgrep: redis-unencrypted-transport (local testing only)
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1'

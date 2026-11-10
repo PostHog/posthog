@@ -3,16 +3,12 @@ import { S3Client } from '@aws-sdk/client-s3'
 import { KafkaConsumer, KafkaConsumerConfig } from '@posthog/node-common/kafka/consumer/consumer-v1'
 import { CleanupResources } from '@posthog/node-common/servers/base-server'
 import { logger } from '@posthog/node-common/utils/logger'
+import { CaptureWatermark, capturedRecords, releasingOffsetStore } from '@posthog/replay-storage/capture-watermark'
+import { buildSessionRecordingS3Client } from '@posthog/replay-storage/s3-client'
 
 import { BlockMetadataBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-batcher'
 import { BlockMetadataParquetStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-parquet-store'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
-import {
-    CaptureWatermark,
-    capturedRecords,
-    releasingOffsetStore,
-} from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
-import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 
 import { IngestionSessionReplayMlMirrorServerConfig } from './ingestion-session-replay-ml-mirror-server'
 import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'

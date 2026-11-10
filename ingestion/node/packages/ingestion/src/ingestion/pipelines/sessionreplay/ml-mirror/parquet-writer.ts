@@ -1,7 +1,7 @@
 /** Encodes block-metadata rows into a Snappy-compressed Parquet buffer for upload to the ML bucket. */
 import { ParquetSchema } from '@dsnp/parquetjs'
 
-import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
+import { parquetRecordsToBuffer } from '@posthog/replay-storage/parquet'
 
 import { COLUMNS } from './block-metadata-columns'
 import { MlBlockMetadataRow } from './block-metadata-row'

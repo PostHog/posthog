@@ -4,8 +4,7 @@ import { ParquetSchema } from '@dsnp/parquetjs'
 import { randomUUID } from 'crypto'
 
 import { logger } from '@posthog/node-common/utils/logger'
-
-import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
+import { parquetRecordsToBuffer } from '@posthog/replay-storage/parquet'
 
 import { MlBlockMetadataRow } from './block-metadata-row'
 import { MlEncryptedEnvelope } from './keys/crypto'

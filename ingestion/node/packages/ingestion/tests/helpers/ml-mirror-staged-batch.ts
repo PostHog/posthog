@@ -6,10 +6,14 @@ import { ok } from '@posthog/ingestion-common/framework/results'
 import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
 import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
 import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { ParsedMessageData } from '@posthog/replay-storage/kafka/types'
+import { RetentionResolution, RetentionService } from '@posthog/replay-storage/retention/retention-service'
+import { SessionMap, SessionSet } from '@posthog/replay-storage/session-map'
+import { TeamService } from '@posthog/replay-storage/teams/team-service'
+import { createMockKeyStore } from '@posthog/replay-storage/test-helpers'
 
 import { SessionReplayPipelineConfig } from '~/ingestion/pipelines/sessionreplay'
 import { BatchStages } from '~/ingestion/pipelines/sessionreplay/batch-stages'
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import {
     MlMirrorCollection,
     MlMirrorImageScrubProducer,
@@ -23,13 +27,6 @@ import {
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
-import {
-    RetentionResolution,
-    RetentionService,
-} from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
-import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
-import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
-import { createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { BatchCommitter } from '~/ingestion/pipelines/sessionreplay/staged-batch'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 

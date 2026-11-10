@@ -1,3 +1,4 @@
+import { ProducerName } from '@posthog/ingestion-common/outputs/producers'
 import { Scope, extend } from '@posthog/ingestion-common/scopes/index'
 import { IngestionOutputsComponent } from '@posthog/node-common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
@@ -7,7 +8,6 @@ import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
 import { EventFilterManagerComponent } from '~/ingestion/common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '~/ingestion/common/ingestion-consumer'
-import { ProducerName } from '~/ingestion/common/outputs/producers'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'

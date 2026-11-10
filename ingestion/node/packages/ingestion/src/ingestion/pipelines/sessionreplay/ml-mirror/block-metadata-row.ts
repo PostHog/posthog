@@ -1,5 +1,5 @@
-import { ReplayIndexEntry } from '~/ingestion/pipelines/sessionreplay/shared/metadata/replay-index-entry'
-import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
+import { ReplayIndexEntry } from '@posthog/replay-storage/metadata/replay-index-entry'
+import { SessionBlockMetadata } from '@posthog/replay-storage/metadata/session-block-metadata'
 
 import { PSEUDONYM_SESSION, PSEUDONYM_TEAM, pseudonymize } from './pseudonymize'
 import { sessionStartTimestampFromUuidV7, usesRawSessionIdentifiers } from './session-identifier-format'

@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { ParsedMessageData, SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-import { MouseInteractions, RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
+import { ParsedMessageData, SnapshotEvent } from '@posthog/replay-storage/kafka/types'
+import { MouseInteractions, RRWebEventSource, RRWebEventType } from '@posthog/replay-storage/rrweb-types'
 
 import { MAX_UNIQUE_VALUES, SessionFeatureRecorder, md5Hex } from './session-feature-recorder'
 

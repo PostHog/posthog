@@ -4,8 +4,7 @@ import { Message } from 'node-rdkafka'
 import { parseKafkaHeaders } from '@posthog/node-common/kafka/consumer/consumer-v1'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'
-
-import { CapturedData } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
+import { CapturedData } from '@posthog/replay-storage/capture-watermark'
 
 import { V4Index, V4IndexRow, selectIndexRow } from './index-columns'
 import { V4ParquetSinkMetrics, V4RowRejection } from './metrics'

@@ -4,10 +4,10 @@ import { randomUUID } from 'node:crypto'
 import pLimit from 'p-limit'
 
 import { logger } from '@posthog/node-common/utils/logger'
+import { parquetRecordsToBuffer } from '@posthog/replay-storage/parquet'
 
 import { MlDatasetBuckets } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-parquet-store'
 import { MlDataKey, encryptEnvelope } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/crypto'
-import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 export interface ScrubbedImage {
     sessionMonth?: string

@@ -5,6 +5,8 @@ import pLimit from 'p-limit'
 import { findOffsetsToCommit, parseKafkaHeaders } from '@posthog/node-common/kafka/consumer/consumer-v1'
 import { ConcurrencyController } from '@posthog/node-common/utils/concurrencyController'
 import { logger } from '@posthog/node-common/utils/logger'
+import { CAPTURE_TIMESTAMP_HEADER } from '@posthog/replay-storage/capture-watermark'
+import { RefDedupCache } from '@posthog/replay-storage/ref-dedup-cache'
 
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import {
@@ -13,8 +15,6 @@ import {
     tableKeyString,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 import { MlDecodedMessage, ingestionVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
-import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
-import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
 import { parseImageRef } from './content-ref'
 import { ImageShardStore, ScrubbedImage, ScrubbedUrlImage } from './image-shard-store'

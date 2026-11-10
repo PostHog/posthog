@@ -3,9 +3,9 @@ import { Message } from 'node-rdkafka'
 import { ChunkProcessingStep } from '@posthog/ingestion-common/framework/base-chunk-pipeline'
 import { drop, ok } from '@posthog/ingestion-common/framework/results'
 import { logger } from '@posthog/node-common/utils/logger'
+import { RetentionPeriod } from '@posthog/replay-storage/constants'
+import { SessionSet } from '@posthog/replay-storage/session-map'
 
-import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { Allowed, NewSessionFlag, SessionReplayHeaders } from './pipeline-types'

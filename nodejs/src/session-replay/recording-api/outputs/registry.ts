@@ -1,8 +1,5 @@
-import {
-    REPLAY_EVENTS_OUTPUT,
-    SESSION_FEATURES_OUTPUT,
-} from '@posthog/ingestion/pipelines/sessionreplay/shared/outputs/index'
 import { IngestionOutputsBuilder } from '@posthog/node-common/outputs/ingestion-outputs-builder'
+import { REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '@posthog/replay-storage/outputs/index'
 
 /** Register all recording-api outputs on the builder. Call `.build(registry, config)` to resolve. */
 export function createOutputsRegistry() {

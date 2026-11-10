@@ -2100,7 +2100,11 @@ function computeTargets(changedFiles, context) {
             for (const lane of nodeLanesForSource(file, context)) {
                 targets.add(lane)
             }
-            if (file.startsWith('nodejs/packages/hog-engine/') || file.startsWith('nodejs/packages/common/')) {
+            if (
+                file.startsWith('nodejs/packages/hog-engine/') ||
+                file.startsWith('nodejs/packages/common/') ||
+                file.startsWith('nodejs/packages/replay-storage/')
+            ) {
                 targets.add(INGESTION)
             }
             continue

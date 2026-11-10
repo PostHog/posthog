@@ -9,18 +9,15 @@ import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-in
 import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { RetentionResolution, RetentionService } from '@posthog/replay-storage/retention/retention-service'
+import { SessionMap, SessionSet } from '@posthog/replay-storage/session-map'
+import { TeamService } from '@posthog/replay-storage/teams/team-service'
+import { createMockKeyStore, createMockSessionKey } from '@posthog/replay-storage/test-helpers'
 
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
-import {
-    RetentionResolution,
-    RetentionService,
-} from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
-import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
-import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
-import { createMockKeyStore, createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { createSessionReplayPipeline, runSessionReplayPipeline } from './session-replay-pipeline'

@@ -1,8 +1,9 @@
+import { SessionFeatureStore } from '@posthog/replay-storage/features/session-feature-store'
+import { SessionMetadataStore } from '@posthog/replay-storage/metadata/session-metadata-store'
+import { createMockEncryptor } from '@posthog/replay-storage/test-helpers'
+import { RecordingEncryptor } from '@posthog/replay-storage/types'
+
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
-import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { createMockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
-import { RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchManager, SessionBatchManagerConfig } from './session-batch-manager'

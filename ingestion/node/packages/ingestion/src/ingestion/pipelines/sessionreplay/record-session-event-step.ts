@@ -1,12 +1,12 @@
 import { ok } from '@posthog/ingestion-common/framework/results'
 import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { logger } from '@posthog/node-common/utils/logger'
+import { RetentionPeriod } from '@posthog/replay-storage/constants'
+import { ParsedMessageData } from '@posthog/replay-storage/kafka/types'
+import { SessionKey } from '@posthog/replay-storage/types'
 
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
-import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam, TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { ValueMatcher } from '~/types'
 

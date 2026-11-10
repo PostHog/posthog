@@ -1,4 +1,5 @@
-import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
+import { RetentionPeriod } from '@posthog/replay-storage/constants'
+
 import { TeamId } from '~/types'
 
 export interface WriteSessionData {

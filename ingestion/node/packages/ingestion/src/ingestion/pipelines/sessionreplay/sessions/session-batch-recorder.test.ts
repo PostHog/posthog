@@ -2,17 +2,17 @@ import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { RetentionPeriod } from '@posthog/replay-storage/constants'
+import { SessionFeatureStore } from '@posthog/replay-storage/features/session-feature-store'
+import { ParsedMessageData, SnapshotEvent } from '@posthog/replay-storage/kafka/types'
+import { SessionMetadataStore } from '@posthog/replay-storage/metadata/session-metadata-store'
+import { SessionBatchMetrics } from '@posthog/replay-storage/metrics'
+import { createMockEncryptor, createMockSessionKey } from '@posthog/replay-storage/test-helpers'
+import { RecordingEncryptor, SessionKey } from '@posthog/replay-storage/types'
 
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
-import { ParsedMessageData, SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
-import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { createMockEncryptor, createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
-import { RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
-import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { BLOCK_BUILD_CONCURRENCY, SessionBatchRecorder } from './session-batch-recorder'
 import { EndResult, SessionBlockRecorder } from './session-block-recorder'
@@ -179,7 +179,7 @@ jest.mock('./session-feature-recorder', () => ({
 
 jest.setTimeout(1000)
 
-jest.mock('./metrics', () => ({
+jest.mock('@posthog/replay-storage/metrics', () => ({
     SessionBatchMetrics: {
         incrementBatchesFlushed: jest.fn(),
         incrementSessionsFlushed: jest.fn(),
@@ -1815,7 +1815,7 @@ describe('SessionBatchRecorder', () => {
         })
 
         it('should increment rate limited metrics', async () => {
-            const { SessionBatchMetrics } = require('./metrics')
+            const { SessionBatchMetrics } = require('@posthog/replay-storage/metrics')
             jest.clearAllMocks()
 
             recorder = new SessionBatchRecorder(
@@ -1844,7 +1844,7 @@ describe('SessionBatchRecorder', () => {
         })
 
         it('should only increment sessionsRateLimited once per session', async () => {
-            const { SessionBatchMetrics } = require('./metrics')
+            const { SessionBatchMetrics } = require('@posthog/replay-storage/metrics')
             jest.clearAllMocks()
 
             recorder = new SessionBatchRecorder(
@@ -1872,7 +1872,7 @@ describe('SessionBatchRecorder', () => {
         })
 
         it('should increment metrics for each rate limited session', async () => {
-            const { SessionBatchMetrics } = require('./metrics')
+            const { SessionBatchMetrics } = require('@posthog/replay-storage/metrics')
             jest.clearAllMocks()
 
             recorder = new SessionBatchRecorder(
@@ -1901,7 +1901,7 @@ describe('SessionBatchRecorder', () => {
         })
 
         it('should reset rate limited tracking after flush', async () => {
-            const { SessionBatchMetrics } = require('./metrics')
+            const { SessionBatchMetrics } = require('@posthog/replay-storage/metrics')
             jest.clearAllMocks()
 
             recorder = new SessionBatchRecorder(

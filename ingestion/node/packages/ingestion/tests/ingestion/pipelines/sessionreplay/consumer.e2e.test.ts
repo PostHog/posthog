@@ -35,11 +35,11 @@ import {
     RedisRestrictionType,
 } from '@posthog/node-common/utils/event-ingestion-restrictions/redis-schema'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '@posthog/replay-storage/outputs/index'
+import { MouseInteractions, RRWebEventSource, RRWebEventType } from '@posthog/replay-storage/rrweb-types'
 
 import { defaultConfig, overrideWithEnv } from '~/common/config/config'
 import { SessionRecordingIngester } from '~/ingestion/pipelines/sessionreplay/consumer'
-import { MouseInteractions, RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
-import { REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { Team } from '~/types'
 

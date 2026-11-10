@@ -1,4 +1,9 @@
 import {
+    INGESTION_DOWNSTREAM_PRODUCER,
+    INGESTION_UPSTREAM_PRODUCER,
+    type ProducerName,
+} from '@posthog/ingestion-common/outputs/producers'
+import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_TOPHOG,
     KAFKA_ERROR_TRACKING_INGESTION,
@@ -9,11 +14,6 @@ import {
     KAFKA_LOG_ENTRIES,
 } from '@posthog/node-common/config/kafka-topics'
 
-import {
-    INGESTION_DOWNSTREAM_PRODUCER,
-    INGESTION_UPSTREAM_PRODUCER,
-    type ProducerName,
-} from '~/ingestion/common/outputs/producers'
 import { IngestionLane, IngestionOverflowMode } from '~/ingestion/config'
 
 export type ErrorTrackingConsumerConfig = {

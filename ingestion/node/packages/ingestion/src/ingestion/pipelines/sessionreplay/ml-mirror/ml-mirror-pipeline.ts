@@ -8,6 +8,9 @@ import { drop, ok } from '@posthog/ingestion-common/framework/results'
 import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { OverflowOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { RetentionPeriod } from '@posthog/replay-storage/constants'
+import { MlImageFetchOutput, MlImageScrubOutput } from '@posthog/replay-storage/outputs/index'
+import { SessionKey } from '@posthog/replay-storage/types'
 
 import { SessionReplayPipelineConfig, SessionReplayPipelineOutput } from '~/ingestion/pipelines/sessionreplay'
 import { createAiTrainingOptInFilterStep } from '~/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step'
@@ -23,9 +26,6 @@ import {
     addSessionReplaySessionResolution,
     withSessionReplayRecordingMetrics,
 } from '~/ingestion/pipelines/sessionreplay/session-replay-pipeline-stages'
-import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { MlImageFetchOutput, MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
-import { SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { MlBatchHandle, MlDeferrableInput } from './batch-handle'

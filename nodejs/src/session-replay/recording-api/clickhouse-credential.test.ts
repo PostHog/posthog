@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { register } from 'prom-client'
 
-import { getDefaultSessionRecordingApiConfig } from '@posthog/ingestion/pipelines/sessionreplay/config'
 import { logger } from '@posthog/node-common/utils/logger'
+import { getDefaultSessionRecordingApiConfig } from '@posthog/replay-storage/config'
 
 import { overrideConfigWithEnv } from '~/common/config/config'
 

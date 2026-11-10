@@ -19,6 +19,8 @@ import { KafkaProducer } from '@posthog/node-common/kafka/producer'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
 import { CleanupResources } from '@posthog/node-common/servers/base-server'
 import { logger } from '@posthog/node-common/utils/logger'
+import { CaptureWatermark, capturedRecords } from '@posthog/replay-storage/capture-watermark'
+import { buildSessionRecordingS3Client } from '@posthog/replay-storage/s3-client'
 
 import { AiResearchV4ServerConfig } from '~/ingestion/pipelines/sessionreplay/ai-research/config'
 import {
@@ -63,8 +65,6 @@ import { assertSharedRulesLoaded } from '~/ingestion/pipelines/sessionreplay/ai-
 import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/web-bot-auth'
 import { AiResearchV4ConsumerServer } from '~/ingestion/pipelines/sessionreplay/ai-research/server/v4-consumer-server'
 import { TeamMonthKeys } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
-import { CaptureWatermark, capturedRecords } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
-import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 import { HealthCheckResultOk } from '~/types'
 
 /**

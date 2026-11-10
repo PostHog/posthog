@@ -1,12 +1,12 @@
-import { BlackholeKafkaProducer } from '@posthog/node-common/kafka/blackhole-producer'
-import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
-
-import { buildIngestionProducerRegistry } from './producer-registry'
 import {
     INGESTION_BLACKHOLE_PRODUCER,
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
-} from './producers'
+} from '@posthog/ingestion-common/outputs/producers'
+import { BlackholeKafkaProducer } from '@posthog/node-common/kafka/blackhole-producer'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+
+import { buildIngestionProducerRegistry } from './producer-registry'
 
 jest.mock('@posthog/node-common/kafka/producer')
 

@@ -1,11 +1,10 @@
 import { LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { logger } from '@posthog/node-common/utils/logger'
+import { SessionBatchMetrics } from '@posthog/replay-storage/metrics'
+import { ConsoleLogLevel } from '@posthog/replay-storage/rrweb-types'
 
-import { ConsoleLogLevel } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import { ClickHouseTimestamp } from '~/types'
-
-import { SessionBatchMetrics } from './metrics'
 
 export type ConsoleLogEntry = {
     team_id: number

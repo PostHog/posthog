@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { ConsoleLogLevel, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
+import { ConsoleLogLevel, RRWebEventType } from '@posthog/replay-storage/rrweb-types'
+
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'

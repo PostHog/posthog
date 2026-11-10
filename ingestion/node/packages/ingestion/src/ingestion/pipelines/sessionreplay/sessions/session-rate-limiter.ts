@@ -1,6 +1,5 @@
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-
-import { SessionBatchMetrics } from './metrics'
+import { ParsedMessageData } from '@posthog/replay-storage/kafka/types'
+import { SessionBatchMetrics } from '@posthog/replay-storage/metrics'
 
 /**
  * Rate limiter for session recordings

@@ -1,9 +1,8 @@
-import { KafkaProducerRegistryBuilder } from '@posthog/node-common/outputs/kafka-producer-registry-builder'
-
 import {
     INGESTION_DOWNSTREAM_PRODUCER,
     INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP,
-} from '~/ingestion/common/outputs/producers'
+} from '@posthog/ingestion-common/outputs/producers'
+import { KafkaProducerRegistryBuilder } from '@posthog/node-common/outputs/kafka-producer-registry-builder'
 import {
     INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER,
     INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER_CONFIG_MAP,
@@ -11,7 +10,7 @@ import {
     INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER_CONFIG_MAP,
     INGESTION_SESSIONREPLAY_PRODUCER,
     INGESTION_SESSIONREPLAY_PRODUCER_CONFIG_MAP,
-} from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
+} from '@posthog/replay-storage/outputs/producer-config'
 
 /**
  * Session replay's producer slots: DOWNSTREAM (warpstream-ingestion) for ClickHouse-bound

@@ -6,9 +6,9 @@ import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'
 import { normalizeSessionId } from '@posthog/node-common/utils/utils'
 import type { AnonymizeKafkaPayloadResult, AnonymizeMeta } from '@posthog/replay-anonymizer'
+import { ParsedMessageData } from '@posthog/replay-storage/kafka/types'
 
 import { recordAnonymizeTimingSpans } from '~/ingestion/pipelines/sessionreplay/anonymize-timing-spans'
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import {
     hashImageBytes,

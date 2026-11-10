@@ -2,7 +2,7 @@
 import { Message } from 'node-rdkafka'
 
 // Re-export shared RetentionPeriod so existing recording-ingestion imports still work
-export type { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
+export type { RetentionPeriod } from '@posthog/replay-storage/constants'
 
 export type PersistedRecordingMessage = {
     window_id?: string

@@ -1,7 +1,8 @@
 import { S3Client } from '@aws-sdk/client-s3'
 
-import { ValidRetentionPeriods } from '~/ingestion/pipelines/sessionreplay/constants'
-import { RetentionPeriodToDaysMap } from '~/ingestion/pipelines/sessionreplay/constants'
+import { ValidRetentionPeriods } from '@posthog/replay-storage/consumer-constants'
+import { RetentionPeriodToDaysMap } from '@posthog/replay-storage/consumer-constants'
+
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/types'
 
 import { S3SessionBatchFileStorage } from './s3-session-batch-writer'

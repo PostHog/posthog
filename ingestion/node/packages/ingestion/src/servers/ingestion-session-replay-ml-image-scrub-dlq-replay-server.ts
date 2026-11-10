@@ -2,11 +2,11 @@ import { KafkaConsumer } from '@posthog/node-common/kafka/consumer/consumer-v1'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
 import { CleanupResources } from '@posthog/node-common/servers/base-server'
 import { logger } from '@posthog/node-common/utils/logger'
+import { SessionReplayProducerName } from '@posthog/replay-storage/config'
+import { INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER } from '@posthog/replay-storage/outputs/producer-config'
 
-import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import { replayBatch } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/dlq-replay'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
-import { INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
 import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 

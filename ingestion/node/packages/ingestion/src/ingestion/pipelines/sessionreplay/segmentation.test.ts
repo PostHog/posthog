@@ -1,6 +1,7 @@
+import { RRWebEventSource, RRWebEventType } from '@posthog/replay-storage/rrweb-types'
+
 import { RRWebEvent } from '~/types'
 
-import { RRWebEventSource, RRWebEventType } from './rrweb-types'
 import { SegmentationEvent, activeMillisecondsFromSegmentationEvents, toSegmentationEvent } from './segmentation'
 
 describe('segmentation', () => {

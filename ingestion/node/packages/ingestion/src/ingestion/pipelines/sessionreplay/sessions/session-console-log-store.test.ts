@@ -2,11 +2,11 @@ import { LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '@posthog/node-common/outpu
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { IngestionOutputMessage } from '@posthog/node-common/outputs/types'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { SessionBatchMetrics } from '@posthog/replay-storage/metrics'
+import { ConsoleLogLevel } from '@posthog/replay-storage/rrweb-types'
 
-import { ConsoleLogLevel } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import { ClickHouseTimestamp } from '~/types'
 
-import { SessionBatchMetrics } from './metrics'
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 
 // Helper to create a ClickHouseTimestamp for testing
@@ -14,7 +14,7 @@ const makeTimestamp = (isoString: string): ClickHouseTimestamp => {
     return isoString as unknown as ClickHouseTimestamp
 }
 
-jest.mock('./metrics', () => ({
+jest.mock('@posthog/replay-storage/metrics', () => ({
     SessionBatchMetrics: {
         incrementConsoleLogsStored: jest.fn(),
     },

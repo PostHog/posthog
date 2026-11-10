@@ -1,9 +1,8 @@
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
-
-import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
-import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/kafka-metadata-sink'
-import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
-import { ML_BLOCK_METADATA_OUTPUT, MlBlockMetadataOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+import { CAPTURE_TIMESTAMP_HEADER } from '@posthog/replay-storage/capture-watermark'
+import { SessionMetadataSink } from '@posthog/replay-storage/metadata/kafka-metadata-sink'
+import { SessionBlockMetadata } from '@posthog/replay-storage/metadata/session-block-metadata'
+import { ML_BLOCK_METADATA_OUTPUT, MlBlockMetadataOutput } from '@posthog/replay-storage/outputs/index'
 
 import { toBlockMetadataRow } from './block-metadata-row'
 import { MlKeyReader } from './keys/reader'

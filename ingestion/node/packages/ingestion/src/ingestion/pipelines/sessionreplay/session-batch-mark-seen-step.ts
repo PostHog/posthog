@@ -1,8 +1,8 @@
 import { ChunkProcessingStep } from '@posthog/ingestion-common/framework/base-chunk-pipeline'
 import { drop, ok } from '@posthog/ingestion-common/framework/results'
 import { logger } from '@posthog/node-common/utils/logger'
+import { SessionSet } from '@posthog/replay-storage/session-map'
 
-import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { NewSessionFlag, Recordable, Resolved, SessionReplayHeaders } from './pipeline-types'

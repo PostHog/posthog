@@ -1,3 +1,4 @@
+import { ProducerName } from '@posthog/ingestion-common/outputs/producers'
 import { PersonHogConfig } from '@posthog/ingestion-common/personhog/index'
 import { newScope } from '@posthog/ingestion-common/scopes/index'
 import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
@@ -6,7 +7,6 @@ import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
 import { TeamManagerComponent } from '@posthog/node-common/utils/team-manager'
 
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
-import { ProducerName } from '~/ingestion/common/outputs/producers'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'
 

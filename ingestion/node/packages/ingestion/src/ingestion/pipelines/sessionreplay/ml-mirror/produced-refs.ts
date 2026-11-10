@@ -1,6 +1,5 @@
 import type { ProducedRefDedup, RefDedupCache } from '@posthog/replay-anonymizer'
-
-import { registerNativeRefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
+import { registerNativeRefDedupCache } from '@posthog/replay-storage/ref-dedup-cache'
 
 import { getRustAnonymizer } from './rust-anonymizer'
 

@@ -8,9 +8,12 @@ import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { logger } from '@posthog/node-common/utils/logger'
 import { threadpoolConcurrency } from '@posthog/node-common/utils/threadpool-concurrency'
+import { CaptureWatermark } from '@posthog/replay-storage/capture-watermark'
+import { type SessionReplayProducerName } from '@posthog/replay-storage/config'
+import { SessionFeatureStore } from '@posthog/replay-storage/features/session-feature-store'
+import { buildSessionRecordingS3Client } from '@posthog/replay-storage/s3-client'
 
 import { AllowListFetcher, loadAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/allow-list-loader'
-import { type SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import {
     SessionRecordingIngester,
     SessionRecordingIngesterCollaborators,
@@ -30,9 +33,6 @@ import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outpu
 import { BlackholeSessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/blackhole-session-batch-writer'
 import { S3SessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/s3-session-batch-writer'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
-import { CaptureWatermark } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
-import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 import { RedisPool } from '~/types'
 
 import { buildSessionReplayRedisPools } from './ingestion-session-replay-server'

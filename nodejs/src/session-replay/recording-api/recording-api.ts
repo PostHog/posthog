@@ -3,15 +3,6 @@ import { ClickHouseClient, createClient as createClickHouseClient } from '@click
 import https from 'https'
 import express from 'ultimate-express'
 
-import { getBlockDecryptor, getBlockEncryptor } from '@posthog/ingestion/pipelines/sessionreplay/shared/crypto/index'
-import { SessionFeatureStore } from '@posthog/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
-import { RedisCachedKeyStore } from '@posthog/ingestion/pipelines/sessionreplay/shared/keystore/cache/index'
-import { getKeyStore } from '@posthog/ingestion/pipelines/sessionreplay/shared/keystore/index'
-import { SessionMetadataStore } from '@posthog/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import {
-    ReplayEventsOutput,
-    SessionFeaturesOutput,
-} from '@posthog/ingestion/pipelines/sessionreplay/shared/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
 import { KeyedRateLimiterService } from '@posthog/node-common/services/keyed-rate-limiter.service'
@@ -19,6 +10,12 @@ import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '@posthog/node-common/utils/db/redis'
 import { logger, serializeError } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
+import { getBlockDecryptor, getBlockEncryptor } from '@posthog/replay-storage/crypto/index'
+import { SessionFeatureStore } from '@posthog/replay-storage/features/session-feature-store'
+import { RedisCachedKeyStore } from '@posthog/replay-storage/keystore/cache/index'
+import { getKeyStore } from '@posthog/replay-storage/keystore/index'
+import { SessionMetadataStore } from '@posthog/replay-storage/metadata/session-metadata-store'
+import { ReplayEventsOutput, SessionFeaturesOutput } from '@posthog/replay-storage/outputs/index'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
 

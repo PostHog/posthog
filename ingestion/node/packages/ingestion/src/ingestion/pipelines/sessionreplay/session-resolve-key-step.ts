@@ -1,8 +1,8 @@
 import { ok } from '@posthog/ingestion-common/framework/results'
 import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
+import { RetentionPeriod, RetentionPeriodToDaysMap } from '@posthog/replay-storage/constants'
+import { KeyStore } from '@posthog/replay-storage/types'
 
-import { RetentionPeriod, RetentionPeriodToDaysMap } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { Allowed, NewSessionFlag, Resolved, SessionReplayHeaders } from './pipeline-types'

@@ -1,15 +1,15 @@
 import { ChunkProcessingStep } from '@posthog/ingestion-common/framework/base-chunk-pipeline'
 import { drop, ok } from '@posthog/ingestion-common/framework/results'
 import { logger } from '@posthog/node-common/utils/logger'
+import { RetentionPeriod } from '@posthog/replay-storage/constants'
+import { SessionBatchMetrics } from '@posthog/replay-storage/metrics'
+import { RetentionService } from '@posthog/replay-storage/retention/retention-service'
+import { SessionSet } from '@posthog/replay-storage/session-map'
 
-import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
-import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { SessionReplayHeaders } from './pipeline-types'
 import { RetentionLookupContext } from './session-batch-context'
-import { SessionBatchMetrics } from './sessions/metrics'
 
 /**
  * Record-phase batch step: resolve per-session retention for the whole batch and attach it to each

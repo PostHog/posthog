@@ -2385,6 +2385,8 @@ test('the unpublished package paths claim their consumers as well', () => {
     }
     const engine = computeTargets(['nodejs/packages/hog-engine/src/cdp/types.ts'], CONTEXT)
     assert.equal(engine.includes(INGESTION), true)
+    const storage = computeTargets(['nodejs/packages/replay-storage/src/keystore/index.ts'], CONTEXT)
+    assert.equal(storage.includes(INGESTION), true)
     const contract = computeTargets(['ingestion/node/packages/common/src/persons/repositories/person-repository.ts'], CONTEXT)
     assert.equal(contract.includes(INGESTION), true)
     for (const lane of NODE_LANES) {

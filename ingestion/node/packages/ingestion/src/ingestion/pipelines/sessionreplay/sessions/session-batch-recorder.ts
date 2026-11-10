@@ -4,21 +4,18 @@ import { v7 as uuidv7 } from 'uuid'
 import { logger } from '@posthog/node-common/utils/logger'
 import { captureException } from '@posthog/node-common/utils/posthog'
 import { threadpoolConcurrency } from '@posthog/node-common/utils/threadpool-concurrency'
+import { RetentionPeriod } from '@posthog/replay-storage/constants'
+import { SessionFeatureBlock, SessionFeatureStore } from '@posthog/replay-storage/features/session-feature-store'
+import { SessionBlockMetadata } from '@posthog/replay-storage/metadata/session-block-metadata'
+import { SessionMetadataSink } from '@posthog/replay-storage/metadata/session-metadata-store'
+import { SessionBatchMetrics } from '@posthog/replay-storage/metrics'
+import { SessionMap } from '@posthog/replay-storage/session-map'
+import { RecordingEncryptor, SessionKey } from '@posthog/replay-storage/types'
 
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
-import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import {
-    SessionFeatureBlock,
-    SessionFeatureStore,
-} from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
-import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
-import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { SessionMap } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
-import { RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { BlockCompression } from './block-compression'
-import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBlockRecorder } from './session-block-recorder'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'

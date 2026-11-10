@@ -1,9 +1,9 @@
 import { v4 as uuidv4 } from 'uuid'
 
 import { createRedisPoolFromConfig } from '@posthog/node-common/utils/db/redis'
+import { SessionSet } from '@posthog/replay-storage/session-map'
 
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
-import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { RedisPool } from '~/types'
 
 // nosemgrep: redis-unencrypted-transport (local testing only)

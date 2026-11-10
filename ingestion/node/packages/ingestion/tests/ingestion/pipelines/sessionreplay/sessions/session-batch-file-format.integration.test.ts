@@ -27,6 +27,11 @@ import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { SessionFeatureStore } from '@posthog/replay-storage/features/session-feature-store'
+import { SessionBlockMetadata } from '@posthog/replay-storage/metadata/session-block-metadata'
+import { SessionMetadataStore } from '@posthog/replay-storage/metadata/session-metadata-store'
+import { createMockEncryptor, createMockSessionKey } from '@posthog/replay-storage/test-helpers'
+import { RecordingEncryptor } from '@posthog/replay-storage/types'
 
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import {
@@ -36,11 +41,6 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-file-storage'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
-import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
-import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { createMockEncryptor, createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
-import { RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 jest.mock('~/ingestion/pipelines/sessionreplay/sessions/session-feature-recorder', () => ({

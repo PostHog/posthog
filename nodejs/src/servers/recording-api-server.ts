@@ -1,11 +1,3 @@
-import {
-    getDefaultSessionRecordingApiConfig,
-    getDefaultSessionRecordingConfig,
-} from '@posthog/ingestion/pipelines/sessionreplay/config'
-import {
-    KafkaSessionreplayProducerEnvConfig,
-    getDefaultKafkaSessionreplayProducerEnvConfig,
-} from '@posthog/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { CommonConfig } from '@posthog/node-common/config'
 import { KafkaBrokerConfig } from '@posthog/node-common/config/connections'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
@@ -18,6 +10,11 @@ import {
 import { PostgresRouter, PostgresRouterConfig } from '@posthog/node-common/utils/db/postgres'
 import { isProdEnv } from '@posthog/node-common/utils/env-utils'
 import { logger } from '@posthog/node-common/utils/logger'
+import { getDefaultSessionRecordingApiConfig, getDefaultSessionRecordingConfig } from '@posthog/replay-storage/config'
+import {
+    KafkaSessionreplayProducerEnvConfig,
+    getDefaultKafkaSessionreplayProducerEnvConfig,
+} from '@posthog/replay-storage/outputs/producer-config'
 
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import {

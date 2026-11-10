@@ -1,6 +1,3 @@
-import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
-import { KafkaProducerRegistryBuilder } from '@posthog/node-common/outputs/kafka-producer-registry-builder'
-
 import {
     INGESTION_BLACKHOLE_PRODUCER,
     INGESTION_DOWNSTREAM_PRODUCER,
@@ -8,7 +5,9 @@ import {
     INGESTION_UPSTREAM_PRODUCER,
     INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP,
     ProducerName,
-} from './producers'
+} from '@posthog/ingestion-common/outputs/producers'
+import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+import { KafkaProducerRegistryBuilder } from '@posthog/node-common/outputs/kafka-producer-registry-builder'
 
 /**
  * The consolidated UPSTREAM/DOWNSTREAM producer slots, for the analytics-family servers

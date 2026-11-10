@@ -1,7 +1,8 @@
+import { SessionFeatureStore } from '@posthog/replay-storage/features/session-feature-store'
+import { SessionMetadataSink } from '@posthog/replay-storage/metadata/session-metadata-store'
+import { RecordingEncryptor } from '@posthog/replay-storage/types'
+
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
-import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 import { BlockCompression } from './block-compression'
 import { SessionBatchFileStorage } from './session-batch-file-storage'

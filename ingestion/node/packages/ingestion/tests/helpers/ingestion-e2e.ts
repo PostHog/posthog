@@ -32,6 +32,12 @@ import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import { PubSub } from '@posthog/node-common/utils/pubsub'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
 import { UUIDT } from '@posthog/node-common/utils/utils'
+import {
+    SessionRecordingApiConfig,
+    SessionRecordingConfig,
+    getDefaultSessionRecordingApiConfig,
+    getDefaultSessionRecordingConfig,
+} from '@posthog/replay-storage/config'
 
 import { defaultConfig } from '~/common/config/config'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
@@ -45,12 +51,6 @@ import {
     ErrorTrackingConsumerConfig,
     getDefaultErrorTrackingConsumerConfig,
 } from '~/ingestion/pipelines/errortracking/config'
-import {
-    SessionRecordingApiConfig,
-    SessionRecordingConfig,
-    getDefaultSessionRecordingApiConfig,
-    getDefaultSessionRecordingConfig,
-} from '~/ingestion/pipelines/sessionreplay/config'
 
 import {
     FlagEvaluationsMode,

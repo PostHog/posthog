@@ -13,6 +13,8 @@
 !common/esbuilder
 !common/hogvm/typescript
 !nodejs/packages/hog-engine
+!nodejs/packages/common
+!nodejs/packages/replay-storage
 rust/target
 rust/.env
 **/node_modules

@@ -5,8 +5,16 @@ import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB } from '@posthog/node-common/config/ka
 import { KafkaConsumer, KafkaConsumerConfig } from '@posthog/node-common/kafka/consumer/consumer-v1'
 import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
 import { CleanupResources } from '@posthog/node-common/servers/base-server'
+import {
+    CaptureWatermark,
+    CapturedData,
+    capturedRecords,
+    releasingOffsetStore,
+} from '@posthog/replay-storage/capture-watermark'
+import { SessionReplayProducerName } from '@posthog/replay-storage/config'
+import { INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER } from '@posthog/replay-storage/outputs/producer-config'
+import { buildSessionRecordingS3Client } from '@posthog/replay-storage/s3-client'
 
-import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 import { KafkaDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/dead-letter-sink'
 import { ImageBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-batcher'
@@ -14,14 +22,6 @@ import { ImageShardStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-i
 import { ScrubClient } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/scrub-client'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
-import {
-    CaptureWatermark,
-    CapturedData,
-    capturedRecords,
-    releasingOffsetStore,
-} from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
-import { INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
-import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 
 import { IngestionSessionReplayMlMirrorServerConfig } from './ingestion-session-replay-ml-mirror-server'
 import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'

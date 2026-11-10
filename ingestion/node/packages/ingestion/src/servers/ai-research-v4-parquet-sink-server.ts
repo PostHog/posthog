@@ -2,6 +2,8 @@ import { KAFKA_AI_RESEARCH_V4_INDEX } from '@posthog/node-common/config/kafka-to
 import { KafkaConsumer, KafkaConsumerConfig } from '@posthog/node-common/kafka/consumer/consumer-v1'
 import { CleanupResources } from '@posthog/node-common/servers/base-server'
 import { logger } from '@posthog/node-common/utils/logger'
+import { CaptureWatermark, capturedRecords, releasingOffsetStore } from '@posthog/replay-storage/capture-watermark'
+import { buildSessionRecordingS3Client } from '@posthog/replay-storage/s3-client'
 
 import { AiResearchV4ServerConfig } from '~/ingestion/pipelines/sessionreplay/ai-research/config'
 import { IndexBatcher } from '~/ingestion/pipelines/sessionreplay/ai-research/parquet-sink-v4/index-batcher'
@@ -9,12 +11,6 @@ import { indexCapturedData } from '~/ingestion/pipelines/sessionreplay/ai-resear
 import { IndexParquetStore } from '~/ingestion/pipelines/sessionreplay/ai-research/parquet-sink-v4/index-parquet-store'
 import { IndexWatermarkFiles } from '~/ingestion/pipelines/sessionreplay/ai-research/parquet-sink-v4/index-watermark-files'
 import { AiResearchV4ConsumerServer } from '~/ingestion/pipelines/sessionreplay/ai-research/server/v4-consumer-server'
-import {
-    CaptureWatermark,
-    capturedRecords,
-    releasingOffsetStore,
-} from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
-import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 
 /** The v3 sink's default group. A v4 sink pod in it would take v3 partitions and read none of their topic. */
 const V3_PARQUET_SINK_GROUP_ID = 'session-replay-ml-parquet-sink'

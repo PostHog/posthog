@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 
 import { logger } from '@posthog/node-common/utils/logger'
-
 import {
     PRE_SERIALIZED_FLAG_ACTIVE,
     PRE_SERIALIZED_FLAG_CLICK,
@@ -9,7 +8,9 @@ import {
     PRE_SERIALIZED_FLAG_KEYPRESS,
     PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY,
     ParsedMessageData,
-} from '~/ingestion/pipelines/sessionreplay/kafka/types'
+} from '@posthog/replay-storage/kafka/types'
+import { ReplayIndexEntry } from '@posthog/replay-storage/metadata/replay-index-entry'
+import { SessionBatchMetrics } from '@posthog/replay-storage/metrics'
 import {
     SnapshotMode,
     hrefFrom,
@@ -17,16 +18,15 @@ import {
     isKeypress,
     isMouseActivity,
     snapshotModeFrom,
-} from '~/ingestion/pipelines/sessionreplay/rrweb-types'
+} from '@posthog/replay-storage/rrweb-types'
+
 import {
     SegmentationEvent,
     activeMillisecondsFromSegmentationEvents,
     toSegmentationEvent,
 } from '~/ingestion/pipelines/sessionreplay/segmentation'
-import { ReplayIndexEntry } from '~/ingestion/pipelines/sessionreplay/shared/metadata/replay-index-entry'
 
 import { BlockCompression, DEFAULT_BLOCK_COMPRESSION, compressBlock } from './block-compression'
-import { SessionBatchMetrics } from './metrics'
 
 const MAX_SNAPSHOT_FIELD_LENGTH = 1000
 const MAX_URL_LENGTH = 4 * 1024 // 4KB

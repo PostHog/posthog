@@ -1,12 +1,11 @@
 import { LRUCache } from 'lru-cache'
 
 import { logger } from '@posthog/node-common/utils/logger'
+import { SESSION_TRACKER_REDIS_TTL_SECONDS } from '@posthog/replay-storage/consumer-constants'
+import { SessionBatchMetrics } from '@posthog/replay-storage/metrics'
+import { SessionMap, SessionSet } from '@posthog/replay-storage/session-map'
 
-import { SESSION_TRACKER_REDIS_TTL_SECONDS } from '~/ingestion/pipelines/sessionreplay/constants'
-import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { RedisPool } from '~/types'
-
-import { SessionBatchMetrics } from './metrics'
 
 const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000
 

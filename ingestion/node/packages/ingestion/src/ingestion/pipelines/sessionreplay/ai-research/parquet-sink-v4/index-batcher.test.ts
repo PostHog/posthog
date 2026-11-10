@@ -4,14 +4,13 @@ import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
-
 import {
     CAPTURE_TIMESTAMP_HEADER,
     CaptureWatermark,
     OffsetStore,
     capturedRecords,
     releasingOffsetStore,
-} from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
+} from '@posthog/replay-storage/capture-watermark'
 
 import { IndexBatcher, IndexBatcherOptions } from './index-batcher'
 import { BLOCK_INDEX_COLUMNS, V4Index } from './index-columns'

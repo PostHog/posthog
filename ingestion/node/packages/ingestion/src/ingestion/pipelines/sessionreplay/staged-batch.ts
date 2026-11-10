@@ -1,9 +1,10 @@
 import { Message } from 'node-rdkafka'
 
+import { RetentionPeriod } from '@posthog/replay-storage/constants'
+
 import { AdmittedBatch } from './batch-stages'
 import { SessionReplayBatchProgress, SessionReplayPipelineConfig } from './session-replay-pipeline'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
-import { RetentionPeriod } from './shared/constants'
 
 /** Tells whether this pod still holds a partition. A batch that is still in flight after a revoke then writes nothing that the new owner will replay. */
 export type PartitionOwnership = (partition: number) => boolean

@@ -5,19 +5,19 @@ import { ingestionLagGauge, ingestionLagHistogram } from '@posthog/node-common/m
 import { UsageIngestionClient } from '@posthog/node-common/usage-ingestion/client'
 import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
 import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+import { getDefaultSessionRecordingApiConfig, getDefaultSessionRecordingConfig } from '@posthog/replay-storage/config'
+import { ParsedMessageData } from '@posthog/replay-storage/kafka/types'
+import { SessionMetadataSink } from '@posthog/replay-storage/metadata/session-metadata-store'
+import { createMockSessionKey } from '@posthog/replay-storage/test-helpers'
+import { KeyStore, RecordingEncryptor } from '@posthog/replay-storage/types'
 
 import {
     SessionReplayBatchProgress,
     SessionReplayPipeline,
     runSessionReplayPipeline,
 } from '~/ingestion/pipelines/sessionreplay'
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
-import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { RedisPool } from '~/types'
 
-import { getDefaultSessionRecordingApiConfig, getDefaultSessionRecordingConfig } from './config'
 import {
     SessionRecordingIngester,
     SessionRecordingIngesterCollaborators,

@@ -3,6 +3,13 @@ import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { RetentionPeriod, RetentionPeriodToDaysMap } from '@posthog/replay-storage/constants'
+import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '@posthog/replay-storage/crypto/index'
+import { SessionFeatureStore } from '@posthog/replay-storage/features/session-feature-store'
+import { MemoryKeyStore } from '@posthog/replay-storage/keystore/index'
+import { SessionBlockMetadata } from '@posthog/replay-storage/metadata/session-block-metadata'
+import { SessionMetadataStore } from '@posthog/replay-storage/metadata/session-metadata-store'
+import { SessionKeyDeletedError } from '@posthog/replay-storage/types'
 
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import {
@@ -12,13 +19,6 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-file-storage'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
-import { RetentionPeriod, RetentionPeriodToDaysMap } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
-import { MemoryKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
-import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
-import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { SessionKeyDeletedError } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 jest.mock('~/ingestion/pipelines/sessionreplay/sessions/session-feature-recorder', () => ({

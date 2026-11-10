@@ -1,13 +1,12 @@
-import { TOPHOG_OUTPUT, TophogOutput } from '@posthog/node-common/outputs/index'
-import { IngestionOutputsBuilder } from '@posthog/node-common/outputs/ingestion-outputs-builder'
-import type { AllowedConfigKey } from '@posthog/node-common/outputs/kafka-producer-config'
-import { KafkaProducerRegistryBuilder } from '@posthog/node-common/outputs/kafka-producer-registry-builder'
-
 import {
     INGESTION_DOWNSTREAM_PRODUCER,
     INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP,
     IngestionDownstreamProducer,
-} from '~/ingestion/common/outputs/producers'
+} from '@posthog/ingestion-common/outputs/producers'
+import { TOPHOG_OUTPUT, TophogOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputsBuilder } from '@posthog/node-common/outputs/ingestion-outputs-builder'
+import type { AllowedConfigKey } from '@posthog/node-common/outputs/kafka-producer-config'
+import { KafkaProducerRegistryBuilder } from '@posthog/node-common/outputs/kafka-producer-registry-builder'
 
 /**
  * The v4 fetch lane's own producer on the replay cluster. It sends frontier records to the frontier and the delay tiers

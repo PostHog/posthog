@@ -6,14 +6,13 @@ import {
     TOPHOG_OUTPUT,
 } from '@posthog/node-common/outputs/index'
 import { IngestionOutputsBuilder } from '@posthog/node-common/outputs/ingestion-outputs-builder'
-
 import {
     ML_BLOCK_METADATA_OUTPUT,
     ML_IMAGE_FETCH_OUTPUT,
     ML_IMAGE_SCRUB_OUTPUT,
     REPLAY_EVENTS_OUTPUT,
     SESSION_FEATURES_OUTPUT,
-} from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+} from '@posthog/replay-storage/outputs/index'
 
 /** Register all session replay outputs on the builder. Call `.build(registry, config)` to resolve. */
 export function createOutputsRegistry() {

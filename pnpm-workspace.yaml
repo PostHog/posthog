@@ -5,6 +5,7 @@ packages:
     - nodejs/packages/hog-engine
     # Ingestion's shared library, consumed here as a workspace package until it is published.
     - nodejs/packages/common
+    - nodejs/packages/replay-storage
     - ingestion/node/packages/common
     - ingestion/node/packages/ingestion
     - common/plugin_transpiler

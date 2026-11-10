@@ -1,12 +1,12 @@
 import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
-
 import {
     SESSION_TRACKER_MOBILE_BILLED_TTL_SECONDS,
     SESSION_TRACKER_REDIS_TTL_SECONDS,
-} from '~/ingestion/pipelines/sessionreplay/constants'
+} from '@posthog/replay-storage/consumer-constants'
+import { SessionBlockMetadata } from '@posthog/replay-storage/metadata/session-block-metadata'
+import { SessionMap } from '@posthog/replay-storage/session-map'
+
 import { BillingClaim, SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
-import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
-import { SessionMap } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 
 const MOBILE_METER = 'mobile_replay_recordings'
 

@@ -2,9 +2,8 @@ import { ok } from '@posthog/ingestion-common/framework/results'
 import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { logger } from '@posthog/node-common/utils/logger'
-
-import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
-import { ML_IMAGE_SCRUB_OUTPUT, MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+import { CAPTURE_TIMESTAMP_HEADER } from '@posthog/replay-storage/capture-watermark'
+import { ML_IMAGE_SCRUB_OUTPUT, MlImageScrubOutput } from '@posthog/replay-storage/outputs/index'
 
 import { MlSessionKeys } from './keys/key-store'
 import { mlKafkaRecord, mlWireVersion, validateImageOwner } from './keys/transport'

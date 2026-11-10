@@ -88,6 +88,7 @@
         "@posthog/node-common": "workspace:*",
         "@posthog/replay-anonymizer": "workspace:*",
         "@posthog/replay-headless": "workspace:*",
+        "@posthog/replay-storage": "workspace:*",
         "@posthog/siphash": "1.1.1",
         "@pyroscope/nodejs": "^0.5.0",
         "@segment/action-destinations": "3.387.0",

@@ -1,11 +1,8 @@
 import { UsageIngestionClient, UsageRecordInput } from '@posthog/node-common/usage-ingestion/client'
 import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { SessionBlockMetadata, createNoopBlockMetadata } from '@posthog/replay-storage/metadata/session-block-metadata'
 
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
-import {
-    SessionBlockMetadata,
-    createNoopBlockMetadata,
-} from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { RedisPool } from '~/types'
 
 import { billPersistedSessions, recordPersistedSessionUsage } from './session-usage-step'

@@ -1,12 +1,12 @@
 import { Limiter } from '@posthog/node-common/utils/token-bucket'
+import { SessionBatchMetrics } from '@posthog/replay-storage/metrics'
+import { SessionSet } from '@posthog/replay-storage/session-map'
 
-import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { RedisPool } from '~/types'
 
-import { SessionBatchMetrics } from './metrics'
 import { SessionFilter } from './session-filter'
 
-jest.mock('./metrics', () => ({
+jest.mock('@posthog/replay-storage/metrics', () => ({
     SessionBatchMetrics: {
         incrementSessionsBlocked: jest.fn(),
         incrementSessionFilterCacheHit: jest.fn(),

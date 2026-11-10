@@ -1,5 +1,5 @@
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
-import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/shared/teams/types'
+import { ParsedMessageData } from '@posthog/replay-storage/kafka/types'
+import { TeamForReplay } from '@posthog/replay-storage/teams/types'
 
 export type { TeamForReplay }
 

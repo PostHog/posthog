@@ -8,6 +8,7 @@ import {
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '@posthog/ingestion-common/framework/extensions/tophog'
 import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
 import { OverflowOutput } from '@posthog/node-common/outputs/index'
+import { RetentionPeriod } from '@posthog/replay-storage/constants'
 
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { EventHeaders } from '~/types'
@@ -20,7 +21,6 @@ import { createResolveRetentionStep } from './session-batch-resolve-retention-st
 import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
 import type { SessionReplayPipelineConfig } from './session-replay-pipeline'
 import { createResolveKeyStep } from './session-resolve-key-step'
-import { RetentionPeriod } from './shared/constants'
 import { TeamFilterStepOutput, createTeamFilterStep } from './team-filter-step'
 import { TeamForReplay } from './teams/types'
 import { createValidateSessionReplayHeadersStep } from './validate-headers-step'

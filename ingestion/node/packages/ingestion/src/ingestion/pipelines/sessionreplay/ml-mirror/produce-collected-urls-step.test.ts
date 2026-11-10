@@ -2,10 +2,10 @@ import { TopHogRegistry } from '@posthog/ingestion-common/framework/extensions/t
 import { PipelineResultType } from '@posthog/ingestion-common/framework/results'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { CAPTURE_TIMESTAMP_HEADER } from '@posthog/replay-storage/capture-watermark'
+import { MlImageFetchOutput } from '@posthog/replay-storage/outputs/index'
 
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
-import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
-import { MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 
 import { CollectedUrl } from './parse-and-anonymize-step'

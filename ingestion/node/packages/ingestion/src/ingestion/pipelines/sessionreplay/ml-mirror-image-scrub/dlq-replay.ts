@@ -3,9 +3,9 @@ import { Message } from 'node-rdkafka'
 import { parseKafkaHeaders } from '@posthog/node-common/kafka/consumer/consumer-v1'
 import { KafkaProducer } from '@posthog/node-common/kafka/producer'
 import { logger } from '@posthog/node-common/utils/logger'
+import { CAPTURE_TIMESTAMP_HEADER } from '@posthog/replay-storage/capture-watermark'
 
 import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
-import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import { REPLAY_COUNT_HEADER } from './image-batcher'
 import { CONTENT_ENCODING_HEADER, CONTENT_TYPE_HEADER } from './image-transport'

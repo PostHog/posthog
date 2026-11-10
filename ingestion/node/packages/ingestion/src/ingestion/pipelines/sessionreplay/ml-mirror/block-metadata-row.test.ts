@@ -1,9 +1,6 @@
 import { DateTime } from 'luxon'
 
-import {
-    SessionBlockMetadata,
-    createNoopBlockMetadata,
-} from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
+import { SessionBlockMetadata, createNoopBlockMetadata } from '@posthog/replay-storage/metadata/session-block-metadata'
 
 import { parseBlockUrl, toBlockMetadataRow } from './block-metadata-row'
 import { sessionStartTimestampFromUuidV7 } from './session-identifier-format'

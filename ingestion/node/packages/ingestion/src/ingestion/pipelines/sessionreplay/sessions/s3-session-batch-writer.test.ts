@@ -1,12 +1,13 @@
 import { S3Client } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 
-import { SessionBatchMetrics } from './metrics'
+import { SessionBatchMetrics } from '@posthog/replay-storage/metrics'
+
 import { S3SessionBatchFileStorage } from './s3-session-batch-writer'
 
 jest.mock('@aws-sdk/lib-storage')
 jest.mock('@posthog/node-common/utils/logger')
-jest.mock('./metrics', () => ({
+jest.mock('@posthog/replay-storage/metrics', () => ({
     SessionBatchMetrics: {
         incrementS3BatchesStarted: jest.fn(),
         incrementS3BatchesUploaded: jest.fn(),

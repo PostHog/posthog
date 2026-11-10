@@ -1,8 +1,7 @@
 import { KafkaProducer } from '@posthog/node-common/kafka/producer'
 import { ConcurrencyController } from '@posthog/node-common/utils/concurrencyController'
 import { logger } from '@posthog/node-common/utils/logger'
-
-import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
+import { CAPTURE_TIMESTAMP_HEADER } from '@posthog/replay-storage/capture-watermark'
 
 import {
     FetchCandidate,

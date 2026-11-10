@@ -1,13 +1,14 @@
-import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
-import { getDefaultKafkaDownstreamProducerEnvConfig } from '~/ingestion/common/outputs/producers'
-import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
+import { getDefaultKafkaDownstreamProducerEnvConfig } from '@posthog/ingestion-common/outputs/producers'
 import {
     getDefaultSessionRecordingApiConfig,
     getDefaultSessionRecordingConfig,
     getDefaultSessionReplayOutputsConfig,
-} from '~/ingestion/pipelines/sessionreplay/config'
+} from '@posthog/replay-storage/config'
+import { getDefaultKafkaSessionreplayProducerEnvConfig } from '@posthog/replay-storage/outputs/producer-config'
+
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
 import { MlMirrorConfig, getMlMirrorConfig } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
-import { getDefaultKafkaSessionreplayProducerEnvConfig } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 
 import type { IngestionSessionReplayServerConfig } from './ingestion-session-replay-server'
 
