@@ -17,6 +17,7 @@ import { AccessControlLevel } from '~/types'
 
 import type { WorkflowViewApi, WorkflowViewCreateApi } from '../../generated/api.schemas'
 import { FacetFilter, createFacetCounter } from './FacetSearchBar/facetQuery'
+import { DEFAULT_COLUMNS } from './workflowListLabels'
 import { FIXTURE_METRICS, FIXTURE_USERS, FIXTURE_WORKFLOWS, paginated } from './workflowsListV2Fixtures'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
 import { workflowsSavedViewsLogic } from './workflowsSavedViewsLogic'
@@ -1250,8 +1251,12 @@ describe('workflowsSavedViewsLogic', () => {
         expect(logic.values.views.find((view) => view.id === myWorkflows.id)?.state).toEqual(myWorkflows.state)
     })
 
-    it('preserves the baseline query when loading the saved-view API fails', async () => {
+    it('preserves the baseline query and default columns when loading the saved-view API fails', async () => {
         useMocks({ get: { '/api/projects/:team_id/workflow_views/': () => [500, { detail: 'Unavailable' }] } })
+        localStorage.setItem(
+            'products.workflows.frontend.workflowsListV2Logic.visibleColumns',
+            JSON.stringify(['created_by'])
+        )
         router.actions.push(urls.workflows(), { view: VIEW_ID, q: 'status:draft', text: 'renewal' })
         logic = workflowsSavedViewsLogic()
         logic.mount()
@@ -1262,6 +1267,7 @@ describe('workflowsSavedViewsLogic', () => {
             filters: [{ facet: 'status', value: 'draft', negated: false }],
             text: 'renewal',
         })
+        expect(workflowsListV2Logic.values.shownColumns).toEqual(DEFAULT_COLUMNS)
         useMocks({ get: { '/api/projects/:team_id/workflow_views/': () => [200, paginated([savedView])] } })
         await logic.asyncActions.loadSavedViews()
         expect(logic.values.savedViewsLoadFailed).toBe(false)
