@@ -326,7 +326,7 @@ def increment_deliveries(
     outcome: DeliveryOutcomeLabel,
     count: int = 1,
     *,
-    reason: DeliveryFailureReason = "none",
+    reason: DeliveryFailureReason | None = None,
 ) -> None:
     """What happened to each transition a delivery carried, per destination provider.
 
@@ -338,6 +338,8 @@ def increment_deliveries(
     `reason` classes a `failed` or `misconfigured` send. An alert can then tell the 4xx of one
     broken destination apart from a payload that the platform broke for every destination.
     """
+    if reason is None:
+        reason = "other" if outcome in ("failed", "misconfigured") else "none"
     labels: Attributes = {"source": source, "provider": provider, "path": path, "outcome": outcome, "reason": reason}
     try:
         meter = get_metric_meter(labels)

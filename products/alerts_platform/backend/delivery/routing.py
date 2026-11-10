@@ -131,8 +131,8 @@ def _deliver_to(
             )
         except ThreadBusy as error:
             busy.append(str(error))
-        except DestinationMisconfigured as error:
-            logger.warning("alerts_platform_receiver_misconfigured", receiver_id=str(receiver.id), error=str(error))
+        except DestinationMisconfigured:
+            pass
         except DeliveryError as error:
             failures.append(str(error))
         except Exception as error:

@@ -154,7 +154,7 @@ def _send(
             transport.provider,
             DeliveryPath.NATIVE.value,
             outcome,
-            reason=error.reason if isinstance(error, DeliveryError) else "other",
+            reason=error.reason if isinstance(error, DeliveryError) else None,
         )
         raise
     record_delivery(
@@ -195,6 +195,8 @@ def _edit_root(
         line = _current_state_line(team_id, key)
         if line is not None:
             transport.edit_root(team_id=team_id, target=target, root=root, state_line=line)
+    except DestinationMisconfigured:
+        logger.warning("alerts_platform.root_edit_refused", provider=transport.provider)
     except Exception:
         logger.exception("alerts_platform.root_edit_failed", provider=transport.provider)
         safe_record(increment_root_edit_failures, transport.provider)

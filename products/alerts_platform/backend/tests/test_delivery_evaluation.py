@@ -1,4 +1,4 @@
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -516,18 +516,12 @@ class TestDeliverEvaluation(APIBaseTest):
         raised: type[Exception] | None,
         destinations: list[AlertDestinationData],
     ) -> None:
-        def run() -> None:
+        with pytest.raises(raised, match="status 410") if raised else nullcontext():
             self._run(
                 _announcement(_transition(AlertEventKind.FIRING)),
                 {FIRING_EVENT: [_group(destination) for destination in destinations]},
                 transports={DestinationType.WEBHOOK: webhook, DestinationType.TEAMS: HeldTransport},
             )
-
-        if raised is None:
-            run()
-        else:
-            with pytest.raises(raised, match="status 410"):
-                run()
 
         assert [channel for channel, _ in RecordingTransport.sends] == ["C-1"]
 

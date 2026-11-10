@@ -22,7 +22,7 @@ from products.alerts_platform.backend.temporal.metrics import DeliveryFailureRea
 CONNECT_TIMEOUT_SECONDS: Final = 3.0
 READ_TIMEOUT_SECONDS: Final = 5.0
 
-_RETRYABLE_CLIENT_STATUSES: Final = frozenset({408, 409, 425, 429})
+_RETRYABLE_CLIENT_REASONS: Final[dict[int, DeliveryFailureReason]] = {408: "timeout", 429: "rate_limited"}
 
 
 def credential_digest(credential: str) -> str:
@@ -37,7 +37,14 @@ def rfc3339(moment: datetime) -> str:
     return aware.isoformat()
 
 
-def post_json(url: str, body: dict[str, Any], *, display_name: str, headers: dict[str, str] | None = None) -> None:
+def post_json(
+    url: str,
+    body: dict[str, Any],
+    *,
+    display_name: str,
+    headers: dict[str, str] | None = None,
+    client_error_is_misconfigured: bool = True,
+) -> None:
     try:
         # `pinned_session` validates the URL and connects to the IPs it validated, which
         # closes the window where DNS changes between the check and the connection.
@@ -82,20 +89,20 @@ def post_json(url: str, body: dict[str, Any], *, display_name: str, headers: dic
             reason="timeout" if isinstance(error, requests.Timeout) else "unreachable",
         ) from None
     if not 200 <= status < 300:
-        _raise_for_status(status, display_name=display_name)
+        _raise_for_status(
+            status, display_name=display_name, client_error_is_misconfigured=client_error_is_misconfigured
+        )
 
 
-def _raise_for_status(status: int, *, display_name: str) -> None:
+def _raise_for_status(status: int, *, display_name: str, client_error_is_misconfigured: bool) -> None:
     message = f"The {display_name} destination refused the message with status {status}."
-    if 400 <= status < 500 and status not in _RETRYABLE_CLIENT_STATUSES:
-        raise DestinationMisconfigured(message, reason="client_error")
     reason: DeliveryFailureReason
-    if status == 429:
-        reason = "rate_limited"
-    elif status == 408:
-        reason = "timeout"
-    elif status >= 500:
-        reason = "server_error"
+    if status in _RETRYABLE_CLIENT_REASONS:
+        reason = _RETRYABLE_CLIENT_REASONS[status]
+    elif 400 <= status < 500:
+        if client_error_is_misconfigured:
+            raise DestinationMisconfigured(message, reason="client_error")
+        reason = "client_error"
     else:
-        reason = "other"
+        reason = "server_error" if status >= 500 else "other"
     raise DeliveryError(message, reason=reason)

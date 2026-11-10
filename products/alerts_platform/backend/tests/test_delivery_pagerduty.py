@@ -12,7 +12,7 @@ from parameterized import parameterized
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport, pagerduty_body
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -142,6 +142,13 @@ class TestPagerDutyTransport(SimpleTestCase):
 
         assert ROUTING_KEY not in str(raised.value)
         assert raised.value.__cause__ is None
+
+    def test_a_client_error_from_pagerduty_stays_a_platform_failure(self) -> None:
+        with pinned_post(400):
+            with pytest.raises(DeliveryError) as raised:
+                PagerDutyTransport().deliver(team_id=2, target=TARGET, message=_message(IncidentAction.TRIGGER))
+
+        assert (isinstance(raised.value, DestinationMisconfigured), raised.value.reason) == (False, "client_error")
 
     @parameterized.expand(
         [

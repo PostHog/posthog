@@ -306,12 +306,8 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 busy.append(str(error))
             # A refusal that only the owner can fix is already logged for that destination, and a
             # retry gets the same answer, so it neither retries the delivery nor fails its workflow.
-            except DestinationMisconfigured as error:
-                logger.warning(
-                    "alerts_platform_destination_misconfigured",
-                    destination_id=subscribed_destination.id,
-                    error=str(error),
-                )
+            except DestinationMisconfigured:
+                pass
             # A destination that refuses every send, such as a deleted channel, must not cost the
             # destinations after it their message on every attempt. Temporal records the message
             # and the cause chain, and a transport words its own refusals safely. Any other
@@ -477,7 +473,6 @@ def _count_emissions(request: AlertDeliveryRequest, outcome: DeliveryOutcomeLabe
         DeliveryPath.HOG_FUNCTION.value,
         outcome,
         transitions,
-        reason="other" if outcome == "failed" else "none",
     )
 
 
