@@ -2547,10 +2547,8 @@ describe('CDP API', () => {
                 { ...codeSend, content: { subject: 'Hi', html: '<img src="https://example.com/a.png" alt="Hi">' } },
             ],
             ['a code send for a local template', { tracking: { captureEngagement: false } }],
-            [
-                'a code send without open and click tracking',
-                { ...codeSend, tracking: { captureEngagement: true, trackOpensAndClicks: false } },
-            ],
+            ['a code send without open tracking', { ...codeSend, tracking: { captureEngagement: true, opens: false } }],
+            ['a code send with click tracking', { ...codeSend, tracking: { captureEngagement: true, clicks: true } }],
             [
                 'a code send with copies to addresses that use atext symbols',
                 { ...codeSend, cc: ['jane=tag@example.com'], bcc: ['jane~tag@example.com'] },
@@ -2598,6 +2596,10 @@ describe('CDP API', () => {
             [
                 'a tracking field this version does not know',
                 { ...codeSend, tracking: { captureEngagement: true, pixel: false } },
+            ],
+            [
+                'click tracking without open tracking',
+                { ...codeSend, tracking: { captureEngagement: true, opens: false, clicks: true } },
             ],
             ['content without a body', { ...codeSend, content: { subject: 'Hi', html: '', text: '' } }],
             ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],

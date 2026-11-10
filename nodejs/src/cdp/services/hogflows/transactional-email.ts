@@ -39,9 +39,16 @@ export const AcceptedSendSchema = z
         cc: CopyRecipientsSchema,
         bcc: CopyRecipientsSchema,
         tracking: z
-            .object({ captureEngagement: z.boolean(), trackOpensAndClicks: z.boolean().optional() })
+            .object({
+                captureEngagement: z.boolean(),
+                opens: z.literal(false).optional(),
+                clicks: z.literal(true).optional(),
+            })
             .strict()
-            .readonly(),
+            .readonly()
+            .refine((tracking) => !(tracking.opens === false && tracking.clicks === true), {
+                message: 'click tracking needs open tracking',
+            }),
     })
     .strict()
     .readonly()

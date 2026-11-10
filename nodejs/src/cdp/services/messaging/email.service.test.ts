@@ -2327,19 +2327,54 @@ describe('EmailService', () => {
             )
 
             it.each([
-                { trackOpensAndClicks: false, configurationSet: 'posthog-messaging-untracked', tracked: false },
-                { trackOpensAndClicks: true, configurationSet: 'posthog-messaging', tracked: true },
-                { trackOpensAndClicks: undefined, configurationSet: 'posthog-messaging', tracked: true },
+                {
+                    case: 'keeps the defaults',
+                    tracking: { captureEngagement: true },
+                    configurationSet: 'posthog-messaging',
+                    pixel: true,
+                    anchors: [
+                        '<a href="https://example.com/a" ses:no-track>',
+                        '<a href="https://example.com/b" data-ph-no-track ses:no-track>',
+                    ],
+                },
+                {
+                    case: 'turns opens off',
+                    tracking: { captureEngagement: true, opens: false },
+                    configurationSet: 'posthog-messaging-untracked',
+                    pixel: false,
+                    anchors: ['<a href="https://example.com/a">', '<a href="https://example.com/b" data-ph-no-track>'],
+                },
+                {
+                    case: 'turns clicks on',
+                    tracking: { captureEngagement: true, clicks: true },
+                    configurationSet: 'posthog-messaging',
+                    pixel: true,
+                    anchors: [
+                        '<a href="https://example.com/a" ses:tags="phl:0">',
+                        '<a href="https://example.com/b" data-ph-no-track ses:no-track>',
+                    ],
+                },
+                {
+                    case: 'turns opens off and clicks on',
+                    tracking: { captureEngagement: true, opens: false, clicks: true },
+                    configurationSet: 'posthog-messaging-untracked',
+                    pixel: false,
+                    anchors: ['<a href="https://example.com/a">', '<a href="https://example.com/b" data-ph-no-track>'],
+                },
             ])(
-                'sends a code send with trackOpensAndClicks $trackOpensAndClicks through $configurationSet',
-                async ({ trackOpensAndClicks, configurationSet, tracked }) => {
+                'sends a sensitive code send that $case through $configurationSet',
+                async ({ tracking, configurationSet, pixel, anchors }) => {
                     service['sesConfig'].sesUntrackedConfigurationSet = 'posthog-messaging-untracked'
                     jest.spyOn(
                         (service as any).teamWorkflowsConfigService,
                         'shouldCaptureEngagementEvents'
                     ).mockResolvedValue(true)
-                    invocation.hogFunction.metadata = { message_category_type: 'transactional' }
-                    invocation.state.send = { tracking: { captureEngagement: true, trackOpensAndClicks } }
+                    invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: true }
+                    invocation.queueParameters = createEmailParams({
+                        from: { integrationId: 1 },
+                        html: '<body><a href="https://example.com/a">a</a><a href="https://example.com/b" data-ph-no-track>b</a></body>',
+                    })
+                    invocation.state.send = { tracking }
 
                     const result = await service.executeSendEmail(invocation)
 
@@ -2347,9 +2382,10 @@ describe('EmailService', () => {
                     const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
                     expect(sentCommand.input.ConfigurationSetName).toEqual(configurationSet)
                     const sentHtml: string = sentCommand.input.Content.Simple.Body.Html.Data
-                    expect(sentHtml === trackableHtml).toBe(!tracked)
+                    expect(sentHtml.match(/<a\b[^>]*>/g)).toEqual(anchors)
+                    expect(sentHtml.includes('<img src=')).toBe(pixel)
                     expect(result.capturedPostHogEvents[0].properties).toMatchObject({
-                        $email_tracking_enabled: tracked,
+                        $email_tracking_enabled: pixel,
                     })
                 }
             )
