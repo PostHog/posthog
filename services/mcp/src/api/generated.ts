@@ -790,6 +790,13 @@ export namespace Schemas {
       is_current: boolean;
     }
 
+    export interface AEOVisibilityDashboard {
+      /** Id of the new dashboard. Subscribe to it with the subscriptions API to get it weekly. */
+      id: number;
+      /** Name of the new dashboard. */
+      name: string;
+    }
+
     export interface AIContextAccountProperty {
       /** Customer analytics account property definition id. */
       id: string;

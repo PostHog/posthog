@@ -71,6 +71,14 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
   `GET overview/` and `GET rankings/` take `?branded=all|branded|non_branded` (default `all`), which keeps the checks whose prompt, as it ran, names the brand or does not.
   Every count uses the same checks, the window before included. The overview also returns `branded_answers` and `non_branded_answers`, the answered checks on each side in the current window.
 
+### Weekly dashboard
+
+`POST aeo_prompts/create_dashboard/` (the "Create AI visibility dashboard" button on the Overview, MCP tool `aeo-prompts-create-dashboard`, off until the route is deployed) creates an "AI visibility weekly" dashboard tagged `ai-visibility`.
+Its SQL insights (`dashboard.py`) read `system.aeo_citation_checks` over non-branded prompts: visibility and citation rate for the last 7 complete days against the 7 before, visibility per topic, the pages to watch per topic, and an 8-week trend.
+Each query reads `system.aeo_brands`, the brand catalog, when it runs. Own and competitor pages come from the `own` and `competitor` kinds, and a prompt is branded when it names the first label of an own domain, so the dashboard follows catalog edits.
+This differs from the branded split above, which reads `AEO_TARGET_DOMAINS`, when the own domain has not been cited yet and so is not in the catalog.
+People get it weekly through a regular dashboard subscription, in Slack or email.
+
 ### Editing, versions and archiving
 
 A prompt keeps its id, so its checks, stats and detail view stay in one place. Its text lives in numbered versions (`posthog_aeo_prompt_version`), and `current_version` points at the one the runner sends. Version rows never change.

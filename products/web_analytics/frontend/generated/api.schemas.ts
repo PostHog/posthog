@@ -468,6 +468,13 @@ export interface AEOPromptImportResultApi {
     skipped: number
 }
 
+export interface AEOVisibilityDashboardApi {
+    /** Id of the new dashboard. Subscribe to it with the subscriptions API to get it weekly. */
+    id: number
+    /** Name of the new dashboard. */
+    name: string
+}
+
 export interface AEOPromptSetCountsApi {
     /**
      * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.

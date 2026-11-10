@@ -13,6 +13,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
+from posthog.models.user import User
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.rate_limit import AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle
 
@@ -24,6 +25,7 @@ from products.aeo.backend.facade.api import (
     MAX_SEARCH_PROMPTS,
     MAX_STATS_WORDS,
     archive_prompt,
+    create_visibility_dashboard,
     get_brand,
     get_prompt,
     get_prompt_set_overview,
@@ -88,6 +90,7 @@ from products.aeo.backend.facade.contracts import (
     RankedBrandDay,
     RankedDomain,
     RankedPage,
+    VisibilityDashboard,
 )
 
 MAX_PROMPTS_PER_IMPORT = 2000
@@ -652,6 +655,18 @@ class AEOPromptSetOverviewQuerySerializer(serializers.Serializer):
     )
 
 
+class AEOVisibilityDashboardSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = VisibilityDashboard
+        ref_name = "AEOVisibilityDashboard"
+        extra_kwargs = {
+            "id": {
+                "help_text": "Id of the new dashboard. Subscribe to it with the subscriptions API to get it weekly."
+            },
+            "name": {"help_text": "Name of the new dashboard."},
+        }
+
+
 class AEOPromptUpdateRequestSerializer(serializers.Serializer):
     # Every field defaults to None so "not sent" stays distinct from false or an empty topic.
     active = serializers.BooleanField(
@@ -1133,6 +1148,33 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             branded=BrandedSegment(request.validated_query_data["branded"]),
         )
         return Response(AEOPromptSetRankingsSerializer(rankings).data)
+
+    @validated_request(
+        operation_id="aeo_prompts_create_dashboard",
+        summary="Create the AI visibility weekly dashboard",
+        description=(
+            "Creates a dashboard named 'AI visibility weekly' with SQL insights over the citation checks of "
+            "non-branded prompts: visibility and citation rate for the last 7 complete days against the 7 before, "
+            "visibility per topic, the pages to watch per topic, and an 8-week trend. The queries read the brand "
+            "catalog when they run, so they follow catalog edits. Each call creates a new dashboard. Subscribe to it "
+            "with the subscriptions API to get it weekly in Slack or email."
+        ),
+        responses={201: OpenApiResponse(response=AEOVisibilityDashboardSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        pagination_class=None,
+        required_scopes=["web_analytics:read", "dashboard:write", "insight:write"],
+    )
+    def create_dashboard(self, request: Request, **kwargs: Any) -> Response:
+        # required_scopes only constrains API keys; session RBAC evaluates this viewset's web_analytics scope object,
+        # so the caller's dashboard access is checked here.
+        if not self.user_access_control.check_access_level_for_resource("dashboard", required_level="editor"):
+            raise PermissionDenied("Creating a dashboard requires dashboard edit access.")
+        created = create_visibility_dashboard(self.team, cast(User, request.user))
+        return Response(AEOVisibilityDashboardSerializer(created).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
         operation_id="aeo_prompts_topics",

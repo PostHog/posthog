@@ -20,6 +20,7 @@ import type {
     AEOPromptSuggestionJobApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
+    AEOVisibilityDashboardApi,
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
@@ -356,6 +357,24 @@ export const aeoPromptsBulkImport = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aEOPromptBulkImportRequestApi),
+    })
+}
+
+export const getAeoPromptsCreateDashboardUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/create_dashboard/`
+}
+
+/**
+ * Creates a dashboard named 'AI visibility weekly' with SQL insights over the citation checks of non-branded prompts: visibility and citation rate for the last 7 complete days against the 7 before, visibility per topic, the pages to watch per topic, and an 8-week trend. The queries read the brand catalog when they run, so they follow catalog edits. Each call creates a new dashboard. Subscribe to it with the subscriptions API to get it weekly in Slack or email.
+ * @summary Create the AI visibility weekly dashboard
+ */
+export const aeoPromptsCreateDashboard = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AEOVisibilityDashboardApi> => {
+    return apiMutator<AEOVisibilityDashboardApi>(getAeoPromptsCreateDashboardUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

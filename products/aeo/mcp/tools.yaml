@@ -254,3 +254,20 @@ tools:
             id:
                 description: The prompt id (a UUID), from `aeo-prompts-list`.
         feature_flag: aeo-citation-tracking
+    aeo-prompts-create-dashboard:
+        operation: aeo_prompts_create_dashboard
+        enabled: false
+        disabled_reason: Enable after the aeo_prompts/create_dashboard route is deployed, so MCP never serves a tool whose route 404s.
+        title: Create the AI visibility weekly dashboard
+        description: >
+            Create a dashboard named "AI visibility weekly" with SQL insights over the citation checks of non-branded
+            prompts: visibility (share of answers that mention the brand or cite the site) and citation rate for the last
+            7 complete days against the 7 before, visibility per topic, the pages to watch per topic, and an 8-week
+            trend. Own and competitor pages, and which prompts are branded, come from `system.aeo_brands` when each
+            query runs. Each call creates a new dashboard, so check for an existing one first. To get it weekly, create a
+            dashboard subscription for the returned `id`.
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        feature_flag: aeo-citation-tracking
