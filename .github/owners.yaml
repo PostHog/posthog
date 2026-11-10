@@ -3,7 +3,10 @@ owners: []
 rules:
     - match: ['/CODEOWNERS', '/actions/']
       owners: team-devex
-    - match: ['/scripts/deltalite_selection.py', '/scripts/test_deltalite_selection.py']
+    - match:
+          - '/scripts/deltalite_selection.py'
+          - '/scripts/post-unowned-paths-section.mjs'
+          - '/scripts/test_deltalite_selection.py'
       owners: team-devex
     - match: '/auto-assign-labels.json'
       owners: team-feature-flags
