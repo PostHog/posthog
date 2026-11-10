@@ -72,6 +72,11 @@ export function PlayerFrameAmbient(): JSX.Element | null {
 
         // rrweb replaces the recorded document on every full snapshot, so the observer follows it.
         const observe = (recordedDocument: Document): void => {
+            // rrweb reopens the same document on each full snapshot, and document.open() drops its listeners,
+            // so they are re-added every check. Adding a listener twice is a no-op.
+            // Neither event bubbles, so they are caught on the way down.
+            recordedDocument.addEventListener('scroll', markDirty, true)
+            recordedDocument.addEventListener('load', markDirty, true)
             if (recordedDocument === observedDocument) {
                 return
             }
@@ -84,9 +89,6 @@ export function PlayerFrameAmbient(): JSX.Element | null {
                 attributes: true,
                 characterData: true,
             })
-            // Neither event bubbles, so they are caught on the way down.
-            recordedDocument.addEventListener('scroll', markDirty, true)
-            recordedDocument.addEventListener('load', markDirty, true)
             observedDocument = recordedDocument
             dirty = true
         }

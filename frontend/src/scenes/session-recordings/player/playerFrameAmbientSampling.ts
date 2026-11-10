@@ -10,6 +10,8 @@ const MIN_OPAQUE_ALPHA = 0.5
 const EDGE_INSET_PX = 3
 const MAX_EXTENDED_CELLS = 256
 const THUMBNAIL_WIDTH = 16
+const MAX_BACKGROUND_IMAGES = 200
+const FETCHABLE_PROTOCOLS = ['https:', 'http:', 'data:', 'blob:']
 const THUMBNAIL_HEIGHT = 32
 
 export type Rgba = [number, number, number, number]
@@ -97,7 +99,7 @@ export class AmbientFrameSampler {
                     : element instanceof view.HTMLCanvasElement
                       ? this.pixelAt(element, this.canvasPixels(element), x, y)
                       : null
-            const color = pixel ?? this.elementColor(element, view, doc.baseURI)
+            const color = pixel ?? this.elementColor(element, view)
             if (color) {
                 return color
             }
@@ -105,13 +107,12 @@ export class AmbientFrameSampler {
         return null
     }
 
-    private elementColor(element: Element, view: Window, baseUrl: string): Rgba | null {
+    private elementColor(element: Element, view: Window & typeof globalThis): Rgba | null {
         if (!this.elementColorsThisSample.has(element)) {
             const style = view.getComputedStyle(element)
             this.elementColorsThisSample.set(
                 element,
-                this.backgroundImageColor(style.backgroundImage, baseUrl) ??
-                    opaque(parseCssColor(style.backgroundColor))
+                this.backgroundImageColor(style.backgroundImage, view) ?? opaque(parseCssColor(style.backgroundColor))
             )
         }
         return this.elementColorsThisSample.get(element) ?? null
@@ -128,7 +129,7 @@ export class AmbientFrameSampler {
     }
 
     // Background images are often repeating patterns, so their average color stands in for any point.
-    private backgroundImageColor(backgroundImage: string, baseUrl: string): Rgba | null {
+    private backgroundImageColor(backgroundImage: string, view: Window & typeof globalThis): Rgba | null {
         if (!backgroundImage || backgroundImage === 'none') {
             return null
         }
@@ -145,16 +146,21 @@ export class AmbientFrameSampler {
             this.backgroundImages.set(backgroundImage, gradient)
             return gradient
         }
-        // A relative URL against the replay frame's about:blank base cannot resolve.
-        if (URL.canParse(url, baseUrl)) {
-            const image = new Image()
+        // Computed styles resolve recorded URLs to absolute ones, so a relative URL here would only hit the app origin.
+        if (
+            this.backgroundImages.size <= MAX_BACKGROUND_IMAGES &&
+            URL.canParse(url) &&
+            FETCHABLE_PROTOCOLS.includes(new URL(url).protocol)
+        ) {
+            // The recorded document's own policy admits any image, and the app's would report every one.
+            const image = new view.Image()
             image.crossOrigin = 'anonymous'
             image.onload = () => {
                 const pixels = this.draw(image)
                 this.backgroundImages.set(backgroundImage, pixels ? averageColor(rgbaPixels(pixels).map(opaque)) : null)
                 this.onBackgroundImageLoad?.()
             }
-            image.src = new URL(url, baseUrl).href
+            image.src = url
         }
         return null
     }
@@ -204,6 +210,8 @@ export class AmbientFrameSampler {
             context.drawImage(source, 0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
             return context.getImageData(0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT).data
         } catch {
+            // Browsers differ on whether resizing clears a cross-origin taint, so start from a fresh canvas.
+            this.scratch = null
             return null
         }
     }
