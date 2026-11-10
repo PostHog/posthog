@@ -78,6 +78,7 @@ The scorer list shows each scorer's creator and last editor, and can be filtered
 By default, scorers are sorted by last updated, newest first.
 Creating and editing scorers stays under Evaluations → Scorers, with a detail heading and a back link to the list.
 Successful creation and edits return to the scorer list; failed saves keep the form open with your changes.
+The scorer editor's **Version history** opens saved scoring rules in a read-only view. Selecting an older version does not change the editor's draft. Changes to scoring rules always create a new version.
 
 Online evals, offline experiments, datasets, and scorers have independent setup states. The Evaluations tabs
 stay available when no online evaluations exist, and the offline Experiments and Datasets tabs remain visible
@@ -394,7 +395,7 @@ Each upload must contain a result, and every declared item must be referenced by
 Requests exceeding the body limit return HTTP 413.
 Per-caller and shared project limits allow 60 requests per minute and 1,000 per hour; HTTP 429 responses include retry guidance.
 The shared project limits apply across the parent project and all its child environments, regardless of which credentials each request uses.
-Uploads containing new results also check the shared AI observability billing quota before writing items, results, payloads, or usage.
+Uploads containing new reported results also check the shared AI observability billing quota before writing items, results, payloads, or usage.
 While the quota is active, these uploads return HTTP 402 with code `quota_limit_exceeded`; exact retries remain available and add no usage.
 
 The optional `run_source` accepts `ci`, `local`, `scheduled`, or null; empty strings are invalid.
@@ -405,6 +406,66 @@ Local and external datasets do not require hosted links; they can use the `*_ide
 Large payloads have separate storage and 30-day deadlines anchored to first acceptance.
 Retries neither extend deadlines nor restore deleted payloads.
 An hourly Celery sweep deletes payload rows past their deadline and marks their owners expired in the same transaction, preserving identities, results, summaries, and usage. Payloads remain readable until the sweep removes them.
+
+### Composite item scorers
+
+A scorer's `calculation` is either `reported` (the default) or `composite` and cannot change after creation.
+Both use the existing numeric, Boolean, or categorical output configuration. Composites are available for offline items; manual trace reviews accept reported scorers.
+Create a composite with `calculation: "composite"` and a versioned `composition`:
+
+```json
+{
+  "expression": "(number(correct) + number(\"good\" in relevance)) / 2",
+  "inputs": [
+    { "alias": "correct", "scorer_version_id": "00000000-0000-4000-8000-000000000002" },
+    { "alias": "relevance", "scorer_version_id": "00000000-0000-4000-8000-000000000003" }
+  ]
+}
+```
+
+The example averages a Boolean input and a categorical predicate into a numeric output.
+Replace these placeholder UUIDs with exact input versions in the same environment.
+Input values retain their raw meaning: `number(True)` is 1 and `number(False)` is 0, irrespective of the input's passing rule.
+Categorical inputs are lists of category keys; use membership tests such as `"good" in relevance`.
+A categorical formula can return a key or list of keys, such as `"good" if correct else "bad"`.
+
+Request computation independently for each item by uploading `item_id`, `scorer_version_id`, and `compute: true`, without a value or result metadata.
+All pinned inputs must already exist for that item or be included anywhere in the same HTTP request.
+Missing inputs reject the whole request. Non-success input statuses propagate in this precedence: `error`, `skipped`, `not_applicable`.
+An input error uses `composite_input_error`. Arithmetic errors or results outside the output configuration use `composite_formula_error`; valid reported results in the batch are still saved.
+
+The server computes once during ingestion and saves the result with `input_result_ids` in composition input order.
+Exact retries return the stored acknowledgment, including after closure or reference-access changes. New requests require access to every input and an uploading experiment.
+Results and formulas are never recalculated on read. Formula/input changes create a new composite version; old results keep their original configuration.
+Reading a computed result or summary requires access to its composite and all pinned source scorers.
+
+Omitting a composite means **not requested**, reflected by `not_requested_count` rather than `missing_result_count`.
+Only successful computed results enter its mean and pass rate. All accepted composite outcomes count toward experiment completion's `expected_result_count`.
+Computed outcomes do not add uploaded-result billing usage; reported inputs are counted once as usual.
+
+Formulas support arithmetic (`+`, `-`, `*`, `/`), comparisons, membership, Boolean `and`/`or`/`not`, conditional expressions, and `number`, `min`, `max`, and `abs`.
+Boolean-to-number conversion is explicit. Every configured alias must appear in the expression.
+Limits are 16 reported inputs, 1,024 expression characters, 128 syntax nodes, and 16 levels of expression nesting.
+The interpreter supports no arbitrary code, attribute access, indexing, loops, or I/O. Nested composites are not supported.
+
+The scorer editor shows dependent composites before source changes. Input rows show pinned and latest versions with an explicit update action.
+The dependent composite list supports search and tag filters across all matches, displays up to 50 results in a scrollable area, and shows the matching count when more results are available.
+The API exposes `input_scorers`, `dependent_composite_count`, and list filters `calculation` and `input_definition_id` for the same workflow.
+New source versions never update composites automatically.
+
+The editor starts new composites with a formula that follows their output type: an average for numeric outputs, all inputs passing for Boolean outputs, or a passing/failing category for categorical outputs.
+Boolean and categorical inputs use their pinned version's passing rule; numeric inputs use their raw value in averages and their passing threshold in all-pass formulas.
+When a required passing rule is missing, the user must write the formula or configure that rule.
+Automatic formulas follow input changes until the user edits the expression. Manual expressions, including an empty expression, are preserved until the user chooses **Use default formula**.
+Input scorer selection supports search and tag filters, and version lists load automatically.
+**Validate formula** calls `POST /api/projects/{team_id}/llm_analytics/score_definitions/validate_composition/` with `kind` and `composition`.
+This read-scoped operation checks formula syntax, input access and output type without creating a scorer or version. Runtime values and output bounds remain checked when results are calculated.
+
+The Python and JavaScript SDKs accept `compute=True` / `compute: true` in result declarations.
+Bulk uploads stably place reported results before composite requests before chunking, so sources commit before dependent chunks.
+Relative order within each group is retained; receipts follow transmitted order. Ordinary-only uploads retain their existing order.
+Bulk failures retain the failed chunk's first original input index, its exact body, and all remaining declarations for retry.
+This extends the current SDK specification's ordinary-result ordering and status/value contract; the new exception applies only to explicit compute requests.
 
 ### Product usage events
 
@@ -433,8 +494,8 @@ Existing `llma` event names and attributes remain unchanged so saved actions and
 
 ### Durable usage recording
 
-Newly accepted Postgres results produce durable `OfflineEvaluationUsageLedger` entries.
-Each upload transaction that inserts new results writes one entry with a quantity equal to the number of new results, including error, skipped, and not-applicable outcomes.
+Newly accepted reported Postgres results produce durable `OfflineEvaluationUsageLedger` entries.
+Each upload transaction that inserts reported results writes one entry with a quantity equal to the number of new reported results, including error, skipped, and not-applicable outcomes. Computed composite results add no ledger quantity.
 Results, payloads, and usage commit together; a ledger write failure rolls back the upload.
 Exact retries add no usage, including retries split or regrouped into different requests.
 Mixed uploads count only new results, and changed content still returns a conflict.

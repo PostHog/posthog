@@ -2696,6 +2696,12 @@ const llmaScoreDefinitionCreate = (): ToolBase<
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
+        if (params.calculation !== undefined) {
+            body['calculation'] = params.calculation
+        }
+        if (params.composition !== undefined) {
+            body['composition'] = params.composition
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }
@@ -2762,7 +2768,9 @@ const llmaScoreDefinitionList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/`,
             query: {
                 archived: params.archived,
+                calculation: params.calculation,
                 created_by: params.created_by,
+                input_definition_id: params.input_definition_id,
                 kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,
@@ -2795,6 +2803,9 @@ const llmaScoreDefinitionNewVersion = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaScoreDefinitionNewVersionSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.composition !== undefined) {
+            body['composition'] = params.composition
+        }
         if (params.short_name !== undefined) {
             body['short_name'] = params.short_name
         }

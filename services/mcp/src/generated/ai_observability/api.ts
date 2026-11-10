@@ -546,6 +546,8 @@ export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemApplicati
 
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax = 1000
 
+export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemComputeDefault = false
+export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemStatusDefault = `ok`
 export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemValueThreeItemMax = 128
 
 export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemErrorCodeMax = 128
@@ -647,11 +649,18 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = () => zod.objec
                     .string()
                     .describe('UUID of an item declared in this request or already accepted in this experiment.'),
                 scorer_version_id: zod.string().describe('Exact UUID of an existing scorer version in this project.'),
+                compute: zod
+                    .boolean()
+                    .default(aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemComputeDefault)
+                    .describe(
+                        'Compute this composite scorer for this item. Supply no value or outcome; all input results must already exist or be in this request.'
+                    ),
                 status: zod
                     .enum(['ok', 'error', 'skipped', 'not_applicable'])
                     .describe(
                         '\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable'
                     )
+                    .default(aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemStatusDefault)
                     .describe(
                         'Outcome of this scorer execution.\n\n\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable'
                     ),
@@ -2949,7 +2958,15 @@ export const llmAnalyticsScoreDefinitionsListQueryTagMatchDefault = `any`
 
 export const LlmAnalyticsScoreDefinitionsListQueryParams = () => zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state.'),
+    calculation: zod
+        .enum(['composite', 'reported'])
+        .optional()
+        .describe('Filter reported or composite scorers.\n\n\* `reported` - Reported\n\* `composite` - Composite'),
     created_by: zod.number().optional().describe("Filter by the creator's user ID."),
+    input_definition_id: zod
+        .string()
+        .optional()
+        .describe('Find current composite scorers that depend on this input scorer.'),
     kind: zod.string().optional().describe('Filter by scorer kind.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -2981,6 +2998,14 @@ export const llmAnalyticsScoreDefinitionsCreateBodyTagsItemMax = 255
 
 export const llmAnalyticsScoreDefinitionsCreateBodyTagsMax = 100
 
+export const llmAnalyticsScoreDefinitionsCreateBodyCalculationDefault = `reported`
+export const llmAnalyticsScoreDefinitionsCreateBodyCompositionOneExpressionMax = 1024
+
+export const llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemAliasMax = 32
+
+export const llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
+    '^[a-z][a-z0-9_]{0,31}$'
+)
 export const llmAnalyticsScoreDefinitionsCreateBodyNameMax = 255
 
 export const llmAnalyticsScoreDefinitionsCreateBodyShortNameMax = 40
@@ -2998,6 +3023,45 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
         .max(llmAnalyticsScoreDefinitionsCreateBodyTagsMax)
         .optional()
         .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
+    calculation: zod
+        .enum(['reported', 'composite'])
+        .describe('\* `reported` - Reported\n\* `composite` - Composite')
+        .default(llmAnalyticsScoreDefinitionsCreateBodyCalculationDefault)
+        .describe(
+            'Reported or composite. This cannot be changed after creation.\n\n\* `reported` - Reported\n\* `composite` - Composite'
+        ),
+    composition: zod
+        .union([
+            zod.object({
+                expression: zod
+                    .string()
+                    .max(llmAnalyticsScoreDefinitionsCreateBodyCompositionOneExpressionMax)
+                    .describe(
+                        'Bounded arithmetic or Boolean expression. Use number(boolean), category membership, and conditional expressions for conversions.'
+                    ),
+                inputs: zod
+                    .array(
+                        zod.object({
+                            alias: zod
+                                .string()
+                                .max(llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemAliasMax)
+                                .regex(llmAnalyticsScoreDefinitionsCreateBodyCompositionOneInputsItemAliasRegExp)
+                                .describe(
+                                    'Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.'
+                                ),
+                            scorer_version_id: zod
+                                .string()
+                                .describe('Exact immutable version of an ordinary input scorer.'),
+                        })
+                    )
+                    .describe(
+                        'Named, version-pinned input scorers for the same item. Nested composites are not supported.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Required for composite scorers: expression and exact input versions.'),
     name: zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyNameMax).describe('Human-readable scorer name.'),
     short_name: zod
         .string()
@@ -3173,6 +3237,13 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateParams = () => zod.obje
         ),
 })
 
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneExpressionMax = 1024
+
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemAliasMax = 32
+
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
+    '^[a-z][a-z0-9_]{0,31}$'
+)
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyShortNameMax = 40
 
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyNameMax = 255
@@ -3184,6 +3255,40 @@ export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptions
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
 
 export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = () => zod.object({
+    composition: zod
+        .union([
+            zod.object({
+                expression: zod
+                    .string()
+                    .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneExpressionMax)
+                    .describe(
+                        'Bounded arithmetic or Boolean expression. Use number(boolean), category membership, and conditional expressions for conversions.'
+                    ),
+                inputs: zod
+                    .array(
+                        zod.object({
+                            alias: zod
+                                .string()
+                                .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemAliasMax)
+                                .regex(
+                                    llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneInputsItemAliasRegExp
+                                )
+                                .describe(
+                                    'Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.'
+                                ),
+                            scorer_version_id: zod
+                                .string()
+                                .describe('Exact immutable version of an ordinary input scorer.'),
+                        })
+                    )
+                    .describe(
+                        'Named, version-pinned input scorers for the same item. Nested composites are not supported.'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Required for a composite scorer. Creates a new immutable formula and input selection.'),
     short_name: zod
         .string()
         .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyShortNameMax)

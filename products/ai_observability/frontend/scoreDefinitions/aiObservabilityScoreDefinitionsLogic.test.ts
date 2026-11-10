@@ -42,6 +42,10 @@ const mockScoreDefinition: ScoreDefinition = {
     kind: 'categorical',
     archived: false,
     current_version: 2,
+    calculation: 'reported',
+    composition: null,
+    input_scorers: [],
+    dependent_composite_count: 0,
     current_version_id: null,
     config: {
         options: [

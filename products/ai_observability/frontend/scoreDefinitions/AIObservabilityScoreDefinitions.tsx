@@ -96,8 +96,13 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
             dataIndex: 'kind',
             key: 'kind',
             className: '@max-[40rem]/scorers:hidden',
-            render: function renderKind(kind) {
-                return <LemonTag type="muted">{formatKindLabel(kind as ScoreDefinitionKind)}</LemonTag>
+            render: function renderKind(kind, scorer) {
+                return (
+                    <div className="flex flex-wrap gap-1">
+                        <LemonTag type="muted">{formatKindLabel(kind as ScoreDefinitionKind)}</LemonTag>
+                        {scorer.calculation === 'composite' && <LemonTag type="info">Composite</LemonTag>}
+                    </div>
+                )
             },
         },
         {

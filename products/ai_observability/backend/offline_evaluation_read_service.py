@@ -15,6 +15,7 @@ from django.db.models.functions import Coalesce
 
 from posthog.dataclasses import frozen
 
+from products.ai_observability.backend.composite_scorers import CompositeScorers
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
@@ -137,7 +138,7 @@ class OfflineEvaluationReadService:
 
     def _versions(self) -> QuerySet[ScoreDefinitionVersion]:
         # nosemgrep: idor-lookup-without-user -- Versions inherit the authorized definitions' exact environment.
-        return ScoreDefinitionVersion.objects.filter(definition__in=self._definitions())
+        return CompositeScorers.accessible_versions(self._definitions(), team_id=self.team_id)
 
     def _validate_scorer_selection(self, query: OfflineReadQuery) -> None:
         if (
@@ -155,9 +156,7 @@ class OfflineEvaluationReadService:
     def _results(
         self, query: OfflineReadQuery | None = None, *, model_version: str | None = None
     ) -> QuerySet[OfflineEvaluationResult]:
-        results = OfflineEvaluationResult.objects.for_team(self.team_id).filter(
-            scorer_definition__in=self._definitions()
-        )
+        results = OfflineEvaluationResult.objects.for_team(self.team_id).filter(scorer_version__in=self._versions())
         if query is not None:
             if query.scorer_definition_id is not None:
                 results = results.filter(scorer_definition_id=query.scorer_definition_id)
@@ -396,6 +395,8 @@ class OfflineEvaluationReadService:
             definition_id=definition.id,
             version=version.version,
             kind=definition.kind,
+            calculation=definition.calculation,
+            composition=version.composition,
             name=definition.name,
             short_name=definition.short_name,
             description=definition.description,
@@ -416,6 +417,7 @@ class OfflineEvaluationReadService:
             item_id=result.item_id,
             scorer=scorer if scorer is not None else self._version_read(result.scorer_version),
             status=result.status,
+            input_result_ids=result.input_result_ids,
             value=value,
             error_code=result.error_code,
             evaluator_trace_id=result.evaluator_trace_id,
@@ -776,7 +778,12 @@ class OfflineEvaluationReadService:
                 observed_item_count=counts.observed_item_count,
                 result_count=aggregate.count,
                 status_counts=aggregate.status_counts,
-                missing_result_count=counts.observed_item_count - aggregate.count,
+                missing_result_count=0
+                if scorer.calculation == "composite"
+                else counts.observed_item_count - aggregate.count,
+                not_requested_count=counts.observed_item_count - aggregate.count
+                if scorer.calculation == "composite"
+                else 0,
                 distinct_case_count=counts.distinct_case_count,
                 items_with_case_key_count=counts.items_with_case_key_count,
                 items_without_case_key_count=counts.items_without_case_key_count,

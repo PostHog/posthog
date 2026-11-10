@@ -8,6 +8,8 @@ import type {
     NumericScoreDefinitionConfigApi as NumericScoreDefinitionConfig,
     ScoreDefinitionApi as ScoreDefinition,
     ScoreDefinitionConfigApi as ScoreDefinitionConfig,
+    CompositeInputReadApi,
+    CompositeConfigApi,
 } from '../generated/api.schemas'
 import { getBooleanConfig, getCategoricalConfig, getNumericConfig } from './scoreDefinitionConfigUtils'
 
@@ -15,6 +17,10 @@ export type ScoreDefinitionModalMode = 'create' | 'duplicate' | 'metadata' | 'co
 export type CategoricalSelectionMode = 'single' | 'multiple'
 
 export interface ScoreDefinitionDraft {
+    calculation: 'reported' | 'composite'
+    expression: string
+    expressionIsCustom: boolean
+    inputs: (CompositeInputReadApi & { config?: ScoreDefinitionConfig })[]
     name: string
     shortName: string
     description: string
@@ -138,7 +144,7 @@ export function createDraft(
     scoreDefinition?: ScoreDefinition | null
 ): ScoreDefinitionDraft {
     const baseDefinition = scoreDefinition || null
-    const kind = baseDefinition?.kind || 'categorical'
+    const kind = baseDefinition?.kind || 'boolean'
     const categoricalConfig: CategoricalScoreDefinitionConfig = baseDefinition
         ? getCategoricalConfig(baseDefinition.config)
         : { options: [], selection_mode: 'single' }
@@ -156,6 +162,10 @@ export function createDraft(
     const duplicatedName = baseDefinition ? `${baseDefinition.name} copy` : ''
 
     return {
+        calculation: baseDefinition?.calculation || 'reported',
+        expression: baseDefinition?.composition?.expression || '',
+        expressionIsCustom: !!baseDefinition?.composition,
+        inputs: baseDefinition?.input_scorers?.map((input) => ({ ...input })) || [],
         name: mode === 'duplicate' ? duplicatedName : baseDefinition?.name || '',
         shortName: baseDefinition?.short_name || '',
         description: baseDefinition?.description || '',
@@ -251,6 +261,20 @@ export function buildConfigFromDraft(draft: ScoreDefinitionDraft): ScoreDefiniti
 }
 
 export function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefinitionDraft): string | undefined {
+    if (draft.calculation === 'composite') {
+        if (!draft.expression.trim() || !draft.inputs.length) {
+            return 'Select input scorers and enter a formula.'
+        }
+        if (
+            draft.inputs.length > 16 ||
+            new Set(draft.inputs.map((input) => input.alias)).size !== draft.inputs.length
+        ) {
+            return 'Use at most 16 inputs, each with a unique name.'
+        }
+        if (draft.inputs.some((input) => !/^[a-z][a-z0-9_]{0,31}$/.test(input.alias))) {
+            return 'Input names must start with a lowercase letter and contain only lowercase letters, digits, or underscores.'
+        }
+    }
     if (mode !== 'config' && !draft.name.trim()) {
         return 'Name is required.'
     }
@@ -350,4 +374,15 @@ export function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefini
     }
 
     return undefined
+}
+
+export function buildCompositionFromDraft(draft: ScoreDefinitionDraft): CompositeConfigApi | null {
+    return draft.calculation === 'composite'
+        ? {
+              expression: draft.expression.trim(),
+              inputs: draft.inputs
+                  .map(({ alias, scorer_version_id }) => ({ alias, scorer_version_id }))
+                  .sort((a, b) => a.alias.localeCompare(b.alias)),
+          }
+        : null
 }

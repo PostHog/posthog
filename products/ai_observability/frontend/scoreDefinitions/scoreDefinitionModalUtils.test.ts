@@ -11,6 +11,10 @@ const definition: ScoreDefinitionApi = {
     config: {},
     archived: false,
     current_version: 1,
+    calculation: 'reported',
+    composition: null,
+    input_scorers: [],
+    dependent_composite_count: 0,
     current_version_id: 'version-example',
     team: 1,
     created_by: null,
@@ -28,6 +32,7 @@ describe('scorer form configuration', () => {
     ] as const)('validates categorical passing rules for %s with %j', (selectionMode, categories, error) => {
         const draft = {
             ...createDraft('create'),
+            kind: 'categorical' as const,
             name: 'Quality',
             selectionMode,
             categoricalPassingEnabled: true,
@@ -60,7 +65,7 @@ describe('scorer form configuration', () => {
             expect(buildConfigFromDraft(existing)).toEqual({ true_is_failure: false })
         }
 
-        const created = { ...createDraft('create'), kind: 'boolean' as const }
+        const created = createDraft('create')
         expect(buildConfigFromDraft(created)).toEqual({
             true_label: 'True',
             false_label: 'False',

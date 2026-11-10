@@ -276,8 +276,13 @@ class ItemSubmissionSerializer(_StrictDataclassSerializer[ItemSubmission]):
 class ResultSubmissionSerializer(_StrictDataclassSerializer[ResultSubmission]):
     item_id = _UUIDField(help_text="UUID of an item declared in this request or already accepted in this experiment.")
     scorer_version_id = _UUIDField(help_text="Exact UUID of an existing scorer version in this project.")
+    compute = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Compute this composite scorer for this item. Supply no value or outcome; all input results must already exist or be in this request.",
+    )
     status = serializers.ChoiceField(
-        choices=OfflineEvaluationResult.Status.choices, help_text="Outcome of this scorer execution."
+        choices=OfflineEvaluationResult.Status.choices, default="ok", help_text="Outcome of this scorer execution."
     )
     value = ResultValueField(
         required=False,
@@ -299,6 +304,19 @@ class ResultSubmissionSerializer(_StrictDataclassSerializer[ResultSubmission]):
 
     def validate(self, attrs: ResultSubmission) -> ResultSubmission:
         errors: dict[str, list[str] | dict[str, list[str]]] = {}
+        if attrs.compute:
+            if (
+                attrs.value is not None
+                or attrs.status != "ok"
+                or attrs.error_code is not None
+                or attrs.payload is not None
+                or attrs.evaluator_trace_id is not None
+                or attrs.evaluated_at is not None
+            ):
+                raise serializers.ValidationError(
+                    {"compute": "A composite request accepts only the item, scorer version, and compute flag."}
+                )
+            return attrs
         if attrs.status == "ok" and attrs.value is None:
             errors["value"] = ["A score is required for an ok result."]
         if attrs.status != "ok" and attrs.value is not None:
