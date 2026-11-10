@@ -41,7 +41,7 @@ Row tooltips show the table or column description from the HogQL schema when one
 A collapsed table or view's tooltip also says that a click shows its columns.
 The System folder tooltip describes project metadata, query logs, and schema information.
 The empty editor placeholder says "Write a SQL query."
-The plus button next to Run opens a new SQL editor in a new browser tab.
+The plus button next to Run opens a new SQL editor in a new browser tab, with an empty query instead of the current tab's unsaved working copy.
 When the database panel is collapsed, this button follows the connection selector.
 System tables mark `team_id` hidden, so it is absent from the tree, `SELECT *`, and `system.information_schema.columns`.
 The team guard still filters on it.
@@ -53,7 +53,8 @@ Warehouse series, warehouse property menus, and the data quality check editor ex
 After that request, catalog reloads also restore complete fields for consumers of the shared store.
 Schema mutations refresh previously hydrated or pending tables, as well as expanded nodes.
 Saved-query lists expose metadata only; refreshing them preserves the query and columns already fetched for an open editor tab.
-When the window regains focus, a loaded catalog refreshes, so views saved in another browser tab appear.
+When the window regains focus, the saved-query and folder lists reload, so views saved in another browser tab appear.
+The catalog refreshes on focus only when a view was added, removed, or renamed, because a catalog reload empties the tree while it runs.
 
 In PostHog Warehouse, sidebar search accepts `status:failed`, `status:running`, and `status:completed` to filter materialized views by their latest run status.
 The Models tab accepts the same status tokens and combines them with its name and lineage search syntax.
