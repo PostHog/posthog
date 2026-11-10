@@ -43,6 +43,7 @@ describe('CyclotronJobQueuePostgresV2 on Postgres', () => {
             CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+            ENCRYPTION_SALT_KEYS: '',
         })
         await queue.startAsProducer()
         await queue.queueInvocations([createExampleInvocation({}, {}, QUEUE)])

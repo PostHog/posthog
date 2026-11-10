@@ -14,7 +14,11 @@ describe('CyclotronJobQueueKafka on Kafka', () => {
         const created = jest.spyOn(KafkaProducerWrapper, 'create')
         const queue = new CyclotronJobQueueKafka(
             undefined,
-            { CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: false, CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '' },
+            {
+                CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: false,
+                CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+                ENCRYPTION_SALT_KEYS: '',
+            },
             10
         )
         await queue.startAsProducer()
