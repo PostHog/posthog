@@ -21,6 +21,10 @@ PROVER = ".github/scripts/dependency_proof/prove.py"
 RENOVATE = b"{ packageRules: [ { matchPackageNames: ['posthog-js'], minimumReleaseAge: null, }, ], }"
 
 
+def _fake_blob_sha(text: bytes) -> str:
+    return hashlib.sha256(text).hexdigest()[:40]
+
+
 def manifest(name: str, version_range: str) -> bytes:
     return json.dumps(
         {"name": "root", "packageManager": "pnpm@11.28.5", "dependencies": {name: version_range}}
@@ -60,7 +64,7 @@ class FakeGit:
 
     def blob(self, ref: str, path: str) -> str | None:
         text = self.trees[ref].get(path)
-        return None if text is None else hashlib.sha1(text).hexdigest()
+        return None if text is None else _fake_blob_sha(text)
 
     def show(self, ref: str, path: str) -> bytes | None:
         return self.trees[ref].get(path)
@@ -144,16 +148,16 @@ def test_an_eligible_update_is_attested_after_a_frozen_targeted_replay(tmp_path:
     assert proof == prover.Proof(
         ["package.json", "pnpm-lock.yaml"],
         {
-            ".github/renovate.json5": hashlib.sha1(RENOVATE).hexdigest(),
+            ".github/renovate.json5": _fake_blob_sha(RENOVATE),
             ".github/scripts/dependency_proof/__init__.py": None,
             ".github/scripts/dependency_proof/__main__.py": None,
             ".github/scripts/dependency_proof/policy.py": None,
-            PROVER: hashlib.sha1(b"the prover").hexdigest(),
+            PROVER: _fake_blob_sha(b"the prover"),
             ".github/workflows/dependency-proof-trigger.yml": None,
             ".github/workflows/dependency-proof.yml": None,
             ".npmrc": None,
             ".pnpmfile.cjs": None,
-            "pnpm-workspace.yaml": hashlib.sha1(WORKSPACE).hexdigest(),
+            "pnpm-workspace.yaml": _fake_blob_sha(WORKSPACE),
             "pnpmfile.cjs": None,
         },
     )

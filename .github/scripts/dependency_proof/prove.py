@@ -144,8 +144,11 @@ class GitHub:
 
 def fetch(request: urllib.request.Request, attempts: int = 3) -> bytes:
     """A GET with retries on transport errors and 5xx. Anything else fails the proof."""
+    if request.type != "https":
+        raise ValueError(f"refusing a non-https URL: {request.full_url}")
     for attempt in range(attempts):
         try:
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- the scheme is checked above, and both callers build the URL from a constant https origin
             with urllib.request.urlopen(request, timeout=60) as response:
                 return response.read()
         except (urllib.error.URLError, TimeoutError) as error:
