@@ -141,7 +141,7 @@ import type { DataWarehouseSavedQueryFolder, UserType } from '../../../types'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { DataWarehouseSavedQuerySummary } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
-import { BreakingColumnChange, getBreakingColumnChangeDialogProps } from './BreakingColumnChangeDialog'
+import { BreakingColumnChangeDeclinedError } from './BreakingColumnChangeDialog'
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { Response } from './fixSQLErrorsLogic'
@@ -375,34 +375,6 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
     shouldRematerialize?: boolean
     sync_frequency?: string
     types: string[][]
-}
-
-function getBreakingColumnChange(error: unknown): BreakingColumnChange | null {
-    if (!(error instanceof ApiError) || error.code !== 'breaking_column_change') {
-        return null
-    }
-    const extra = error.data?.extra
-    if (!extra || !Array.isArray(extra.removed_columns) || !Array.isArray(extra.affected_views)) {
-        return null
-    }
-    return {
-        removedColumns: extra.removed_columns.filter((column: unknown): column is string => typeof column === 'string'),
-        affectedViews: extra.affected_views.filter((view: unknown): view is string => typeof view === 'string'),
-        affectedViewCount: typeof extra.affected_view_count === 'number' ? extra.affected_view_count : 0,
-        hasHiddenAffectedViews: extra.has_hidden_affected_views === true,
-    }
-}
-
-function confirmBreakingColumnChange(change: BreakingColumnChange): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-        LemonDialog.open(
-            getBreakingColumnChangeDialogProps(
-                change,
-                () => resolve(true),
-                () => resolve(false)
-            )
-        )
-    })
 }
 
 type LegacyDataVisualizationNode = DataVisualizationNode & {
@@ -3544,28 +3516,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             updateView: async ({ view, draftId }) => {
                 const biEditorState = getActiveBIEditorState()
                 const latestView = await api.dataWarehouseSavedQueries.get(view.id)
-                const saveView = async (payload: UpdateViewPayload): Promise<boolean> => {
+                // The views logic asks the user to confirm a breaking column change; a decline leaves the view unsaved.
+                const saveViewUnlessDeclined = async (payload: UpdateViewPayload): Promise<boolean> => {
                     try {
-                        await api.dataWarehouseSavedQueries.update(payload.id, payload)
+                        await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery(payload)
+                        return true
                     } catch (error) {
-                        const breakingChange = getBreakingColumnChange(error)
-                        if (!breakingChange) {
-                            throw error
-                        }
-                        if (!(await confirmBreakingColumnChange(breakingChange))) {
+                        if (error instanceof BreakingColumnChangeDeclinedError) {
                             return false
                         }
-                        await api.dataWarehouseSavedQueries.update(payload.id, {
-                            ...payload,
-                            acknowledge_breaking_changes: true,
-                        })
+                        throw error
                     }
-                    if (payload.shouldRematerialize) {
-                        dataWarehouseViewsLogic.actions.runDataWarehouseSavedQuery(payload.id)
-                    }
-                    dataWarehouseViewsLogic.actions.loadDataWarehouseSavedQueries()
-                    dataWarehouseViewsLogic.actions.refreshDatabaseSchema()
-                    return true
                 }
                 // A real conflict means someone else changed the query text since this edit began.
                 // Detect it by comparing the server's current query against the baseline this edit
@@ -3588,11 +3549,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         diffShowRunButton: false,
                         onAccept: async () => {
                             actions.setQueryInput(view.query?.query ?? '')
-                            const saved = await saveView({
-                                ...view,
-                                edited_history_id: latestView?.latest_history_id,
-                            })
-                            if (saved) {
+                            if (
+                                await saveViewUnlessDeclined({
+                                    ...view,
+                                    edited_history_id: latestView?.latest_history_id,
+                                })
+                            ) {
                                 actions.updateViewSuccess(view, draftId, biEditorState)
                             }
                         },
@@ -3602,11 +3564,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 } else {
                     // No foreign edit — send the server's current head so the backend's own
                     // edited_history_id check accepts the save even if the editor's cached head drifted.
-                    const saved = await saveView({
-                        ...view,
-                        edited_history_id: latestView?.latest_history_id ?? view.edited_history_id,
-                    })
-                    if (saved) {
+                    if (
+                        await saveViewUnlessDeclined({
+                            ...view,
+                            edited_history_id: latestView?.latest_history_id ?? view.edited_history_id,
+                        })
+                    ) {
                         actions.updateViewSuccess(view, draftId, biEditorState)
                     }
                 }
