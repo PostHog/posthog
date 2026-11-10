@@ -1,7 +1,5 @@
 import type { Editor, EditorEvents } from '@tiptap/core'
 
-import { buildHtmlWrapDesign } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
-
 import {
     EMAIL_DOCUMENT_DESIGN_KEY,
     EMAIL_DOCUMENT_VERSION,
@@ -9,18 +7,22 @@ import {
     emailDocumentFromValue,
     isEmailDocEmpty,
 } from './emailDocument'
+import { emailDocumentToUnlayer } from './emailDocumentToUnlayer'
 import { renderEmailHtml, renderEmailText } from './renderEmailHtml'
 import { unlayerToEmailDocument } from './unlayerToEmailDocument'
 
 type Listener = () => void
 
-/** The saved form of a document: an old-editor design showing the rendered html, with the document alongside it. */
+/**
+ * The saved form of a document: the same email as an old-editor design, so it stays editable there if the new editor
+ * is turned off, with the document and the html it rendered alongside it.
+ */
 export function designForDocument(doc: Record<string, any>, html: string): Record<string, any> | null {
     if (isEmailDocEmpty(doc)) {
         return null
     }
-    const document: EmailDocument = { version: EMAIL_DOCUMENT_VERSION, doc }
-    return { ...(buildHtmlWrapDesign(html) as Record<string, any>), [EMAIL_DOCUMENT_DESIGN_KEY]: document }
+    const document: EmailDocument = { version: EMAIL_DOCUMENT_VERSION, doc, html }
+    return { ...emailDocumentToUnlayer(doc), [EMAIL_DOCUMENT_DESIGN_KEY]: document }
 }
 
 /**
@@ -73,7 +75,8 @@ export function createEmailEditorAdapter(editor: Editor): Record<string, any> {
         },
         loadDesign: (design: Record<string, any>, html?: string) => {
             const wrappedHtml = design?.body?.rows?.[0]?.columns?.[0]?.contents?.[0]?.values?.html
-            const { document } = emailDocumentFromValue({ design, html: wrappedHtml })
+            const savedHtml = design?.[EMAIL_DOCUMENT_DESIGN_KEY]?.html ?? wrappedHtml
+            const { document } = emailDocumentFromValue({ design, html: html ?? savedHtml })
             // An old-editor template applied to an open email has to show here too.
             const doc = document?.doc ?? unlayerToEmailDocument(design, html ?? wrappedHtml).document?.doc
             if (doc) {

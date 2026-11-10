@@ -1,3 +1,4 @@
+import { emailDocumentToUnlayer } from './emailDocumentToUnlayer'
 import { unlayerToEmailDocument } from './unlayerToEmailDocument'
 
 jest.mock('./components/EmailHtmlBlockView', () => ({ EmailHtmlBlockView: () => null }))
@@ -310,5 +311,93 @@ describe('unlayerToEmailDocument', () => {
         ).document?.doc.content as Record<string, any>[]
         expect(kept.type).toBe('emailHtml')
         expect(kept.attrs?.html).toContain('border-top: 1px solid red')
+    })
+
+    it('keeps every block when an email goes to the old editor and comes back', () => {
+        const text = (value: string): Record<string, any> => ({ type: 'text', text: value })
+        const paragraph = (...nodes: Record<string, any>[]): Record<string, any> => ({
+            type: 'paragraph',
+            content: nodes,
+        })
+        const doc = {
+            type: 'doc',
+            attrs: { page: { bodyWidth: 560, backgroundColor: '#eeeeee' } },
+            content: [
+                { type: 'heading', attrs: { level: 1 }, content: [text('Rollback héading 🚀')] },
+                paragraph(
+                    text('Hi '),
+                    { type: 'variable', attrs: { expression: 'person.properties.name', fallback: 'there' } },
+                    text(' read '),
+                    {
+                        type: 'text',
+                        text: 'the docs',
+                        marks: [{ type: 'link', attrs: { href: 'https://example.com/docs' } }],
+                    }
+                ),
+                {
+                    type: 'bulletList',
+                    content: [
+                        { type: 'listItem', content: [paragraph(text('First point'))] },
+                        { type: 'listItem', content: [paragraph(text('Second point'))] },
+                    ],
+                },
+                {
+                    type: 'emailImage',
+                    attrs: { src: 'https://example.com/a.png', alt: 'An image', href: 'https://example.com/image' },
+                },
+                { type: 'emailButton', attrs: { href: 'https://example.com/start' }, content: [text('Get started')] },
+                { type: 'horizontalRule' },
+                {
+                    type: 'emailColumns',
+                    content: [
+                        { type: 'emailColumn', attrs: { ratio: 1 }, content: [paragraph(text('Left column'))] },
+                        { type: 'emailColumn', attrs: { ratio: 1 }, content: [paragraph(text('Right column'))] },
+                    ],
+                },
+                { type: 'emailHtml', attrs: { html: '<p>Custom markup</p>' } },
+            ],
+        }
+
+        const back = unlayerToEmailDocument(emailDocumentToUnlayer(doc)).document?.doc
+        const blocks: string[] = []
+        const visit = (node: Record<string, any>): void =>
+            (node.content ?? []).forEach((child: Record<string, any>) => {
+                if (child.type === 'emailColumns' || child.type === 'emailColumn') {
+                    visit(child)
+                } else {
+                    blocks.push(child.type)
+                }
+            })
+        visit(back ?? {})
+        const json = JSON.stringify(back)
+
+        // The body's top and bottom padding comes back as a spacer at each end.
+        expect(blocks).toEqual([
+            'emailSpacer',
+            'heading',
+            'paragraph',
+            'bulletList',
+            'emailImage',
+            'emailButton',
+            'horizontalRule',
+            'paragraph',
+            'paragraph',
+            'emailHtml',
+            'emailSpacer',
+        ])
+        for (const expected of [
+            'Rollback héading 🚀',
+            'person.properties.name',
+            'https://example.com/docs',
+            'Second point',
+            'https://example.com/a.png',
+            'https://example.com/image',
+            'Get started',
+            'https://example.com/start',
+            'Right column',
+            'Custom markup',
+        ]) {
+            expect(json).toContain(expected)
+        }
     })
 })

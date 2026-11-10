@@ -585,28 +585,50 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
         assert validated["email"]["value"]["design"] == build_html_wrap_design(new_html)
 
-    def test_stale_wrap_drops_the_email_document_stored_with_it(self):
+    @parameterized.expand(
+        [
+            (
+                "stale_wrap",
+                build_html_wrap_design("<p>Old</p>"),
+                {"version": 1, "doc": {"type": "doc"}},
+                "<p>New</p>",
+                True,
+            ),
+            (
+                "current_wrap",
+                build_html_wrap_design("<p>Same</p>"),
+                {"version": 1, "doc": {"type": "doc"}},
+                "<p>Same</p>",
+                False,
+            ),
+            (
+                "stale_old_editor_design",
+                {"body": {"rows": [{"columns": [{"contents": [{"type": "text", "values": {"text": "<p>Old</p>"}}]}]}]}},
+                {"version": 1, "doc": {"type": "doc"}, "html": "<p>Old</p>"},
+                "<p>New</p>",
+                True,
+            ),
+            (
+                "current_old_editor_design",
+                {
+                    "body": {
+                        "rows": [{"columns": [{"contents": [{"type": "text", "values": {"text": "<p>Same</p>"}}]}]}]
+                    }
+                },
+                {"version": 1, "doc": {"type": "doc"}, "html": "<p>Same</p>"},
+                "<p>Same</p>",
+                False,
+            ),
+        ]
+    )
+    def test_email_document_stored_with_the_design(self, _name, design, document, html, replaced):
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
-        value = {
-            "from": "hi@posthog.com",
-            "to": "a@b.com",
-            "subject": "hi",
-            "html": "<p>Changed through the API</p>",
-            "design": {**build_html_wrap_design("<p>Old</p>"), "emailDocument": {"version": 1, "doc": {"type": "doc"}}},
-        }
+        stored = {**design, "emailDocument": document}
+        value = {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "html": html, "design": stored}
 
         validated = validate_inputs(inputs_schema, {"email": {"value": value}})
 
-        assert validated["email"]["value"]["design"] == build_html_wrap_design("<p>Changed through the API</p>")
-
-    def test_current_wrap_keeps_the_email_document_stored_with_it(self):
-        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
-        design = {**build_html_wrap_design("<p>Same</p>"), "emailDocument": {"version": 1, "doc": {"type": "doc"}}}
-        value = {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "html": "<p>Same</p>", "design": design}
-
-        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
-
-        assert validated["email"]["value"]["design"] == design
+        assert validated["email"]["value"]["design"] == (build_html_wrap_design(html) if replaced else stored)
 
     def test_wrap_design_edited_in_the_visual_editor_is_kept(self):
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]

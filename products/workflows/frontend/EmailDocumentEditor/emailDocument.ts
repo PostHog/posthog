@@ -149,6 +149,8 @@ export interface EmailDocument {
     version: number
     /** A TipTap document whose `attrs.page` holds the partial page style, so a page change is undoable like any edit. */
     doc: JSONContent
+    /** The html it rendered when saved. Left out by documents saved before the design held the full old-editor email. */
+    html?: string
 }
 
 export function resolvePageStyle(page: Partial<EmailPageStyle> | null | undefined): EmailPageStyle {
@@ -230,7 +232,8 @@ export function emailDocumentFromValue(value: { html?: string | null; design?: D
     if (!candidate || typeof candidate !== 'object' || candidate.version !== EMAIL_DOCUMENT_VERSION || !candidate.doc) {
         return { document: null, stale: false }
     }
-    if (wrappedHtmlOf(value?.design) !== (value?.html ?? '')) {
+    const savedHtml = typeof candidate.html === 'string' ? candidate.html : wrappedHtmlOf(value?.design)
+    if (savedHtml !== (value?.html ?? '')) {
         return { document: null, stale: true }
     }
     return { document: candidate as EmailDocument, stale: false }

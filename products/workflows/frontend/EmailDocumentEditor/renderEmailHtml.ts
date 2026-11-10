@@ -408,6 +408,42 @@ function htmlBlockFragment(html: string): string {
     return styles + doc.body.innerHTML
 }
 
+/** The element inside a text block's cell, which the old editor's text blocks hold as they are. */
+function textBlockElement(node: JSONContent, ctx: RenderContext): string | null {
+    const style = styleOf(node)
+    switch (node.type) {
+        case 'paragraph': {
+            const inner = renderInline(node.content, ctx) || '&nbsp;'
+            const paragraphCss = css({ margin: 0, ...textProperties(style, ctx, ctx.page.fontSize) })
+            return `<p style="${paragraphCss}">${inner}</p>`
+        }
+        case 'heading': {
+            const level = Math.min(3, Math.max(1, Number(node.attrs?.level) || 1))
+            const headingCss = css({
+                margin: 0,
+                ...textProperties({ lineHeight: 125, fontWeight: 700, ...style }, ctx, headingSize(level, ctx.page)),
+            })
+            return `<h${level} style="${headingCss}">${renderInline(node.content, ctx) || '&nbsp;'}</h${level}>`
+        }
+        case 'bulletList':
+        case 'orderedList':
+            return renderList(node, ctx)
+        case 'blockquote': {
+            const children = node.content ?? []
+            const inner = children
+                .map((child, index) =>
+                    child.type === 'paragraph'
+                        ? `<p style="${css({ margin: index === children.length - 1 ? 0 : '0 0 8px 0', ...textProperties(style, ctx, ctx.page.fontSize) })}">${renderInline(child.content, ctx) || '&nbsp;'}</p>`
+                        : renderBlockTable([child], ctx)
+                )
+                .join('')
+            return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-left:3px solid ${safeColor(style.borderColor, '#d0d0d0')};padding:0 0 0 12px">${inner}</td></tr></table>`
+        }
+        default:
+            return null
+    }
+}
+
 function renderBlock(node: JSONContent, parentCtx: RenderContext): string {
     const style = styleOf(node)
     const ctx = withLinkStyle(parentCtx, style)
@@ -418,38 +454,13 @@ function renderBlock(node: JSONContent, parentCtx: RenderContext): string {
             if (isOnlyLiquidTags(text)) {
                 return text.trim()
             }
-            const inner = renderInline(node.content, ctx) || '&nbsp;'
-            const paragraphCss = css({ margin: 0, ...textProperties(style, ctx, ctx.page.fontSize) })
-            return blockCell(style, `<p style="${paragraphCss}">${inner}</p>`)
+            return blockCell(style, textBlockElement(node, ctx) ?? '')
         }
-        case 'heading': {
-            const level = Math.min(3, Math.max(1, Number(node.attrs?.level) || 1))
-            const headingCss = css({
-                margin: 0,
-                ...textProperties({ lineHeight: 125, fontWeight: 700, ...style }, ctx, headingSize(level, ctx.page)),
-            })
-            return blockCell(
-                style,
-                `<h${level} style="${headingCss}">${renderInline(node.content, ctx) || '&nbsp;'}</h${level}>`
-            )
-        }
+        case 'heading':
         case 'bulletList':
         case 'orderedList':
-            return blockCell(style, renderList(node, ctx))
-        case 'blockquote': {
-            const children = node.content ?? []
-            const inner = children
-                .map((child, index) =>
-                    child.type === 'paragraph'
-                        ? `<p style="${css({ margin: index === children.length - 1 ? 0 : '0 0 8px 0', ...textProperties(style, ctx, ctx.page.fontSize) })}">${renderInline(child.content, ctx) || '&nbsp;'}</p>`
-                        : renderBlockTable([child], ctx)
-                )
-                .join('')
-            return blockCell(
-                style,
-                `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-left:3px solid ${safeColor(style.borderColor, '#d0d0d0')};padding:0 0 0 12px">${inner}</td></tr></table>`
-            )
-        }
+        case 'blockquote':
+            return blockCell(style, textBlockElement(node, ctx) ?? '')
         case 'horizontalRule': {
             const width = px(style.width, 100) || 100
             const line = `<table role="presentation" width="${Math.min(width, 100)}%" align="${style.textAlign ?? 'center'}" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:${px(style.lineWidth, 1) || 1}px solid ${safeColor(style.borderColor, '#dddddd')};font-size:1px;line-height:1px">&nbsp;</td></tr></table>`
@@ -490,7 +501,7 @@ function renderBlockTable(nodes: JSONContent[] | undefined, ctx: RenderContext):
 }
 
 /** The editor keeps an empty paragraph at the end so there's always somewhere to type. It isn't part of the email. */
-function withoutTrailingEmptyParagraphs(nodes: JSONContent[]): JSONContent[] {
+export function withoutTrailingEmptyParagraphs(nodes: JSONContent[]): JSONContent[] {
     let end = nodes.length
     while (end > 0 && nodes[end - 1].type === 'paragraph' && !nodes[end - 1].content?.length) {
         end -= 1
@@ -522,6 +533,32 @@ a { color: ${safeColor(page.linkColor, '#1d4aff')}; }
 }
 ${page.oldEditorStyles ? oldEditorCss(page) : ''}
 ${custom}`.trim()
+}
+
+function oldEditorContext(page: EmailPageStyle, contentWidth: number, style: EmailBlockStyle): RenderContext {
+    return withLinkStyle({ page, contentWidth }, style)
+}
+
+/**
+ * A block as the old editor shows it: a text block's element goes in one of its text blocks, and anything else is
+ * markup for one of its HTML blocks. A Liquid tag alone on its line stays bare, as it is when sent.
+ */
+export function oldEditorBlockHtml(
+    node: JSONContent,
+    page: EmailPageStyle,
+    contentWidth: number
+): { kind: 'text' | 'html'; html: string } {
+    const ctx = oldEditorContext(page, contentWidth, styleOf(node))
+    if (node.type === 'paragraph' && isOnlyLiquidTags(textFromNodes(node.content))) {
+        return { kind: 'html', html: textFromNodes(node.content).trim() }
+    }
+    const text = textBlockElement(node, ctx)
+    return text !== null ? { kind: 'text', html: text } : { kind: 'html', html: renderBlockTable([node], ctx) }
+}
+
+/** A button's label as markup, with its variables written out. */
+export function oldEditorInlineHtml(nodes: JSONContent[] | undefined, page: EmailPageStyle): string {
+    return renderInline(nodes, { page, contentWidth: page.bodyWidth })
 }
 
 /** The email as it is sent. An empty document renders to nothing, so "no content" checks keep working. */

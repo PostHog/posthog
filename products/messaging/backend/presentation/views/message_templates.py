@@ -1220,6 +1220,8 @@ class MessageTemplatesViewSet(
                 )
 
             new_design = apply_design_operations(design, operations)
+            # The new email editor's document describes the design from before these edits.
+            new_design.pop("emailDocument", None)
             for warning in validate_design(new_design):
                 logger.info("email_template_design_warning", warning=warning, template_id=str(template.id))
 
