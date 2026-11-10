@@ -231,16 +231,28 @@ const emailBodyTooManyTags = (emailStep: EmailStep): SendRefusal => ({
     },
 })
 
-const liquidTagsInBody = (emailStep: EmailStep): number => {
-    const email = emailStep.config.inputs.email
-    if (email?.templating !== 'liquid') {
-        return 0
+const liquidTagsIn = (value: unknown): number => {
+    if (typeof value === 'string') {
+        return countLiquidTags(value)
     }
-    return [email.value?.html, email.value?.text].reduce(
-        (total: number, part: unknown) => total + (typeof part === 'string' ? countLiquidTags(part) : 0),
-        0
-    )
+    if (value && typeof value === 'object') {
+        return Object.values(value).reduce((total: number, item) => total + liquidTagsIn(item), 0)
+    }
+    return 0
 }
+
+// The renderer drops the email editor's `design` state before parsing, so its tags never cost a parse.
+const liquidTagsInStep = (emailStep: EmailStep): number =>
+    Object.entries(emailStep.config.inputs).reduce((total: number, [key, input]) => {
+        if (input?.templating !== 'liquid') {
+            return total
+        }
+        const rendered =
+            key === 'email' && input.value && typeof input.value === 'object'
+                ? { ...input.value, design: undefined }
+                : input.value
+        return total + liquidTagsIn(rendered)
+    }, 0)
 
 const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
 
@@ -1600,7 +1612,7 @@ export class CdpApi {
         if (longUtmValue) {
             return { refused: utmValueTooLong(emailStep, longUtmValue) }
         }
-        if (liquidTagsInBody(emailStep) > EMAIL_BODY_TAG_LIMIT) {
+        if (liquidTagsInStep(emailStep) > EMAIL_BODY_TAG_LIMIT) {
             return { refused: emailBodyTooManyTags(emailStep) }
         }
         const renderContext = await this.workerRenderContext(hogFlow, invocation)

@@ -3667,6 +3667,11 @@ describe('CDP API', () => {
                     () => storedTemplateRendering({ html: '{{ x }}'.repeat(100_000) }, 'x'),
                 ],
                 [
+                    'has a subject full of Liquid tags, which would take seconds to parse',
+                    'email_body_too_many_tags',
+                    () => storedTemplateRendering({ subject: '{{ x }}'.repeat(100_000) }, 'x'),
+                ],
+                [
                     'has a UTM value one character over the length limit',
                     'utm_value_too_long',
                     () => storedUtmValue('x'.repeat(UTM_VALUE_LIMIT_CHARS + 1)),
@@ -3695,6 +3700,21 @@ describe('CDP API', () => {
                     expect(await queuedIds()).toEqual([])
                 }
             )
+
+            it('accepts a send with files whose email editor design state holds more Liquid tags than the step may render', async () => {
+                const inputs = storedEmail({ html: '<p>{{ variables.chunk }}</p>' })
+                inputs.email.value.design = { body: '{{ variables.chunk }}'.repeat(EMAIL_BODY_TAG_LIMIT + 1) }
+                const { id: flowId } = await insertHogFlow(transactionalFlow('api', 'active', 'transactional', inputs))
+
+                const res = await sendWithFiles(newKey(), [reference(invoice)], {
+                    flowId,
+                    variables: { chunk: 'x' },
+                    acceptedSend: { tracking: { captureEngagement: false } },
+                })
+
+                expect(res.status).toBe(202)
+                expect(await queuedIds()).toEqual([res.body.invocation_id])
+            })
 
             it('accepts a send without files whose email step body holds more Liquid tags than a send with files may', async () => {
                 const options = await storedTemplateRendering(
