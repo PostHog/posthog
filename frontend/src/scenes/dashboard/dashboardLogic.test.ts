@@ -2187,6 +2187,13 @@ describe('dashboardLogic', () => {
                     placement: DashboardPlacement.ProjectHomepage,
                     width: 1200,
                     columns: 12,
+                    editable: true,
+                },
+                {
+                    name: 'a shared view',
+                    placement: DashboardPlacement.Public,
+                    width: 1200,
+                    columns: 12,
                     editable: false,
                 },
             ])(

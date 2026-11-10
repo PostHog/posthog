@@ -1763,22 +1763,21 @@ export interface dashboardLogicMeta {
         ) => void | Promise<void>
     }
     __keaTypeGenInternalSelectorTypes: {
-        canUndoLayoutChange: (layoutHistory: any) => boolean
-        canRedoLayoutChange: (layoutHistory: any) => boolean
+        canUndoLayoutChange: (layoutHistory: LayoutHistory) => boolean
+        canRedoLayoutChange: (layoutHistory: LayoutHistory) => boolean
         canEditLayout: (
             dashboard: DashboardType | null,
             canEditDashboard: boolean,
             isEditablePlacement: boolean,
-            placement: DashboardPlacement,
             currentLayoutSize: 'sm' | 'xs'
         ) => boolean
         undoLayoutDisabledReason: (
-            canEditLayout: any,
+            canEditLayout: boolean,
             tileSavesPending: boolean,
             canUndoLayoutChange: boolean
         ) => string | null
         redoLayoutDisabledReason: (
-            canEditLayout: any,
+            canEditLayout: boolean,
             tileSavesPending: boolean,
             canRedoLayoutChange: boolean
         ) => string | null
@@ -3775,21 +3774,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.layoutHistory],
             (layoutHistory: LayoutHistory): boolean => layoutHistory.redo.length > 0,
         ],
-        // Only the dashboard page has the Undo controls, so an embedded dashboard does not save moves it cannot undo.
         canEditLayout: [
-            (s) => [s.dashboard, s.canEditDashboard, s.isEditablePlacement, s.placement, s.currentLayoutSize],
+            (s) => [s.dashboard, s.canEditDashboard, s.isEditablePlacement, s.currentLayoutSize],
             (
                 dashboard: DashboardType | null,
                 canEditDashboard: boolean,
                 isEditablePlacement: boolean,
-                placement: DashboardPlacement,
                 currentLayoutSize: 'sm' | 'xs'
-            ): boolean =>
-                !!dashboard &&
-                canEditDashboard &&
-                isEditablePlacement &&
-                placement === DashboardPlacement.Dashboard &&
-                currentLayoutSize !== 'xs',
+            ): boolean => !!dashboard && canEditDashboard && isEditablePlacement && currentLayoutSize !== 'xs',
         ],
         undoLayoutDisabledReason: [
             (s) => [s.canEditLayout, s.tileSavesPending, s.canUndoLayoutChange],

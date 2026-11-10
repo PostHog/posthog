@@ -257,8 +257,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const activeTabIndex = tileGroupSections.findIndex((section) => getSectionGroupKey(section) === activeTileGroupTab)
     // Inputs keep their own text undo, so the layout shortcuts stand down while one has focus. A modal or a
     // carried tile sits over the grid, so an undo there would move tiles the viewer cannot see or is holding.
+    // Undo belongs to the dashboard page: an embed shows no Undo controls and can share a page with other dashboards.
     const layoutShortcutsEnabled =
         canEditLayout &&
+        placement === DashboardPlacement.Dashboard &&
         !carryingTile &&
         !showTextTileModal &&
         !showImageTileModal &&
