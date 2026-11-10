@@ -8,6 +8,7 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -102,6 +103,7 @@ describe('email domain setup entry points', () => {
     afterEach(() => {
         cleanup()
         jest.useRealTimers()
+        jest.restoreAllMocks()
     })
 
     describe.each([
@@ -250,7 +252,8 @@ describe('email domain setup entry points', () => {
             expect(screen.getByText('2 senders')).toBeInTheDocument()
         })
 
-        it('creates one sender when Enter is pressed again while the first is saving', async () => {
+        it('creates and announces one sender when the address changes and Enter is pressed again while saving', async () => {
+            const toastSuccess = jest.spyOn(lemonToast, 'success')
             await renderInApp(<MessageChannels />)
             fireEvent.click(addSenderButtonOf(OTHER_DOMAIN))
             await flush()
@@ -263,6 +266,9 @@ describe('email domain setup entry points', () => {
 
             expect(backend.senderConfig(44)).toMatchObject({ email: `billing@${OTHER_DOMAIN}` })
             expect(backend.senderConfig(45)).toBeUndefined()
+            expect(toastSuccess.mock.calls.map(([message]) => message)).toEqual([
+                `Added billing@${OTHER_DOMAIN} as a sender`,
+            ])
         })
 
         it('keeps the add sender button disabled for project members below admin', async () => {
@@ -317,7 +323,7 @@ describe('email domain setup entry points', () => {
         })
     })
 
-    it('stays on the domain and offers to finish verification when a new sender from the email card does not verify', async () => {
+    it('stays on the submitted domain and offers to finish verification when a new sender from the email card does not verify', async () => {
         setWizardFlag(true)
         backend.addSender({ email: 'hi@stale.example.com', name: 'Stale', verified: true })
         backend.addSender({ email: 'team@news.example.com', name: 'News', verified: true })
@@ -326,7 +332,12 @@ describe('email domain setup entry points', () => {
         fireEvent.click(element('workflows-channel-catalog-connect-email'))
         await flush()
         fireEvent.change(element('email-sender-add-local-part'), { target: { value: 'billing' } })
+        const releaseCreate = backend.hold('integration_create')
         fireEvent.click(element('email-sender-add-submit'))
+        await flush()
+        fireEvent.click(element('email-sender-add-domain'))
+        fireEvent.click(within(document.querySelector('.Popover') as HTMLElement).getByText('news.example.com'))
+        releaseCreate()
         await flush()
         await waitForModalToClose()
 

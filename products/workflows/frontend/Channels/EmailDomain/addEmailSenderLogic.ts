@@ -20,6 +20,9 @@ export type AddEmailSenderEntry = 'catalog' | 'domain_row'
 
 export interface AddedSender {
     sender: IntegrationConfigApi
+    email: string
+    domain: string
+    existingSendersOnDomain: number
     verified: boolean
 }
 
@@ -125,7 +128,6 @@ export type addEmailSenderLogicType = MakeLogicType<
     addEmailSenderLogicMeta
 >
 
-/** Adds a sender to a domain the project already has, without walking the domain setup again. */
 export const addEmailSenderLogic = kea<addEmailSenderLogicType>([
     path(['products', 'workflows', 'frontend', 'Channels', 'EmailDomain', 'addEmailSenderLogic']),
     connect(() => ({
@@ -170,7 +172,6 @@ export const addEmailSenderLogic = kea<addEmailSenderLogicType>([
                 setLocalPart: (_, { localPart }) => localPart.trim(),
             },
         ],
-        // null until the person types a name, so the name follows the picked domain's existing senders.
         senderNameInput: [
             null as string | null,
             {
@@ -256,8 +257,13 @@ export const addEmailSenderLogic = kea<addEmailSenderLogicType>([
                 addSender: async (): Promise<AddedSender | null> => {
                     const { selectedDomain, fromAddress, currentTeamId, submitDisabledReason } = values
                     const sibling = selectedDomain?.senders[0]
-                    if (submitDisabledReason || !fromAddress || !currentTeamId || !sibling) {
+                    if (submitDisabledReason || !fromAddress || !currentTeamId || !selectedDomain || !sibling) {
                         return null
+                    }
+                    const submitted = {
+                        email: fromAddress,
+                        domain: selectedDomain.domain,
+                        existingSendersOnDomain: selectedDomain.senders.length,
                     }
                     actions.setSubmitError(null)
                     let created: IntegrationConfigApi
@@ -265,7 +271,7 @@ export const addEmailSenderLogic = kea<addEmailSenderLogicType>([
                         created = await integrationsCreate(String(currentTeamId), {
                             kind: 'email',
                             config: {
-                                email: fromAddress,
+                                email: submitted.email,
                                 name: values.senderName.trim(),
                                 provider: sibling.config.provider,
                                 mail_from_subdomain: sibling.config.mail_from_subdomain,
@@ -280,7 +286,7 @@ export const addEmailSenderLogic = kea<addEmailSenderLogicType>([
                     }
                     // nosemgrep: prefer-codegen-api-namespaced-integrations -- the generated integrationsEmailVerifyCreate returns void and demands a config body the endpoint ignores
                     const verification = await api.integrations.verifyEmail(created.id).catch(() => null)
-                    return { sender: created, verified: verification?.status === 'success' }
+                    return { ...submitted, sender: created, verified: verification?.status === 'success' }
                 },
             },
         ],
@@ -298,14 +304,13 @@ export const addEmailSenderLogic = kea<addEmailSenderLogicType>([
             posthog.capture('email sender added', {
                 entry: values.entry,
                 verified: addedSender.verified,
-                existing_senders_on_domain: values.selectedDomain?.senders.length ?? 0,
+                existing_senders_on_domain: addedSender.existingSendersOnDomain,
             })
             if (addedSender.verified) {
-                lemonToast.success(`Added ${values.fromAddress} as a sender`)
+                lemonToast.success(`Added ${addedSender.email} as a sender`)
                 actions.closeAddSender()
-            } else if (values.selectedDomain) {
-                // The refresh marks the domain unverified, and the default pick would then skip to another domain.
-                actions.selectDomain(values.selectedDomain.domain)
+            } else {
+                actions.selectDomain(addedSender.domain)
             }
             actions.loadIntegrations()
         },
