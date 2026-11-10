@@ -1,3 +1,5 @@
+import './Today.scss'
+
 import { useActions } from 'kea'
 
 import { IconBug, IconCode, IconPalette, IconTrending } from '@posthog/icons'

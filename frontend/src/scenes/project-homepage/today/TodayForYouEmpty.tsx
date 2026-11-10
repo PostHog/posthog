@@ -1,15 +1,22 @@
+import './Today.scss'
+
 import { useValues } from 'kea'
+import { Suspense } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { Button, IconStack, IconStackItem } from '@posthog/quill'
+import { Button, IconStack, IconStackItem, Skeleton } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
 import { TodayAiRow } from './TodayAiRow'
 import { todayPromptsLogic } from './todayPromptsLogic'
-import { TodaySelfDrivingStatus } from './TodaySelfDrivingStatus'
 import { TodayWatchedNote } from './TodayWatchedNote'
+
+const TodaySelfDrivingStatus = lazyWithRetry(() =>
+    import('./TodaySelfDrivingStatus').then(({ TodaySelfDrivingStatus }) => ({ default: TodaySelfDrivingStatus }))
+)
 
 function QuietRow(): JSX.Element {
     return (
@@ -50,5 +57,9 @@ export function TodayForYouEmpty(): JSX.Element {
             </>
         )
     }
-    return <TodaySelfDrivingStatus fallback={<QuietRow />} />
+    return (
+        <Suspense fallback={<Skeleton className="h-12 w-full" />}>
+            <TodaySelfDrivingStatus fallback={<QuietRow />} />
+        </Suspense>
+    )
 }

@@ -1,3 +1,5 @@
+import './Today.scss'
+
 import { IconRocket } from '@posthog/icons'
 
 import { urls } from 'scenes/urls'

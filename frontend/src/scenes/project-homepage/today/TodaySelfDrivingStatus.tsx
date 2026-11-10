@@ -1,3 +1,5 @@
+import './Today.scss'
+
 import { useValues } from 'kea'
 import type { ReactNode } from 'react'
 

@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { openAIConsentLegalDialog } from 'scenes/settings/organization/aiConsentCopy'
+import { retryImport } from 'lib/utils/retryImport'
 
 import { TodayPromptRow } from './TodayPromptRow'
 import { todayPromptsLogic } from './todayPromptsLogic'
@@ -36,7 +36,12 @@ export function TodayAiRow(): JSX.Element | null {
                         <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => openAIConsentLegalDialog({ onConfirm: () => acceptDataProcessing() })}
+                            onClick={() =>
+                                void retryImport(() => import('scenes/settings/organization/aiConsentCopy')).then(
+                                    ({ openAIConsentLegalDialog }) =>
+                                        openAIConsentLegalDialog({ onConfirm: () => acceptDataProcessing() })
+                                )
+                            }
                             data-attr="today-ai-row-enable"
                         >
                             Turn on

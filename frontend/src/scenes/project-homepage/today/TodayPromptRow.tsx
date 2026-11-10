@@ -1,3 +1,5 @@
+import './Today.scss'
+
 import type { ReactNode } from 'react'
 
 import { IconStack, IconStackItem } from '@posthog/quill'

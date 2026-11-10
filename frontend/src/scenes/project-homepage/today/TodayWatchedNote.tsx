@@ -1,3 +1,5 @@
+import './Today.scss'
+
 import { IconStack, IconStackItem } from '@posthog/quill'
 
 import { WATCHED_PRODUCT_ICONS } from './todayRowIcons'
