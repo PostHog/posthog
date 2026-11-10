@@ -185,12 +185,13 @@ pure function  →  kea logic test  →  Django TestCase  →  ClickHouse-backed
 ```
 
 Aim for a ratio, not a cap: many tests at the bottom, very few at the top — if you want more coverage, add it at the bottom.
-When logic is hard to test cheaply, that's a design signal: extract it into a pure function (or a kea logic) and test that directly rather than standing up a database, a request, and a render.
-Escalating to the next rung is the last resort, not the default.
+Pick the cheapest rung that still observes what a caller observes: a lower rung that sees only an internal call or a mock is not a cheaper test of the same behavior.
+When logic is hard to test cheaply, that's a design signal: extract it into a pure function (or a kea logic) and test it through its own interface rather than standing up a database, a request, and a render.
+Don't mock the tangled code's internal helpers to make it cheap instead, and when the behavior lives in a query, a transaction, or the wiring, test it at the rung where a caller observes it.
 
 - **Use `TestCase`, not `TransactionTestCase`, unless you truly need it.** `TransactionTestCase` flushes the DB between tests instead of rolling back a transaction — dramatically slower, and a common source of cross-test interference. For `transaction.on_commit` side effects use `self.captureOnCommitCallbacks(execute=True)`; reaching ClickHouse is not a reason to switch (`ClickhouseTestMixin` runs on a plain `TestCase`).
-- Mock only true boundaries — network, external APIs, the clock, queues. Don't mock your own internal helpers; that's how change-detector tests are born.
-- Frontend: prefer a kea logic test (`logic.actions` / `logic.values`) over a full component render whenever the behavior lives in the logic, and don't snapshot large rendered trees — assert specific fields instead.
+- Use the real dependency where the test environment has it (Postgres, ClickHouse, Redis), and a faithful fake for services CI can't reach. Stub a boundary only to inject a fault or a timing the fake can't produce, then assert the outcome, not that the stub was called. Don't mock your own internal helpers; that's how change-detector tests are born.
+- Frontend: prefer a kea logic test over a full component render whenever the behavior lives in the logic: call its actions as a component would and assert on the values a component reads. Don't snapshot large rendered trees — assert specific fields instead.
 - Keep tests deterministic and isolated: no `time.sleep` or arbitrary waits (use `time_machine.travel(..., tick=False)` or wait on a real condition), no real network or live external services, and they must pass in any order. Don't leave a `@skip`/`xfail`/`.only` without a one-line reason and a linked issue.
 
 #### Fast developer ("unit") tests

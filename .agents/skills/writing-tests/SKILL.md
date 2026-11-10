@@ -3,7 +3,7 @@ name: writing-tests
 description: >
   Gates whether a new test should exist and forces it to be efficient, protecting CI from low-value test bloat.
   Use before any change to what a pytest, Jest, or Playwright test asserts or sets up, down to one fixture or one assertion added to an existing block.
-  Front-loads the value bar (every test must catch a realistic regression no existing test already catches; extend the nearest existing test before writing a new standalone one; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; pick the cheapest level that still observes what a caller observes; real dependencies or faithful fakes, stubs only to inject faults; Django TestCase over TransactionTestCase; no sleeps; no time bombs from unpinned dates; no database a test never uses).
+  Front-loads the value bar (every test must catch a realistic regression no existing test already catches; extend the nearest existing test before writing a new standalone one; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; the cheapest level that still observes what a caller observes; real dependencies or faithful fakes, stubs only for faults or timing; Django TestCase over TransactionTestCase; no sleeps; no time bombs from unpinned dates; no database a test never uses).
   For fixing an existing flaky test use `/fixing-flaky-tests`; after this gate says a Playwright test is warranted, use `/playwright-test` for mechanics.
 ---
 
@@ -117,7 +117,6 @@ Without that guard, a refactor that stops calling the decision passes every pure
 
 - If logic is in (or can be moved to) a pure function, test the function — don't stand up a DB, a request, or a render.
 - Frontend: when the behavior lives in a **kea logic**, test the logic, not a full component render: call its actions as a component would and assert on the `logic.values` a component reads.
-  Don't assert which internal actions or listeners fired on the way.
   A `render()` + DOM-query test is for things only the DOM can show.
 - Reach for ClickHouse or a browser only when the regression genuinely lives there — not because it was the first way the test came to mind.
 
