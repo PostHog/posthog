@@ -6,6 +6,7 @@
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
+import type { CommonConfig } from '~/common/config'
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -29,7 +30,8 @@ export class CyclotronJobQueueKafka implements JobQueue {
         private config: Pick<
             CdpConfig,
             'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA' | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
-        >,
+        > &
+            Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>,
         private consumerBatchSize: number
     ) {
         this.sanitizer = createInvocationSanitizer(config)

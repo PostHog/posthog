@@ -211,6 +211,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
                 user_id=self.user.id, team_id=self.team.id, exported_asset_id=asset.id, scope="session_recording:read"
             )
             headers = {"authorization": f"Bearer {renderer_token}"}
+            viewer = f"e{self.team.pk}"
         if auth == "share_link":
             recording = SessionRecording.objects.create(session_id=session_id, team=self.team)
             sharing = SharingConfiguration.objects.create(team=self.team, recording=recording, enabled=True)
@@ -244,9 +245,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
         urls = [source.get("url") for source in body["sources"]]
         if expects_block_urls:
-            assert urls == [
-                f"http://testserver/replay-blocks/{self.team.pk}/{session_id}/{viewer}/v1.ref{i}" for i in range(2)
-            ]
+            assert urls == [f"/replay-blocks/{self.team.pk}/{session_id}/{viewer}/v1.ref{i}" for i in range(2)]
             claims = decode_jwt(
                 body["block_token"], PosthogJwtAudience.REPLAY_BLOCKS, verification_keys=["replay-blocks-key"]
             )
