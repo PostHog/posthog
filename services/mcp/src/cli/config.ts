@@ -21,7 +21,6 @@ function firstEnv(names: string[]): string | undefined {
     return undefined
 }
 
-// Shells and .env files often leave wrapping quotes or a trailing newline on the value.
 function resolveApiKey(): string | undefined {
     const name = API_KEY_ENV_NAMES.find((candidate) => process.env[candidate])
     if (!name) {
