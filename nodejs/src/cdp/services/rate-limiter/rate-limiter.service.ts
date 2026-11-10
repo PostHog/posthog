@@ -136,6 +136,53 @@ redis.call('hset', key, 'resv', slotAt)
 return {0, math.ceil(slotAt - now), 1}
 `
 
+// All-or-nothing claim over several token buckets at once.
+//   KEYS[i]           = bucket hash key i (same `ts` and `pool` fields as CLAIM_UP_TO_LUA)
+//   ARGV[4(i-1) + 1]  = requested tokens from bucket i (integer)
+//   ARGV[4(i-1) + 2]  = capacity of bucket i
+//   ARGV[4(i-1) + 3]  = refill rate of bucket i (tokens per second)
+//   ARGV[4(i-1) + 4]  = TTL seconds of bucket i
+//
+// Returns 1 when every bucket covered its request and was charged, 0 when at least one bucket
+// was short and none was charged. The script reads every bucket before it writes any, because
+// Redis does not roll back the writes of a script that fails partway: a bucket that cannot be
+// read must fail the claim before another bucket is charged. A denial writes nothing, which
+// leaves each pool and its `ts` as they were, so refill keeps accruing from the last charge.
+// In cluster mode every key must hash to one slot.
+const CLAIM_ALL_OR_NOTHING_ACROSS_LUA = `
+local time = redis.call('TIME')
+local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+
+local after = {}
+for i, key in ipairs(KEYS) do
+    local base = (i - 1) * 4
+    local requested = tonumber(ARGV[base + 1])
+    local capacity = tonumber(ARGV[base + 2])
+    local refillPerSecond = tonumber(ARGV[base + 3])
+
+    local existing = redis.call('hmget', key, 'ts', 'pool')
+    local available = capacity
+    if existing[1] ~= false then
+        local elapsedMs = math.max(0, now - tonumber(existing[1]))
+        local currentTokens = capacity
+        if existing[2] ~= false then
+            currentTokens = tonumber(existing[2])
+        end
+        available = math.min(capacity, currentTokens + (elapsedMs / 1000.0) * refillPerSecond)
+    end
+    if available < requested then
+        return 0
+    end
+    after[i] = available - requested
+end
+
+for i, key in ipairs(KEYS) do
+    redis.call('hset', key, 'ts', now, 'pool', after[i])
+    redis.call('expire', key, tonumber(ARGV[(i - 1) * 4 + 4]))
+end
+return 1
+`
+
 export interface RateLimiterConfig {
     /** Logical name for metrics/logging only (e.g. 'ses'). */
     name: string
@@ -202,6 +249,57 @@ export class RateLimiterService {
     ): Promise<{ granted: boolean; retryAfterMs: number | null; reserved: boolean }> {
         const { granted, retryAfterMs, reserved } = await this.evalClaim(req, reserveOnDenyMs, true)
         return { granted: granted >= req.requested, retryAfterMs, reserved }
+    }
+
+    /**
+     * Claims every request in one atomic step: either each bucket covers its request and all of
+     * them are charged, or none is charged. A failure partway charges nothing either. Use it when
+     * one action spends several allowances, so that a denial or an error on one bucket cannot
+     * leave the others charged for an action that never happened.
+     *
+     * Returns 'unavailable' when the limiter itself failed, so a caller can tell a reached cap from
+     * storage it cannot read. A denial reports no retry horizon and reserves no slot.
+     *
+     * In cluster mode every key must hash to one slot, for example through a shared `{hash tag}`.
+     */
+    public async claimAllOrNothingAcross(reqs: ClaimRequest[]): Promise<'granted' | 'denied' | 'unavailable'> {
+        const endTimer = claimLatency.startTimer({ limiter: this.config.name })
+        try {
+            const result = await this.valkey.useClient(
+                { name: `rate-limiter:${this.config.name}:claimAllOrNothingAcross`, timeout: 1000 },
+                (client) =>
+                    client.eval(
+                        CLAIM_ALL_OR_NOTHING_ACROSS_LUA,
+                        reqs.length,
+                        ...reqs.map((req) => req.key),
+                        ...reqs.flatMap((req) => [
+                            String(req.requested),
+                            String(req.capacity),
+                            String(req.refillPerSecond),
+                            String(req.ttlSeconds ?? 3600),
+                        ])
+                    )
+            )
+            if (result !== 0 && result !== 1) {
+                logger.warn('🪙', `RateLimiterService(${this.config.name}) returned invalid grant`, {
+                    keys: reqs.map((req) => req.key),
+                    raw: result,
+                })
+                claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
+                return 'unavailable'
+            }
+            claimCounter.inc({ limiter: this.config.name, result: result === 1 ? 'granted_full' : 'denied' })
+            return result === 1 ? 'granted' : 'denied'
+        } catch (err) {
+            logger.warn('🪙', `RateLimiterService(${this.config.name}) claim threw`, {
+                keys: reqs.map((req) => req.key),
+                error: String(err),
+            })
+            claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
+            return 'unavailable'
+        } finally {
+            endTimer()
+        }
     }
 
     /**
