@@ -15,6 +15,8 @@ from products.alerts_platform.backend.facade.contracts import PlatformAlertOutco
 # The public id of the alert whose firing files the signal: its insight stack row's, or the
 # configuration's own when it has no row.
 FIRING_SIGNAL_REQUESTED_KEY: Final = "firing_signal_alert_id"
+# Set when errors came before the firing, so the emit activity reads whether they interrupted one.
+FIRING_SIGNAL_AFTER_ERRORS_KEY: Final = "firing_signal_after_errors"
 
 
 @frozen
@@ -27,6 +29,7 @@ class FiringSignalRequest:
     episode_started_at: datetime
     breaches: tuple[str, ...] = ()
     triggered_dates: tuple[str, ...] = ()
+    after_errors: bool = False
 
 
 def requested_firing_signals(
@@ -48,6 +51,7 @@ def requested_firing_signals(
                     episode_started_at=episode.started_at,
                     breaches=tuple(str(breach) for breach in group.source_detail.get("breaches") or ()),
                     triggered_dates=tuple(str(date) for date in group.source_detail.get("triggered_dates") or ()),
+                    after_errors=bool(group.source_detail.get(FIRING_SIGNAL_AFTER_ERRORS_KEY)),
                 )
             )
     return tuple(requests)

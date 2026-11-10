@@ -180,11 +180,17 @@ def prepare_alert_firing_signal(
 
 
 def prepare_platform_firing_signal(
-    alert: FiringAlert, firing: FiringStart, *, breaches: list[str], investigated: bool
+    alert: FiringAlert,
+    firing: FiringStart,
+    *,
+    breaches: list[str],
+    investigated: bool,
+    resumes_interrupted_episode: Callable[[], bool] = lambda: False,
 ) -> AlertFiringSignal | None:
     """The same as `prepare_alert_firing_signal`, for a firing the alerts platform recorded.
 
-    The platform's insight cycle already decided that the firing starts an episode. Never raises.
+    `resumes_interrupted_episode` runs after the cheap gates, as the insight stack's read does.
+    Never raises.
     A retried emission skips a firing that an earlier attempt already sent or dropped, so it spends
     no second token of the cap.
     """
@@ -195,7 +201,7 @@ def prepare_platform_firing_signal(
         firing,
         breaches=breaches,
         skip_reason=AlertFiringSkipReason.INVESTIGATED if investigated else None,
-        resumes_interrupted_episode=lambda: False,
+        resumes_interrupted_episode=resumes_interrupted_episode,
     )
 
 

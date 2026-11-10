@@ -6,10 +6,9 @@ emits the signal after the record (`prepare_platform_firing_signals`), through t
 own gates, cap and payload.
 """
 
-from collections.abc import Callable
-from contextlib import AbstractContextManager
 from dataclasses import replace
 from datetime import timedelta
+from functools import partial
 from typing import Final
 from uuid import UUID
 
@@ -28,7 +27,11 @@ from posthog.temporal.alerts.alert_firing_signal import (
 from posthog.temporal.alerts.investigation import investigates
 
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts.backend.platform_firing_signal_detail import FIRING_SIGNAL_REQUESTED_KEY, FiringSignalRequest
+from products.alerts.backend.platform_firing_signal_detail import (
+    FIRING_SIGNAL_AFTER_ERRORS_KEY,
+    FIRING_SIGNAL_REQUESTED_KEY,
+    FiringSignalRequest,
+)
 from products.alerts_platform.backend.facade import api as platform
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
@@ -45,18 +48,16 @@ logger = structlog.get_logger(__name__)
 # How far back a firing that errors looks for the state the errors interrupted.
 _INTERRUPTION_LOOKBACK: Final = timedelta(days=30)
 _INTERRUPTION_PAGE: Final = 50
+# Short, because the emit activity's whole budget covers this wait, the read and the send.
+_INTERRUPTION_SLOT_WAIT_SECONDS: Final = 10.0
 
 
-def with_firing_signal(
-    check: PlatformAlertCheckInput,
-    evaluation: SourceBatchEvaluation,
-    *,
-    query_slot: Callable[[], AbstractContextManager[None]],
-) -> SourceBatchEvaluation:
+def with_firing_signal(check: PlatformAlertCheckInput, evaluation: SourceBatchEvaluation) -> SourceBatchEvaluation:
     """The evaluation, with a firing that starts an episode the agent never investigates marked for
     its inbox signal. Only an owned check, because the insight stack signals for the rest.
 
-    `query_slot` holds a slot of the shared ClickHouse cap around the history read.
+    Reads no history, so a slow read can never hold back the check. A firing after errors is marked
+    as such, and the emit activity decides whether the errors interrupted an earlier firing.
     """
     if not check.owned_by_platform or len(evaluation.outcomes) != 1:
         return evaluation
@@ -75,15 +76,12 @@ def with_firing_signal(
         return evaluation
     if _investigated(check.team_id, check.legacy_configuration_id):
         return evaluation
-    # Before the history read, because few teams turn every firing into a signal.
     if not signals_every_firing(check.team_id):
         return evaluation
-    public_id = check.destination_alert_id
-    if previous_state == PlatformAlertState.ERRORED.value and _resumes_interrupted_firing(
-        check.team_id, public_id, query_slot
-    ):
-        return evaluation
-    group = replace(group, source_detail={**group.source_detail, FIRING_SIGNAL_REQUESTED_KEY: str(public_id)})
+    detail = {**group.source_detail, FIRING_SIGNAL_REQUESTED_KEY: str(check.destination_alert_id)}
+    if previous_state == PlatformAlertState.ERRORED.value:
+        detail[FIRING_SIGNAL_AFTER_ERRORS_KEY] = True
+    group = replace(group, source_detail=detail)
     return replace(evaluation, outcomes=(replace(outcome, groups=(group,)),))
 
 
@@ -100,9 +98,11 @@ def _investigated(team_id: int, legacy_configuration_id: UUID | None) -> bool:
     return alert is not None and investigates(alert, firing=True)
 
 
-def _resumes_interrupted_firing(
-    team_id: int, public_id: UUID, query_slot: Callable[[], AbstractContextManager[None]]
-) -> bool:
+def _resumes_after_errors(request: FiringSignalRequest) -> bool:
+    return request.after_errors and _resumes_interrupted_firing(request)
+
+
+def _resumes_interrupted_firing(request: FiringSignalRequest) -> bool:
     """Whether the errors before this check interrupted a firing, as the insight stack decides it.
 
     An insight alert's failed check ends its platform firing, so without this a transient query
@@ -110,16 +110,20 @@ def _resumes_interrupted_firing(
     because a missed signal costs less than a duplicate report. So is a history with no move into
     the errors, because those errors began before the window it reads.
     """
+    # Imported here, because the check cycle imports this module.
+    from products.alerts.backend.platform_source_cycle import ClickHouseQuerySlot  # noqa: PLC0415
+
+    holder = f"firing-signal:{request.configuration_id}:{request.episode_started_at.isoformat()}"
     try:
-        with query_slot():
+        with ClickHouseQuerySlot(holder, wait_seconds=_INTERRUPTION_SLOT_WAIT_SECONDS)():
             page = platform.notable_checks_by_public_id(
-                team_id=team_id,
-                public_id=public_id,
+                team_id=request.team_id,
+                public_id=UUID(request.alert_id),
                 since=timezone.now() - _INTERRUPTION_LOOKBACK,
                 limit=_INTERRUPTION_PAGE,
             )
     except Exception:
-        logger.exception("Failed to read a platform insight alert's history", alert_id=str(public_id))
+        logger.exception("Failed to read a platform insight alert's history", alert_id=request.alert_id)
         return True
     if page is None:
         return True
@@ -155,6 +159,7 @@ def prepare_platform_firing_signals(requests: tuple[FiringSignalRequest, ...]) -
                 firing,
                 breaches=list(request.breaches),
                 investigated=_investigated(request.team_id, legacy_configuration_id),
+                resumes_interrupted_episode=partial(_resumes_after_errors, request),
             )
         except Exception:
             logger.exception("Failed to prepare a platform insight firing's signal", alert_id=request.alert_id)

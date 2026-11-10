@@ -1241,7 +1241,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             ("a team without the all-firing scope", {}, PlatformAlertOwner.PLATFORM, None, False, "investigated_only"),
         ]
     )
-    def test_a_firing_asks_for_an_inbox_signal_only_when_it_starts_an_uninvestigated_episode(
+    def test_a_firing_files_an_inbox_signal_only_when_it_starts_an_uninvestigated_episode(
         self,
         _name: str,
         overrides: dict[str, Any],
@@ -1264,11 +1264,18 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         with (
             patch(f"{_EMITTER_MODULE}.get_analytics_alert_scope", return_value=scope),
+            patch(
+                f"{_EMITTER_MODULE}.get_source_config",
+                return_value=SignalSourceConfigSnapshot(enabled=True, created_by_id=None, config={}),
+            ),
+            patch(f"{_EMITTER_MODULE}.get_analytics_alert_name_patterns", return_value=AlertNamePatterns()),
             patch(f"{_FIRING_SIGNAL_MODULE}.platform.notable_checks_by_public_id", return_value=history),
         ):
             outcome = self._fire(configuration)
+            record_outcomes(self.team.id, (outcome,), CUTOFF)
+            prepared = prepare_platform_firing_signals(requested_firing_signals(self.team.id, (outcome,)))
 
-        assert bool(requested_firing_signals(self.team.id, (outcome,))) is requested
+        assert bool(prepared) is requested
 
     @parameterized.expand(
         [
