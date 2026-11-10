@@ -49501,6 +49501,11 @@ export namespace Schemas {
       readonly connection_warning: string | null;
     }
 
+    export interface ExternalDataSourceSyncState {
+      /** Opaque digest of the sync state the sources list shows: each source's status and last completed run, and each table's status, sync toggle, error, last sync and row count. It changes when that state changes. Compare it with an earlier value; do not parse it. */
+      fingerprint: string;
+    }
+
     export type ExternalQueryErrorCode = typeof ExternalQueryErrorCode[keyof typeof ExternalQueryErrorCode];
 
 
