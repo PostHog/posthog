@@ -1,11 +1,12 @@
 import { useActions } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconPlus } from '@posthog/icons'
+import { Button, Text, cn } from '@posthog/quill'
 
+import { CHECKS_CONTAINER } from 'products/data_quality/frontend/checkTableLayout'
 import { dataQualityCheckEditorLogic } from 'products/data_quality/frontend/dataQualityCheckEditorLogic'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
-import { SubjectChecksPanel } from 'products/data_quality/frontend/overview/SubjectChecksPanel'
+import { QuillSubjectChecksPanel } from 'products/data_quality/frontend/overview/QuillSubjectChecksPanel'
 
 import type { ChecksSubject } from '../catalogTableRows'
 
@@ -22,25 +23,24 @@ export function TableChecksPanel({ row }: { row: ChecksSubject }): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col gap-2 py-2">
+        <div className={cn(CHECKS_CONTAINER, 'flex flex-col gap-2 py-2')}>
             {row.checkGroup ? (
-                <div className="overflow-x-auto">
-                    <SubjectChecksPanel group={row.checkGroup} />
-                </div>
+                <QuillSubjectChecksPanel group={row.checkGroup} />
             ) : (
-                <p className="mb-0 px-2 text-secondary">No checks on this table yet.</p>
+                <Text size="xs" variant="muted" className="m-0">
+                    No checks on this table yet.
+                </Text>
             )}
             <div className="px-2">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconPlusSmall />}
+                <Button
+                    variant="outline"
                     onClick={addCheck}
                     disabledReason={row.subject ? undefined : "Checks can't be added to this table yet"}
                     data-attr="data-catalog-quality-add-check"
                 >
+                    <IconPlus />
                     Add check
-                </LemonButton>
+                </Button>
             </div>
         </div>
     )
