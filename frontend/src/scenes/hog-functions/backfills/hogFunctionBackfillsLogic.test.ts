@@ -79,6 +79,23 @@ describe('hogFunctionBackfillsLogic', () => {
         expect(mockApi.enableBackfills).toHaveBeenCalledWith(MOCK_HOG_FUNCTION_ID)
     })
 
+    it('shows an error after a failed enable, then opens backfills when trying again succeeds', async () => {
+        mockApi.get.mockResolvedValue(makeHogFunction())
+        mockApi.enableBackfills.mockRejectedValueOnce(new Error('Network error'))
+
+        logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ isReady: false, enableBackfillsFailed: true })
+
+        mockApi.enableBackfills.mockResolvedValueOnce({} as any)
+        mockApi.get.mockResolvedValue(makeHogFunction({ batch_export_id: MOCK_BATCH_EXPORT_ID }))
+        await expectLogic(logic, () => {
+            logic.actions.enableHogFunctionBackfills()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ isReady: true, enableBackfillsFailed: false })
+    })
+
     it('does not call enableHogFunctionBackfills when batch_export_id is already set', async () => {
         mockApi.get.mockResolvedValue(makeHogFunction({ batch_export_id: MOCK_BATCH_EXPORT_ID }))
 
