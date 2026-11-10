@@ -32,6 +32,7 @@ from posthog.tasks.alerts.utils import (
     RenderedInsightChart,
     next_check_time,
 )
+from posthog.temporal.ai.anomaly_investigation.workflow import _investigated_alert as load_investigated_alert
 from posthog.temporal.alerts.admission import admit_evaluation_slots, inflight_alert_ids, release_evaluation_slot
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 
@@ -55,6 +56,8 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration,
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
+from products.alerts.backend.platform_firing_signal import prepare_platform_firing_signals
+from products.alerts.backend.platform_firing_signal_detail import FiringSignalRequest, requested_firing_signals
 from products.alerts.backend.platform_investigation import claim_requested_investigations
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY, requested_investigation
 from products.alerts.backend.platform_source_cycle import (
@@ -94,16 +97,34 @@ from products.alerts_platform.backend.facade.contracts import (
     GroupingMode,
     IncidentAction,
     PlatformAlertOutcome,
+    PlatformCheckEvent,
+    PlatformCheckEventPage,
     PlatformConfigurationSnapshot,
     SourceEvaluationInputs,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.signals.backend.facade.source_configs import AlertNamePatterns, SignalSourceConfigSnapshot
 
 _MODULE = "products.alerts.backend.platform_source_cycle"
+_FIRING_SIGNAL_MODULE = "products.alerts.backend.platform_firing_signal"
+_EMITTER_MODULE = "posthog.temporal.alerts.alert_firing_signal"
 # A Wednesday, so no weekend rule applies.
 CUTOFF = datetime(2026, 9, 16, 10, tzinfo=UTC)
+
+
+def _check_event(*, previous_state: str, state: str) -> PlatformCheckEvent:
+    return PlatformCheckEvent(
+        occurred_at=CUTOFF - timedelta(hours=1),
+        evaluation_key="slot:earlier",
+        previous_state=PlatformAlertState(previous_state),
+        state=PlatformAlertState(state),
+        value=None,
+        condition={},
+        query_duration_ms=None,
+        error_message=None,
+    )
 
 
 class TestPlatformInsightEvaluation(APIBaseTest):
@@ -1173,6 +1194,39 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             assert investigation.evaluated["triggered_dates"] == ["2026-09-16"]
         assert len(claims.deliveries) == (1 if not claimed and verdict is None else 0)
 
+    def test_an_alert_insight_keeps_no_row_for_is_investigated_under_its_own_id(self) -> None:
+        alert = self._alert(detector_config={"type": "zscore", "threshold": 0.95, "window": 30})
+        insight = alert.insight
+        configuration = self._copy(
+            None,
+            owner=PlatformAlertOwner.PLATFORM,
+            created_by_id=self.user.id,
+            source_config={
+                "insight_id": insight.id,
+                SOURCE_CONDITION_KEY: {"detector": alert.detector_config},
+                "investigation_agent_enabled": True,
+                "investigation_gates_notifications": True,
+            },
+        )
+        alert.delete()
+
+        outcome = self._fire(configuration)
+        record_outcomes(self.team.id, (outcome,), CUTOFF)
+        claims = claim_requested_investigations(self.team.id, (outcome,))
+
+        assert outcome.held_delivery is not None
+        (start,) = claims.starts
+        assert (start.alert_id, start.user_id) == (str(configuration.id), self.user.id)
+        investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get(id=start.investigation_id)
+        assert (investigation.alert_configuration_id, investigation.configuration_id) == (None, configuration.id)
+        investigated = load_investigated_alert(self.team.id, configuration.id)
+        assert investigated is not None
+        assert (investigated.id, investigated.insight_id, investigated.investigation_gates_notifications) == (
+            configuration.id,
+            insight.id,
+            True,
+        )
+
     def test_a_firing_whose_investigation_cannot_be_decided_still_goes_out(self) -> None:
         _alert, configuration = self._investigated_alert(investigation_gates_notifications=True)
 
@@ -1181,6 +1235,167 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         assert outcome.held_delivery is None
         assert len(self.deliveries) == 1
+
+    @parameterized.expand(
+        [
+            ("an owned firing that starts an episode", {}, PlatformAlertOwner.PLATFORM, None, True),
+            ("a parallel run leaves the signal to the insight stack", {}, PlatformAlertOwner.SOURCE, None, False),
+            (
+                "an investigated alert waits for the agent's verdict",
+                {
+                    "detector_config": {"type": "zscore", "threshold": 0.95, "window": 30},
+                    "investigation_agent_enabled": True,
+                },
+                PlatformAlertOwner.PLATFORM,
+                None,
+                False,
+            ),
+            ("an alert already firing stays in its episode", {}, PlatformAlertOwner.PLATFORM, "firing", False),
+            (
+                "errors that interrupted a firing resume it",
+                {},
+                PlatformAlertOwner.PLATFORM,
+                "errored after firing",
+                False,
+            ),
+            (
+                "errors after a quiet alert end in a new episode",
+                {},
+                PlatformAlertOwner.PLATFORM,
+                "errored after not_firing",
+                True,
+            ),
+            (
+                "errors that began before the history window resume a firing",
+                {},
+                PlatformAlertOwner.PLATFORM,
+                "errored before the window",
+                False,
+            ),
+            ("a team without the all-firing scope", {}, PlatformAlertOwner.PLATFORM, None, False, "investigated_only"),
+        ]
+    )
+    def test_a_firing_files_an_inbox_signal_only_when_it_starts_an_uninvestigated_episode(
+        self,
+        _name: str,
+        overrides: dict[str, Any],
+        owner: str,
+        before: str | None,
+        requested: bool,
+        scope: str = "all_firing_alerts",
+    ) -> None:
+        configuration = self._copy(self._alert(**overrides), owner=owner)
+        with team_scope(self.team.id):
+            if before == "firing":
+                platform_testing.start_firing(configuration.id, team_id=self.team.id, at=CUTOFF - timedelta(hours=1))
+            elif before is not None:
+                platform_testing.set_check_status(configuration.id, "errored")
+        events: tuple[PlatformCheckEvent, ...] = (_check_event(previous_state="errored", state="errored"),)
+        if before != "errored before the window":
+            interrupted = (before or "").removeprefix("errored after ") or "not_firing"
+            events = (*events, _check_event(previous_state=interrupted, state="errored"))
+        history = PlatformCheckEventPage(events=events, total=len(events))
+
+        with (
+            patch(f"{_EMITTER_MODULE}.get_analytics_alert_scope", return_value=scope),
+            patch(
+                f"{_EMITTER_MODULE}.get_source_config",
+                return_value=SignalSourceConfigSnapshot(enabled=True, created_by_id=None, config={}),
+            ),
+            patch(f"{_EMITTER_MODULE}.get_analytics_alert_name_patterns", return_value=AlertNamePatterns()),
+            patch(f"{_FIRING_SIGNAL_MODULE}.platform.notable_checks_by_public_id", return_value=history),
+        ):
+            outcome = self._fire(configuration)
+            record_outcomes(self.team.id, (outcome,), CUTOFF)
+            prepared = prepare_platform_firing_signals(requested_firing_signals(self.team.id, (outcome,)))
+
+        assert bool(prepared) is requested
+
+    @parameterized.expand(
+        [
+            ("an owned alert files its signal", None, 1),
+            ("an alert disabled since files none", "disabled", 0),
+            ("a firing the record skipped files none", "unrecorded", 0),
+        ]
+    )
+    def test_a_recorded_firing_files_its_signal_while_the_platform_owns_the_alert(
+        self, _name: str, change: str | None, signals: int
+    ) -> None:
+        # A detector without the agent, because only a detector check keeps the dates it fired on.
+        alert = self._alert(
+            owner=PlatformAlertOwner.PLATFORM, detector_config={"type": "zscore", "threshold": 0.95, "window": 30}
+        )
+        configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
+        with patch(f"{_EMITTER_MODULE}.get_analytics_alert_scope", return_value="all_firing_alerts"):
+            outcome = self._fire(configuration)
+        if change != "unrecorded":
+            record_outcomes(self.team.id, (outcome,), CUTOFF)
+        if change == "disabled":
+            with team_scope(self.team.id):
+                platform_testing.set_enabled(configuration.id, False)
+
+        with (
+            patch(
+                f"{_EMITTER_MODULE}.get_source_config",
+                return_value=SignalSourceConfigSnapshot(enabled=True, created_by_id=None, config={}),
+            ),
+            patch(f"{_EMITTER_MODULE}.get_analytics_alert_scope", return_value="all_firing_alerts"),
+            patch(f"{_EMITTER_MODULE}.get_analytics_alert_name_patterns", return_value=AlertNamePatterns()),
+        ):
+            prepared = prepare_platform_firing_signals(requested_firing_signals(self.team.id, (outcome,)))
+
+        assert len(prepared) == signals
+        if prepared:
+            (request,) = requested_firing_signals(self.team.id, (outcome,))
+            assert prepared[0].alert_check_id == f"{configuration.id}:{request.episode_started_at.isoformat()}"
+            assert prepared[0].extra["breaches"] == ["above 100"]
+            assert prepared[0].extra["triggered_dates"] == ["2026-09-16"]
+
+    @parameterized.expand(
+        [
+            ("owned by the platform", PlatformAlertOwner.PLATFORM, True),
+            ("owned by its source", PlatformAlertOwner.SOURCE, False),
+        ]
+    )
+    def test_a_firing_of_an_alert_with_no_insight_stack_row_files_its_signal(
+        self, _name: str, owner: str, files: bool
+    ) -> None:
+        insight = self._alert().insight
+        configuration = self._copy(
+            None,
+            owner=owner,
+            source_config={"insight_id": insight.id, SOURCE_CONDITION_KEY: {"detector": {"type": "zscore"}}},
+        )
+        request = FiringSignalRequest(
+            team_id=self.team.id,
+            alert_id=str(configuration.id),
+            configuration_id=str(configuration.id),
+            episode_started_at=CUTOFF,
+            breaches=("above 100",),
+        )
+        with team_scope(self.team.id):
+            platform_testing.start_firing(configuration.id, team_id=self.team.id, at=CUTOFF)
+
+        with (
+            patch(
+                f"{_EMITTER_MODULE}.get_source_config",
+                return_value=SignalSourceConfigSnapshot(enabled=True, created_by_id=None, config={}),
+            ),
+            patch(f"{_EMITTER_MODULE}.get_analytics_alert_scope", return_value="all_firing_alerts"),
+            patch(f"{_EMITTER_MODULE}.get_analytics_alert_name_patterns", return_value=AlertNamePatterns()),
+        ):
+            prepared = prepare_platform_firing_signals((request,))
+
+        assert len(prepared) == (1 if files else 0)
+        if not files:
+            return
+        (signal,) = prepared
+        assert (signal.alert_id, signal.extra["insight_id"], signal.extra["detector_type"]) == (
+            str(configuration.id),
+            str(insight.id),
+            "zscore",
+        )
+        assert signal.extra["url"].endswith(f"?alert_id={configuration.id}")
 
     @parameterized.expand([("found", None, InvestigationStatus.DONE), ("failed", RuntimeError("no data"), "failed")])
     def test_a_metrics_firing_is_held_until_its_investigation_ends(
