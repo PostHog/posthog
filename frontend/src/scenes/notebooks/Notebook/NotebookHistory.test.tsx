@@ -2,7 +2,7 @@ import { JSONContent } from '@tiptap/core'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -312,9 +312,10 @@ converted`)
         expect(capture).toHaveBeenCalledTimes(2)
     })
 
-    it('pauses a hidden notebook stream and resumes from the last received event', async () => {
+    it.each([undefined, '10-1'])('resumes a hidden notebook from its content cursor (%s)', async (lastEventId) => {
         const hidden = jest.spyOn(document, 'hidden', 'get').mockReturnValue(false)
         const stream = jest.spyOn(api, 'stream')
+        jest.spyOn(ApiConfig, 'getCurrentProjectId').mockReturnValue(73)
         jest.spyOn(api.notebooks, 'get').mockResolvedValue({
             ...cachedNotebook,
             content: buildMarkdownNotebookContent('# Shared report'),
@@ -325,7 +326,9 @@ converted`)
         await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
 
         const connection = stream.mock.calls[stream.mock.calls.length - 1][1]
-        connection.onMessage({ id: '10-1', event: 'ping', data: '' })
+        if (lastEventId) {
+            connection.onMessage({ id: lastEventId, event: 'ping', data: '' })
+        }
         hidden.mockReturnValue(true)
         document.dispatchEvent(new Event('visibilitychange'))
         expect(connection.signal?.aborted).toBe(true)
@@ -334,8 +337,11 @@ converted`)
         hidden.mockReturnValue(false)
         document.dispatchEvent(new Event('visibilitychange'))
         expect(stream).toHaveBeenCalledWith(
-            expect.stringContaining(`/notebooks/${SHORT_ID}/collab/stream/`),
-            expect.objectContaining({ headers: { 'Last-Event-ID': '10-1' }, signal: expect.any(AbortSignal) })
+            `/api/projects/73/notebooks/${SHORT_ID}/collab/stream/`,
+            expect.objectContaining({
+                headers: { 'Last-Event-ID': lastEventId ?? `${cachedNotebook.version}-1` },
+                signal: expect.any(AbortSignal),
+            })
         )
     })
 

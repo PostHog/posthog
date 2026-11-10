@@ -22,7 +22,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { commentsLogic } from 'lib/components/Comments/commentsLogic'
@@ -1796,18 +1796,25 @@ export const notebookLogic = kea<notebookLogicType>([
                     }
 
                     void api
-                        .stream(getNotebooksCollabStreamRetrieveUrl(String(getCurrentTeamId()), values.shortId), {
-                            onMessage,
-                            onError,
-                            onOpen: () => {
-                                retryAttempt = 0
-                            },
-                            onClose,
-                            signal: controller.signal,
-                            headers: cache.markdownUpdateStreamLastEventId
-                                ? { 'Last-Event-ID': cache.markdownUpdateStreamLastEventId }
-                                : undefined,
-                        })
+                        .stream(
+                            getNotebooksCollabStreamRetrieveUrl(
+                                String(ApiConfig.getCurrentProjectId()),
+                                values.shortId
+                            ),
+                            {
+                                onMessage,
+                                onError,
+                                onOpen: () => {
+                                    retryAttempt = 0
+                                },
+                                onClose,
+                                signal: controller.signal,
+                                headers: {
+                                    'Last-Event-ID':
+                                        cache.markdownUpdateStreamLastEventId ?? `${values.notebook?.version ?? 0}-1`,
+                                },
+                            }
+                        )
                         .catch((error) => {
                             if (controller.signal.aborted) {
                                 return
