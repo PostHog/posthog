@@ -12,7 +12,7 @@ from functools import partial
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import connection
+from django.db import connections
 from django.utils import timezone
 
 import structlog
@@ -287,8 +287,9 @@ def _closing_connection(work: Callable[[], None]) -> None:
     try:
         work()
     finally:
-        # The query reads Postgres in the worker thread, and request cleanup only closes the request thread's connection.
-        connection.close()
+        # The query reads Postgres in the worker thread, possibly through a replica alias, and request cleanup
+        # only closes the request thread's connections.
+        connections.close_all()
 
 
 def list_derived_metric_names(team: Team, *, search: str = "") -> list[DerivedMetric]:
