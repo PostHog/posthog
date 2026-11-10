@@ -104,6 +104,25 @@ describe('comingSoonInterestLogic', () => {
         expect(surveySent()[1].$survey_submission_id).toBe('second-account')
     })
 
+    it.each([
+        ['the same account', 'first-account', 'Saved draft', true],
+        ['another account', 'second-account', '', false],
+    ])('restores answers saved before storage was split by account only for %s', (_, accountId, note, restored) => {
+        const legacyKey = (reducer: string): string =>
+            `products.workflows.frontend.Transactional.comingSoon.comingSoonInterestLogic.${SURVEY.surveyId}.${reducer}`
+        localStorage.setItem(legacyKey('submissionId'), JSON.stringify('first-account'))
+        localStorage.setItem(legacyKey('note'), JSON.stringify('Saved draft'))
+        logic.unmount()
+        initKeaTests()
+
+        logic = comingSoonInterestLogic({ ...SURVEY, accountId })
+        logic.mount()
+
+        expect(logic.values.note).toBe(note)
+        expect(logic.values.hasRecordedInterest).toBe(restored)
+        expect(localStorage.getItem(legacyKey('note')) === null).toBe(restored)
+    })
+
     it('does not send a blank note', () => {
         logic.actions.registerInterest()
         logic.actions.setNote('   ')

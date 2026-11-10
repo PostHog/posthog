@@ -24,6 +24,39 @@ const INTERESTED_RESPONSE = 'Interested'
 // The second click of a double click lands on the modal overlay, which would close the modal it just opened.
 const DOUBLE_CLICK_MS = 500
 
+const PATH_PREFIX = ['products', 'workflows', 'frontend', 'Transactional', 'comingSoon', 'comingSoonInterestLogic']
+
+interface SavedAnswers {
+    submissionId: string
+    note: string
+    noteSent: boolean
+}
+
+// Answers were once stored per survey, not per account. Only the account that wrote them may take them over.
+function takeLegacyAnswers({ surveyId, accountId }: ComingSoonInterestLogicProps): SavedAnswers | null {
+    if (!accountId) {
+        return null
+    }
+    const legacyKey = (reducer: string): string => [...PATH_PREFIX, surveyId, reducer].join('.')
+    try {
+        const read = (reducer: string): unknown => JSON.parse(localStorage.getItem(legacyKey(reducer)) ?? 'null')
+        if (read('submissionId') !== accountId) {
+            return null
+        }
+        const answers = {
+            submissionId: accountId,
+            note: String(read('note') ?? ''),
+            noteSent: read('noteSent') === true,
+        }
+        for (const reducer of ['submissionId', 'note', 'noteSent']) {
+            localStorage.removeItem(legacyKey(reducer))
+        }
+        return answers
+    } catch {
+        return null
+    }
+}
+
 function interestAnswer({ interestQuestionId }: ComingSoonInterestLogicProps): SurveyAnswer {
     return { questionIndex: 0, questionId: interestQuestionId, value: INTERESTED_RESPONSE }
 }
@@ -44,6 +77,9 @@ export interface comingSoonInterestLogicActions {
     }
     interestRecorded: (submissionId: string) => {
         submissionId: string
+    }
+    legacyAnswersRestored: (answers: SavedAnswers) => {
+        answers: SavedAnswers
     }
     noteClosed: () => {
         value: true
@@ -81,10 +117,11 @@ export const comingSoonInterestLogic = kea<comingSoonInterestLogicType>([
     props({} as ComingSoonInterestLogicProps),
     key(({ surveyId, accountId }) => `${surveyId}/${accountId}`),
     // pinned: the path names the localStorage keys that remember a person's interest
-    path((key) => ['products', 'workflows', 'frontend', 'Transactional', 'comingSoon', 'comingSoonInterestLogic', key]),
+    path((key) => [...PATH_PREFIX, key]),
     actions({
         registerInterest: true,
         interestRecorded: (submissionId: string) => ({ submissionId }),
+        legacyAnswersRestored: (answers: SavedAnswers) => ({ answers }),
         closeNote: true,
         noteClosed: true,
         setNote: (note: string) => ({ note }),
@@ -97,6 +134,7 @@ export const comingSoonInterestLogic = kea<comingSoonInterestLogicType>([
             { persist: true },
             {
                 interestRecorded: (_, { submissionId }) => submissionId,
+                legacyAnswersRestored: (_, { answers }) => answers.submissionId,
             },
         ],
         noteOpen: [
@@ -112,6 +150,7 @@ export const comingSoonInterestLogic = kea<comingSoonInterestLogicType>([
             { persist: true },
             {
                 setNote: (_, { note }) => note,
+                legacyAnswersRestored: (_, { answers }) => answers.note,
             },
         ],
         noteSent: [
@@ -119,6 +158,7 @@ export const comingSoonInterestLogic = kea<comingSoonInterestLogicType>([
             { persist: true },
             {
                 noteSubmitted: () => true,
+                legacyAnswersRestored: (_, { answers }) => answers.noteSent,
             },
         ],
     }),
@@ -167,7 +207,11 @@ export const comingSoonInterestLogic = kea<comingSoonInterestLogicType>([
             lemonToast.success('Thanks, we got your note')
         },
     })),
-    afterMount(({ values, props }) => {
+    afterMount(({ actions, values, props }) => {
+        const legacyAnswers = values.submissionId ? null : takeLegacyAnswers(props)
+        if (legacyAnswers) {
+            actions.legacyAnswersRestored(legacyAnswers)
+        }
         if (!values.hasRecordedInterest) {
             posthog.capture(SurveyEventName.SHOWN, {
                 [SurveyEventProperties.SURVEY_ID]: props.surveyId,
