@@ -142,6 +142,8 @@ impl Committer {
         .await
     }
 
+    /// Call before the client closes. The close bumps the member epoch, and the
+    /// broker rejects every commit that arrives after it, retries included.
     pub(crate) async fn flush_all(&self, timeout: Duration) -> bool {
         self.wait_until(timeout, |state| {
             state.queued.is_empty() && state.in_flight.is_empty()
