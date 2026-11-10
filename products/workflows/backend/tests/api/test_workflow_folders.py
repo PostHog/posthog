@@ -185,6 +185,8 @@ class TestWorkflowFolders(APIBaseTest):
             ("template_name_past_the_length", "messaging_templates", "_create_in_folder", "a" * 4000),
             ("unnamed_workflow_past_the_depth", "hog_flows", "_create_in_folder", "/".join(["Level"] * 50), None),
             ("unnamed_workflow_past_the_length", "hog_flows", "_create_in_folder", "a" * 3999, ""),
+            ("workflow_folder_alias_name_past_the_depth", "hog_flows", "folder", "/".join(["Level"] * 50)),
+            ("unnamed_workflow_folder_alias_past_the_length", "hog_flows", "folder", "a" * 3999, ""),
         ]
     )
     def test_create_in_folder_rejects_paths_past_the_tree_limits(
