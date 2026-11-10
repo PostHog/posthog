@@ -47,7 +47,15 @@ TEMPLATE_MAX_LAG_SECONDS = 24 * 60 * 60
 TEMPLATE_BUILD_LOCK = 0x7465_6D70_6C61_7465
 MODE_ENV = "POSTHOG_TEST_DB_TEMPLATE"
 REFRESH_RETRY_SECONDS = 15 * 60
-LIBPQ_TLS_OPTIONS = ("sslmode", "sslrootcert", "sslcert", "sslkey", "sslcrl", "sslnegotiation")
+LIBPQ_SECURITY_OPTIONS = (
+    "sslmode",
+    "sslrootcert",
+    "sslcert",
+    "sslkey",
+    "sslcrl",
+    "sslnegotiation",
+    "channel_binding",
+)
 
 
 class TemplateUnavailable(Exception):
@@ -60,7 +68,7 @@ class PostgresServer:
     port: str
     user: str
     password: str = field(repr=False)
-    tls: Mapping[str, str] = field(default_factory=dict)
+    security: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_django(cls, database: Mapping[str, Any]) -> PostgresServer:
@@ -70,12 +78,12 @@ class PostgresServer:
             port=str(database.get("PORT") or "5432"),
             user=database.get("USER") or "posthog",
             password=database.get("PASSWORD") or "",
-            tls={key: str(options[key]) for key in LIBPQ_TLS_OPTIONS if options.get(key)},
+            security={key: str(options[key]) for key in LIBPQ_SECURITY_OPTIONS if options.get(key)},
         )
 
     def conninfo(self, dbname: str) -> str:
         """Everything but the password, which psql takes from its environment rather than its argv."""
-        return make_conninfo(host=self.host, port=self.port, user=self.user, dbname=dbname, **self.tls)
+        return make_conninfo(host=self.host, port=self.port, user=self.user, dbname=dbname, **self.security)
 
     def connect(self, dbname: str) -> psycopg.Connection:
         return psycopg.connect(self.conninfo(dbname), password=self.password, autocommit=True, connect_timeout=5)
@@ -231,7 +239,9 @@ class TemplateStore:
 
     def _newest_local_template(self) -> str | None:
         for name in self.server.newest_databases_named(self.prefix):
-            if not name.endswith(BUILDING_SUFFIX) and self.checkout.contains(name.removeprefix(self.prefix)):
+            if name.endswith(BUILDING_SUFFIX) or not self.checkout.contains(name.removeprefix(self.prefix)):
+                continue
+            if not migrations_missing_from_checkout(self.server.recorded_migrations(name)):
                 return name
         return None
 

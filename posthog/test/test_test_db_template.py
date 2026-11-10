@@ -218,15 +218,19 @@ def test_prime_test_database_clones_the_template_unless_the_database_fits_the_ch
     assert (result.outcome, scratch.ledger()) == (outcome, ledger)
 
 
+@pytest.mark.parametrize("template", ["not-in-history", "records-a-reverted-migration"])
 @pytest.mark.parametrize(
     "start, ledger",
     [(None, None), ([APPLIED, FROM_NEWER_BRANCH], {APPLIED, FROM_NEWER_BRANCH})],
     ids=["missing", "newer-than-checkout"],
 )
-def test_prime_test_database_leaves_the_database_alone_without_a_template_from_the_checkout_history(
-    scratch: Scratch, tmp_path: Path, start: list[str] | None, ledger: set[str] | None
+def test_prime_test_database_leaves_the_database_alone_without_a_template_that_fits_the_checkout(
+    scratch: Scratch, tmp_path: Path, template: str, start: list[str] | None, ledger: set[str] | None
 ) -> None:
-    scratch.build_template(NOT_IN_HISTORY, [APPLIED, PENDING], tmp_path)
+    if template == "not-in-history":
+        scratch.build_template(NOT_IN_HISTORY, [APPLIED, PENDING], tmp_path)
+    else:
+        scratch.seed(scratch.store.name_for(scratch.head), [APPLIED, PENDING, FROM_NEWER_BRANCH])
     if start is not None:
         scratch.seed(scratch.target, start)
 
@@ -351,11 +355,21 @@ def test_usable_template_retries_a_failed_download_only_after_the_retry_window(
     assert (requests_within_window, requests_in_total) == (1, 2)
 
 
-def test_postgres_server_connects_with_the_tls_settings_of_the_django_database() -> None:
-    tls = {"sslmode": "require", "sslrootcert": "system"}
-    server = PostgresServer.from_django({**settings.DATABASES["default"], "OPTIONS": tls})
+@pytest.mark.parametrize(
+    "options, refusal",
+    [
+        (
+            {"sslmode": "require", "sslrootcert": "system"},
+            'weak sslmode "require" may not be used with sslrootcert=system',
+        ),
+        ({"sslmode": "disable", "channel_binding": "require"}, "channel binding required, but SSL not in use"),
+    ],
+    ids=["tls", "channel-binding"],
+)
+def test_postgres_server_connects_with_the_security_settings_of_the_django_database(
+    options: dict[str, str], refusal: str
+) -> None:
+    server = PostgresServer.from_django({**settings.DATABASES["default"], "OPTIONS": options})
 
-    with pytest.raises(
-        psycopg.OperationalError, match='weak sslmode "require" may not be used with sslrootcert=system'
-    ):
+    with pytest.raises(psycopg.OperationalError, match=refusal):
         server.database_exists("postgres")
