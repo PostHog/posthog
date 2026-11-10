@@ -3,7 +3,12 @@ import { PoolClient } from 'pg'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
-import { RecipientManagerRecipient, RecipientsManagerService } from '../../managers/recipients-manager.service'
+import {
+    PreferenceStatus,
+    RecipientManagerRecipient,
+    RecipientsManagerService,
+} from '../../managers/recipients-manager.service'
+import { FrequencyCapCheck } from '../recipient-preferences.service'
 import { AUTHORIZATION_TIMEOUT_MS, SandboxAuthorization } from './sandbox-authorization'
 import {
     SandboxEmailService,
@@ -211,7 +216,7 @@ describe('SandboxEmailService', () => {
         expect(deps.claimCaps).not.toHaveBeenCalled()
     })
 
-    const withRecipientChecks = (preferencesByIdentifier: Record<string, Record<string, string>> = {}) => {
+    const withRecipientChecks = (preferencesByIdentifier: Record<string, Record<string, PreferenceStatus>> = {}) => {
         const recipients = new RecipientsManagerService({} as PostgresRouter)
         jest.spyOn(recipients, 'get').mockImplementation(({ identifier }) => {
             const preferences = preferencesByIdentifier[identifier]
@@ -270,7 +275,8 @@ describe('SandboxEmailService', () => {
         expect(deps.claimCaps).toHaveBeenCalledTimes(2)
     })
 
-    const capped = () => Promise.resolve({ capped: true })
+    const capped = (): Promise<FrequencyCapCheck> =>
+        Promise.resolve({ capped: true, nextSlotAt: now.getTime() + 3_600_000, holdHours: null })
     const accepted: SandboxSendOutcome = { status: 'accepted', messageId: 'ses-1' }
     const optedOut: SandboxSendOutcome = { status: 'skipped', reason: 'opted_out' }
 
