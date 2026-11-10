@@ -1118,7 +1118,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise PermissionDenied("Task agents cannot move tasks between channels.")
         if not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
             raise NotFound()
-        current = tasks_facade.get_task_detail(pk, self.team_id, self._user_id())
+        current = tasks_facade.get_task_repository_state(pk, self.team_id, self._user_id())
         if current is None:
             raise NotFound()
         serializer = self._write_serializer(request.data, partial=True, instance=current)

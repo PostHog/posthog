@@ -1111,7 +1111,12 @@ class TaskWriteSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"repositories": "Conflicts with repository"})
         repositories = attrs.get("repositories")
         if repositories is None and "repository" in attrs:
-            repositories = [attrs["repository"]] if attrs["repository"] else []
+            current_repositories = getattr(self.instance, "repositories", None) or []
+            repositories = (
+                current_repositories
+                if len(current_repositories) > 1
+                else ([attrs["repository"]] if attrs["repository"] else [])
+            )
         if repositories is None:
             repositories = getattr(self.instance, "repositories", None) or (
                 [self.instance.repository] if self.instance and self.instance.repository else []

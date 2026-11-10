@@ -298,6 +298,15 @@ class TaskArtifactSlackUnfurlDTO:
 
 
 @dataclass(frozen=True)
+class TaskRepositoryState:
+    repository: str | None
+    repositories: list[str]
+    github_integration: int | None
+    github_user_integration: UUID | None
+    repository_integration: int | None
+
+
+@dataclass(frozen=True)
 class TaskDetailDTO:
     """The HTTP detail representation of a task.
 
