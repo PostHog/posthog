@@ -49,17 +49,13 @@ async function decodeInput<T extends AggregateMetricsInput>(value: T, index: num
     }
 }
 
-// Bounds the records decoded at one time. `bytesUncompressed` is the size of the OTLP request, which
-// tracks the decoded size of its records.
 const MAX_CHUNK_BYTES_UNCOMPRESSED = 32 * 1024 * 1024
 
 function encodedSize(input: DecodedInput, record: MetricRecord): number {
     return input.decoded.type.toBuffer(record).length
 }
 
-// Each output message is filled up to the encoded size of the largest input message, so it stays under the
-// producer size limit. The input records take at least as many bytes as the output records, so the
-// capacity of the input messages is enough.
+// No output message grows past the largest input message, which the producer already accepted.
 async function aggregateMessages<T extends AggregateMetricsInput>(
     values: T[],
     inputs: DecodedInput[],
@@ -103,8 +99,7 @@ async function aggregateMessages<T extends AggregateMetricsInput>(
         )
     )
 
-    // The first message that keeps records takes the size counters of the dropped messages, so that
-    // the ingested totals stay the same.
+    // Moving the counters of dropped messages keeps the ingested usage totals unchanged.
     const survivor = encoded.findIndex((buffer) => buffer !== null)
     let bytesUncompressed = 0
     let recordCount = 0
