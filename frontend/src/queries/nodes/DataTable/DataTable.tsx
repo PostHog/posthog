@@ -330,8 +330,9 @@ export function DataTable({
         },
         [query, setQuery, orderByForKey]
     )
+    const sortOnHeaderClick = !!context?.dataTableSortOnHeaderClick
     const sorting = useMemo((): Sorting | null => {
-        if (!canSort) {
+        if (!canSort || !sortOnHeaderClick) {
             return null
         }
         if (isMarketingAnalyticsTableQuery(query.source)) {
@@ -340,7 +341,7 @@ export function DataTable({
         }
         const source = query.source as EventsQuery
         return sortingForOrderBy(source.orderBy, columnsInLemonTable, source.select ?? [])
-    }, [canSort, query.source, columnsInLemonTable])
+    }, [canSort, sortOnHeaderClick, query.source, columnsInLemonTable])
     const rowFillFractionIndex = allColumns.findIndex((colName) => {
         const col = getContextColumn(colName, context?.columns)
         return col?.queryContextColumn?.isRowFillFraction
@@ -393,9 +394,10 @@ export function DataTable({
                         key !== 'person.$delete' &&
                         key !== 'person' &&
                         columnFeatures.includes(ColumnFeature.canSort)
+                    const sortableInHeader = sortable && sortOnHeaderClick
                     return {
                         dataIndex: key as any,
-                        ...renderColumnMeta(key, query, context, { showSortingIndicator: !sortable }),
+                        ...renderColumnMeta(key, query, context, { showSortingIndicator: !sortableInHeader }),
                         render: function RenderDataTableColumn(
                             _: any,
                             { result, label }: DataTableRow,
@@ -428,7 +430,7 @@ export function DataTable({
                             }
                         },
                         // Sorting runs in the query, so LemonTable only handles header clicks
-                        sorter: sortable ? (true as const) : undefined,
+                        sorter: sortableInHeader ? (true as const) : undefined,
                         cellActions:
                             sourceFeatures.has(QueryFeature.campaignMappingActions) && !!getMappableColumn(key)
                                 ? (_: unknown, record: DataTableRow) => {
@@ -777,6 +779,7 @@ export function DataTable({
             columnsInResponse,
             orderByForKey,
             setSorting,
+            sortOnHeaderClick,
         ]
     )
 
