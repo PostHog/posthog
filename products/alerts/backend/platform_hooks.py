@@ -11,6 +11,8 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from products.alerts_platform.backend.facade.contracts import (
         AlertDeliveryRequest,
         AnnouncedTransition,
@@ -56,3 +58,24 @@ def render_insight_slack_message(
     return platform_alert_slack.render_insight_slack_message(
         team_id=team_id, transition=transition, alert_name=alert_name, alert_url=alert_url, project=project, image=image
     )
+
+
+def insight_alert_creator(*, team_id: int, alert_id: UUID) -> int | None:
+    from products.alerts.backend.models.alert import (
+        AlertConfiguration,  # noqa: PLC0415 - keeps alert models off the startup path
+    )
+
+    return (
+        AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).values_list("created_by_id", flat=True).first()
+    )
+
+
+def insight_alert_viewer(*, team_id: int, alert_id: UUID, user_id: int) -> bool:
+    from posthog.models import User  # noqa: PLC0415 - keeps models off the startup path
+
+    from products.alerts.backend.logic.alert_email import can_view_insight  # noqa: PLC0415
+    from products.alerts.backend.models.alert import AlertConfiguration  # noqa: PLC0415
+
+    alert = AlertConfiguration.objects.filter(team_id=team_id, id=alert_id).select_related("team", "insight").first()
+    user = User.objects.filter(id=user_id).first() if alert is not None else None
+    return alert is not None and user is not None and can_view_insight(user, alert)

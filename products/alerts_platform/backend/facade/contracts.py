@@ -1668,6 +1668,26 @@ class SourceRecipients(Protocol):
     def __call__(self, *, team_id: int, configuration_id: UUID) -> list[str]: ...
 
 
+class SourceAlertCreator(Protocol):
+    """The id of the user who created an alert, read from the source's own row.
+
+    `alert_id` is the alert's public id, the source row's id. Returns None for an alert with no
+    such row or no recorded creator.
+    """
+
+    def __call__(self, *, team_id: int, alert_id: UUID) -> int | None: ...
+
+
+class SourceAlertViewer(Protocol):
+    """Whether a user may still see an alert, by the access rules the source applies to its alerts.
+
+    `alert_id` is the alert's public id, the source row's id. Returns False for an alert with no
+    such row. The caller has already checked that the user can access the project.
+    """
+
+    def __call__(self, *, team_id: int, alert_id: UUID, user_id: int) -> bool: ...
+
+
 @frozen
 class SlackMessageContent:
     text: str

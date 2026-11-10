@@ -1,18 +1,21 @@
 import json
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import datetime
 from typing import Any, cast
 
 import pytest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 import requests
 from parameterized import parameterized
+from urllib3.exceptions import ProtocolError
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport, pagerduty_body
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationRefused
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -125,6 +128,37 @@ class TestPagerDutyTransport(SimpleTestCase):
         assert sent["routing_key"] == ROUTING_KEY
         # The HogFunction path's default, so one firing pages at one severity on both paths.
         assert sent["payload"]["severity"] == "critical"
+
+    @parameterized.expand(
+        [
+            ("bad routing key", {}, b'{"errors": ["Invalid routing key"]}', None, True),
+            # PagerDuty rejected the event PostHog built, which the owner cannot fix.
+            ("malformed event", {}, b'{"errors": ["\'payload.summary\' is missing"]}', None, False),
+            # A compressed body would decode past the read cap, so it is not read.
+            ("compressed", {"Content-Encoding": "gzip"}, b'{"errors": ["Invalid routing key"]}', None, False),
+            ("unreadable body", {}, b"", ProtocolError("Connection broken"), False),
+            ("split across reads", {}, b"", [b'{"errors": ["Invalid rou', b'ting key"]}', b""], True),
+        ]
+    )
+    def test_only_a_bad_routing_key_is_the_owners_refusal(
+        self,
+        _name: str,
+        headers: dict[str, str],
+        body: bytes,
+        reads: Exception | list[bytes] | None,
+        refused: bool,
+    ) -> None:
+        with pinned_post(400, headers=headers, body=body) as adapter:
+            with (
+                patch.object(adapter.body, "read1", side_effect=reads) if reads is not None else nullcontext(),
+                # `read(n)` waits for n bytes, so a slowly sent body would hold the send.
+                patch.object(adapter.body, "read", side_effect=AssertionError("read waits for the whole cap")),
+                pytest.raises(DeliveryError) as raised,
+            ):
+                PagerDutyTransport().deliver(team_id=2, target=TARGET, message=_message(IncidentAction.TRIGGER))
+
+        assert isinstance(raised.value, DestinationRefused) is refused
+        assert adapter.sent[0].headers["Accept-Encoding"] == "identity"
 
     @parameterized.expand(
         [
