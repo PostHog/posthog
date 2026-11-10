@@ -11,12 +11,7 @@ from products.wizard.backend.facade.contracts import (
     WizardRunGitDiffArtifactDTO,
     WizardRunPullRequestArtifactDTO,
 )
-from products.wizard.backend.facade.enums import (
-    WizardPullRequestState,
-    WizardRunArtifactType,
-    WizardRunEnvironment,
-    WizardWorkspaceType,
-)
+from products.wizard.backend.facade.enums import WizardPullRequestState, WizardRunArtifactType
 from products.wizard.backend.logic.artifacts.mappers import pull_request_metadata_to_record, record_to_artifact
 from products.wizard.backend.models import WizardRun, WizardRunArtifact
 
@@ -32,8 +27,7 @@ class StoredGitDiffArtifact:
 class PullRequestOwner:
     team_id: int
     run_id: UUID
-    # None when the run is known but its pull request artifact is not stored yet.
-    artifact_id: UUID | None
+    artifact_id: UUID
 
 
 def upsert_git_diff(
@@ -121,7 +115,7 @@ def update_pull_request_state(
     updated_at: datetime,
     merged_at: datetime | None,
     closed_at: datetime | None,
-) -> bool:
+) -> WizardRunPullRequestArtifactDTO | None:
     with transaction.atomic():
         artifact = (
             WizardRunArtifact.objects.for_team(team_id)
@@ -130,7 +124,7 @@ def update_pull_request_state(
             .first()
         )
         if artifact is None:
-            return False
+            return None
 
         metadata = artifact.metadata or {}
         stored_updated_at = metadata.get("state_updated_at")
@@ -138,7 +132,7 @@ def update_pull_request_state(
             stored = parse_datetime(stored_updated_at)
             # GitHub can deliver out of order, so an older delivery must not overwrite a newer state.
             if stored is not None and stored > updated_at:
-                return False
+                return None
 
         artifact.metadata = {
             **metadata,
@@ -148,7 +142,11 @@ def update_pull_request_state(
             "closed_at": closed_at.isoformat() if closed_at is not None else None,
         }
         artifact.save(update_fields=["metadata"])
-        return True
+
+    result = record_to_artifact(artifact)
+    if not isinstance(result, WizardRunPullRequestArtifactDTO):
+        raise ValueError("Expected a pull request artifact")
+    return result
 
 
 def find_pull_request_owner(team_ids: tuple[int, ...], url: str) -> PullRequestOwner | None:
@@ -161,24 +159,6 @@ def find_pull_request_owner(team_ids: tuple[int, ...], url: str) -> PullRequestO
     if stored is None:
         return None
     return PullRequestOwner(team_id=stored["team_id"], run_id=stored["run_id"], artifact_id=stored["id"])
-
-
-def find_cloud_run_owners(
-    *, team_ids: tuple[int, ...], id_from: UUID, id_to: UUID, repository: str, limit: int
-) -> list[PullRequestOwner]:
-    runs = (
-        WizardRun.objects.unscoped()
-        .filter(
-            team_id__in=team_ids,
-            id__gte=id_from,
-            id__lte=id_to,
-            environment=WizardRunEnvironment.CLOUD.value,
-            workspace_type=WizardWorkspaceType.GIT_REPOSITORY.value,
-            workspace__repository__iexact=repository,
-        )
-        .values("team_id", "id")[:limit]
-    )
-    return [PullRequestOwner(team_id=run["team_id"], run_id=run["id"], artifact_id=None) for run in runs]
 
 
 def get_pull_request_url(team_id: int, run_id: UUID) -> str | None:

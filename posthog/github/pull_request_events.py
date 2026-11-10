@@ -30,11 +30,11 @@ class PullRequestAttribution:
 
 
 # Nulled on external PRs so their schema matches task-originated PR events.
-TASK_ATTRIBUTION_KEYS = ("task_id", "run_id", "origin_product", "signal_report_id", "environment", "mode", "title")
+_TASK_ATTRIBUTION_KEYS = ("task_id", "run_id", "origin_product", "signal_report_id", "environment", "mode", "title")
 
 # What a PR says, rather than how big it is. Attributed PRs can opt into these values; an
 # external PR's own words are customer business context, so it gets the keys as nulls for
-# schema parity, the same way TASK_ATTRIBUTION_KEYS works.
+# schema parity, the same way _TASK_ATTRIBUTION_KEYS works.
 _PR_CONTENT_KEYS = (
     "pr_title",
     "pr_body",
@@ -131,7 +131,7 @@ def capture_pr_event(
                 distinct_id=str(team.uuid),
                 groups=groups(team=team),
                 properties={
-                    **dict.fromkeys(TASK_ATTRIBUTION_KEYS, None),
+                    **dict.fromkeys(_TASK_ATTRIBUTION_KEYS, None),
                     "repository": ((payload.get("repository") or {}).get("full_name") or "").strip().lower() or None,
                 },
             )

@@ -9,11 +9,13 @@ from products.wizard.backend.facade.contracts import (
     WizardRunGitDiffArtifactDTO,
     WizardRunPullRequestArtifactDTO,
 )
-from products.wizard.backend.facade.enums import WizardRunEnvironment, WizardRunStage
+from products.wizard.backend.facade.enums import WizardPullRequestState, WizardRunEnvironment, WizardRunStage
 from products.wizard.backend.observability.config import (
     WIZARD_RUN_ARTIFACT_CREATED_EVENT,
     WIZARD_RUN_DISPATCH_FINISHED_EVENT,
     WIZARD_RUN_FINISHED_EVENT,
+    WIZARD_RUN_PULL_REQUEST_CLOSED_EVENT,
+    WIZARD_RUN_PULL_REQUEST_MERGED_EVENT,
     WIZARD_RUN_STAGE_ENTERED_EVENT,
     WIZARD_RUN_STARTED_EVENT,
     WIZARD_WORKER_USAGE_RECORDED_EVENT,
@@ -94,6 +96,22 @@ def enqueue_artifact_created(run: WizardRunDTO, artifact: WizardRunArtifactDTO) 
         properties = {"type": "diff", "url": None, "name": "Git diff"}
 
     _enqueue_run_event(run, WIZARD_RUN_ARTIFACT_CREATED_EVENT, f"artifact:{artifact.id}", properties)
+
+
+def enqueue_pull_request_finished(run: WizardRunDTO, artifact: WizardRunPullRequestArtifactDTO) -> None:
+    merged = artifact.state == WizardPullRequestState.MERGED
+    _enqueue_run_event(
+        run,
+        WIZARD_RUN_PULL_REQUEST_MERGED_EVENT if merged else WIZARD_RUN_PULL_REQUEST_CLOSED_EVENT,
+        f"pull_request:{artifact.id}:{'merged' if merged else 'closed'}",
+        {
+            "artifact_id": str(artifact.id),
+            "url": artifact.url,
+            "pr_number": artifact.number,
+            "merged_at": artifact.merged_at.isoformat() if artifact.merged_at else None,
+            "closed_at": artifact.closed_at.isoformat() if artifact.closed_at else None,
+        },
+    )
 
 
 def _enqueue_run_event(

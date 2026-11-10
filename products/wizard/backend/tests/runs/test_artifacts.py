@@ -1,7 +1,5 @@
-from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import Any
 from uuid import UUID
 
 import pytest
@@ -10,14 +8,13 @@ from unittest.mock import patch
 from django.conf import settings
 
 from posthog.models import Team
+from posthog.models.integration import Integration
 
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import (
     CreatePullRequestArtifactInput,
     GitRepositoryWorkspace,
     LocalFolderWorkspace,
-    MatchWizardPullRequestInput,
-    RecordWizardPullRequestStateInput,
     WizardRunDTO,
     WizardRunGitDiffArtifactDTO,
     WizardRunPullRequestArtifactDTO,
@@ -29,9 +26,10 @@ from products.wizard.backend.facade.enums import (
     WizardRunStatus,
 )
 from products.wizard.backend.facade.errors import WizardRunArtifactTooLargeError, WizardRunNotFoundError
+from products.wizard.backend.logic.artifacts import pull_requests
 from products.wizard.backend.logic.registry.config import FALLBACK_REGISTRY
 from products.wizard.backend.logic.runs import store as run_store
-from products.wizard.backend.models import WizardRun, WizardRunArtifact
+from products.wizard.backend.models import WizardRunArtifact
 
 
 def _create_run(team_id: int, user_id: int) -> WizardRunDTO:
@@ -47,6 +45,7 @@ def _create_run(team_id: int, user_id: int) -> WizardRunDTO:
 
 _REPOSITORY = "acme/widgets"
 _PULL_REQUEST_URL = "https://github.com/acme/widgets/pull/7"
+_INSTALLATION_ID = 424242
 
 
 def _create_cloud_run(team_id: int, user_id: int) -> WizardRunDTO:
@@ -74,105 +73,94 @@ def _create_pull_request_artifact(team_id: int, run_id: UUID) -> WizardRunPullRe
     )
 
 
-def _match_input(team_id: int, run_id: UUID, **overrides: Any) -> MatchWizardPullRequestInput:
-    base = MatchWizardPullRequestInput(
-        team_ids=(team_id,),
-        url=_PULL_REQUEST_URL,
-        repository=_REPOSITORY,
-        head_branch=f"posthog/wizard-{run_id.hex[:12]}",
-        head_repository=_REPOSITORY,
-        opened=True,
-    )
-    return replace(base, **overrides)
+def _pull_request_payload(action: str, *, updated_at: str, merged: bool = False, closed: bool = False) -> dict:
+    return {
+        "action": action,
+        "installation": {"id": _INSTALLATION_ID},
+        "pull_request": {
+            "html_url": _PULL_REQUEST_URL,
+            "merged": merged,
+            "updated_at": updated_at,
+            "merged_at": updated_at if merged else None,
+            "closed_at": updated_at if closed else None,
+        },
+    }
 
 
-@pytest.mark.django_db
-@pytest.mark.parametrize("artifact_stored", [True, False])
-def test_match_pull_request_finds_the_run_that_opened_it(team, user, artifact_stored: bool) -> None:
-    run = _create_cloud_run(team.id, user.id)
-    artifact = _create_pull_request_artifact(team.id, run.id) if artifact_stored else None
-
-    match = wizard_facade.match_pull_request(_match_input(team.id, run.id, opened=not artifact_stored))
-
-    assert match is not None
-    assert match.team_id == team.id
-    assert match.run_id == run.id
-    assert match.artifact_id == (artifact.id if artifact else None)
-    assert match.created_by_distinct_id == user.distinct_id
-    assert match.program_id == run.program.id
+@pytest.fixture
+def installation(team) -> None:
+    Integration.objects.create(team=team, kind="github", integration_id=str(_INSTALLATION_ID), config={})
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "overrides",
+    ("merged", "state", "event"),
     [
-        pytest.param({"head_branch": "posthog/wizard-000000000000"}, id="branch_names_no_run"),
-        pytest.param({"opened": False}, id="not_opened_and_no_artifact"),
-        pytest.param({"head_repository": "attacker/widgets"}, id="fork"),
-        pytest.param({"head_repository": None}, id="unknown_head_repository"),
-        pytest.param({"head_branch": "posthog/wizard-my-own-branch"}, id="suffix_is_not_a_run_id"),
-        pytest.param({"repository": "acme/other", "head_repository": "acme/other"}, id="other_repository"),
-        pytest.param({"team_ids": ()}, id="no_team"),
+        (True, WizardPullRequestState.MERGED, "wizard run pull request merged"),
+        (False, WizardPullRequestState.CLOSED, "wizard run pull request closed"),
     ],
 )
-def test_match_pull_request_rejects_unproven_branch(team, user, overrides: dict[str, object]) -> None:
+def test_closed_pull_request_records_state_and_captures_event(
+    team, user, installation, merged: bool, state: WizardPullRequestState, event: str
+) -> None:
     run = _create_cloud_run(team.id, user.id)
+    artifact = _create_pull_request_artifact(team.id, run.id)
 
-    assert wizard_facade.match_pull_request(_match_input(team.id, run.id, **overrides)) is None
+    with patch("products.wizard.backend.observability.events.ph_background_capture") as capture:
+        pull_requests.handle_pull_request_event(
+            _pull_request_payload("closed", updated_at="2026-11-10T12:00:00Z", merged=merged, closed=True)
+        )
+
+    [stored] = wizard_facade.list_run_artifacts(team.id, run.id)
+    assert isinstance(stored, WizardRunPullRequestArtifactDTO)
+    assert stored.state == state
+    assert stored.closed_at == datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
+    captured = capture.return_value.call_args.kwargs
+    assert captured["event"] == event
+    assert captured["distinct_id"] == user.distinct_id
+    assert captured["properties"]["wizard_run_id"] == str(run.id)
+    assert captured["properties"]["artifact_id"] == str(artifact.id)
 
 
 @pytest.mark.django_db
-def test_match_pull_request_ignores_artifact_of_another_team(team, user) -> None:
+@pytest.mark.parametrize("scope", ["other_team", "other_url"])
+def test_pull_request_event_without_a_matching_artifact_changes_nothing(team, user, installation, scope: str) -> None:
     other_team = Team.objects.create(organization=team.organization, project=team.project, name="Other environment")
+    run_team = other_team if scope == "other_team" else team
+    run = _create_cloud_run(run_team.id, user.id)
+    _create_pull_request_artifact(run_team.id, run.id)
+    payload = _pull_request_payload("closed", updated_at="2026-11-10T12:00:00Z", merged=True, closed=True)
+    if scope == "other_url":
+        payload["pull_request"]["html_url"] = "https://github.com/acme/widgets/pull/8"
+
+    with patch("products.wizard.backend.observability.events.ph_background_capture") as capture:
+        pull_requests.handle_pull_request_event(payload)
+
+    [stored] = wizard_facade.list_run_artifacts(run_team.id, run.id)
+    assert isinstance(stored, WizardRunPullRequestArtifactDTO)
+    assert stored.state == WizardPullRequestState.OPEN
+    capture.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_pull_request_state_keeps_the_newest_delivery(team, user, installation) -> None:
     run = _create_cloud_run(team.id, user.id)
     _create_pull_request_artifact(team.id, run.id)
 
-    assert wizard_facade.match_pull_request(_match_input(other_team.id, run.id, opened=False)) is None
-
-
-@pytest.mark.django_db
-def test_match_pull_request_rejects_runs_sharing_a_branch(team, user) -> None:
-    run = _create_cloud_run(team.id, user.id)
-    sibling = _create_cloud_run(team.id, user.id)
-    WizardRun.objects.for_team(team.id).filter(id=sibling.id).update(id=UUID(run.id.hex[:12] + sibling.id.hex[12:]))
-
-    assert wizard_facade.match_pull_request(_match_input(team.id, run.id)) is None
-
-
-def _record_state(
-    team_id: int, artifact_id: UUID, state: WizardPullRequestState, updated_at: datetime, *, closed: bool
-) -> None:
-    wizard_facade.record_pull_request_state(
-        RecordWizardPullRequestStateInput(
-            team_id=team_id,
-            artifact_id=artifact_id,
-            state=state,
-            updated_at=updated_at,
-            merged_at=updated_at if state == WizardPullRequestState.MERGED else None,
-            closed_at=updated_at if closed else None,
+    with patch("products.wizard.backend.observability.events.ph_background_capture"):
+        pull_requests.handle_pull_request_event(
+            _pull_request_payload("closed", updated_at="2026-11-10T12:00:00Z", merged=True, closed=True)
         )
-    )
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("state", [WizardPullRequestState.MERGED, WizardPullRequestState.CLOSED])
-def test_record_pull_request_state_keeps_the_newest_delivery(team, user, state: WizardPullRequestState) -> None:
-    run = _create_cloud_run(team.id, user.id)
-    artifact = _create_pull_request_artifact(team.id, run.id)
-    closed_at = datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
-
-    _record_state(team.id, artifact.id, state, closed_at, closed=True)
-    _record_state(
-        team.id, artifact.id, WizardPullRequestState.DRAFT, datetime(2026, 11, 10, 11, 0, tzinfo=UTC), closed=False
-    )
+        pull_requests.handle_pull_request_event(
+            _pull_request_payload("converted_to_draft", updated_at="2026-11-10T11:00:00Z")
+        )
     # A retried handoff rewrites the artifact identity and must keep the recorded state.
     _create_pull_request_artifact(team.id, run.id)
 
     [stored] = wizard_facade.list_run_artifacts(team.id, run.id)
     assert isinstance(stored, WizardRunPullRequestArtifactDTO)
-    assert stored.state == state
-    assert stored.closed_at == closed_at
-    assert stored.merged_at == (closed_at if state == WizardPullRequestState.MERGED else None)
+    assert stored.state == WizardPullRequestState.MERGED
+    assert stored.merged_at == datetime(2026, 11, 10, 12, 0, tzinfo=UTC)
 
 
 @pytest.mark.django_db

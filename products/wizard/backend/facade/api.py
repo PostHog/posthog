@@ -22,15 +22,12 @@ from products.wizard.backend.facade.contracts import (
     CreatePullRequestArtifactInput,
     CreateWizardRunInput,
     ListWizardRunsInput,
-    MatchWizardPullRequestInput,
-    RecordWizardPullRequestStateInput,
     RecordWizardScanInput,
     StartWizardInstallInput,
     UpdateWizardRunTaskInput,
     UpsertWizardSessionInput,
     WizardInstallStatusDTO,
     WizardProgram,
-    WizardPullRequestMatch,
     WizardRunArtifactDTO,
     WizardRunCreationResult,
     WizardRunDTO,
@@ -194,15 +191,6 @@ def create_pull_request_artifact(params: CreatePullRequestArtifactInput) -> Wiza
     Uploads a pull request artifact generated in a Wizard run.
     """
     return artifacts.create_pull_request_artifact(params)
-
-
-def match_pull_request(params: MatchWizardPullRequestInput) -> WizardPullRequestMatch | None:
-    """The cloud run that opened a GitHub pull request, or None when the PR is not a Wizard PR."""
-    return artifacts.match_pull_request(params)
-
-
-def record_pull_request_state(params: RecordWizardPullRequestStateInput) -> None:
-    artifacts.record_pull_request_state(params)
 
 
 def list_run_artifacts(team_id: int, run_id: UUID) -> list[WizardRunArtifactDTO]:

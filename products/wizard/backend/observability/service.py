@@ -220,6 +220,13 @@ class WizardObservability:
             },
         )
 
+    def pull_request_finished(self, run: WizardRunDTO, artifact: WizardRunPullRequestArtifactDTO) -> None:
+        self._observe(
+            name="wizard_pull_request_finished",
+            context={**self._run_context(run), "artifact_id": str(artifact.id), "state": str(artifact.state)},
+            event=partial(events.enqueue_pull_request_finished, run, artifact),
+        )
+
     def worker_cleanup_finished(
         self,
         team_id: int,
