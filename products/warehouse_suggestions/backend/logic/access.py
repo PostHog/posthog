@@ -82,6 +82,7 @@ def visible_suggestions(
     kind: WarehouseSuggestionKind | None = None,
     status: WarehouseSuggestionStatus | None = None,
     subject_id: UUID | None = None,
+    subject_ids: Collection[UUID] | None = None,
     assignee_id: int | None = None,
     subject_kinds: SubjectKinds,
 ) -> tuple[QuerySet[WarehouseSuggestion], SubjectAccess]:
@@ -98,6 +99,8 @@ def visible_suggestions(
         suggestions = suggestions.filter(status=status)
     if subject_id is not None:
         suggestions = suggestions.filter(subject_id=subject_id)
+    if subject_ids is not None:
+        suggestions = suggestions.filter(subject_id__in=subject_ids)
     if assignee_id is not None:
         suggestions = suggestions.filter(assignee_id=assignee_id)
     access = subject_access(team_id, user_access_control, suggestions, actionable_kinds=subject_kinds.actionable)

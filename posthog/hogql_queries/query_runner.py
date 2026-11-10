@@ -200,6 +200,7 @@ from posthog.hogql_queries.validation.validation import (
     QueryValidationRule,
     run_validation_rules,
 )
+from posthog.hogql_queries.warehouse_suggestion_notes import serve_warehouse_suggestions
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
     events_route_cache_modifiers,
@@ -3109,6 +3110,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # where its findings reach the recomputed response. Served before the event, so the
             # response time covers the same work as on a cache hit.
             self._serve_query_scan(response, query_run.user)
+            notes_outcome = serve_warehouse_suggestions(
+                self.team, response, query_run.user, query_stats.saved_query_ids, query_run.trigger
+            )
             phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
             query_executed_props = {
                 **query_run.event_properties(self.modifiers),
@@ -3130,6 +3134,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "direct_connection_source_ids": sorted(query_stats.direct_source_ids),
                 "query_scan_triggered": scan_skip is None,
                 "query_scan_skipped_reason": scan_skip,
+                **notes_outcome.event_properties(),
                 **phase_times,
             }
             report_user_or_team_action(

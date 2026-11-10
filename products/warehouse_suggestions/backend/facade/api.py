@@ -1,6 +1,6 @@
 """Facade for warehouse_suggestions."""
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import asdict
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -11,7 +11,7 @@ from posthog.queryset_paging import select_page
 from products.warehouse_sources.backend.facade.api import source_locations_for_tables
 from products.warehouse_sources.backend.facade.contracts import TableSourceLocation
 
-from ..logic import accept, assignment, suggestions
+from ..logic import accept, assignment, query_notes, suggestions
 from ..logic.access import CATALOG_KINDS, SubjectAccess, readable_table_ids, visible_suggestions
 from ..logic.analytics import SuggestionOutcome, report_outcomes
 from ..logic.flags import is_warehouse_suggestions_enabled
@@ -29,6 +29,7 @@ from .contracts import (
     SuggestionPayloadView,
     SuggestionReviewer,
     SuggestionStatus,
+    WarehouseSuggestionNote,
 )
 from .enums import (
     WarehouseSuggestionAssetOutcome,
@@ -53,8 +54,15 @@ __all__ = [
     "list_suggestions",
     "resume_suggestion",
     "suggestion_status",
+    "suggestions_for_read_views",
     "upsert_suggestions",
 ]
+
+
+def suggestions_for_read_views(
+    team: "Team", user: "User", saved_query_ids: Collection[str], *, is_mcp_run: bool
+) -> list[WarehouseSuggestionNote] | None:
+    return query_notes.suggestions_for_read_views(team, user, saved_query_ids, is_mcp_run=is_mcp_run)
 
 
 def upsert_suggestions(team_id: int, drafts: Sequence[SuggestionDraft]) -> None:

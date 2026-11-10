@@ -641,6 +641,24 @@ export interface BreakdownNotAppliedWarning {
     message: string
 }
 
+export type WarehouseSuggestionNoteKind = 'materialize' | 'unmaterialize'
+
+/** An open warehouse suggestion about a view the query read, for an agent to mention to the person. */
+export interface WarehouseSuggestionNote {
+    /** The suggestion id to pass to `warehouse-suggestions-get`, `-accept-prepare` or `-dismiss`. */
+    id: string
+    /** What the suggestion proposes. */
+    kind: WarehouseSuggestionNoteKind
+    /** The view's current name. */
+    view_name: string
+    /** Plain-language note for the person, with the next step. */
+    message: string
+    /** Absolute link to the view's page in Models. */
+    url: string
+    /** Whether this user can edit the view, which accepting the suggestion needs. */
+    can_act: boolean
+}
+
 /**
  * `no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds
  * where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.
@@ -2902,6 +2920,11 @@ export interface AnalyticsQueryResponseBase {
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning)[]
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsage[]
+    /**
+     * Open warehouse suggestions about views this query read. Set only on fresh runs for agent callers;
+     * absent when not evaluated, empty when evaluated and none apply.
+     */
+    warehouse_suggestions?: WarehouseSuggestionNote[]
 }
 
 interface CachedQueryResponseMixin {

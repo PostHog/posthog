@@ -3377,6 +3377,11 @@ class UsageMetricFormat(StrEnum):
     CURRENCY = "currency"
 
 
+class WarehouseSuggestionNoteKind(StrEnum):
+    MATERIALIZE = "materialize"
+    UNMATERIALIZE = "unmaterialize"
+
+
 class WebAgentAnalyticsQueryType(StrEnum):
     OVERVIEW = "overview"
     ISSUES = "issues"

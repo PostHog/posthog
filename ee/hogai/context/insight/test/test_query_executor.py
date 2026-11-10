@@ -92,7 +92,13 @@ class TestHogQLErrorCode(SimpleTestCase):
 class TestSQLResultBudgets(SimpleTestCase):
     @parameterized.expand(["table", "fallback", "warnings"])
     async def test_sql_result_budget_reaches_formatting_and_fallback(self, kind: str) -> None:
-        response: dict[str, Any] = {"results": [["x" * 2000] for _ in range(100)]}
+        response: dict[str, Any] = {
+            "results": [["x" * 2000] for _ in range(100)],
+            "warehouse_suggestions": [
+                {"message": f"Materializing `view_{index}` would save time.", "url": f"https://example.com/{index}"}
+                for index in range(4)
+            ],
+        }
         if kind != "fallback":
             response["columns"] = ["example"]
         if kind == "warnings":
@@ -113,6 +119,11 @@ class TestSQLResultBudgets(SimpleTestCase):
         self.assertEqual(response["results"][0][0], "x" * 2000)
         if kind == "fallback":
             self.assertIn("JSON shown may be cut off", result)
+        if kind == "warnings":
+            self.assertNotIn("Warehouse suggestions", result)
+        else:
+            self.assertTrue(result.endswith("- +1 more: https://example.com/3"))
+            self.assertIn("`view_2`", result)
 
     def test_synchronous_execution_keeps_sql_budget(self) -> None:
         runner = AssistantQueryExecutor(
