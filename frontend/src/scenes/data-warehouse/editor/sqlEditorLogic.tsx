@@ -163,7 +163,6 @@ import {
     queryHistorySuggestionOnReject,
     queryHistorySuggestionOnRejectText,
 } from './suggestions/queryHistorySuggestion'
-import { updateViewLabel } from './updateViewLabel'
 
 export interface SqlEditorLogicProps {
     tabId: string
@@ -3455,7 +3454,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions._setSuggestionPayload({
                     suggestedValue: editedQuery,
                     originalValue: savedQuery,
-                    acceptText: updateViewLabel(view.shouldRematerialize === true),
+                    acceptText: view.shouldRematerialize === true ? 'Update and re-materialize view' : 'Update view',
                     rejectText: 'Cancel',
                     diffShowRunButton: false,
                     onAccept: () => {
