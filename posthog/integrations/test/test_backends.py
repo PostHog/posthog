@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized, parameterized_class
 
-from posthog.integrations import IntegrationManager, IntegrationPatch, IntegrationRecord, usages
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationPatch, IntegrationRecord, usages
 from posthog.integrations.accessors import IntegrationReader
 from posthog.integrations.backend.fake_backend import FakeBackend
 from posthog.integrations.contracts import IntegrationConflict, IntegrationInUse, IntegrationNotFound, IntegrationUsage
@@ -52,7 +52,12 @@ class TestBackendsBehaveTheSame(BaseTest):
             self.fake = self.enterContext(fake_integrations_backend(token_refresher=self._count_refresh))
         else:
             self.enterContext(
-                patch.object(OauthIntegration, "refresh_access_token", autospec=True, side_effect=self._django_refresh)
+                patch.object(
+                    OauthIntegration,
+                    "token_refresh_patch",
+                    autospec=True,
+                    side_effect=lambda oauth: self._count_refresh(oauth.integration),
+                )
             )
         self.other_team = Team.objects.create(organization=self.organization, name="Other")
         self.ids = {name: self._seed(name, kind, config) for name, (kind, config) in ROWS.items()}
@@ -62,13 +67,6 @@ class TestBackendsBehaveTheSame(BaseTest):
         self.refreshes.append(record.id)
         return _refreshed_tokens(record)
 
-    def _django_refresh(self, oauth: OauthIntegration) -> None:
-        patch_ = self._count_refresh(oauth.integration)
-        if patch_.errors:
-            oauth.integration.errors = patch_.errors
-        oauth.integration.sensitive_config = {**oauth.integration.sensitive_config, **patch_.sensitive_config_patch}
-        oauth.integration.save()
-
     def _seed(
         self,
         name: str | None,
@@ -77,14 +75,24 @@ class TestBackendsBehaveTheSame(BaseTest):
         *,
         team: Team | None = None,
         sensitive_config: dict[str, Any] | None = None,
+        created_by_id: int | None = None,
     ) -> int:
         team_id = (team or self.team).id
         if self.fake is not None:
             return self.fake.seed(
-                team_id=team_id, kind=kind, external_id=name, config=config, sensitive_config=sensitive_config
+                team_id=team_id,
+                kind=kind,
+                external_id=name,
+                config=config,
+                sensitive_config=sensitive_config,
+                created_by_id=created_by_id,
             ).id
         row = Integration.objects._with_auth(ANY).create(
-            team_id=team_id, kind=kind, integration_id=name, sensitive_config=sensitive_config or {}
+            team_id=team_id,
+            kind=kind,
+            integration_id=name,
+            sensitive_config=sensitive_config or {},
+            created_by_id=created_by_id,
         )
         Integration._base_manager.filter(id=row.id).update(config=config)
         return row.id
@@ -194,6 +202,113 @@ class TestBackendsBehaveTheSame(BaseTest):
         assert accessor.get_by_external_id("github_oauth", self.other_id).team_id == self.other_team.id
         with self.assertRaises(IntegrationNotFound):
             accessor.get_by_external_id("github_token", self.other_id)
+
+    def _seed_cross_team_rows(self) -> dict[str, int]:
+        # Seeded in this order, so oldest first is the order of this list.
+        seeds: list[tuple[str, str, dict[str, Any], Team, int | None]] = [
+            ("a", "email", {"provider": "ses", "domain": "one.example.com", "verified": True}, self.team, self.user.id),
+            ("b", "email", {"provider": "ses", "domain": "two.example.com"}, self.team, None),
+            ("c", "email", {"provider": "SES", "domain": "one.example.com", "verified": True}, self.other_team, None),
+            (
+                "d",
+                "email",
+                {"provider": "mailjet", "domain": "two.example.com", "port": 1},
+                self.other_team,
+                self.user.id,
+            ),
+            ("slack_ses", "slack", {"provider": "ses", "domain": "one.example.com"}, self.team, self.user.id),
+            ("other_octo", "github", {"account": {"name": "OCTO"}}, self.other_team, None),
+            ("flat_account", "github", {"account": "octo"}, self.other_team, None),
+        ]
+        return {
+            name: self._seed(name, kind, config, team=team, created_by_id=by) for name, kind, config, team, by in seeds
+        }
+
+    @parameterized.expand(
+        [
+            ("no_filter", "email", lambda t, ids: CrossTeamFilter(), ["a", "b", "c", "d"]),
+            ("team_ids", "email", lambda t, ids: CrossTeamFilter(team_ids=[t.other_team.id]), ["c", "d"]),  # type: ignore[arg-type]
+            ("empty_team_ids", "email", lambda t, ids: CrossTeamFilter(team_ids=()), []),
+            ("exclude_team_ids", "email", lambda t, ids: CrossTeamFilter(exclude_team_ids=(t.team.id,)), ["c", "d"]),
+            ("created_by_ids", "email", lambda t, ids: CrossTeamFilter(created_by_ids=(t.user.id,)), ["a", "d"]),
+            ("empty_created_by_ids", "email", lambda t, ids: CrossTeamFilter(created_by_ids=()), []),
+            ("external_id", "email", lambda t, ids: CrossTeamFilter(external_id="c"), ["c"]),
+            ("where_is_case_sensitive", "email", lambda t, ids: CrossTeamFilter(where={"provider": "ses"}), ["a", "b"]),
+            (
+                "where_in",
+                "email",
+                lambda t, ids: CrossTeamFilter(where_in={"domain": ("one.example.com", "nowhere.example.com")}),
+                ["a", "c"],
+            ),
+            ("where_in_empty", "email", lambda t, ids: CrossTeamFilter(where_in={"domain": ()}), []),
+            ("where_in_int_equals_a_float", "email", lambda t, ids: CrossTeamFilter(where_in={"port": (1.0,)}), ["d"]),
+            ("where_in_string_is_not_an_int", "email", lambda t, ids: CrossTeamFilter(where_in={"port": ("1",)}), []),
+            ("where_in_bool_is_not_an_int", "email", lambda t, ids: CrossTeamFilter(where_in={"port": (True,)}), []),
+            (
+                "where_iexact",
+                "email",
+                lambda t, ids: CrossTeamFilter(where_iexact={"provider": "Ses"}),
+                ["a", "b", "c"],
+            ),
+            (
+                "where_iexact_nested_key",
+                "github",
+                lambda t, ids: CrossTeamFilter(where_iexact={"account.name": "Octo"}),
+                ["github_oauth", "other_octo"],
+            ),
+            ("has_config_key", "email", lambda t, ids: CrossTeamFilter(has_config_key="verified"), ["a", "c"]),
+            (
+                "every_field_with_and",
+                "email",
+                lambda t, ids: CrossTeamFilter(
+                    where={"verified": True},
+                    where_in={"domain": ("one.example.com",)},
+                    exclude_team_ids=(t.team.id,),
+                    has_config_key="provider",
+                ),
+                ["c"],
+            ),
+            ("newest_first", "email", lambda t, ids: CrossTeamFilter(newest_first=True), ["d", "c", "b", "a"]),
+            ("limit", "email", lambda t, ids: CrossTeamFilter(limit=2), ["a", "b"]),
+            ("after_id", "email", lambda t, ids: CrossTeamFilter(after_id=ids["b"]), ["c", "d"]),
+            (
+                "newest_first_page",
+                "email",
+                lambda t, ids: CrossTeamFilter(newest_first=True, after_id=ids["c"], limit=1),
+                ["b"],
+            ),
+        ]
+    )
+    def test_list_across_teams(
+        self,
+        _name: str,
+        kind: str,
+        cross_team_filter: Callable[[Any, dict[str, int]], CrossTeamFilter],
+        expected: list[str],
+    ) -> None:
+        ids = self._seed_cross_team_rows()
+        accessor = IntegrationManager.kinds(kind, auth_types="any")
+
+        rows = accessor.list_across_teams(cross_team_filter(self, ids))
+
+        assert self._names(rows) == expected
+
+    @parameterized.expand(
+        [
+            ("one_auth_type", lambda: IntegrationManager.github.token, ["github_token"]),
+            ("skips_source_rows", lambda: IntegrationManager.stripe.any, []),
+            ("with_source_rows", lambda: IntegrationManager.stripe.any.with_source_rows(), ["stripe_source"]),
+            ("source_rows_only", lambda: IntegrationManager.source("stripe").any, ["stripe_source"]),
+        ]
+    )
+    def test_list_across_teams_stays_in_the_scope(
+        self, _name: str, accessor: Callable[[], IntegrationReader], expected: list[str]
+    ) -> None:
+        self._seed("github_token", "github", {"auth_type": "token"}, team=self.other_team)
+
+        rows = accessor().list_across_teams(CrossTeamFilter(team_ids=(self.team.id,)))
+
+        assert self._names(rows) == expected
 
     @parameterized.expand(
         [
@@ -432,3 +547,26 @@ class TestBackendsBehaveTheSame(BaseTest):
         assert self.refreshes == ([row_id] if token == "new" or fail else [])
         for record in (row, stored):
             assert (record.access_token, record.errors) == (token, errors)
+
+    @parameterized.expand(
+        [
+            ("row_without_a_token", None, "new"),
+            ("row_with_a_token", "old", "old"),
+        ]
+    )
+    def test_refresh_access_token_reads_an_empty_stale_token_as_no_token(
+        self, _name: str, stored_token: str | None, token: str
+    ) -> None:
+        sensitive_config: dict[str, Any] = {"refresh_token": "r1"}
+        if stored_token is not None:
+            sensitive_config["access_token"] = stored_token
+        row_id = self._seed(
+            "resend-account",
+            "resend",
+            {"expires_in": 900, "refreshed_at": int(time.time())},
+            sensitive_config=sensitive_config,
+        )
+
+        row = IntegrationManager.resend.oauth.refresh_access_token(self.team.id, row_id, stale_access_token="")
+
+        assert (row.access_token, self._stored(row_id).access_token) == (token, token)

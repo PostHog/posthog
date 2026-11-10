@@ -219,6 +219,7 @@ export const notebooksModel = kea<notebooksModelType>([
             [] as NotebookListItemType[],
             {
                 createNotebook: async ({ title, location, content, onCreate, shortId }) => {
+                    const notebooks = values.notebooks
                     const projectId = String(values.currentProjectId)
                     const { notebooksCreate, notebooksRetrieve } = await retryImport(
                         () => import('products/notebooks/frontend/generated/api')
@@ -257,7 +258,7 @@ export const notebooksModel = kea<notebooksModelType>([
                         intent_context: ProductIntentContext.NOTEBOOK_CREATED,
                     })
 
-                    return [notebook, ...values.notebooks.filter((existing) => existing.short_id !== notebook.short_id)]
+                    return [notebook, ...notebooks.filter((existing) => existing.short_id !== notebook.short_id)]
                 },
 
                 deleteNotebook: async ({ shortId, title }) => {

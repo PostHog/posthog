@@ -46,6 +46,7 @@ export type HideViewedRecordingsOptions = 'current-user' | 'any-user' | false
 export interface playerSettingsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
+    ambientBackground: boolean
     autoplayDirection: AutoplayDirection
     canOverrideLayout: boolean
     debugHintDismissed: boolean
@@ -83,6 +84,9 @@ export interface playerSettingsLogicValues {
 export interface playerSettingsLogicActions {
     dismissDebugHint: () => {
         value: true
+    }
+    setAmbientBackground: (ambientBackground: boolean) => {
+        ambientBackground: boolean
     }
     setAutoplayDirection: (autoplayDirection: AutoplayDirection) => {
         autoplayDirection: AutoplayDirection
@@ -198,6 +202,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setPlaylistCollapsed: (collapsed: boolean) => ({ collapsed }),
         setShowMetadataFooter: (showMetadataFooter: boolean) => ({ showMetadataFooter }),
         setPlayerControlsOverlay: (playerControlsOverlay: boolean) => ({ playerControlsOverlay }),
+        setAmbientBackground: (ambientBackground: boolean) => ({ ambientBackground }),
         setPreferClassicReplayLayout: (preferClassicReplayLayout: boolean) => ({ preferClassicReplayLayout }),
         setStaffLayoutOverride: (layout: ReplayLayout | null) => ({ layout }),
         setWatchPanelTab: (tab: WatchPanelTab) => ({ tab }),
@@ -284,6 +289,13 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setPlayerControlsOverlay: (_, { playerControlsOverlay }) => playerControlsOverlay,
+            },
+        ],
+        ambientBackground: [
+            true,
+            { persist: true },
+            {
+                setAmbientBackground: (_, { ambientBackground }) => ambientBackground,
             },
         ],
         preferClassicReplayLayout: [
@@ -392,6 +404,9 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             posthog.capture('recording player controls overlay toggled', {
                 player_controls_overlay: playerControlsOverlay,
             })
+        },
+        setAmbientBackground: ({ ambientBackground }) => {
+            posthog.capture('recording player ambient background toggled', { ambient_background: ambientBackground })
         },
         setPreferClassicReplayLayout: ({ preferClassicReplayLayout }) => {
             posthog.capture('session recording layout changed', {

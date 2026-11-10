@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import * as retryImportUtils from 'lib/utils/retryImport'
 import { buildMarkdownNotebookContent, getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { NotebookNodeType, NotebookTarget } from 'scenes/notebooks/types'
 
@@ -10,7 +11,7 @@ import { initKeaTests } from '~/test/init'
 import * as generatedApi from 'products/notebooks/frontend/generated/api'
 import type { NotebookApi } from 'products/notebooks/frontend/generated/api.schemas'
 
-import { notebooksModel } from './notebooksModel'
+import { SCRATCHPAD_NOTEBOOK, notebooksModel } from './notebooksModel'
 
 jest.mock('lib/utils/product-intents', () => ({
     addProductIntent: jest.fn().mockResolvedValue(null),
@@ -29,8 +30,17 @@ describe('notebooksModel', () => {
         jest.restoreAllMocks()
     })
 
-    it('creates markdown notebooks with the title and passed content embedded', async () => {
+    it.each([false, true])('creates markdown notebooks when navigation unmounts the model: %s', async (unmount) => {
         const createNotebookSpy = mockCreateNotebook()
+        logic.actions.receiveNotebookUpdate(SCRATCHPAD_NOTEBOOK)
+        const retryImport = retryImportUtils.retryImport
+        jest.spyOn(retryImportUtils, 'retryImport').mockImplementationOnce(async (factory) => {
+            if (unmount) {
+                logic.unmount()
+                expect(logic.isMounted()).toBe(false)
+            }
+            return retryImport(factory)
+        })
 
         await expectLogic(logic, () => {
             logic.actions.createNotebook(NotebookTarget.Scene, 'Activation', [
@@ -42,7 +52,18 @@ describe('notebooksModel', () => {
                     },
                 },
             ])
-        }).toDispatchActions(['createNotebookSuccess'])
+        }).toDispatchActions([
+            (action) => {
+                if (action.type !== logic.actionTypes.createNotebookSuccess) {
+                    return false
+                }
+                expect(action.payload.notebooks).toEqual([
+                    expect.objectContaining({ short_id: 'created-notebook' }),
+                    SCRATCHPAD_NOTEBOOK,
+                ])
+                return true
+            },
+        ])
 
         const content = createNotebookSpy.mock.calls[0][1]?.content as JSONContent
         expect(content).toEqual(buildMarkdownNotebookContent(getMarkdownNotebookMarkdown(content)))
