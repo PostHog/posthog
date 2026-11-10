@@ -464,7 +464,7 @@ export interface BarsConfig {
      *  light→dark sheen. `gloss` is a curved radial highlight for a glassy look. */
     fillStyle?: BarFillStyle
     /** Stacked layout only — use d3.stackOffsetDiverging so negative values stack below the zero
-     *  baseline (positives above). Default `false` clamps negatives to 0. */
+     *  baseline (positives above). A stacked layout with a negative value uses it without this flag. */
     divergingStack?: boolean
     /** Cap (px) on the band-axis range. Clusters bars at the start of the plot while gridlines
      *  still span the full width — useful for few-category funnel-style charts. */
@@ -555,8 +555,8 @@ export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
      *  `'stacked'`. `'percent'` stacks bars to 100%; line/area series still plot at raw values. */
     barLayout?: 'stacked' | 'grouped' | 'percent'
     /** Stacked layout only — use d3.stackOffsetDiverging so negative bar values stack below the
-     *  zero baseline (positives above). Default `false` clamps negatives to 0. Mirrors
-     *  {@link BarsConfig.divergingStack}. */
+     *  zero baseline (positives above). A stacked layout with a negative bar value uses it without
+     *  this flag. Mirrors {@link BarsConfig.divergingStack}. */
     divergingStack?: boolean
     /** Corner radius for the cap of bar segments. Stacked bars only round the topmost segment. */
     barCornerRadius?: number

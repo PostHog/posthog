@@ -25,7 +25,10 @@ class InsightAlertInvestigation(TeamScopedRootMixin, UUIDModel):
         METRICS = "metrics", "Metrics"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    alert_configuration = models.ForeignKey(AlertConfiguration, on_delete=models.CASCADE, related_name="+")
+    # Null for an alert insight keeps no row for, which `configuration_id` names alone.
+    alert_configuration = models.ForeignKey(
+        AlertConfiguration, on_delete=models.CASCADE, null=True, blank=True, related_name="+"
+    )
     # The platform's configuration. Not a foreign key, because that model belongs to another product.
     configuration_id = models.UUIDField()
     evaluation_key = models.CharField(max_length=255)

@@ -35,7 +35,9 @@ jobs:
     assign-labels:
         # Labels derived from the queue's own PR title are discarded with the
         # branch; the PR being queued was already labeled from its real title.
-        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
+        # A closed PR is skipped because its labels select merged changes for release
+        # notes, and its title stays editable after merge.
+        if: ${{ github.event.pull_request.state == 'open' && !startsWith(github.head_ref, 'trunk-merge/') }}
         runs-on: 'ubuntu-22.04'
         timeout-minutes: 5
 
