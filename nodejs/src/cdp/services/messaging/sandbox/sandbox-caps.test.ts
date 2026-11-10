@@ -7,7 +7,7 @@ import { RedisClient, RedisClientPipeline, RedisV2, createRedisV2PoolFromConfig 
 import { createRedisFromConfig } from '~/common/utils/db/redis'
 
 import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
-import { claimSandboxCaps, markSandboxCapsClaimSent } from './sandbox-caps'
+import { SandboxCapClaim, claimSandboxCaps } from './sandbox-caps'
 
 describe('claimSandboxCaps', () => {
     let client: Redis
@@ -22,8 +22,16 @@ describe('claimSandboxCaps', () => {
             teamId: team,
             storedAddress,
             claimId: randomUUID(),
-            attemptId: randomUUID(),
         })
+
+    const sameSend = () => ({ organizationId, teamId, storedAddress: 'member@example.com', claimId: randomUUID() })
+
+    const granted = (result: SandboxCapClaim) => {
+        if (!result.ok) {
+            throw new Error(`expected a granted claim, got ${result.reason}`)
+        }
+        return result
+    }
 
     beforeAll(async () => {
         client = await createRedisFromConfig(
@@ -59,7 +67,7 @@ describe('claimSandboxCaps', () => {
     })
 
     it('admits a first send', async () => {
-        expect(await claim({ team: 5, recipient: 1 }, 'member@example.com')).toEqual({ ok: true })
+        expect(await claim({ team: 5, recipient: 1 }, 'member@example.com')).toMatchObject({ ok: true })
     })
 
     it('stops a second send to one member once the recipient cap is reached, whatever the address case', async () => {
@@ -69,7 +77,7 @@ describe('claimSandboxCaps', () => {
             ok: false,
             reason: 'daily_cap_reached',
         })
-        expect(await claim({ team: 5, recipient: 1 }, 'other@example.com')).toEqual({ ok: true })
+        expect(await claim({ team: 5, recipient: 1 }, 'other@example.com')).toMatchObject({ ok: true })
     })
 
     it('shares the recipient cap across the projects of one organization', async () => {
@@ -97,7 +105,7 @@ describe('claimSandboxCaps', () => {
         await claim(caps, 'member@example.com')
 
         expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
-        expect(await claim(caps, nextAddress, teamId + teamOffset)).toEqual({ ok: true })
+        expect(await claim(caps, nextAddress, teamId + teamOffset)).toMatchObject({ ok: true })
     })
 
     it('charges a retried claim once when Valkey ran the first attempt but its reply was lost', async () => {
@@ -109,56 +117,47 @@ describe('claimSandboxCaps', () => {
             },
         }
         const caps = { team: 5, recipient: 2 }
-        const sendAttempt = {
-            organizationId,
-            teamId,
-            storedAddress: 'member@example.com',
-            claimId: randomUUID(),
-            attemptId: randomUUID(),
-        }
+        const sendAttempt = sameSend()
 
         expect(
             await claimSandboxCaps(new RateLimiterService(replyLost, { name: 'reply-lost' }), caps, sendAttempt)
         ).toEqual({ ok: false, reason: 'cap_storage_unavailable' })
-        const retry = { ...sendAttempt, attemptId: randomUUID() }
-        expect(await claimSandboxCaps(limiter, caps, retry)).toEqual({ ok: true })
-        expect(await markSandboxCapsClaimSent(limiter, retry)).toBe(true)
-        expect(await claim(caps, 'member@example.com')).toEqual({ ok: true })
+        const retry = granted(await claimSandboxCaps(limiter, caps, sendAttempt))
+        expect(await retry.markSent()).toBe(true)
+        expect(await claim(caps, 'member@example.com')).toMatchObject({ ok: true })
         expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
     })
 
     it('charges a replayed claim again once its send was marked sent', async () => {
         const caps = { team: 5, recipient: 2 }
-        const sendAttempt = {
-            organizationId,
-            teamId,
-            storedAddress: 'member@example.com',
-            claimId: randomUUID(),
-            attemptId: randomUUID(),
-        }
-        await claimSandboxCaps(limiter, caps, sendAttempt)
-        expect(await markSandboxCapsClaimSent(limiter, sendAttempt)).toBe(true)
+        const sendAttempt = sameSend()
+        const first = granted(await claimSandboxCaps(limiter, caps, sendAttempt))
+        expect(await first.markSent()).toBe(true)
 
-        expect(await claimSandboxCaps(limiter, caps, { ...sendAttempt, attemptId: randomUUID() })).toEqual({ ok: true })
+        expect(await claimSandboxCaps(limiter, caps, sendAttempt)).toMatchObject({ ok: true })
         expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
     })
 
     it("leaves a replay's claim reusable when the earlier attempt's sent mark arrives late", async () => {
         const caps = { team: 5, recipient: 2 }
-        const firstAttempt = {
-            organizationId,
-            teamId,
-            storedAddress: 'member@example.com',
-            claimId: randomUUID(),
-            attemptId: randomUUID(),
-        }
-        const replay = { ...firstAttempt, attemptId: randomUUID() }
-        await claimSandboxCaps(limiter, caps, firstAttempt)
-        await markSandboxCapsClaimSent(limiter, firstAttempt)
-        await claimSandboxCaps(limiter, caps, replay)
+        const sendAttempt = sameSend()
+        const first = granted(await claimSandboxCaps(limiter, caps, sendAttempt))
+        await first.markSent()
+        granted(await claimSandboxCaps(limiter, caps, sendAttempt))
 
-        expect(await markSandboxCapsClaimSent(limiter, firstAttempt)).toBe(false)
-        expect(await claimSandboxCaps(limiter, caps, { ...replay, attemptId: randomUUID() })).toEqual({ ok: true })
+        expect(await first.markSent()).toBe(false)
+        expect(await claimSandboxCaps(limiter, caps, sendAttempt)).toMatchObject({ ok: true })
+        expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
+    })
+
+    it('charges a replay again when an attempt that overlapped a free retry was the one that sent', async () => {
+        const caps = { team: 5, recipient: 2 }
+        const sendAttempt = sameSend()
+        const first = granted(await claimSandboxCaps(limiter, caps, sendAttempt))
+        granted(await claimSandboxCaps(limiter, caps, sendAttempt))
+
+        expect(await first.markSent()).toBe(true)
+        expect(await claimSandboxCaps(limiter, caps, sendAttempt)).toMatchObject({ ok: true })
         expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
     })
 
@@ -175,11 +174,10 @@ describe('claimSandboxCaps', () => {
                     teamId: team,
                     storedAddress,
                     claimId,
-                    attemptId: randomUUID(),
                 })
             await sendAttempt('first@example.com', teamId)
 
-            expect(await sendAttempt(secondAddress, teamId + teamOffset)).toEqual({ ok: true })
+            expect(await sendAttempt(secondAddress, teamId + teamOffset)).toMatchObject({ ok: true })
             expect(await claim(caps, nextAddress, teamId + teamOffset)).toEqual({
                 ok: false,
                 reason: 'daily_cap_reached',
@@ -201,7 +199,7 @@ describe('claimSandboxCaps', () => {
         })
 
         await redis.useClient({ name: 'repair-project-bucket' }, (client) => client.del(projectKey))
-        expect(await claim({ team: 5, recipient: 1 }, 'member@example.com')).toEqual({ ok: true })
+        expect(await claim({ team: 5, recipient: 1 }, 'member@example.com')).toMatchObject({ ok: true })
     })
 
     it('reports an unreachable limiter as storage that cannot be read', async () => {
@@ -227,7 +225,6 @@ describe('claimSandboxCaps', () => {
                     teamId,
                     storedAddress: 'member@example.com',
                     claimId: randomUUID(),
-                    attemptId: randomUUID(),
                 }
             )
         ).toEqual({ ok: false, reason: 'cap_storage_unavailable' })
@@ -240,6 +237,6 @@ describe('claimSandboxCaps', () => {
         ['a negative recipient cap', { team: 5, recipient: -1 }],
     ])('fails closed on %s without claiming a token', async (_case, caps) => {
         expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'cap_storage_unavailable' })
-        expect(await claim({ team: 1, recipient: 1 }, 'member@example.com')).toEqual({ ok: true })
+        expect(await claim({ team: 1, recipient: 1 }, 'member@example.com')).toMatchObject({ ok: true })
     })
 })
