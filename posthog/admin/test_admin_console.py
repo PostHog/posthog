@@ -3,6 +3,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
 from pathlib import Path
+from types import FunctionType
 from urllib.parse import urlencode
 
 import time_machine
@@ -380,6 +381,28 @@ class TestAdminConsoleTheme(SimpleTestCase):
         assert all(f'nonce="{allowed.group(1)}"' in tag for tag in inline_scripts), inline_scripts
 
 
+def _shared_console() -> None:
+    registry.register_moved_page(old_path="admin/shared/", title="Shared", url="/admin/console/tools/shared/")  # type: ignore[name-defined]  # noqa: F821
+
+
+def _broken_console() -> None:
+    # Imports a healthy module before it raises, so the test checks that the rollback keeps what that one declared.
+    import_module("products.shared.backend.console")
+    registry.register_moved_page(old_path="admin/broken/", title="Broken", url="/admin/console/tools/broken/")  # type: ignore[name-defined]  # noqa: F821
+    raise RuntimeError("a console.py raised")
+
+
+def _working_console() -> None:
+    registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/report/")  # type: ignore[name-defined]  # noqa: F821
+
+
+FAKE_CONSOLE_MODULES = {
+    "products.shared.backend.console": _shared_console,
+    "products.broken.backend.console": _broken_console,
+    "products.working.backend.console": _working_console,
+}
+
+
 class TestAdminConsoleMovedUrls(SimpleTestCase):
     def _get(self, url: str) -> HttpResponse:
         request = RequestFactory().get(url)
@@ -390,30 +413,16 @@ class TestAdminConsoleMovedUrls(SimpleTestCase):
 
     def test_a_contribution_that_raises_drops_only_its_own_moved_urls(self) -> None:
         registry = ConsoleRegistry()
-        # Each fake module runs with its own __name__, as a real console.py would, so the registry sees who declared what.
-        sources = {
-            "products.shared.backend.console": (
-                'registry.register_moved_page(old_path="admin/shared/", title="Shared", url="/admin/console/tools/shared/")'
-            ),
-            "products.broken.backend.console": (
-                'import_module("products.shared.backend.console")\n'
-                'registry.register_moved_page(old_path="admin/broken/", title="Broken", url="/admin/console/tools/broken/")\n'
-                'raise RuntimeError("a console.py raised")'
-            ),
-            "products.working.backend.console": (
-                'registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/report/")'
-            ),
-        }
         imported: set[str] = set()
 
         def import_contribution(module_name: str) -> None:
             if module_name in imported:
                 return
             imported.add(module_name)
-            exec(
-                sources[module_name],
-                {"__name__": module_name, "registry": registry, "import_module": import_contribution},
-            )
+            # The function runs with the fake module's __name__, as a real console.py would, so the registry sees
+            # which module declared each moved URL.
+            module_globals = {"__name__": module_name, "registry": registry, "import_module": import_contribution}
+            FunctionType(FAKE_CONSOLE_MODULES[module_name].__code__, module_globals)()
 
         with (
             patch.object(
