@@ -365,7 +365,7 @@ mod test {
 
         let client = Arc::new(client);
 
-        let hmp = HermesMapProvider {};
+        let hmp = HermesMapProvider::new(&config);
         let hmp = ChunkIdFetcher::new(
             hmp,
             client.clone(),
@@ -382,21 +382,21 @@ mod test {
         );
 
         let pgp = ChunkIdFetcher::new(
-            ProguardProvider {},
+            ProguardProvider::new(&config),
             client.clone(),
             db.clone(),
             config.object_storage_bucket.clone(),
         );
 
         let apple = ChunkIdFetcher::new(
-            AppleProvider {},
+            AppleProvider::new(&config),
             client.clone(),
             db.clone(),
             config.object_storage_bucket.clone(),
         );
 
         let native = ChunkIdFetcher::new(
-            NativeProvider {},
+            NativeProvider::new(&config),
             client.clone(),
             db.clone(),
             config.object_storage_bucket.clone(),

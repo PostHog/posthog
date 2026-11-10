@@ -217,24 +217,4 @@ export const PANEL_STATES = {
     },
     flags: { ...base, mode: 'flags' },
     events: { ...base, mode: 'events' },
-    experiments: {
-        ...base,
-        mode: 'experiments',
-        experiments: {
-            ...base.experiments,
-            selectedExperimentId: 21,
-            selectedVariant: 'short-headline',
-            experimentForm: {
-                name: 'Shorter hero headline',
-                variants: {
-                    control: { transforms: [], conditions: null, rollout_percentage: 50 },
-                    'short-headline': {
-                        transforms: [{ selector: '.hero h1', html: 'Plan less. Ship more.', css: '' }],
-                        conditions: null,
-                        rollout_percentage: 50,
-                    },
-                },
-            },
-        },
-    },
 }

@@ -22,15 +22,15 @@ def suggested_start(changed_at: datetime, team_timezone: str) -> str:
 
 
 def delay(
-    *, launched_at: datetime, first_changed_at: datetime, exposed_before_first: bool | None, change_count: int
+    *, start_date: datetime, first_changed_at: datetime, exposed_before_first: bool | None, change_count: int
 ) -> list[str]:
-    # When nobody knows whether anyone was exposed before the change, or the change came days after launch,
-    # the time since launch tells the reader how many people the change can have moved.
-    seconds = (first_changed_at - launched_at).total_seconds()
+    # When nobody knows whether anyone was exposed before the change, or the change came days after the start date,
+    # the time since the start date tells the reader how many people the change can have moved.
+    seconds = (first_changed_at - start_date).total_seconds()
     if exposed_before_first is not None and seconds <= SECONDS_PER_DAY:
         return []
     change = "The change" if change_count == 1 else "The first change"
-    return [f"{change} came {duration(seconds)} after launch."]
+    return [f"{change} came {duration(seconds)} after the start date."]
 
 
 def the_change(change_count: int, determiner: Literal["the", "this"]) -> str:
@@ -52,7 +52,7 @@ def not_checked_because(reason: FlagHistoryNotCheckedReason) -> str:
         case FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS:
             return "you can't view the linked feature flag's history"
         case FlagHistoryNotCheckedReason.TOO_MANY_SAVES:
-            return f"the flag was saved more than {MAX_FLAG_SAVES} times since launch"
+            return f"the flag was saved more than {MAX_FLAG_SAVES} times since the start date"
         case FlagHistoryNotCheckedReason.TOO_MANY_CONDITIONS:
             return f"the flag has more than {MAX_RELEASE_CONDITIONS} release conditions"
 

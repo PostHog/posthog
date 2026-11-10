@@ -11,6 +11,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from ..adapters.registry import REGISTRY
 from ..facade.contracts import DocsRequest
 from ..settings import WriterSettings
+from ..task_profiles import WRITER
 from .caps import WriterRerunTaken, claim_section
 from .records import (
     JOIN_STATE_KEY,
@@ -123,11 +124,10 @@ def create_writer_task(
         team=team,
         title=f"Docs: {request.source_url}"[:255],
         description=description,
-        origin_product=tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
+        profile=WRITER,
         user_id=writer.user_id,
         repository=writer.docs_repository,
         create_pr=False,
-        internal=True,
         posthog_mcp_scopes=[],
         extra_run_state=no_store_connectors_run_state(),
         origin_key=request.dedupe_id,

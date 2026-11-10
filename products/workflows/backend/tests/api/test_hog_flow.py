@@ -11,8 +11,9 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, MagicMock, patch
 
+from django.conf import UserSettingsHolder, settings
 from django.core.management import call_command
-from django.db import connection
+from django.db import DatabaseError, connection
 from django.test import override_settings
 from django.utils import timezone
 
@@ -32,7 +33,7 @@ from posthog.test.fixtures import create_app_metric2
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.flag_gated_templates import gated_template_enabled
@@ -73,6 +74,7 @@ from products.workflows.backend.presentation.views.hog_flow import (
     _should_validate_strictly,
     mint_audience_confirm_token,
 )
+from products.workflows.backend.services.workflow_test_runs import workflow_test_run_context
 from products.workflows.backend.tests.api.test_workflow_data_suggestions import _push_function_template
 
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
@@ -2248,7 +2250,7 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_conditional_branch_validates_cohorts_nested_in_action_filters(self, _mock_flag):
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         static_cohort = Cohort.objects.create(team=self.team, name="static-cohort", is_static=True)
-        action = Action.objects.create(team=self.team, name="Converted", steps_json=[{"event": "converted"}])
+        action = create_action(team=self.team, name="Converted", steps_json=[{"event": "converted"}])
         filters = {
             "properties": [{"key": "id", "type": "cohort", "value": eligible.id}],
             "actions": [
@@ -2537,7 +2539,7 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_rejects_ineligible_cohorts_inside_referenced_actions(self, _mock_flag):
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         static_cohort = Cohort.objects.create(team=self.team, name="static-in-action", is_static=True)
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="action with cohort step",
             steps_json=[
@@ -2560,7 +2562,7 @@ class TestHogFlowAPI(APIBaseTest):
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_compiles_eligible_cohort_referenced_only_through_an_action(self, _mock_flag):
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="action with eligible cohort step",
             steps_json=[{"event": "$pageview", "properties": [{"key": "id", "type": "cohort", "value": eligible.id}]}],
@@ -3012,7 +3014,7 @@ class TestHogFlowAPI(APIBaseTest):
         # An "events to wait for" entry can target a PostHog Action instead of an event: filters.actions
         # is set and filters.events is empty. That is a real wait and must be kept (and its bytecode
         # compiled), while a truly-empty entry alongside it is still dropped.
-        action = Action.objects.create(team=self.team, name="Played with calculator", steps_json=[{"event": "calc"}])
+        action = create_action(team=self.team, name="Played with calculator", steps_json=[{"event": "calc"}])
 
         trigger_action = {
             "id": "trigger_node",
@@ -3108,7 +3110,7 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_conversion_drops_empty_keeps_action_event(self):
         # Same always-true guard as wait_until: a conversion "events" entry targeting nothing is
         # dropped (it would convert on every event), while an action-based entry is kept and compiled.
-        action = Action.objects.create(team=self.team, name="Converted via action", steps_json=[{"event": "converted"}])
+        action = create_action(team=self.team, name="Converted via action", steps_json=[{"event": "converted"}])
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -3573,6 +3575,200 @@ class TestHogFlowAPI(APIBaseTest):
             payload = mock_invoke.call_args.kwargs["payload"]
             assert payload["globals"] == {"event": {"event": "$pageview", "distinct_id": "test-distinct-id"}}
             assert payload["mock_async_functions"] is True
+
+    @parameterized.expand(
+        [
+            (
+                "saved_workflow_real_requests",
+                True,
+                False,
+                {"request_origins": ["https://slack.com"]},
+                ["https://slack.com"],
+            ),
+            (
+                "new_workflow_real_requests",
+                False,
+                False,
+                {"request_origins": ["https://slack.com"]},
+                ["https://slack.com"],
+            ),
+            ("mocked_requests", True, True, {"request_origins": []}, None),
+            ("reply_is_not_json", True, False, None, None),
+            ("reply_origins_not_a_list", True, False, {"request_origins": "https://slack.com"}, None),
+            (
+                "reply_origins_hold_full_urls",
+                True,
+                False,
+                {
+                    "request_origins": [
+                        "https://user:fake-pass@hooks.example.com:443/services/fake-token?api_key=fake-key",
+                        "HTTP://[::1]:8080/path",
+                        "https://hooks.example.com",
+                        "not a url",
+                    ]
+                },
+                ["https://hooks.example.com", "http://[::1]:8080"],
+            ),
+            (
+                "reply_origins_hold_stored_secrets",
+                True,
+                False,
+                {
+                    "request_origins": [
+                        "https://STORED-SECRET.one.example.com",
+                        "https://xoxb-fake-workspace-token.two.example.com",
+                        "https://123456789.three.example.com",
+                    ]
+                },
+                [
+                    "https://***REDACTED***.one.example.com",
+                    "https://***REDACTED***.two.example.com",
+                    "https://***REDACTED***.three.example.com",
+                ],
+            ),
+        ]
+    )
+    def test_test_invocation_with_real_requests_is_logged_without_input_values(
+        self,
+        _name: str,
+        saved: bool,
+        mock_async_functions: bool,
+        reply: Optional[dict[str, Any]],
+        expected_origins: Optional[list[str]],
+    ):
+        workspace = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            config={},
+            sensitive_config={"access_token": "xoxb-fake-workspace-token"},
+            created_by=self.user,
+        )
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-slack",
+                "inputs": {
+                    "slack_workspace": {"value": workspace.id},
+                    "channel": {"value": "C0123456789"},
+                    "text": {"value": "sent-by-the-test"},
+                },
+            }
+        )
+        flow_id = "new"
+        data: dict[str, Any] = {
+            "globals": {"event": {"event": "$pageview", "distinct_id": "d"}},
+            "mock_async_functions": mock_async_functions,
+            "current_action_id": "action_1",
+        }
+        if saved:
+            created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+            assert created.status_code == 201, created.json()
+            flow_id = created.json()["id"]
+            HogFlow.objects.filter(id=flow_id).update(
+                encrypted_inputs={"action_1": {"api_token": {"value": "stored-secret"}, "pin": {"value": 123456789}}}
+            )
+        else:
+            data["configuration"] = hog_flow
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=500 if reply is None else 200)
+            if reply is None:
+                mock_invoke.return_value.json.side_effect = ValueError("not JSON")
+            else:
+                mock_invoke.return_value.json.return_value = {"error": "Worker failed", **reply}
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/", data, format="json"
+            )
+        assert mock_invoke.call_count == 1
+        if reply is not None:
+            assert "request_origins" not in response.json()
+
+        rows = list(ActivityLog.objects.filter(team_id=self.team.id, scope="HogFlow", activity="tested"))
+        if mock_async_functions:
+            assert rows == []
+            return
+        assert len(rows) == 1
+        assert rows[0].user == self.user
+        assert rows[0].item_id == (flow_id if saved else None)
+        detail = rows[0].detail
+        assert detail is not None
+        assert detail["name"] == "Test Flow"
+        assert detail["context"] == {
+            "action_id": "action_1",
+            "action_type": "function",
+            "template_id": "template-slack",
+            "input_keys": ["api_token", "channel", "pin", "slack_workspace", "text"]
+            if saved
+            else ["channel", "slack_workspace", "text"],
+            "integration_ids": [workspace.id],
+            "request_origins": expected_origins,
+        }
+        assert "sent-by-the-test" not in json.dumps(detail)
+        assert "stored-secret" not in json.dumps(detail)
+
+    @parameterized.expand(
+        [
+            (
+                "email_single_sender",
+                "template-email",
+                {"inputs": {"email": {"value": {"from": {"integrationId": 7, "email": "a@example.com"}}}}},
+                [7],
+            ),
+            (
+                "email_sender_list_wins",
+                "template-email",
+                {"inputs": {"email": {"value": {"from": {"integrationId": 7, "integrationIds": [8, 9]}}}}},
+                [8, 9],
+            ),
+            (
+                "mapping_overrides_step_input",
+                "template-slack",
+                {
+                    "inputs": {"slack_workspace": {"value": 1}},
+                    "mappings": [
+                        {
+                            "inputs_schema": [{"key": "extra", "type": "integration"}],
+                            "inputs": {"slack_workspace": {"value": 2}, "extra": {"value": 3}},
+                        }
+                    ],
+                },
+                [2, 3],
+            ),
+        ]
+    )
+    def test_test_run_context_records_the_integrations_the_worker_loads(
+        self, _name: str, template_id: str, config: dict[str, Any], expected_ids: list[int]
+    ):
+        sync_template_to_db(_email_function_template())
+        actions = [{"id": "action_1", "type": "function", "config": {"template_id": template_id, **config}}]
+        assert workflow_test_run_context(actions, "action_1").integration_ids == expected_ids
+
+    def test_test_invocation_with_real_requests_does_not_run_when_its_activity_log_write_fails(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        production_settings = UserSettingsHolder(settings)
+        production_settings.TEST = False
+        with (
+            patch(
+                "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+            ) as mock_invoke,
+            patch.object(ActivityLog.objects, "create", side_effect=DatabaseError("insert rejected")),
+            patch("posthog.models.activity_logging.activity_log.settings", production_settings),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/new/invocations/",
+                {
+                    "configuration": hog_flow,
+                    "globals": {"event": {"event": "$pageview", "distinct_id": "d"}},
+                    "mock_async_functions": False,
+                    "current_action_id": "action_1",
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        mock_invoke.assert_not_called()
 
     @parameterized.expand(
         [

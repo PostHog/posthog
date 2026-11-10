@@ -1,6 +1,9 @@
 from collections.abc import Iterable
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 from urllib.parse import urlencode
+
+from requests import Request, Response
 
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
@@ -14,16 +17,25 @@ from products.warehouse_sources.sources.sdk import (
     build_dependent_resource,
     frozen,
     make_tracked_session,
+    parse_datetime_value,
     rest_api_resource,
     validate_via_probe,
 )
-from products.warehouse_sources.sources.smartlead.settings import BASE_URL, SMARTLEAD_ENDPOINTS, SmartleadEndpointConfig
+from products.warehouse_sources.sources.smartlead.settings import (
+    ANALYTICS_START_DATE,
+    ANALYTICS_WINDOW_DAYS,
+    BASE_URL,
+    SMARTLEAD_ENDPOINTS,
+    SmartleadEndpointConfig,
+)
 
 
 @frozen
 class SmartleadResumeConfig:
     # Top-level offset-paginated endpoints resume from the next offset. None means "start over".
     next_offset: int | None = None
+    # Date-windowed endpoints resume from the first day of the next window (ISO date).
+    next_start_date: str | None = None
     # Fan-out endpoints resume by parent: the campaign paths already fully synced, the campaign
     # in progress, and that campaign's paginator state — see
     # `common.rest_source.__init__._make_paginate_dependent_resource`.
@@ -32,7 +44,63 @@ class SmartleadResumeConfig:
     child_state: dict[str, Any] | None = None
 
 
-def _paginator(config: SmartleadEndpointConfig) -> BasePaginator:
+def _today() -> date:
+    return datetime.now(UTC).date()
+
+
+class SmartleadDateWindowPaginator(BasePaginator):
+    """Walks an analytics endpoint in ascending, inclusive `start_date`/`end_date` windows up to today."""
+
+    def __init__(self, start_date: date, window_days: int = ANALYTICS_WINDOW_DAYS) -> None:
+        super().__init__()
+        self._window_days = window_days
+        self._window_start = min(start_date, _today())
+
+    def _window_end(self) -> date:
+        return min(self._window_start + timedelta(days=self._window_days - 1), _today())
+
+    def _apply_window(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["start_date"] = self._window_start.isoformat()
+        request.params["end_date"] = self._window_end().isoformat()
+
+    def init_request(self, request: Request) -> None:
+        self._apply_window(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        # An empty window still advances: an account has no stats before its first send.
+        self._has_next_page = self._window_end() < _today()
+
+    def update_request(self, request: Request) -> None:
+        if not self._has_next_page:
+            return
+        self._window_start = self._window_end() + timedelta(days=1)
+        self._apply_window(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if self._has_next_page:
+            return {"start_date": self._window_start.isoformat()}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        start_date = state.get("start_date")
+        if start_date:
+            self._window_start = min(date.fromisoformat(str(start_date)), _today())
+
+
+def _window_start_date(db_incremental_field_last_value: Optional[Any]) -> date:
+    # Start on the last synced day, not the day after: that run may have read the day before it
+    # ended, and the merge on `date` replaces the partial row.
+    last_value = parse_datetime_value(db_incremental_field_last_value)
+    if last_value is not None:
+        return last_value.date()
+    return date.fromisoformat(ANALYTICS_START_DATE)
+
+
+def _paginator(config: SmartleadEndpointConfig, db_incremental_field_last_value: Optional[Any] = None) -> BasePaginator:
+    if config.pagination == "date_window":
+        return SmartleadDateWindowPaginator(_window_start_date(db_incremental_field_last_value))
     if config.pagination == "offset":
         # Smartlead reports totals as strings (e.g. `total_leads: "150"`), which the numeric
         # total check ignores, so the short-page fallback is what terminates pagination.
@@ -54,11 +122,13 @@ def _client_config(api_key: str, paginator: BasePaginator, config: SmartleadEndp
     return client_config
 
 
-def _endpoint_extra(config: SmartleadEndpointConfig) -> Endpoint:
-    extra: Endpoint = {"paginator": _paginator(config)}
+def _endpoint_extra(config: SmartleadEndpointConfig, db_incremental_field_last_value: Optional[Any] = None) -> Endpoint:
+    extra: Endpoint = {"paginator": _paginator(config, db_incremental_field_last_value)}
     if config.data_selector:
         extra["data_selector"] = config.data_selector
-    if config.expects_list:
+    # The docs do not show the body of a date window with no activity, and a full refresh walks
+    # many of those, so a missing row list there counts as zero rows.
+    if config.expects_list and config.pagination != "date_window":
         # Fail loud on a response shape change instead of silently syncing 0 rows.
         extra["data_selector_required"] = True
     return extra
@@ -97,7 +167,7 @@ def _top_level_source(
     db_incremental_field_last_value: Optional[Any],
 ) -> SourceResponse:
     endpoint_config: Endpoint = {"path": config.path, "params": {}}
-    endpoint_config.update(_endpoint_extra(config))
+    endpoint_config.update(_endpoint_extra(config, db_incremental_field_last_value))
 
     resource: dict[str, Any] = {
         "name": endpoint,
@@ -107,22 +177,26 @@ def _top_level_source(
         resource["data_map"] = _redact_fields_mapper(config.redact_fields)
 
     rest_config: RESTAPIConfig = {
-        "client": _client_config(api_key, _paginator(config), config),
+        "client": _client_config(api_key, _paginator(config, db_incremental_field_last_value), config),
         "resource_defaults": {},
         "resources": [cast(Any, resource)],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if config.pagination == "offset" and resumable_source_manager.can_resume():
+    if config.pagination != "single" and resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None and resume.next_offset:
+        if resume is not None and config.pagination == "offset" and resume.next_offset:
             initial_paginator_state = {"offset": resume.next_offset}
+        elif resume is not None and config.pagination == "date_window" and resume.next_start_date:
+            initial_paginator_state = {"start_date": resume.next_start_date}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only while more pages remain; save AFTER a page is yielded so a crash re-yields
         # the last page rather than skipping it. Single-page endpoints never produce state.
         if state and state.get("offset") is not None:
             resumable_source_manager.save_state(SmartleadResumeConfig(next_offset=int(state["offset"])))
+        elif state and state.get("start_date"):
+            resumable_source_manager.save_state(SmartleadResumeConfig(next_start_date=str(state["start_date"])))
 
     built = rest_api_resource(
         rest_config,

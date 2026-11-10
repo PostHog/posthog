@@ -71,7 +71,7 @@ from posthog.clickhouse.client.execute import kill_switch_overrides
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.clickhouse.workload import Workload
+from posthog.clickhouse.workload import PINNED_CLUSTER_WORKLOADS, Workload
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import (
@@ -435,9 +435,9 @@ def _generate_sql(
     context.values.clear()
     sql, resolved = executor.generate_clickhouse_sql()
     seconds = time.perf_counter() - started
-    # Both write paths connect to the main cluster, and logs-cluster tables exist only on the
-    # logs cluster. Fail before the DESCRIBE so the user sees why, not an unknown-table error.
-    if resolved.workload == Workload.LOGS:
+    # Both write paths connect to the main cluster, and logs and metrics tables exist only on their
+    # own clusters. Fail before the DESCRIBE so the user sees why, not an unknown-table error.
+    if resolved.workload in PINNED_CLUSTER_WORKLOADS:
         raise QueryError(_LOGS_CLUSTER_MESSAGE)
     # The executor keeps the database it built on its own `dataclasses.replace` copy, so
     # without this hand-back the shared context still looks empty and the next pass builds a

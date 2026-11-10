@@ -112,6 +112,9 @@ export function isScopeNotFoundMessage(message: unknown): boolean {
     return typeof message === 'string' && SCOPE_NOT_FOUND_DETAILS.has(message)
 }
 
+/** DRF `detail` of the project membership 403s in posthog/permissions.py. Keep in sync with the backend. */
+export const PROJECT_ACCESS_DENIED_DETAIL = "You don't have access to the project."
+
 /** DRF code of a security access rule refusal (products/security). Keep in sync with the backend. */
 export const ACCESS_BLOCKED_ERROR_CODE = 'access_blocked'
 

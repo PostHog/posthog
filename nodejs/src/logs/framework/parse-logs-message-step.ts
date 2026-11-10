@@ -100,7 +100,12 @@ export function createParseLogsMessageStep<T extends LogsPipelineInput>(
                 recordCount,
                 minTimestampMicros: parseMinTimestampHeader(headers.min_timestamp),
                 backfillRequested: headers.backfill_days !== undefined,
-                internalLogs: internalLogsVerifier.verify(headers[INTERNAL_LOGS_HEADER], team.id, headers.created_at),
+                sentAsInternalLogs: headers[INTERNAL_LOGS_HEADER] !== undefined,
+                verifiedAsInternalLogs: internalLogsVerifier.verify(
+                    headers[INTERNAL_LOGS_HEADER],
+                    team.id,
+                    headers.created_at
+                ),
             })
         } catch (e) {
             // A failed quarantine of bad size headers lands here, and a second DLQ failure fails the batch.

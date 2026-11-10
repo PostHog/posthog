@@ -15,7 +15,7 @@ import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EVALUATION_RUNS_QUERY_LIMIT, numericScorePasses } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
-import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
+import { DEFAULT_HOG_SOURCE, DEFAULT_JUDGE_PROMPT, llmEvaluationLogic } from './llmEvaluationLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { takeBackfillStart } from './pendingBackfillStarts'
 import { EvaluationConfig, EvaluationReport, EvaluationRun } from './types'
@@ -244,6 +244,7 @@ describe('llmEvaluationLogic', () => {
         useMocks({
             get: {
                 '/api/llm_proxy/models/': [],
+                '/api/projects/:teamId/llm_analytics/provider_keys/:keyId/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,
@@ -1950,6 +1951,34 @@ return result`,
                                   ]
                                 : [],
                         ],
+                        '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => [
+                            200,
+                            params.key_id === keyId
+                                ? [
+                                      {
+                                          id: 'example/dual-model',
+                                          name: 'example/dual-model',
+                                          provider: displayName,
+                                          supports_decisions: true,
+                                          supports_chat: true,
+                                      },
+                                      {
+                                          id: 'example/chat-model',
+                                          name: 'example/chat-model',
+                                          provider: displayName,
+                                          supports_decisions: false,
+                                          supports_chat: true,
+                                      },
+                                      {
+                                          id: 'example/decision-model',
+                                          name: 'example/decision-model',
+                                          provider: displayName,
+                                          supports_decisions: true,
+                                          supports_chat: false,
+                                      },
+                                  ]
+                                : [],
+                        ],
                     },
                 })
                 await expectLogic(keysLogic, () => keysLogic.actions.loadProviderKeys()).toFinishAllListeners()
@@ -1967,7 +1996,10 @@ return result`,
                     model: 'example/dual-model',
                     provider_key_id: keyId,
                 })
-                expect(logic.values.evaluation?.evaluation_config).toEqual({ prompt: '', judge_method: method })
+                expect(logic.values.evaluation?.evaluation_config).toEqual({
+                    prompt: DEFAULT_JUDGE_PROMPT,
+                    judge_method: method,
+                })
                 expect(logic.values.judgeModelGroups.flatMap((group) => group.models.map((model) => model.id))).toEqual(
                     ['example/dual-model', method === 'llm' ? 'example/chat-model' : 'example/decision-model']
                 )

@@ -158,6 +158,12 @@ fn a_deep_chain_of_named_records_is_rejected_without_overflow() {
         20_000,
     ));
     assert!(Schema::parse_json(&format!("[{}]", redefined.join(","))).is_err());
+
+    // A shallow redefinition passes the depth check, so only the duplicate name stops it, as in avsc.
+    let duplicate =
+        r#"[{"type":"record","name":"R","fields":[]},{"type":"record","name":"R","fields":[]}]"#;
+    let err = Schema::parse_json(duplicate).unwrap_err().to_string();
+    assert!(err.contains("duplicate type name: R"), "{err}");
 }
 
 #[test]
@@ -269,6 +275,22 @@ fn empty_array_items_share_one_budget_per_container() {
     assert!(decode_container(&zstd_container(schema, &[block(4_000_000_000)])).is_err());
     // Each block stays under the cap, and the two together pass it.
     assert!(decode_container(&zstd_container(schema, &[block(600_000), block(600_000)])).is_err());
+
+    // Each record holds two of the one before, so 31 levels expand one record into 2^31 empty values.
+    let mut records = vec![r#"{"type":"record","name":"R0","fields":[]}"#.to_string()];
+    for i in 1..=30 {
+        records.push(format!(
+            r#"{{"type":"record","name":"R{i}","fields":[{{"name":"a","type":"R{p}"}},{{"name":"b","type":"R{p}"}}]}}"#,
+            p = i - 1
+        ));
+    }
+    let doubling = format!(
+        r#"{{"type":"record","name":"Top","fields":[{{"name":"u","type":[{}]}}]}}"#,
+        records.join(",")
+    );
+    let last_branch = encode_long(30);
+    let block = (1, zstd::bulk::compress(&last_branch, 1).unwrap());
+    assert!(decode_container(&zstd_container(doubling.as_bytes(), &[block])).is_err());
 }
 
 #[test]

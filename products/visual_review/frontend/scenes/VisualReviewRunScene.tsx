@@ -7,6 +7,7 @@ import { LemonButton, LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
@@ -287,6 +288,7 @@ export function VisualReviewRunScene(): JSX.Element {
         failedThumbnails,
         thumbnailBasePath,
         addImagesToComment,
+        runNotFound,
     } = useValues(visualReviewRunSceneLogic)
     const {
         setSelectedSnapshotId,
@@ -353,6 +355,10 @@ export function VisualReviewRunScene(): JSX.Element {
     // Show skeleton only on initial load — once `run` is populated, keep showing it
     // even while a background refetch is in flight (e.g. after approve/tolerate),
     // otherwise the whole scene flashes to skeleton on every mutation.
+    if (runNotFound) {
+        return <NotFound object="visual review run" />
+    }
+
     if (!run) {
         return (
             <SceneContent>

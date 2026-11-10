@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
+from django.utils.timezone import now
 
 from parameterized import parameterized
 from rest_framework import status
@@ -14,6 +15,7 @@ from posthog.models.user import User
 from products.business_knowledge.backend.api.playground import BusinessKnowledgePlaygroundChatViewSet
 from products.business_knowledge.backend.constants import MAX_OPEN_RUNS_PER_OWNER
 from products.business_knowledge.backend.models import PlaygroundChat, PlaygroundTurn
+from products.tasks.backend.facade.temporal import mcp_exclude_tools_for_task
 from products.tasks.backend.models import Task, TaskRun
 
 WORKFLOW = "products.tasks.backend.temporal.client.execute_task_processing_workflow"
@@ -55,7 +57,7 @@ class TestPlaygroundChatAPI(APIBaseTest):
         other = User.objects.create_user(email="other@example.com", password="password", first_name="Other")
         OrganizationMembership.objects.create(user=other, organization=self.organization)
         self.client.force_login(other)
-        assert self.client.get(self.url).json() == []
+        assert self.client.get(self.url).json()["results"] == []
         assert self.client.get(chat_url).status_code == status.HTTP_404_NOT_FOUND
         assert self.client.delete(chat_url).status_code == status.HTTP_404_NOT_FOUND
         assert self.client.post(f"{chat_url}ask/", {"question": "Can I get a refund?"}, format="json").status_code == (
@@ -89,14 +91,14 @@ class TestPlaygroundChatAPI(APIBaseTest):
         assert parallel.status_code == status.HTTP_201_CREATED, parallel.content
         assert Task.objects.filter(origin_product=Task.OriginProduct.BUSINESS_KNOWLEDGE).count() == 2
 
-        listed = {chat["id"]: chat["has_open_turn"] for chat in self.client.get(self.url).json()}
+        listed = {chat["id"]: chat["has_open_turn"] for chat in self.client.get(self.url).json()["results"]}
         assert listed == {first["id"]: True, second["id"]: True}
         assert untitled["id"] not in listed
 
         TaskRun.objects.filter(task_id=started.json()["turns"][0]["task_id"]).update(
             status=TaskRun.Status.COMPLETED, output={"reply": "Yes.", "sources": []}
         )
-        listed = {chat["id"]: chat["has_open_turn"] for chat in self.client.get(self.url).json()}
+        listed = {chat["id"]: chat["has_open_turn"] for chat in self.client.get(self.url).json()["results"]}
         assert listed == {first["id"]: False, second["id"]: True}
         follow_up = self.client.post(f"{self.url}{first['id']}/ask/", {"question": "And after 30 days?"}, format="json")
         assert follow_up.status_code == status.HTTP_201_CREATED, follow_up.content
@@ -135,7 +137,7 @@ class TestPlaygroundChatAPI(APIBaseTest):
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
         listed = self.client.get(self.url)
         assert listed.status_code == status.HTTP_200_OK
-        assert listed.json()[0]["id"] == chat["id"]
+        assert listed.json()["results"][0]["id"] == chat["id"]
         still_readable = self.client.get(f"{self.url}{chat['id']}/")
         assert still_readable.status_code == status.HTTP_200_OK
         PlaygroundTurn.objects.unscoped().filter(chat_id=chat["id"]).update(run_id=None)
@@ -144,6 +146,36 @@ class TestPlaygroundChatAPI(APIBaseTest):
         assert legacy.json()["turns"][0]["run"]["reply"] == "Yes, within 30 days."
         blocked = self.client.post(f"{self.url}{chat['id']}/ask/", {"question": "Another question"}, format="json")
         assert blocked.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_list_pages_by_most_recently_updated(self, _ff, _workflow) -> None:
+        chats = [self._create_chat() for _ in range(3)]
+        PlaygroundChat.objects.unscoped().filter(id__in=[chat["id"] for chat in chats]).update(title="Refunds")
+        PlaygroundChat.objects.unscoped().filter(id=chats[0]["id"]).update(title="Latest", updated_at=now())
+
+        first_page = self.client.get(self.url, {"limit": 2}).json()
+        second_page = self.client.get(first_page["next"]).json()
+
+        assert first_page["count"] == 3
+        assert first_page["results"][0]["id"] == chats[0]["id"]
+        listed = [chat["id"] for chat in first_page["results"] + second_page["results"]]
+        assert sorted(listed) == sorted(chat["id"] for chat in chats)
+        assert second_page["next"] is None
+
+        same_time = now()
+        PlaygroundChat.objects.unscoped().filter(id__in=[chat["id"] for chat in chats]).update(updated_at=same_time)
+        first_page = self.client.get(self.url, {"limit": 2}).json()
+        second_page = self.client.get(first_page["next"]).json()
+        assert [chat["id"] for chat in first_page["results"] + second_page["results"]] == sorted(
+            [chat["id"] for chat in chats], reverse=True
+        )
+
+        PlaygroundChat.objects.unscoped().bulk_create(
+            [PlaygroundChat(team=self.team, created_by=self.user, title="Another chat") for _ in range(101)]
+        )
+        capped_page = self.client.get(self.url, {"limit": 1000}).json()
+        assert capped_page["count"] == 104
+        assert len(capped_page["results"]) == 100
+        assert capped_page["next"] is not None
 
     def test_delete_keeps_the_sandbox_task(self, _ff, _workflow) -> None:
         chat = self._create_chat()
@@ -166,6 +198,24 @@ class TestPlaygroundChatAPI(APIBaseTest):
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert not Task.objects.filter(origin_product=Task.OriginProduct.BUSINESS_KNOWLEDGE).exists()
         assert PlaygroundTurn.objects.unscoped().count() == 0
+
+    def test_follow_up_keeps_hidden_tools_for_a_task_without_a_profile(self, _ff, _workflow) -> None:
+        chat = self._create_chat()
+        asked = self.client.post(f"{self.url}{chat['id']}/ask/", {"question": "Can I get a refund?"}, format="json")
+        assert asked.status_code == status.HTTP_201_CREATED, asked.content
+        first_turn = asked.json()["turns"][0]
+        Task.objects.filter(id=first_turn["task_id"]).update(profile=None)
+        first_run = TaskRun.objects.get(id=first_turn["run"]["run_id"])
+        first_run.status = TaskRun.Status.COMPLETED
+        first_run.output = {"reply": "Yes, within 30 days.", "sources": []}
+        first_run.state = {**first_run.state, "mcp_exclude_tools": ["project-get", "user-get"]}
+        first_run.save(update_fields=["status", "output", "state"])
+
+        follow_up = self.client.post(f"{self.url}{chat['id']}/ask/", {"question": "And after 30 days?"}, format="json")
+
+        assert follow_up.status_code == status.HTTP_201_CREATED, follow_up.content
+        successor = TaskRun.objects.get(id=follow_up.json()["turns"][1]["run"]["run_id"])
+        assert successor.state["mcp_exclude_tools"] == ["project-get", "user-get"]
 
     def test_follow_up_resumes_the_same_sandbox(self, _ff, _workflow) -> None:
         chat = self._create_chat()
@@ -194,7 +244,10 @@ class TestPlaygroundChatAPI(APIBaseTest):
         assert successor.task_id == first_run.task_id
         assert successor.state["resume_from_run_id"] == str(first_run.id)
         assert successor.state["pending_user_message"] == "And after 30 days?"
-        assert successor.state["mcp_exclude_tools"] == first_run.state["mcp_exclude_tools"]
+        assert "mcp_exclude_tools" not in successor.state
+        assert mcp_exclude_tools_for_task(successor.task, successor.state) == mcp_exclude_tools_for_task(
+            first_run.task, first_run.state
+        )
         assert successor.state["config_snapshot"] == first_run.state["config_snapshot"]
         assert successor.state["model"] == first_run.state["model"]
         assert successor.state["runtime_adapter"] == first_run.state["runtime_adapter"]

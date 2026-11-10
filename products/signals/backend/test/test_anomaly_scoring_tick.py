@@ -17,6 +17,7 @@ from django.test import SimpleTestCase, override_settings
 
 import numpy as np
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
@@ -52,7 +53,7 @@ from products.signals.backend.anomaly_scores.config import (
     parse_config,
     read_payload,
 )
-from products.signals.backend.anomaly_scores.due_list import record_scored, refresh_due_list
+from products.signals.backend.anomaly_scores.due_list import record_scored, refresh_due_list, refresh_team
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
 from products.signals.backend.anomaly_scores.queue import (
     ATTEMPT_COOLDOWN,
@@ -63,6 +64,7 @@ from products.signals.backend.anomaly_scores.queue import (
     QueryBudget,
     TeamCensus,
     _cooldown_key,
+    _empty_train_key,
     _fleet_budget_key,
     _project_budget_key,
     _take_turns,
@@ -70,6 +72,7 @@ from products.signals.backend.anomaly_scores.queue import (
     _too_expensive_key,
     active_insights,
     eligible_teams,
+    empty_train_counts,
     is_due,
     remaining_budget,
     reserve_queries,
@@ -741,6 +744,7 @@ class TestRunInsight(SimpleTestCase):
             ("timeout", ClickHouseQueryTimeOut(), "too_expensive"),
             ("access_denied", TableAccessDeniedError("no access"), "access_denied"),
             ("unknown_table", QueryError("Unknown table `deleted_table`."), "broken_query"),
+            ("invalid_query", ValidationError("Not supported.", code="unsupported_settings"), "broken_query"),
             ("unsupported", UnsupportedInsightError("not trends"), "unsupported"),
         ]
     )
@@ -802,6 +806,71 @@ class TestRunInsight(SimpleTestCase):
 
         assert too_expensive_counts([7]) == {}
         assert capture.call_args.kwargs["properties"]["too_expensive_streak"] == 0
+
+    def _finish_pick(self, result: ScoreInsightResult, interval: IntervalType) -> tuple[list[Any], dict[str, Any]]:
+        tick = "products.signals.backend.anomaly_scores.tick"
+        capture = MagicMock()
+        mark_attempted = MagicMock()
+        with (
+            patch(f"{tick}.ph_background_capture", return_value=capture),
+            patch(f"{tick}._score_pick", return_value=result),
+            patch("products.signals.backend.anomaly_scores.queue.mark_attempted", mark_attempted),
+            patch(f"{tick}.record_failed") as record_failed,
+        ):
+            pick = InsightPick(
+                team_id=1,
+                insight_id=7,
+                scored_through={},
+                interval=interval,
+                empty_train=empty_train_counts([7]).get(7, 0),
+            )
+            run_insight(ScoreInsightInput(pick=pick), NOW)
+        row_cooldowns = [call.args[3] for call in record_failed.call_args_list]
+        assert row_cooldowns == [call.args[1] for call in mark_attempted.call_args_list]
+        return row_cooldowns, capture.call_args.kwargs["properties"]
+
+    @parameterized.expand(
+        [
+            (IntervalType.HOUR, [timedelta(days=1), timedelta(days=3), timedelta(days=7), timedelta(days=7)]),
+            (IntervalType.WEEK, [timedelta(days=7)] * 4),
+            (IntervalType.MONTH, [timedelta(days=31)] * 4),
+        ]
+    )
+    def test_consecutive_empty_train_picks_grow_the_cooldown_and_series_reset_it(
+        self, interval: IntervalType, expected: list[timedelta]
+    ) -> None:
+        cache.delete(_empty_train_key(7))
+        self.addCleanup(cache.delete, _empty_train_key(7))
+        empty = ScoreInsightResult(status="up_to_date", events=0, series=0, run=ScoringRun.TRAIN)
+
+        visits = [self._finish_pick(empty, interval) for _ in expected]
+
+        assert [cooldown for cooldowns, _event in visits for cooldown in cooldowns] == expected
+        assert [event["empty_train_streak"] for _cooldowns, event in visits] == [1, 2, 3, 4]
+
+        recovered = ScoreInsightResult(status="scored", events=3, series=1, run=ScoringRun.TRAIN)
+        cooldowns, event = self._finish_pick(recovered, interval)
+        assert cooldowns == []
+        assert event["empty_train_streak"] == 0
+        assert empty_train_counts([7]) == {}
+
+    @parameterized.expand(
+        [
+            ("train_with_series", ScoreInsightResult(status="up_to_date", events=0, series=2, run=ScoringRun.TRAIN)),
+            (
+                "score_with_no_new_bucket",
+                ScoreInsightResult(status="up_to_date", events=0, series=0, run=ScoringRun.SCORE),
+            ),
+        ]
+    )
+    def test_a_pick_with_no_new_events_is_not_an_empty_train_pick(self, _name: str, result: ScoreInsightResult) -> None:
+        cache.delete(_empty_train_key(7))
+        self.addCleanup(cache.delete, _empty_train_key(7))
+
+        cooldowns, event = self._finish_pick(result, IntervalType.DAY)
+
+        assert cooldowns == []
+        assert event["empty_train_streak"] == 0
 
     def test_a_full_cluster_returns_at_capacity_and_waits_an_hour(self) -> None:
         status, cooldowns, _metrics, _pick_event = self._run(ClickHouseAtCapacity())
@@ -1287,6 +1356,24 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
         row = AnomalyScoringDueInsight.all_teams.get(team_id=self.team.id, insight_id=insight.id)
         assert row.next_due_at == NOW + SKIP_COOLDOWN
 
+    @parameterized.expand(
+        [
+            ("waiting_since_days_ago", NOW - timedelta(days=4)),
+            ("backed_off_after_an_empty_train", NOW + timedelta(days=3)),
+        ]
+    )
+    @time_machine.travel(NOW, tick=False)
+    def test_the_refresh_keeps_the_due_time_of_a_never_scored_row(self, _name: str, next_due_at: datetime) -> None:
+        insight = Insight.objects.create(team=self.team, name="never scored", query=_trends(interval="day"))
+        self._row(insight, next_due_at, {})
+
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            refresh_team(self._config(), self.team, NOW)
+
+        row = AnomalyScoringDueInsight.all_teams.get(team_id=self.team.id, insight_id=insight.id)
+        assert row.next_due_at == next_due_at
+        assert row.refreshed_at == NOW
+
     @time_machine.travel(NOW, tick=False)
     def test_the_refresh_removes_inactive_insights_and_resumes_with_the_teams_that_waited(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
@@ -1719,14 +1806,23 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
             (
                 "train_budget_spent",
                 True,
+                0,
                 [("past_train_every", ScoringRun.SCORE)],
-                (1, 1, 1),
+                (1, 1, 1, 1),
             ),
             (
                 "train_budget_left",
                 False,
+                0,
                 [("past_age_ceiling", ScoringRun.TRAIN), ("past_train_every", ScoringRun.TRAIN)],
-                (0, 0, 0),
+                (0, 0, 0, 0),
+            ),
+            (
+                "ready_picks_fill_the_score_cap",
+                True,
+                3,
+                [("past_train_every", ScoringRun.SCORE), ("ready", ScoringRun.SCORE)],
+                (1, 1, 1, 1),
             ),
         ]
     )
@@ -1735,24 +1831,32 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         self,
         _name: str,
         train_budget_spent: bool,
+        ready_insights: int,
         expected: list[tuple[str, ScoringRun]],
-        stale_and_backlog: tuple[int, int, int],
+        stale_and_backlog: tuple[int, int, int, int],
     ) -> None:
         self.team.timezone = "UTC"
         self.team.save()
         dashboard = Dashboard.objects.create(team=self.team, name="Main")
+        trained_days_ago = {"past_train_every": 10, "past_age_ceiling": 30}
+        trained_days_ago.update({f"ready_{index}": 1 for index in range(ready_insights)})
         insights = {
             name: Insight.objects.create(team=self.team, name=name, query=_trends(interval="day"))
-            for name in ("past_train_every", "past_age_ceiling")
+            for name in trained_days_ago
         }
         for insight in insights.values():
             DashboardTile.objects.create(dashboard=dashboard, insight=insight)
             cache.delete(_cooldown_key(insight.id))
         config = parse_config(
-            {**_SPLIT_PAYLOAD, "organization_ids": [str(self.organization.id)], "allow_team_ids": [self.team.id]}
+            {
+                **_SPLIT_PAYLOAD,
+                "organization_ids": [str(self.organization.id)],
+                "allow_team_ids": [self.team.id],
+                "max_score_insights_per_tick": 2,
+            }
         )
         today = NOW.replace(hour=0)
-        for name, trained_days_ago in (("past_train_every", 10), ("past_age_ceiling", 30)):
+        for name, days_ago in trained_days_ago.items():
             insight = insights[name]
             save_state(
                 self.team,
@@ -1765,7 +1869,7 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
                         self.team,
                         config.limits,
                     ),
-                    trained_at=NOW - timedelta(days=trained_days_ago),
+                    trained_at=NOW - timedelta(days=days_ago),
                     scored_through=today - timedelta(days=2),
                     series_keys=("a",),
                     artifact_key=f"anomaly_models/{insight.id}",
@@ -1779,10 +1883,13 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
             selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW)
 
-        names = {insight.id: name for name, insight in insights.items()}
+        names = {
+            insight.id: name.split("_")[0] if name.startswith("ready_") else name for name, insight in insights.items()
+        }
         assert sorted((names[pick.insight_id], pick.run) for pick in selection.picks) == expected
         assert (
             selection.scored_stale_model,
+            selection.stale_candidates,
             selection.train_backlog_soft,
             selection.train_backlog_hard,
         ) == stale_and_backlog

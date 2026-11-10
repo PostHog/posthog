@@ -33,6 +33,7 @@ export const ChatRow = memo(function ChatRow({ item, now, onOpen, onLongPress }:
     const colors = useColors()
     const styles = useStyles()
     const menu = useMenuTrigger(item, onLongPress)
+    const hasActions = item.kind !== 'conversation'
     const when = formatRelativeAgo(item.updatedAt, now)
     const status = sessionStatusDisplay(item.status, colors)
     const origin = ORIGIN_LABEL[item.origin]
@@ -41,9 +42,9 @@ export const ChatRow = memo(function ChatRow({ item, now, onOpen, onLongPress }:
         <Pressable44
             ref={menu.ref}
             onPress={() => onOpen(item)}
-            onLongPress={menu.onLongPress}
-            accessibilityActions={menu.accessibilityActions}
-            onAccessibilityAction={menu.onAccessibilityAction}
+            onLongPress={hasActions ? menu.onLongPress : undefined}
+            accessibilityActions={hasActions ? menu.accessibilityActions : undefined}
+            onAccessibilityAction={hasActions ? menu.onAccessibilityAction : undefined}
             pressedBackground={colors.sunken}
             style={styles.row}
             accessibilityLabel={`${item.title}, ${metaText}${item.pullRequestUrl ? ', has a pull request' : ''}`}

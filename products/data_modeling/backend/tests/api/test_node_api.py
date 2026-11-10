@@ -38,6 +38,15 @@ from products.data_modeling.backend.models import (
     NodeType,
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query_column_annotation import (
+    DataWarehouseSavedQueryColumnAnnotation,
+)
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+    WarehouseColumnAnnotation,
+)
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -1144,6 +1153,125 @@ class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
 
 
 @pytest.mark.ee
+class TestNodeDescription(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        self.saved_query = DataWarehouseSavedQuery.objects.create(
+            name="orders_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        self.view_node = Node.objects.create(
+            team=self.team, dag=self.dag, saved_query=self.saved_query, type=NodeType.VIEW, description="old text"
+        )
+
+    def _url(self, node: Node | None = None) -> str:
+        base = f"/api/projects/{self.team.id}/data_modeling_nodes/"
+        return f"{base}{node.id}/" if node else base
+
+    def _table_node(self, name: str = "orders") -> tuple[DataWarehouseTable, Node]:
+        table = DataWarehouseTable.objects.create(
+            team=self.team, name=name, format="Parquet", url_pattern="https://bucket.s3/data/*"
+        )
+        node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name=name,
+            type=NodeType.TABLE,
+            properties={"warehouse_table_id": str(table.id)},
+        )
+        return table, node
+
+    def _view_annotation(self, description: str, source: str, saved_query=None):
+        return DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            saved_query=saved_query or self.saved_query,
+            column_name="",
+            description=description,
+            description_source=source,
+        )
+
+    def test_view_node_reads_the_annotation_and_its_source(self):
+        self._view_annotation("AI text", DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.AI_GENERATED)
+
+        response = self.client.get(self._url(self.view_node))
+
+        self.assertEqual(response.json()["description"], "AI text")
+        self.assertEqual(response.json()["description_source"], "ai_generated")
+
+    def test_view_node_does_not_show_the_old_node_text(self):
+        response = self.client.get(self._url(self.view_node))
+
+        self.assertEqual(response.json()["description"], "")
+        self.assertIsNone(response.json()["description_source"])
+
+    def test_view_node_write_stores_a_user_edit_longer_than_the_old_limit(self):
+        self._view_annotation("AI text", DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.AI_GENERATED)
+        text = "x" * 2000
+
+        response = self.client.patch(self._url(self.view_node), {"description": text}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["description"], text)
+        self.assertEqual(response.json()["description_source"], "user_edited")
+        annotation = DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id).get(
+            saved_query=self.saved_query, column_name=""
+        )
+        self.assertTrue(annotation.is_user_edited)
+        self.view_node.refresh_from_db()
+        self.assertEqual(self.view_node.description, "old text")
+
+    def test_empty_description_deletes_the_annotation(self):
+        self._view_annotation("Text", DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED)
+
+        response = self.client.patch(self._url(self.view_node), {"description": ""}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["description"], "")
+        self.assertFalse(
+            DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id)
+            .filter(saved_query=self.saved_query, column_name="")
+            .exists()
+        )
+
+    def test_table_node_prefers_the_annotation_over_the_schema_description(self):
+        table, node = self._table_node()
+        source = ExternalDataSource.objects.create(
+            source_id="src", connection_id="conn", team=self.team, source_type="Stripe"
+        )
+        ExternalDataSchema.objects.create(
+            name="orders", team=self.team, source=source, table=table, description="Source text"
+        )
+
+        before = self.client.get(self._url(node)).json()
+        written = self.client.patch(self._url(node), {"description": "Curated text"}, format="json")
+
+        self.assertEqual(before["description"], "Source text")
+        self.assertIsNone(before["description_source"])
+        self.assertEqual(written.json()["description"], "Curated text")
+        self.assertTrue(
+            WarehouseColumnAnnotation.objects.for_team(self.team.id)
+            .filter(table=table, column_name="", description="Curated text", is_user_edited=True)
+            .exists()
+        )
+
+        cleared = self.client.patch(self._url(node), {"description": ""}, format="json")
+
+        self.assertEqual(cleared.json()["description"], "Source text")
+        self.assertIsNone(cleared.json()["description_source"])
+
+    @parameterized.expand([("native", {}), ("malformed_table_id", {"warehouse_table_id": 123})])
+    def test_table_node_without_a_warehouse_table_refuses_a_description(self, _name, properties):
+        node = Node.objects.create(
+            team=self.team, dag=self.dag, name="events", type=NodeType.TABLE, properties=properties
+        )
+
+        read = self.client.get(self._url(node))
+        written = self.client.patch(self._url(node), {"description": "Text"}, format="json")
+
+        self.assertEqual(read.json()["description"], "")
+        self.assertEqual(written.status_code, status.HTTP_400_BAD_REQUEST)
+
+
 class TestNodeAccessControl(WarehouseAccessControlTestMixin):
     # NodeViewSet is scope_object = "INTERNAL", so AccessControlPermission does not gate it on any
     # resource — the actions re-apply warehouse RBAC by hand. warehouse_view inherits from
@@ -1256,6 +1384,112 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         self.assertEqual(
             type(target).objects.filter(pk=target.pk).exists(), expected_status == status.HTTP_403_FORBIDDEN
         )
+
+    def test_description_is_withheld_from_a_member_denied_the_view(self):
+        assert self.node.saved_query is not None
+        DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            saved_query=self.node.saved_query,
+            column_name="",
+            description="Private text",
+            description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED,
+        )
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_view", resource_id=str(self.node.saved_query_id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+
+        response = self.client.get(self._list_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("Private text", response.content.decode())
+
+    def _described_view_and_table(self, name: str) -> tuple[DataWarehouseTable, Node]:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name=f"{name}_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        Node.objects.create(team=self.team, dag=self.dag, saved_query=saved_query, type=NodeType.VIEW)
+        DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            saved_query=saved_query,
+            column_name="",
+            description=f"{name} view text",
+            description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED,
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team, name=f"{name}_table", format="Parquet", url_pattern="https://bucket.s3/data/*"
+        )
+        source = ExternalDataSource.objects.create(
+            source_id=f"{name}_src", connection_id=f"{name}_conn", team=self.team, source_type="Stripe"
+        )
+        ExternalDataSchema.objects.create(
+            name=f"{name}_table", team=self.team, source=source, table=table, description=f"{name} source text"
+        )
+        node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name=f"{name}_table",
+            type=NodeType.TABLE,
+            properties={"warehouse_table_id": str(table.id)},
+        )
+        return table, node
+
+    def test_list_loads_descriptions_without_one_query_per_node(self):
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+        self._described_view_and_table("first")
+        self.client.get(self._list_url())
+        with CaptureQueriesContext(connection) as baseline:
+            self.client.get(self._list_url())
+
+        for index in range(3):
+            self._described_view_and_table(f"more_{index}")
+        with CaptureQueriesContext(connection) as larger:
+            response = self.client.get(self._list_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("more_2 view text", response.content.decode())
+        self.assertIn("more_2 source text", response.content.decode())
+        self.assertEqual(len(larger.captured_queries), len(baseline.captured_queries))
+
+    def test_table_description_is_withheld_from_a_member_denied_the_table(self):
+        table, node = self._described_view_and_table("private")
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_table", resource_id=str(table.id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+
+        listed = self.client.get(self._list_url())
+        detail = self.client.get(f"{self._list_url()}{node.id}/")
+
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        self.assertNotIn("private source text", listed.content.decode())
+        self.assertIn("private view text", listed.content.decode())
+        self.assertEqual(detail.json()["description"], "")
+
+    def test_table_description_write_refuses_a_member_denied_the_table(self):
+        table = DataWarehouseTable.objects.create(
+            team=self.team, name="orders", format="Parquet", url_pattern="https://bucket.s3/data/*"
+        )
+        node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name="orders",
+            type=NodeType.TABLE,
+            properties={"warehouse_table_id": str(table.id)},
+        )
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_table", resource_id=str(table.id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+
+        response = self.client.patch(f"{self._list_url()}{node.id}/", {"description": "Text"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(WarehouseColumnAnnotation.objects.for_team(self.team.id).filter(table=table).exists())
 
     @parameterized.expand(
         [("update_node",), ("update_edge",), ("delete_node",), ("delete_edge",), ("resume",), ("materialize",)]

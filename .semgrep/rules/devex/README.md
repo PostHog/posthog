@@ -15,7 +15,7 @@ Pick the severity that matches the rule's intent:
 
 A WARNING rule typically gets flipped to ERROR once its backlog hits zero. The rule stays in `.semgrep/rules/devex/`; only the severity changes. To flip a rule:
 
-1. Verify locally that `semgrep --config .semgrep/rules/devex/<rule>.yaml bin/ common/ ee/ frontend/ packages/ posthog/ products/ services/ tools/` returns zero findings.
+1. Verify locally that `semgrep --config .semgrep/rules/devex/<rule>.yaml bin/ common/ docs/onboarding/ ee/ frontend/ hog/ packages/ posthog/ products/ services/ tools/` returns zero findings.
 2. Edit the rule file: change `severity: WARNING` to `severity: ERROR`.
 3. Update the rule's `message:` to drop any "informational, not blocking" phrasing — it's now blocking.
 

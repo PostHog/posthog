@@ -5,6 +5,7 @@ import { withAppReloadBlocked } from '@/lib/appReload'
 import { isRecord } from '@/lib/records'
 
 import { BudgetExceededError, type BudgetFamily, budgetFamilyFor, trySpend } from './budget'
+import type { ProjectScope } from './reports'
 import { recordServerDate } from './serverClock'
 import { requestWithDeadline, transport } from './transport'
 
@@ -93,6 +94,22 @@ export function projectPath(path: string): string {
     return `/api/projects/${auth.projectId}/${path.replace(/^\//, '')}`
 }
 
+function hostKey(host: string): string {
+    return host.replace(/\/+$/, '').toLowerCase()
+}
+
+// The session's token works only on its own host, so a scope on another host throws.
+export function scopedPath(scope: ProjectScope | null, path: string): string {
+    const auth = requireAuth()
+    if (scope === null) {
+        throw new NotSignedInError()
+    }
+    if (hostKey(scope.host) !== hostKey(auth.host)) {
+        throw new Error('This project is in another region')
+    }
+    return `/api/projects/${scope.projectId}/${path.replace(/^\//, '')}`
+}
+
 export function buildQuery(query: Record<string, QueryValue> | undefined): string {
     if (!query) {
         return ''
@@ -110,6 +127,11 @@ export function buildQuery(query: Record<string, QueryValue> | undefined): strin
 export function apiUrl(path: string, query?: Record<string, QueryValue>): string {
     const { host } = requireAuth()
     return `${host}${path.startsWith('/') ? path : `/${path}`}${buildQuery(query)}`
+}
+
+/** The bearer header for a URL that a native loader, such as a video player, fetches instead of `send()`. */
+export function authorizationHeaders(): Record<string, string> {
+    return { Authorization: `Bearer ${requireAuth().accessToken as string}` }
 }
 
 /** The web app URL of a page in the current project, or undefined when no session or project is set. */

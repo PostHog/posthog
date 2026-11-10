@@ -21,9 +21,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
-import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { parseDashboardId } from 'scenes/dashboard/Dashboard'
-import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import {
     DashboardLoadAction,
     dashboardLogic,
@@ -32,7 +30,6 @@ import {
 } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
-import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -57,8 +54,11 @@ import {
     InsightModel,
 } from '~/types'
 
+import { addInsightToDashboardLogic } from 'products/dashboards/frontend/addInsightToDashboardModalLogic'
 import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
+import { dashboardInsightColorsModalLogic } from 'products/dashboards/frontend/dashboardInsightColorsModalLogic'
 import { dashboardTileGroupChoicesLogic } from 'products/dashboards/frontend/dashboardTileGroupChoicesLogic'
+import * as widgetFetchUtils from 'products/dashboards/frontend/widgetFetchUtils'
 
 import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
 
@@ -2000,6 +2000,17 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboard?.persisted_filters).toEqual({ date_from: '-7d' })
         })
 
+        it('ends the zoom preview once the dashboard dates move off the zoomed range', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const zoom = { dateFrom: '2026-10-02', dateTo: '2026-10-03' }
+
+            logic.actions.zoomDateRange(zoom.dateFrom, zoom.dateTo, false)
+            expect(logic.values.zoomPreview).toEqual(zoom)
+
+            logic.actions.setDates('-7d', null)
+            expect(logic.values.zoomPreview).toBeNull()
+        })
+
         it('saves dashboard settings only when requested', async () => {
             await expectLogic(logic).toFinishAllListeners()
             const successToast = jest.spyOn(lemonToast, 'success')
@@ -3762,6 +3773,29 @@ describe('dashboardLogic', () => {
                 }).toNotHaveDispatchedActions([
                     logic.actionCreators.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges),
                 ])
+
+                await expectLogic(logic, () => {
+                    logic.actions.cancelLayoutEdit()
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ discardPromptOpen: true, layoutEditShortcutsEnabled: false })
+                expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+
+                dialogOpenSpy.mock.calls[0][0].onAfterClose()
+                await expectLogic(logic, () => {
+                    logic.actions.cancelLayoutEdit()
+                }).toFinishAllListeners()
+                expect(dialogOpenSpy).toHaveBeenCalledTimes(2)
+            })
+
+            it.each([
+                ['a text tile dialog is open', (): void => logic.actions.openTextTileModal()],
+                ['an image tile dialog is open', (): void => logic.actions.openImageTileModal()],
+                ['a button tile dialog is open', (): void => logic.actions.openButtonTileModal()],
+                ['the add widget dialog is open', (): void => logic.actions.setAddWidgetModalOpen(true)],
+                ['a tile is carried', (): void => logic.actions.setCarryingTile(true)],
+            ])('turns off layout edit shortcuts while %s', async (_, open) => {
+                await expectLogic(logic, open).toMatchValues({ layoutEditShortcutsEnabled: false })
             })
 
             it('exits edit mode immediately when the prompt flag is off, even with unsaved layout changes', async () => {
@@ -4391,12 +4425,17 @@ describe('dashboardLogic', () => {
             // settles as a 404 — and must NOT set it before the request has been made.
             it('sets error404 after a settled 404 and not before', async () => {
                 expect(logic.values.error404).toBe(false)
+                const reportTimeToSeeData = jest.spyOn(eventUsageLogic.actions, 'reportTimeToSeeData').mockClear()
 
                 await expectLogic(logic).toFinishAllListeners()
 
                 expect(logic.values.dashboard).toBeNull()
                 expect(logic.values.dashboardFailedToLoad).toBe(false)
                 expect(logic.values.error404).toBe(true)
+                expect(reportTimeToSeeData).not.toHaveBeenCalledWith(
+                    expect.objectContaining({ type: 'dashboard_load', status: 'success' })
+                )
+                reportTimeToSeeData.mockRestore()
             })
 
             // Logging in lands a person on their configured home. When that home is this dashboard and
@@ -5282,6 +5321,35 @@ describe('dashboardLogic', () => {
                             total: 1,
                         },
                     })
+            })
+
+            it.each([
+                { tiles: 'one stale tile', staleCount: 1 },
+                { tiles: 'only fresh tiles', staleCount: 0 },
+            ])('reports time to see data on initial load with $tiles', async ({ staleCount }) => {
+                const dashboard = dashboards[5]
+                dashboard.tiles
+                    .filter((tile) => !!tile.insight)
+                    .forEach((tile, index) => {
+                        const cacheTargetAge = index < staleCount ? now().subtract(1, 'minute') : now().add(1, 'minute')
+                        tile.insight = { ...tile.insight!, cache_target_age: cacheTargetAge.toISOString() }
+                    })
+                const reportTimeToSeeData = jest.spyOn(eventUsageLogic.actions, 'reportTimeToSeeData').mockClear()
+
+                await expectLogic(logic, () => {
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+                }).toFinishAllListeners()
+
+                const successReports = reportTimeToSeeData.mock.calls
+                    .map(([payload]) => payload)
+                    .filter((payload) => payload.type === 'dashboard_load' && payload.status === 'success')
+                expect(successReports).toEqual([
+                    expect.objectContaining({
+                        action: DashboardLoadAction.InitialLoad,
+                        insights_fetched: staleCount,
+                    }),
+                ])
+                reportTimeToSeeData.mockRestore()
             })
         })
 

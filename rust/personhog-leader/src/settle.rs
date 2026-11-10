@@ -7,13 +7,15 @@ use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
 use metrics::{counter, histogram};
-use personhog_coordination::types::ChangelogConfig;
+use personhog_coordination::types::{ChangelogConfig, ClusterEndpoint};
 use tokio::sync::Mutex;
 
 use crate::cache::{
     CachedVersion, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey, Stream,
 };
-use crate::warming::{fetch_writer_committed_offsets, ConsumerPool};
+use crate::warming::{fetch_writer_committed_offsets, WarmClientPools};
+
+type MarkedTopic = (Option<Arc<ClusterEndpoint>>, Vec<u32>);
 
 /// A topic listed neither live nor draining was retired, which proves the config's
 /// writer group applied it. The proof covers this leader only when that group is its own.
@@ -30,7 +32,7 @@ pub async fn prune_and_settle_tick(
     dirty_index: &DirtyIndex,
     cache: &PartitionedCache,
     locks: &DashMap<PersonCacheKey, Arc<Mutex<()>>>,
-    offsets_pool: &ConsumerPool,
+    pools: &WarmClientPools,
     offsets_timeout: Duration,
     retired: impl Fn(&str) -> bool,
 ) -> Vec<StreamLag> {
@@ -46,18 +48,21 @@ pub async fn prune_and_settle_tick(
             .or_insert_with(|| retired(&stream.topic));
     }
     // One OffsetFetch per topic a live mark lives on.
-    let mut by_topic: HashMap<Arc<str>, Vec<u32>> = HashMap::new();
+    let mut by_topic: HashMap<Arc<str>, MarkedTopic> = HashMap::new();
     for (_, stream) in &targets {
         if retired_topics[&stream.topic] {
             continue;
         }
-        let partitions = by_topic.entry(Arc::clone(&stream.topic)).or_default();
+        let (_, partitions) = by_topic
+            .entry(Arc::clone(&stream.topic))
+            .or_insert_with(|| (stream.cluster.clone(), Vec::new()));
         if !partitions.contains(&stream.partition) {
             partitions.push(stream.partition);
         }
     }
     let mut committed: HashMap<Arc<str>, HashMap<u32, i64>> = HashMap::new();
-    for (topic, partitions) in by_topic {
+    for (topic, (cluster, partitions)) in by_topic {
+        let offsets_pool = &pools.on(cluster.as_deref()).offsets;
         match fetch_writer_committed_offsets(offsets_pool, &topic, &partitions, offsets_timeout)
             .await
         {
@@ -183,9 +188,11 @@ mod tests {
             epoch: 2,
             writer_group: writer_group.to_string(),
             retire_groups: vec![],
+            cluster: None,
             draining: draining
                 .iter()
                 .map(|t| Generation {
+                    cluster: None,
                     topic: t.to_string(),
                     partitions: 4,
                     epoch: 1,
@@ -257,6 +264,7 @@ mod tests {
                 partition: 0,
                 stream: Stream {
                     topic: Arc::from("personhog_updates"),
+                    cluster: None,
                     partition: 0,
                 },
                 is_deleted: true,
