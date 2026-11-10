@@ -30,15 +30,10 @@ const QUESTIONS = [
 
 // Merges like the survey results query: one row per submission id, the latest answer to each question,
 // and completed once any event completed it.
-function surveyResults(): { responses: () => Record<string, StoredResponse>; loseNextSend: () => void } {
+function surveyResults(): { responses: () => StoredResponse[] } {
     const stored: Record<string, StoredResponse> = {}
-    let loseNext = false
     jest.mocked(posthog.capture).mockImplementation((event, properties) => {
         if (event !== 'survey sent' || !properties) {
-            return undefined
-        }
-        if (loseNext) {
-            loseNext = false
             return undefined
         }
         const previous = stored[properties.$survey_submission_id]
@@ -57,12 +52,7 @@ function surveyResults(): { responses: () => Record<string, StoredResponse>; los
         }
         return undefined
     })
-    return {
-        responses: () => stored,
-        loseNextSend: () => {
-            loseNext = true
-        },
-    }
+    return { responses: () => Object.values(stored) }
 }
 
 const INTEREST: StoredResponse = {
@@ -105,16 +95,16 @@ describe('comingSoonInterestLogic', () => {
         expect(logic.values.noteOpen).toBe(false)
         logic.actions.registerInterest()
 
-        expect(Object.values(results.responses())).toEqual([INTEREST])
+        expect(results.responses()).toEqual([INTEREST])
         expect(logic.values.noteOpen).toBe(true)
     })
 
     it('records the interest on a later click when the first send was lost', () => {
-        results.loseNextSend()
+        jest.mocked(posthog.capture).mockImplementationOnce(() => undefined)
         logic.actions.registerInterest()
         logic.actions.registerInterest()
 
-        expect(Object.values(results.responses())).toEqual([INTEREST])
+        expect(results.responses()).toEqual([INTEREST])
     })
 
     it('keeps the note open when the second click of a double click lands on the overlay', () => {
@@ -137,7 +127,7 @@ describe('comingSoonInterestLogic', () => {
         expect(logic.values.noteOpen).toBe(false)
         logic.actions.registerInterest()
 
-        expect(Object.values(results.responses())).toEqual([
+        expect(results.responses()).toEqual([
             {
                 ...INTEREST,
                 completed: true,
@@ -154,7 +144,7 @@ describe('comingSoonInterestLogic', () => {
 
         logic.actions.registerInterest()
 
-        expect(results.responses()).toEqual({ 'first-account': INTEREST })
+        expect(results.responses()).toEqual([INTEREST])
     })
 
     it("hides the last account's interest and note from the next account on the same browser", () => {
@@ -167,7 +157,7 @@ describe('comingSoonInterestLogic', () => {
         expect(logic.values.note).toBe('')
         expect(logic.values.hasRecordedInterest).toBe(false)
         logic.actions.registerInterest()
-        expect(results.responses()).toEqual({ 'first-account': INTEREST, 'second-account': INTEREST })
+        expect(results.responses()).toEqual([INTEREST, INTEREST])
     })
 
     it.each([
@@ -194,7 +184,7 @@ describe('comingSoonInterestLogic', () => {
         logic.actions.setNote('   ')
         logic.actions.submitNote()
 
-        expect(Object.values(results.responses())).toEqual([INTEREST])
+        expect(results.responses()).toEqual([INTEREST])
         expect(logic.values.noteOpen).toBe(true)
     })
 })
