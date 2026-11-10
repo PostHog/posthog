@@ -830,6 +830,31 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
 
             assert alert_2.get("code") == refused_code
 
+    @parameterized.expand(
+        [
+            ("alert_count", "check_alert_limit", "alert"),
+            ("real_time_count", "real_time_alert_validation_error", "calculation_interval"),
+        ]
+    )
+    def test_a_create_another_create_overtook_after_validation_is_refused_under_the_lock(
+        self, _name: str, limit_check: str, field: str
+    ) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "name": "alert name",
+        }
+        # Validation sees room; by the time the create holds the lock, another create took it.
+        with mock.patch.object(AlertConfiguration, limit_check, side_effect=[None, "Your plan's limit is reached."]):
+            response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == field
+        assert not AlertConfiguration.objects.filter(team=self.team).exists()
+
     def test_alert_is_deleted_on_insight_update(self) -> None:
         another_insight = self.client.post(
             f"/api/projects/{self.team.id}/insights", data=self.default_insight_data
@@ -2836,6 +2861,36 @@ class TestAlertRealTimeInterval(TrendsInsightAPITest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "limit of 1 real-time alerts" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("enable", {"enabled": False}, {"enabled": True}),
+            (
+                "switch_to_real_time",
+                {"calculation_interval": AlertCalculationInterval.DAILY},
+                {"calculation_interval": AlertCalculationInterval.REAL_TIME},
+            ),
+        ]
+    )
+    def test_an_update_another_update_overtook_is_refused_and_rolled_back(
+        self, _name: str, created_with: dict[str, Any], update: dict[str, Any]
+    ) -> None:
+        self._enable_real_time_alerts(limit=1)
+        created = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request(**created_with))
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+
+        # Both validations see room; by the time the saved update holds the lock, another update took it.
+        with mock.patch.object(
+            AlertConfiguration,
+            "check_real_time_alert_limit",
+            side_effect=[None, None, "Your plan's limit is reached."],
+        ):
+            response = self.client.patch(f"/api/projects/{self.team.id}/alerts/{created.json()['id']}", update)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "calculation_interval"
+        alert = AlertConfiguration.objects.get(id=created.json()["id"])
+        assert {key: getattr(alert, key) for key in created_with} == created_with
 
 
 class TestAlertDestinations(APIBaseTest):
