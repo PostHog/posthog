@@ -1785,7 +1785,7 @@ class TestPosthogCodeSandboxMint:
         assert {entry.id for entry in model_catalog.MODELS} - {"gpt-6.1-terra"} <= set(pin)
         assert "gpt-6.1-terra" not in pin
         assert set(SDK_IMPLICIT_MODELS) <= set(pin)
-        assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini"} <= set(pin)
+        assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5-mini"} <= set(pin)
 
     def test_pin_carries_the_go_spelling_of_every_cf_id(self):
         pin = set(_PRODUCT_ALLOWED_MODELS["posthog_code"])

@@ -401,6 +401,39 @@ class TestTrinoRoute:
     def test_live_detail_is_the_v1_body(self, fake: FakeHogtower) -> None:
         assert _mapped("GET", "/trino").json() == _TRINO_LIVE
 
+    @_routes(
+        {
+            ("GET", f"{W}/trino"): (
+                200,
+                {
+                    "trino": {"org_id": ORG, "enabled": True, "backend": "ducklake", "hoglake_initialized": False},
+                    "live": _TRINO_LIVE,
+                },
+            )
+        }
+    )
+    def test_live_detail_takes_the_backend_from_the_tenancy(self, fake: FakeHogtower) -> None:
+        # duckgres's live body can't tell a hoglake catalog from a DuckLake one; hogtower's row can.
+        body = _mapped("GET", "/trino").json()
+
+        assert body["backend"] == "ducklake"
+        assert body["hoglake_initialized"] is False
+        assert body["status"] == _TRINO_LIVE["status"]
+
+    @_routes(
+        {
+            ("GET", f"{W}/trino"): (
+                200,
+                {"trino": {"org_id": ORG, "enabled": True, "backend": "hoglake", "hoglake_initialized": True}},
+            )
+        }
+    )
+    def test_tenancy_alone_carries_hoglake_initialized(self, fake: FakeHogtower) -> None:
+        body = _mapped("GET", "/trino").json()
+
+        assert body["backend"] == "hoglake"
+        assert body["hoglake_initialized"] is True
+
     @_routes({("GET", f"{W}/trino"): (200, {"trino": None})})
     def test_no_tenancy_is_disabled(self, fake: FakeHogtower) -> None:
         assert _mapped("GET", "/trino").json() == {"enabled": False}

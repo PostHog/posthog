@@ -358,6 +358,12 @@ const MCPToolFailuresQuery = z.object({
 })
 
 const MCPToolFailureOccurrencesQuery = z.object({
+    cause: z
+        .string()
+        .describe(
+            'When set, only events whose masked message equals this failures-table `cause` match; "" selects events without a message.'
+        )
+        .optional(),
     dateRange: DateRange.optional(),
     errorStatus: z
         .string()
