@@ -90,7 +90,7 @@ export const marketingEmailStep = (hogFlow: HogFlow): EmailStep | undefined =>
     hogFlow.actions.find(isMarketingEmailStep)
 
 const CODE_SEND_UNSUBSCRIBE_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/
-const LIQUID_UNSUBSCRIBE_LINK = /\{\{-?\s*unsubscribe_url\s*(\|[^}]*)?-?\}\}|\{%-?\s*unsubscribe_url\s*-?%\}/
+const LIQUID_UNSUBSCRIBE_LINK = /\{\{-?\s*unsubscribe_url(_one_click)?\s*-?\}\}|\{%-?\s*unsubscribe_url\s*-?%\}/
 
 const hasAddresses = (value: unknown): boolean =>
     Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.trim() !== ''

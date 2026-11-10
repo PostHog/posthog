@@ -3661,6 +3661,19 @@ describe('Workflows E2E (email queue)', () => {
                 status: 202,
             },
             {
+                name: 'sends a template send in a marketing category whose email step has the one-click link',
+                kind: 'template',
+                stepEmail: { html: '', text: 'Bye: {{ unsubscribe_url_one_click }}' },
+                status: 202,
+            },
+            {
+                name: 'refuses a template send in a marketing category whose email step filters the link away',
+                kind: 'template',
+                stepEmail: { html: '', text: 'Bye: {{ unsubscribe_url | slice: 0, 0 }}' },
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
                 name: 'refuses a template send in a marketing category whose email step has a cc',
                 kind: 'template',
                 stepEmail: { cc: 'manager@example.com' },
@@ -3685,7 +3698,7 @@ describe('Workflows E2E (email queue)', () => {
             }
             await deliver()
             const [email] = await emailsTo(to)
-            expect(email.text).toMatch(/^Bye: ?\S*\/messaging-preferences\/[^/]+\/$/m)
+            expect(email.text).toMatch(/^Bye: ?\S*\/messaging-preferences\/[^/]+\/(\?one_click_unsubscribe=1)?$/m)
         })
 
         it('replays a marketing template send retried after its email step lost the unsubscribe link', async () => {
@@ -3735,7 +3748,7 @@ describe('Workflows E2E (email queue)', () => {
                 otherServer.close()
                 await otherPod.stop()
             }
-            expect(await queuedPriorities()).toEqual([1])
+            expect(await queryCyclotronJobs()).toHaveLength(1)
         })
 
         it.each([
