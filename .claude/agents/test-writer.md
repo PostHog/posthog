@@ -13,7 +13,7 @@ Test observable behavior, not private calls or implementation order. Choose the 
 
 ## Implementation Standards
 
-- **Test independence**: fast and deterministic; mock true boundaries, not the behavior under test. Use a database or filesystem when the regression depends on it.
+- **Test independence**: fast and deterministic; use the real dependency or a faithful fake, and stub a true boundary only to inject a fault, then assert the outcome. Use a database or filesystem when the regression depends on it.
 - **Project Integration**: follow existing test framework and patterns, use project's test utilities and helpers; Python: pytest with parameterized library; Jest: single top-level describe block per file
 - **Clear structure**: set up the input, exercise the public interface, and assert the observable outcome.
 - **Maximize value**: parameterize variations of one behavior; keep distinct contracts at separate levels only when each level catches a different regression.

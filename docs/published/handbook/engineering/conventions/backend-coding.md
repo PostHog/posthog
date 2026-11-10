@@ -125,6 +125,7 @@ Earning the coverage doesn't earn a new test function.
 Default to extending the existing test with a parameterized case, and write a standalone one only when you can say why extending doesn't work: different setup, a different unit, or nothing relevant exists.
 Extend to remove duplication, not to save setup time, since a parameterized case still runs `setUp` for itself.
 Fold in variations of the same behavior, and don't attach unrelated assertions to a test that already passes.
+Add your case, not the neighbor's mocks: if the nearest test asserts on mock calls, assert the observable outcome in your case instead.
 
 #### Weight tests down the pyramid
 
@@ -136,13 +137,14 @@ pure function  →  kea logic test  →  Django TestCase  →  ClickHouse-backed
 ```
 
 Aim for a ratio, not a cap: many tests at the bottom, very few at the top — if you want more coverage, add it at the bottom.
-When logic is hard to test cheaply, that's a design signal: extract it into a pure function (or a kea logic) and test that directly rather than standing up a database, a request, and a render.
-Escalating to the next rung is the last resort, not the default.
+Pick the cheapest rung that still observes what a caller observes: a lower rung that sees only an internal call or a mock is not a cheaper test of the same behavior.
+When logic is hard to test cheaply, that's a design signal: extract it into a pure function (or a kea logic) and test it through its own interface rather than standing up a database, a request, and a render.
+Don't mock the tangled code's internal helpers to make it cheap instead, and when the behavior lives in a query, a transaction, or the wiring, test it at the rung where a caller observes it.
 
 - **Use `TestCase`, not `TransactionTestCase`, unless you truly need it.** `TransactionTestCase` flushes the DB between tests instead of rolling back a transaction — dramatically slower, and a common source of cross-test interference. For `transaction.on_commit` side effects use `self.captureOnCommitCallbacks(execute=True)`; reaching ClickHouse is not a reason to switch (`ClickhouseTestMixin` runs on a plain `TestCase`).
-- Mock only true boundaries — network, external APIs, the clock, queues. Don't mock your own internal helpers; that's how change-detector tests are born.
+- Use the real dependency where the test environment has it (Postgres, ClickHouse, Redis), and a faithful fake for services CI can't reach. Stub a boundary only to inject a fault the fake can't produce, then assert the outcome, not that the stub was called. Don't mock your own internal helpers; that's how change-detector tests are born.
 - Use `parameterized` for cases known before execution. Reserve `self.subTest` for runtime cases, such as query results. Our pytest configuration makes `self.subTest` fail fast so CI can retry the test. Avoid the pytest `subtests` fixture: a successful retry can leave a failure in JUnit XML.
-- Frontend: prefer a kea logic test (`logic.actions` / `logic.values`) over a full component render whenever the behavior lives in the logic, and don't snapshot large rendered trees — assert specific fields instead.
+- Frontend: prefer a kea logic test over a full component render whenever the behavior lives in the logic: call its actions as a component would and assert on the values a component reads, not on which internal actions fired. Don't snapshot large rendered trees — assert specific fields instead.
 - Keep tests deterministic and isolated: no `time.sleep` or arbitrary waits (use `time_machine.travel(..., tick=False)` or wait on a real condition), no real network or live external services, and they must pass in any order. Don't leave a `@skip`/`xfail`/`.only` without a one-line reason and a linked issue.
 - **An absolute date in a test is a time bomb until you pin the clock.** A fixture date holds its meaning only while the real clock stays where you left it, so a test that measures that date against `now` — an age, a window, a "recent" flag, an expiry — passes today and fails weeks later on every open branch. Pin the process clock to the same instant (`time_machine.travel(..., tick=False)`, or `jest.useFakeTimers()` with `jest.setSystemTime()`), or write the fixture relative to `now`. Pinning covers only what reads the clock inside your process: anything outside it, such as a ClickHouse TTL or an S3 lifecycle rule, still runs on the real one.
 
