@@ -1911,8 +1911,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 await cache.itemRequests.get(requestKey)
                 return
             }
-            const request = (async () => {
+            let request: Promise<void> | null = null
+            request = (async () => {
                 const items = await api.fileSystem.list({ ...refTypeParams(type), ref })
+                if (cache.itemRequests.get(requestKey) !== request) {
+                    return
+                }
                 if (items.users?.length > 0) {
                     actions.addLoadedUsers(items.users)
                 }
@@ -1922,8 +1926,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             try {
                 await request
             } finally {
-                cache.itemRequests.delete(requestKey)
+                if (cache.itemRequests.get(requestKey) === request) {
+                    cache.itemRequests.delete(requestKey)
+                }
             }
+        },
+        deleteTypeAndRef: ({ type, ref }) => {
+            cache.itemRequests?.delete(JSON.stringify([type, ref]))
         },
         deleteItem: async ({ item, projectTreeLogicKey }) => {
             if (isGroupViewShortcut(item) && values.featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]) {

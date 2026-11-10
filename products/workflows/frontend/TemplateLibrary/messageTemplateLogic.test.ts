@@ -488,7 +488,6 @@ describe('messageTemplateLogic', () => {
             })
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
             projectTreeDataLogic.mount()
-            projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Existing')] } as any)
             logic = messageTemplateLogic({ id: 'existing-id' })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
@@ -499,6 +498,7 @@ describe('messageTemplateLogic', () => {
         })
 
         it('shows the new name in the tree once a save lands', async () => {
+            projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Existing')] } as any)
             await expectLogic(logic, () => {
                 logic.actions.saveTemplate({ id: 'existing-id', name: 'Renamed' })
             }).toDispatchActions(['saveTemplateSuccess'])
@@ -509,10 +509,59 @@ describe('messageTemplateLogic', () => {
             )
         })
 
+        it('shows the new name on a starred template the tree has not loaded', async () => {
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/file_system_shortcut/': {
+                        results: [{ id: 'shortcut-1', path: 'Existing', type: 'message_template', ref: 'existing-id' }],
+                    },
+                },
+            })
+            await expectLogic(projectTreeDataLogic, () => {
+                projectTreeDataLogic.actions.loadShortcuts()
+            }).toDispatchActions(['loadShortcutsSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.saveTemplate({ id: 'existing-id', name: 'Renamed' })
+            }).toDispatchActions(['saveTemplateSuccess'])
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
+            expect(projectTreeDataLogic.values.shortcutData.map((s) => s.path)).toEqual(['Renamed'])
+        })
+
         it('removes the template from the tree when it is deleted from the editor', async () => {
+            projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Existing')] } as any)
             await expectLogic(logic, () => {
                 logic.actions.deleteTemplate()
             }).toFinishAllListeners()
+
+            expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']).toBeUndefined()
+        })
+
+        it('keeps a deleted template out of the tree when the refresh from its last save lands late', async () => {
+            projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Existing')] } as any)
+            let releaseTree: () => void = () => {}
+            const treeHeld = new Promise<void>((resolve) => {
+                releaseTree = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/file_system/': async () => {
+                        await treeHeld
+                        return [200, { results: [treeEntry('Renamed')], count: 1 }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveTemplate({ id: 'existing-id', name: 'Renamed' })
+            }).toDispatchActions(['saveTemplateSuccess'])
+            await expectLogic(projectTreeDataLogic, () => {
+                logic.actions.deleteTemplate()
+            }).toDispatchActions(['deleteTypeAndRef'])
+            releaseTree()
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
 
             expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']).toBeUndefined()
         })
