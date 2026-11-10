@@ -310,10 +310,10 @@ Fired when every capture of a flag comparison succeeds.
 
 Fired when a comparison stops early: a capture fails or times out, for example on a cross-origin image or font, or the flag overrides change during the run.
 
-| Property | Type                  | Description                                                                                     |
-| -------- | --------------------- | ----------------------------------------------------------------------------------------------- |
-| `reason` | `string`              | One of `capture_failed`, `capture_timeout`, `capture_still_running` or `overrides_changed`      |
-| `source` | `string \| undefined` | `'extension'` when the browser extension ran the comparison. The floating toolbar leaves it out |
+| Property | Type                  | Description                                                                                                                       |
+| -------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `reason` | `string`              | One of `capture_failed`, `capture_timeout`, `capture_still_running`, `overrides_changed` or `captures_too_large` (extension only) |
+| `source` | `string \| undefined` | `'extension'` when the browser extension ran the comparison. The floating toolbar leaves it out                                   |
 
 **Files:** `shared/flags/flagComparisonLogic.ts`, `extension/browser/extensionTelemetry.ts`
 

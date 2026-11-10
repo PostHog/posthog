@@ -79,6 +79,10 @@ export function ExtensionFlagsMenu(): JSX.Element {
                 <LemonBanner type="info" onClose={closeComparison}>
                     The last capture is still finishing. Try again in a few seconds.
                 </LemonBanner>
+            ) : comparisonError === 'captures_too_large' ? (
+                <LemonBanner type="error" onClose={closeComparison}>
+                    The page is too long to show its comparison here. Try a shorter page, or a flag with fewer variants.
+                </LemonBanner>
             ) : comparisonError ? (
                 <LemonBanner type="error" onClose={closeComparison}>
                     Couldn't capture the page. Images or fonts from other sites can block the capture. Try again on a

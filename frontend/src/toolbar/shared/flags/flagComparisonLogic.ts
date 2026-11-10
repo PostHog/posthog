@@ -49,6 +49,7 @@ export type FlagComparisonFailureReason =
     | 'capture_still_running'
     | 'capture_timeout'
     | 'capture_failed'
+    | 'captures_too_large'
 
 export function comparisonFailureReason(error: unknown): FlagComparisonFailureReason {
     if (error instanceof FlagOverridesChangedError) {

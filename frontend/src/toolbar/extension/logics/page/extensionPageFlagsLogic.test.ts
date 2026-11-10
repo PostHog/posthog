@@ -27,10 +27,12 @@ const SLOW_RUNNER_TIMEOUT_MS = 4000
 
 describe('extensionPageFlagsLogic', () => {
     let persisted: Record<string, unknown>
+    let onOverride: () => void
     let logic: ReturnType<typeof extensionPageFlagsLogic.build>
 
     beforeEach(() => {
         persisted = { $override_feature_flags: {} }
+        onOverride = () => {}
         const posthog = {
             get_property: (key: string) => persisted[key],
             onFeatureFlags: () => () => {},
@@ -38,6 +40,7 @@ describe('extensionPageFlagsLogic', () => {
                 getFlagVariants: () => ({}),
                 overrideFeatureFlags: (options: { flags: unknown }) => {
                     persisted.$override_feature_flags = options.flags
+                    onOverride()
                 },
             },
         } as unknown as PostHog
@@ -93,6 +96,11 @@ describe('extensionPageFlagsLogic', () => {
         await waitFor(() => expect(logic.values.comparison).not.toBeNull(), { timeout: SLOW_RUNNER_TIMEOUT_MS })
         expect(logic.values.pageState.comparingFlagKey).toBeNull()
         expect(persisted.$override_feature_flags).toEqual({})
+
+        // The bridge counts only the changes it applied, so its first one carries a revision the panel already saw.
+        const revisionAfterComparison = logic.values.pageState.mutationRevision
+        logic.actions.setFlagMutationStatus({ pending: false, error: null, revision: 1 })
+        expect(logic.values.pageState.mutationRevision).toBeGreaterThan(revisionAfterComparison)
     })
 
     test('hands the panel the captures as data URLs, and clears them when the panel closes the comparison', async () => {
@@ -118,10 +126,36 @@ describe('extensionPageFlagsLogic', () => {
         expect(logic.values.comparison).toBeNull()
     })
 
+    test('keeps the unload restore and shows no captures when the page refuses the restore', async () => {
+        jest.mocked(captureElementScreenshot).mockResolvedValue(new Blob(['page']))
+        onOverride = () => logic.actions.setFlagMutationStatus({ ...logic.values.flagMutationStatus, pending: true })
+
+        logic.actions.handleCommand({ type: 'compare-flag', flagKey: 'new-checkout' })
+        await waitFor(() => expect(logic.values.runningComparisonFlagKey).toBeNull(), {
+            timeout: SLOW_RUNNER_TIMEOUT_MS,
+        })
+        logic.actions.setFlagMutationStatus({ pending: false, error: "The page didn't answer.", revision: 1 })
+
+        await waitFor(() => expect(logic.values.pageState.comparingFlagKey).toBeNull(), {
+            timeout: SLOW_RUNNER_TIMEOUT_MS,
+        })
+        expect(logic.values.pageState).toMatchObject({
+            mutationError: "The page didn't answer.",
+            comparisonError: null,
+        })
+        expect(logic.values.comparison).toBeNull()
+        const unloadRestores = jest
+            .mocked(window.postMessage)
+            .mock.calls.map(([message]) => (message as PageAgentRequestMessage).request)
+            .filter((request) => request?.method === 'restore-flags-on-unload')
+        expect(unloadRestores).toEqual([{ method: 'restore-flags-on-unload', flags: {} }])
+    })
+
     test.each([
         {
             failure: 'the capture fails',
             arrange: () => jest.mocked(captureElementScreenshot).mockRejectedValue(new Error('Cross-origin font')),
+            reason: 'capture_failed',
         },
         {
             failure: 'the data URL conversion fails',
@@ -129,8 +163,18 @@ describe('extensionPageFlagsLogic', () => {
                 jest.mocked(captureElementScreenshot).mockResolvedValue(new Blob(['page']))
                 jest.mocked(jpegDataUrl).mockRejectedValueOnce(new Error('decode'))
             },
+            reason: 'capture_failed',
         },
-    ])('reports capture_failed and accepts flag changes again when $failure', async ({ arrange }) => {
+        {
+            failure: 'the captures are too large for one port message',
+            arrange: () => {
+                jest.mocked(captureElementScreenshot).mockResolvedValue(new Blob(['page']))
+                const halfTheLimit = 'x'.repeat(30 * 1024 * 1024 + 1)
+                jest.mocked(jpegDataUrl).mockResolvedValueOnce(halfTheLimit).mockResolvedValueOnce(halfTheLimit)
+            },
+            reason: 'captures_too_large',
+        },
+    ])('reports $reason and accepts flag changes again when $failure', async ({ arrange, reason }) => {
         arrange()
 
         logic.actions.handleCommand({ type: 'compare-flag', flagKey: 'new-checkout' })
@@ -138,6 +182,6 @@ describe('extensionPageFlagsLogic', () => {
             timeout: SLOW_RUNNER_TIMEOUT_MS,
         })
 
-        expect(logic.values.pageState).toMatchObject({ comparingFlagKey: null, comparisonError: 'capture_failed' })
+        expect(logic.values.pageState).toMatchObject({ comparingFlagKey: null, comparisonError: reason })
     })
 })
