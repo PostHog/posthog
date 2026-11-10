@@ -15,6 +15,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -85,6 +86,12 @@ const SHORTCUTS_PERSIST_OPTIONS =
  * succeeded, and leave the batch in `cache.moveBatches` for the logic's lifetime.
  */
 const MOVE_TIMEOUT_MS = 30000
+/**
+ * A bulk move sends one request per item. Without a limit, a selection of thousands sends them all at once, the
+ * browser queues most of them, and each queued request uses up its `MOVE_TIMEOUT_MS` before it is sent. The limit
+ * keeps the rest waiting here, where their timeout has not started.
+ */
+const MOVE_CONCURRENCY = 6
 export const PAGINATION_LIMIT = 100
 // Reporting a move per item would toast N times for a bulk move, and because react-toastify dedupes
 // identical messages the user would see one toast whose Undo reverts only the item it was built for. Every
@@ -891,11 +898,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         try {
                             const oldPath = action.item.path
                             const newPath = action.newPath
-                            await withTimeout(
-                                () => api.fileSystem.move(action.item.id, newPath),
-                                MOVE_TIMEOUT_MS,
-                                `projectTreeDataLogic: moving ${action.item.type} timed out`
-                            )
+                            cache.moveRequests ??= new ConcurrencyController(MOVE_CONCURRENCY)
+                            await (cache.moveRequests as ConcurrencyController).run({
+                                fn: () =>
+                                    withTimeout(
+                                        () => api.fileSystem.move(action.item.id, newPath),
+                                        MOVE_TIMEOUT_MS,
+                                        `projectTreeDataLogic: moving ${action.item.type} timed out`
+                                    ),
+                            })
                             actions.removeQueuedAction(action)
                             actions.movedItem(action.item, oldPath, newPath)
                             settleMoveBatch((batch) => batch.moved.push({ item: action.item, oldPath, newPath }))
