@@ -1314,6 +1314,13 @@ def test_newly_unowned_counts_a_file_git_does_not_track_yet(repo_with_a_gap: Pat
     assert newly_unowned(repo_with_a_gap, "HEAD") == ["gap/untracked.py"]
 
 
+def test_newly_unowned_skips_a_file_deleted_from_the_worktree(repo_with_a_gap: Path) -> None:
+    (repo_with_a_gap / "owned/a.py").unlink()
+    _write(repo_with_a_gap, "owners.yaml", "version: 1\nowners: []\n")
+
+    assert newly_unowned(repo_with_a_gap, "HEAD") == []
+
+
 @pytest.mark.parametrize(("moves", "writes", "expected"), _CHANGES)
 def test_newly_unowned_reads_head_when_the_check_is_on_a_push(
     repo_with_a_gap: Path, moves: dict[str, str], writes: dict[str, str], expected: list[str]

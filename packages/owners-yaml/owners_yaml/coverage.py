@@ -13,6 +13,10 @@ def _git(repo_root: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(repo_root), *args], capture_output=True, text=True, check=True).stdout
 
 
+def _listed(repo_root: Path, *flags: str) -> set[str]:
+    return {path for path in _git(repo_root, "ls-files", "-z", *flags).split("\0") if path}
+
+
 def newly_unowned(repo_root: Path, against: str, *, committed_only: bool = False) -> list[str]:
     """Files that are unowned now and were not at the merge base of HEAD and ``against``.
 
@@ -20,7 +24,7 @@ def newly_unowned(repo_root: Path, against: str, *, committed_only: bool = False
     edit. A file that was already unowned at the merge base does not count, at its old path when
     the change moved it, so a gap the repository already has never counts against a change.
 
-    The worktree includes the files git does not track yet, except the ignored ones.
+    The worktree is the files on disk that git does not ignore, tracked or not.
     ``committed_only`` reads HEAD and not the worktree, for a check on what a push carries.
     """
     merge_base = _git(repo_root, "merge-base", against, "HEAD").strip()
@@ -32,11 +36,9 @@ def newly_unowned(repo_root: Path, against: str, *, committed_only: bool = False
         head, files = OwnersResolver(repo_root, source=head_source), sorted(head_source.files)
     else:
         head = OwnersResolver(repo_root)
-        untracked = [
-            path for path in _git(repo_root, "ls-files", "--others", "--exclude-standard", "-z").split("\0") if path
-        ]
-        files = sorted([*head.tracked_files(), *untracked])
-        diff += "".join(f"A\0{path}\0" for path in untracked)
+        untracked = _listed(repo_root, "--others", "--exclude-standard")
+        files = sorted((set(head.tracked_files()) | untracked) - _listed(repo_root, "--deleted"))
+        diff += "".join(f"A\0{path}\0" for path in sorted(untracked))
 
     path_at_base: dict[str, str | None] = {}
     reowned_directories: set[str] = set()
