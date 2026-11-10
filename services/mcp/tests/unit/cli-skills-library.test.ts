@@ -322,6 +322,21 @@ describe('CLI skills library', () => {
         expect(text(online)).toContain('Build a conversion funnel.')
     })
 
+    it('keeps the product skills it downloaded while context-mill is down, and asks again only for context-mill', async () => {
+        const assets = fakeFetch({ [PRODUCT_SKILL_ARCHIVE_URL]: productSkills() })
+        const library = createSkillsLibrary({ fetch: assets.fetch })
+
+        await library.learn(FUNNELS)
+        const second = await library.learn(FUNNELS)
+
+        expect(text(second)).toContain('Build a conversion funnel.')
+        expect(assets.requests.map((request) => request.url)).toEqual([
+            PRODUCT_SKILL_ARCHIVE_URL,
+            CONTEXT_MILL_URL,
+            CONTEXT_MILL_URL,
+        ])
+    })
+
     it('lists the commands without the network, and treats empty words as absent', async () => {
         const assets = fakeFetch({})
         const library = createSkillsLibrary({
