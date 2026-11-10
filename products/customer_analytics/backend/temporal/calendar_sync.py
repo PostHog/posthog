@@ -155,7 +155,7 @@ def _iter_calendar_integrations() -> Iterator[IntegrationRecord]:
 
     after_id: int | None = None
     while True:
-        page = IntegrationManager.google_calendar.any.list_across_teams(
+        page = IntegrationManager.google_calendar.oauth.list_across_teams(
             CrossTeamFilter(limit=CALENDAR_PAGE_SIZE, after_id=after_id)
         )
         yield from page

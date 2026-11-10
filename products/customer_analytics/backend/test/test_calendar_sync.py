@@ -248,6 +248,18 @@ class TestCalendarSync(BaseTest):
 
         assert len(selected) == 4
 
+    def test_collector_skips_credentials_rows(self) -> None:
+        Integration.objects.create(
+            team=self.team,
+            kind="google-calendar",
+            integration_id="google-sub-credentials",
+            config={"auth_type": "credentials"},
+        )
+
+        selected = temporal_calendar_sync._collect_calendar_integrations()
+
+        assert [item.integration_id for item in selected] == [self.integration.id]
+
     def test_backfill_uses_the_date_range_without_changing_the_incremental_cursor(self) -> None:
         self.integration.config["calendar_sync_token"] = "existing"
         self.integration.save(update_fields=["config"])

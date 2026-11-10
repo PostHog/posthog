@@ -25,6 +25,20 @@ def current_backend() -> StorageBackend:
     return _backend
 
 
+def database_read_aliases() -> list[str]:
+    """The Django database aliases that SDK reads use now. Empty when the backend reads no Django database.
+
+    A caller that caps its reads with a statement timeout per alias passes these with its own aliases.
+    """
+    if not isinstance(_backend, DjangoBackend):
+        return []
+    # Deferred: the database helpers import Django models.
+    from posthog.ingress.dispatch.database import read_aliases  # noqa: PLC0415
+    from posthog.models.integration.model import Integration  # noqa: PLC0415
+
+    return read_aliases([Integration])
+
+
 @contextmanager
 def use_backend(backend: StorageBackend) -> Iterator[StorageBackend]:
     """Send every SDK operation to `backend` inside the block, in every thread. For tests."""
@@ -47,5 +61,6 @@ __all__ = [
     "StorageBackend",
     "TokenRefresh",
     "current_backend",
+    "database_read_aliases",
     "use_backend",
 ]

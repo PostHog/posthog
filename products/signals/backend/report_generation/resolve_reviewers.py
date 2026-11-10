@@ -4,7 +4,7 @@ import re
 import json
 import logging
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
@@ -1190,11 +1190,11 @@ def _candidate_user_ids_for_org_and_logins(org_id: str, logins_lower: frozenset[
         ).values_list("user_id", flat=True)
     )
     member_ids = list(OrganizationMembership.objects.filter(organization_id=org_id).values_list("user_id", flat=True))
-    for login in sorted(logins_lower):
-        rows = IntegrationManager.github.any.list_across_teams(
-            CrossTeamFilter(created_by_ids=tuple(member_ids), where_iexact={"connecting_user_github_login": login})
-        )
-        candidates.update(row.created_by_id for row in rows if row.created_by_id is not None)
+    # One paged read of the members' rows, matched here: the SDK compares one login per filter without case.
+    for row in _iter_team_github_identity_rows(member_ids):
+        login = row.config.get("connecting_user_github_login")
+        if isinstance(login, str) and login.lower() in logins_lower:
+            candidates.add(row.created_by_id)
     return candidates
 
 
@@ -1218,17 +1218,16 @@ def _filter_github_login_field_lc(
     )
 
 
-def _with_team_github_integrations(users: Iterable[User]) -> list[User]:
-    """Load ``users`` and give each the team GitHub rows that ``User.get_github_login()`` reads."""
-    loaded = list(users)
-    if not loaded:
-        return loaded
-    rows_by_user: dict[int, list[Any]] = {user.id: [] for user in loaded}
+def _iter_team_github_identity_rows(created_by_ids: Iterable[int]) -> Iterator[Any]:
+    """Team GitHub rows created by ``created_by_ids`` that hold a connecting user's login, in pages."""
+    user_ids = tuple(created_by_ids)
+    if not user_ids:
+        return
     after_id: int | None = None
     while True:
         page = IntegrationManager.github.any.list_across_teams(
             CrossTeamFilter(
-                created_by_ids=tuple(rows_by_user),
+                created_by_ids=user_ids,
                 has_config_key="connecting_user_github_login",
                 limit=_GITHUB_IDENTITY_PAGE_SIZE,
                 after_id=after_id,
@@ -1236,10 +1235,20 @@ def _with_team_github_integrations(users: Iterable[User]) -> list[User]:
         )
         for row in page:
             if row.created_by_id is not None and row.config.get("connecting_user_github_login") is not None:
-                rows_by_user[row.created_by_id].append(row)
+                yield row
         if len(page) < _GITHUB_IDENTITY_PAGE_SIZE:
-            break
+            return
         after_id = page[-1].id
+
+
+def _with_team_github_integrations(users: Iterable[User]) -> list[User]:
+    """Load ``users`` and give each the team GitHub rows that ``User.get_github_login()`` reads."""
+    loaded = list(users)
+    if not loaded:
+        return loaded
+    rows_by_user: dict[int, list[Any]] = {user.id: [] for user in loaded}
+    for row in _iter_team_github_identity_rows(rows_by_user):
+        rows_by_user[row.created_by_id].append(row)
     for user in loaded:
         user._prefetched_github_integrations = rows_by_user[user.id]  # type: ignore[attr-defined]
     return loaded

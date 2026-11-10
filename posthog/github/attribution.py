@@ -2,7 +2,8 @@ import structlog
 from social_django.models import UserSocialAuth
 
 from posthog.github.metrics import GitHubWebhookAttributionOutcome, observe_github_webhook_attribution
-from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
+from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout, read_aliases
+from posthog.integrations.backend import database_read_aliases
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -23,6 +24,10 @@ _ATTRIBUTION_STATEMENT_TIMEOUT_MS = 800
 _ATTRIBUTION_MODELS = (Team, User, OrganizationMembership, UserSocialAuth, UserIntegration)
 
 
+def _attribution_aliases() -> list[str]:
+    return list(dict.fromkeys([*read_aliases(_ATTRIBUTION_MODELS), *database_read_aliases()]))
+
+
 def _resolve_github_login_distinct_id(login: str | None, team_id: int) -> str | None:
     """Distinct id of the org member matching a GitHub login, or None when unresolvable.
 
@@ -37,7 +42,7 @@ def _resolve_github_login_distinct_id(login: str | None, team_id: int) -> str | 
     )
 
     try:
-        with bounded_statement_timeout(_ATTRIBUTION_STATEMENT_TIMEOUT_MS, models=_ATTRIBUTION_MODELS):
+        with bounded_statement_timeout(_ATTRIBUTION_STATEMENT_TIMEOUT_MS, aliases=_attribution_aliases()):
             resolved = resolve_github_login_distinct_id(str(login), team_id)
     except Exception as e:
         # timeout is meant to be the leading indicator for the cap we just installed, so it
