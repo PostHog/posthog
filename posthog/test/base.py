@@ -2036,6 +2036,8 @@ class ClickhouseTestMixin(QueryMatchingTest):
         capture_queries_startswith) are head-anchored, so this contract holds for them. Do not
         pass a filter that matches on mid-statement text; it will not see comments embedded there.
         """
+        # The deferred ClickHouse setup runs its own queries, which must not land in the captured list.
+        clickhouse_test_setup.run()
         queries = []
 
         def execute_wrapper(original_client_execute, query, *args, **kwargs):
