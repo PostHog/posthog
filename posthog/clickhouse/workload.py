@@ -12,5 +12,11 @@ class Workload(StrEnum):
     OFFLINE = "OFFLINE"
     # Tables that exist only on the logs cluster
     LOGS = "LOGS"
+    METRICS = "METRICS"
     # Endpoints (the product) queries
     ENDPOINTS = "ENDPOINTS"
+
+
+# Workloads whose tables exist only on their own cluster. Routing that moves a query between the main cluster's
+# replicas must leave these alone, because the main cluster cannot answer them.
+PINNED_CLUSTER_WORKLOADS: frozenset[Workload] = frozenset({Workload.LOGS, Workload.METRICS})

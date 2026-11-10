@@ -24,7 +24,7 @@ from django.utils import timezone
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 
-from products.aeo.backend import catalog, gaps, suggestions
+from products.aeo.backend import catalog, gaps, rankings, suggestions
 from products.aeo.backend.brand import brand_names, mention_filter
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_domains
 from products.aeo.backend.facade.contracts import (
@@ -54,6 +54,9 @@ from products.aeo.backend.facade.contracts import (
     PromptSetDomain,
     PromptSetEngineCounts,
     PromptSetOverview,
+    PromptSetRankings,
+    PromptSetSearch,
+    PromptSetSearchPrompt,
     PromptSetTopicCounts,
     PromptStats,
     PromptSuggestionJob,
@@ -224,6 +227,8 @@ def list_prompt_checks(
 
 
 MAX_OVERVIEW_DOMAINS = 20
+MAX_OVERVIEW_SEARCHES = 20
+MAX_SEARCH_PROMPTS = 5
 
 
 def _check_counts(target_domains: list[str], *, prompts: bool = False) -> dict[str, Aggregate]:
@@ -377,6 +382,74 @@ def _top_domains(
     )
 
 
+# One statement, so the window is read once: `searches` has one row per answered check and distinct
+# search it ran, lowercased with whitespace collapsed; `ranked` keeps the top searches and `top_prompts`
+# the prompts that ran each of them most. Postgres materializes `searches` because both read it.
+_TOP_SEARCHES_SQL = """
+    WITH searches AS MATERIALIZED (
+        SELECT DISTINCT check_row.id, check_row.prompt_id, check_row.engine, check_row.cited,
+            lower(btrim(regexp_replace(query, '\\s+', ' ', 'g'))) AS query
+        FROM posthog_aeo_citation_check AS check_row,
+            jsonb_array_elements_text(
+                CASE WHEN jsonb_typeof(check_row.search_queries) = 'array' THEN check_row.search_queries ELSE '[]'::jsonb END
+            ) AS query
+        WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.check_failed = false
+    ),
+    ranked AS (
+        SELECT query, count(DISTINCT prompt_id) AS prompts, count(*) AS answers,
+            count(*) FILTER (WHERE cited) AS cited, array_agg(DISTINCT engine ORDER BY engine) AS engines
+        FROM searches
+        WHERE query <> ''
+        GROUP BY query
+        ORDER BY prompts DESC, answers DESC, query
+        LIMIT %s
+    ),
+    top_prompts AS (
+        SELECT query, prompt_id,
+            row_number() OVER (PARTITION BY query ORDER BY count(*) DESC, prompt_id) AS prompt_rank
+        FROM searches
+        WHERE query IN (SELECT query FROM ranked)
+        GROUP BY query, prompt_id
+    )
+    SELECT ranked.query, ranked.prompts, ranked.answers, ranked.cited, ranked.engines,
+        array_remove(array_agg(top_prompts.prompt_id ORDER BY top_prompts.prompt_rank), NULL)
+    FROM ranked
+    LEFT JOIN top_prompts ON top_prompts.query = ranked.query AND top_prompts.prompt_rank <= %s
+    GROUP BY ranked.query, ranked.prompts, ranked.answers, ranked.cited, ranked.engines
+    ORDER BY ranked.prompts DESC, ranked.answers DESC, ranked.query
+"""
+
+
+def _top_searches(team_id: int, *, since: dt.datetime) -> tuple[PromptSetSearch, ...]:
+    """The searches the engines ran while answering, ranked by how many prompts triggered them,
+    each with the prompts that ran it most."""
+    team_id = resolve_effective_team_id(team_id)
+    with connection.cursor() as cursor:
+        cursor.execute(_TOP_SEARCHES_SQL, [team_id, since, MAX_OVERVIEW_SEARCHES, MAX_SEARCH_PROMPTS])
+        rows = cursor.fetchall()
+    texts = {
+        row["id"]: row["prompt"]
+        for row in AEOPrompt.objects.for_team(team_id)
+        .filter(id__in={prompt_id for *_, prompt_ids in rows for prompt_id in prompt_ids})
+        .values("id", "prompt")
+    }
+    return tuple(
+        PromptSetSearch(
+            query=query,
+            prompts=prompts,
+            answers=answers,
+            cited=cited,
+            engines=tuple(engines),
+            top_prompts=tuple(
+                PromptSetSearchPrompt(id=str(prompt_id), text=texts[prompt_id])
+                for prompt_id in prompt_ids
+                if prompt_id in texts
+            ),
+        )
+        for query, prompts, answers, cited, engines, prompt_ids in rows
+    )
+
+
 def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> PromptSetOverview:
     """Checks across the whole prompt set over the last `days` days in the team's timezone, the same
     counts for the `days` days before, and the current window split per engine and per topic."""
@@ -436,6 +509,15 @@ def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> P
             answers=current_counts.checks - current_counts.failed,
             target_domains=target_domains,
         ),
+        top_searches=_top_searches(team_id, since=window_start),
+    )
+
+
+def get_prompt_set_rankings(team_id: int, *, timezone_name: str, days: int) -> PromptSetRankings:
+    """How often answers named the project against the brands behind the domains the engines cite
+    most, over the last `days` days in the team's timezone, with the domains and pages cited most."""
+    return rankings.get_rankings(
+        team_id, target_domains=settings.AEO_TARGET_DOMAINS, timezone_name=timezone_name, days=days
     )
 
 

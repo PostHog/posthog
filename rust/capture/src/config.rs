@@ -427,6 +427,10 @@ pub struct Config {
     #[envconfig(default = "8")]
     pub capture_v1_scatter_gather_min_batch: usize,
 
+    /// Turn off only where every consumer of the capture topics applies the outbound `options`.
+    #[envconfig(default = "true")]
+    pub capture_v1_legacy_property_splice: bool,
+
     // --- Ingestion warnings emitter (fire-and-forget, best-effort) ---
     // Warnings go out as `$$client_ingestion_warning` events through a
     // dedicated `common_kafka::config::KafkaConfig` with fire-and-forget
