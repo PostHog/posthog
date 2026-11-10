@@ -34,10 +34,9 @@ if TYPE_CHECKING:
 # name is spelled out here rather than imported.
 FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
 
-# At most FLAG_EVALUATIONS_TTL_DAYS - 1, because the TTL can already have dropped the day FLAG_EVALUATIONS_TTL_DAYS
-# back. It stays lower while the table still lacks the oldest days that a shorter TTL dropped. The TTL constant
-# lives in posthog/models/flag_evaluations/sql.py.
-FLAG_EVALUATIONS_COMPLETE_DAYS = 89
+# FLAG_EVALUATIONS_TTL_DAYS - 1, because the TTL can already have dropped the day FLAG_EVALUATIONS_TTL_DAYS back.
+# The TTL constant lives in posthog/models/flag_evaluations/sql.py.
+FLAG_EVALUATIONS_COMPLETE_DAYS = 91
 
 
 def utc_midnight(now: datetime) -> datetime:

@@ -536,12 +536,12 @@ jobs:
                         # _EXTERNAL_COMPANION_SKILL_DIRS in products/signals/backend/scout_harness/lazy_seed.py
                         # names this companion skill from another product.
                         - 'products/replay_vision/skills/exploring-replay-vision-observations/**'
-                        # A test file added or deleted, Jest included, can change the baseline that
-                        # test_unowned_test_directories.py enforces. Keep in step with runner_for_path
-                        # in packages/owners-yaml/owners_yaml/census.py.
-                        - added|deleted: '**/test_*.py'
-                        - added|deleted: '**/*_test.py'
-                        - added|deleted: '**/*.{test,spec}.{js,jsx,ts,tsx}'
+                        # repo-checks fails a new test file that has no owner, Jest included, and no
+                        # other filter matches a frontend test. Keep in step with runner_for_path in
+                        # packages/owners-yaml/owners_yaml/census.py.
+                        - added|renamed: '**/test_*.py'
+                        - added|renamed: '**/*_test.py'
+                        - added|renamed: '**/*.{test,spec}.{js,jsx,ts,tsx}'
                       sdk_manifests:
                         # Everything the SDK major-version guard reads. Lockfiles are listed
                         # because a floor-only or `*` spec can move to a new major through
@@ -1653,10 +1653,13 @@ jobs:
             - name: Check for new files under ee/
               if: github.event_name == 'pull_request'
               run: python .github/scripts/check-no-new-ee-files.py --against HEAD^1 --committed
-            - name: Check that new test files have a team owner
+            # A branch that predates the command has nothing to run, and picks the check up when it rebases.
+            - name: Check that new test files have an owner
               if: github.event_name == 'pull_request'
-              continue-on-error: true
-              run: ./bin/hogli lint:test-owners --against HEAD^1 --committed
+              run: |
+                  if ./bin/hogli lint:test-owners --help >/dev/null 2>&1; then
+                      ./bin/hogli lint:test-owners --against HEAD^1 --committed
+                  fi
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
             - name: Flag deterministic failure

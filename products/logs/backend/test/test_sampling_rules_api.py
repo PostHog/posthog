@@ -1,10 +1,22 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
+
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
 from products.logs.backend.models import LogsExclusionRule
+from products.logs.backend.presentation.views.sampling_api import LogsSamplingRuleViewSet
+
+ACCESS_CHECK = "products.logs.backend.presentation.views.sampling_api.UserAccessControl.check_access_level_for_resource"
+
+
+def deny_tracing_only(resource, required_level=None, *args, **kwargs):
+    return resource != "tracing"
 
 
 class TestLogsSamplingRulesAPI(APIBaseTest):
@@ -293,3 +305,219 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "too many nodes" in str(response.json()), response.json()
+
+    def test_span_rules_are_listed_and_reordered_apart_from_log_rules(self):
+        log_rule = self.client.post(self.base_url, self._payload(name="logs"), format="json").json()
+        span_a = self.client.post(self.base_url, self._payload(name="span a", source="spans"), format="json").json()
+        span_b = self.client.post(self.base_url, self._payload(name="span b", source="spans"), format="json").json()
+        assert (log_rule["source"], span_a["source"]) == ("logs", "spans")
+        assert (span_a["priority"], span_b["priority"]) == (0, 1)
+
+        default_list = self.client.get(self.base_url).json()["results"]
+        assert [r["name"] for r in default_list] == ["logs"]
+        span_list = self.client.get(f"{self.base_url}?source=spans").json()["results"]
+        assert [r["name"] for r in span_list] == ["span a", "span b"]
+
+        r = self.client.post(
+            f"{self.base_url}reorder/?source=spans", {"ordered_ids": [span_b["id"], span_a["id"]]}, format="json"
+        )
+        assert r.status_code == status.HTTP_200_OK, r.json()
+        assert [rule["id"] for rule in r.json()] == [span_b["id"], span_a["id"]]
+
+    def test_list_pages_one_source_in_priority_order(self):
+        names = ["first", "second", "third"]
+        for name in names:
+            self.client.post(self.base_url, self._payload(name=name), format="json")
+        self.client.post(self.base_url, self._payload(name="span", source="spans"), format="json")
+
+        first_page = self.client.get(f"{self.base_url}?limit=2").json()
+        second_page = self.client.get(f"{self.base_url}?limit=2&offset=2").json()
+
+        assert [r["name"] for r in first_page["results"]] == names[:2]
+        assert first_page["next"] is not None
+        assert [r["name"] for r in second_page["results"]] == names[2:]
+        assert second_page["next"] is None
+
+    @parameterized.expand(
+        [
+            ("patch", "patch", {"source": "logs"}),
+            ("put_without_source", "put", None),
+        ]
+    )
+    def test_source_cannot_change_after_create(self, _label, method, body):
+        rule = self.client.post(self.base_url, self._payload(source="spans"), format="json").json()
+        payload = body if body is not None else self._payload(name="renamed")
+
+        response = getattr(self.client, method)(f"{self.base_url}{rule['id']}/", payload, format="json")
+
+        assert LogsExclusionRule.objects.get(id=rule["id"]).source == "spans", response.json()
+
+    def test_severity_sampling_is_rejected_for_spans(self):
+        response = self.client.post(
+            self.base_url,
+            self._payload(rule_type="severity_sampling", source="spans", config={"actions": {}}),
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "rule_type"
+
+    @parameterized.expand(
+        [
+            ("logs", ["logs:write"], status.HTTP_201_CREATED),
+            ("spans", ["logs:write"], status.HTTP_403_FORBIDDEN),
+            ("spans", ["logs:write", "tracing:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_span_rule_writes_need_tracing_write_scope(self, source, scopes, expected_status):
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=scopes,
+            scoped_teams=[self.team.pk],
+        )
+
+        response = self.client.post(
+            self.base_url,
+            self._payload(source=source),
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("create", "post", None),
+            ("update", "patch", {"name": "renamed"}),
+            ("delete", "delete", None),
+            ("reorder", "reorder", None),
+        ]
+    )
+    def test_span_rule_writes_need_tracing_editor_access(self, _label, method, body):
+        rule = self.client.post(self.base_url, self._payload(source="spans"), format="json").json()
+
+        with patch(ACCESS_CHECK, side_effect=deny_tracing_only):
+            if method == "post":
+                response = self.client.post(self.base_url, self._payload(source="spans"), format="json")
+            elif method == "reorder":
+                response = self.client.post(
+                    f"{self.base_url}reorder/?source=spans", {"ordered_ids": [rule["id"]]}, format="json"
+                )
+            else:
+                response = getattr(self.client, method)(f"{self.base_url}{rule['id']}/", body, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert LogsExclusionRule.objects.filter(team_id=self.team.id, source="spans").count() == 1
+        assert LogsExclusionRule.objects.get(id=rule["id"]).name == rule["name"]
+
+    @parameterized.expand(
+        [
+            ("create", "post", status.HTTP_403_FORBIDDEN),
+            ("enable", "patch", status.HTTP_403_FORBIDDEN),
+            ("delete", "delete", status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    def test_span_rule_writes_wait_for_the_span_drop_rules_flag(self, _label, method, expected_status):
+        rule = self.client.post(self.base_url, self._payload(source="spans"), format="json").json()
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            if method == "post":
+                response = self.client.post(self.base_url, self._payload(source="spans"), format="json")
+            else:
+                response = getattr(self.client, method)(
+                    f"{self.base_url}{rule['id']}/", {"enabled": True}, format="json"
+                )
+            log_response = self.client.post(self.base_url, self._payload(), format="json")
+
+        assert response.status_code == expected_status, response.content
+        assert log_response.status_code == status.HTTP_201_CREATED, log_response.json()
+        assert not LogsExclusionRule.objects.filter(team_id=self.team.id, source="spans", enabled=True).exists()
+
+    @parameterized.expand([("list", [1]), ("string", "drop")])
+    def test_create_with_a_non_object_body_is_a_validation_error(self, _label, body):
+        response = self.client.post(self.base_url, body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    @parameterized.expand([("list",), ("retrieve",)])
+    def test_span_rule_reads_need_tracing_access(self, action):
+        span_rule = self.client.post(self.base_url, self._payload(source="spans"), format="json").json()
+        log_rule = self.client.post(self.base_url, self._payload(), format="json").json()
+        span_url, log_url = (
+            (f"{self.base_url}?source=spans", self.base_url)
+            if action == "list"
+            else (f"{self.base_url}{span_rule['id']}/", f"{self.base_url}{log_rule['id']}/")
+        )
+
+        with patch(ACCESS_CHECK, side_effect=deny_tracing_only):
+            span_response = self.client.get(span_url)
+            log_response = self.client.get(log_url)
+
+        assert span_response.status_code == status.HTTP_403_FORBIDDEN, span_response.content
+        assert log_response.status_code == status.HTTP_200_OK, log_response.content
+
+    @parameterized.expand(
+        [
+            (["logs:read"], status.HTTP_403_FORBIDDEN),
+            (["logs:read", "tracing:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_span_rule_reads_need_tracing_read_scope(self, scopes, expected_status):
+        rule = self.client.post(self.base_url, self._payload(source="spans"), format="json").json()
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scoped",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=scopes,
+            scoped_teams=[self.team.pk],
+        )
+
+        for url in (f"{self.base_url}?source=spans", f"{self.base_url}{rule['id']}/"):
+            response = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {key_value}")
+            assert response.status_code == expected_status, (url, response.content)
+
+    def test_log_rule_writes_do_not_need_tracing_access(self):
+        with patch(ACCESS_CHECK, side_effect=deny_tracing_only):
+            response = self.client.post(self.base_url, self._payload(), format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_updating_a_rule_resolves_scopes_without_recursing(self):
+        rule = self.client.post(self.base_url, self._payload(), format="json").json()
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="logs", user=self.user, secure_value=hash_key_value(key_value), scopes=["logs:write"]
+        )
+
+        original = LogsSamplingRuleViewSet.dangerously_get_required_scopes
+        with patch.object(
+            LogsSamplingRuleViewSet, "dangerously_get_required_scopes", autospec=True, side_effect=original
+        ) as spy:
+            response = self.client.patch(
+                f"{self.base_url}{rule['id']}/",
+                {"name": "renamed"},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert spy.call_count < 5
+
+    def test_a_row_written_without_source_is_a_log_rule(self):
+        # Workers on the previous release insert rows without the column during a rolling deploy.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO logs_logsexclusionrule
+                    (id, team_id, name, enabled, priority, rule_type, scope_attribute_filters, config, version,
+                     created_at, updated_at)
+                VALUES (gen_random_uuid(), %s, 'old worker', false, 0, 'path_drop', '[]', '{}', 1, now(), now())
+                """,
+                [self.team.id],
+            )
+
+        assert LogsExclusionRule.objects.get(name="old worker").source == "logs"

@@ -13,6 +13,7 @@ from products.workflows.backend.facade.contracts import (
     EmailDomainCheck,
     EmailDomainDnsRecord,
     EmailDomainVerification,
+    EmailSendingSuspensionChange,
     FlowUtmUpdate,
     RecentWorkflow,
     TeamUtmDefaults,
@@ -40,8 +41,6 @@ from products.workflows.backend.services.email_sending_controls import (
     ensure_workflows_config,
     get_email_sending_state,
     set_email_sending_tier,
-    suspend_email_sending,
-    unsuspend_email_sending,
 )
 from products.workflows.backend.services.existing_email_tools import (
     lookup_existing_email_tools as _lookup_existing_email_tools,
@@ -339,6 +338,28 @@ def recompute_email_sending_tier(
     )
 
     return recompute_email_sending_tier_for_team(team_id, user_id=user_id, was_impersonated=was_impersonated)
+
+
+def suspend_email_sending(
+    team_id: int, reason: str, *, user_id: int | None = None, was_impersonated: bool = False
+) -> EmailSendingSuspensionChange:
+    """Suspends the team's workflow email, writes the audit row, and tells the team by email and in the app."""
+    # Deferred because the facade loads while Django loads models, and the email tasks need the models loaded.
+    from products.workflows.backend.services import email_sending_suspension  # noqa: PLC0415
+
+    return email_sending_suspension.suspend_email_sending(
+        team_id, reason, user_id=user_id, was_impersonated=was_impersonated
+    )
+
+
+def unsuspend_email_sending(
+    team_id: int, *, user_id: int | None = None, was_impersonated: bool = False
+) -> EmailSendingSuspensionChange:
+    """Re-enables the team's workflow email, writes the audit row, and tells the team by email and in the app."""
+    # Deferred for the same reason as suspend_email_sending.
+    from products.workflows.backend.services import email_sending_suspension  # noqa: PLC0415
+
+    return email_sending_suspension.unsuspend_email_sending(team_id, user_id=user_id, was_impersonated=was_impersonated)
 
 
 # The provider helpers look the provider class up on the providers package at call time, which

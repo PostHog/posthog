@@ -110,7 +110,6 @@ rules:
       owners: team-data-tools
     - match:
           - '/sites/*.test.*'
-          - '/toolbar-launch/*.test.*'
       owners: team-growth
     - match:
           - '/project/*.test.*'

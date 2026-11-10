@@ -183,6 +183,9 @@ Without `--producer`, a per-producer mapping is skipped and the answer falls bac
 A team that sends every bot to one channel writes a plain channel string instead (`notifications: '#billing-alerts'`), which answers any producer.
 
 To list what nobody owns, run `owners unowned`. Paths under `owners: null` are left out.
+To list only what a branch leaves unowned, run `owners unowned --against origin/main`.
+It reads the worktree, so it also lists a new file that git does not track yet.
+A file that was already unowned at the merge base is left out, so the list is empty until a change adds a gap.
 
 ### Lint in CI
 

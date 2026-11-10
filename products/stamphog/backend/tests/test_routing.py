@@ -424,6 +424,7 @@ class TestRenderRoutingComment:
             cut=(
                 CutOwner(candidate=_candidate("team-small"), reason=hostile),
                 CutOwner(candidate=_candidate("@alice"), reason="Formatting only."),
+                CutOwner(candidate=_candidate("team-other"), reason="Formatting\nonly."),
             ),
             llm_skipped=None,
         )
@@ -436,7 +437,7 @@ class TestRenderRoutingComment:
         items = [line for line in lines if line.startswith("- ")]
         assert len(items) == 2
         assert items[0].startswith("- `@PostHog/team-small`: Only a rename. ")
-        assert items[1] == "- `@alice`: Formatting only."
+        assert items[1] == "- `@alice`, `@PostHog/team-other`: Formatting only."
         assert "\n## " not in body
         assert "![" not in body
         assert "@PostHog/security" not in body
