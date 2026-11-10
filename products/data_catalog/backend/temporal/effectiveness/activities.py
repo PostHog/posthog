@@ -8,7 +8,8 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from ...facade.enums import EFFECTIVENESS_FLAG_KEY
-from ...logic.effectiveness import TeamSkipped, capture_effectiveness, capture_team_skipped, measure_team
+from ...logic.effectiveness import TeamSkipped, measure_team
+from ...logic.effectiveness_capture import capture_effectiveness, capture_team_skipped
 from ...logic.usage_scan import teams_with_metrics_and_flag
 from ...logic.usage_snapshots import usage_scans_supported
 from .types import MeasureTeamInput, TeamMeasured

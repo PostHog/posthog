@@ -9,7 +9,10 @@ from django.utils import timezone
 
 from posthog.models import Team
 
-from ...logic.effectiveness import TeamEffectiveness, TeamSkipped, capture_effectiveness, measure_team, trace_url
+from ...logic.effectiveness import TeamEffectiveness, TeamSkipped, measure_team, trace_url
+from ...logic.effectiveness_capture import capture_effectiveness
+from ...temporal.effectiveness.types import DEFAULT_WINDOW_DAYS
+from ...temporal.effectiveness.workflows import previous_full_days
 from ...temporal.usage_scan.types import DEFAULT_TELEMETRY_TEAM_ID
 
 
@@ -54,8 +57,8 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, required=True, help="Team to measure.")
-        parser.add_argument("--start", help="Window start, as an ISO date. The default is 7 days ago.")
-        parser.add_argument("--end", help="Window end, as an ISO date. The default is now.")
+        parser.add_argument("--start", help="Window start, as an ISO date. The default is 7 days before the end.")
+        parser.add_argument("--end", help="Window end, as an ISO date. The default is today at midnight UTC.")
         parser.add_argument("--telemetry-team-id", type=int, default=DEFAULT_TELEMETRY_TEAM_ID)
         parser.add_argument("--capture", action="store_true", help="Send the outcome events.")
         parser.add_argument("--rows-file", type=Path, help="Write one JSON line per session and asset to this file.")
@@ -74,8 +77,11 @@ class Command(BaseCommand):
         team = Team.objects.filter(id=team_id).first()
         if team is None:
             raise CommandError(f"Team {team_id} does not exist.")
-        window_end = _parse(end) if end else timezone.now()
-        window_start = _parse(start) if start else window_end - timedelta(days=7)
+        window_end = _parse(end) if end else previous_full_days(timezone.now(), DEFAULT_WINDOW_DAYS).end
+        window_start = _parse(start) if start else window_end - timedelta(days=DEFAULT_WINDOW_DAYS)
+        # Weekly runs measure whole UTC days, so a captured window that starts or ends mid-day overlaps their events.
+        if capture and not all(_is_midnight(bound) for bound in (window_start, window_end)):
+            raise CommandError("--capture needs a window of whole UTC days.")
         result = asyncio.run(
             measure_team(
                 team_id=team_id,
@@ -102,3 +108,7 @@ class Command(BaseCommand):
 def _parse(value: str) -> datetime:
     parsed = datetime.fromisoformat(value)
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _is_midnight(value: datetime) -> bool:
+    return value.astimezone(UTC).time() == datetime.min.time()

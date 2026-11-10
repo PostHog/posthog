@@ -17,11 +17,12 @@ from parameterized import parameterized
 from posthog.models import Team
 
 from products.data_catalog.backend.facade.enums import HOGQL_DEFINITION_KIND, JudgeRelation, MetricStatus
+from products.data_catalog.backend.logic.agent_sessions import StitchUnavailable
 from products.data_catalog.backend.logic.effectiveness import (
-    SESSION_OUTCOME_EVENT,
-    TEAM_MEASURED_EVENT,
     AssetKind,
     CatalogListing,
+    CoverageUnavailable,
+    FitVerdict,
     MatchedQuery,
     MissedReason,
     OutcomeRow,
@@ -31,9 +32,8 @@ from products.data_catalog.backend.logic.effectiveness import (
     TeamEffectiveness,
     TeamSkipped,
     build_evidence,
-    capture_effectiveness,
-    capture_team_skipped,
     classify_session,
+    judge_fit,
     mark_examples,
     measure_team,
     merge_candidate_groups,
@@ -41,8 +41,14 @@ from products.data_catalog.backend.logic.effectiveness import (
     nominate_read_metrics,
     split_by_question,
 )
+from products.data_catalog.backend.logic.effectiveness_capture import (
+    SESSION_OUTCOME_EVENT,
+    TEAM_MEASURED_EVENT,
+    capture_effectiveness,
+    capture_team_skipped,
+)
 from products.data_catalog.backend.logic.usage_adjusted import AgentQuery, CandidateGroup, CatalogCall
-from products.data_catalog.backend.logic.usage_topics import CoverageVerdict, SessionText
+from products.data_catalog.backend.logic.usage_topics import SessionLookups, SessionText
 from products.data_catalog.backend.models import Metric
 from products.data_catalog.backend.temporal.effectiveness.activities import weekly_order
 from products.data_catalog.backend.temporal.effectiveness.workflows import previous_full_days
@@ -162,19 +168,23 @@ class TestSessionOutcomes(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("judge_says_it_fits", CoverageVerdict(metric=True), False, {SIGNUPS_ID}),
-            ("judge_says_it_does_not_fit", CoverageVerdict(metric=False), False, set()),
-            ("judge_failed", CoverageVerdict(failed=True), False, {SIGNUPS_ID}),
-            ("no_verdict", None, False, {SIGNUPS_ID}),
-            ("the_run_failed", CoverageVerdict(metric=True), True, set()),
+            ("judge_says_it_fits", FitVerdict(metric_names=frozenset({"signups"})), False, {SIGNUPS_ID}),
+            ("judge_says_it_does_not_fit", FitVerdict(), False, set()),
+            ("judge_failed", FitVerdict(failed=True), False, {SIGNUPS_ID, REVENUE_ID}),
+            ("no_verdict", None, False, {SIGNUPS_ID, REVENUE_ID}),
+            ("the_run_failed", FitVerdict(metric_names=frozenset({"signups"})), True, set()),
+            ("only_an_adapted_read_fits", FitVerdict(metric_names=frozenset({"cohorts"})), False, set()),
         ]
     )
     def test_a_run_counts_as_used_when_it_worked_and_fits(
-        self, _name: str, verdict: CoverageVerdict | None, failed: bool, expected: set[UUID]
+        self, _name: str, verdict: FitVerdict | None, failed: bool, expected: set[UUID]
     ) -> None:
         evidence = build_evidence(
             SessionText(session_id="s1", person="d1", notes=(), tools=frozenset()),
-            calls=[_call("data-catalog-metric-run", "signups", failed=failed)],
+            calls=[
+                _call("data-catalog-metric-run", "signups", failed=failed),
+                _call("data-catalog-metric-run", "revenue"),
+            ],
             verdict=verdict,
             matches=[],
             metric_ids_by_name=IDS,
@@ -182,6 +192,23 @@ class TestSessionOutcomes(SimpleTestCase):
 
         assert evidence.used_metric_ids == expected
         assert evidence.asked
+
+    @parameterized.expand(
+        [
+            (
+                "names_the_metrics_that_fit",
+                '{"metrics": ["signups"], "description": true}',
+                FitVerdict(metric_names=frozenset({"signups"}), description=True),
+            ),
+            ("a_bare_name_fails", '{"metrics": "signups", "description": false}', FitVerdict(failed=True)),
+            ("a_reply_without_names_fails", '{"metric": true, "description": false}', FitVerdict(failed=True)),
+        ]
+    )
+    def test_the_coverage_judge_names_the_metrics_that_fit(self, _name: str, reply: str, expected: FitVerdict) -> None:
+        client = SimpleNamespace(messages=SimpleNamespace(stream=lambda **_kwargs: _Stream(reply)))
+        lookups = SessionLookups(ran_metric=True, read_descriptions=False, steps=("Ran metric signups",))
+
+        assert async_to_sync(judge_fit)(client, "Weekly signups?", lookups) == expected  # type: ignore[arg-type]
 
     @parameterized.expand(
         [
@@ -218,11 +245,15 @@ class TestSessionOutcomes(SimpleTestCase):
         reshaped = "SELECT toStartOfWeek(timestamp), uniq(person_id) FROM events GROUP BY 1"
         calls = {"s1": [_call("metric-describe", "signups"), _call("metric-describe", "revenue", minutes=1)]}
 
-        groups = nominate_read_metrics(
-            [_query(reshaped), _query("SELECT description FROM system.information_schema.tables")], calls, IDS
-        )
+        own_table = "SELECT count() FROM file_system.uploads"
+        metadata = [
+            _query("SELECT description FROM system.information_schema.tables"),
+            _query("SELECT name FROM SYSTEM.dashboards"),
+        ]
 
-        assert [(group.metric_id, group.sql) for group in groups] == [(SIGNUPS_ID, reshaped)]
+        groups = nominate_read_metrics([_query(reshaped), _query(own_table), *metadata], calls, IDS)
+
+        assert [(group.metric_id, group.sql) for group in groups] == [(SIGNUPS_ID, reshaped), (SIGNUPS_ID, own_table)]
 
     def test_a_fingerprint_group_keeps_every_run_when_a_read_nominates_the_same_pair(self) -> None:
         other_session = _query(trace="s2")
@@ -348,7 +379,7 @@ class TestTeamEffectiveness(SimpleTestCase):
         assert result.served_share is None
         assert result.capture_share is None
 
-    @patch("products.data_catalog.backend.logic.effectiveness.ph_scoped_capture")
+    @patch("products.data_catalog.backend.logic.effectiveness_capture.ph_scoped_capture")
     def test_a_skipped_team_sends_the_team_event_with_the_reason(self, scoped_capture: MagicMock) -> None:
         capture = scoped_capture.return_value.__enter__.return_value
         team = _team()
@@ -364,8 +395,8 @@ class TestTeamEffectiveness(SimpleTestCase):
         assert call.args[0] == TEAM_MEASURED_EVENT
         assert call.kwargs["properties"]["skipped_reason"] == "no_ai_consent"
 
-    @patch("products.data_catalog.backend.logic.effectiveness.ph_scoped_capture")
-    def test_a_rerun_sends_the_same_event_ids_and_no_query_text(self, scoped_capture: MagicMock) -> None:
+    @patch("products.data_catalog.backend.logic.effectiveness_capture.ph_scoped_capture")
+    def test_a_rerun_sends_new_event_ids_and_no_query_text(self, scoped_capture: MagicMock) -> None:
         capture = scoped_capture.return_value.__enter__.return_value
         team = _team()
         result = _result(
@@ -382,24 +413,31 @@ class TestTeamEffectiveness(SimpleTestCase):
         events = [call.args[0] for call in calls]
         assert events == [SESSION_OUTCOME_EVENT, SESSION_OUTCOME_EVENT, TEAM_MEASURED_EVENT] * 2
         ids = [call.kwargs["uuid"] for call in calls]
-        assert ids[:3] == ids[3:] and len(set(ids[:3])) == 3
+        assert len(set(ids)) == 6
         assert all(call.kwargs["timestamp"] == AT for call in calls)
         assert calls[0].kwargs["groups"] == {"organization": "org", "project": "project"}
         first = calls[0].kwargs["properties"]
         assert set(first).isdisjoint({"sql", "intent", "question", "reasoning"})
         assert first["trace_url"].endswith("/project/2/ai-observability/traces/s1")
+        run_ids = [call.kwargs["properties"]["run_id"] for call in calls]
+        assert len(set(run_ids[:3])) == len(set(run_ids[3:])) == 1 and run_ids[0] != run_ids[3]
+        assert calls[2].kwargs["properties"]["sessions_missed"] == 0
 
 
 class _JudgeMessages:
-    def __init__(self, *, join_pieces: bool) -> None:
+    def __init__(self, *, join_pieces: bool, stitch_down: bool, coverage_down: bool) -> None:
         self.judged_sql: list[str] = []
         self.join_pieces = join_pieces
+        self.stitch_down = stitch_down
+        self.coverage_down = coverage_down
 
     def stream(self, *, model: str, max_tokens: int, messages: list[dict[str, str]]) -> "_Stream":
         prompt = messages[0]["content"]
         if "<steps" in prompt:
-            return _Stream('{"metric": true, "description": false}')
+            return _Stream("{}" if self.coverage_down else '{"metrics": ["signups"], "description": false}')
         if "<pieces>" in prompt:
+            if self.stitch_down:
+                return _Stream("{}")
             count = len(re.findall(r"^P\d+ at", prompt, re.MULTILINE))
             labels = ["C1"] * count if self.join_pieces else [f"C{number}" for number in range(1, count + 1)]
             return _Stream(json.dumps({"labels": labels}))
@@ -409,7 +447,13 @@ class _JudgeMessages:
         )
 
     async def create(
-        self, *, model: str, system: str, messages: list[dict[str, str]], max_tokens: int
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        output_config: dict[str, str] | None = None,
     ) -> SimpleNamespace:
         prompt = messages[0]["content"]
         self.judged_sql.append(prompt)
@@ -434,8 +478,8 @@ class _Stream:
 
 
 class _FakeClient:
-    def __init__(self, *, join_pieces: bool = False) -> None:
-        self.messages = _JudgeMessages(join_pieces=join_pieces)
+    def __init__(self, *, join_pieces: bool = False, stitch_down: bool = False, coverage_down: bool = False) -> None:
+        self.messages = _JudgeMessages(join_pieces=join_pieces, stitch_down=stitch_down, coverage_down=coverage_down)
 
     async def __aenter__(self) -> "_FakeClient":
         return self
@@ -529,28 +573,43 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
             )
 
     def test_every_analysis_session_gets_one_headline_from_the_joined_telemetry(self) -> None:
-        self._session("ran", "weekly signups", None, "data-catalog-metric-run")
+        self._session("ran", "weekly signups", None, "data-catalog-metric-run", tool="data-catalog-metric-run")
         self._session("read", "weekly signups", self.SIGNUPS_SQL, "metric-describe")
         self._session("listed", "weekly signups", self.SIGNUPS_SQL, "metric-list")
         self._session("silent", "weekly signups", self.SIGNUPS_SQL)
         self._session("nofit", "weekly page views", "SELECT uniq(person_id) FROM page_views")
         self._session("asked", "weekly page views", "SELECT uniq(person_id) FROM page_views", "metric-list")
         self._session("ticket", "open the ticket thread", "SELECT uniq(person_id) FROM page_views")
+        self._session("saved", "weekly signups", None, tool="insight-query")
+        self._session("metadata", "weekly signups", "SELECT name FROM system.information_schema.metrics")
+        # The session starts at the window start, and its catalog listing comes a minute before it.
+        self._session("early", "weekly signups", self.SIGNUPS_SQL, "metric-list", minutes=-42 * 60)
+        # Its chain reaches into the window, but this conversation ends before the window starts.
+        self._session(
+            "before",
+            "weekly signups",
+            None,
+            "data-catalog-metric-run",
+            tool="data-catalog-metric-run",
+            minutes=-42 * 60 - 10,
+        )
         flush_persons_and_events()
 
         result = self._measure(_FakeClient())
 
         assert isinstance(result, TeamEffectiveness)
-        assert result.analysis_sessions == 6
+        assert result.analysis_sessions == 7
         assert {row.session_id: (row.outcome, row.client) for row in result.rows if row.is_headline} == {
             "ran": (SessionOutcome.USED, "claude"),
             "read": (SessionOutcome.ADAPTED, "claude"),
             "listed": (SessionOutcome.MISSED, "claude"),
+            "early": (SessionOutcome.MISSED, "claude"),
             "silent": (SessionOutcome.DID_NOT_ASK, "claude"),
             "nofit": (SessionOutcome.DID_NOT_ASK, "claude"),
             "asked": (SessionOutcome.ASKED_NO_MATCH, "claude"),
         }
-        assert result.served_share == 2 / 6
+        assert next(row for row in result.rows if row.session_id == "early").missed_reason == MissedReason.UNKNOWN
+        assert result.served_share == 2 / 7
         silent = next(row for row in result.rows if row.session_id == "silent")
         assert (silent.metric_name, silent.is_example, silent.reasoning) == ("signups", True, "It counts signups.")
         assert silent.question == "How many signups happen each week?"
@@ -558,6 +617,8 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         assert silent.source == "posthog_ai"
 
     @parameterized.expand([("joined", True, SessionOutcome.MISSED), ("kept_apart", False, SessionOutcome.DID_NOT_ASK)])
+    # One piece per batch, so the call and the query of a joined conversation arrive in different batches.
+    @patch("products.data_catalog.backend.logic.effectiveness._LOOKUP_BATCH", 1)
     def test_a_catalog_call_counts_when_the_model_joins_its_piece_to_the_query(
         self, _name: str, join_pieces: bool, expected: SessionOutcome
     ) -> None:
@@ -571,6 +632,23 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         assert result.pieces_read == 2
         headline = {row.session_id: row.outcome for row in result.rows if row.is_headline}
         assert headline == ({"a-listed": expected} if join_pieces else {"b-query": expected})
+
+    @parameterized.expand(
+        [
+            ("stitch", _FakeClient(stitch_down=True), StitchUnavailable),
+            ("coverage_judge", _FakeClient(coverage_down=True), CoverageUnavailable),
+        ]
+    )
+    def test_a_model_outage_fails_the_measure_instead_of_reporting_a_skewed_week(
+        self, _name: str, client: _FakeClient, error: type[Exception]
+    ) -> None:
+        self._session("a-listed", "weekly signups", None, "metric-list", tool="metric-list", minutes=-5)
+        self._session("b-query", "weekly signups", self.SIGNUPS_SQL, minutes=-4)
+        self._session("ran", "weekly signups", None, "data-catalog-metric-run", tool="data-catalog-metric-run")
+        flush_persons_and_events()
+
+        with self.assertRaises(error):
+            self._measure(client)
 
     def test_a_team_without_ai_consent_reaches_no_model(self) -> None:
         self.organization.is_ai_data_processing_approved = False

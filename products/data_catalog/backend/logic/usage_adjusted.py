@@ -110,7 +110,7 @@ SELECT
     a.is_error
 FROM posthog.ai_events AS a
 WHERE a.event = '$ai_span'
-    AND a.span_name IN ('metric-describe', 'data-catalog-metric-run', 'execute-sql')
+    AND a.span_name IN ('metric-describe', 'data-catalog-metric-run', 'metric-list', 'execute-sql')
     AND a.timestamp >= {start}
     AND a.timestamp < {end}
     AND toString(a.properties.$mcp_project_uuid) = {project}
@@ -118,7 +118,7 @@ WHERE a.event = '$ai_span'
     AND a.trace_id IN (
         SELECT properties.$ai_trace_id FROM events
         WHERE event = '$ai_span'
-            AND properties.$ai_span_name IN ('metric-describe', 'data-catalog-metric-run', 'execute-sql')
+            AND properties.$ai_span_name IN ('metric-describe', 'data-catalog-metric-run', 'metric-list', 'execute-sql')
             AND timestamp >= {start}
             AND timestamp < {end}
             AND toString(properties.$mcp_project_uuid) = {project}
