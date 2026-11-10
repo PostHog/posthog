@@ -37,7 +37,7 @@ from products.slack_app.backend.services.slack_messages import SlackThreadMessag
 from products.slack_app.backend.services.slack_user_info import find_addressed_bot_user_id
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
-    get_integration_by_id,
+    get_integration,
     require_workspace_integration,
     workspace_integrations,
 )
@@ -432,7 +432,7 @@ def classify_untagged_followup_activity(
         )
         return False
 
-    integration = get_integration_by_id(mapping.integration_id)
+    integration = get_integration(mapping.team_id, mapping.integration_id)
     if integration is None:
         logger.info(
             "posthog_code_thread_message_mapping_gone",

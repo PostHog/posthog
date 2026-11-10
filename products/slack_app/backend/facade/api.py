@@ -98,14 +98,14 @@ logger = structlog.get_logger(__name__)
 _SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({SLACK_CANVAS_SCOPE, SLACK_FILE_SCOPE})
 
 
-def _slack_workspace_id(integration_id: int) -> str | None:
+def _slack_workspace_id(team_id: int, integration_id: int) -> str | None:
     try:
-        return IntegrationManager.slack.any.get_by_id(integration_id).integration_id
+        return IntegrationManager.slack.any.get(team_id, integration_id).integration_id
     except IntegrationNotFound:
         return None
 
 
-def invalidate_slack_integration_auth_state(integration_id: int) -> None:
+def invalidate_slack_integration_auth_state(team_id: int, integration_id: int) -> None:
     """Drop the cached auth verdict for ``integration_id``.
 
     Call from core's OAuth completion path so a freshly-reconnected Slack
@@ -117,7 +117,7 @@ def invalidate_slack_integration_auth_state(integration_id: int) -> None:
     invalidate_auth_state(integration_id)
     # Cache invalidation on the caller's own row, id straight from core's OAuth completion
     # path rather than user input; only the Slack workspace id is read off it.
-    slack_team_id = _slack_workspace_id(integration_id)
+    slack_team_id = _slack_workspace_id(team_id, integration_id)
     if slack_team_id:
         invalidate_workspace_bot_user_id(slack_team_id)
 
@@ -163,12 +163,16 @@ def slack_followup_invite(
     return build_followup_invite(integration, utm_tags=utm_tags, ai_enabled=ai_enabled)
 
 
-def record_slack_feature_used(integration_id: int, slack_user_id: str | None, feature: SlackFeature) -> None:
+def record_slack_feature_used(
+    team_id: int, integration_id: int, slack_user_id: str | None, feature: SlackFeature
+) -> None:
     """Never raises, so a caller can record use from inside the feature's own code path."""
     try:
-        slack_workspace_id = _slack_workspace_id(integration_id)
+        slack_workspace_id = _slack_workspace_id(team_id, integration_id)
     except Exception:
-        logger.warning("slack_app_feature_used_lookup_failed", integration_id=integration_id, exc_info=True)
+        logger.warning(
+            "slack_app_feature_used_lookup_failed", team_id=team_id, integration_id=integration_id, exc_info=True
+        )
         return
     if slack_workspace_id:
         record_feature_used(slack_workspace_id, slack_user_id, feature)

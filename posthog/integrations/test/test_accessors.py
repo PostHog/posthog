@@ -278,24 +278,6 @@ class TestIntegrationAccessors(BaseTest):
 
     @parameterized.expand(
         [
-            ("own_row", lambda self: self.rows["github_oauth"], True),
-            ("row_of_another_team", lambda self: self.other_row, True),
-            ("other_auth_type_is_out_of_scope", lambda self: self.rows["github_token"], False),
-            ("missing_id", lambda self: SimpleNamespace(id=10**9), False),
-            ("not_a_number", lambda self: SimpleNamespace(id="abc"), False),
-        ]
-    )
-    def test_get_by_id(self, _name: str, row: Callable[[Any], Any], found: bool) -> None:
-        expected = row(self)
-
-        if found:
-            assert IntegrationManager.github.oauth.get_by_id(expected.id) == expected
-        else:
-            with self.assertRaises(IntegrationNotFound):
-                IntegrationManager.github.oauth.get_by_id(expected.id)
-
-    @parameterized.expand(
-        [
             ("every_team", lambda: IntegrationManager.github.oauth, "github_oauth", 2),
             ("other_auth_type_is_out_of_scope", lambda: IntegrationManager.github.oauth, "github_token", 0),
             ("kind_any", lambda: IntegrationManager.github.any, "github_token", 1),
@@ -344,7 +326,6 @@ class TestIntegrationAccessors(BaseTest):
             ("get_by_external_id", lambda: IntegrationManager.any.get_by_external_id("github_oauth", 1)),
             ("count_by_external_id", lambda: IntegrationManager.any.count_by_external_id("github_oauth")),
             ("exists_by_external_id", lambda: IntegrationManager.any.exists_by_external_id("github_oauth")),
-            ("get_by_id", lambda: IntegrationManager.any.get_by_id(1)),
         ]
     )
     def test_cross_team_operations_need_a_kind(self, _name: str, call: Callable[[], Any]) -> None:

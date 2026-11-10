@@ -87,7 +87,6 @@ from products.slack_app.backend.services.slack_user_oauth import build_invite_ur
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
     get_team_workspace_integration,
-    team_id_of_integration,
     workspace_integrations,
 )
 
@@ -2818,6 +2817,10 @@ def _resolve_stats_state(
         return None
 
 
+def _candidate_team_id(integration_id: int, candidates: Sequence[WorkspaceIntegration]) -> int | None:
+    return next((c.team_id for c in candidates if c.id == integration_id), None)
+
+
 def _resolve_project_state(
     integration: WorkspaceIntegration, slack_user_id: str, *, accessible: Sequence[WorkspaceIntegration]
 ) -> ProjectState:
@@ -2841,7 +2844,7 @@ def _resolve_project_state(
     # not `accessible`, so a default pointing at an inaccessible project still
     # surfaces in the UI.
     workspace_team_id = (
-        team_id_of_integration(workspace_row.default_integration_id, candidates)
+        _candidate_team_id(workspace_row.default_integration_id, candidates)
         if workspace_row and workspace_row.default_integration_id
         else None
     )
@@ -2852,7 +2855,7 @@ def _resolve_project_state(
     return ProjectState(
         candidates=tuple(ProjectChoice(team_id=c.team_id, label=project_label(c)) for c in accessible),
         personal_team_id=(
-            team_id_of_integration(user_row.default_integration_id, candidates)
+            _candidate_team_id(user_row.default_integration_id, candidates)
             if user_row and user_row.default_integration_id
             else None
         ),

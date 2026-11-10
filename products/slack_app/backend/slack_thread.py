@@ -11,7 +11,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
-from posthog.integrations import IntegrationRecord
+from posthog.integrations import IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import SlackIntegration
 from posthog.models.team import Team
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
@@ -177,9 +177,12 @@ class SlackThreadContext:
     mentioning_slack_user_id: str | None = None
     # The mention that opened the run. Only the run's first turn answers it.
     person_message: str | None = None
+    # Absent in payloads stored before the field existed. `SlackThreadHandler.team_id` then reads it from the thread mapping.
+    team_id: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
+            "team_id": self.team_id,
             "integration_id": self.integration_id,
             "channel": self.channel,
             "thread_ts": self.thread_ts,
@@ -195,6 +198,7 @@ class SlackThreadContext:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SlackThreadContext":
         return cls(
+            team_id=data.get("team_id"),
             integration_id=data["integration_id"],
             channel=data["channel"],
             thread_ts=data["thread_ts"],
@@ -208,6 +212,7 @@ class SlackThreadContext:
         cls, mapping: "SlackThreadTaskMapping", user_message_ts: str | None = None
     ) -> "SlackThreadContext":
         return cls(
+            team_id=mapping.team_id,
             integration_id=mapping.integration_id,
             channel=mapping.channel,
             thread_ts=mapping.thread_ts,
@@ -263,6 +268,7 @@ class SlackThreadHandler:
         # outlives its opener.
         self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
         self._integration: IntegrationRecord | None = None
+        self._team_id_looked_up = False
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
@@ -325,9 +331,33 @@ class SlackThreadHandler:
             )
         return self._muted_cache[key]
 
+    @property
+    def team_id(self) -> int | None:
+        """The project of the install. An old context without it reads the project from the thread mapping."""
+        if self.context.team_id is None and not self._team_id_looked_up:
+            from products.slack_app.backend.models import (
+                SlackThreadTaskMapping,  # noqa: PLC0415 — models import this module's package
+            )
+
+            self._team_id_looked_up = True
+            self.context.team_id = (
+                SlackThreadTaskMapping.objects.filter(
+                    integration_id=self.context.integration_id,
+                    channel=self.context.channel,
+                    thread_ts=self.context.thread_ts,
+                )
+                .values_list("team_id", flat=True)
+                .first()
+            )
+        return self.context.team_id
+
     def _get_integration(self) -> IntegrationRecord:
         if self._integration is None:
-            self._integration = SLACK_ROW_READER.get_by_id(self.context.integration_id)
+            team_id = self.team_id
+            if team_id is None:
+                logger.warning("slack_thread_missing_team", integration_id=self.context.integration_id)
+                raise IntegrationNotFound(f"No project known for Slack integration {self.context.integration_id}")
+            self._integration = SLACK_ROW_READER.get(team_id, self.context.integration_id)
         return self._integration
 
     @property

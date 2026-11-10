@@ -18,11 +18,7 @@ from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
 from products.slack_app.backend.services.slack_fork_context import get_pending_fork
 from products.slack_app.backend.services.slack_scopes import bot_is_ready
-from products.slack_app.backend.services.workspace_integrations import (
-    WorkspaceIntegration,
-    team_id_of_integration,
-    workspace_integrations,
-)
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, workspace_integrations
 
 logger = structlog.get_logger(__name__)
 
@@ -225,8 +221,7 @@ def resolve_from_candidates(
             # workspace so the mapping's ``task_run`` linkage stays intact.
             target: WorkspaceIntegration | None = candidates_by_id.get(thread_match.integration_id)
             if target is None:
-                mapped_team_id = team_id_of_integration(thread_match.integration_id, ())
-                target = candidates_by_team_id.get(mapped_team_id) if mapped_team_id is not None else None
+                target = candidates_by_team_id.get(thread_match.team_id)
             # Access check on the resolved target so a user whose access was
             # revoked can't ride the thread mapping past the gate.
             if target is not None and (accessible_team_ids is None or target.team_id in accessible_team_ids):
