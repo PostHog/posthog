@@ -11,6 +11,7 @@ See `ee/AGENTS.md`.
 
 from __future__ import annotations
 
+import re
 import sys
 import argparse
 import subprocess
@@ -21,6 +22,14 @@ EXEMPT: frozenset[str] = frozenset(
     {
         "ee/migrations/0068_drop_dashboardprivilege_table.py",
     }
+)
+
+
+# Migration files that django-nextgensquash generates for the ee app on every squash. They
+# replace history that already lives in ee/migrations/ and add no code, so a person approves
+# the squash pull request instead of each path. The pattern names only the generated files.
+GENERATED_SQUASH_MIGRATION = re.compile(
+    r"^ee/migrations/(?:0000_squash_stub|\d{4}_squash_\d{4}_\d{2}_\d{2}_(?:initial|finalize_fks|schema_addons))\.py$"
 )
 
 
@@ -54,7 +63,9 @@ def main() -> int:
         print(f"No merge base with {args.against}, so the `ee/` check did not run.", file=sys.stderr)
         return 2
 
-    offenders = sorted({path for path in _added(args, merge_base) if path not in EXEMPT})
+    offenders = sorted(
+        {path for path in _added(args, merge_base) if path not in EXEMPT and not GENERATED_SQUASH_MIGRATION.match(path)}
+    )
     if not offenders:
         return 0
 

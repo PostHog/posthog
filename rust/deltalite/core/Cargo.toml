@@ -16,9 +16,9 @@ workspace = true
 [dependencies]
 # VERSION SKEW WITH THE PYTHON `deltalake` PACKAGE IS DELIBERATE.
 #
-# The delta-rs tree behind Python `deltalake==1.6.1` (pinned in the repo's
-# pyproject.toml) is the in-repo crate version 1.0.0 at git tag `python-v1.6.1`.
-# That tag is NOT buildable as published: it pins its delta kernel dependency to
+# The delta-rs tree behind the Python `deltalake` 1.6.x line (pinned in the
+# repo's pyproject.toml) is the in-repo crate version 1.0.0. Its git tag
+# `python-v1.6.1` is NOT buildable as published: it pins its delta kernel dependency to
 # a MOVING BRANCH (`buoyant/main`) rather than a rev, delta-rs gitignores its
 # Cargo.lock so nothing records the rev the wheel was built from, and the branch
 # has since diverged in two mutually incompatible directions (package rename vs

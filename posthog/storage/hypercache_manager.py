@@ -12,9 +12,9 @@ Operations include:
 
 import random
 import statistics
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from itertools import batched
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -743,9 +743,13 @@ class OrphanedTokenSweepResult:
     failed_tokens: tuple[str, ...]
 
 
-def _existing_api_tokens(tokens: tuple[str, ...]) -> set[str]:
+def existing_team_identifiers(field: Literal["api_token", "id"], identifiers: Iterable[str | int]) -> set[str | int]:
+    """Return the identifiers that a Team row on the Postgres primary still has."""
     # The primary avoids replica lag, which would report a team created moments ago as missing.
-    return set(Team.objects.using(DEFAULT_DB_ALIAS).filter(api_token__in=tokens).values_list("api_token", flat=True))
+    teams = Team.objects.using(DEFAULT_DB_ALIAS)
+    if field == "api_token":
+        return set(teams.filter(api_token__in=identifiers).values_list("api_token", flat=True))
+    return set(teams.filter(id__in=identifiers).values_list("id", flat=True))
 
 
 def sweep_orphaned_token_entries(
@@ -767,7 +771,7 @@ def sweep_orphaned_token_entries(
     orphaned: list[str] = []
     for batch in batched(hypercache.iter_object_storage_tokens(), batch_size, strict=False):
         tokens_checked += len(batch)
-        existing = _existing_api_tokens(batch)
+        existing = existing_team_identifiers("api_token", batch)
         orphaned.extend(token for token in batch if token not in existing)
         if limit is not None and len(orphaned) >= limit:
             del orphaned[limit:]
