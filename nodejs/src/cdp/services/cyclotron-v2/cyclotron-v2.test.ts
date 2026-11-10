@@ -2411,7 +2411,7 @@ describe('Cyclotron V2', () => {
                 })
 
                 const otherTeamId = 78
-                it.each<[string, ['on' | 'off', number, number][]]>([
+                it.each<[string, ['on' | 'off' | 'off-reroute', number, number][]]>([
                     [
                         'alternate around bulk sends',
                         [
@@ -2433,6 +2433,15 @@ describe('Cyclotron V2', () => {
                         ],
                     ],
                     [
+                        'take turns and the last one reroutes a workflow',
+                        [
+                            ['off', teamId, FAST],
+                            ['on', teamId, FAST],
+                            ['on', teamId, FAST],
+                            ['off-reroute', teamId, FAST],
+                        ],
+                    ],
+                    [
                         "write a team's first fast email after another team's",
                         [
                             ['off', otherTeamId, BULK],
@@ -2441,20 +2450,34 @@ describe('Cyclotron V2', () => {
                         ],
                     ],
                 ])('drains fast email in send order when producers on and off the switch %s', async (_case, sends) => {
-                    const producers = { off: manager, on: createFastCounterManager() }
-                    await producers.on.connect()
+                    const fastManager = createFastCounterManager()
+                    const send = async (
+                        producer: 'on' | 'off' | 'off-reroute',
+                        sendingTeamId: number,
+                        priority: number
+                    ): Promise<string> => {
+                        if (producer === 'off-reroute') {
+                            await manager.createJob({ teamId: sendingTeamId, queueName: 'hogflow', priority: BULK })
+                            const [hogflowJob] = await dequeueOneBatch(createWorker('hogflow'))
+                            await hogflowJob.reschedule({ queueName: EMAIL_QUEUE, priority })
+                            return hogflowJob.id
+                        }
+                        const producerManager = producer === 'on' ? fastManager : manager
+                        const [id] = await producerManager.bulkCreateJobs([
+                            { teamId: sendingTeamId, queueName: EMAIL_QUEUE, priority },
+                        ])
+                        return id
+                    }
                     const fastInSendOrder: string[] = []
                     try {
                         for (const [producer, sendingTeamId, priority] of sends) {
-                            const [id] = await producers[producer].bulkCreateJobs([
-                                { teamId: sendingTeamId, queueName: EMAIL_QUEUE, priority },
-                            ])
+                            const id = await send(producer, sendingTeamId, priority)
                             if (priority === FAST) {
                                 fastInSendOrder.push(id)
                             }
                         }
                     } finally {
-                        await producers.on.disconnect()
+                        await fastManager.disconnect()
                     }
 
                     const drained: string[] = []
