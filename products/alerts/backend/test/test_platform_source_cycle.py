@@ -4,7 +4,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -88,14 +88,22 @@ from products.alerts.backend.temporal.platform_evaluate import (
 )
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import list_configurations, record_outcomes, slot_of
+from products.alerts_platform.backend.facade.api import (
+    create_alert_destinations,
+    list_configurations,
+    record_outcomes,
+    slot_of,
+)
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     AlertBatchKey,
+    AlertDestinationData,
     AlertEventKind,
+    DestinationType,
     Grouping,
     GroupingMode,
     IncidentAction,
+    NewAlertDestination,
     PlatformAlertOutcome,
     PlatformCheckEvent,
     PlatformCheckEventPage,
@@ -387,6 +395,79 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         # The slot is free either way, so the next firing's render is not held back.
         assert inflight_alert_ids(CHART_RENDER_INFLIGHT_KEY) == set()
+
+    @parameterized.expand(
+        [
+            ("a_row_with_a_slack_function", True, "hog_function", True),
+            ("a_native_alert_with_a_slack_function", False, "hog_function", True),
+            ("a_native_alert_with_a_platform_slack_destination", False, "platform", True),
+            ("a_native_alert_without_slack", False, None, False),
+        ]
+    )
+    def test_a_firing_chart_draws_the_threshold_of_the_alert_it_fires_for(
+        self, _name: str, has_row: bool, slack: str | None, renders: bool
+    ) -> None:
+        alert = self._alert()
+        if has_row:
+            chart_alert_id = alert.id
+        else:
+            configuration = self._copy(
+                alert,
+                legacy_configuration_id=None,
+                owner=PlatformAlertOwner.PLATFORM,
+                destinations_owner=PlatformAlertOwner.PLATFORM,
+                created_by=self.user,
+                source_config={
+                    "insight_id": alert.insight_id,
+                    SOURCE_CONDITION_KEY: {
+                        "comparison": {"type": "absolute_value"},
+                        "threshold": {"type": "absolute", "bounds": {"upper": 100.0}},
+                    },
+                },
+            )
+            chart_alert_id = configuration.id
+            alert.delete()
+        if slack == "hog_function":
+            HogFunction.objects.create(
+                team=self.team,
+                type="internal_destination",
+                name="Slack",
+                template_id="template-slack",
+                hog="return event",
+                enabled=True,
+                filters={
+                    "source": "internal-events",
+                    "events": [{"id": "$insight_alert_firing", "type": "events"}],
+                    "properties": [
+                        {"key": "alert_id", "value": str(chart_alert_id), "operator": "exact", "type": "event"}
+                    ],
+                },
+            )
+        elif slack == "platform":
+            create_alert_destinations(
+                team_id=self.team.id,
+                configuration_id=chart_alert_id,
+                destinations=(
+                    NewAlertDestination(
+                        data=cast(
+                            AlertDestinationData,
+                            {"type": DestinationType.SLACK, "slack_workspace_id": 1, "slack_channel_id": "C-1"},
+                        ),
+                        event_kinds=(AlertEventKind.FIRING,),
+                    ),
+                ),
+            )
+
+        with patch(
+            "posthog.tasks.alerts.utils.exports.render_png_export", return_value=(MagicMock(id=7), b"png")
+        ) as render:
+            chart = render_firing_chart(self.team.id, str(chart_alert_id), held_until=time.time() + 60)
+
+        assert chart == (RenderedChart(asset_id=7, render_user_id=self.user.id) if renders else None)
+        assert [
+            [(line["label"], line["value"]) for line in call.kwargs["reference_lines"]]
+            for call in render.call_args_list
+        ] == ([[("alert upper threshold", 100.0)]] if renders else [])
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_a_check_holds_a_clickhouse_slot_only_while_its_query_runs(self) -> None:
