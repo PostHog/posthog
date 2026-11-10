@@ -70,17 +70,61 @@ def test_check_manifest(head: dict, reason: str | None) -> None:
             policy.check_manifest("package.json", base, head)
 
 
+WORKSPACE = {
+    "packages": ["."],
+    "allowBuilds": {"esbuild": True},
+    "minimumReleaseAge": "10080",
+    "catalog": {"kea": "^4.0.0", "typescript": "6.0.3"},
+}
+
+
+@pytest.mark.parametrize(
+    ("default", "base", "head", "expected"),
+    [
+        ({}, {}, {"catalog": {"kea": "^4.0.1", "typescript": "6.0.3"}}, ["kea"]),
+        ({}, {}, {}, []),
+        ({"catalog": {"kea": "^4.0.0", "typescript": "6.0.4"}}, {}, {}, []),
+        ({}, {}, {"allowBuilds": {"esbuild": True, "kea": True}}, "differs from the default branch outside catalog"),
+        ({}, {}, {"packages": [".", "x"]}, "differs from the default branch outside catalog"),
+        ({}, {}, {"catalogs": {"next": {"kea": "^5.0.0"}}}, "differs from the default branch outside catalog"),
+        (
+            {"allowBuilds": {"esbuild": True, "kea": True}},
+            {},
+            {},
+            "differs from the default branch outside catalog",
+        ),
+        ({"minimumReleaseAge": "20160"}, {}, {"minimumReleaseAge": "20160"}, "does not set minimumReleaseAge"),
+        ({}, {}, {"catalog": {"kea": "~4.0.1", "typescript": "6.0.3"}}, "changes the range operator"),
+        ({}, {}, {"catalog": {"kea": "^5.0.0", "typescript": "6.0.3"}}, "major change"),
+        ({}, {}, {"catalog": {"kea": "^4.0.0", "typescript": "6.0.2"}}, "not an upgrade"),
+        ({}, {}, {"catalog": {"kea": "^4.0.0"}}, "adds or removes a package in catalog"),
+        (
+            {},
+            {},
+            {"catalog": {"kea": "^4.0.0", "typescript": "6.0.3", "left-pad": "^1.3.0"}},
+            "adds or removes a package in catalog",
+        ),
+    ],
+)
+def test_check_workspace(default: dict, base: dict, head: dict, expected: list[str] | str) -> None:
+    files = [{**WORKSPACE, **changes} for changes in (default, base, head)]
+    if isinstance(expected, list):
+        assert policy.check_workspace("pnpm-workspace.yaml", *files) == expected
+    else:
+        with pytest.raises(Refused, match=expected):
+            policy.check_workspace("pnpm-workspace.yaml", *files)
+
+
 @pytest.mark.parametrize(
     ("changes", "reason"),
     [
         ([("M", "pnpm-lock.yaml"), ("M", "frontend/package.json")], None),
         ([("M", "products/desktop/pnpm-lock.yaml")], None),
-        ([("M", "pnpm-workspace.yaml"), ("M", "pnpm-lock.yaml")], "neither a manifest nor a lockfile"),
-        ([("M", ".npmrc")], "neither a manifest nor a lockfile"),
-        ([("M", ".github/renovate.json5")], "neither a manifest nor a lockfile"),
-        ([("M", "products/desktop/pnpm-workspace.yaml")], "neither a manifest nor a lockfile"),
-        ([("M", "patches/left-pad@1.3.0.patch")], "neither a manifest nor a lockfile"),
-        ([("M", "package-lock.json")], "neither a manifest nor a lockfile"),
+        ([("M", "pnpm-workspace.yaml"), ("M", "pnpm-lock.yaml")], None),
+        ([("M", ".npmrc")], "not a manifest, a lockfile or a workspace file"),
+        ([("M", ".github/renovate.json5")], "not a manifest, a lockfile or a workspace file"),
+        ([("M", "patches/left-pad@1.3.0.patch")], "not a manifest, a lockfile or a workspace file"),
+        ([("M", "package-lock.json")], "not a manifest, a lockfile or a workspace file"),
         ([("A", "package.json")], "not a modification"),
         ([("D", "pnpm-lock.yaml")], "not a modification"),
         ([("M", "a/../package.json")], "name this proof does not accept"),
@@ -110,26 +154,30 @@ BLOCKED = policy.blocked_patterns(
 
 
 @pytest.mark.parametrize(
-    ("name", "setting"),
+    ("spec", "setting"),
     [
         ("esbuild", "allowBuilds"),
-        ("@datadog/pprof", "allowBuilds"),
-        ("node-gyp", "allowBuilds"),
+        ("esbuild@0.25.0", "allowBuilds"),
+        ("@datadog/pprof", None),
+        ("node-gyp@11.0.0", "allowBuilds"),
         ("sharp", "onlyBuiltDependencies"),
         ("fsevents", "neverBuiltDependencies"),
         ("core-js", "ignoredBuiltDependencies"),
         ("lmdb", "onlyBuiltDependenciesFile"),
         ("posthog-js", "minimumReleaseAgeExclude"),
-        ("@posthog/icons", "minimumReleaseAgeExclude"),
-        ("kea", "minimumReleaseAgeExclude"),
+        ("@posthog/icons@0.39.1", "minimumReleaseAgeExclude"),
+        ("kea@4.0.1", "minimumReleaseAgeExclude"),
         ("semver", "trustPolicyExclude"),
+        ("semver@6.3.1", "trustPolicyExclude"),
+        ("semver@6.3.1(peer@1.0.0)", "trustPolicyExclude"),
+        ("semver@7.7.3", None),
         ("left-pad", None),
         ("esbuild-wasm", None),
     ],
 )
-def test_blocked_reason(name: str, setting: str | None) -> None:
-    reason = policy.blocked_reason(name, BLOCKED)
-    assert reason == (None if setting is None else f"{name} is named in {setting}")
+def test_blocked_reason(spec: str, setting: str | None) -> None:
+    reason = policy.blocked_reason(spec, BLOCKED)
+    assert reason == (None if setting is None else f"{policy.package_name(spec)} is named in {setting}")
 
 
 @pytest.mark.parametrize("pattern", ["!left-pad", "/^left-/", "/left.*/", "@scope/{one,two}", "left-pa?", "[l]eft-pad"])
@@ -156,13 +204,21 @@ def test_release_age_reason(metadata: dict, reason: str | None) -> None:
     assert found == reason if reason is None else reason in found
 
 
-def importers(specifier: str, version: str, peer: str = "18.3.1", extra: dict | None = None) -> dict:
+def importers(
+    specifier: str,
+    version: str,
+    peer: str = "18.3.1",
+    extra: dict | None = None,
+    catalog: str = "^4.0.0",
+    kea: str = "4.0.0",
+) -> dict:
     deps = {
         "left-pad": {"specifier": specifier, "version": version},
         "react-dom": {"specifier": "^18.0.0", "version": f"18.3.0(react@{peer})"},
+        "kea": {"specifier": "catalog:", "version": kea},
         **(extra or {}),
     }
-    return {"importers": {".": {"dependencies": deps}}}
+    return {"catalogs": {"default": {"kea": {"specifier": catalog}}}, "importers": {".": {"dependencies": deps}}}
 
 
 BASE_LOCK = importers("^1.3.0", "1.3.0", peer="18.3.0")
@@ -185,6 +241,16 @@ PEER_ONLY_CHANGE = DirectChange(name="react-dom", old="18.3.0", new="18.3.0", ra
         (
             importers("^1.3.1", "1.3.0", peer="18.3.0"),
             [DirectChange(name="left-pad", old="1.3.0", new="1.3.0", range_changed=True)],
+            None,
+        ),
+        (
+            importers("^1.3.0", "1.3.0", peer="18.3.0", catalog="^4.0.1", kea="4.0.1"),
+            [DirectChange(name="kea", old="4.0.0", new="4.0.1", range_changed=True)],
+            None,
+        ),
+        (
+            importers("^1.3.0", "1.3.0", peer="18.3.0", kea="4.0.1"),
+            [DirectChange(name="kea", old="4.0.0", new="4.0.1", range_changed=False)],
             None,
         ),
         (importers("^1.3.0", "left-pad@1.3.1"), None, "not a plain registry"),
@@ -224,7 +290,7 @@ def test_new_packages(resolution: dict, reason: str | None) -> None:
     base = {"packages": {"left-pad@1.3.0": {"resolution": {"integrity": "sha512-a"}}}}
     head = {"packages": {**base["packages"], "left-pad@1.3.1": {"resolution": resolution}}}
     if reason is None:
-        assert policy.new_packages(base, head) == ["left-pad"]
+        assert policy.new_packages(base, head) == ["left-pad@1.3.1"]
     else:
         with pytest.raises(Refused, match=reason):
             policy.new_packages(base, head)
@@ -285,10 +351,10 @@ def test_settings_paths() -> None:
 )
 def test_pnpm_version(manifest: dict, version: str | None) -> None:
     if version is None:
-        with pytest.raises(Refused, match="exact pnpm version"):
-            policy.pnpm_version(manifest)
+        with pytest.raises(Refused, match="package.json does not pin an exact pnpm version"):
+            policy.pnpm_version("package.json", manifest)
     else:
-        assert policy.pnpm_version(manifest) == version
+        assert policy.pnpm_version("package.json", manifest) == version
 
 
 @pytest.mark.parametrize("text", [b'{"a": 1, "a": 2}', b"[]", b"{"])

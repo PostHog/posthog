@@ -15,6 +15,7 @@ MINIMUM_RELEASE_AGE = timedelta(days=7)
 LOCKFILE = "pnpm-lock.yaml"
 MANIFEST = "package.json"
 WORKSPACE_FILE = "pnpm-workspace.yaml"
+CATALOG = "catalog"
 DEPENDENCY_FIELDS = ("dependencies", "devDependencies", "optionalDependencies")
 # pnpm settings that name packages able to run install scripts, or exempt from a supply-chain policy.
 BLOCKING_SETTINGS = (
@@ -27,6 +28,7 @@ BLOCKING_SETTINGS = (
 )
 SETTINGS_FILES = (WORKSPACE_FILE, ".npmrc", ".pnpmfile.cjs", "pnpmfile.cjs")
 RANGE = re.compile(r"(?P<operator>[~^]?)(?P<major>[0-9]+)\.(?P<minor>[0-9]+)\.(?P<patch>[0-9]+)")
+PLAIN_VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 # A package name with `*` wildcards. pnpm reads more pattern syntax, such as a leading `!`, and that is refused.
 PACKAGE_PATTERN = re.compile(r"(@[A-Za-z0-9._~*-]+/)?[A-Za-z0-9._~*-]+")
 SAFE_PATH = re.compile(r"^[A-Za-z0-9._@-]+(/[A-Za-z0-9._@-]+)*$")
@@ -74,15 +76,15 @@ def load_manifest(text: bytes) -> dict[str, Any]:
 
 
 def eligible_paths(changes: Iterable[tuple[str, str]]) -> list[str]:
-    """The changed paths, when every one is a modified package.json or pnpm-lock.yaml."""
+    """The changed paths, when every one is a modified package.json, pnpm-lock.yaml or pnpm-workspace.yaml."""
     paths = []
     for status, path in changes:
         if status != "M":
             raise Refused(f"{path} is not a modification")
         if not SAFE_PATH.match(path) or ".." in path.split("/"):
             raise Refused(f"{path} has a name this proof does not accept")
-        if path.rpartition("/")[2] not in (MANIFEST, LOCKFILE):
-            raise Refused(f"{path} is neither a manifest nor a lockfile")
+        if path.rpartition("/")[2] not in (MANIFEST, LOCKFILE, WORKSPACE_FILE):
+            raise Refused(f"{path} is not a manifest, a lockfile or a workspace file")
         paths.append(path)
     if not paths:
         raise Refused("the pull request changes no files")
@@ -141,12 +143,43 @@ def check_manifest(path: str, base: Mapping[str, Any], head: Mapping[str, Any]) 
     if rest(base) != rest(head):
         raise Refused(f"{path} changes more than dependency versions")
     for field in DEPENDENCY_FIELDS:
-        before, after = base.get(field) or {}, head.get(field) or {}
-        if not isinstance(before, dict) or not isinstance(after, dict) or before.keys() != after.keys():
-            raise Refused(f"{path} adds or removes a package in {field}")
-        for name, new in after.items():
-            if before[name] != new:
-                check_bump(f"{path} {name}", str(before[name]), str(new))
+        _moved_ranges(path, field, base, head)
+
+
+def check_workspace(
+    path: str, default: Mapping[str, Any], base: Mapping[str, Any], head: Mapping[str, Any]
+) -> list[str]:
+    """Refuse a workspace file whose settings are not the default branch's, or whose catalog does more than move ranges.
+
+    ``default`` is the default branch's file and ``base`` is the merge base's. The settings outside
+    ``catalog`` decide what an update may do, so the head must hold the default branch's. A catalog
+    entry is a dependency range, so it is judged as a manifest's is, against the merge base.
+    Returns the names of the catalog entries that move.
+    """
+
+    def settings(workspace: Mapping[str, Any]) -> str:
+        # Compared as text, because dict equality ignores key order.
+        return repr({key: value for key, value in workspace.items() if key != CATALOG})
+
+    if settings(head) != settings(default):
+        raise Refused(f"{path} differs from the default branch outside {CATALOG}")
+    minutes = int(MINIMUM_RELEASE_AGE.total_seconds() // 60)
+    if str(default.get("minimumReleaseAge")) != str(minutes):
+        raise Refused(f"{path} does not set minimumReleaseAge to the {minutes} minutes this proof replays with")
+    return _moved_ranges(path, CATALOG, base, head)
+
+
+def _moved_ranges(path: str, field: str, base: Mapping[str, Any], head: Mapping[str, Any]) -> list[str]:
+    """The packages whose range differs in one mapping of names to ranges, each allowed by `check_bump`."""
+    before, after = base.get(field) or {}, head.get(field) or {}
+    if not isinstance(before, dict) or not isinstance(after, dict) or before.keys() != after.keys():
+        raise Refused(f"{path} adds or removes a package in {field}")
+    moved = []
+    for name, new in after.items():
+        if before[name] != new:
+            check_bump(f"{path} {name}", str(before[name]), str(new))
+            moved.append(name)
+    return moved
 
 
 def direct_changes(base_lock: Mapping[str, Any], head_lock: Mapping[str, Any]) -> list[DirectChange]:
@@ -168,7 +201,7 @@ def direct_changes(base_lock: Mapping[str, Any], head_lock: Mapping[str, Any]) -
                 old_version, new_version = _resolved(old), _resolved(entry)
                 if old_version != new_version:
                     check_bump(f"{importer} {name}", old_version, new_version)
-                range_changed = _field(old, "specifier") != _field(entry, "specifier")
+                range_changed = _range(base_lock, name, old) != _range(head_lock, name, entry)
                 changes.append(DirectChange(name=name, old=old_version, new=new_version, range_changed=range_changed))
     return changes
 
@@ -177,21 +210,30 @@ def _field(entry: Any, key: str) -> str:
     return str(entry.get(key, "") if isinstance(entry, dict) else "")
 
 
+def _range(lock: Mapping[str, Any], name: str, entry: Any) -> str:
+    """The range a project asks for. A `catalog:` specifier is followed to the range the lockfile records for it."""
+    specifier = _field(entry, "specifier")
+    if not specifier.startswith("catalog:"):
+        return specifier
+    catalog = (lock.get("catalogs") or {}).get(specifier.removeprefix("catalog:") or "default") or {}
+    return specifier + _field(catalog.get(name), "specifier")
+
+
 def _resolved(entry: Any) -> str:
     return _field(entry, "version").partition("(")[0]
 
 
 def new_packages(base_lock: Mapping[str, Any], head_lock: Mapping[str, Any]) -> list[str]:
-    """Names of lockfile packages the update adds, each required to resolve from the registry."""
+    """The `name@version` of each lockfile package the update adds, each required to resolve from the registry."""
     before = base_lock.get("packages") or {}
-    names = []
+    added = []
     for key, entry in (head_lock.get("packages") or {}).items():
         if key in before:
             continue
         if set((entry or {}).get("resolution") or {}) != {"integrity"}:
             raise Refused(f"{key} does not resolve from the registry")
-        names.append(package_name(key))
-    return names
+        added.append(key)
+    return added
 
 
 def blocked_patterns(
@@ -201,18 +243,32 @@ def blocked_patterns(
     patterns: dict[str, list[str]] = {}
     for settings in (workspace, manifest.get("pnpm") or {}):
         for key in BLOCKING_SETTINGS:
-            patterns.setdefault(key, []).extend(str(entry) for entry in settings.get(key) or ())
+            entries = settings.get(key) or ()
+            if isinstance(entries, Mapping):
+                # `allowBuilds` maps a package to false to keep its scripts from running.
+                entries = [entry for entry, allowed in entries.items() if str(allowed).lower() != "false"]
+            patterns.setdefault(key, []).extend(str(entry) for entry in entries)
     if only_built_file is not None:
         patterns["onlyBuiltDependenciesFile"] = [str(entry) for entry in json.loads(only_built_file)]
     return patterns
 
 
-def blocked_reason(name: str, patterns: Mapping[str, Iterable[str]]) -> str | None:
+def blocked_reason(spec: str, patterns: Mapping[str, Iterable[str]]) -> str | None:
+    """Why the settings block a package, given as `name` or `name@version`.
+
+    An entry that lists plain versions blocks those versions only. Any other entry blocks every
+    version, and so does a package given without one.
+    """
+    name = package_name(spec)
+    version = spec[len(name) + 1 :].partition("(")[0]
     for setting, entries in patterns.items():
         for entry in entries:
             pattern = package_name(entry)
             if not PACKAGE_PATTERN.fullmatch(pattern):
                 raise Refused(f"{setting} uses a pattern this proof does not read: {entry}")
+            listed = [part.strip() for part in entry[len(pattern) + 1 :].split("||")]
+            if version and version not in listed and all(map(PLAIN_VERSION.fullmatch, listed)):
+                continue
             # `*` crosses `/` as it does for pnpm.
             if re.fullmatch(".*".join(map(re.escape, pattern.split("*"))), name):
                 return f"{name} is named in {setting}"
@@ -242,10 +298,10 @@ def settings_paths(directory: str, workspace: Mapping[str, Any]) -> list[str]:
     return paths
 
 
-def pnpm_version(manifest: Mapping[str, Any]) -> str:
+def pnpm_version(path: str, manifest: Mapping[str, Any]) -> str:
     match = PNPM_VERSION.match(str(manifest.get("packageManager", "")))
     if match is None:
-        raise Refused("the workspace does not pin an exact pnpm version in packageManager")
+        raise Refused(f"{path} does not pin an exact pnpm version in packageManager")
     return match[1]
 
 
