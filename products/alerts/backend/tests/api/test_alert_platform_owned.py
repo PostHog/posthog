@@ -16,10 +16,13 @@ from rest_framework import status
 from posthog.schema import InsightThreshold
 
 from posthog.constants import AvailableFeature
+from posthog.models import User
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertCalculationInterval
 
-from products.alerts.backend.evaluation.detector import _earlier_flags
+from products.alerts.backend.evaluation.detector import _earlier_flags, _saved_alert_flags
 from products.alerts.backend.facade.api import snooze_alert_from_slack
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.judge import (
@@ -38,8 +41,14 @@ from products.alerts.backend.platform_cutover import cut_over_team
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import get_configuration, record_verdict_change, update_configuration
+from products.alerts_platform.backend.facade.api import (
+    assign_native_creator,
+    get_configuration,
+    record_verdict_change,
+    update_configuration,
+)
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDelivery,
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationView,
@@ -48,6 +57,9 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
 from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES
+from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.templates.fixtures import template_slack
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.notebooks.backend.facade.api import create_notebook
 
 
@@ -291,6 +303,23 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         reasons = {"2026-10-18": "Before the move.", "2026-10-20": "After."}
         assert flags == tuple(EarlierFlag(date=date, rationale=reasons[date]) for date in dates)
+
+    def test_simulating_an_ai_alert_insight_keeps_no_row_for_reads_its_earlier_flags_from_the_platform(self) -> None:
+        with team_scope(self.team.id):
+            platform_testing.forget_source_row(self.copy_id)
+        AlertConfiguration.objects.filter(id=self.alert.id).delete()
+        self._record(
+            -30,
+            "firing",
+            detail={
+                "triggered_dates": ["2026-10-20"],
+                "triggered_metadata": {"detector_type": "llm", "rationale": "Fell."},
+            },
+        )
+
+        flags = _saved_alert_flags(self.team, self.copy_id)
+
+        assert flags == (EarlierFlag(date="2026-10-20", rationale="Fell."),)
 
     def test_an_alert_insight_keeps_no_row_for_shows_from_the_platform(self) -> None:
         threshold = self.alert.threshold
@@ -648,6 +677,94 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         created = AlertConfiguration.objects.get(id=response.json()["id"])
         assert created.owner == ("platform" if begun else "source")
+
+    def _forget_the_insight_row(self) -> None:
+        with team_scope(self.team.id):
+            platform_testing.forget_source_row(self.copy_id)
+        AlertConfiguration.objects.filter(id=self.alert.id).delete()
+
+    @parameterized.expand(
+        [
+            ("statistical_alert", None, True, status.HTTP_200_OK),
+            # Its checks would run as the requester, who is not on the AI detector's rollout.
+            ("ai_alert_without_the_rollout", {"type": "llm"}, False, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_taking_ownership_of_an_alert_insight_keeps_no_row_for_writes_the_platform(
+        self, _name: str, detector: dict[str, Any] | None, rolled_out: bool, expected: int
+    ) -> None:
+        former_member = User.objects.create_user(email="former-member@example.com", first_name="", password=None)
+        with team_scope(self.team.id):
+            stored_config = self._copy().source_config
+            platform_testing.set_source_config(
+                self.copy_id,
+                {**stored_config, "condition": {**stored_config["condition"], "detector": detector}},
+            )
+            platform_testing.set_enabled(self.copy_id, False)
+        self._forget_the_insight_row()
+        with team_scope(self.team.id):
+            assign_native_creator(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.INSIGHT.value],
+                configuration_id=self.copy_id,
+                created_by_id=former_member.id,
+            )
+
+        with patch(
+            "products.alerts.backend.llm_detector_limits.posthoganalytics.feature_enabled", return_value=rolled_out
+        ):
+            response = self.client.post(f"{self.url}/{self.copy_id}/take_ownership/")
+
+        assert response.status_code == expected, response.json()
+        copy = self._copy()
+        taken = expected == status.HTTP_200_OK
+        assert (copy.created_by_id, copy.enabled) == ((self.user.id, True) if taken else (former_member.id, False))
+        if taken:
+            assert (response.json()["created_by"]["id"], response.json()["enabled"]) == (self.user.id, True)
+            assert ActivityLog.objects.filter(
+                scope="AlertConfiguration", item_id=str(self.copy_id), activity="took_ownership", user=self.user
+            ).exists()
+
+    @patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
+    def test_destinations_of_an_alert_insight_keeps_no_row_for_match_its_platform_id(self, mock_trigger) -> None:
+        mock_trigger.return_value = [
+            AlertDelivery(channel="hog_function", target="Eng alerts", template="slack", at="2026-08-11T00:00:00+00:00")
+        ]
+        sync_template_to_db(template_slack)
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"authed_user": {"id": "u"}},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        self._forget_the_insight_row()
+        alert_url = f"{self.url}/{self.copy_id}"
+
+        created = self.client.post(
+            f"{alert_url}/destinations/",
+            {
+                "type": "slack",
+                "slack_workspace_id": integration.id,
+                "slack_channel_id": "C123",
+                "slack_channel_name": "product-alerts",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        [hog_function_id] = created.json()["hog_function_ids"]
+        assert (HogFunction.objects.get(id=hog_function_id).filters or {})["properties"][0]["value"] == str(
+            self.copy_id
+        )
+        tested = self.client.post(f"{alert_url}/test-delivery/")
+        assert (tested.status_code, tested.json()["destination_count"]) == (status.HTTP_202_ACCEPTED, 1)
+
+        deleted = self.client.post(
+            f"{alert_url}/destinations/delete/", {"hog_function_ids": [hog_function_id]}, format="json"
+        )
+
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+        assert self.client.post(f"{alert_url}/test-delivery/").status_code == status.HTTP_409_CONFLICT
 
     def test_deleting_a_moved_alert_deletes_its_copy(self) -> None:
         response = self.client.delete(f"{self.url}/{self.alert.id}/")

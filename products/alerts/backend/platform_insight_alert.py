@@ -2,6 +2,7 @@
 platform alert's settings when insight keeps no row for it."""
 
 from collections.abc import Collection
+from dataclasses import replace
 from typing import Any, Final
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from products.alerts_platform.backend.facade.api import (
     get_configuration,
     list_configurations,
     native_configuration_matches,
+    update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
@@ -112,6 +114,19 @@ def native_insight_alert_view(team_id: int, alert_id: UUID) -> PlatformAlertConf
         team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id
     )
     return configuration if configuration is not None and configuration.legacy_configuration_id is None else None
+
+
+def enable_native_insight_alert(*, team_id: int, alert_id: UUID) -> PlatformAlertConfigurationView | None:
+    """Turns on an insight alert with no insight row, through the platform's admission. None when it is gone.
+
+    Raises `InvalidPlatformAlertEdit` when the admission refuses it.
+    """
+    return update_configuration(
+        team_id=team_id,
+        source_kinds=[SourceKind.INSIGHT.value],
+        configuration_id=alert_id,
+        change=lambda stored: replace(stored, enabled=True),
+    )
 
 
 def native_insight_alert_matches(team_id: int, *, search: str | None) -> tuple[NativeConfigurationMatch, ...]:

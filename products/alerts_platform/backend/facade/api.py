@@ -479,6 +479,16 @@ def update_owned_copy(
     )
 
 
+def assign_native_creator(
+    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, created_by_id: int
+) -> bool:
+    """Makes `created_by_id` the creator of a configuration whose source keeps no row, which its checks
+    run as. False when there is no such configuration."""
+    return platform_writes.assign_native_creator(
+        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id, created_by_id=created_by_id
+    )
+
+
 def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configuration_id: UUID) -> bool:
     """Deletes a configuration the platform owns, with its source's own row. False when the caller
     cannot read it.

@@ -56,7 +56,9 @@ from products.alerts.backend.models.alert import (
     AlertConfiguration,
     AlertSubscription,
 )
-from products.alerts_platform.backend.facade.contracts import InvalidPlatformAlertEdit
+from products.alerts.backend.platform_insight_alert import native_insight_alert_view
+from products.alerts_platform.backend.facade.api import assign_native_creator
+from products.alerts_platform.backend.facade.contracts import InvalidPlatformAlertEdit, SourceKind
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -316,12 +318,20 @@ def insight_short_ids_watched_by(*, team_id: int, user_id: int, limit: int) -> l
 def assign_alert_owner(*, team_id: int, alert_id: uuid.UUID, user: User, was_impersonated: bool) -> None:
     """Make `user` the owner of the alert and record the takeover in the activity log.
 
-    `created_by` is excluded from the save diff, so the takeover gets its own activity.
+    `created_by` is excluded from the save diff, so the takeover gets its own activity. An alert with
+    no insight row is the platform's, which stores its creator.
     """
-    alert = AlertConfiguration.objects.select_related("insight", "created_by").get(team_id=team_id, id=alert_id)
-    previous_owner = alert.created_by
-    alert.created_by = user
-    alert.save(update_fields=["created_by"])
+    alert = (
+        AlertConfiguration.objects.select_related("insight", "created_by").filter(team_id=team_id, id=alert_id).first()
+    )
+    if alert is not None:
+        previous_owner = alert.created_by
+        alert.created_by = user
+        alert.save(update_fields=["created_by"])
+    else:
+        alert = _native_alert(team_id=team_id, alert_id=alert_id)
+        previous_owner = alert.created_by
+        _assign_native_creator(team_id=team_id, alert_id=alert_id, user=user)
     log_activity(
         organization_id=alert.team.organization_id,
         team_id=alert.team_id,
@@ -348,6 +358,23 @@ def assign_alert_owner(*, team_id: int, alert_id: uuid.UUID, user: User, was_imp
             ),
         ),
     )
+
+
+def _native_alert(*, team_id: int, alert_id: uuid.UUID) -> AlertConfiguration:
+    """The insight alert with no insight row under `alert_id`, as the API presents it. Raises
+    `AlertConfiguration.DoesNotExist`, as a missing row does."""
+    view = native_insight_alert_view(team_id, alert_id)
+    alert = AlertConfiguration.from_platform_view(view, team_id=team_id) if view is not None else None
+    if alert is None:
+        raise AlertConfiguration.DoesNotExist(f"No insight alert {alert_id} in team {team_id}")
+    return alert
+
+
+def _assign_native_creator(*, team_id: int, alert_id: uuid.UUID, user: User) -> None:
+    if not assign_native_creator(
+        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id, created_by_id=user.id
+    ):
+        raise AlertConfiguration.DoesNotExist(f"No insight alert {alert_id} in team {team_id}")
 
 
 __all__ = [
