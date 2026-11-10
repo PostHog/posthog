@@ -1,4 +1,4 @@
-import { strToU8, zipSync } from 'fflate'
+import { strToU8, unzipSync, zipSync } from 'fflate'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -411,6 +411,27 @@ describe('CLI skills library', () => {
             '# Audit\n'
         )
         expect(unknown).toMatchObject({ ok: false, error: { code: 'unknown_skill' } })
+    })
+
+    it('refuses to install a skill whose archive is past the extraction limit, and keeps the installed copy', async () => {
+        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'posthog-skills-install-'))
+        const installed = path.join(dir, '.agents', 'skills', 'audit', 'SKILL.md')
+        await fs.mkdir(path.dirname(installed), { recursive: true })
+        await fs.writeFile(installed, '# Installed\n')
+        const release = unzipSync(contextMill())
+        release['audit.zip'] = zipSync({ 'SKILL.md': strToU8('# Audit\n'), 'big.bin': new Uint8Array(9 * MIB) })
+        const library = createSkillsLibrary({
+            cacheDir: await cacheDir(),
+            fetch: fakeFetch({ ...ONLINE, [CONTEXT_MILL_URL]: zipSync(release) }).fetch,
+        })
+
+        const result = await library.install('audit', { cwd: dir, force: true })
+
+        expect(result).toMatchObject({
+            ok: false,
+            error: { code: 'install_failed', message: expect.stringContaining('exceeds the extraction limit') },
+        })
+        await expect(fs.readFile(installed, 'utf8')).resolves.toBe('# Installed\n')
     })
 
     it.each([
