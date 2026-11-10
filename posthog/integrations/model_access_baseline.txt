@@ -3,7 +3,6 @@
 # after you move a file to the SDK, lower its count or remove its line.
 ee/api/vercel/vercel_sso.py 2
 ee/vercel/integration.py 3
-posthog/api/integration.py 2
 posthog/api/organization_integration.py 1
 posthog/github/attribution.py 1
 posthog/github/installations.py 2

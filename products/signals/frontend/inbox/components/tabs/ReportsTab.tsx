@@ -58,6 +58,7 @@ interface SectionListState {
     reportsResponseLoading: boolean
     hasMore: boolean
     loadedRankingPill: boolean
+    loadedPersonalOrder: boolean
     loadedPersonalFallback: boolean
 }
 
@@ -78,6 +79,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         reportsResponseLoading,
         hasMore,
         loadedRankingPill,
+        loadedPersonalOrder,
         loadedPersonalFallback,
     } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
     return {
@@ -91,6 +93,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
         reportsResponseLoading,
         hasMore,
         loadedRankingPill,
+        loadedPersonalOrder,
         loadedPersonalFallback,
     }
 }
@@ -272,6 +275,10 @@ export function ReportsTab(): JSX.Element {
     const rankingPill =
         isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedRankingPill)
     const personalSort = activeSortField === 'personal'
+    // The Recommended sort shows the personal order to the users of one flag arm.
+    const personalOrder =
+        personalSort ||
+        (isMergeKeySortField(activeSortField) && selectedSections.some((key) => sections[key].loadedPersonalOrder))
     // Every state reads the same stored ranking, so one fallback response means the whole list fell back.
     const personalFallback = personalSort && selectedSections.some((key) => sections[key].loadedPersonalFallback)
     // Under a model sort the unscored rows trail the scored ones. A divider marks where they start.
@@ -446,7 +453,7 @@ export function ReportsTab(): JSX.Element {
                                 sectionKey={sectionKey}
                                 rankingSortField={rankingSortField}
                                 rankingPill={rankingPill}
-                                personalSort={personalSort}
+                                personalSort={personalOrder}
                                 timestampField={timestampField}
                                 hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
                             />
