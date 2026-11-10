@@ -62,6 +62,12 @@ class TestUnenrollUnchosenGeneralScouts(APIBaseTest):
             ("paused", {"config": {"enabled": False}}, False),
             ("edited_skill", {"edited": True}, False),
             ("renamed_duplicate", {"config": {"skill_name": "signals-scout-general-copy"}}, False),
+            ("team_chose_other_scout", {"other_scout": True}, False),
+            # The enabler's account is gone, so `enabled_by` is null, but the log keeps `is_system=False`.
+            ("person_enabled_then_deleted", {"log": ("updated", "enabled")}, False),
+            # The seed and the sync's label backfill log under the user whose request opened the inbox.
+            ("seeded_in_a_request", {"log": ("created", "enabled")}, True),
+            ("label_backfilled_in_a_request", {"log": ("updated", "display_name")}, True),
         ]
     )
     def test_apply_switches_off_only_unchosen_general_scouts(
@@ -78,6 +84,21 @@ class TestUnenrollUnchosenGeneralScouts(APIBaseTest):
         elif case.get("setup") == "child":
             child = Team.objects.create(organization=self.organization, parent_team=self.team)
             SignalTeamConfig.objects.create(team=child, onboarding=_COMPLETED)
+        if case.get("other_scout"):
+            SignalScoutConfig.objects.create(
+                team=self.team, skill_name="signals-scout-product-analytics", enabled_by=self.user
+            )
+        if log := case.get("log"):
+            activity, changed_field = log
+            ActivityLog.objects.create(
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                scope="SignalScoutConfig",
+                item_id=str(config.id),
+                activity=activity,
+                is_system=False,
+                detail={"changes": [{"type": "SignalScoutConfig", "action": "changed", "field": changed_field}]},
+            )
         config.refresh_from_db()
         enabled_before, status_before, logs_before = config.enabled, config.status, self._log_count(config)
 

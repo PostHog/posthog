@@ -34,6 +34,8 @@ class Command(BaseCommand):
         )
         self._write_totals("Matched", summary.matched)
         self._write_totals("Skipped, setup completed", summary.skipped_setup_completed)
+        self._write_totals("Skipped, team chose other scouts", summary.skipped_team_chose_scouts)
+        self._write_totals("Skipped, a person changed the row", summary.skipped_person_touched)
         self._write_totals("Skipped, skill not canonical", summary.skipped_not_canonical)
         if apply:
             self._write_totals("Changed", summary.changed)

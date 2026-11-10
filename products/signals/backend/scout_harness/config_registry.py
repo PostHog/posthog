@@ -757,19 +757,45 @@ def resume_setup_paused_operational_scouts(
 
 
 GENERAL_SCOUT_SKILL_NAME = "signals-scout-general"
+_PERSON_TUNED_SCOUT_FIELDS = ("enabled", "emit", "run_interval_minutes", "run_cron_schedule")
 
 
 def unchosen_general_scout_configs(*, team_ids: list[int] | None = None) -> QuerySet[SignalScoutConfig]:
     """Running general scouts that no person created or switched on.
 
     Opening the inbox used to seed the general scout enabled for every team, so these rows run
-    and spend without anyone choosing them. `setup_completed` marks the rows whose team still
-    went through self-driving setup: setup stores its state on the project and its scouts on
-    the parent team, so a child project's completed setup counts for the parent's scout.
+    and spend without anyone choosing them. Three annotations mark rows a person chose after all:
+
+    - `setup_completed`: the team went through self-driving setup. Setup stores its state on the
+      project and its scouts on the parent team, so a child project's completed setup counts.
+    - `team_chose_scouts`: a person, or the wizard acting as one, enabled or created another
+      non-operational scout on the team. The wizard keeps general on for every project it sets up,
+      but it found general already enabled by the seed and sent no enable, so `enabled_by` stayed empty.
+    - `person_touched`: a person changed whether or when the row runs, per its activity log.
+      `enabled_by` and `created_by` are cleared when that person's account is deleted; the log's
+      `is_system` is not. Only `updated` entries on person-tuned fields count, because the seed and
+      the sync's label backfills also run inside a person's request and log under their user.
     """
     completed_setup = SignalTeamConfig.objects.filter(
         Q(team_id=OuterRef("team_id")) | Q(team__parent_team_id=OuterRef("team_id")),
         onboarding__completed_at__isnull=False,
+    )
+    chosen_other_scout = (
+        SignalScoutConfig.all_teams.filter(team_id=OuterRef("team_id"))
+        .exclude(skill_name=GENERAL_SCOUT_SKILL_NAME)
+        .exclude(skill_name__in=canonical_operational_scout_names())
+        .filter(Q(enabled_by__isnull=False) | Q(created_by__isnull=False))
+    )
+    person_tuned_change = Q()
+    for tuned_field in _PERSON_TUNED_SCOUT_FIELDS:
+        person_tuned_change |= Q(detail__changes__contains=[{"field": tuned_field}])
+    person_log = ActivityLog.objects.filter(
+        person_tuned_change,
+        team_id=OuterRef("team_id"),
+        scope="SignalScoutConfig",
+        item_id=Cast(OuterRef("pk"), output_field=CharField()),
+        activity="updated",
+        is_system=False,
     )
     configs = SignalScoutConfig.all_teams.filter(
         skill_name=GENERAL_SCOUT_SKILL_NAME,
@@ -777,7 +803,11 @@ def unchosen_general_scout_configs(*, team_ids: list[int] | None = None) -> Quer
         status__in=SignalScoutConfig.RUNNABLE_STATUSES,
         enabled_by__isnull=True,
         created_by__isnull=True,
-    ).annotate(setup_completed=Exists(completed_setup))
+    ).annotate(
+        setup_completed=Exists(completed_setup),
+        team_chose_scouts=Exists(chosen_other_scout),
+        person_touched=Exists(person_log),
+    )
     if team_ids is not None:
         configs = configs.filter(team_id__in=team_ids)
     return configs
@@ -797,7 +827,15 @@ def unenroll_unchosen_general_scout(config: SignalScoutConfig) -> bool:
     with transaction.atomic():
         locked = (
             unchosen_general_scout_configs()
-            .filter(pk=config.pk, status=config.status)
+            # Recheck every skip reason under the lock: the batch read is a snapshot, and setup
+            # can complete or a person can act on the team before this row comes up.
+            .filter(
+                pk=config.pk,
+                status=config.status,
+                setup_completed=False,
+                team_chose_scouts=False,
+                person_touched=False,
+            )
             .select_for_update(of=("self",))
             .first()
         )
@@ -826,6 +864,8 @@ class UnenrollSummary:
 
     matched: Counter[tuple[str, str]] = field(default_factory=Counter)
     skipped_setup_completed: Counter[tuple[str, str]] = field(default_factory=Counter)
+    skipped_team_chose_scouts: Counter[tuple[str, str]] = field(default_factory=Counter)
+    skipped_person_touched: Counter[tuple[str, str]] = field(default_factory=Counter)
     skipped_not_canonical: Counter[tuple[str, str]] = field(default_factory=Counter)
     changed: Counter[tuple[str, str]] = field(default_factory=Counter)
     not_changed: Counter[tuple[str, str]] = field(default_factory=Counter)
@@ -854,6 +894,12 @@ def unenroll_unchosen_general_scouts(
             key = (config.managed_by, config.status)
             if config.setup_completed:  # type: ignore[attr-defined]
                 summary.skipped_setup_completed[key] += 1
+                continue
+            if config.team_chose_scouts:  # type: ignore[attr-defined]
+                summary.skipped_team_chose_scouts[key] += 1
+                continue
+            if config.person_touched:  # type: ignore[attr-defined]
+                summary.skipped_person_touched[key] += 1
                 continue
             if not _general_scout_is_proven_canonical(config.team_id):
                 summary.skipped_not_canonical[key] += 1
