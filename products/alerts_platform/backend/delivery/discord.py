@@ -72,6 +72,9 @@ def _body(message: AlertMessage, limit: int) -> str:
 class DiscordTransport(WebhookUrlTransport):
     provider = PROVIDER
     display_name = "Discord"
+    # Discord's own API answers a body it cannot accept with 400, which is the platform's bug. A
+    # deleted or revoked webhook answers 401, 403 or 404, which only the owner can fix.
+    owner_statuses = frozenset({401, 403, 404})
 
     def check_url(self, url: str) -> None:
         # The URL shape the HogFunction template accepts, so no destination that works today is refused.

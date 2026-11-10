@@ -12,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 from posthog.security.pinned_requests import SSRFBlockedError
+from posthog.security.url_validation import UNRESOLVED_HOST_REASON
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
@@ -216,6 +217,7 @@ class TestWebhookTransport(SimpleTestCase):
             ("unreachable", 0, requests.ConnectionError("refused"), False, "unreachable"),
             ("slow", 0, requests.ReadTimeout("read timed out"), False, "timeout"),
             ("blocked", 0, SSRFBlockedError("resolves to a private address"), True, "blocked_url"),
+            ("unresolved", 0, SSRFBlockedError(UNRESOLVED_HOST_REASON), False, "unreachable"),
         ]
     )
     def test_a_failed_send_says_whether_only_its_owner_can_fix_it(

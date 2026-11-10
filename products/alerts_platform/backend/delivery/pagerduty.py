@@ -127,6 +127,6 @@ class PagerDutyTransport:
         body = pagerduty_body(message, routing_key=routing_key, severity=severity)
         # Every destination posts to the same PagerDuty endpoint, so a 4xx more likely means the
         # platform built a bad body than that one owner misconfigured a key. It stays a failure.
-        post_json(ENDPOINTS[region], body, display_name="PagerDuty", client_error_is_misconfigured=False)
+        post_json(ENDPOINTS[region], body, display_name="PagerDuty", owner_statuses=())
         # PagerDuty answers with the dedup key, which this transport derives again for the resolve.
         return None

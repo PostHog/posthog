@@ -6,12 +6,14 @@ message, a log line or a metric label, so the errors here name a status or an ex
 
 import json
 import hashlib
+from collections.abc import Container
 from datetime import UTC, datetime
 from typing import Any, Final
 
 import requests
 
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
+from posthog.security.url_validation import UNRESOLVED_HOST_REASON
 
 from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured
 from products.alerts_platform.backend.temporal.metrics import DeliveryFailureReason
@@ -43,8 +45,10 @@ def post_json(
     *,
     display_name: str,
     headers: dict[str, str] | None = None,
-    client_error_is_misconfigured: bool = True,
+    owner_statuses: Container[int] | None = None,
 ) -> None:
+    """Posts `body` as JSON. A 4xx in `owner_statuses` is a refusal only the destination's owner can
+    fix. None means every 4xx that a retry cannot pass."""
     try:
         # `pinned_session` validates the URL and connects to the IPs it validated, which
         # closes the window where DNS changes between the check and the connection.
@@ -76,7 +80,13 @@ def post_json(
             )
             status = response.status_code
             response.close()
-    except SSRFBlockedError:
+    except SSRFBlockedError as error:
+        # The SSRF check also refuses a host it cannot resolve, which a resolver outage on our
+        # side causes too, so that case stays a failure that retries and alerts.
+        if str(error) == UNRESOLVED_HOST_REASON:
+            raise DeliveryError(
+                f"The {display_name} destination's host could not be resolved.", reason="unreachable"
+            ) from None
         raise DestinationMisconfigured(
             f"The {display_name} destination URL points to an address PostHog does not send to.",
             reason="blocked_url",
@@ -89,18 +99,16 @@ def post_json(
             reason="timeout" if isinstance(error, requests.Timeout) else "unreachable",
         ) from None
     if not 200 <= status < 300:
-        _raise_for_status(
-            status, display_name=display_name, client_error_is_misconfigured=client_error_is_misconfigured
-        )
+        _raise_for_status(status, display_name=display_name, owner_statuses=owner_statuses)
 
 
-def _raise_for_status(status: int, *, display_name: str, client_error_is_misconfigured: bool) -> None:
+def _raise_for_status(status: int, *, display_name: str, owner_statuses: Container[int] | None) -> None:
     message = f"The {display_name} destination refused the message with status {status}."
     reason: DeliveryFailureReason
     if status in _RETRYABLE_CLIENT_REASONS:
         reason = _RETRYABLE_CLIENT_REASONS[status]
     elif 400 <= status < 500:
-        if client_error_is_misconfigured:
+        if owner_statuses is None or status in owner_statuses:
             raise DestinationMisconfigured(message, reason="client_error")
         reason = "client_error"
     else:

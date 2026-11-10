@@ -7,7 +7,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.alerts_platform.backend.delivery.discord import MAX_CONTENT_CHARS, DiscordTransport, content_for
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, MessageDetail, MessageLink
 from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, pinned_post
 
@@ -84,6 +84,24 @@ class TestDiscordTransport(SimpleTestCase):
                     DiscordTransport().deliver(team_id=2, target=target, message=alert_message())
 
         assert bool(adapter.sent) is posted
+
+    @parameterized.expand([("bad_body", 400, False), ("deleted_webhook", 404, True)])
+    def test_only_a_refusal_about_the_webhook_is_the_owners_to_fix(
+        self, _name: str, status: int, misconfigured: bool
+    ) -> None:
+        target = cast(
+            AlertDestinationData,
+            {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/123/not-a-real-token"},
+        )
+
+        with pinned_post(status):
+            with pytest.raises(DeliveryError) as raised:
+                DiscordTransport().deliver(team_id=2, target=target, message=alert_message())
+
+        assert (isinstance(raised.value, DestinationMisconfigured), raised.value.reason) == (
+            misconfigured,
+            "client_error",
+        )
 
     def test_a_send_waits_for_discord_to_save_the_message(self) -> None:
         url = "https://discord.com/api/webhooks/123/not-a-real-token?thread_id=456"

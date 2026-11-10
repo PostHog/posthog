@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from typing import Any, cast
 
 import pytest
@@ -9,7 +10,7 @@ from parameterized import parameterized
 from products.alerts_platform.backend.delivery import routing
 from products.alerts_platform.backend.delivery.routing import ROUTING_FLAG, deliver_routes
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
@@ -92,12 +93,13 @@ class TestDeliverRoutes(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("busy", ThreadBusy("1 of 1 threads are held by another send")),
-            ("failed", DeliveryError("slack returned 500")),
+            ("busy", ThreadBusy("1 of 1 threads are held by another send"), True),
+            ("failed", DeliveryError("slack returned 500"), True),
+            ("misconfigured", DestinationMisconfigured("Slack refused the message: not_in_channel"), False),
         ]
     )
     def test_one_receiver_failing_still_sends_the_rest_then_raises_for_a_retry(
-        self, _name: str, error: Exception
+        self, _name: str, error: Exception, raises: bool
     ) -> None:
         real_deliver = routing.deliver
 
@@ -106,7 +108,7 @@ class TestDeliverRoutes(APIBaseTest):
                 raise error
             return real_deliver(**kwargs)
 
-        with patch(f"{_MODULE}.deliver", side_effect=deliver), pytest.raises(type(error)):
+        with patch(f"{_MODULE}.deliver", side_effect=deliver), pytest.raises(type(error)) if raises else nullcontext():
             self._deliver()
 
         assert [channel for channel, _ in RecordingTransport.sends] == ["C-all"]

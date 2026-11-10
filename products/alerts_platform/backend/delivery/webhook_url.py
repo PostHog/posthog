@@ -22,6 +22,7 @@ class WebhookUrlTransport(ABC):
     provider: str
     display_name: str
     headers: ClassVar[dict[str, str]] = {}
+    owner_statuses: ClassVar[frozenset[int] | None] = None
 
     def channel_target(self, target: AlertDestinationData) -> str:
         # Some Teams URLs are longer than the column, which a digest also avoids. A changed URL
@@ -43,7 +44,11 @@ class WebhookUrlTransport(ABC):
             )
         self.check_url(url)
         post_json(
-            self.send_url(url), self.body_for(message), display_name=self.display_name, headers=self.headers_for(target)
+            self.send_url(url),
+            self.body_for(message),
+            display_name=self.display_name,
+            headers=self.headers_for(target),
+            owner_statuses=self.owner_statuses,
         )
         return None
 
