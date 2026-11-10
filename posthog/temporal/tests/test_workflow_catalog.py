@@ -2,14 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from prometheus_client import REGISTRY
-
 from posthog.management.commands.start_temporal_worker import _task_queue_specs
-from posthog.temporal.common.workflow_catalog import (
+from posthog.temporal.workflow_catalog import (
+    CATALOG_PATH,
     TEMPORAL_AREA_PRODUCTS,
-    register_workflow_info,
+    build_catalog,
+    render_catalog,
     workflow_product,
-    workflow_type,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -34,13 +33,11 @@ def test_area_products_name_real_areas_and_products() -> None:
     assert set(TEMPORAL_AREA_PRODUCTS.values()) <= PRODUCT_DIRS
 
 
-def test_register_workflow_info_sets_one_series_per_workflow() -> None:
-    workflow = REGISTERED_WORKFLOWS[0]
-    register_workflow_info("catalog-test-queue", [workflow])
+def test_each_workflow_type_belongs_to_one_product() -> None:
+    assert [entry for entry in build_catalog() if "," in entry["product"]] == []
 
-    labels = {
-        "temporal_workflow_type": workflow_type(workflow),
-        "product": workflow_product(workflow),
-        "task_queue": "catalog-test-queue",
-    }
-    assert REGISTRY.get_sample_value("posthog_temporal_workflow_info", labels) == 1
+
+def test_committed_catalog_is_current() -> None:
+    assert CATALOG_PATH.read_text() == render_catalog(), (
+        "Run `python manage.py export_temporal_workflow_catalog` and commit posthog/temporal/workflow_catalog.json"
+    )
