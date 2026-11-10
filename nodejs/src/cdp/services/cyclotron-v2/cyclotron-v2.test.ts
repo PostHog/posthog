@@ -2386,6 +2386,11 @@ describe('Cyclotron V2', () => {
                     expected: { 'manager:depth_check': 1, 'manager:insert': 1 },
                 },
                 {
+                    write: 'a single manager job',
+                    prepare: () => Promise.resolve(() => manager.createJob({ teamId: 7, queueName: 'hogflow' })),
+                    expected: { 'manager:depth_check': 1, 'manager:insert': 1 },
+                },
+                {
                     write: 'a worker moving its job into the email queue',
                     prepare: async () => {
                         const { job } = await seedAndDequeue({ teamId: 7 })
@@ -2415,6 +2420,7 @@ describe('Cyclotron V2', () => {
                 const holdMs = 100
                 await manager.bulkCreateJobs([{ teamId: 7, queueName: EMAIL_QUEUE }])
                 const holder = await assertPool.connect()
+                let committed = false
                 try {
                     await holder.query('BEGIN')
                     await holder.query('SELECT counter FROM cyclotron_email_team_seq WHERE team_id = 7 FOR UPDATE')
@@ -2432,6 +2438,7 @@ describe('Cyclotron V2', () => {
                     const whileBlocked = await managerSequenceReserveTotals()
                     await sleep(holdMs)
                     await holder.query('COMMIT')
+                    committed = true
                     await enqueued
                     const after = await managerSequenceReserveTotals()
 
@@ -2439,6 +2446,9 @@ describe('Cyclotron V2', () => {
                     expect(after.count - before.count).toBe(1)
                     expect(after.seconds - before.seconds).toBeGreaterThanOrEqual((holdMs - 5) / 1000)
                 } finally {
+                    if (!committed) {
+                        await holder.query('ROLLBACK')
+                    }
                     holder.release()
                 }
             })
