@@ -95,7 +95,8 @@ class EmailIntegration:
                 get_ses_mail_from_subdomain,
             )
 
-            if same_domain_integrations.exists():
+            domain_in_use = same_domain_integrations.exists()
+            if domain_in_use:
                 mail_from_subdomain = get_ses_mail_from_subdomain(domain) or mail_from_subdomain
 
             org_team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
@@ -104,6 +105,7 @@ class EmailIntegration:
                 mail_from_subdomain=mail_from_subdomain,
                 team_id=team_id,
                 org_team_ids=org_team_ids,
+                keep_existing_mail_from=domain_in_use,
             )
         elif provider == "maildev" and settings.DEBUG:
             pass

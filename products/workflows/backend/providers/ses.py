@@ -623,6 +623,8 @@ class SESProvider:
         mail_from_subdomain: str,
         team_id: int,
         org_team_ids: Iterable[int] | None = None,
+        *,
+        keep_existing_mail_from: bool = False,
     ):
         expected_tenant = self._tenant_name_for_team(team_id)
         friendly_tenants = {self._tenant_name_for_team(t) for t in (org_team_ids or [team_id])}
@@ -634,7 +636,7 @@ class SESProvider:
             )
 
         # NOTE: For sesv1, domain Identity creation is done through verification
-        self.verify_email_domain(domain, mail_from_subdomain, team_id)
+        self.verify_email_domain(domain, mail_from_subdomain, team_id, keep_existing_mail_from=keep_existing_mail_from)
 
         # Bounces and complaints already reach the SES webhook through the configuration sets,
         # so a forwarding failure must not fail the add-domain request. The backfill command

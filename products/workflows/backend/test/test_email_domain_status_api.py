@@ -358,6 +358,19 @@ class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
         assert stored.startswith("returns")
         assert self.world.ses.identities[DOMAIN].mail_from_domain == f"{stored}.{DOMAIN}"
 
+    def test_a_mail_from_change_that_lands_while_a_sender_is_added_to_the_domain_is_kept(self) -> None:
+        self.create_sender(f"hello@{DOMAIN}")
+        start_verification = self.world.ses._verify_domain_identity
+
+        def another_project_changes_the_mail_from_meanwhile(*, Domain: str) -> dict:
+            self.world.ses.identities[DOMAIN].mail_from_domain = f"bounce.{DOMAIN}"
+            return start_verification(Domain=Domain)
+
+        with patch.object(self.world.ses, "_verify_domain_identity", another_project_changes_the_mail_from_meanwhile):
+            self.create_sender(f"news@{DOMAIN}")
+
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"bounce.{DOMAIN}"
+
     def test_re_adding_a_domain_ses_still_holds_sets_the_senders_mail_from_subdomain(self) -> None:
         self.world.ses.add_identity(DOMAIN, mail_from_domain=f"bounce.{DOMAIN}")
 

@@ -684,6 +684,7 @@ class TestEmailIntegration:
             mail_from_subdomain="youmustnothavelikedmyemail",
             team_id=self.team.id,
             org_team_ids=[self.team.id],
+            keep_existing_mail_from=False,
         )
 
         EmailIntegration(integration).update_native_integration({"name": "Renamed"}, self.team.id)
