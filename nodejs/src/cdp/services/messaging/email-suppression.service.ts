@@ -1,9 +1,11 @@
 import { Counter } from 'prom-client'
 
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { isValidTeamId } from '~/common/utils/team-manager'
+import type { ValueMatcher } from '~/types'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
@@ -17,10 +19,16 @@ const normalizeIdentifier = (email: string): string => email.trim().toLowerCase(
 
 const toKey = (teamId: number, identifier: string): string => `${teamId}:${identifier}`
 
+const toTimestampPostgresAccepts = (timestamp?: string): string | null => {
+    const parsed = timestamp ? Date.parse(timestamp) : NaN
+    return Number.isNaN(parsed) ? null : new Date(parsed).toISOString()
+}
+
 export type EmailSuppressionConfig = {
     // Consecutive soft bounces before auto-suppression.
     transientBounceThreshold: number
     globalHardBounceEnforce?: boolean
+    softBounceEventTimeTeams?: string
 }
 
 // Test helper — production paths take config from `CdpConfig`; tests that still mutate process.env
@@ -101,6 +109,7 @@ const LEGACY_HARD_BOUNCE_REASONS = [
 export class EmailSuppressionService {
     private readonly threshold: number
     private readonly globalHardBounceEnforce: boolean
+    private readonly stampsSoftBounceWithEventTime: ValueMatcher<number>
     // A key's active suppression, or false when it has none.
     private readonly lazyLoader: LazyLoader<SuppressionEntry | false>
 
@@ -110,6 +119,7 @@ export class EmailSuppressionService {
     ) {
         this.threshold = config.transientBounceThreshold
         this.globalHardBounceEnforce = config.globalHardBounceEnforce ?? false
+        this.stampsSoftBounceWithEventTime = buildIntegerMatcher(config.softBounceEventTimeTeams, true)
         this.lazyLoader = new LazyLoader<SuppressionEntry | false>({
             name: 'email_suppression',
             loader: async (keys) => await this.loadSuppressed(keys),
@@ -172,7 +182,12 @@ export class EmailSuppressionService {
      * counter and auto-suppresses it in the same statement once it reaches the threshold. Manual
      * entries keep their suppressed state untouched, and complaint entries keep their reason.
      */
-    public async recordTransientBounces(teamId: number, emails: string[], diagnostic?: string): Promise<void> {
+    public async recordTransientBounces(
+        teamId: number,
+        emails: string[],
+        diagnostic?: string,
+        bounceTimestamp?: string
+    ): Promise<void> {
         const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
         if (identifiers.length === 0) {
             return
@@ -182,7 +197,7 @@ export class EmailSuppressionService {
         const reason = `Auto-suppressed after ${this.threshold} consecutive soft bounces`
 
         // Build a single multi-row upsert. Params: teamId, reason, threshold, diag, legacy reasons,
-        // then one identifier per row.
+        // global-copy diagnostic, bounce time, then one identifier per row.
         const valueClauses: string[] = []
         const params: (number | string | string[] | null)[] = [
             teamId,
@@ -191,13 +206,14 @@ export class EmailSuppressionService {
             diag,
             LEGACY_HARD_BOUNCE_REASONS,
             GLOBAL_HARD_BOUNCE_DIAGNOSTIC,
+            this.stampsSoftBounceWithEventTime(teamId) ? toTimestampPostgresAccepts(bounceTimestamp) : null,
         ]
         identifiers.forEach((identifier, i) => {
             const p = params.length + 1 + i
             // gen_random_uuid() for the id, mirroring RecipientsManagerService.optOut. First bounce
             // starts the count at 1 and only suppresses immediately if the threshold is 1.
             valueClauses.push(
-                `(gen_random_uuid(), $1, $${p}, 'BOUNCE', NULL, 1, NOW(), $4, (1 >= $3), CASE WHEN 1 >= $3 THEN NOW() ELSE NULL END, false, NOW(), NOW())`
+                `(gen_random_uuid(), $1, $${p}, 'BOUNCE', NULL, 1, COALESCE($7::timestamptz, NOW()), $4, (1 >= $3), CASE WHEN 1 >= $3 THEN NOW() ELSE NULL END, false, NOW(), NOW())`
             )
         })
         params.push(...identifiers)
@@ -209,11 +225,13 @@ export class EmailSuppressionService {
             VALUES ${valueClauses.join(', ')}
             ON CONFLICT (team_id, identifier) DO UPDATE SET
                 transient_bounce_count = posthog_messagesuppression.transient_bounce_count + 1,
-                last_bounce_at = NOW(),
+                last_bounce_at = GREATEST(posthog_messagesuppression.last_bounce_at, EXCLUDED.last_bounce_at),
                 -- The diagnostic marks a copy of a global hard bounce, which a delivery must still be able to release.
                 last_bounce_diagnostic = CASE
                     WHEN posthog_messagesuppression.source = 'BOUNCE'
                         AND posthog_messagesuppression.last_bounce_diagnostic = $6
+                        THEN posthog_messagesuppression.last_bounce_diagnostic
+                    WHEN posthog_messagesuppression.last_bounce_at > EXCLUDED.last_bounce_at
                         THEN posthog_messagesuppression.last_bounce_diagnostic
                     ELSE EXCLUDED.last_bounce_diagnostic END,
                 -- Never downgrade or re-key a manual entry; only auto (BOUNCE) rows can cross the threshold.
