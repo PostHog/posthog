@@ -415,16 +415,21 @@ describe('dataQualityOverviewLogic', () => {
         expect(logic.values.runningSubjectKey).toEqual('view:uuid-orders')
     })
 
-    it('offers a retry instead of a toast when a run cannot start', async () => {
+    it('offers a retry instead of a toast when a run cannot start, and retries the same checks', async () => {
         ;(dataQualityRunsCreate as jest.Mock).mockRejectedValue(new Error('down'))
         await mountLogic()
 
-        logic.actions.runChecks({ kind: 'all' })
+        logic.actions.runChecks({ kind: 'all' }, ['check-1', 'check-2'])
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.runError).toEqual("Couldn't run checks.")
         expect(logic.values.startingRun).toBe(false)
         expect(logic.values.runningSubjectKey).toBeNull()
+
+        logic.actions.retryRun()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataQualityRunsCreate).toHaveBeenLastCalledWith('1', { check_ids: ['check-1', 'check-2'] })
     })
 
     it('removes a deleted check and refreshes the snapshot', async () => {

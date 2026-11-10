@@ -1,22 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconClock, IconPauseFilled, IconWarning, IconXCircle } from '@posthog/icons'
-import {
-    Badge,
-    Button,
-    DataTable,
-    type DataTableProps,
-    Heading,
-    Item,
-    ItemActions,
-    ItemContent,
-    ItemDescription,
-    Skeleton,
-    Text,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
+import { Button, DataTable, type DataTableProps, Heading, Skeleton, Text } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -24,9 +8,11 @@ import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { ModelsOverviewAttentionFilter } from './ModelsOverviewAttentionFilter'
+import { ModelsOverviewErrorCallout } from './ModelsOverviewErrorCallout'
 import { AttentionRow, modelsOverviewLogic } from './modelsOverviewLogic'
 import { ModelsOverviewNextStep } from './ModelsOverviewNextStep'
-import { ATTENTION_DESCRIPTION, IssueKind, IssueTone } from './overviewIssueCopy'
+import { ModelsOverviewProblemBadges } from './ModelsOverviewProblemBadges'
+import { ATTENTION_DESCRIPTION } from './overviewIssueCopy'
 
 const WIDE_ONLY = 'hidden @min-[40rem]/main-content:inline'
 const WIDE_ONLY_BLOCK = 'hidden @min-[40rem]/main-content:block'
@@ -39,39 +25,6 @@ const DESCRIPTION_ID = `${SECTION_ID}-description`
 
 interface RowCellContext {
     row: { original: AttentionRow }
-}
-
-const BADGE_VARIANTS: Record<IssueTone, 'destructive' | 'warning'> = {
-    danger: 'destructive',
-    warning: 'warning',
-}
-
-const ISSUE_ICONS: Record<IssueKind, typeof IconClock> = {
-    suspended: IconPauseFilled,
-    failed: IconXCircle,
-    behind: IconClock,
-    checks: IconWarning,
-}
-
-function ProblemBadges({ row }: { row: AttentionRow }): JSX.Element {
-    return (
-        <div className="flex flex-wrap gap-1">
-            {row.statuses.map(({ kind, label, tone, tooltip }) => {
-                const Icon = ISSUE_ICONS[kind]
-                return (
-                    <Tooltip key={kind}>
-                        <TooltipTrigger delay={0} render={<span className="inline-flex" />}>
-                            <Badge variant={BADGE_VARIANTS[tone]}>
-                                <Icon aria-hidden />
-                                {label}
-                            </Badge>
-                        </TooltipTrigger>
-                        <TooltipContent>{tooltip}</TooltipContent>
-                    </Tooltip>
-                )
-            })}
-        </div>
-    )
 }
 
 function NameLink({ row }: { row: AttentionRow }): JSX.Element {
@@ -129,7 +82,7 @@ function SinceText({ row }: { row: AttentionRow }): JSX.Element | null {
 function NarrowLines({ row }: { row: AttentionRow }): JSX.Element {
     return (
         <div className={`${NARROW_ONLY} flex flex-col gap-1`}>
-            <ProblemBadges row={row} />
+            <ModelsOverviewProblemBadges statuses={row.statuses} />
             <DetailText row={row} />
             <SinceText row={row} />
             <div className="pt-1">
@@ -158,7 +111,7 @@ const COLUMNS: DataTableProps<AttentionRow, unknown>['columns'] = [
         enableSorting: false,
         cell: ({ row }: RowCellContext) => (
             <span className={`${WIDE_ONLY_BLOCK} w-max`}>
-                <ProblemBadges row={row.original} />
+                <ModelsOverviewProblemBadges statuses={row.original.statuses} />
             </span>
         ),
     },
@@ -194,29 +147,6 @@ const COLUMNS: DataTableProps<AttentionRow, unknown>['columns'] = [
         ),
     },
 ]
-
-function ErrorCallout({
-    message,
-    onRetry,
-    dataAttr,
-}: {
-    message: string
-    onRetry: () => void
-    dataAttr: string
-}): JSX.Element {
-    return (
-        <Item variant="outline" tone="destructive" data-attr={dataAttr}>
-            <ItemContent>
-                <ItemDescription>{message}</ItemDescription>
-            </ItemContent>
-            <ItemActions>
-                <Button variant="outline" onClick={onRetry}>
-                    Try again
-                </Button>
-            </ItemActions>
-        </Item>
-    )
-}
 
 function UnlistedFailingNote({ count }: { count: number }): JSX.Element {
     return (
@@ -285,7 +215,7 @@ export function ModelsOverviewIssues(): JSX.Element {
             </div>
             <ModelsOverviewAttentionFilter />
             {modelsFailed && (
-                <ErrorCallout
+                <ModelsOverviewErrorCallout
                     message="Your models could not be loaded, so this page cannot say which ones need attention."
                     onRetry={() => {
                         loadNodes()
@@ -295,7 +225,7 @@ export function ModelsOverviewIssues(): JSX.Element {
                 />
             )}
             {overviewError && (
-                <ErrorCallout
+                <ModelsOverviewErrorCallout
                     message="Data quality checks could not be loaded, so this page cannot say whether any are failing."
                     onRetry={() => loadOverview()}
                     dataAttr="models-overview-checks-error"

@@ -25,11 +25,12 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ModelsLineageTab } from 'products/data_modeling/frontend/lineage/ModelsLineageTab'
 
-import { CatalogModelsSection } from './CatalogModelsSection'
 import { CatalogOverview } from './CatalogOverview'
 import { CatalogUsageSection } from './CatalogUsageSection'
 import { DataCatalogTab, dataCatalogSceneLogic } from './dataCatalogSceneLogic'
+import { CatalogDataQualitySection } from './dataQuality/CatalogDataQualitySection'
 import { relationshipsLogic } from './relationshipsLogic'
+import { CatalogTablesSection } from './tables/CatalogTablesSection'
 import { MetricsTab } from './tabs/MetricsTab'
 import { RelationshipsTab } from './tabs/RelationshipsTab'
 import { WarehouseAccessGate } from './WarehouseAccessGate'
@@ -42,18 +43,20 @@ const SECTION_LABELS: Record<DataCatalogTab, string> = {
     lineage: 'Lineage',
     metrics: 'Metrics',
     relationships: 'Relationships',
+    'data-quality': 'Data quality',
     certifications: 'Certifications',
     usage: 'Usage',
 }
 
-const WAREHOUSE_SECTIONS: DataCatalogTab[] = ['tables', 'lineage', 'usage']
+const WAREHOUSE_SECTIONS: DataCatalogTab[] = ['tables', 'lineage', 'data-quality', 'usage']
 
 const SECTION_CONTENT: Partial<Record<DataCatalogTab, () => JSX.Element>> = {
     overview: CatalogOverview,
-    tables: CatalogModelsSection,
+    tables: CatalogTablesSection,
     lineage: ModelsLineageTab,
     metrics: MetricsTab,
     relationships: RelationshipsTab,
+    'data-quality': CatalogDataQualitySection,
     usage: CatalogUsageSection,
 }
 
@@ -144,7 +147,7 @@ export function DataCatalogSections(): JSX.Element {
                     }
                     const keepMounted = tab === 'lineage' && lineageVisited
                     return (
-                        <TabsContent key={tab} value={tab} keepMounted={keepMounted} className="pt-4">
+                        <TabsContent key={tab} value={tab} keepMounted={keepMounted} className="pt-4 pb-8">
                             {(tab === activeTab || keepMounted) &&
                                 (WAREHOUSE_SECTIONS.includes(tab) ? (
                                     <WarehouseAccessGate>

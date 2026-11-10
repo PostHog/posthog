@@ -30,7 +30,7 @@ function isModelsSceneTab(tab: unknown): tab is ModelsSceneTab {
 const DATA_CATALOG_TAB_FOR: Record<ModelsSceneTab, string | undefined> = {
     overview: undefined,
     models: 'tables',
-    'data-quality': 'tables',
+    'data-quality': 'data-quality',
     lineage: 'lineage',
     usage: 'usage',
 }
