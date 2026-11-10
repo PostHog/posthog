@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from unittest.mock import patch
 
+import owners_yaml
 from click.testing import CliRunner
 from hogli_commands import ci_preflight, ownership_lint
 from hogli_commands.preflight_checks import Scope
@@ -74,11 +75,27 @@ class TestLintTestOwners:
 
         assert result.exit_code == 0
 
-    def test_the_pre_push_hook_blocks_a_committed_test_with_no_team_owner(
-        self, add: Add, git: Callable[..., str], tmp_path: Path
+    @pytest.mark.parametrize(
+        ("installed_package_has_the_check", "exit_code", "shown"),
+        [
+            pytest.param(True, 1, "gap/test_new.py", id="blocks_a_committed_test_with_no_team_owner"),
+            pytest.param(False, 0, "check could not run (ImportError", id="skips_when_the_installed_package_is_older"),
+        ],
+    )
+    def test_the_pre_push_hook(
+        self,
+        add: Add,
+        git: Callable[..., str],
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        installed_package_has_the_check: bool,
+        exit_code: int,
+        shown: str,
     ) -> None:
         add("gap/test_new.py")
         git(tmp_path, "commit", "-q", "-m", "change")
+        if not installed_package_has_the_check:
+            monkeypatch.delattr(owners_yaml, "newly_unowned")
         registered = [check for check in ci_preflight.DIFF_CHECKS if check.key == "test-owners"]
 
         with patch.multiple(
@@ -93,8 +110,8 @@ class TestLintTestOwners:
         ):
             result = CliRunner().invoke(ci_preflight.ci_preflight, ["--strict"])
 
-        assert result.exit_code == 1
-        assert "gap/test_new.py" in result.output
+        assert result.exit_code == exit_code
+        assert shown in result.output
 
     @pytest.mark.parametrize(
         "path",

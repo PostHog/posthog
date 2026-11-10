@@ -23,6 +23,14 @@ from .resolver import (
 )
 from .schema import Producer, RepoSettings, TeamEntry
 
+
+# hogli runs the commands of a linked worktree against this package as the main clone holds it. A
+# branch from before `newly_unowned` imports this name when `hogli ci:preflight` starts, and
+# preflight reports the error below as a skipped check. Delete this when no open branch is that old.
+def unowned_test_directories(*_: object) -> set[str]:
+    raise NotImplementedError("unowned_test_directories is gone: merge master to check test owners")
+
+
 __all__ = [
     "Addition",
     "BatchOwnershipSource",

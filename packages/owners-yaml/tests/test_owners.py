@@ -19,6 +19,7 @@ from owners_yaml import (
     project,
     runner_for_path,
     spellings,
+    unowned_test_directories,
 )
 from owners_yaml.cli import _consolidation_suggestions, _live_scope, _reserved_location_error, main
 from owners_yaml.fmt import CanonicalPlacer, CanonicalPlan
@@ -1351,3 +1352,8 @@ def test_newly_unowned_reads_head_when_the_check_is_on_a_push(
     _change(repo_with_a_gap, {}, {"gap/uncommitted.py": "later = 1\n"})
 
     assert newly_unowned(repo_with_a_gap, "HEAD~1", committed_only=True) == expected
+
+
+def test_a_branch_from_before_newly_unowned_imports_its_check_and_cannot_run_it() -> None:
+    with pytest.raises(NotImplementedError, match="merge master"):
+        unowned_test_directories(None, [])

@@ -7,7 +7,7 @@ from pathlib import PurePosixPath
 
 import click
 from hogli.manifest import REPO_ROOT
-from owners_yaml import OwnersResolver, newly_unowned, runner_for_path
+from owners_yaml import OwnersResolver, runner_for_path
 
 from hogli_commands.preflight_checks import Outcome, Scope
 
@@ -18,6 +18,11 @@ HINT = (
 
 
 def _teamless_tests(against: str, committed_only: bool) -> list[str]:
+    # hogli imports `owners_yaml` from the main clone, also when it runs in a linked worktree, and
+    # that copy can be older than this module. The import is here so that preflight then skips this
+    # check. At the top of the module it stops every preflight run.
+    from owners_yaml import newly_unowned
+
     return newly_unowned(REPO_ROOT, against, committed_only=committed_only, teams_only=True, include=runner_for_path)
 
 
