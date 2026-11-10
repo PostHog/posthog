@@ -103,7 +103,7 @@ model, to show which step(s) drove the cost. The trace response already
 includes `totalCost` as a convenience.
 
 If the request times out, the trace is probably too large for this tool.
-Use the per-trace SQL summary in [breakdown patterns](./references/breakdown-patterns.md#cost-by-trace-top-expensive-traces) instead.
+Use the per-trace SQL summary in [breakdown patterns](./references/breakdown-patterns.md#cost-by-trace-top-expensive-traces) instead, with its time filter set to the same 30 days.
 
 ## Workflow: debug a cost regression
 

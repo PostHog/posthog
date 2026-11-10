@@ -96,7 +96,8 @@ LIMIT 25
 
 Read `llm_calls` before you open a trace.
 Below about 1,000 calls, drill in with `posthog:query-llm-trace` to see which spans and generations drive the cost.
-Above that, `posthog:query-llm-trace` can time out (it did on a trace with over 100,000 generations), so summarize that one trace in SQL instead:
+Above that, `posthog:query-llm-trace` can time out (it did on a trace with over 100,000 generations), so summarize that one trace in SQL instead.
+Both queries below must use the same time filter as the query that found the trace, or they miss its older events:
 
 ```sql
 posthog:execute-sql
