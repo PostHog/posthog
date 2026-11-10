@@ -149,6 +149,12 @@ export function QuillPropertyValueSelect({
                     eventDetails.allowPropagation()
                     return
                 }
+                // In single-value mode, picking the selected row again keeps it; only its chip's remove button clears it.
+                if (!multiple && eventDetails.reason === 'item-press' && next.length < values.length) {
+                    setOpen(false)
+                    resetInput()
+                    return
+                }
                 commitValues(next.map((item) => (typeof item === 'string' ? item : customValue)))
             }}
         >
