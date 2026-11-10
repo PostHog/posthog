@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
     DestinationBatchContext,
     DestinationRunContext,
 )
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import includes_the_warehouse
 from products.warehouse_sources.backend.temporal.data_imports.destinations.registry import resolve_destination_writer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.builtin_writers import (
@@ -76,18 +77,7 @@ def warehouse_is_a_destination(export_signal: ExportSignalMessage) -> bool:
     A run that lists destinations but not the warehouse never touches delta: the customer
     asked us to move their data somewhere else, not to keep a copy here.
     """
-    if not export_signal.destination_ids:
-        return True
-
-    return (
-        ExternalDataDestination.objects.for_team(export_signal.team_id, canonical=True)
-        .filter(
-            id__in=export_signal.destination_ids,
-            type=ExternalDataDestination.Type.POSTHOG_WAREHOUSE,
-            deleted=False,
-        )
-        .exists()
-    )
+    return includes_the_warehouse(export_signal.team_id, export_signal.destination_ids or [])
 
 
 def _source_scoped_table_name(source: ExternalDataSource, schema_name: str) -> str:

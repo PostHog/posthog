@@ -67,9 +67,11 @@ def on_updated(
     grouping: Grouping | None = None,
     labels: dict[str, str] | None = None,
     annotations: dict[str, str] | None = None,
+    at: datetime | None = None,
 ) -> None:
     """Writes an edit the logs API saved onto the platform's copy, with the grouping, labels and
     annotations the edit set. A `grouping`, `labels` or `annotations` of None keeps the copy's own.
+    `at` is when the edit started, before its logs history row.
 
     Raises `InvalidPlatformAlertEdit` when the platform's schema rejects the edit, or when the
     alert cannot take the grouping, the labels or the annotations. Only an alert the platform owns can
@@ -78,7 +80,12 @@ def on_updated(
     alert = _alert(team_id, alert_id)
     if alert is not None:
         platform_ownership.on_updated(
-            alert, snooze_changed=snooze_changed, grouping=grouping, labels=labels, annotations=annotations
+            alert,
+            snooze_changed=snooze_changed,
+            grouping=grouping,
+            labels=labels,
+            annotations=annotations,
+            at=at,
         )
 
 
