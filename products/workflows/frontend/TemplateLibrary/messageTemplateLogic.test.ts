@@ -530,6 +530,79 @@ describe('messageTemplateLogic', () => {
             expect(projectTreeDataLogic.values.shortcutData.map((s) => s.path)).toEqual(['Renamed'])
         })
 
+        it('shows the name from the last save when two saves overlap one tree refresh', async () => {
+            projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Existing')] } as any)
+            let storedName = 'Existing'
+            let holdNextRead = true
+            let releaseFirstRead: () => void = () => {}
+            const firstReadHeld = new Promise<void>((resolve) => {
+                releaseFirstRead = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/file_system/': async () => {
+                        const nameWhenRead = storedName
+                        if (holdNextRead) {
+                            holdNextRead = false
+                            await firstReadHeld
+                        }
+                        return [200, { results: [treeEntry(nameWhenRead)], count: 1 }]
+                    },
+                },
+                patch: {
+                    '/api/projects/:team_id/messaging_templates/:id/': async ({ request }) => {
+                        storedName = ((await request.json()) as { name: string }).name
+                        return [200, { id: 'existing-id', name: storedName }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveTemplate({ id: 'existing-id', name: 'First' })
+            }).toDispatchActions(['saveTemplateSuccess'])
+            await expectLogic(logic, () => {
+                logic.actions.saveTemplate({ id: 'existing-id', name: 'Second' })
+            }).toDispatchActions(['saveTemplateSuccess'])
+            releaseFirstRead()
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
+            expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']?.path).toBe(
+                'Unfiled/Email templates/Second'
+            )
+        })
+
+        it('shows a newly created template in the tree', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/file_system/': ({ request }) =>
+                        new URL(request.url).searchParams.get('ref') === 'created-id'
+                            ? [
+                                  200,
+                                  {
+                                      results: [{ ...treeEntry('Welcome'), id: 'file-2', ref: 'created-id' }],
+                                      count: 1,
+                                  },
+                              ]
+                            : [200, { results: [], count: 0 }],
+                },
+                post: {
+                    '/api/projects/:team_id/messaging_templates/': { id: 'created-id', name: 'Welcome' },
+                },
+            })
+            const creator = messageTemplateLogic({ id: 'new' })
+            creator.mount()
+
+            await expectLogic(creator, () => {
+                creator.actions.saveTemplate({ id: 'new', name: 'Welcome' })
+            }).toDispatchActions(['saveTemplateSuccess'])
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
+            expect(projectTreeDataLogic.values.itemsByRef['message_template::created-id']?.path).toBe(
+                'Unfiled/Email templates/Welcome'
+            )
+            creator.unmount()
+        })
+
         it('removes the template from the tree when it is deleted from the editor', async () => {
             projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry('Existing')] } as any)
             await expectLogic(logic, () => {

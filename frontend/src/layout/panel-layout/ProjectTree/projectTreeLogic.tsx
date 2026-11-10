@@ -1794,7 +1794,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 ])
 
 export function refreshTreeItem(type: string, ref: string): void {
-    projectTreeDataLogic.findMounted()?.actions.syncTypeAndRef(type, ref)
+    projectTreeDataLogic.findMounted()?.actions.syncTypeAndRef(type, ref, true)
 }
 
 export function isTreeItemLoaded(type: string, ref: string): boolean {
@@ -1803,6 +1803,11 @@ export function isTreeItemLoaded(type: string, ref: string): boolean {
         !!treeData?.itemsByRef[`${type}::${ref}`] ||
         !!treeData?.shortcutData.some((shortcut) => shortcut.type === type && shortcut.ref === ref)
     )
+}
+
+export function isTreeItemTypeShown(type: string): boolean {
+    const treeData = projectTreeDataLogic.findMounted()?.values
+    return !!treeData && isFileSystemEntryTypeEnabled({ type }, treeData.featureFlags)
 }
 
 export function deleteFromTree(type: string, ref: string): void {

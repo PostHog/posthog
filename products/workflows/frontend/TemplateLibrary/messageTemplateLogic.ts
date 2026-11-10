@@ -17,7 +17,12 @@ import { EDITOR_MODE_PARAM, EDITOR_MODE_VALUE } from 'scenes/max/aiFirstCreate/a
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { deleteFromTree, isTreeItemLoaded, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import {
+    deleteFromTree,
+    isTreeItemLoaded,
+    isTreeItemTypeShown,
+    refreshTreeItem,
+} from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
 import {
     messagingTemplatesMakeTransactionalCreate,
@@ -1010,7 +1015,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             lemonToast.error('Failed to save template. Please try again.')
         },
         saveTemplateSuccess: async ({ template }) => {
-            if (template.id && isTreeItemLoaded('message_template', template.id)) {
+            const treeShowsTemplate =
+                props.id === 'new'
+                    ? isTreeItemTypeShown('message_template')
+                    : isTreeItemLoaded('message_template', template.id)
+            if (template.id && treeShowsTemplate) {
                 refreshTreeItem('message_template', template.id)
             }
             lemonToast.success(
