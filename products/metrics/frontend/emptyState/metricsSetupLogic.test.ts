@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { clearAllCachedHasData } from 'lib/components/ProductEmptyState/setupDetectionLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -23,6 +24,7 @@ describe('metricsSetupLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
+        clearAllCachedHasData()
     })
 
     // Guards the status mapping the scene gate hangs off: treating "no access"
@@ -69,6 +71,22 @@ describe('metricsSetupLogic', () => {
         await expectLogic(metricsSetupLogic).toFinishAllListeners()
         expect(productSetupStatusLogic({ productKey: ProductKey.METRICS }).values.status).toBe(expected)
         expect((posthog.getFeatureFlag as jest.Mock).mock.calls).toEqual(exposed ? [['metrics-derived-series']] : [])
+    })
+
+    // Derived series go away when the experiment ends or the spans and logs age out, so only ingested
+    // metrics may skip detection on the next visit.
+    it.each([
+        ['ingested metrics', { hasMetrics: true, hasDerivedSources: false, hasDerivedMetrics: false }, true],
+        ['derived series only', { hasMetrics: false, hasDerivedSources: true, hasDerivedMetrics: true }, false],
+    ])('caches has-data for %s: %s', async (_name, response, cached) => {
+        ;(canViewMetrics as jest.Mock).mockReturnValue(true)
+        ;(metricsHasMetricsRetrieve as jest.Mock).mockResolvedValue(response)
+        metricsSetupLogic.mount()
+        await expectLogic(metricsSetupLogic).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.METRICS }).values.status).toBe('has-data')
+        metricsSetupLogic.unmount()
+        const cacheKeys = Object.keys(window.localStorage).filter((key) => key.startsWith('ph-product-setup-has-data/'))
+        expect(cacheKeys.length).toBe(cached ? 1 : 0)
     })
 
     it('treats a flag-gated 403 as unknown, so a fresh alpha enrollment never surfaces an error', async () => {
