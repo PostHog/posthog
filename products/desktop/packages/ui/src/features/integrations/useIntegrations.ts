@@ -48,7 +48,6 @@ import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useDebounce } from "@posthog/ui/primitives/hooks/useDebounce";
 import { logger } from "@posthog/ui/shell/logger";
 import {
-  keepPreviousData,
   type QueryClient,
   useQueries,
   useQueryClient,
@@ -371,40 +370,39 @@ export function useGitlabProjects(
   enabled: boolean,
 ) {
   const client = useOptionalAuthenticatedClient();
-  const trimmedSearch = search.trim();
-  const debouncedSearch = useDebounce(
-    trimmedSearch,
-    trimmedSearch ? BRANCH_SEARCH_DEBOUNCE_MS : 0,
-  );
+  const normalizedSearch = search.trim().toLowerCase();
   return useQueries({
     queries: integrationIds.map((integrationId) => ({
-      queryKey: integrationKeys.gitlabProjects(integrationId, debouncedSearch),
+      queryKey: integrationKeys.gitlabProjects(integrationId),
       queryFn: async () => {
         if (!client) throw new Error("Not authenticated");
-        return await client.getGitlabProjects(integrationId, debouncedSearch);
+        return await client.getGitlabProjects(integrationId);
       },
       enabled: enabled && !!client,
       staleTime: 5 * 60 * 1000,
-      placeholderData: keepPreviousData,
       meta: AUTH_SCOPED_QUERY_META,
     })),
-    combine: (results) => ({
-      ...combineGitlabProjects(
+    combine: (results) => {
+      const combined = combineGitlabProjects(
         results.map((result, index) => ({
           integrationId: integrationIds[index],
           response: result.data,
         })),
-      ),
-      isPending: enabled && results.some((result) => result.isPending),
-      // keepPreviousData can still hold an older result, so the error is
-      // reported even when some projects are listed.
-      isError: enabled && results.some((result) => result.isError),
-      retry: () => {
-        for (const result of results) {
-          if (result.isError) void result.refetch();
-        }
-      },
-    }),
+      );
+      return {
+        ...combined,
+        projects: combined.projects.filter((project) =>
+          project.toLowerCase().includes(normalizedSearch),
+        ),
+        isPending: enabled && results.some((result) => result.isPending),
+        isError: enabled && results.some((result) => result.isError),
+        retry: () => {
+          for (const result of results) {
+            if (result.isError) void result.refetch();
+          }
+        },
+      };
+    },
   });
 }
 
