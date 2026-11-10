@@ -216,7 +216,16 @@ async function removeLogin(runtime: Runtime, target: LoginTarget): Promise<Remov
             const stored = loginFor(current, target) ?? record
             const { host, projectId } = itemOf(stored)
             const removed = await openStore(runtime, stored.store).remove(itemName(host, projectId))
-            await writeSettings(runtime, withLogin(current, target, undefined))
+
+            // A move that copied the secret to the login's own item but failed to save settings.json
+            // leaves that copy behind, so it becomes a pending removal.
+            const copy: StoredItem[] = stored.storedUnderHost
+                ? [{ store: stored.store, host: stored.host, projectId: stored.projectId }]
+                : []
+            await writeSettings(runtime, {
+                ...withLogin(current, target, undefined),
+                pendingRemovals: [...current.pendingRemovals, ...copy],
+            })
 
             return { record: stored, key: login?.key, removed }
         })
@@ -324,8 +333,9 @@ export async function logoutAll(runtime: Runtime): Promise<LoggedOutLogin[]> {
                 revokes.push(revoked)
             }
 
+            // A keychain login filed under its host alone can have a copy under its own name.
             const swept =
-                removed?.record.store === 'keychain'
+                removed?.record.store === 'keychain' && !removed.record.storedUnderHost
                     ? { removed: false, error: null }
                     : await sweepKeychain(runtime, name)
             steps.push({ name, owner, revoked, swept })

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 
+import type { Runtime } from '@/core/runtime'
 import { PersonalAPIKey } from '@/posthog/access-key'
 import { FileStore } from '@/posthog/credential-store/file'
 import { KeychainStore } from '@/posthog/credential-store/keychain'
@@ -10,7 +11,7 @@ import { readSettings } from '@/posthog/settings'
 import { parsePersonalApiKey } from '@/posthog/tokens'
 import { fakeRuntime, readJson } from '@/testing'
 
-import { loginStorage, readLogin, writeLogin } from './stored'
+import { loginStorage, logout, logoutAll, readLogin, writeLogin } from './stored'
 
 const EU = parseHost('https://eu.posthog.com')
 const US = parseHost('https://us.posthog.com')
@@ -75,6 +76,34 @@ describe('stored logins', () => {
 
         expect(deleted).toEqual([])
         expect(readJson(runtime.files[SETTINGS_FILE] ?? '{}')).toMatchObject({ pendingRemovals })
+    })
+
+    test.each([
+        ['logout', (runtime: Runtime) => logout(runtime, { host: EU, projectId: parseProjectId('42') })],
+        ['logoutAll', (runtime: Runtime) => logoutAll(runtime)],
+    ])('%s removes the copy a move left behind when it failed to save settings.json', async (_, logOut) => {
+        const runtime = fakeRuntime({
+            files: {
+                [SETTINGS_FILE]: JSON.stringify({
+                    logins: { [EU]: { store: 'keychain', type: 'personal_api_key', projectId: '42', host: EU } },
+                }),
+            },
+            keychain: { [EU]: JSON.stringify({ apiKey: 'phx_moving' }) },
+        })
+        const { writePrivateFile } = runtime
+        let failed = false
+        runtime.writePrivateFile = async (path, contents) => {
+            if (path === SETTINGS_FILE && !failed) {
+                failed = true
+                throw new Error('disk full')
+            }
+            return writePrivateFile(path, contents)
+        }
+
+        await logOut(runtime)
+
+        expect(failed).toBe(true)
+        expect(runtime.keychain).toEqual({})
     })
 
     test('a login in the old shape stays readable when hog cannot write to its folder', async () => {
