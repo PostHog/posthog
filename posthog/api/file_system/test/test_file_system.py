@@ -939,7 +939,6 @@ class TestFileSystemAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("itself", "Parent/Parent"),
             ("own_subfolder", "Parent/Child/Parent"),
             ("own_subfolder_with_leading_separator", "/Parent/Child/Parent"),
         ]

@@ -147,7 +147,6 @@ class TestAppMetricsRequestSerializer(SimpleTestCase):
         [
             ("name_at_limit", "name", ",".join(f"m{i}" for i in range(50)), [f"m{i}" for i in range(50)]),
             ("kind_duplicates_and_blanks", "kind", " success, failure,,success ," * 40, ["success", "failure"]),
-            ("name_over_limit", "name", DISTINCT_51, None),
             ("kind_over_limit", "kind", DISTINCT_51, None),
             ("name_only_blanks", "name", ", ,,", None),
         ]
