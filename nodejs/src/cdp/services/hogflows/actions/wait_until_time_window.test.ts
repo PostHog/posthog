@@ -212,25 +212,23 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
         })
 
         it.each([
-            // 23:30 on Saturday 2027-03-20 in Nuuk; clocks spring forward late on Saturday 2027-03-27
             [
-                'a late-evening clock change',
+                'a Saturday 23:30 a week before a late-evening spring-forward',
                 'America/Nuuk',
                 '2027-03-21T01:30:00.000Z',
                 'saturday',
                 ['14:00', '16:00'],
                 '2027-03-27T14:00:00.000-02:00',
             ],
-            // Noon on Sunday 2026-09-06 in Santiago, a day whose midnight the clocks skipped
             [
-                'a skipped midnight',
+                'noon on a day whose midnight the clocks skipped',
                 'America/Santiago',
                 '2026-09-06T15:00:00.000Z',
                 'monday',
                 'any',
                 '2026-09-07T00:00:00.000-03:00',
             ],
-        ] as const)('starts the next valid day at midnight after %s', (_, timezone, now, day, time, expected) => {
+        ] as const)('starts the next valid day at midnight from %s', (_, timezone, now, day, time, expected) => {
             action.config.timezone = timezone
             action.config.day = [day]
             action.config.time = time === 'any' ? 'any' : [...time]
