@@ -36,6 +36,7 @@ jobs:
             pr: ${{ steps.identify.outputs.pr }}
             merge_base: ${{ steps.identify.outputs.merge_base }}
             eligible: ${{ steps.identify.outputs.eligible }}
+            refused: ${{ steps.identify.outputs.refused }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -56,19 +57,20 @@ jobs:
                   REPOSITORY: ${{ github.repository }}
                   BASE_BRANCH: ${{ github.event.repository.default_branch }}
                   HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-                  TRIGGERING_ACTOR_ID: ${{ github.event.workflow_run.triggering_actor.id }}
               run: uv run --no-project --with pyyaml==6.0.3 python -I .github/scripts/dependency_proof/__main__.py identify
 
     # pnpm resolves packages here, so this job holds no permission and no step is given a token.
     prove:
         name: Prove the dependency update
         needs: identify
+        if: needs.identify.outputs.eligible == 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 20
         permissions: {}
         outputs:
             files: ${{ steps.prove.outputs.files }}
             blobs: ${{ steps.prove.outputs.blobs }}
+            refused: ${{ steps.prove.outputs.refused }}
         steps:
             # The prover reads the merge base and the head from the object database, so the
             # working tree only needs the prover itself.
@@ -97,12 +99,13 @@ jobs:
                   MERGE_BASE_DIR: ${{ runner.temp }}/merge-base
                   PULL_REQUEST: ${{ needs.identify.outputs.pr }}
                   MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
-                  ELIGIBLE: ${{ needs.identify.outputs.eligible }}
               run: uv run --no-project --with pyyaml==6.0.3 python -I .github/scripts/dependency_proof/__main__.py prove
 
-    # Any outcome other than a success of both jobs with a readable file list and blob map posts a
-    # neutral check that attests nothing, so stamphog lifts nothing and a person can still merge
-    # after review. The run itself still fails, so a broken prover shows up in the Actions tab.
+    # stamphog waits for a completed check on every pull request that changes a dependency file, so
+    # every run posts one. A head with no eligible pull request gets a success that attests nothing.
+    # A refused update gets a neutral check, and the run passes because a refusal is an answer.
+    # A job that fails gets a neutral check too, and the run fails, so only a broken prover shows
+    # up red in the Actions tab.
     publish:
         name: Publish the Dependency proof check
         needs: [identify, prove]
@@ -132,25 +135,35 @@ jobs:
                   IDENTIFY_RESULT: ${{ needs.identify.result }}
                   IDENTIFY_PR: ${{ needs.identify.outputs.pr }}
                   IDENTIFY_MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
+                  IDENTIFY_ELIGIBLE: ${{ needs.identify.outputs.eligible }}
+                  IDENTIFY_REFUSED: ${{ needs.identify.outputs.refused }}
                   PROVE_RESULT: ${{ needs.prove.result }}
                   PROVE_FILES: ${{ needs.prove.outputs.files }}
                   PROVE_BLOBS: ${{ needs.prove.outputs.blobs }}
+                  PROVE_REFUSED: ${{ needs.prove.outputs.refused }}
               run: |
                   set -euo pipefail
 
                   if [[ "$REPOSITORY" != "PostHog/posthog" ]]; then
                       exit 0
                   fi
-                  if [[ "$IDENTIFY_RESULT" == "success" && "$PROVE_RESULT" == "success" ]] \
-                      && files="$(jq -ce 'select(type == "array" and all(.[]; type == "string"))' <<< "$PROVE_FILES")" \
-                      && blobs="$(jq -ce 'select(type == "object" and all(.[]; . == null or (type == "string" and test("^[0-9a-f]{40}$"))))' <<< "$PROVE_BLOBS")"; then
+                  conclusion=neutral
+                  files='[]'
+                  blobs='{}'
+                  if [[ "$IDENTIFY_REFUSED" == "true" || "$PROVE_REFUSED" == "true" ]]; then
+                      title="The dependency update was refused"
+                  elif [[ "$IDENTIFY_RESULT" == "success" && "$IDENTIFY_ELIGIBLE" == "false" ]]; then
                       conclusion=success
+                      title="Nothing to attest"
+                  elif [[ "$IDENTIFY_RESULT" == "success" && "$PROVE_RESULT" == "success" ]] \
+                      && proved_files="$(jq -ce 'select(type == "array" and length > 0 and all(.[]; type == "string"))' <<< "$PROVE_FILES")" \
+                      && proved_blobs="$(jq -ce 'select(type == "object" and all(.[]; . == null or (type == "string" and test("^[0-9a-f]{40}$"))))' <<< "$PROVE_BLOBS")"; then
+                      conclusion=success
+                      files="$proved_files"
+                      blobs="$proved_blobs"
                       title="Attested $(jq length <<< "$files") dependency file(s)"
-                      [[ "$files" != "[]" ]] || title="Nothing to attest"
                   else
-                      conclusion=neutral
-                      files='[]'
-                      blobs='{}'
+                      unproved=true
                       title="The dependency update could not be proved"
                   fi
                   pr="${IDENTIFY_PR:-0}"
@@ -169,7 +182,7 @@ jobs:
                   if [[ "$IDENTIFY_RESULT" != "success" ]]; then
                       exit 1
                   fi
-                  if [[ "$PROVE_RESULT" != "success" ]]; then
+                  if [[ "$PROVE_RESULT" != "success" && "$PROVE_RESULT" != "skipped" ]]; then
                       exit 1
                   fi
-                  [[ "$conclusion" == "success" ]]
+                  [[ "${unproved:-false}" == "false" ]]
