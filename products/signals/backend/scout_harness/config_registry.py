@@ -14,7 +14,7 @@ goes through the write-scoped config `create` endpoint.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -31,7 +31,7 @@ from posthog.models.activity_logging.model_activity import ActivityTriggerContex
 from posthog.models.activity_logging.utils import SCOUT_CLIENT_PREFIX
 
 from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
-from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.models import SignalScoutConfig, SignalTeamConfig
 from products.signals.backend.onboarding_scouts import InboxOnboardingScouts
 from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
@@ -43,6 +43,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_skill_names,
     canonical_structured_output_schema_for,
     is_operational_scout,
+    scout_skill_row_is_proven_canonical,
 )
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import (
@@ -75,6 +76,7 @@ _CRON_SAMPLE_OCCURRENCES = 100
 
 _OPERATIONAL_RECONCILE_JOB_TYPE = "signals_scout_operational_reconcile"
 _SETUP_PAUSE_RESUME_JOB_TYPE = "signals_scout_setup_pause_resume"
+_UNCHOSEN_GENERAL_UNENROLL_JOB_TYPE = "signals_scout_unchosen_general_unenroll"
 # The client the old setup flow's config writes carry in the activity log.
 SETUP_FLOW_CLIENT = "mcp"
 # The log entry is written in the same save that stamps `status_changed_at`, so the two differ by
@@ -752,3 +754,119 @@ def resume_setup_paused_operational_scouts(
             else:
                 summary.not_resumed[config.skill_name] += 1
         after_pk = batch[-1].pk
+
+
+GENERAL_SCOUT_SKILL_NAME = "signals-scout-general"
+
+
+def unchosen_general_scout_configs(*, team_ids: list[int] | None = None) -> QuerySet[SignalScoutConfig]:
+    """Running general scouts that no person created or switched on.
+
+    Opening the inbox used to seed the general scout enabled for every team, so these rows run
+    and spend without anyone choosing them. `setup_completed` marks the rows whose team still
+    went through self-driving setup: setup stores its state on the project and its scouts on
+    the parent team, so a child project's completed setup counts for the parent's scout.
+    """
+    completed_setup = SignalTeamConfig.objects.filter(
+        Q(team_id=OuterRef("team_id")) | Q(team__parent_team_id=OuterRef("team_id")),
+        onboarding__completed_at__isnull=False,
+    )
+    configs = SignalScoutConfig.all_teams.filter(
+        skill_name=GENERAL_SCOUT_SKILL_NAME,
+        enabled=True,
+        status__in=SignalScoutConfig.RUNNABLE_STATUSES,
+        enabled_by__isnull=True,
+        created_by__isnull=True,
+    ).annotate(setup_completed=Exists(completed_setup))
+    if team_ids is not None:
+        configs = configs.filter(team_id__in=team_ids)
+    return configs
+
+
+def _general_scout_is_proven_canonical(team_id: int) -> bool:
+    # A team that edited the general scout in place owns the result, so only an unedited row counts.
+    skill = LLMSkill.objects.filter(
+        team_id=team_id, name=GENERAL_SCOUT_SKILL_NAME, is_latest=True, deleted=False
+    ).first()
+    return skill is not None and scout_skill_row_is_proven_canonical(skill)
+
+
+def unenroll_unchosen_general_scout(config: SignalScoutConfig) -> bool:
+    """Switch off one unchosen general scout. Returns False without a write when the row moved
+    since the caller read it, such as a person enabling it in the meantime."""
+    with transaction.atomic():
+        locked = (
+            unchosen_general_scout_configs()
+            .filter(pk=config.pk, status=config.status)
+            .select_for_update(of=("self",))
+            .first()
+        )
+        if locked is None:
+            return False
+        trigger = Trigger(
+            job_type=_UNCHOSEN_GENERAL_UNENROLL_JOB_TYPE,
+            job_id=str(locked.id),
+            payload={"skill_name": locked.skill_name},
+        )
+        with ActivityTriggerContext(trigger):
+            locked.enabled = False
+            # `save` moves `status` to match `enabled`, as for any enabled-only write.
+            locked.save(update_fields=["enabled", "updated_at"])
+    logger.info(
+        "signals_scout: unchosen general scout unenrolled",
+        team_id=locked.team_id,
+        managed_by=locked.managed_by,
+    )
+    return True
+
+
+@dataclass(frozen=False)
+class UnenrollSummary:
+    """Counts keyed by `(managed_by, status)` as the row stood before the run."""
+
+    matched: Counter[tuple[str, str]] = field(default_factory=Counter)
+    skipped_setup_completed: Counter[tuple[str, str]] = field(default_factory=Counter)
+    skipped_not_canonical: Counter[tuple[str, str]] = field(default_factory=Counter)
+    changed: Counter[tuple[str, str]] = field(default_factory=Counter)
+    not_changed: Counter[tuple[str, str]] = field(default_factory=Counter)
+    team_ids: list[int] = field(default_factory=list)
+
+
+def unenroll_unchosen_general_scouts(
+    *,
+    apply: bool,
+    team_ids: list[int] | None,
+    batch_size: int,
+    on_batch: Callable[[int], None] | None = None,
+) -> UnenrollSummary:
+    summary = UnenrollSummary()
+    scanned = 0
+    # A pk cursor rather than re-reading the first page: a row this run skips still matches.
+    after_pk = None
+    while True:
+        configs = unchosen_general_scout_configs(team_ids=team_ids).order_by("pk")
+        if after_pk is not None:
+            configs = configs.filter(pk__gt=after_pk)
+        batch = list(configs[:batch_size])
+        if not batch:
+            return summary
+        for config in batch:
+            key = (config.managed_by, config.status)
+            if config.setup_completed:  # type: ignore[attr-defined]
+                summary.skipped_setup_completed[key] += 1
+                continue
+            if not _general_scout_is_proven_canonical(config.team_id):
+                summary.skipped_not_canonical[key] += 1
+                continue
+            summary.matched[key] += 1
+            summary.team_ids.append(config.team_id)
+            if not apply:
+                continue
+            if unenroll_unchosen_general_scout(config):
+                summary.changed[key] += 1
+            else:
+                summary.not_changed[key] += 1
+        scanned += len(batch)
+        after_pk = batch[-1].pk
+        if on_batch is not None:
+            on_batch(scanned)

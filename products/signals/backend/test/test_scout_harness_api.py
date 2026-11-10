@@ -4859,6 +4859,34 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.run_interval_minutes == 120
         assert config.enabled_by_id == self.user.id
 
+    @parameterized.expand(
+        [
+            ("upsert_unattributed", "upsert", False, "caller"),
+            ("upsert_attributed", "upsert", True, "other"),
+            ("partial_update_unattributed", "partial_update", False, "caller"),
+            ("partial_update_attributed", "partial_update", True, "other"),
+        ]
+    )
+    def test_enabling_an_already_enabled_scout_records_enabled_by_only_when_unset(
+        self, _name: str, path: str, attributed: bool, expected: str
+    ) -> None:
+        self._make_skill("signals-scout-fresh")
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-fresh", enabled_by=other if attributed else None
+        )
+
+        if path == "upsert":
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-fresh", "enabled": True}, format="json"
+            )
+        else:
+            response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.enabled_by_id == (self.user.id if expected == "caller" else other.id)
+
     def test_create_upsert_leaves_omitted_fields_untouched(self) -> None:
         self._make_skill("signals-scout-fresh")
         SignalScoutConfig.objects.create(
