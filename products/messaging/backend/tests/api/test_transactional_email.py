@@ -719,6 +719,16 @@ class TestTransactionalEmail(APIBaseTest):
         sent = {**sent, "from": {**sent.get("from", {}), "integrationId": newer_default.id}}
         assert json.loads(mock_post.call_args.kwargs["data"])["send"] == sent
 
+    def test_a_form_encoded_code_send_without_capture_engagement_captures_engagement(self, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(), format="multipart"
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert json.loads(mock_post.call_args.kwargs["data"])["send"]["tracking"] == {"captureEngagement": True}
+
     @parameterized.expand(
         [
             ("no_subject", {"subject": ""}, "subject"),
