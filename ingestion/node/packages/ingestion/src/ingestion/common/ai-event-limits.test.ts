@@ -5,13 +5,10 @@ import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { AI_INCLUDED_BYTES_PER_EVENT, AI_MAX_EVENT_BYTES_CEILING, AI_MEDIA_OFFLOAD_MIN_BYTES } from './ai-event-limits'
 
-const LIMITS_JSON = path.resolve(
-    __dirname,
-    '../../../../products/ai_observability/shared/crosslang/ai_event_limits.json'
-)
+const LIMITS_JSON = path.resolve(__dirname, '../../../../../../pinned/ai_event_limits.json')
 
 describe('ai-event-limits', () => {
-    it('mirrors products/ai_observability/shared/crosslang/ai_event_limits.json', () => {
+    it('mirrors the pinned ai_event_limits.json', () => {
         const limits = parseJSON(readFileSync(LIMITS_JSON, 'utf8'))
 
         expect({

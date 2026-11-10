@@ -39,8 +39,8 @@ import {
 
 jest.setTimeout(300_000)
 
-const REPO_ROOT = path.resolve(__dirname, '../../..')
-const NODEJS_ROOT = path.join(REPO_ROOT, 'nodejs')
+const REPO_ROOT = path.resolve(__dirname, '../../../../../..')
+const INGESTION_PACKAGE_ROOT = path.resolve(__dirname, '../..')
 const RUST_ROOT = path.join(REPO_ROOT, 'rust')
 
 const TEST_TEAM_ID = 2
@@ -433,7 +433,7 @@ async function startNodeIngestionApiWorker(name: string, port?: number): Promise
 
 async function spawnNodeIngestionApiWorker(name: string, workerPort: number): Promise<NodeWorker> {
     const service = new ServiceProcess(name, 'pnpm', ['exec', 'tsx', 'src/index.ts'], {
-        cwd: NODEJS_ROOT,
+        cwd: INGESTION_PACKAGE_ROOT,
         env: {
             ...serviceProcessEnv(),
             ...testDependencyEnv(),

@@ -55,8 +55,8 @@ import { DEFAULT_TEAM, EventBuilder, createKafkaMessage } from '../helpers/inges
 
 jest.setTimeout(300_000)
 
-const REPO_ROOT = path.resolve(__dirname, '../../..')
-const NODEJS_ROOT = path.join(REPO_ROOT, 'nodejs')
+const REPO_ROOT = path.resolve(__dirname, '../../../../../..')
+const INGESTION_PACKAGE_ROOT = path.resolve(__dirname, '../..')
 const RUST_ROOT = path.join(REPO_ROOT, 'rust')
 // Built binaries, not `cargo run`: nothing may compile under the test's clock.
 const RUST_BIN_DIR = path.join(process.env.CARGO_TARGET_DIR ?? path.join(RUST_ROOT, 'target'), 'debug')
@@ -654,7 +654,7 @@ async function startNodeIngestionApiWorker(
 ): Promise<string> {
     const port = await getFreeWorkerPort(GRPC_PORT_OFFSET)
     const service = new ServiceProcess('node-worker', 'pnpm', ['exec', 'tsx', 'src/index.ts'], {
-        cwd: NODEJS_ROOT,
+        cwd: INGESTION_PACKAGE_ROOT,
         env: {
             ...serviceProcessEnv(),
             ...dependencyEnv(hub),

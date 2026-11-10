@@ -13,7 +13,8 @@ import {
 import { execHog } from './hog-exec'
 
 describe('filter-runtime', () => {
-    const committed = (): string => readFileSync(join(__dirname, '../../../../../..', FILTER_GLOBALS_RELATIVE_PATH), 'utf8')
+    const committed = (): string =>
+        readFileSync(join(__dirname, '../../../../../..', FILTER_GLOBALS_RELATIVE_PATH), 'utf8')
 
     it('matches the committed file Django reads, byte for byte', () => {
         // The one gate. A global or a standard-library function added to the runtime lands here as a
