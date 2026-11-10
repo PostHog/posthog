@@ -16,8 +16,6 @@ import {
     SesV2Fake,
     StoredFile,
     attachmentFile,
-    attachmentStore,
-    attachmentStoreConfig,
     uploadAttachment,
 } from '~/cdp/_tests/email-delivery-fakes'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
@@ -55,7 +53,7 @@ import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
-import { AttachmentStore, buildAttachmentStore } from './attachment-store'
+import { AttachmentStore } from './attachment-store'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
