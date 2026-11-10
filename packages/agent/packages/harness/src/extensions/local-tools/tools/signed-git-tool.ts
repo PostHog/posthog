@@ -27,7 +27,6 @@ export function defineSignedGitTool<S extends z.ZodRawShape, R>(opts: {
     description: opts.description,
     schema: opts.schema,
     alwaysLoad: opts.alwaysLoad ?? true,
-    // GitLab runs push with plain git and open MRs with gitlab_merge_request.
     isEnabled: (_ctx, meta) => isCloudRun(meta) && !isGitlabRun(),
     handler: (ctx, args) => {
       const token = resolveGithubToken() ?? ctx.token;

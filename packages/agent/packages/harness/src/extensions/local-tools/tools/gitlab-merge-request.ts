@@ -117,7 +117,6 @@ async function gitOutput(cwd: string, args: string[]): Promise<string | null> {
 
 export interface GitlabMergeRequestDeps {
   client: GitlabClient;
-  /** Full project path of the origin remote, e.g. `group/sub/project`. */
   projectPath: string;
   currentBranch: () => Promise<string | null>;
   reportBranch: (branch: string) => Promise<void>;

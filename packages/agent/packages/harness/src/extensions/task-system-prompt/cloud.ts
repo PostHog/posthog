@@ -20,7 +20,6 @@ export interface CloudTaskPromptOptions {
   createPr?: boolean;
   identityInstructions?: string;
   deliveryInstructions?: string;
-  /** Where the task's repository lives. Absent means GitHub. */
   gitProvider?: "github" | "gitlab";
   projectId: number;
   hasGithubToken: boolean;
@@ -93,8 +92,6 @@ export class CloudTaskPrompt {
     );
   }
 
-  // GitLab runs have no `gh` and no signed-commit tools. They commit and push
-  // with plain git and open merge requests with the gitlab_merge_request tool.
   private buildGitlabCloudSystemPrompt(
     mrUrl: string | null | undefined,
     sharedInstructions: string,

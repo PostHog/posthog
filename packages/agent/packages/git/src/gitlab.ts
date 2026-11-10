@@ -72,7 +72,6 @@ export interface GitlabMergeRequestRef {
   iid: number;
 }
 
-/** Parses `https://<host>/<group/sub/project>/-/merge_requests/<iid>`. */
 export function parseGitlabMergeRequestUrl(
   url: string | null | undefined,
   host: string = GITLAB_DEFAULT_HOST,
@@ -231,7 +230,6 @@ export async function getGitlabMergeRequest(
   );
 }
 
-/** The newest MR from `sourceBranch`, preferring an open one. */
 export async function findGitlabMergeRequestBySourceBranch(
   client: GitlabClient,
   projectPath: string,

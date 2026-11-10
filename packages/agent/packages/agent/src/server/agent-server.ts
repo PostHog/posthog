@@ -4870,8 +4870,6 @@ export class AgentServer {
     }
   }
 
-  // The checked-out branch and the repository its `origin` points at, or
-  // null without a checkout (no-repository mode) or on a detached HEAD.
   private async getCurrentCheckout(): Promise<OwnedBranch | null> {
     const branch = await this.getCurrentGitBranch();
     if (!branch || !this.config.repositoryPath) return null;

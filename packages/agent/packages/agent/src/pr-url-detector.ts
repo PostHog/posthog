@@ -12,7 +12,6 @@ export function findPrUrl(text: string): string | null {
   return findPrUrls(text)[0] ?? null;
 }
 
-/** GitHub pull request and GitLab merge request URLs, in order of appearance. */
 export function findPrUrls(text: string): string[] {
   const matches = [
     ...text.matchAll(PR_URL_REGEX),
@@ -54,8 +53,6 @@ export interface PrOwnershipEvidence {
   nowMs: number;
   author: string | null | undefined;
   ghLogin: string | null | undefined;
-  // `owner/name` of the repository the PR lives in (the full project path for
-  // GitLab), lowercased, from its URL.
   prRepository: string | null;
   headRefName: string | null | undefined;
   // True when the PR head lives in a fork. A fork's branch name is chosen by the
