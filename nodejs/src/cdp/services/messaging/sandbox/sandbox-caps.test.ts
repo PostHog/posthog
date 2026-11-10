@@ -3,6 +3,7 @@ import { Redis } from 'ioredis'
 
 import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
+import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
 import { RedisClient, RedisClientPipeline, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { createRedisFromConfig } from '~/common/utils/db/redis'
 
@@ -228,6 +229,53 @@ describe('claimSandboxCaps', () => {
                 }
             )
         ).toEqual({ ok: false, reason: 'cap_storage_unavailable' })
+    })
+
+    it('answers unavailable when storage stops replying, and claims again on a fresh connection', async () => {
+        const store = new StallingValkeyProxy({
+            host: defaultConfig.CDP_REDIS_HOST,
+            port: defaultConfig.CDP_REDIS_PORT,
+        })
+        const answerOrHang = <T>(work: Promise<T>): Promise<T | 'no answer'> => {
+            let hang: NodeJS.Timeout | undefined
+            return Promise.race([
+                work,
+                new Promise<'no answer'>((resolve) => {
+                    hang = setTimeout(() => resolve('no answer'), 10_000)
+                }),
+            ]).finally(() => clearTimeout(hang))
+        }
+        try {
+            const noDeadlinesPool = createRedisV2PoolFromConfig({
+                connection: {
+                    url: '127.0.0.1',
+                    options: {
+                        port: await store.start(),
+                        password: defaultConfig.CDP_REDIS_PASSWORD,
+                        retryStrategy: () => null,
+                    },
+                    name: 'sandbox-caps-stalling',
+                    exitOnRepeatedErrors: false,
+                },
+                poolMinSize: 0,
+                poolMaxSize: 1,
+            })
+            const stalling = new RateLimiterService(noDeadlinesPool, { name: 'stalling' })
+            const caps = { team: 5, recipient: 5 }
+            const first = granted(await claimSandboxCaps(stalling, caps, sameSend()))
+
+            store.stopAnsweringOpenConnections()
+            expect(await answerOrHang(claimSandboxCaps(stalling, caps, sameSend()))).toEqual({
+                ok: false,
+                reason: 'cap_storage_unavailable',
+            })
+            expect(await answerOrHang(claimSandboxCaps(stalling, caps, sameSend()))).toMatchObject({ ok: true })
+
+            store.stopAnsweringOpenConnections()
+            expect(await answerOrHang(first.markSent())).toBe(false)
+        } finally {
+            store.stop()
+        }
     })
 
     it.each([
