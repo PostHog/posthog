@@ -327,6 +327,9 @@ class IntegrationReader:
         Raises `ValueError` on `IntegrationManager.any`, because it would delete rows of other providers.
         All the deletes commit together or not at all, with the delete hooks of each row. See `lifecycle.py`.
         """
+        if not external_id:
+            # `RowFilter(external_id=None)` selects every row of the scope, so the hooks would run for all of them.
+            raise ValueError("delete_by_external_id needs an external id")
         scope = self._cross_team_scope("delete_by_external_id")
         with sdk_delete():
             run_delete_hooks(self._backend.list(scope, RowFilter(external_id=external_id)))

@@ -258,7 +258,7 @@ class TestRemoteConfig(_RemoteConfigBase):
                 if through_sdk:
                     IntegrationManager.any.delete(self.team.id, integration.id, ignore_usages=True)
                 else:
-                    integration.delete()
+                    Integration.objects.get(id=integration.id).delete()
             assert mock_rebuild.call_count == expected_calls
 
     @parameterized.expand([("model_save", False), ("sdk_update", True)])

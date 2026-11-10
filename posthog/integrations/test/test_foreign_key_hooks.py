@@ -178,7 +178,7 @@ class TestForeignKeyHooks(BaseTest):
             (model._meta.label, field.name): field.remote_field.on_delete
             for model in apps.get_models()
             for field in model._meta.concrete_fields
-            if field.is_relation and field.related_model is Integration
+            if field.is_relation and field.related_model is Integration and field.remote_field is not None
         }
 
         assert foreign_keys == {key: on_delete for key, (on_delete, _fields) in FOREIGN_KEYS.items()}

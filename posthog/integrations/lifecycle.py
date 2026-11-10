@@ -16,8 +16,8 @@ that raises rolls back the work of the other hooks and keeps the row. A delete h
 because the foreign keys still do the same work until they are removed. Work outside the database goes
 in `transaction.on_commit`.
 
-Saved hooks run after the write. A saved hook that raises is logged, and the write stays, because the
-row is already stored.
+Saved hooks run after the write, each in its own savepoint. A saved hook that raises is logged, its
+database work rolls back, and the write stays, because the row is already stored.
 """
 
 import threading
@@ -135,7 +135,9 @@ def run_delete_hooks(rows: Iterable[IntegrationRecord]) -> None:
 def run_saved_hooks(row: IntegrationRecord, *, created: bool, config_changed: bool) -> None:
     for hook in saved_hooks():
         try:
-            hook(row, created=created, config_changed=config_changed)
+            # A savepoint, so a database error in one hook does not break the caller's transaction.
+            with transaction.atomic():
+                hook(row, created=created, config_changed=config_changed)
         except Exception as error:
             logger.exception(
                 "integrations_sdk_saved_hook_failed", kind=row.kind, hook=getattr(hook, "__qualname__", "")

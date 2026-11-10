@@ -6,6 +6,8 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import connection, transaction
+
 from parameterized import parameterized
 
 from posthog.integrations import IntegrationManager, IntegrationRecord, IntegrationUsage, lifecycle, usages
@@ -204,6 +206,18 @@ class TestIntegrationLifecycleHooks(BaseTest):
         assert later == [row.id]
         capture.assert_called_once()
 
+    def test_a_database_error_in_a_saved_hook_leaves_the_caller_transaction_usable(self) -> None:
+        def fail_in_the_database(row: IntegrationRecord, *, created: bool, config_changed: bool) -> None:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1 / 0")
+
+        with _only_hooks(saved=(fail_in_the_database,)), patch.object(lifecycle, "capture_exception") as capture:
+            with transaction.atomic():
+                row = IntegrationManager.github.oauth.create(self.team.id, external_id="new", config={})
+                assert Integration._base_manager.filter(id=row.id).exists()
+
+        capture.assert_called_once()
+
     @parameterized.expand(
         [
             ("both", {"before_integration_delete": "d", "after_integration_saved": "s"}, ["d"], ["s"]),
@@ -224,8 +238,10 @@ class TestIntegrationLifecycleHooks(BaseTest):
             patch.object(lifecycle, "_product_saved", None),
             patch.object(lifecycle, "load_product_modules", return_value=iter([module])) as load,
         ):
-            assert lifecycle.delete_hooks() == [*delete, "registered"]
-            assert lifecycle.saved_hooks() == saved
+            loaded_delete: list[object] = list(lifecycle.delete_hooks())
+            loaded_saved: list[object] = list(lifecycle.saved_hooks())
+            assert loaded_delete == [*delete, "registered"]
+            assert loaded_saved == saved
 
         load.assert_called_once_with("integration_hooks")
 
