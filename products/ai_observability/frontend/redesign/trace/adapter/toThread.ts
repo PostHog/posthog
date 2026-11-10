@@ -1,6 +1,8 @@
-import { ConversationState, NodeLoad, ThreadMessage } from '../types'
+import { ConversationState, NodeLoad, NodeSideContent } from '../types'
 
 const THREAD_LOAD_ERROR = 'The conversation could not be loaded. Reload the page to try again.'
+
+const EMPTY_SIDE: NodeSideContent = { kind: 'messages', messages: [] }
 
 interface ThreadArgs {
     traceId: string
@@ -11,15 +13,20 @@ interface ThreadArgs {
 function readyThread(
     traceId: string,
     createdAt: string,
-    messages: ThreadMessage[],
+    input: NodeSideContent,
+    output: NodeSideContent,
     error: string | null
 ): ConversationState {
-    return { status: 'ready', turns: [{ id: traceId, timestamp: createdAt, messages, error }], activeTurnId: traceId }
+    return {
+        status: 'ready',
+        turns: [{ id: traceId, timestamp: createdAt, input, output, error }],
+        activeTurnId: traceId,
+    }
 }
 
 export function toThread({ traceId, createdAt, load }: ThreadArgs): ConversationState {
     if (load === null) {
-        return readyThread(traceId, createdAt, [], null)
+        return readyThread(traceId, createdAt, EMPTY_SIDE, EMPTY_SIDE, null)
     }
     switch (load.status) {
         case 'loading':
@@ -28,8 +35,7 @@ export function toThread({ traceId, createdAt, load }: ThreadArgs): Conversation
             return { status: 'error', message: THREAD_LOAD_ERROR }
         case 'ready': {
             const { input, output } = load.node.content
-            const messages = [input, output].flatMap((side) => (side.kind === 'messages' ? side.messages : []))
-            return readyThread(traceId, createdAt, messages, load.node.error)
+            return readyThread(traceId, createdAt, input, output, load.node.error)
         }
     }
 }

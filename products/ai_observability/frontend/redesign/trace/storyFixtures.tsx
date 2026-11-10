@@ -8,7 +8,7 @@ import type {
     TraceTimelineRowApi,
 } from '../../generated/api.schemas'
 import type { ClusterChipItem, TraceClustersChipProps } from './components/TraceClustersChip'
-import { jsonContent, messagesContent } from './sampleFixtures/sampleContent'
+import { jsonContent, messagesContent, messagesSides } from './sampleFixtures/sampleContent'
 import { SampleNodeDetail, SampleTraceFixture, sampleRaw } from './sampleFixtures/sampleTraceFixture'
 import {
     ConversationTurn,
@@ -264,7 +264,7 @@ export const FIXTURE_LONG_ANSWER_MESSAGE: ThreadMessage = agentMessage('long-ans
 export const FIXTURE_TURN: ConversationTurn = {
     id: 'trace-1',
     timestamp: '2026-09-01T10:15:00Z',
-    messages: FIXTURE_GENERATION_MESSAGES,
+    ...messagesSides(FIXTURE_GENERATION_INPUT, FIXTURE_GENERATION_OUTPUT),
     error: null,
 }
 

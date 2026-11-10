@@ -346,10 +346,8 @@ describe('traceViewModelLogic', () => {
                     status: 'ready',
                     turns: [
                         expect.objectContaining({
-                            messages: [
-                                expect.objectContaining({ role: 'user' }),
-                                expect.objectContaining({ role: 'assistant' }),
-                            ],
+                            input: { kind: 'messages', messages: [expect.objectContaining({ role: 'user' })] },
+                            output: { kind: 'messages', messages: [expect.objectContaining({ role: 'assistant' })] },
                         }),
                     ],
                 }),

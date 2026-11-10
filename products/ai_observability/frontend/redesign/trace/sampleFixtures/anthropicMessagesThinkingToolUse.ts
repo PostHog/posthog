@@ -1,6 +1,6 @@
 import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { NodeProperties, ThreadMessage } from '../types'
-import { jsonContent, messagesContent } from './sampleContent'
+import { jsonContent, messagesContent, messagesSides } from './sampleContent'
 import { SampleTraceFixture, sampleRaw, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = '2fa60c6497874ba3c4633d94fdfae64f'
@@ -197,7 +197,7 @@ export const anthropicMessagesThinkingToolUse: SampleTraceFixture = {
     },
     thread: {
         status: 'ready',
-        turns: [{ id: TRACE_ID, timestamp: TIMESTAMP, messages: anthropicThinkingMessages, error: null }],
+        turns: [{ id: TRACE_ID, timestamp: TIMESTAMP, ...messagesSides(input, output), error: null }],
         activeTurnId: TRACE_ID,
     },
     timeline: {

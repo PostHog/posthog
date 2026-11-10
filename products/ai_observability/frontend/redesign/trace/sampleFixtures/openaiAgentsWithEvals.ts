@@ -1,6 +1,6 @@
 import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { EvalResult, NodeProperties, ThreadMessage } from '../types'
-import { jsonContent, messagesContent } from './sampleContent'
+import { jsonContent, messagesContent, messagesSides } from './sampleContent'
 import { SampleNodeDetail, SampleTraceFixture, sampleRaw, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = 'trace_5gL08JNGqLvX2XcwWRWBmJgj6s6VwJcE'
@@ -335,7 +335,7 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
             {
                 id: TRACE_ID,
                 timestamp: TRACE_TIMESTAMP,
-                messages: [...answerInput, ...answerOutput],
+                ...messagesSides(answerInput, answerOutput),
                 error: null,
             },
         ],

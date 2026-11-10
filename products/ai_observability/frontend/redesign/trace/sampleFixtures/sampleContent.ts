@@ -1,11 +1,14 @@
-import { LoadedNodeContent, ThreadMessage } from '../types'
+import { LoadedNodeContent, NodeSideContent, ThreadMessage } from '../types'
+
+export function messagesSides(
+    input: ThreadMessage[],
+    output: ThreadMessage[]
+): { input: NodeSideContent; output: NodeSideContent } {
+    return { input: { kind: 'messages', messages: input }, output: { kind: 'messages', messages: output } }
+}
 
 export function messagesContent(input: ThreadMessage[], output: ThreadMessage[]): LoadedNodeContent {
-    return {
-        kind: 'loaded',
-        input: { kind: 'messages', messages: input },
-        output: { kind: 'messages', messages: output },
-    }
+    return { kind: 'loaded', ...messagesSides(input, output) }
 }
 
 export function jsonContent(input: unknown, output: unknown): LoadedNodeContent {

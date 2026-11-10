@@ -1,6 +1,6 @@
 import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { MessagePart, NodeProperties, ThreadMessage } from '../types'
-import { jsonContent, messagesContent } from './sampleContent'
+import { jsonContent, messagesContent, messagesSides } from './sampleContent'
 import { SampleTraceFixture, sampleRaw, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = '3030b60b-110e-7653-675c-235b05cc9a77'
@@ -181,7 +181,9 @@ export const langchainCerebrasImageError: SampleTraceFixture = {
     },
     thread: {
         status: 'ready',
-        turns: [{ id: TRACE_ID, timestamp: TIMESTAMP, messages: cerebrasLabelMessages, error: ERROR_MESSAGE }],
+        turns: [
+            { id: TRACE_ID, timestamp: TIMESTAMP, ...messagesSides(cerebrasLabelMessages, []), error: ERROR_MESSAGE },
+        ],
         activeTurnId: TRACE_ID,
     },
     timeline: {

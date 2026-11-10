@@ -1,6 +1,6 @@
 import type { TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
 import { MessagePart, NodeProperties, ThreadMessage } from '../types'
-import { jsonContent, messagesContent } from './sampleContent'
+import { jsonContent, messagesContent, messagesSides } from './sampleContent'
 import { SampleNodeDetail, SampleTraceFixture, sampleRaw, sampleStats } from './sampleTraceFixture'
 
 const TRACE_ID = '88cfdcc8-1757-7012-663c-599c6649c0e6'
@@ -350,7 +350,7 @@ export const claudeCodePluginSession: SampleTraceFixture = {
             {
                 id: TRACE_ID,
                 timestamp: TRACE_TIMESTAMP,
-                messages: [...stepInput(lastStep), ...stepOutput(lastStep)],
+                ...messagesSides(stepInput(lastStep), stepOutput(lastStep)),
                 error: null,
             },
         ],

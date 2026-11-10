@@ -53,7 +53,8 @@ export type ThreadMessage = TraceMessageApi
 export interface ConversationTurn {
     id: string
     timestamp: string
-    messages: ThreadMessage[]
+    input: NodeSideContent
+    output: NodeSideContent
     error: string | null
 }
 
