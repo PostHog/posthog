@@ -2757,65 +2757,6 @@ describe('CDP API', () => {
         )
 
         it.each([
-            [
-                'a transactional code send on the fast lane',
-                'transactional',
-                'transactional_email/send',
-                { send: codeSend },
-                0,
-                undefined,
-            ],
-            [
-                'a code send in a marketing category on the bulk lane',
-                'transactional',
-                'transactional_email/send',
-                { send: newsletterSend },
-                1,
-                newsletter,
-            ],
-            [
-                'a code send in a transactional category on the fast lane',
-                'transactional',
-                'transactional_email/send',
-                { send: { ...codeSend, messageCategory: receipts } },
-                0,
-                receipts,
-            ],
-            ['a marketing email on the bulk lane', 'marketing', 'transactional_email', {}, 1, undefined],
-            [
-                'a template send whose category is now marketing on the bulk lane',
-                'transactional',
-                'transactional_email',
-                { message_category: newsletter },
-                1,
-                newsletter,
-            ],
-            [
-                'a template send whose category is now transactional on the fast lane',
-                'marketing',
-                'transactional_email',
-                { message_category: receipts },
-                0,
-                receipts,
-            ],
-        ] as const)('queues %s', async (_desc, category, route, extra, queuePriority, queuedCategory) => {
-            const flow = await insertHogFlow(transactionalFlow('api', 'active', category))
-
-            const res = await sendOn(
-                route,
-                flow.id,
-                { Authorization: `Bearer ${tokenFor(route, team.id, flow.id)}` },
-                { ...body, ...extra }
-            )
-
-            expect(res.status).toEqual(202)
-            const [invocation] = mockQueueInvocations.mock.calls[0][0]
-            expect(invocation).toMatchObject({ queue: 'email', queuePriority })
-            expect(invocation.state.send).toEqual('send' in extra ? extra.send : undefined)
-            expect(invocation.state.messageCategory).toEqual(queuedCategory)
-        })
-
-        it.each([
             ['a cc', 'cc', 'transactional', newsletterSend],
             ['a bcc', 'bcc', 'transactional', newsletterSend],
             ['a cc, when the workflow step is marketing', 'cc', 'marketing', codeSend],
@@ -2831,17 +2772,6 @@ describe('CDP API', () => {
             expect(res.status).toEqual(400)
             expect(res.body).toEqual({ error: 'copies_not_allowed' })
             expect(await outcomeCount('copies_not_allowed')).toEqual(refusedBefore + 1)
-            expect(mockQueueInvocations).not.toHaveBeenCalled()
-        })
-
-        it('queues a code send in a transactional category with a bcc', async () => {
-            const res = await sendAccepted(hogFlow.id, {
-                ...body,
-                send: { ...codeSend, messageCategory: receipts, bcc: ['copy@example.com'] },
-            })
-
-            expect(res.status).toEqual(202)
-            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
         describe('to a recipient who opted out', () => {
@@ -2905,7 +2835,6 @@ describe('CDP API', () => {
                 expect(res.status).toEqual(422)
                 expect(res.body).toEqual({ error: 'recipient_opted_out' })
                 expect(await outcomeCount('recipient_opted_out')).toEqual(refusedBefore + 1)
-                expect(mockQueueInvocations).not.toHaveBeenCalled()
             })
 
             it.each([
@@ -2916,7 +2845,7 @@ describe('CDP API', () => {
                     '$all',
                 ],
                 ['a code send in another category', { send: newsletterSend }, '0195d6b4-6c3e-0001-5e6f-7a8b9c0d1e2f'],
-            ])('queues %s', async (_desc, extra, optedOutOf) => {
+            ])('accepts %s', async (_desc, extra, optedOutOf) => {
                 const res = await sendAccepted(hogFlow.id, {
                     ...body,
                     ...extra,
@@ -2924,7 +2853,6 @@ describe('CDP API', () => {
                 })
 
                 expect(res.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
             })
         })
 

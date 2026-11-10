@@ -39,7 +39,7 @@ import { RecipientPreferencesService } from '../messaging/recipient-preferences.
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
-import { QueuedSend, SendCategory } from './transactional-email'
+import { QueuedSend } from './transactional-email'
 
 // Mock before importing fetch
 jest.mock('~/common/utils/request', () => {
@@ -3330,11 +3330,7 @@ describe('Hogflow Executor', () => {
                 },
             }) as const
 
-        const emailFlow = (
-            email: Record<string, any>,
-            stepConfig: Record<string, unknown> = {},
-            trigger: 'event' | 'api' = 'event'
-        ): HogFlow =>
+        const emailFlow = (email: Record<string, any>): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withExitCondition('exit_only_at_end')
@@ -3342,17 +3338,16 @@ describe('Hogflow Executor', () => {
                     actions: {
                         trigger: {
                             type: 'trigger',
-                            config:
-                                trigger === 'api'
-                                    ? { type: 'api' }
-                                    : { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                            },
                         },
                         email_1: {
                             type: 'function_email',
                             config: {
                                 template_id: 'template-email-routing-test',
                                 inputs: { email: { value: email } },
-                                ...stepConfig,
                             },
                         },
                         exit: {
@@ -3765,195 +3760,5 @@ if (not res.success) { throw Error(res.error) }`,
                 expect(sesSend).toHaveBeenCalledTimes(1)
             }
         )
-
-        describe('for an API send in a category', () => {
-            const newsletterId = '0195d6b4-6c3e-0000-1a2b-3c4d5e6f7a8b'
-            const newsletter: SendCategory = { id: newsletterId, type: 'marketing' }
-            const receipts: SendCategory = { id: '0195d6b4-6c3e-0002-9a8b-7c6d5e4f3a2b', type: 'transactional' }
-            const apiFlow = (stepCategory: 'transactional' | 'marketing', kind: 'code' | 'template') =>
-                emailFlow(
-                    kind === 'code' ? { ...codeKeyStep(), cc: undefined } : storedStep(),
-                    { message_category_type: stepCategory },
-                    'api'
-                )
-            const unsubscribeSend = (messageCategory?: SendCategory): QueuedSend => ({
-                content: {
-                    subject: 'Our news',
-                    html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
-                    text: 'Unsubscribe: {{unsubscribe_url}}',
-                },
-                from: { integrationId, email: 'news@posthog.com' },
-                tracking: { captureEngagement: false },
-                ...(messageCategory && { messageCategory }),
-            })
-            const apiSend = (
-                stepCategory: 'transactional' | 'marketing',
-                category: SendCategory | undefined,
-                kind: 'code' | 'template'
-            ): CyclotronJobInvocationHogFlow => {
-                const invocation = flowInvocation(apiFlow(stepCategory, kind))
-                if (kind === 'code') {
-                    invocation.state.send = unsubscribeSend(category)
-                }
-                if (category) {
-                    invocation.state.messageCategory = category
-                }
-                return invocation
-            }
-            const marketingFlow = () => emailFlow(storedStep(), { message_category_type: 'marketing' })
-            const sendThrough = async (
-                runner: HogFlowExecutorService,
-                invocation: CyclotronJobInvocationHogFlow
-            ): Promise<jest.SpyInstance> => {
-                const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
-                sesSend.mockResolvedValue({ MessageId: 'news-email' })
-                let result = await runner.execute(invocation)
-                while (!result.finished) {
-                    result = await runner.execute(result.invocation)
-                }
-                return sesSend
-            }
-            const sentEmail = (sesSend: jest.SpyInstance) => {
-                const { Headers, Body } = sesSend.mock.calls[0][0].input.Content.Simple
-                return {
-                    unsubscribeHeader: Headers.find((h: { Name: string }) => h.Name === 'List-Unsubscribe')?.Value,
-                    html: Body.Html.Data as string,
-                    text: Body.Text.Data as string,
-                }
-            }
-
-            it.each([
-                {
-                    name: 'sends a transactional code send to a recipient opted out of all marketing',
-                    step: 'transactional',
-                    category: undefined,
-                    kind: 'code',
-                    optedOutOf: '$all',
-                    sent: true,
-                },
-                {
-                    name: 'sends a code send in a marketing category',
-                    step: 'transactional',
-                    category: newsletter,
-                    kind: 'code',
-                    optedOutOf: null,
-                    sent: true,
-                },
-                {
-                    name: 'skips a code send to a recipient opted out of its category',
-                    step: 'transactional',
-                    category: newsletter,
-                    kind: 'code',
-                    optedOutOf: newsletterId,
-                    sent: false,
-                },
-                {
-                    name: 'skips a code send to a recipient opted out of all marketing',
-                    step: 'transactional',
-                    category: newsletter,
-                    kind: 'code',
-                    optedOutOf: '$all',
-                    sent: false,
-                },
-                {
-                    name: 'sends a code send in a transactional category to a recipient opted out of all marketing',
-                    step: 'transactional',
-                    category: receipts,
-                    kind: 'code',
-                    optedOutOf: '$all',
-                    sent: true,
-                },
-                {
-                    name: 'skips a template send whose category is now marketing, to a recipient opted out of it',
-                    step: 'transactional',
-                    category: newsletter,
-                    kind: 'template',
-                    optedOutOf: newsletterId,
-                    sent: false,
-                },
-                {
-                    name: 'sends a template send whose category is now transactional to a recipient opted out of all marketing',
-                    step: 'marketing',
-                    category: receipts,
-                    kind: 'template',
-                    optedOutOf: '$all',
-                    sent: true,
-                },
-            ] as const)('$name', async ({ step, category, kind, optedOutOf, sent }) => {
-                await insertEmailSetup('ses')
-                if (optedOutOf) {
-                    await hub.postgres.query(
-                        PostgresUse.COMMON_WRITE,
-                        `INSERT INTO posthog_messagerecipientpreference
-                            (id, team_id, identifier, preferences, created_at, updated_at, deleted)
-                         VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)`,
-                        [team.id, 'recipient@example.com', JSON.stringify({ [optedOutOf]: 'OPTED_OUT' })],
-                        'test-insert-opt-out'
-                    )
-                }
-
-                const sesSend = await sendThrough(executor, apiSend(step, category, kind))
-
-                expect(sesSend).toHaveBeenCalledTimes(sent ? 1 : 0)
-            })
-
-            it("puts the recipient's unsubscribe link in a marketing code send and keeps the placeholder for a retry", async () => {
-                await insertEmailSetup('ses')
-                const invocation = apiSend('transactional', newsletter, 'code')
-
-                const email = sentEmail(await sendThrough(executor, invocation))
-
-                const link = email.html.match(/href="([^"]+)"/)![1]
-                expect(email.text).toEqual(`Unsubscribe: ${link}`)
-                expect(email.unsubscribeHeader).toEqual(`<${link}?one_click_unsubscribe=1>`)
-                const token = link.match(/\/messaging-preferences\/([^/]+)\/$/)![1]
-                expect(
-                    new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL).validatePreferencesToken(token)
-                ).toMatchObject({ valid: true, team_id: team.id, identifier: 'recipient@example.com' })
-                expect(invocation.state.send?.content?.html).toContain('{{ unsubscribe_url }}')
-            })
-
-            it.each([
-                {
-                    name: 'holds back a marketing workflow email',
-                    invocation: () => flowInvocation(marketingFlow()),
-                    sent: false,
-                },
-                {
-                    name: 'sends a code send in a marketing category',
-                    invocation: () => apiSend('transactional', newsletter, 'code'),
-                    sent: true,
-                },
-                {
-                    name: 'sends a template send whose step is marketing',
-                    invocation: () => apiSend('marketing', undefined, 'template'),
-                    sent: true,
-                },
-            ])('$name to a recipient at the frequency cap', async ({ invocation, sent }) => {
-                await insertEmailSetup('ses')
-                const cappedExecutor = new HogFlowExecutorService(
-                    hogFlowFunctionsService,
-                    new RecipientPreferencesService(
-                        new RecipientsManagerService(hub.postgres),
-                        new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-                        {
-                            teamWorkflowsConfig: {
-                                getFrequencyCap: () =>
-                                    Promise.resolve({ max_messages: 1, window_days: 1, hold_hours: null }),
-                            } as unknown as TeamWorkflowsConfigService,
-                            valkey: { useClient: () => Promise.resolve(Date.now() + 60 * 60 * 1000) } as any,
-                            persons: { getCyclotronPerson: jest.fn() },
-                        }
-                    ),
-                    { getSkipReason: () => Promise.resolve(null) } as unknown as EmailValidationService,
-                    cohortMembershipRepository,
-                    hub.integrationManager,
-                    null
-                )
-                const sesSend = await sendThrough(cappedExecutor, invocation())
-
-                expect(sesSend).toHaveBeenCalledTimes(sent ? 1 : 0)
-            })
-        })
     })
 })
