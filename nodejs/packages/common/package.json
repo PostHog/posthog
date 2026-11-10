@@ -48,8 +48,8 @@
         "test": "jest --runInBand --forceExit",
         "prepublishOnly": "pnpm build",
         "generate:usage-ingestion-proto": "cd ../../../proto && buf generate --template ../nodejs/packages/common/buf.gen.usage-ingestion.yaml --path usage_ingestion . && cd ../nodejs/packages/common && prettier --write src/generated/usage-ingestion",
-        "lint": "oxlint -c .oxlintrc.json .",
-        "lint:fix": "oxlint -c .oxlintrc.json . --fix",
+        "lint": "oxlint -c .oxlintrc.nodejs.json .",
+        "lint:fix": "oxlint -c .oxlintrc.nodejs.json . --fix",
         "format": "prettier --write .",
         "format:check": "prettier --check ."
     },
