@@ -509,11 +509,12 @@ class InsightAgentRead(TeamScopedRootMixin):
     )
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     insight = models.ForeignKey(Insight, on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    last_read_at = models.DateTimeField()
-    read_days = ArrayField(models.DateField(), default=list)
+    day = models.DateField()
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "user", "insight"], name="product_analytics_unique_agent_read")
+            models.UniqueConstraint(
+                fields=["team", "user", "insight", "day"], name="product_analytics_unique_agent_read_day"
+            )
         ]
-        indexes = [models.Index(fields=["team", "user", "-last_read_at"], name="product_analytics_agent_recent")]
+        indexes = [models.Index(fields=["team", "user", "-day"], name="product_analytics_agent_recent")]

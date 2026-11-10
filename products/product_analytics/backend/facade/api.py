@@ -12,7 +12,7 @@ project's root team, because that is the team ``RootTeamMixin.save()`` writes th
 """
 
 from collections.abc import Collection, Mapping
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -169,7 +169,7 @@ def record_agent_insight_read(*, team: Team, user_id: int, insight_id: int) -> N
 
 
 def insight_reads_by_agents(
-    *, team_id: int, user_id: int, since: datetime, min_days: int, limit: int
+    *, team_id: int, user_id: int, since: date, min_days: int, limit: int
 ) -> list[AgentInsightRead]:
     return [
         AgentInsightRead(short_id=short_id, read_days=tuple(read_days))

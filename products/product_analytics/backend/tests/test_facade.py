@@ -102,7 +102,7 @@ class TestAgentInsightReads(BaseTest):
                 record_agent_insight_read(team=self.team, user_id=self.user.id, insight_id=insight.pk)
 
         reads = insight_reads_by_agents(
-            team_id=self.team.id, user_id=self.user.id, since=datetime(2026, 10, 1, tzinfo=UTC), min_days=2, limit=5
+            team_id=self.team.id, user_id=self.user.id, since=date(2026, 10, 1), min_days=2, limit=5
         )
 
         self.assertEqual(reads, [AgentInsightRead("asked", (date(2026, 11, 6), date(2026, 11, 7)))])
@@ -110,20 +110,17 @@ class TestAgentInsightReads(BaseTest):
     def test_the_limit_counts_only_insights_read_on_enough_days_in_the_window(self) -> None:
         def read(short_id: str, days: list[date]) -> None:
             insight = Insight.objects.create(team=self.team, saved=True, short_id=short_id)
-            InsightAgentRead.objects.for_team(self.team.id).create(
-                team=self.team,
-                user=self.user,
-                insight=insight,
-                read_days=days,
-                last_read_at=datetime.combine(max(days), datetime.min.time(), tzinfo=UTC),
-            )
+            for day in days:
+                InsightAgentRead.objects.for_team(self.team.id).create(
+                    team=self.team, user=self.user, insight=insight, day=day
+                )
 
         read("once", [date(2026, 11, 9)])
         read("early", [date(2026, 10, 1), date(2026, 11, 8)])
         read("twice", [date(2026, 11, 2), date(2026, 11, 5)])
 
         reads = insight_reads_by_agents(
-            team_id=self.team.id, user_id=self.user.id, since=datetime(2026, 10, 13, tzinfo=UTC), min_days=2, limit=1
+            team_id=self.team.id, user_id=self.user.id, since=date(2026, 10, 13), min_days=2, limit=1
         )
 
         self.assertEqual([r.short_id for r in reads], ["twice"])

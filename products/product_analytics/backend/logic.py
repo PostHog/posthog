@@ -3,10 +3,9 @@ from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.cache import cache
-from django.db import transaction
-from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery, TextField, Value
-from django.db.models.expressions import RawSQL
+from django.db.models import Count, Max, OuterRef, QuerySet, Subquery, TextField, Value
 from django.db.models.fields.json import KT
 from django.db.models.functions import Coalesce
 from django.utils.timezone import now
@@ -62,65 +61,40 @@ def record_insight_view(*, insight_id: int, team_id: int | None, user_id: int | 
 
 AGENT_READ_DAYS_KEPT = 35
 AGENT_READ_ONCE_SECONDS = 24 * 60 * 60
+AGENT_READ_DELETE_BATCH = 10_000
 
 
 def record_agent_insight_read(*, team: "Team", user_id: int, insight_id: int) -> None:
-    read_at = now()
-    day = read_at.astimezone(team.timezone_info).date()
+    day = now().astimezone(team.timezone_info).date()
     key = f"insight_agent_read:{team.id}:{user_id}:{insight_id}:{day.isoformat()}"
     if not cache.add(key, True, AGENT_READ_ONCE_SECONDS):
         return
     try:
-        _save_agent_read(team=team, user_id=user_id, insight_id=insight_id, read_at=read_at, day=day)
+        _save_agent_read(team=team, user_id=user_id, insight_id=insight_id, day=day)
     except Exception:
         cache.delete(key)
         raise
 
 
-def _save_agent_read(*, team: "Team", user_id: int, insight_id: int, read_at: datetime, day: date) -> None:
-    oldest = day - timedelta(days=AGENT_READ_DAYS_KEPT)
+def _save_agent_read(*, team: "Team", user_id: int, insight_id: int, day: date) -> None:
     team_id = team.parent_team_id or team.id
-    with transaction.atomic():
-        read, created = (
-            InsightAgentRead.objects.for_team(team_id, canonical=True)
-            .select_for_update()
-            .get_or_create(
-                team_id=team_id,
-                user_id=user_id,
-                insight_id=insight_id,
-                defaults={"last_read_at": read_at, "read_days": [day]},
-            )
-        )
-        if not created:
-            read.read_days = sorted({*(kept for kept in read.read_days if kept > oldest), day})
-            read.last_read_at = read_at
-            read.save(update_fields=["read_days", "last_read_at"])
+    reads = InsightAgentRead.objects.for_team(team_id, canonical=True)
+    reads.get_or_create(team_id=team_id, user_id=user_id, insight_id=insight_id, day=day)
+    reads.filter(user_id=user_id, insight_id=insight_id, day__lt=day - timedelta(days=AGENT_READ_DAYS_KEPT)).delete()
 
 
 def insight_reads_by_agents(
-    *, team_id: int, user_id: int, since: datetime, min_days: int, limit: int
+    *, team_id: int, user_id: int, since: date, min_days: int, limit: int
 ) -> list[tuple[str, list[date]]]:
-    days_in_window = RawSQL(
-        "(SELECT count(*) FROM unnest(read_days) AS read_day WHERE read_day >= %s)",
-        (since.date(),),
-        output_field=IntegerField(),
-    )
     return list(
         InsightAgentRead.objects.for_team(team_id)
-        .annotate(days_in_window=days_in_window)
-        .filter(
-            user_id=user_id,
-            last_read_at__gte=since,
-            days_in_window__gte=min_days,
-            insight__deleted=False,
-            insight__saved=True,
-        )
-        .order_by("-last_read_at")
+        .filter(user_id=user_id, day__gte=since, insight__deleted=False, insight__saved=True)
+        .values("insight__short_id")
+        .annotate(read_days=ArrayAgg("day", order_by="day"), days=Count("day"), last_day=Max("day"))
+        .filter(days__gte=min_days)
+        .order_by("-last_day")
         .values_list("insight__short_id", "read_days")[:limit]
     )
-
-
-AGENT_READ_DELETE_BATCH = 10_000
 
 
 def delete_agent_insight_reads_for_teams(team_ids: Collection[int]) -> None:
