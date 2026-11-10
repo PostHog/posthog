@@ -95,27 +95,9 @@ def resolve_github_setup_callback_context(
     state_raw: str | None,
 ) -> tuple[int | None, str | None]:
     """Reads from both the authorize cache and the GitHub ``state`` query param, preferring the query param."""
-    cached_next: str | None = None
-    cached_team_id: int | None = None
-
-    pending_token = cache.get(unified_authorize_pending_cache_key(user.id))
-    if callback_state := callback_authorize_state(user.id, state_raw):
-        cached_next = callback_state.next_url
-        cached_team_id = callback_state.team_id
-    elif pending_token:
-        cached = cache.get(unified_authorize_cache_key(str(pending_token)))
-        if isinstance(cached, dict):
-            token = str(cached.get("token") or "") or None
-            authorize_state = GitHubAuthorizeState.try_from_cache(token, cached) if token else None
-            if authorize_state is None:
-                cached_next = str(cached.get("next") or "") or None
-                cached_team_id = team_id_from_next_url(cached_next or "")
-            else:
-                cached_next = authorize_state.next_url
-                cached_team_id = authorize_state.team_id
-
-    team_id = cached_team_id
-    next_url = cached_next
+    callback_state = callback_authorize_state(user.id, state_raw)
+    team_id = callback_state.team_id if callback_state else None
+    next_url = callback_state.next_url if callback_state else None
 
     if state_raw:
         _, state_next = parse_github_authorize_state_param(state_raw)
@@ -224,18 +206,13 @@ def consume_github_authorize_state(
         _rejected_authorize_state, user_id=user_id, state_raw=state_raw, setup_action=setup_action, code=code
     )
 
-    # The pending slot holds only the user's latest authorize token, so a callback that carries its
-    # own token is looked up by that token. Otherwise a second connect click, in this tab or another,
-    # would invalidate the first.
-    if state_raw:
-        token, param_next = parse_github_authorize_state_param(state_raw)
-    else:
-        pending_token = cache.get(unified_authorize_pending_cache_key(user_id))
-        token, param_next = (str(pending_token) if pending_token else None), None
-
-    authorize_state = load_authorize_state(token, user_id=user_id) if token else None
-    if not token or authorize_state is None:
+    # Look the state up by the callback's own token, not the pending slot: the slot holds only the
+    # user's latest authorize token, so a second connect click would otherwise invalidate the first.
+    authorize_state = callback_authorize_state(user_id, state_raw)
+    if authorize_state is None:
         raise reject("not_found")
+    token = authorize_state.token
+    _, param_next = parse_github_authorize_state_param(state_raw)
 
     # State-less update callbacks must consume a TEAM_UPDATE pending record — otherwise an
     # attacker could seed any pending state (e.g. TEAM_INSTALL) and trigger a silent link.
