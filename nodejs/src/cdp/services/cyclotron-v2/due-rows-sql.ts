@@ -24,9 +24,9 @@ const CLAIM_RETURNING = `RETURNING
     cyclotron_jobs.cancel_requested_at,
     cyclotron_jobs.lock_id`
 
-const PRIORITY_CLASSES_CTE = `priority_classes AS (
+const priorityClassesCte = (queueName: string): string => `priority_classes AS (
     (SELECT priority FROM cyclotron_jobs
-     WHERE status = 'available' AND queue_name = $1
+     WHERE status = 'available' AND queue_name = ${queueName}
      ORDER BY priority DESC, scheduled DESC
      LIMIT 1)
     UNION ALL
@@ -34,11 +34,13 @@ const PRIORITY_CLASSES_CTE = `priority_classes AS (
     FROM priority_classes c
     CROSS JOIN LATERAL (
         SELECT j.priority FROM cyclotron_jobs j
-        WHERE j.status = 'available' AND j.queue_name = $1 AND j.priority < c.priority
+        WHERE j.status = 'available' AND j.queue_name = ${queueName} AND j.priority < c.priority
         ORDER BY j.priority DESC, j.scheduled DESC
         LIMIT 1
     ) lower_class
 )`
+
+const PRIORITY_CLASSES_CTE = priorityClassesCte('$1')
 
 export const COUNT_WORK_SQL = `WITH RECURSIVE ${PRIORITY_CLASSES_CTE}
 SELECT COUNT(*)::int AS n FROM (
@@ -124,13 +126,15 @@ ${CLAIM_RETURNING}`
 
 export const FAIR_DEQUEUE_CANDIDATE_CAP = 1000
 
-export const FAIR_DEQUEUE_JOBS_SQL = `WITH RECURSIVE ${PRIORITY_CLASSES_CTE},
+const OPAQUE_QUEUE_NAME = '(SELECT $1::text)'
+
+export const FAIR_DEQUEUE_JOBS_SQL = `WITH RECURSIVE ${priorityClassesCte(OPAQUE_QUEUE_NAME)},
 due AS MATERIALIZED (
     SELECT due.id, due.priority, due.dequeue_seq
     FROM (SELECT priority FROM priority_classes ORDER BY priority ASC) c
     CROSS JOIN LATERAL (
         SELECT j.id, j.priority, j.dequeue_seq FROM cyclotron_jobs j
-        WHERE j.status = 'available' AND j.queue_name = $1 AND j.priority = c.priority AND j.scheduled <= NOW()
+        WHERE j.status = 'available' AND j.queue_name = ${OPAQUE_QUEUE_NAME} AND j.priority = c.priority AND j.scheduled <= NOW()
         ORDER BY j.scheduled ASC
         LIMIT ${FAIR_DEQUEUE_CANDIDATE_CAP} + 1
     ) due
@@ -144,7 +148,7 @@ from_due AS (
     FROM (SELECT id, priority, dequeue_seq FROM due ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST) d
     JOIN cyclotron_jobs j ON j.id = d.id
     WHERE (SELECT all_due_rows FROM complete)
-      AND j.status = 'available' AND j.queue_name = $1
+      AND j.status = 'available' AND j.queue_name = ${OPAQUE_QUEUE_NAME}
     ORDER BY d.priority ASC, d.dequeue_seq ASC NULLS FIRST
     LIMIT $2
     FOR UPDATE OF j SKIP LOCKED

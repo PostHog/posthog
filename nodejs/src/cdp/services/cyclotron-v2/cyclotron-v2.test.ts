@@ -2185,6 +2185,55 @@ describe('Cyclotron V2', () => {
                 expect(withBacklog - withoutBacklog).toBeLessThan(budget)
             }
         )
+
+        async function seedEmailAfterAnalyze(emailBacklogJobs: number): Promise<void> {
+            const applicationName = 'polling-cost-seed'
+            const client = new Client({ connectionString: sessionUrl(applicationName, 'custom') })
+            await client.connect()
+            try {
+                await client.query('TRUNCATE cyclotron_jobs')
+                await client.query(
+                    `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition)
+                     SELECT gen_random_uuid(), 1, $1, 'available', (g % 3)::smallint,
+                            NOW() + interval '1 hour' + g * interval '1 minute', NOW(), NOW()
+                     FROM generate_series(1, $2::int) g`,
+                    [BACKLOG_QUEUE, BACKLOG_ROWS * 2]
+                )
+                await client.query('ANALYZE cyclotron_jobs')
+                await client.query(
+                    `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition, dequeue_seq)
+                     SELECT gen_random_uuid(), 1, 'email', 'available', (g % 3)::smallint,
+                            CASE WHEN g = 1 THEN NOW() - interval '1 minute'
+                                 ELSE NOW() + interval '1 hour' + g * interval '1 minute' END,
+                            NOW(), NOW(),
+                            CASE WHEN g = 1 THEN $1::int + 1 ELSE g - 1 END
+                     FROM generate_series(1, $1::int + 1) g`,
+                    [emailBacklogJobs]
+                )
+                await client.query('VACUUM cyclotron_jobs')
+            } finally {
+                await client.end()
+            }
+            await untilSessionStatsFlushed(applicationName)
+        }
+
+        it.each(PARAMETERIZED_SQL_PLANS)(
+            'the email fair dequeue does not read through an email backlog the statistics have not seen under a %s plan',
+            async (mode) => {
+                const claimOnce = async (dbUrl: string): Promise<void> => {
+                    const { polled, markPolled } = pollSignal()
+                    await pollOnce(createWorker('email', { pool: { dbUrl } }), polled, () =>
+                        Promise.resolve(markPolled())
+                    )
+                }
+                await seedEmailAfterAnalyze(0)
+                const withoutBacklog = await buffersReadBy(claimOnce, mode)
+                await seedEmailAfterAnalyze(BACKLOG_ROWS)
+                const withBacklog = await buffersReadBy(claimOnce, mode)
+
+                expect(withBacklog - withoutBacklog).toBeLessThan(BACKLOG_BUFFER_BUDGET_WITH_CLAIM_INDEX_WRITES)
+            }
+        )
     })
 
     // ── Email fair dequeue ───────────────────────────────────────────
