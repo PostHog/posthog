@@ -386,7 +386,11 @@ def test_saved_filter_applies_before_the_limit_and_drops_malformed_rows() -> Non
         records = data_warehouse_record_fetcher(
             team=MagicMock(pk=1),
             config=_make_config(max_records=10),
-            context={"table_name": "issues", "extra": {}, "source_config": {"hogql_filter": saved}},
+            context={
+                "table_name": "issues",
+                "extra": {"source_type": "Linear", "schema_name": "issues"},
+                "source_config": {"hogql_filter": saved},
+            },
         )
 
     assert records == [{"id": 1, "description": "kept"}]

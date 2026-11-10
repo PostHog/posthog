@@ -159,8 +159,8 @@ def data_warehouse_record_fetcher(
         logger.warning(
             "Excluded records with malformed filter fields",
             malformed_count=len(records) - len(passing),
-            source_product=config.source_product,
-            source_type=config.source_type,
+            signal_source_product=config.source_product,
+            signal_source_type=config.source_type,
             signals_type="data-import-signals",
             **extra,
         )
