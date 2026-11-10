@@ -492,7 +492,6 @@ const TODAY_UNFILED_FOLDERS: ReadonlySet<string> = new Set(['Unfiled/Canvases'])
  * the file system hide behind its flag: other flagged types kept their rows before, and their pages gate
  * themselves, so hiding them here would change the tree for everyone.
  */
-/** Whether a file type is offered as a tree filter, which also needs the type's own flag. */
 export function isFileTypeFilterEnabled(
     productType: { value: string; flag?: string },
     featureFlags: Record<string, unknown>
@@ -513,7 +512,6 @@ export function isFileSystemEntryTypeEnabled(
         return !TODAY_UNFILED_FOLDERS.has(entry.path ?? '') || !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
     }
     const baseType = entry.type?.split('/')[0] ?? ''
-    // The `workflows` type gives way to the `hog_flow` workflow files once they show, so lists offer one "Workflow"
     if (baseType === 'workflows' && featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]) {
         return false
     }
