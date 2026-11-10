@@ -3628,15 +3628,16 @@ describe('Workflows E2E (email queue)', () => {
             }
         }
 
-        // A mail client's one-click unsubscribe (RFC 8058): offered only when both headers are present, it POSTs
-        // the List-Unsubscribe-Post value to the List-Unsubscribe link. The link's host is the preferences page.
+        // A mail client's one-click unsubscribe (RFC 8058): offered only for an https List-Unsubscribe link with
+        // List-Unsubscribe-Post set to that one key and value, which it POSTs to the link. The link's host is the
+        // preferences page.
         const oneClickUnsubscribe = async (
             headers: Record<string, string>,
             preferencesPageUrl: string
         ): Promise<boolean> => {
             const link = headers['list-unsubscribe']?.match(/<(https:[^>]+)>/)?.[1]
             const postBody = headers['list-unsubscribe-post']
-            if (!link || !postBody) {
+            if (!link || postBody?.trim() !== 'List-Unsubscribe=One-Click') {
                 return false
             }
             const { pathname, search } = new URL(link)
