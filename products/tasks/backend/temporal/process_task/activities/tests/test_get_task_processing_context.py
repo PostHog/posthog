@@ -126,18 +126,22 @@ def test_snapshot_resume_requires_a_resume_marker_and_snapshot(state: dict[str, 
 
 
 @pytest.mark.parametrize(
-    "origin_product,model,expected",
+    "origin_product,billing_product,model,expected",
     [
-        ("posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
-        ("posthog_ai", "zai-org/glm-5.3", None),
-        ("posthog_ai", "claude-opus-5-5", "claude-opus-5-5"),
-        ("posthog_ai", "gpt-6-sol", "gpt-6-sol"),
-        ("user_created", "deepseek-ai/deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
-        ("posthog_ai", None, None),
+        ("posthog_ai", None, "deepseek-ai/deepseek-v4-flash-0731", None),
+        ("posthog_ai", None, "zai-org/glm-5.3", None),
+        ("posthog_ai", None, "claude-opus-5-5", "claude-opus-5-5"),
+        ("posthog_ai", None, "gpt-6-sol", "gpt-6-sol"),
+        ("user_created", None, "deepseek-ai/deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
+        ("posthog_ai", None, None, None),
+        ("signal_report", "posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
+        ("signals_scout", "posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
+        ("signal_report", "posthog_ai", "claude-opus-5-5", "claude-opus-5-5"),
+        ("signal_report", None, "deepseek-ai/deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
     ],
 )
-def test_posthog_ai_run_drops_a_model_outside_its_gateway_pin(
-    origin_product: str, model: str | None, expected: str | None
+def test_posthog_ai_billed_run_drops_a_model_outside_its_gateway_pin(
+    origin_product: str, billing_product: str | None, model: str | None, expected: str | None
 ):
     context = TaskProcessingContext(
         task_id="task-id",
@@ -149,7 +153,7 @@ def test_posthog_ai_run_drops_a_model_outside_its_gateway_pin(
         repository=None,
         distinct_id="distinct-id",
         origin_product=origin_product,
-        state={"model": model},
+        state={"model": model, "billing_product": billing_product},
     )
 
     assert context.model == expected

@@ -49,6 +49,7 @@ from products.tasks.backend.temporal.process_task import utils
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     _PRODUCT_ALLOWED_MODELS,
     AI_CREDITS_BILLED_PRODUCTS,
+    AI_GATEWAY_TOKEN_UNAVAILABLE,
     INTERACTIVE_MINTABLE_PRODUCTS,
     MINTABLE_PRODUCTS,
     PRODUCT_CREDIT_BUCKET,
@@ -618,8 +619,9 @@ class TestMintableGate:
                 assert env["AI_GATEWAY_PRODUCT"] == "background_agents"
                 mint.assert_called_once_with(ai_product="background_agents", team_id=123, user=None)
             else:
-                with pytest.raises(GatewayTokenUnavailableError, match="no_background_agents_provenance"):
+                with pytest.raises(GatewayTokenUnavailableError) as refused:
                     ai_gateway_env_vars(team_id=123, origin_product=origin_product, internal=True)
+                assert refused.value.context["reason"] == "no_background_agents_provenance"
                 mint.assert_not_called()
 
     def test_routed_review_hog_mints(self, mint_settings):
@@ -1212,7 +1214,7 @@ class TestSlackAppMint:
 
     @pytest.mark.parametrize("state", [None, {}, {"interaction_origin": "desktop"}])
     def test_run_without_slack_provenance_does_not_mint(self, mint_settings, state):
-        with pytest.raises(GatewayTokenUnavailableError):
+        with pytest.raises(GatewayTokenUnavailableError, match="wasn't started by the PostHog feature"):
             self._env(mint_settings, state=state)
 
     def test_pi_run_does_not_mint(self, mint_settings):
@@ -1223,7 +1225,7 @@ class TestSlackAppMint:
         "model", ["claude-opus-3", "@cf/zai-org/glm-5.2", "zai-org/glm-5.3", "deepseek-ai/deepseek-v4-flash-0731"]
     )
     def test_model_outside_the_pin_does_not_mint(self, mint_settings, model):
-        with pytest.raises(GatewayTokenUnavailableError):
+        with pytest.raises(GatewayTokenUnavailableError, match="model isn't available"):
             self._env(mint_settings, model=model)
 
     @pytest.mark.parametrize("model", [None, "anthropic/claude-opus-5", "gpt-5.6-terra", "moonshotai/kimi-k3"])
@@ -1556,7 +1558,7 @@ class TestWorkflowsMint:
 
     @pytest.mark.parametrize("model", ["claude-opus-3", "@cf/zai-org/glm-5.2", "zai-org/glm-5.3"])
     def test_model_outside_the_pin_does_not_mint(self, mint_settings, model):
-        with pytest.raises(GatewayTokenUnavailableError):
+        with pytest.raises(GatewayTokenUnavailableError, match="model isn't available"):
             self._env(mint_settings, model=model)
 
     def test_served_model_mints(self, mint_settings):
@@ -1629,7 +1631,7 @@ class TestPosthogAiMint:
 
     @pytest.mark.parametrize("model", ["claude-opus-3", "@cf/zai-org/glm-5.2", "zai-org/glm-5.3"])
     def test_model_outside_the_pin_does_not_mint(self, mint_settings, model):
-        with pytest.raises(GatewayTokenUnavailableError):
+        with pytest.raises(GatewayTokenUnavailableError, match="model isn't available"):
             self._env(mint_settings, model=model)
 
     def test_served_model_mints(self, mint_settings):
@@ -1901,6 +1903,8 @@ class TestPosthogCodeSandboxMint:
     ):
         team = self._team(paid=paid)
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = routed_products
+        unavailable = AI_GATEWAY_TOKEN_UNAVAILABLE.labels(ai_product="posthog_code", reason=counted_reason)
+        unavailable_before = unavailable._value.get()
         credit_patch = (
             patch(_CREDIT_LOOKUP, side_effect=credit)
             if isinstance(credit, Exception)
@@ -1924,6 +1928,7 @@ class TestPosthogCodeSandboxMint:
             1,
             attributes={"surface": "sandbox", "ai_product": "posthog_code", "reason": counted_reason},
         )
+        assert unavailable._value.get() == unavailable_before + 1
 
     @pytest.mark.django_db
     def test_retry_after_credit_top_up_rechecks_credit_availability(self, mint_settings):

@@ -83,6 +83,7 @@ from products.tasks.backend.metrics import observe_mcp_exclude_tools_over_cap
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     AI_GATEWAY_TOKEN_MINTS,
+    AI_GATEWAY_TOKEN_UNAVAILABLE,
     MINTABLE_PRODUCTS,
     POSTHOG_CODE_PRODUCT,
     is_slack_origin,
@@ -1941,6 +1942,14 @@ _REFUSAL_MESSAGES = {
     "ai_credits_exhausted": AI_CREDITS_EXHAUSTED_DETAIL,
     "org_deactivated": "This organization is deactivated.",
     "team_not_found": "This run's project no longer exists.",
+    "model_outside_pin": "This run's model isn't available for this kind of run. Choose another model.",
+    "pi_runtime": "This run's agent runtime can't use PostHog AI. Choose another runtime.",
+    **{
+        f"no_{product}_provenance": (
+            "This run wasn't started by the PostHog feature that covers its AI usage, so it can't use PostHog AI."
+        )
+        for product in ("account_audit", "background_agents", "conversations", "slack")
+    },
 }
 _POSTHOG_CODE_REFUSAL_MESSAGES = {
     "model_outside_free_pin": "This run's model isn't included in the free plan. Choose a free-plan model or upgrade.",
@@ -1955,6 +1964,7 @@ _TRANSIENT_REFUSALS = frozenset(
 
 def gateway_token_unavailable(reason: str, team_id: int, ai_product: str) -> ProcessTaskError:
     record_gateway_token_refusal("sandbox", reason, ai_product=ai_product)
+    AI_GATEWAY_TOKEN_UNAVAILABLE.labels(ai_product=ai_product, reason=reason).inc()
     context: dict[str, Any] = {"team_id": team_id, "ai_product": ai_product, "reason": reason}
     if reason in _TRANSIENT_REFUSALS:
         # Also the run's final error after the last retry, so it can't promise one.
