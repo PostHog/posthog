@@ -113,9 +113,10 @@ def render_body(report: Report) -> str:
         "through a real dependency or a faithful fake. Stub a dependency only to inject a fault, "
         "and still assert on the outcome.",
         "",
-        "When the mock is the unit's only real output, such as an outbound HTTP call, a produced message, "
-        "a queued job, or a callback the caller passes in, asserting on its calls is the outcome. "
-        "Leave those as they are.",
+        "When the mock stands in for the unit's only real output, such as an outbound HTTP call, a produced message, "
+        "or a queued job, its calls are the outcome rather than plumbing. "
+        "A fake that records what it receives, such as a local HTTP server or an in-memory queue, "
+        "checks the same outcome and survives a refactor.",
         "",
     ]
     if top:
