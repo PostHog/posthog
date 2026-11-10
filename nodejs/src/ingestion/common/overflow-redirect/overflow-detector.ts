@@ -23,7 +23,6 @@ export class MemoryRateLimiter {
         this.replenishRate = replenishRate
         this.maxBuckets = maxBuckets
         this.refillWindowMs = (bucketCapacity / replenishRate) * 1000
-        // A tiny window would scan every bucket on every call.
         this.sweepIntervalMs = this.refillWindowMs > MIN_SWEEP_INTERVAL_MS ? this.refillWindowMs : MIN_SWEEP_INTERVAL_MS
     }
 
@@ -71,22 +70,15 @@ export class MemoryRateLimiter {
         return true
     }
 
-    /**
-     * Removes buckets that are full again: a full bucket gives the same decision as a new one.
-     * Runs at most once per refill window, so the caller can pass the clock once per batch.
-     *
-     * Bucket timestamps are event time, so a bucket counts as full only when the newest event time
-     * is one refill window past it and the bucket saw no consume since the previous sweep, which is
-     * at least one refill window of wall clock ago. A stopped consumer or a lagging partition must
-     * not reset buckets that are still draining.
-     */
-    sweepRefilled(wallNow: number): void {
+    removeRefilledBuckets(wallNow: number): void {
         if (wallNow < this.nextSweepAt) {
             return
         }
         this.nextSweepAt = wallNow + this.sweepIntervalMs
         for (const [key, bucket] of this.buckets) {
-            if (bucket[2] < this.sweepCount && this.latestTimestamp - bucket[1] >= this.refillWindowMs) {
+            const refilledInEventTime = this.latestTimestamp - bucket[1] >= this.refillWindowMs
+            const idleSincePreviousSweep = bucket[2] < this.sweepCount
+            if (refilledInEventTime && idleSincePreviousSweep) {
                 this.buckets.delete(key)
             }
         }

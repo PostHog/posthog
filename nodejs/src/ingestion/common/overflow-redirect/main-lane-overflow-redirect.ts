@@ -182,7 +182,7 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         }
 
         for (const { label, limiter } of this.strategies) {
-            limiter.sweepRefilled(now)
+            limiter.removeRefilledBuckets(now)
             overflowRedirectRateLimiterBuckets.labels(type, label).set(limiter.buckets.size)
         }
 

@@ -88,20 +88,20 @@ describe('MemoryRateLimiter', () => {
 
         it('removes a bucket once the event time and the clock both pass its refill window', () => {
             limiter.consume('quiet', 10, at(0))
-            limiter.sweepRefilled(at(0))
+            limiter.removeRefilledBuckets(at(0))
 
             limiter.consume('active', 1, at(refillWindowSeconds))
-            limiter.sweepRefilled(at(refillWindowSeconds))
+            limiter.removeRefilledBuckets(at(refillWindowSeconds))
 
             expect([...limiter.buckets.keys()]).toEqual(['active'])
         })
 
         it('keeps an empty bucket and its decision while the event time stays inside its refill window', () => {
             limiter.consume('drained', 10, at(0))
-            limiter.sweepRefilled(at(0))
+            limiter.removeRefilledBuckets(at(0))
 
             limiter.consume('other', 1, at(refillWindowSeconds - 1))
-            limiter.sweepRefilled(at(refillWindowSeconds * 10))
+            limiter.removeRefilledBuckets(at(refillWindowSeconds * 10))
 
             expect(limiter.buckets.has('drained')).toEqual(true)
             expect(limiter.consume('drained', 1, at(0))).toEqual(false)
@@ -110,11 +110,11 @@ describe('MemoryRateLimiter', () => {
         it('keeps the bucket and its decision for a key that consumes on a lagging partition', () => {
             limiter.consume('lagging', 10, at(0))
             limiter.consume('current', 1, at(1000))
-            limiter.sweepRefilled(at(0))
+            limiter.removeRefilledBuckets(at(0))
 
             expect(limiter.consume('lagging', 1, at(2))).toEqual(true)
             limiter.consume('current', 1, at(1000 + refillWindowSeconds))
-            limiter.sweepRefilled(at(refillWindowSeconds))
+            limiter.removeRefilledBuckets(at(refillWindowSeconds))
 
             expect(limiter.buckets.has('lagging')).toEqual(true)
             expect(limiter.consume('lagging', 4, at(2))).toEqual(false)
@@ -122,13 +122,13 @@ describe('MemoryRateLimiter', () => {
 
         it('sweeps at most once per refill window', () => {
             limiter.consume('a', 10, at(1))
-            limiter.sweepRefilled(at(1))
+            limiter.removeRefilledBuckets(at(1))
             limiter.consume('b', 1, at(1 + refillWindowSeconds))
 
-            limiter.sweepRefilled(at(1 + refillWindowSeconds) - 1)
+            limiter.removeRefilledBuckets(at(1 + refillWindowSeconds) - 1)
             expect(limiter.buckets.has('a')).toEqual(true)
 
-            limiter.sweepRefilled(at(1 + refillWindowSeconds))
+            limiter.removeRefilledBuckets(at(1 + refillWindowSeconds))
             expect(limiter.buckets.has('a')).toEqual(false)
         })
     })
