@@ -167,7 +167,7 @@ export interface ProbabilityBucket {
 }
 
 /** Above this share of people, the 0-10% bucket flattens every other bar, so the histogram hides it by default. */
-export const LOWEST_BUCKET_HIDE_SHARE = 0.8
+const LOWEST_BUCKET_HIDE_SHARE = 0.8
 
 export interface LowestBucket {
     users: number
@@ -186,7 +186,7 @@ export function lowestBucket(buckets: ProbabilityBucket[] | null): LowestBucket 
 }
 
 /** Below this share of people with a recent score, the Predictions tab states the coverage above the segments. */
-export const LOW_COVERAGE_PCT = 90
+const LOW_COVERAGE_PCT = 90
 
 export type PredictionsPanel = 'distribution' | 'people' | 'coverage' | 'volume'
 

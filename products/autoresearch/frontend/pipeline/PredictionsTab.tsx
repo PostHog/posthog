@@ -5,7 +5,7 @@ import { LemonCollapse, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { PredictionsPanel, autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
+import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { DailyVolumeChart } from '../DailyVolumeChart'
 import { ProbabilityHistogram } from '../ProbabilityHistogram'
 import { EmptyTab } from './EmptyTab'
@@ -126,7 +126,7 @@ export function PredictionsTab(): JSX.Element {
                 className="bg-surface-primary"
                 multiple
                 activeKeys={predictionsPanels}
-                onChange={(panels: PredictionsPanel[]) => setPredictionsPanels(panels)}
+                onChange={setPredictionsPanels}
                 panels={[
                     {
                         key: 'distribution',

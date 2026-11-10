@@ -87,7 +87,7 @@ export function LowCoverageNotice(): JSX.Element | null {
         return null
     }
     return (
-        <LemonBanner type="warning">
+        <LemonBanner type="info">
             <span>{`${Math.round(lowCoveragePct)}% of people have a recent score. `}</span>
             <Link
                 data-attr="autoresearch-see-coverage"
