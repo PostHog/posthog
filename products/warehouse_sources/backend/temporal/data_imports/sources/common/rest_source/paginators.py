@@ -361,8 +361,7 @@ class PageNumberPaginator(BasePaginator):
         self.maximum_page = maximum_page
         self.stop_after_empty_page = stop_after_empty_page
         self.param_location = param_location
-        # The page size the request asks for. A page with fewer rows is the last page, so an API that
-        # never returns an empty page (it repeats the last page, or ignores the page param) still stops.
+        # A short page is the last one, for APIs that never return an empty page.
         self.page_size = page_size
 
     def init_request(self, request: Request) -> None:

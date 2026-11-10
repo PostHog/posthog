@@ -4,15 +4,18 @@ from typing import Any, Literal
 
 import pytest
 import time_machine
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.blueshift._config import BlueshiftSourceConfig
 from products.warehouse_sources.sources.blueshift.blueshift import (
     MAX_STATS_RETRY_ATTEMPTS,
+    MAX_STATS_RETRY_WAIT_SECONDS,
     BlueshiftResumeConfig,
     BlueshiftRetryableError,
     BlueshiftStatsCursor,
+    _wait_stats,
 )
 from products.warehouse_sources.sources.blueshift.source import BlueshiftSource
 from products.warehouse_sources.sources.sdk import SourceCursorManager
@@ -65,12 +68,12 @@ class TestBlueshiftLists:
             ("resume_in_archived_pass", BlueshiftResumeConfig(next_page=0, list_pass=1), ["true"], ["b", "c"]),
         ]
     )
-    def test_campaigns_walks_live_then_archived_campaigns(
+    def test_campaigns_writes_each_campaign_in_one_pass(
         self, _name: str, resume_state: BlueshiftResumeConfig | None, archived: list[str], uuids: list[str]
     ) -> None:
         def answer(request: Any) -> ScriptedResponse:
-            rows = ["a", "b"] if request.param("archived") == "false" else ["b", "c"]
-            return ScriptedResponse(json=[{"uuid": uuid} for uuid in rows])
+            rows = [("a", False), ("b", True)] if request.param("archived") == "false" else [("b", True), ("c", True)]
+            return ScriptedResponse(json=[{"uuid": uuid, "archived": flag} for uuid, flag in rows])
 
         result = _driver().run("campaigns", answer, resume_state=resume_state)
 
@@ -94,14 +97,31 @@ class TestBlueshiftLists:
         assert key in str(result.raised)
         assert len(result.requests) == 1
 
-    def test_resume_starts_from_the_saved_page(self) -> None:
-        result = _driver().run(
-            "email_templates",
-            [ScriptedResponse(json={"template": []})],
-            resume_state=BlueshiftResumeConfig(next_page=7),
-        )
+    @parameterized.expand(
+        [
+            ("later_page", 7, {7: (0, 0)}, ["7"], []),
+            ("page_one_counting_from_zero", 1, {0: (0, 100), 1: (100, 150)}, ["0", "1"], list(range(100, 150))),
+            (
+                "page_one_counting_from_one",
+                1,
+                {0: (0, 100), 1: (0, 100), 2: (100, 150)},
+                ["0", "1", "2"],
+                list(range(100, 150)),
+            ),
+        ]
+    )
+    def test_resume_writes_no_row_of_an_earlier_page(
+        self, _name: str, next_page: int, pages: dict[int, tuple[int, int]], requested: list[str], written: list[int]
+    ) -> None:
+        def answer(request: Any) -> ScriptedResponse:
+            start, stop = pages[int(request.param("page"))]
+            return _segments(start, stop)
 
-        assert result.params("page") == ["7"]
+        result = _driver().run("segments", answer, resume_state=BlueshiftResumeConfig(next_page=next_page))
+
+        assert result.raised is None
+        assert result.params("page") == requested
+        assert [row["uuid"] for row in result.rows] == [f"s{i}" for i in written]
 
     @parameterized.expand(
         [
@@ -141,6 +161,21 @@ class TestBlueshiftLists:
 
 
 class TestBlueshiftCampaignStats:
+    @parameterized.expand([("server_delay_above_backoff_cap", 120.0, 120.0), ("no_server_delay", None, None)])
+    def test_retry_waits_the_delay_the_server_asks_for(
+        self, _name: str, retry_after: float | None, expected: float | None
+    ) -> None:
+        outcome = MagicMock()
+        outcome.exception.return_value = BlueshiftRetryableError("status=429", retry_after=retry_after)
+        state = MagicMock(outcome=outcome, attempt_number=1)
+
+        wait = _wait_stats(state)
+
+        if expected is None:
+            assert 0 <= wait <= MAX_STATS_RETRY_WAIT_SECONDS
+        else:
+            assert wait == expected
+
     @parameterized.expand(
         [
             ("watermark_rereads_a_week", {"db_incremental_field_last_value": date(2026, 10, 13)}, "2026-10-06"),

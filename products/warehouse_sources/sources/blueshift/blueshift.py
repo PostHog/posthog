@@ -45,10 +45,7 @@ logger = structlog.get_logger(__name__)
 
 STATS_REQUEST_TIMEOUT = 120
 _ISO_UTC = "%Y-%m-%dT%H:%M:%S.000Z"
-# Blueshift documents no rate limit, but it returns 429 when the account sends too many requests,
-# and every table of the source counts against the same account. The stats walk is fetched with a
-# raw `session.get`, not `rest_api_resource`, so it needs its own retry-with-backoff before giving
-# up, same as every other hand-rolled source transport in this tree.
+# Every table of a source shares one account rate limit, which Blueshift does not document.
 MAX_STATS_RETRY_ATTEMPTS = 8
 MAX_STATS_RETRY_WAIT_SECONDS = 60
 
@@ -109,6 +106,17 @@ def _row_key(row: Any, primary_keys: list[str]) -> Optional[tuple[Any, ...]]:
     return tuple(row.get(key) for key in primary_keys) if isinstance(row, dict) else None
 
 
+class _EmittedKeys:
+    """Keys of the rows a page walk has handed on, shared by its paginator and its row filter."""
+
+    def __init__(self) -> None:
+        self.keys: set[tuple[Any, ...]] = set()
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> "_EmittedKeys":
+        # The client deep-copies its paginator, and the copy must still mark rows for this walk's filter.
+        return self
+
+
 class BlueshiftPagePaginator(PageNumberPaginator):
     """Walks a Blueshift list until a short page, or a page that holds no row not seen before.
 
@@ -116,60 +124,81 @@ class BlueshiftPagePaginator(PageNumberPaginator):
     empty page never comes.
     """
 
-    def __init__(self, primary_keys: list[str]) -> None:
+    def __init__(self, endpoint: str, primary_keys: list[str], emitted: _EmittedKeys, replay_first_page: bool) -> None:
         super().__init__(base_page=FIRST_PAGE, page_param="page", page_size=PAGE_SIZE)
+        self._endpoint = endpoint
         self._primary_keys = primary_keys
         self._seen: set[tuple[Any, ...]] = set()
+        self._emitted = emitted
+        self._replay_first_page = replay_first_page
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         keys = {key for row in data or [] if (key := _row_key(row, self._primary_keys)) is not None}
         has_new_rows = not keys <= self._seen
         self._seen |= keys
+        if self._replay_first_page and self.page == FIRST_PAGE:
+            self._emitted.keys |= keys
         # An endpoint that counts pages from 1 answers page 0 as page 1, so page 1 repeats it once.
         if data and not has_new_rows and self.page != FIRST_PAGE + 1:
-            logger.warning("Blueshift list page repeats earlier rows, ending the walk", page=self.page)
+            logger.warning(
+                "Blueshift list page repeats earlier rows, ending the walk", endpoint=self._endpoint, page=self.page
+            )
             self._has_next_page = False
             return
         super().update_state(response, data)
 
 
-def _first_sighting(primary_keys: list[str]) -> Callable[[dict[str, Any]], bool]:
-    seen: set[tuple[Any, ...]] = set()
-
+def _first_sighting(primary_keys: list[str], emitted: _EmittedKeys) -> Callable[[dict[str, Any]], bool]:
     def keep(row: dict[str, Any]) -> bool:
         key = _row_key(row, primary_keys)
         if key is None:
             return True
-        if key in seen:
+        if key in emitted.keys:
             return False
-        seen.add(key)
+        emitted.keys.add(key)
         return True
 
     return keep
 
 
-def _list_endpoint(config: BlueshiftEndpointConfig, pass_params: dict[str, str]) -> Endpoint:
+def _in_pass(pass_params: dict[str, str]) -> Callable[[dict[str, Any]], bool]:
+    archived = pass_params.get("archived")
+    if archived is None:
+        return lambda _row: True
+    return lambda row: bool(row.get("archived")) == (archived == "true")
+
+
+def _list_endpoint(
+    config: BlueshiftEndpointConfig,
+    pass_params: dict[str, str],
+    emitted: _EmittedKeys,
+    replay_first_page: bool,
+) -> Endpoint:
     endpoint: Endpoint = {"path": config.path}
     if config.pagination == "page":
         endpoint["params"] = {"per_page": PAGE_SIZE, **config.params, **pass_params}
-        endpoint["paginator"] = BlueshiftPagePaginator(config.primary_keys)
+        endpoint["paginator"] = BlueshiftPagePaginator(config.name, config.primary_keys, emitted, replay_first_page)
     else:
         endpoint["paginator"] = SinglePagePaginator()
     if config.data_selector is not None:
         endpoint["data_selector"] = config.data_selector
-    # A body of another shape fails the sync with its keys, and is not synced as 0 rows or as one envelope row per page.
     endpoint["data_selector_required"] = True
     endpoint["data_selector_empty_ok"] = True
     return endpoint
 
 
-def get_resource(config: BlueshiftEndpointConfig, pass_params: dict[str, str]) -> EndpointResource:
+def get_resource(
+    config: BlueshiftEndpointConfig,
+    pass_params: dict[str, str],
+    emitted: _EmittedKeys,
+    replay_first_page: bool,
+) -> EndpointResource:
     return {
         "name": config.name,
         "table_name": config.name,
         "primary_key": config.primary_keys,
         "write_disposition": "replace",
-        "endpoint": _list_endpoint(config, pass_params),
+        "endpoint": _list_endpoint(config, pass_params, emitted, replay_first_page),
         "table_format": "delta",
     }
 
@@ -201,7 +230,8 @@ def _stats_server_delay(retry_state: RetryCallState) -> float | None:
 def _wait_stats(retry_state: RetryCallState) -> float:
     retry_after = _stats_server_delay(retry_state)
     if retry_after is not None:
-        return min(retry_after, MAX_STATS_RETRY_WAIT_SECONDS)
+        # The request deadline ends the retries when the server's delay does not fit the budget.
+        return retry_after
     return _stats_backoff(retry_state)
 
 
@@ -286,8 +316,6 @@ def _campaign_stats_rows(
     first_request = True
     while day <= today:
         if not first_request:
-            # The walk sends one request per day of backfill, so it spaces them out to stay under the
-            # account's rate limit, which the other tables of the source use too.
             interruptible_wait(STATS_REQUEST_INTERVAL_SECONDS, safe_point=resumable_source_manager.safe_point)
         first_request = False
         body = _fetch_stats_day(session, url, headers, day)
@@ -348,7 +376,6 @@ def blueshift_source(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     start_pass = (resume.list_pass or 0) if resume is not None else 0
     start_page = resume.next_page if resume is not None else None
-    keep = _first_sighting(config.primary_keys)
 
     def build_pass(pass_index: int, page: Optional[int]) -> Resource:
         def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
@@ -357,19 +384,26 @@ def blueshift_source(
                     BlueshiftResumeConfig(next_page=int(state["page"]), list_pass=pass_index or None)
                 )
 
+        pass_params = config.passes[pass_index]
+        emitted = _EmittedKeys()
+        # Page 1 can repeat page 0, which the run before this one already wrote.
+        replay_first_page = page == FIRST_PAGE + 1
+        if replay_first_page:
+            page = FIRST_PAGE
         rest_config: RESTAPIConfig = {
             "client": _client_config(region, api_key),
             "resource_defaults": {},
-            "resources": [get_resource(config, config.passes[pass_index])],
+            "resources": [get_resource(config, pass_params, emitted, replay_first_page)],
         }
-        return rest_api_resource(
+        resource = rest_api_resource(
             rest_config,
             team_id,
             job_id,
             None,
             resume_hook=save_checkpoint,
             initial_paginator_state={"page": page} if page is not None else None,
-        ).add_filter(keep)
+        )
+        return resource.add_filter(_in_pass(pass_params)).add_filter(_first_sighting(config.primary_keys, emitted))
 
     first = build_pass(start_pass, start_page)
     if start_pass == len(config.passes) - 1:
@@ -381,8 +415,6 @@ def blueshift_source(
             resumable_source_manager.save_state(BlueshiftResumeConfig(next_page=FIRST_PAGE, list_pass=pass_index))
             yield from build_pass(pass_index, None)
 
-    # The walk hands each page on unchanged and holds no rows. As a `Resource` it keeps the
-    # framework's checkpoints, so a run that waits on a rate limit can hand off.
     passes = Resource(walk_passes, name=config.name, hints=first._hints)
     return _source_response(config, lambda: passes)
 
