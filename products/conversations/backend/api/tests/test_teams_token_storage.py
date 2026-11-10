@@ -1,13 +1,16 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 
 from django.db import connection
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models.team.extensions import get_or_create_team_extension
 
-from products.conversations.backend.models import TeamConversationsTeamsConfig
+from products.conversations.backend.models import TeamConversationsTeamsChannelSync, TeamConversationsTeamsConfig
 from products.conversations.backend.support_teams import (
     clear_teams_token,
     get_graph_token,
@@ -46,6 +49,26 @@ class TestTeamsTokenStorage(BaseTest):
         self.team.refresh_from_db()
         settings = self.team.conversations_settings or {}
         assert settings["teams_enabled"] is True
+
+    def test_save_clears_shared_channel_denial_holds(self):
+        sync = TeamConversationsTeamsChannelSync.objects.for_team(self.team.id).create(
+            team=self.team,
+            teams_team_id="group-1",
+            channel_id="19:held@thread.tacv2",
+            denied_until=timezone.now() + timedelta(hours=1),
+        )
+
+        save_teams_token(
+            team=self.team,
+            user=self.user,
+            is_impersonated_session=False,
+            access_token="tok",
+            refresh_token="ref",
+            tenant_id="t-1",
+        )
+
+        sync.refresh_from_db()
+        assert sync.denied_until is None
 
     def test_tokens_not_in_conversations_settings_json(self):
         save_teams_token(

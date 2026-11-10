@@ -933,6 +933,115 @@ describe('EmailTrackingService', () => {
                     expect(recordedMetrics()).toEqual(bounceMetrics)
                 })
 
+                it('produces the metrics and logs of a whole batch in one flush before the batch resolves', async () => {
+                    const hogFlow = await insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                    )
+                    for (let i = 0; i < 3; i++) {
+                        await postBounce({ functionId: hogFlow.id })
+                    }
+                    const flush = jest.spyOn(consumer['emailTrackingService']['hogFunctionMonitoringService'], 'flush')
+
+                    await consumer.processBatch(queuedNotifications())
+
+                    expect(flush).toHaveBeenCalledTimes(1)
+                    expect(recordedMetrics()).toEqual([
+                        ['email_bounced', 3],
+                        ['email_bounced_hard', 3],
+                    ])
+                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)).toHaveLength(3)
+                })
+
+                it('fails the batch so Kafka redelivers it when the flush fails', async () => {
+                    await postBounce({ functionId: hogFunction.id })
+                    jest.spyOn(
+                        consumer['emailTrackingService']['hogFunctionMonitoringService'],
+                        'flush'
+                    ).mockRejectedValueOnce(new Error('broker unavailable'))
+
+                    await expect(consumer.processBatch(queuedNotifications())).rejects.toThrow('broker unavailable')
+                })
+
+                it('flushes the notifications that recorded before it fails the batch', async () => {
+                    const parentRunId = new UUIDT().toString()
+                    await postEnvelope({
+                        Type: 'Notification',
+                        MessageId: new UUIDT().toString(),
+                        TopicArn: sesTopicArn,
+                        Message: JSON.stringify({
+                            eventType: 'Open',
+                            mail: {
+                                timestamp: '2024-01-01T00:00:00.000Z',
+                                source: 'sender@posthog.com',
+                                messageId: 'ses-message-id',
+                                destination: ['user@example.com'],
+                                headers: [
+                                    {
+                                        name: TRACKING_CODE_HEADER_NAME,
+                                        value: signer.generate({
+                                            functionId: hogFunction.id,
+                                            id: new UUIDT().toString(),
+                                            teamId: team.id,
+                                            parentRunId,
+                                        }),
+                                    },
+                                ],
+                            },
+                            open: { timestamp: '2024-01-01T00:00:00.000Z' },
+                        }),
+                    })
+                    const failingId = new UUIDT().toString()
+                    await postBounce({ functionId: hogFunction.id, snsMessageId: failingId })
+                    const service = consumer['emailTrackingService']
+                    const record = service.recordQueuedSesNotification.bind(service)
+                    jest.spyOn(service, 'recordQueuedSesNotification').mockImplementation((envelope) =>
+                        envelope.MessageId === failingId
+                            ? Promise.reject(new Error('datastore down'))
+                            : record(envelope)
+                    )
+
+                    await expect(consumer.processBatch(queuedNotifications())).rejects.toThrow('datastore down')
+
+                    expect(recordedMetrics()).toEqual([
+                        ['email_opened', 1],
+                        ['email_opened_by_person', 1],
+                    ])
+                })
+
+                it('records at most 10 notifications at a time and starts none after one fails', async () => {
+                    const pending: { resolve: (skip: null) => void; reject: (error: Error) => void }[] = []
+                    jest.spyOn(consumer as any, 'record').mockImplementation(
+                        () => new Promise((resolve, reject) => pending.push({ resolve, reject }))
+                    )
+                    const flush = jest.spyOn(consumer['emailTrackingService'], 'flush')
+                    let settled = false
+                    const batch = consumer
+                        .processBatch(Array.from({ length: 25 }, () => createKafkaMessage(null)))
+                        .finally(() => {
+                            settled = true
+                        })
+                    const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+                    await tick()
+                    expect(pending).toHaveLength(10)
+
+                    pending[0].resolve(null)
+                    await tick()
+                    expect(pending).toHaveLength(11)
+
+                    pending[1].reject(new Error('datastore down'))
+                    await tick()
+                    expect(pending).toHaveLength(11)
+                    expect(settled).toBe(false)
+                    expect(flush).not.toHaveBeenCalled()
+
+                    pending.slice(2).forEach(({ resolve }) => resolve(null))
+                    await expect(batch).rejects.toThrow('datastore down')
+                    expect(pending).toHaveLength(11)
+                    expect(flush).toHaveBeenCalledTimes(1)
+                })
+
                 it('queues a sensitive email click without its subject or link secrets and still records it', async () => {
                     const trackingCode = signer.generate({
                         functionId: hogFunction.id,
@@ -1207,6 +1316,7 @@ describe('EmailTrackingService', () => {
 
         beforeEach(() => {
             hub.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = 1
+            hub.CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS = String(team.id)
 
             api = new CdpApi(hub, createCdpConsumerDeps(hub), {
                 hogQueue: createMockJobQueue(),
@@ -1342,9 +1452,10 @@ describe('EmailTrackingService', () => {
                 suppressed: boolean
                 transient_bounce_count: number
                 deleted: boolean
+                last_bounce_at: string
             }>(
                 PostgresUse.COMMON_READ,
-                `SELECT identifier, source, suppressed, transient_bounce_count, deleted
+                `SELECT identifier, source, suppressed, transient_bounce_count, deleted, last_bounce_at
                  FROM posthog_messagesuppression
                  WHERE team_id = $1 AND identifier = $2`,
                 [team.id, email],
@@ -1357,6 +1468,7 @@ describe('EmailTrackingService', () => {
                     suppressed: true,
                     transient_bounce_count: 1,
                     deleted: false,
+                    last_bounce_at: '2024-01-01T00:00:00.000Z',
                 },
             ])
         })
