@@ -314,7 +314,6 @@ sessions, all on the PR's arm set (below) and all returning `SingleAgentReview`:
   A renamed file is routed by its new path.
   The session is one more lens unit of `lens_review_activity` under pass 2003, so a turn that runs it opens at most 10 sessions.
   Its diff holds only the owned files, and its findings go through the same dedup, ranking, and cap as the other lens findings.
-  Its prompt holds the review method only. The session reads the repository's rules from the checkout (the `AGENTS.md` files above the changed paths, and the guides and skills those files route the change to), so a rule lives in one place and the prompt names no path of any repository.
   A coordinated turn and a delta turn run without it.
   Only a turn that runs it hashes `lens_devex.md` into its fingerprint, so every other turn keeps its cohort.
 

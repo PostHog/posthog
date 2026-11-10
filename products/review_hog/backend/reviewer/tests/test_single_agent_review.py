@@ -712,7 +712,6 @@ def test_turn_stats_count_every_candidate_once_per_session() -> None:
     assert stats.must_fix == {"main": 0, "performance_reliability": 0, "contracts_security": 1}
     assert (stats.after_dedup, stats.kept, stats.dropped) == (2, 1, {"dedup_anchor": 1, "cap": 1})
     assert sum(stats.candidates.values()) == stats.kept + sum(stats.dropped.values())
-    # The devex session is named and counted only on a turn that ran it, from zero findings up.
     devex = _issue("2003-1-1", IssuePriority.CONSIDER, DEVEX_LENS.source)
     assert flash_turn_stats([main], selection, reviewable_lines=120, devex_lens=True).candidates["devex"] == 0
     assert flash_turn_stats([main, devex], selection, reviewable_lines=120, devex_lens=True).candidates["devex"] == 1

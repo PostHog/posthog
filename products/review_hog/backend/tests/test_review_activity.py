@@ -494,8 +494,6 @@ async def test_reused_single_agent_session_reports_whether_its_result_fell_back(
 
 @pytest.mark.asyncio
 async def test_devex_lens_session_sends_its_guidelines_scoped_to_the_files_the_fetch_recorded() -> None:
-    # A devex session that takes another lens's prompt or a lens part as its scope still persists a result,
-    # so only the prompt it sends shows the mistake.
     pr_files = [PRFile(filename=name, status="modified", additions=5, deletions=0) for name in ("ci.yml", "app.py")]
     routed = _snapshot(pr_files).model_copy(update={"devex_lens_files": ["ci.yml"]})
     mock_review = AsyncMock(return_value=SingleAgentReview(findings=[]))
@@ -935,9 +933,11 @@ async def test_a_standard_turn_scope_follows_its_trigger_and_run(
         patch(f"{_MODULE}.persist_verdicts"),
         patch(f"{_MODULE}._refresh_status_comment", AsyncMock()),
     ):
-        await ActivityEnvironment().run(
+        result = await ActivityEnvironment().run(
             dedup_activity,
-            SandboxStageInput(**_single_agent_stage(trigger_source=trigger_source, run_index=run_index)),
+            SandboxStageInput(
+                **_single_agent_stage(trigger_source=trigger_source, run_index=run_index, devex_lens=True)
+            ),
         )
 
     kwargs = dedupe.call_args.kwargs
@@ -946,29 +946,6 @@ async def test_a_standard_turn_scope_follows_its_trigger_and_run(
         expected_changed_code_only,
         run_index == 1,
     )
-
-
-@pytest.mark.django_db
-async def test_a_turn_that_ran_the_devex_lens_counts_its_session_when_it_found_nothing() -> None:
-    # Without the zero, the completed event cannot tell a devex session that found nothing from a turn without one.
-    selection = FlashSelection(kept=[], dropped=[], cap=4, lens_part_count=1)
-    with (
-        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
-        patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
-        patch(f"{_MODULE}._combine_and_clean", return_value=[]),
-        patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot()),
-        patch(f"{_MODULE}.load_prior_findings_with_verdicts", return_value=[]),
-        patch(f"{_MODULE}._changed_since_last_review", return_value=None),
-        patch(f"{_MODULE}.dedupe_flash_findings", AsyncMock(return_value=selection)),
-        patch(f"{_MODULE}.replace_deduplicated_findings", return_value=[]),
-        patch(f"{_MODULE}.replace_dropped_findings"),
-        patch(f"{_MODULE}.persist_verdicts"),
-        patch(f"{_MODULE}._refresh_status_comment", AsyncMock()),
-    ):
-        result = await ActivityEnvironment().run(
-            dedup_activity, SandboxStageInput(**_single_agent_stage(devex_lens=True))
-        )
-
     assert result.flash_stats is not None and result.flash_stats.candidates["devex"] == 0
 
 

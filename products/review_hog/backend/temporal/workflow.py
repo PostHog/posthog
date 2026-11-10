@@ -704,8 +704,7 @@ class ReviewPRWorkflow:
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
             )
-            # A delta turn has no devex lens session. The patch goes before the recorded value, so a history
-            # from before the devex lens keeps its sessions on replay.
+            # The patch goes before the recorded value, so an older history keeps its sessions on replay.
             devex_lens = (
                 review_design == REVIEW_DESIGN_SINGLE_AGENT
                 and workflow.patched("flash-devex-lens-2026-11")

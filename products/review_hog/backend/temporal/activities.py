@@ -1864,7 +1864,7 @@ def _combine_and_clean(
     review_arm: ReviewArm,
     review_design: str,
     arm_set: str,
-    devex_lens: bool = False,
+    devex_lens: bool,
 ) -> list[Issue]:
     if review_design == REVIEW_DESIGN_SINGLE_AGENT:
         perspective_results = load_single_agent_results(

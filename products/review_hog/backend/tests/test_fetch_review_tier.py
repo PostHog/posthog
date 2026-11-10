@@ -223,7 +223,6 @@ class TestFetchDecidesTheTier(BaseTest):
         )
 
         assert meta.devex_lens is expected
-        # The lens session reviews the files recorded here, so a turn that runs the lens always has its scope.
         snapshot = load_pr_snapshot(team_id=self.team.id, report_id=meta.report_id, head_sha=meta.head_sha)
         assert snapshot is not None and snapshot.devex_lens_files == (["ci.yml"] if expected else [])
 
