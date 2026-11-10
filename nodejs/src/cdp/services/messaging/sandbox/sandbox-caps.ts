@@ -9,7 +9,13 @@ export type SandboxCaps = { team: number; recipient: number }
 
 export type SandboxCapClaim = { ok: true } | { ok: false; reason: 'daily_cap_reached' | 'cap_storage_unavailable' }
 
-export type SandboxCapClaimRequest = { organizationId: string; teamId: number; storedAddress: string; claimId: string }
+export type SandboxCapClaimRequest = {
+    organizationId: string
+    teamId: number
+    storedAddress: string
+    claimId: string
+    attemptId: string
+}
 
 export async function claimSandboxCaps(
     limiter: RateLimiterService,
@@ -32,7 +38,7 @@ export async function claimSandboxCaps(
             bucket(`${keyPrefix}/recipient/${recipientDigest}`, caps.recipient),
             bucket(`${keyPrefix}/project/${request.teamId}`, caps.team),
         ],
-        { key: claimKey, ttlSeconds: BUCKET_TTL_SECONDS }
+        { key: claimKey, attempt: request.attemptId, ttlSeconds: BUCKET_TTL_SECONDS }
     )
     if (claim === 'granted') {
         return { ok: true }
@@ -44,7 +50,7 @@ export async function markSandboxCapsClaimSent(
     limiter: RateLimiterService,
     request: SandboxCapClaimRequest
 ): Promise<boolean> {
-    return await limiter.markClaimSpent(capKeys(request).claimKey)
+    return await limiter.markClaimSpent({ key: capKeys(request).claimKey, attempt: request.attemptId })
 }
 
 function capKeys({ organizationId, teamId, storedAddress, claimId }: SandboxCapClaimRequest): {

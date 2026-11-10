@@ -136,16 +136,30 @@ redis.call('hset', key, 'resv', slotAt)
 return {0, math.ceil(slotAt - now), 1}
 `
 
+const MARK_CLAIM_SPENT_LUA = `
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    redis.call('set', KEYS[1], 'spent', 'KEEPTTL')
+    return 1
+end
+return 0
+`
+
 const CLAIM_ALL_OR_NOTHING_ACROSS_LUA = `
 local time = redis.call('TIME')
 local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
 
 local claimKey = KEYS[#KEYS]
+local claimAttempt = ARGV[#ARGV - 1]
 local claimTtlSeconds = tonumber(ARGV[#ARGV])
 if claimTtlSeconds == nil or claimTtlSeconds < 1 or claimTtlSeconds > 2147483647 or claimTtlSeconds % 1 ~= 0 then
     return redis.error_reply('invalid ttl for ' .. claimKey)
 end
-if redis.call('get', claimKey) == '1' then
+if claimAttempt == '' or claimAttempt == 'spent' then
+    return redis.error_reply('invalid attempt for ' .. claimKey)
+end
+local claimState = redis.call('get', claimKey)
+if claimState and claimState ~= 'spent' then
+    redis.call('set', claimKey, claimAttempt, 'KEEPTTL')
     return 1
 end
 
@@ -181,7 +195,7 @@ for i = 1, #KEYS - 1 do
     redis.call('hset', KEYS[i], 'ts', now, 'pool', after[i])
     redis.call('expire', KEYS[i], tonumber(ARGV[(i - 1) * 4 + 4]))
 end
-redis.call('set', claimKey, 1, 'EX', claimTtlSeconds)
+redis.call('set', claimKey, claimAttempt, 'EX', claimTtlSeconds)
 return 1
 `
 
@@ -253,16 +267,16 @@ export class RateLimiterService {
         return { granted: granted >= req.requested, retryAfterMs, reserved }
     }
 
-    public async markClaimSpent(claimKey: string): Promise<boolean> {
+    public async markClaimSpent(claim: { key: string; attempt: string }): Promise<boolean> {
         try {
             const result = await this.valkey.useClient(
                 { name: `rate-limiter:${this.config.name}:markClaimSpent`, timeout: 1000 },
-                (client) => client.set(claimKey, 'spent', 'XX', 'KEEPTTL')
+                (client) => client.eval(MARK_CLAIM_SPENT_LUA, 1, claim.key, claim.attempt)
             )
-            return result === 'OK'
+            return result === 1
         } catch (err) {
             logger.warn('🪙', `RateLimiterService(${this.config.name}) mark claim spent threw`, {
-                key: claimKey,
+                key: claim.key,
                 error: String(err),
             })
             return false
@@ -271,7 +285,7 @@ export class RateLimiterService {
 
     public async claimAllOrNothingAcross(
         reqs: ClaimRequest[],
-        claim: { key: string; ttlSeconds: number }
+        claim: { key: string; attempt: string; ttlSeconds: number }
     ): Promise<'granted' | 'denied' | 'unavailable'> {
         const endTimer = claimLatency.startTimer({ limiter: this.config.name })
         try {
@@ -289,6 +303,7 @@ export class RateLimiterService {
                             String(req.refillPerSecond),
                             String(req.ttlSeconds ?? 3600),
                         ]),
+                        claim.attempt,
                         String(claim.ttlSeconds)
                     )
             )

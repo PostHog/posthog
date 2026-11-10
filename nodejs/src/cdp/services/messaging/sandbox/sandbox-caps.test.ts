@@ -17,7 +17,13 @@ describe('claimSandboxCaps', () => {
     let teamId: number
 
     const claim = (caps: { team: number; recipient: number }, storedAddress: string, team = teamId) =>
-        claimSandboxCaps(limiter, caps, { organizationId, teamId: team, storedAddress, claimId: randomUUID() })
+        claimSandboxCaps(limiter, caps, {
+            organizationId,
+            teamId: team,
+            storedAddress,
+            claimId: randomUUID(),
+            attemptId: randomUUID(),
+        })
 
     beforeAll(async () => {
         client = await createRedisFromConfig(
@@ -103,23 +109,56 @@ describe('claimSandboxCaps', () => {
             },
         }
         const caps = { team: 5, recipient: 2 }
-        const sendAttempt = { organizationId, teamId, storedAddress: 'member@example.com', claimId: randomUUID() }
+        const sendAttempt = {
+            organizationId,
+            teamId,
+            storedAddress: 'member@example.com',
+            claimId: randomUUID(),
+            attemptId: randomUUID(),
+        }
 
         expect(
             await claimSandboxCaps(new RateLimiterService(replyLost, { name: 'reply-lost' }), caps, sendAttempt)
         ).toEqual({ ok: false, reason: 'cap_storage_unavailable' })
-        expect(await claimSandboxCaps(limiter, caps, sendAttempt)).toEqual({ ok: true })
+        const retry = { ...sendAttempt, attemptId: randomUUID() }
+        expect(await claimSandboxCaps(limiter, caps, retry)).toEqual({ ok: true })
+        expect(await markSandboxCapsClaimSent(limiter, retry)).toBe(true)
         expect(await claim(caps, 'member@example.com')).toEqual({ ok: true })
         expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
     })
 
     it('charges a replayed claim again once its send was marked sent', async () => {
         const caps = { team: 5, recipient: 2 }
-        const sendAttempt = { organizationId, teamId, storedAddress: 'member@example.com', claimId: randomUUID() }
+        const sendAttempt = {
+            organizationId,
+            teamId,
+            storedAddress: 'member@example.com',
+            claimId: randomUUID(),
+            attemptId: randomUUID(),
+        }
         await claimSandboxCaps(limiter, caps, sendAttempt)
         expect(await markSandboxCapsClaimSent(limiter, sendAttempt)).toBe(true)
 
-        expect(await claimSandboxCaps(limiter, caps, sendAttempt)).toEqual({ ok: true })
+        expect(await claimSandboxCaps(limiter, caps, { ...sendAttempt, attemptId: randomUUID() })).toEqual({ ok: true })
+        expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
+    })
+
+    it("leaves a replay's claim reusable when the earlier attempt's sent mark arrives late", async () => {
+        const caps = { team: 5, recipient: 2 }
+        const firstAttempt = {
+            organizationId,
+            teamId,
+            storedAddress: 'member@example.com',
+            claimId: randomUUID(),
+            attemptId: randomUUID(),
+        }
+        const replay = { ...firstAttempt, attemptId: randomUUID() }
+        await claimSandboxCaps(limiter, caps, firstAttempt)
+        await markSandboxCapsClaimSent(limiter, firstAttempt)
+        await claimSandboxCaps(limiter, caps, replay)
+
+        expect(await markSandboxCapsClaimSent(limiter, firstAttempt)).toBe(false)
+        expect(await claimSandboxCaps(limiter, caps, { ...replay, attemptId: randomUUID() })).toEqual({ ok: true })
         expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
     })
 
@@ -131,7 +170,13 @@ describe('claimSandboxCaps', () => {
         async (_other, caps, secondAddress, teamOffset, nextAddress) => {
             const claimId = randomUUID()
             const sendAttempt = (storedAddress: string, team: number) =>
-                claimSandboxCaps(limiter, caps, { organizationId, teamId: team, storedAddress, claimId })
+                claimSandboxCaps(limiter, caps, {
+                    organizationId,
+                    teamId: team,
+                    storedAddress,
+                    claimId,
+                    attemptId: randomUUID(),
+                })
             await sendAttempt('first@example.com', teamId)
 
             expect(await sendAttempt(secondAddress, teamId + teamOffset)).toEqual({ ok: true })
@@ -177,7 +222,13 @@ describe('claimSandboxCaps', () => {
             await claimSandboxCaps(
                 broken,
                 { team: 5, recipient: 5 },
-                { organizationId, teamId, storedAddress: 'member@example.com', claimId: randomUUID() }
+                {
+                    organizationId,
+                    teamId,
+                    storedAddress: 'member@example.com',
+                    claimId: randomUUID(),
+                    attemptId: randomUUID(),
+                }
             )
         ).toEqual({ ok: false, reason: 'cap_storage_unavailable' })
     })
