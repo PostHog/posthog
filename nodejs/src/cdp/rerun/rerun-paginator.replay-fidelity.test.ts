@@ -103,7 +103,9 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
                 from: { integrationId: 12, email: 'security@example.com', name: 'Example' },
                 replyTo: ['help@example.com'],
                 tracking: { captureEngagement: false },
+                messageCategory: { id: '0195d6b4-6c3e-0000-1a2b-3c4d5e6f7a8b', type: 'marketing' },
             },
+            messageCategory: { id: '0195d6b4-6c3e-0000-1a2b-3c4d5e6f7a8b', type: 'marketing' },
         }
         const rows = [
             {
@@ -143,6 +145,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         expect(invocation.state?.customerTaskIdempotencyVersion).toBe(version)
         expect(invocation.state?.variables).toEqual({ ticket_id: '123' })
         expect(invocation.state?.send).toEqual(persistedState.send)
+        expect(invocation.state?.messageCategory).toEqual(persistedState.messageCategory)
         // Sticky rerun counter still increments so max_attempts guards apply.
         expect(invocation.state?.rerunAttempts).toBe(1)
     })
