@@ -5,11 +5,13 @@ import type { AccessKey } from '@/posthog/access-key'
 import { stepUpRequired } from '@/posthog/api'
 import { CI_CREDENTIALS_HINT } from '@/posthog/credentials'
 import type { Credentials } from '@/posthog/credentials'
-import { hostKey } from '@/posthog/host'
+import { sameHost } from '@/posthog/host'
 import type { OAuthLogin } from '@/posthog/oauth'
 import { addToKeyHint, canStepUp, fewestScopes, isScopeName, stepUpCommand } from '@/posthog/scope-challenge'
 import { scopesNotCovered } from '@/posthog/scopes'
+import { readSettings } from '@/posthog/settings'
 
+import { chooseLogin } from './choose'
 import { ADD_COMMAND, loginFlow, saveLogin } from './flow'
 
 export type StepUpResult =
@@ -26,12 +28,15 @@ export type StepUpResult =
       }
 
 export async function finishStepUp(ctx: Context, approved: OAuthLogin): Promise<StepUpResult> {
-    const expected = (await ctx.credentials().catch(() => undefined))?.key
+    // The login the folder uses, read without its secret, so `hog auth add --wait` doesn't open the
+    // keychain or renew a login it is about to replace.
+    const expected = await ctx
+        .loginQuery()
+        .then(async (query) => chooseLogin(await readSettings(ctx.runtime), query).record)
+        .catch(() => undefined)
     const saved = await saveLogin(ctx.runtime, approved, { replace: (stored) => approved.continuing(stored) })
     const otherProject =
-        expected !== undefined &&
-        hostKey(expected.host) === hostKey(saved.host) &&
-        expected.projectId !== saved.projectId
+        expected !== undefined && sameHost(expected.host, saved.host) && expected.projectId !== saved.projectId
     return {
         status: 'added',
         host: saved.host,

@@ -21,13 +21,18 @@ export function itemName(target: LoginTarget): ItemName {
 // The name of a secret filed under its host alone. settings.json marks the login it belongs to with
 // `storedUnderHost`, and the next write of that login files the secret under `itemName` instead.
 export function hostItemName(host: Host): ItemName {
-    return `${hostKey(host)}` as ItemName
+    return String(hostKey(host)) as ItemName
 }
 
 // What a name in a store says. A null `projectId` is a secret filed under its host alone.
 export interface ItemOwner {
     host: Host
     projectId: ProjectId | null
+}
+
+export function ownerItemName(owner: ItemOwner): ItemName {
+    const { host, projectId } = owner
+    return projectId === null ? hostItemName(host) : itemName({ host, projectId })
 }
 
 export function parseItemName(name: string): ItemOwner | undefined {

@@ -1,8 +1,9 @@
 import { EXIT_USAGE, HogError } from '@/core/errors'
-import { hostKey, type Host } from '@/posthog/host'
+import type { LoginTarget } from '@/posthog/credential-store/item-name'
+import type { Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 import { hostFlag } from '@/posthog/scope-challenge'
-import { latestLoginFor, loginFor, type HogSettings, type LoginRecord } from '@/posthog/settings'
+import { latestLoginFor, loginFor, loginsFor, type HogSettings, type LoginRecord } from '@/posthog/settings'
 
 // What names the login a command uses. `host` is --host or HOG_HOST, and `projectId` is
 // HOG_PROJECT_ID. Both replace what the closest posthog.json says.
@@ -21,7 +22,6 @@ export type LoginMatch = 'exact' | 'override' | 'fallback'
 
 // Why a command uses the login it uses. `hog auth status` reports it.
 export interface LoginChoice {
-    configPath: string | null
     // Null when nothing names a host and hog has no login.
     host: Host | null
     // Null when nothing names a project.
@@ -54,7 +54,6 @@ export function chooseLogin(settings: HogSettings, query: LoginQuery): ChosenLog
     const projectId = query.projectId ?? query.configProjectId
     const overridden = query.host !== undefined || query.projectId !== undefined
     const choice: LoginChoice = {
-        configPath: query.configPath ?? null,
         host: host ?? null,
         projectId: projectId ?? null,
         match: projectId === undefined ? 'fallback' : overridden ? 'override' : 'exact',
@@ -72,23 +71,27 @@ function projectList(projectIds: readonly string[]): string {
 }
 
 // For a host and project that something names, when hog has logins, but none for that pair.
-export function projectMismatch(
-    query: LoginQuery,
-    target: { host: Host; projectId: ProjectId },
-    settings: HogSettings
-): HogError {
-    const namedBy = query.projectId !== undefined ? 'HOG_PROJECT_ID' : (query.configPath ?? 'posthog.json')
-    const others = settings.logins
-        .filter((record) => hostKey(record.host) === hostKey(target.host))
-        .map((record) => record.projectId)
-        .sort()
-    const loggedIn = others.length > 0 ? ` You're logged in to ${projectList(others)} there.` : ''
-    const command = `hog auth login${hostFlag(target.host)}`
-    return new HogError(
-        'project_mismatch',
-        `${namedBy} names project ${target.projectId} on ${target.host}, and hog has no login for it.${loggedIn}`,
-        `Run \`${command}\` and pick project ${target.projectId} on the approval page. Each project keeps its own login.`,
-        EXIT_USAGE,
-        { configPath: query.configPath ?? null, host: target.host, projectId: target.projectId, command }
-    )
+export class ProjectMismatch extends HogError {
+    readonly command: string
+
+    constructor(
+        query: LoginQuery,
+        readonly target: LoginTarget,
+        settings: HogSettings
+    ) {
+        const namedBy = query.projectId !== undefined ? 'HOG_PROJECT_ID' : (query.configPath ?? 'posthog.json')
+        const others = loginsFor(settings, target.host)
+            .map((record) => record.projectId)
+            .sort()
+        const loggedIn = others.length > 0 ? ` You're logged in to ${projectList(others)} there.` : ''
+        const command = `hog auth login${hostFlag(target.host)}`
+        super(
+            'project_mismatch',
+            `${namedBy} names project ${target.projectId} on ${target.host}, and hog has no login for it.${loggedIn}`,
+            `Run \`${command}\` and pick project ${target.projectId} on the approval page. Each project keeps its own login.`,
+            EXIT_USAGE,
+            { configPath: query.configPath ?? null, host: target.host, projectId: target.projectId, command }
+        )
+        this.command = command
+    }
 }

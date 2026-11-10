@@ -4,13 +4,13 @@ import { detectWorkloadProvider, type WorkloadProvider } from '@/ci/providers/re
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
 import type { StoreChoice } from '@/posthog/credential-store/types'
-import { chooseLogin, projectMismatch, type LoginChoice, type LoginQuery } from '@/posthog/login/choose'
+import { chooseLogin, ProjectMismatch, type LoginChoice, type LoginQuery } from '@/posthog/login/choose'
 import { loginStorage, readLogin } from '@/posthog/login/stored'
 
 import { MemoryKeyStorage, PersonalAPIKey, type AccessKey, type AccessKeyStorage } from './access-key'
 import { cloudRegion, hostKey, parseHost, REGIONS, type Host } from './host'
 import { parseProjectId, type ProjectId } from './ids'
-import { latestLoginFor, readSettings } from './settings'
+import { loginsFor, readSettings } from './settings'
 import { parsePersonalApiKey } from './tokens'
 import { exchangeWorkloadToken } from './workload'
 
@@ -252,12 +252,11 @@ export async function resolveCredentials(
             return { key, source: 'store', store: store.kind, path: store.path, storage, choice }
         }
         if (!record && choice.host !== null && choice.projectId !== null && settings.logins.length > 0) {
-            throw projectMismatch(query, { host: choice.host, projectId: choice.projectId }, settings)
+            throw new ProjectMismatch(query, { host: choice.host, projectId: choice.projectId }, settings)
         }
         // posthog.json names a host hog has no login to, and the last login is to another host.
-        const lastLogin = settings.host && latestLoginFor(settings, settings.host)
-        if (!record && options.host === undefined && lastLogin) {
-            checkConfigHost(lastLogin.host)
+        if (!record && settings.host && loginsFor(settings, settings.host).length > 0) {
+            checkConfigHost(settings.host)
         }
     }
 

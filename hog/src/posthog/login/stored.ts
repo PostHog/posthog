@@ -6,16 +6,18 @@ import { FileStore } from '@/posthog/credential-store/file'
 import {
     hostItemName,
     itemName,
+    ownerItemName,
     type ItemName,
     type ItemOwner,
     type LoginTarget,
 } from '@/posthog/credential-store/item-name'
 import { KeychainStore } from '@/posthog/credential-store/keychain'
 import { openStore } from '@/posthog/credential-store/open'
-import { hostKey } from '@/posthog/host'
+import { sameHost } from '@/posthog/host'
 import { withLoginLock } from '@/posthog/oauth'
 import {
     loginFor,
+    loginsFor,
     readSettings,
     recordItemName,
     withLogin,
@@ -41,10 +43,6 @@ export interface StoredLogin {
     store: KeychainStore | FileStore
 }
 
-function targetOf(key: AccessKey): LoginTarget {
-    return { host: key.host, projectId: key.projectId }
-}
-
 export async function readLogin(
     runtime: Runtime,
     settings: HogSettings,
@@ -61,7 +59,8 @@ export async function readLogin(
 }
 
 export function loginStorage(runtime: Runtime, login: StoredLogin): AccessKeyStorage {
-    const target = targetOf(login.key)
+    const { host, projectId } = login.key
+    const target = { host, projectId }
     return {
         reread: async () => (await readLogin(runtime, await readSettings(runtime), target))?.key,
         // A step-up can move the login to another store while this command runs, so a renewal saves
@@ -83,12 +82,11 @@ export async function writeLogin(
     key: AccessKey,
     options: { lastLogin?: boolean; removeIfLate?: boolean; keychainLeftover?: boolean } = {}
 ): Promise<void> {
-    const target = targetOf(key)
-    const name = itemName(target)
+    const name = itemName(key)
     await withFileLock(runtime, LOGINS_LOCK, async () => {
         await store.write(name, key.secret(), { removeIfLate: options.removeIfLate })
         const current = await readSettings(runtime)
-        const previous = loginFor(current, target)
+        const previous = loginFor(current, key)
         const keychainLeftover =
             store.kind === 'file' &&
             (options.keychainLeftover === true || previous?.store === 'keychain' || previous?.keychainLeftover === true)
@@ -98,16 +96,15 @@ export async function writeLogin(
             ...(keychainLeftover ? { keychainLeftover } : {}),
             ...(loggedInAt === undefined ? {} : { loggedInAt }),
         }
-        const settings = withLogin(current, target, record)
+        const settings = withLogin(current, key, record)
         await writeSettings(runtime, options.lastLogin ? { ...settings, host: key.host } : settings)
         // The previous secret goes only once settings.json no longer names it. A keychain item stays
         // when the login moved to the file, because the keychain just failed and hog would wait for it
         // again. `keychainLeftover` marks it for logout instead.
-        if (previous && (previous.store === 'file' || previous.store === store.kind)) {
-            const previousName = recordItemName(previous)
-            if (previous.store !== store.kind || previousName !== name) {
-                await openStore(runtime, previous.store).remove(previousName)
-            }
+        const previousName = previous && recordItemName(previous)
+        const keychainKept = previous?.store === 'keychain' && store.kind === 'file'
+        if (previous && previousName && !keychainKept && (previous.store !== store.kind || previousName !== name)) {
+            await openStore(runtime, previous.store).remove(previousName)
         }
     })
 }
@@ -120,8 +117,8 @@ async function removeLogin(runtime: Runtime, record: LoginRecord, store: Keychai
         // Commands fall back to the last login's host, so it stays while the host has other logins.
         const lastHostGone =
             settings.host !== undefined &&
-            hostKey(settings.host) === hostKey(record.host) &&
-            !settings.logins.some((other) => hostKey(other.host) === hostKey(record.host))
+            sameHost(settings.host, record.host) &&
+            loginsFor(settings, record.host).length === 0
         await writeSettings(runtime, lastHostGone ? { logins: settings.logins } : settings)
         return removed
     })
@@ -147,7 +144,7 @@ export async function logout(runtime: Runtime, target: LoginTarget): Promise<Log
             if (!removed && !record.keychainLeftover) {
                 return undefined
             }
-            const leftover = record.keychainLeftover ? await removeKeychainLeftover(runtime, record) : null
+            const leftover = record.keychainLeftover ? await removeKeychainLeftover(runtime, settings, record) : null
             // hog can't revoke an OAuth login it can't read, so logout says the session may still work.
             const revoked = record.type === 'oauth' ? false : null
             return { revoked, revokeUrl: null, keychainLeftover: leftover }
@@ -159,7 +156,7 @@ export async function logout(runtime: Runtime, target: LoginTarget): Promise<Log
         if (!removed) {
             return undefined
         }
-        const leftover = record.keychainLeftover ? await removeKeychainLeftover(runtime, record) : null
+        const leftover = record.keychainLeftover ? await removeKeychainLeftover(runtime, settings, record) : null
         return { ...outcome, keychainLeftover: leftover }
     })
 }
@@ -167,10 +164,14 @@ export async function logout(runtime: Runtime, target: LoginTarget): Promise<Log
 // Resolves to why the removal failed, or null once no item is left. The keychain login a file login
 // replaced can have kept its secret under the host alone, so that item goes too, unless another
 // login still keeps its secret there.
-async function removeKeychainLeftover(runtime: Runtime, record: LoginRecord): Promise<string | null> {
+async function removeKeychainLeftover(
+    runtime: Runtime,
+    settings: HogSettings,
+    record: LoginRecord
+): Promise<string | null> {
     const keychain = new KeychainStore(runtime)
-    const hostItemInUse = (await readSettings(runtime)).logins.some(
-        (other) => other.storedUnderHost && hostKey(other.host) === hostKey(record.host)
+    const hostItemInUse = loginsFor(withLogin(settings, record, undefined), record.host).some(
+        (other) => other.storedUnderHost
     )
     const names = hostItemInUse ? [itemName(record)] : [itemName(record), hostItemName(record.host)]
     try {
@@ -204,14 +205,15 @@ export async function logoutAll(runtime: Runtime): Promise<LoggedOutLogin[]> {
     const settings = await readSettings(runtime)
     const file = new FileStore(runtime)
     const items = new Map<ItemName, ItemOwner>()
-    for (const { host, projectId } of [...settings.logins, ...(await file.owners())]) {
-        const name = projectId === null ? hostItemName(host) : itemName({ host, projectId })
+    const add = (owner: ItemOwner): void => {
+        const name = ownerItemName(owner)
         if (!items.has(name)) {
-            items.set(name, { host, projectId })
+            items.set(name, owner)
         }
-        if (!items.has(hostItemName(host))) {
-            items.set(hostItemName(host), { host, projectId: null })
-        }
+    }
+    for (const { host, projectId } of [...settings.logins, ...(await file.owners())]) {
+        add({ host, projectId })
+        add({ host, projectId: null })
     }
     const loggedOut: LoggedOutLogin[] = []
     for (const [name, owner] of items) {

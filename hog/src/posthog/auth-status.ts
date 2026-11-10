@@ -7,7 +7,7 @@ import type { StoreChoice } from '@/posthog/credential-store/types'
 import type { AccessKeyStatus } from './access-key'
 import { ApiError } from './api'
 import type { CredentialSource } from './credentials'
-import type { LoginChoice } from './login/choose'
+import { ProjectMismatch, type LoginChoice } from './login/choose'
 
 export type AuthStatus = (
     | {
@@ -43,8 +43,6 @@ export type AuthStatus = (
     login: LoginChoice | null
 }
 
-const ProjectMismatchDetails = z.object({ host: z.string(), projectId: z.string(), command: z.string() })
-
 export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
     const config = (await ctx.config())?.path ?? null
     let credentials
@@ -57,9 +55,10 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
         if (error instanceof HogError && error.code === 'session_expired') {
             return { authenticated: false, error: error.message, next: 'hog auth login', config, login: null }
         }
-        if (error instanceof HogError && error.code === 'project_mismatch') {
-            const { host, projectId, command } = ProjectMismatchDetails.parse(error.details)
-            return { authenticated: false, error: error.message, next: command, host, projectId, config, login: null }
+        if (error instanceof ProjectMismatch) {
+            const { host, projectId } = error.target
+            const next = error.command
+            return { authenticated: false, error: error.message, next, host, projectId, config, login: null }
         }
         throw error
     }

@@ -6,7 +6,7 @@ import type { Runtime } from '@/core/runtime'
 import { hostItemName, itemName, type ItemName, type LoginTarget } from '@/posthog/credential-store/item-name'
 import { StoreChoiceSchema } from '@/posthog/credential-store/types'
 
-import { hostKey, HostSchema, type Host } from './host'
+import { hostKey, HostSchema, sameHost, type Host } from './host'
 import { ProjectIdSchema } from './ids'
 
 const LoginRecordBaseSchema = z.object({
@@ -64,7 +64,7 @@ function settingsPath(runtime: Runtime): string {
 }
 
 function sameTarget(record: LoginTarget, target: LoginTarget): boolean {
-    return hostKey(record.host) === hostKey(target.host) && record.projectId === target.projectId
+    return sameHost(record.host, target.host) && record.projectId === target.projectId
 }
 
 // settings.json files each login under its origin, then its project. An origin can instead hold one
@@ -77,7 +77,7 @@ function parseOrigin(origin: string, value: unknown): LoginRecord[] {
         return []
     }
     const fromKey = (record: LoginRecord | undefined): LoginRecord[] =>
-        record && hostKey(record.host) === hostKey(key) ? [record] : []
+        record && sameHost(record.host, key) ? [record] : []
     const single = LoginRecordSchema.safeParse(value).data
     if (single) {
         return fromKey({ ...single, storedUnderHost: true })
@@ -116,15 +116,17 @@ export function loginFor(settings: HogSettings, target: LoginTarget): LoginRecor
     return settings.logins.find((record) => sameTarget(record, target))
 }
 
+export function loginsFor(settings: HogSettings, host: Host): LoginRecord[] {
+    return settings.logins.filter((record) => sameHost(record.host, host))
+}
+
 // The login `hog auth login` saved last for the host. A record without `loggedInAt` counts as the oldest.
 export function latestLoginFor(settings: HogSettings, host: Host): LoginRecord | undefined {
-    return settings.logins
-        .filter((record) => hostKey(record.host) === hostKey(host))
-        .reduce<LoginRecord | undefined>(
-            (latest, record) =>
-                latest === undefined || (record.loggedInAt ?? 0) > (latest.loggedInAt ?? 0) ? record : latest,
-            undefined
-        )
+    return loginsFor(settings, host).reduce<LoginRecord | undefined>(
+        (latest, record) =>
+            latest === undefined || (record.loggedInAt ?? 0) > (latest.loggedInAt ?? 0) ? record : latest,
+        undefined
+    )
 }
 
 export function recordItemName(record: LoginRecord): ItemName {

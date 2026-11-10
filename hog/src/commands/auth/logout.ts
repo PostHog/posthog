@@ -1,6 +1,6 @@
 import { defineCommand } from '@/core/command'
 import { escapeControls } from '@/core/output'
-import { loginQuery, PERSONAL_API_KEY_ENV_VAR } from '@/posthog/credentials'
+import { PERSONAL_API_KEY_ENV_VAR } from '@/posthog/credentials'
 import { chooseLogin } from '@/posthog/login/choose'
 import { clearPendingLogins } from '@/posthog/login/flow'
 import { logout, logoutAll, type LoggedOutLogin } from '@/posthog/login/stored'
@@ -55,16 +55,8 @@ export default defineCommand({
             }
         }
         const settings = await readSettings(runtime)
-        // The same choice commands make, so logout removes the login they would send. A broken
-        // posthog.json must not stop a logout.
-        const loaded = await ctx.config().catch(() => undefined)
-        const query = loginQuery(runtime, {
-            host: ctx.globals.host,
-            configPath: loaded?.path,
-            configHost: loaded?.config.host,
-            configProjectId: loaded?.config.projectId?.toString(),
-        })
-        const { choice, record } = chooseLogin(settings, query)
+        // The same choice commands make, so logout removes the login they would send.
+        const { choice, record } = chooseLogin(settings, await ctx.loginQuery())
         const outcome = record ? await logout(runtime, record) : undefined
         await clearPendingLogins(runtime)
         return {

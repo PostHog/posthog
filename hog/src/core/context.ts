@@ -3,8 +3,9 @@ import { join } from 'node:path'
 import type { ApiToolLibrary, SkillsLibrary } from '@posthog/mcp/src/cli/library-types'
 
 import { PostHogApi } from '@/posthog/api'
-import { posthogHomeDir, resolveCredentials, type Credentials } from '@/posthog/credentials'
+import { loginQuery, posthogHomeDir, resolveCredentials, type Credentials } from '@/posthog/credentials'
 import { KeySession } from '@/posthog/key-session'
+import type { LoginQuery } from '@/posthog/login/choose'
 import { canStepUp } from '@/posthog/scope-challenge'
 
 import type { Mode } from './agent'
@@ -99,17 +100,27 @@ export class Context {
         return home === undefined ? undefined : join(home, 'skills')
     }
 
+    private async credentialOptions(): Promise<Parameters<typeof resolveCredentials>[1]> {
+        const loaded = await this.config()
+        return {
+            ...this.globals,
+            configPath: loaded?.path,
+            configHost: loaded?.config.host,
+            configProjectId: loaded?.config.projectId?.toString(),
+        }
+    }
+
     // Throws `not_authenticated` when there are none.
     credentials(): Promise<Credentials> {
-        this.credentialsRequest ??= this.config().then((loaded) =>
-            resolveCredentials(this.runtime, {
-                ...this.globals,
-                configPath: loaded?.path,
-                configHost: loaded?.config.host,
-                configProjectId: loaded?.config.projectId?.toString(),
-            })
+        this.credentialsRequest ??= this.credentialOptions().then((options) =>
+            resolveCredentials(this.runtime, options)
         )
         return this.credentialsRequest
+    }
+
+    // What picks the stored login, without reading its secret.
+    async loginQuery(): Promise<LoginQuery> {
+        return loginQuery(this.runtime, await this.credentialOptions())
     }
 
     // The key every client of this command sends, so they share its renewals.
