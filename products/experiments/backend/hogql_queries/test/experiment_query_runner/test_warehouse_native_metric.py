@@ -23,6 +23,11 @@ from posthog.schema import (
 
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.constants import AvailableFeature
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import OrganizationMembership
+
+from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.warehouse_native_query_builder import WarehouseNativeQueryBuilder
@@ -116,6 +121,7 @@ class TestWarehouseNativeMetric(APIBaseTest):
         self.assertEqual(self.warehouse.call_args.kwargs["query"], statement)
         self.assertEqual(self.warehouse.call_args.kwargs["connection_id"], str(self.connection.id))
         self.assertTrue(self.warehouse.call_args.kwargs["send_raw_query"])
+        self.assertEqual(self.warehouse.call_args.kwargs["settings"].max_execution_time, 600)
         assert result.baseline is not None and result.variant_results is not None
         self.assertEqual(
             (result.baseline.key, result.baseline.number_of_samples, result.baseline.sum), ("control", 100, 250.0)
@@ -168,6 +174,29 @@ class TestWarehouseNativeMetric(APIBaseTest):
 
         self.assertIn("Invalid connectionId", str(raised.exception))
         self.warehouse.assert_not_called()
+
+    def test_cached_totals_are_not_served_to_a_user_without_connection_access(self) -> None:
+        query = ExperimentQuery(experiment_id=self.experiment.id, metric=self.metric)
+        ExperimentQueryRunner(query=query, team=self.team).run(
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user
+        )
+        # Every user of the team shares the cached result. This member loses access to every connection.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.MEMBER
+        )
+        AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+
+        with self.assertRaises(ValidationError) as raised:
+            ExperimentQueryRunner(query=query, team=self.team).run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=self.user
+            )
+
+        self.assertIn("Invalid connectionId", str(raised.exception))
+        self.warehouse.assert_called_once()
 
     def test_persons_are_not_available(self) -> None:
         query = ExperimentQuery(experiment_id=self.experiment.id, metric=self.metric)

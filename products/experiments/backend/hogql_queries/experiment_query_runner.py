@@ -39,6 +39,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.user import User
 
 from products.ai_observability.backend.facade.api import mentions_evaluation_pass_markers
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
@@ -576,13 +577,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 "Warehouse-native metrics cannot exclude participants whose conversion window has not elapsed yet. "
                 "Turn that setting off in the experiment settings."
             )
-        # A shared metric can change after the experiment was saved, so the sources are checked again here.
-        connection_id = validate_experiment_warehouse_native_sources(
-            exposure_criteria=self.experiment.exposure_criteria,
-            metrics=[self.metric.model_dump(mode="json")],
-            team=self.team,
-            user=self.user,
-        )
+        connection_id = self._validate_warehouse_native_sources(self.user)
         criteria = normalize_to_exposure_criteria(self.experiment.exposure_criteria)
         exposure = criteria.exposure_config if criteria else None
         if (
@@ -592,6 +587,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         ):
             raise ExposedHogQLError("Warehouse-native experiments support mean and ratio metrics only.")
 
+        # Test account filters match PostHog persons and events. The warehouse rows have neither, so the
+        # experiment's test account setting does not apply to this statement.
         statement = WarehouseNativeQueryBuilder(
             exposure=exposure,
             metric=self.metric,
@@ -608,8 +605,28 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             send_raw_query=True,
             connection_id=connection_id,
             timings=self.timings,
+            settings=HogQLGlobalSettings(max_execution_time=self.max_execution_time),
         )
         return self._variant_rows(response.results, response.columns or [])
+
+    def _validate_warehouse_native_sources(self, user: User | None) -> str | None:
+        """The connection id of the experiment's warehouse-native sources, after the same checks as a save.
+
+        A shared metric can change after the experiment was saved, and a user can lose access to the connection.
+        """
+        return validate_experiment_warehouse_native_sources(
+            exposure_criteria=self.experiment.exposure_criteria,
+            metrics=[self.metric.model_dump(mode="json")],
+            team=self.team,
+            user=user,
+        )
+
+    def validate_query_runner_access(self, user: User) -> bool:
+        # A cached result is shared by every user of the team, so the connection access check runs before
+        # the cache lookup, not only when the statement runs.
+        if self.is_warehouse_native_query:
+            self._validate_warehouse_native_sources(user)
+        return True
 
     def _variant_rows(self, rows: list[tuple], columns: list[str]) -> tuple[list[tuple], list[str]]:
         if self.multiple_variant_handling == MultipleVariantHandling.EXCLUDE:
