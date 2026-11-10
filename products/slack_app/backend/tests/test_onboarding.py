@@ -368,15 +368,26 @@ class TestOnboarding:
     def test_onboarding_workflow_activity_runs_for_integration(self, mock_run):
         from products.slack_app.backend.temporal.activities.onboarding import run_posthog_slack_inbox_onboarding
 
-        run_posthog_slack_inbox_onboarding(self.integration.id)
+        run_posthog_slack_inbox_onboarding(self.integration.team_id, self.integration.id)
 
         mock_run.assert_called_once()
         assert mock_run.call_args.args[0].id == self.integration.id
 
     @patch("products.slack_app.backend.onboarding.run_install_onboarding")
+    def test_onboarding_inputs_without_team_id_still_load_and_stop_cleanly(self, mock_run):
+        from products.slack_app.backend.temporal.activities.onboarding import run_posthog_slack_inbox_onboarding
+        from products.slack_app.backend.temporal.types import PostHogSlackInboxOnboardingInputs
+
+        inputs = PostHogSlackInboxOnboardingInputs(**{"integration_id": self.integration.id})
+
+        assert inputs.team_id is None
+        run_posthog_slack_inbox_onboarding(inputs.team_id, inputs.integration_id)
+        mock_run.assert_not_called()
+
+    @patch("products.slack_app.backend.onboarding.run_install_onboarding")
     def test_onboarding_workflow_activity_noop_for_missing_integration(self, mock_run):
         from products.slack_app.backend.temporal.activities.onboarding import run_posthog_slack_inbox_onboarding
 
-        run_posthog_slack_inbox_onboarding(99999999)
+        run_posthog_slack_inbox_onboarding(self.integration.team_id, 99999999)
 
         mock_run.assert_not_called()

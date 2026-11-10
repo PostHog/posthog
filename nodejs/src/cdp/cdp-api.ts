@@ -76,7 +76,6 @@ import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
-import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import {
     HogWatcherService,
@@ -282,17 +281,7 @@ export class CdpApi {
             jobQueues,
             new IdempotencyKeys(deps.idempotencyValkey ?? null, 'workflow-webhook')
         )
-        this.emailTrackingService = new EmailTrackingService(
-            this.hogFunctionManager,
-            this.hogFlowManager,
-            services.hogFunctionMonitoringService,
-            services.capturedEventsService,
-            services.teamWorkflowsConfigService,
-            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
-            services.emailSuppressionService,
-            services.emailStatusService,
-            services.redis
-        )
+        this.emailTrackingService = services.emailTrackingService
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
             config.SITE_URL,
@@ -1185,6 +1174,10 @@ export class CdpApi {
                     scheduledAt: now,
                     startedAt: now,
                 })
+                const { invocation_ids: invocationIds, ...filterWithoutIds } = rerunRequest.filter
+                const filterForLog = invocationIds
+                    ? { ...filterWithoutIds, invocation_id_count: invocationIds.length }
+                    : filterWithoutIds
                 this.invocationResultsService.monitoringService.queueLogs(
                     [
                         {
@@ -1194,7 +1187,7 @@ export class CdpApi {
                             instance_id: rerunJobId,
                             timestamp: DateTime.fromJSDate(now),
                             level: 'info',
-                            message: `Re-run queued. Filter: ${JSON.stringify(rerunRequest.filter)}`,
+                            message: `Re-run queued. Filter: ${JSON.stringify(filterForLog)}`,
                         },
                     ],
                     functionKind
