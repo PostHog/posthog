@@ -39,6 +39,7 @@ _SPAN_SQL = (
     "ORDER BY timestamp ASC LIMIT {limit}"
 )
 _MAX_ATTRS_PER_ROW = 8
+_TOKEN_DELIMITERS = frozenset(" \t\r\n\"'")
 _PADDING_RE = re.compile(r"^(\d+)([smh])$")
 _ID_LIKE_RE = re.compile(r"(^|[._])(id|uuid)$|[a-z](Id|ID)$|^(run|request)")
 _NOISE_KEYS = frozenset(
@@ -102,7 +103,7 @@ def is_id_like_key(key: str) -> bool:
 
 def differing_attrs(row: dict[str, str], anchor: dict[str, str]) -> str:
     pairs = [
-        f"{key}={_cut(row[key], 120)}"
+        f"{key}={_quote(_cut(row[key], 120))}"
         for key in sorted(row)
         if key not in _NOISE_KEYS and not key.startswith(_NOISE_PREFIXES) and anchor.get(key) != row[key]
     ]
@@ -110,7 +111,18 @@ def differing_attrs(row: dict[str, str], anchor: dict[str, str]) -> str:
 
 
 def _cut(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[:limit] + "…"
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    # Drop a token the limit splits, so a credential reaches the MCP redactor whole or not at all.
+    if text[limit] not in _TOKEN_DELIMITERS:
+        head = head[: max(head.rfind(delimiter) for delimiter in _TOKEN_DELIMITERS) + 1]
+    return head + "…"
+
+
+def _quote(value: str) -> str:
+    # Flattened attrs are space-separated, so a value with whitespace is quoted to keep its boundary.
+    return json.dumps(value, ensure_ascii=False) if any(char.isspace() for char in value) else value
 
 
 def _utc(value: dt.datetime) -> dt.datetime:

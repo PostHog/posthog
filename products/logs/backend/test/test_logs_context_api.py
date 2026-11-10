@@ -96,6 +96,20 @@ class TestContextHelpers(TestCase):
         }
         assert differing_attrs(row, anchor) == "region=us status=500"
 
+    @parameterized.expand(
+        [
+            ("whitespace_value_is_quoted", "first second third", 'password="first second third"'),
+            (
+                "split_url_token_is_dropped",
+                "x" * 100 + " postgres://service:INVENTEDsecret1111@example.com/db",
+                'password="' + "x" * 100 + ' …"',
+            ),
+            ("split_token_without_delimiter_is_dropped", "y" * 200, "password=…"),
+        ]
+    )
+    def test_differing_attrs_keeps_credential_values_whole(self, _name: str, value: str, expected: str) -> None:
+        assert differing_attrs({"password": value}, {}) == expected
+
 
 class TestLogsContextAPI(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
