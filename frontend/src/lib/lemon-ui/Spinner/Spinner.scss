@@ -114,14 +114,18 @@
             width: 140%;
             height: 140%;
             fill: none;
-            stroke: var(--color-teal-400);
+            stroke: hsl(
+                var(--color-brand-secondary-hue),
+                var(--color-brand-secondary-saturation),
+                var(--color-brand-secondary-lightness)
+            );
             stroke-width: 70px;
             opacity: 0.32;
             transform-origin: center;
             animation: SpinnerOverlay__think 6s ease-in-out infinite alternate;
 
-            &--warm {
-                stroke: var(--color-orange-500);
+            &--accent {
+                stroke: var(--color-accent);
                 stroke-width: 50px;
                 animation-duration: 9s;
                 animation-delay: -3s;

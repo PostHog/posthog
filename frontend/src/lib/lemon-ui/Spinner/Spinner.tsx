@@ -147,7 +147,7 @@ export function SpinnerOverlay({
                         </g>
                     </svg>
                     <svg
-                        className="SpinnerOverlay__smoke SpinnerOverlay__smoke--warm"
+                        className="SpinnerOverlay__smoke SpinnerOverlay__smoke--accent"
                         viewBox="0 0 1000 600"
                         preserveAspectRatio="none"
                         aria-hidden
