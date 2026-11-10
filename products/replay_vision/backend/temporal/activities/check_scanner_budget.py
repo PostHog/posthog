@@ -159,6 +159,10 @@ def _turn_off_free_only_scanner(scanner: ReplayScanner) -> None:
 @activity.defn
 @track_activity()
 def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScannerBudgetOutput:
+    return check_scanner_budget(inputs)
+
+
+def check_scanner_budget(inputs: CheckScannerBudgetInputs) -> CheckScannerBudgetOutput:
     """Whether this scanner has room for another observation under its own credit limit.
 
     On a cap, advances the watermark past the skipped window (as re-enabling a disabled scanner does);

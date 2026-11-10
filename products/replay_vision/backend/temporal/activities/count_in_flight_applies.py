@@ -50,6 +50,10 @@ def count_in_flight(
 @activity.defn
 @track_activity()
 def count_in_flight_by_team_activity(inputs: CountInFlightAppliesInputs) -> InFlightApplyCounts:
+    return count_in_flight_applies(inputs)
+
+
+def count_in_flight_applies(inputs: CountInFlightAppliesInputs) -> InFlightApplyCounts:
     with bounded_queries(COUNT_IN_FLIGHT_APPLIES_TIMEOUT):
         rows = count_in_flight_rows(inputs.team_id, inputs.scanner_id)
     counts = count_in_flight(inputs.team_id, inputs.scanner_id, rows=rows)

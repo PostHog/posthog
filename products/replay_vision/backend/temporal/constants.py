@@ -177,6 +177,13 @@ CREATE_OBSERVATION_TIMEOUT = dt.timedelta(seconds=30)
 
 CHECK_SCANNER_BUDGET_TIMEOUT = dt.timedelta(seconds=30)
 
+# The candidate query budgets its ClickHouse time from its own start, so the gates before it get extra time.
+SWEEP_SCANNER_TICK_TIMEOUT = (
+    FIND_SCANNER_CANDIDATES_TIMEOUT + CHECK_SCANNER_BUDGET_TIMEOUT + COUNT_IN_FLIGHT_APPLIES_TIMEOUT
+)
+# Fits two timed-out attempts plus backoff, so a third attempt only follows fast admission rejections.
+SWEEP_SCANNER_TICK_SCHEDULE_TO_CLOSE = 2 * SWEEP_SCANNER_TICK_TIMEOUT + dt.timedelta(seconds=40)
+
 
 # Slots at each cap that scheduled dispatch (sweep, backfill) must leave free, so a user-initiated
 # observe still admits when scheduled work is saturated; on-demand admission checks the full caps.

@@ -53,9 +53,13 @@ from products.replay_vision.backend.temporal import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.activities.advance_scanner_watermark import (
     advance_scanner_watermark_activity,
 )
-from products.replay_vision.backend.temporal.activities.check_scanner_budget import check_scanner_budget_activity
+from products.replay_vision.backend.temporal.activities.check_scanner_budget import (
+    check_scanner_budget,
+    check_scanner_budget_activity,
+)
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_by_team_activity
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
+from products.replay_vision.backend.temporal.activities.sweep_scanner_tick import sweep_scanner_tick_activity
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SPEND_WINDOW_DAYS,
     DEEP_SWEEP_INTERVAL,
@@ -83,6 +87,7 @@ from products.replay_vision.backend.temporal.sweep_types import (
     FindScannerCandidatesOutput,
     InFlightApplyCounts,
     SweepScannerInputs,
+    SweepScannerTickOutput,
 )
 from products.replay_vision.backend.tests.helpers import (
     create_experiment,
@@ -1636,6 +1641,55 @@ def test_first_sweep_after_a_pause_skips_the_window_only_where_blocked_ticks_use
     assert scanner.sweep_pause_reason == ("" if pause_over else reason)
 
 
+# sweep_scanner_tick_activity
+
+
+@pytest.mark.parametrize("found", [False, True])
+@pytest.mark.django_db(transaction=True)
+def test_sweep_tick_advances_the_watermark_only_when_it_has_nothing_to_dispatch(found: bool) -> None:
+    scanner = _make_scanner()
+    before = scanner.last_swept_at
+    candidate = CandidateSession(session_id="sess-a", session_end=before + dt.timedelta(minutes=1))
+
+    with _patched_queries() as (MockQuery, _):
+        MockQuery.return_value.run.return_value = [candidate] if found else []
+        MockQuery.return_value.settle_cutoff = before + dt.timedelta(minutes=5)
+        output = sweep_scanner_tick_activity(SweepScannerInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    scanner.refresh_from_db()
+    assert (scanner.last_found_candidates_at is not None) is found
+    if found:
+        assert output.dispatch is not None
+        assert [c.session_id for c in output.dispatch.candidates] == ["sess-a"]
+        assert scanner.last_swept_at == before
+    else:
+        assert output.dispatch is None
+        assert scanner.last_swept_at == before + dt.timedelta(minutes=5)
+
+
+@pytest.mark.parametrize("gate", ["capped", "in_flight_full", "budget_check_fails"])
+@pytest.mark.django_db(transaction=True)
+def test_sweep_tick_gates_the_candidate_query(gate: str) -> None:
+    scanner = _make_scanner(credit_limit=20 * _OBSERVATION_CREDITS)
+    if gate == "capped":
+        seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
+    elif gate == "in_flight_full":
+        _seed_in_flight_observations(scanner, count=MAX_IN_FLIGHT_APPLIES_PER_SCANNER)
+
+    with (
+        _patched_queries() as (MockQuery, _),
+        patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 1_000_000),
+        patch(
+            "products.replay_vision.backend.temporal.activities.sweep_scanner_tick.check_scanner_budget",
+            side_effect=RuntimeError("db down") if gate == "budget_check_fails" else check_scanner_budget,
+        ),
+    ):
+        output = sweep_scanner_tick_activity(SweepScannerInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    assert output.dispatch is None
+    assert MockQuery.return_value.run_batch.called is (gate == "budget_check_fails")
+
+
 # SweepScannerWorkflow (mocked-Temporal)
 
 
@@ -1680,7 +1734,7 @@ def _sweep_inputs() -> SweepScannerInputs:
     return SweepScannerInputs(scanner_id=uuid.uuid4(), team_id=42)
 
 
-async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = None) -> None:
+async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = None, *, patched: bool = False) -> None:
     # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
     fake_logger = type(
         "Logger",
@@ -1696,6 +1750,7 @@ async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = Non
         patch("temporalio.workflow.start_child_workflow", side_effect=mocks.start_child_workflow),
         patch("temporalio.workflow.logger", fake_logger),
         patch("temporalio.workflow.unsafe.is_replaying", return_value=False),
+        patch("temporalio.workflow.patched", return_value=patched),
     ):
         await SweepScannerWorkflow().run(inputs or _sweep_inputs())
 
@@ -1962,3 +2017,29 @@ async def test_budget_check_failure_does_not_fail_the_sweep() -> None:
 
     called = [fn for fn, _ in mocks.activity_calls]
     assert find_scanner_candidates_activity in called
+
+
+@pytest.mark.parametrize("found", [False, True])
+@pytest.mark.asyncio
+async def test_single_activity_tick_dispatches_only_what_the_activity_hands_back(found: bool) -> None:
+    keyset_end = dt.datetime(2026, 5, 1, 10, 0, 0, tzinfo=dt.UTC)
+    dispatch = FindScannerCandidatesOutput(
+        candidates=[_build_payload("sess-a", keyset_end)],
+        saturated=False,
+        keyset_end=keyset_end,
+        keyset_session_id="sess-a",
+    )
+    mocks = _SweepMocks(
+        activity_results={sweep_scanner_tick_activity: SweepScannerTickOutput(dispatch=dispatch if found else None)}
+    )
+
+    await _run_sweep(mocks, patched=True)
+
+    called = [fn for fn, _ in mocks.activity_calls]
+    if found:
+        assert len(mocks.child_calls) == 1
+        assert called == [sweep_scanner_tick_activity, advance_scanner_watermark_activity]
+        assert mocks.activity_calls[-1][1].new_last_swept_at == keyset_end
+    else:
+        assert called == [sweep_scanner_tick_activity]
+        assert mocks.child_calls == []

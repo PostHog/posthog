@@ -41,6 +41,7 @@ from products.replay_vision.backend.temporal.activities import (
     refresh_scanner_estimate_activity,
     resolve_experiment_variant_activity,
     start_launched_scanners_activity,
+    sweep_scanner_tick_activity,
     upload_video_to_gemini_activity,
     upsert_scanner_schedule_activity,
 )
@@ -118,6 +119,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     finalize_observation_media_activity,
     resolve_experiment_variant_activity,
     find_scanner_candidates_activity,
+    sweep_scanner_tick_activity,
     count_in_flight_by_team_activity,
     check_scanner_budget_activity,
     advance_scanner_watermark_activity,
@@ -177,6 +179,7 @@ __all__ = [
     "fetch_session_events_activity",
     "fetch_session_network_activity",
     "find_scanner_candidates_activity",
+    "sweep_scanner_tick_activity",
     "list_enabled_scanners_activity",
     "list_scanner_schedules_activity",
     "list_stale_scanner_estimates_activity",
