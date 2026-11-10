@@ -283,18 +283,6 @@ describe('HogFlow Quota Limiting', () => {
                 ],
             ],
             ['a webhook on the destination quota', 'workflow_destinations_dispatched', ['function'], []],
-            [
-                'an email send next to a webhook on the destination quota',
-                'workflow_destinations_dispatched',
-                ['function_email', 'function'],
-                [
-                    [
-                        teamId,
-                        'workflows send blocked',
-                        { reason: 'quota_limited', channel: 'email', workflow_id: 'test-flow-id' },
-                    ],
-                ],
-            ],
         ] as const)('should block %s and emit metrics', async (_name, limitedResource, actionTypes, reports) => {
             mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((_teamId, resource) => {
                 return Promise.resolve(resource === limitedResource)

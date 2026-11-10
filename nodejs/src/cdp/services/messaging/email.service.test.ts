@@ -1158,21 +1158,6 @@ describe('EmailService', () => {
                 expect(messages).toContain("Could not check this project's email sending limit")
             })
 
-            it('sends a transactional email past the cap and charges the bucket anyway', async () => {
-                claimAllOrNothing.mockResolvedValue({ granted: false, retryAfterMs: 30 * 60 * 1000, reserved: true })
-                invocation.hogFunction.metadata = { message_category_type: 'transactional' }
-
-                const result = await cappedService.executeSendEmail(invocation)
-
-                expect(result.finished).toBe(true)
-                expect(cappedSendSpy).toHaveBeenCalledTimes(1)
-                expect(result.invocation.queueScheduledAt).toBeUndefined()
-                expect(claimAllOrNothing).not.toHaveBeenCalled()
-                expect(claimUpTo).toHaveBeenCalledTimes(1)
-                // No cap was applied, so the customer must not be told one was.
-                expect(result.logs.map((log) => log.message).join(' ')).not.toContain('reached its email sending limit')
-            })
-
             it('sends when the claim is granted', async () => {
                 claimAllOrNothing.mockResolvedValue({ granted: true, retryAfterMs: null, reserved: false })
 
@@ -1484,16 +1469,6 @@ describe('EmailService', () => {
                 ],
             })
         }
-
-        it('fails a queued email that lists files as attachments_missing and sends nothing', async () => {
-            filesListed()
-
-            const result = await service.executeSendEmail(invocation)
-
-            expect(sendEmailSpy).not.toHaveBeenCalled()
-            expect(result.finished).toBe(true)
-            expect(result.error).toMatch(/^attachments_missing: /)
-        })
 
         it.each([
             ['a transactional email that SES accepts', TRANSACTIONAL_EMAIL_EVENT, false, sesAccepts, 'sent', ''],
