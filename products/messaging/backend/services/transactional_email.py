@@ -209,6 +209,17 @@ FILES_REFUSALS: dict[str, tuple[str, str, str]] = {
         "files couldn't be checked.",
         "Simplify the email's template, or send this email without files.",
     ),
+    "utm_value_too_long": (
+        "A UTM value in this email's workflow is too long, so PostHog didn't send the email with its files.",
+        "A UTM value is longer than 1,000 characters, so the size of this email with its files couldn't be checked.",
+        "Shorten each UTM value of the email step to 1,000 characters or fewer, or send this email without files.",
+    ),
+    "email_body_too_many_tags": (
+        "This email's template has too many Liquid tags, so PostHog didn't send the email with its files.",
+        "The email step has more than 10,000 Liquid tags, so the size of this email with its files couldn't be "
+        "checked.",
+        "Use 10,000 Liquid tags or fewer in the email step, or send this email without files.",
+    ),
 }
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")

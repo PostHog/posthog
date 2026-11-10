@@ -1035,6 +1035,22 @@ class TestTransactionalEmail(APIBaseTest):
                 "attachments",
                 "Simplify it.",
             ),
+            (
+                "a_utm_value_too_long_to_measure",
+                400,
+                {"error": "utm_value_too_long", "reason": "The campaign value is long.", "fix": "Shorten it."},
+                "utm_value_too_long",
+                "attachments",
+                "Shorten it.",
+            ),
+            (
+                "a_template_with_too_many_tags_explained_by_posthog",
+                400,
+                {"error": "email_body_too_many_tags"},
+                "email_body_too_many_tags",
+                "attachments",
+                "10,000 Liquid tags or fewer",
+            ),
         ]
     )
     def test_a_file_the_pipeline_refuses_is_named_with_a_reason_and_a_fix(
