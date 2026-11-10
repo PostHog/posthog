@@ -25,6 +25,22 @@ const LIQUID_TAG_CLOSERS: Record<string, string> = { '{': '}}', '%': '%}' }
 // with a throwing filter rather than unregistered, because an unknown filter silently acts as identity.
 const LIQUID_UNBOUNDED_FILTERS = ['where_exp', 'find_exp', 'find_index_exp', 'reject_exp', 'group_by_exp']
 
+export const EMAIL_BODY_TAG_LIMIT = 10_000
+
+// LiquidJS parse time grows with the square of the tag count and no render limit covers parsing, so callers
+// that must stay responsive count tags with this linear scan before anything parses the template.
+export const countLiquidTags = (template: string): number => {
+    let count = 0
+    for (let at = template.indexOf('{'); at !== -1; at = template.indexOf('{', at + 1)) {
+        const next = template[at + 1]
+        if (next === '{' || next === '%') {
+            count++
+            at++
+        }
+    }
+    return count
+}
+
 export class LiquidRenderBudget {
     private usedMs = 0
     private outputChars = 0

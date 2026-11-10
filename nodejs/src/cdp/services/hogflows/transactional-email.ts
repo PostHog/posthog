@@ -265,6 +265,7 @@ export type TransactionalEmailOutcome =
     | 'message_too_large'
     | 'email_render_limit_exceeded'
     | 'utm_value_too_long'
+    | 'email_body_too_many_tags'
     | 'delivery_unavailable'
     | 'error'
 

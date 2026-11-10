@@ -80,7 +80,7 @@ import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watch
 import { template as emailTemplate } from './templates/_destinations/email/email.template'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
-import { LIQUID_RENDER_LIMIT_MS } from './utils/liquid'
+import { EMAIL_BODY_TAG_LIMIT, LIQUID_RENDER_LIMIT_MS } from './utils/liquid'
 
 // Email MX validation runs on every email send, so without a mock the test-panel
 // email tests would do live DNS lookups for their fixture recipients (and
@@ -3650,6 +3650,23 @@ describe('CDP API', () => {
                     () => storedTemplateRendering({ html: renderThatOutlastsTheLiquidLimit }, 'x'),
                 ],
                 [
+                    'has a body whose HTML and text together hold one Liquid tag over the limit',
+                    'email_body_too_many_tags',
+                    () =>
+                        storedTemplateRendering(
+                            {
+                                html: '{{ variables.chunk }}'.repeat(EMAIL_BODY_TAG_LIMIT / 2 + 1),
+                                text: '{% if variables.chunk %}x{% endif %}'.repeat(EMAIL_BODY_TAG_LIMIT / 4),
+                            },
+                            'x'
+                        ),
+                ],
+                [
+                    'has a body full of Liquid tags, which would take seconds to parse',
+                    'email_body_too_many_tags',
+                    () => storedTemplateRendering({ html: '{{ x }}'.repeat(100_000) }, 'x'),
+                ],
+                [
                     'has a UTM value one character over the length limit',
                     'utm_value_too_long',
                     () => storedUtmValue('x'.repeat(UTM_VALUE_LIMIT_CHARS + 1)),
@@ -3678,6 +3695,18 @@ describe('CDP API', () => {
                     expect(await queuedIds()).toEqual([])
                 }
             )
+
+            it('accepts a send without files whose email step body holds more Liquid tags than a send with files may', async () => {
+                const options = await storedTemplateRendering(
+                    { html: '{{ variables.chunk }}'.repeat(EMAIL_BODY_TAG_LIMIT + 1) },
+                    'x'
+                )
+
+                const res = await sendWithFiles(newKey(), [], options)
+
+                expect(res.status).toBe(202)
+                expect(await queuedIds()).toEqual([res.body.invocation_id])
+            })
         })
 
         it.each<[string, () => { payload: Record<string, unknown>; verify?: () => void }]>([

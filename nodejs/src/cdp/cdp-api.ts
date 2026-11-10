@@ -126,6 +126,7 @@ import { isHogLimitError, isHogVMError } from './utils/hog-error-classification'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 import { buildHogFunctionInvocations } from './utils/invocation-utils'
 import { PosthogJwtAudience } from './utils/jwt-utils'
+import { EMAIL_BODY_TAG_LIMIT, countLiquidTags } from './utils/liquid'
 import { ScopedServiceJwt } from './utils/scoped-service-jwt'
 import { parseWorkflowStepDispatchKey } from './utils/workflow-step-dispatch-key'
 
@@ -220,6 +221,26 @@ const utmValueTooLong = (emailStep: EmailStep, key: string): SendRefusal => ({
         fix: `Shorten the ${key} value of this email step to ${UTM_VALUE_LIMIT_CHARS} characters or fewer, or send this email without files.`,
     },
 })
+
+const emailBodyTooManyTags = (emailStep: EmailStep): SendRefusal => ({
+    status: 400,
+    body: {
+        error: 'email_body_too_many_tags',
+        reason: `The "${emailStep.name}" email step has more than ${EMAIL_BODY_TAG_LIMIT} Liquid tags, so the size of this email with its files could not be checked.`,
+        fix: `Use ${EMAIL_BODY_TAG_LIMIT} Liquid tags or fewer in this email step, or send this email without files.`,
+    },
+})
+
+const liquidTagsInBody = (emailStep: EmailStep): number => {
+    const email = emailStep.config.inputs.email
+    if (email?.templating !== 'liquid') {
+        return 0
+    }
+    return [email.value?.html, email.value?.text].reduce(
+        (total: number, part: unknown) => total + (typeof part === 'string' ? countLiquidTags(part) : 0),
+        0
+    )
+}
 
 const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
 
@@ -1578,6 +1599,9 @@ export class CdpApi {
             : undefined
         if (longUtmValue) {
             return { refused: utmValueTooLong(emailStep, longUtmValue) }
+        }
+        if (liquidTagsInBody(emailStep) > EMAIL_BODY_TAG_LIMIT) {
+            return { refused: emailBodyTooManyTags(emailStep) }
         }
         const renderContext = await this.workerRenderContext(hogFlow, invocation)
         deadline.throwIfAborted()
