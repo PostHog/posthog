@@ -1,13 +1,10 @@
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-/**
- * kea-forms hands only the client-side validation errors to the fields, so a submit failure listener
- * calls this to show the server's message: under the field it names, or as a toast when it names none.
- */
+/** kea-forms hands only client-side errors to the fields, so a submit failure listener calls this for the server's. */
 export function showServerFormError(
     error: unknown,
-    formValues: Record<string, unknown>,
+    formValues: object,
     setManualErrors: (errors: Record<string, string>) => void,
     fallbackMessage: string
 ): void {
