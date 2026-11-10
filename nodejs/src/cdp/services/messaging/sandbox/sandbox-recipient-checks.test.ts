@@ -34,7 +34,7 @@ describe('checkSandboxRecipient', () => {
     let reads: SandboxRecipientCheckDependencies
     let teamId: number
     let address: string
-    let frequencyCap: FrequencyCapCheck
+    let frequencyCap: () => Promise<FrequencyCapCheck>
     let optOuts: MessageOptOutRecord[]
 
     const suppressionConfig = { transientBounceThreshold: 5 }
@@ -47,9 +47,49 @@ describe('checkSandboxRecipient', () => {
             categoryType: 'marketing',
             optOuts,
             isTest: false,
-            frequencyCap: () => Promise.resolve(frequencyCap),
+            frequencyCap,
             ...request,
         })
+
+    const marketingEmail: Extract<HogFlowAction, { type: 'function_email' }> = {
+        id: 'email',
+        name: 'Send email',
+        description: '',
+        type: 'function_email',
+        filters: null,
+        config: { template_id: 'template-email', message_category_type: 'marketing', inputs: {} },
+        created_at: 0,
+        updated_at: 0,
+    }
+
+    const realFrequencyCap = (): (() => Promise<FrequencyCapCheck>) => {
+        const preferences = new RecipientPreferencesService(
+            new RecipientsManagerService(postgres),
+            new EmailSuppressionService(postgres, suppressionConfig),
+            {
+                teamWorkflowsConfig: new TeamWorkflowsConfigService(postgres, hub.pubSub),
+                valkey,
+                persons: {
+                    getCyclotronPerson: () => Promise.reject(new Error('an email cap check reads the run person')),
+                },
+            }
+        )
+        return () => preferences.checkFrequencyCap(createExampleInvocation({ team_id: teamId }), marketingEmail)
+    }
+
+    const capThePerson = async (): Promise<void> => {
+        await postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO workflows_teamworkflowsconfig
+                (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                 email_sending_suspension_reason, marketing_frequency_cap_max_messages,
+                 marketing_frequency_cap_window_days)
+             VALUES ($1, false, 'off', '', 1, 7)`,
+            [teamId],
+            'test:cap-one-marketing-email-a-week'
+        )
+        expect(await frequencyCap()).toEqual({ capped: false })
+    }
 
     const storePreferences = (preferences: Record<string, string>) =>
         postgres.query(
@@ -80,7 +120,7 @@ describe('checkSandboxRecipient', () => {
         address = `member-${teamId}@example.com`
         suppressionList = new EmailSuppressionService(postgres, suppressionConfig)
         reads = sandboxRecipientReads(postgres, suppressionConfig)
-        frequencyCap = { capped: false }
+        frequencyCap = realFrequencyCap()
         optOuts = []
     })
 
@@ -110,12 +150,7 @@ describe('checkSandboxRecipient', () => {
             {},
             'opted_out',
         ],
-        [
-            'a person at the marketing frequency cap',
-            () => (frequencyCap = { capped: true, nextSlotAt: 0, holdHours: 4 }),
-            {},
-            'frequency_capped',
-        ],
+        ['a person at the marketing frequency cap', capThePerson, {}, 'frequency_capped'],
     ])('refuses %s', async (_case, arrange, request, reason) => {
         await arrange()
         expect(await check(request)).toEqual({ ok: false, reason })
@@ -181,7 +216,7 @@ describe('checkSandboxRecipient', () => {
             expect(await check({ frequencyCap: throwing })).toEqual({ ok: true })
         }
 
-        frequencyCap = { capped: true, nextSlotAt: 0, holdHours: null }
+        await capThePerson()
         expect(await check()).toEqual({ ok: false, reason: 'frequency_capped' })
     })
 
@@ -196,64 +231,19 @@ describe('checkSandboxRecipient', () => {
             () => storePreferences({ $all: 'OPTED_OUT' }),
             { categoryType: 'transactional' },
         ],
-        [
-            'the frequency cap on a test send',
-            () => (frequencyCap = { capped: true, nextSlotAt: 0, holdHours: null }),
-            { isTest: true },
-        ],
-        [
-            'the frequency cap on a transactional step',
-            () => (frequencyCap = { capped: true, nextSlotAt: 0, holdHours: null }),
-            { categoryType: 'transactional' },
-        ],
+        ['the frequency cap on a test send', capThePerson, { isTest: true }],
+        ['the frequency cap on a transactional step', capThePerson, { categoryType: 'transactional' }],
     ])('lets through %s', async (_case, arrange, request) => {
         await arrange()
         expect(await check(request)).toEqual({ ok: true })
     })
 
     describe('with the marketing frequency cap read behind a lock', () => {
-        const marketingEmail: Extract<HogFlowAction, { type: 'function_email' }> = {
-            id: 'email',
-            name: 'Send email',
-            description: '',
-            type: 'function_email',
-            filters: null,
-            config: { template_id: 'template-email', message_category_type: 'marketing', inputs: {} },
-            created_at: 0,
-            updated_at: 0,
-        }
         let lockHolder: Client
-        let warmFrequencyCap: () => Promise<FrequencyCapCheck>
-
-        const realFrequencyCap = (): (() => Promise<FrequencyCapCheck>) => {
-            const preferences = new RecipientPreferencesService(
-                new RecipientsManagerService(postgres),
-                new EmailSuppressionService(postgres, suppressionConfig),
-                {
-                    teamWorkflowsConfig: new TeamWorkflowsConfigService(postgres, hub.pubSub),
-                    valkey,
-                    persons: {
-                        getCyclotronPerson: () => Promise.reject(new Error('an email cap check reads the run person')),
-                    },
-                }
-            )
-            return () => preferences.checkFrequencyCap(createExampleInvocation({ team_id: teamId }), marketingEmail)
-        }
 
         beforeEach(async () => {
-            await postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `INSERT INTO workflows_teamworkflowsconfig
-                    (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
-                     email_sending_suspension_reason, marketing_frequency_cap_max_messages,
-                     marketing_frequency_cap_window_days)
-                 VALUES ($1, false, 'off', '', 1, 7)`,
-                [teamId],
-                'test:cap-one-marketing-email-a-week'
-            )
-            expect(await check({ frequencyCap: realFrequencyCap() })).toEqual({ ok: true })
-            warmFrequencyCap = realFrequencyCap()
-            expect(await check({ frequencyCap: warmFrequencyCap })).toEqual({ ok: false, reason: 'frequency_capped' })
+            await capThePerson()
+            expect(await check()).toEqual({ ok: false, reason: 'frequency_capped' })
 
             lockHolder = new Client({ connectionString: defaultConfig.DATABASE_URL })
             lockHolder.on('error', () => undefined)
@@ -277,11 +267,11 @@ describe('checkSandboxRecipient', () => {
                 check({ frequencyCap: realFrequencyCap() })
             )
             expect(await Promise.all(stalled)).toEqual(stalled.map(() => ({ ok: true })))
-            expect(await check({ frequencyCap: warmFrequencyCap })).toEqual({ ok: true })
+            expect(await check()).toEqual({ ok: true })
 
             await lockHolder.query('COMMIT')
             await waitForExpect(async () => {
-                expect(await check({ frequencyCap: warmFrequencyCap })).toEqual({
+                expect(await check()).toEqual({
                     ok: false,
                     reason: 'frequency_capped',
                 })
