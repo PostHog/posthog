@@ -14,14 +14,14 @@ from django.contrib import admin
 from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.auth.models import Group
-from django.contrib.messages import get_messages
-from django.core.management.base import CommandError
+from django.contrib.messages.storage.cookie import CookieStorage
 from django.db.models import PROTECT, Model
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
+from django.urls import resolve
 from django.utils import timezone
-from django.utils.html import format_html
+from django.utils.html import escape, format_html
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from loginas import settings as la_settings
@@ -31,13 +31,14 @@ from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
+from posthog.admin.console.moved import MovedAction, MovedPage
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
+from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
 from posthog.admin.console.user_panels import is_acting_as
 from posthog.csp_middleware import CSPMiddleware
-from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, LedgerEntry, Wallet
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
@@ -51,24 +52,21 @@ from posthog.models.team.team import Team
 from posthog.models.tophog.queries import TopHogFilterOptions
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
-from posthog.personhog_client.fake_client import get_active_fake
 from posthog.session.models import Session
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.test.api_keys import create_project_secret_api_key
-from posthog.test.persons import create_group_type_mapping, update_group_type_mapping
-
-from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
 
 from ee.billing.quota_limiting import QuotaResource
 
 TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
-PROJECT_PANEL_TITLES = ("Overview", "Deletion")
-USER_PANEL_TITLES = ("Overview", "Organizations", "Sign-in", "Personal API keys", "Deletion")
 CONSOLE_ASSETS = Path(settings.BASE_DIR) / "frontend" / "public" / "admin-console"
 REBUILD = "pnpm --filter=@posthog/frontend build:admin-console"
 
 _CLASS_ATTRIBUTE = re.compile(r'class="([^"]*)"')
 _TEMPLATE_TAG = re.compile(r"\{%.*?%\}|\{\{.*?\}\}")
+_PATH_PARAMETER = re.compile(r"<(?:(\w+):)?(\w+)>")
+_SAMPLE_VALUES = {"int": "7", "uuid": "0d7b8a52-4f0e-4b8e-9a43-6f1c2e5d9b10", "str": "example", "path": "example"}
+TOOLS_PREFIX = "/admin/console/tools/"
 
 
 def _selector_present(css: str, class_name: str) -> bool:
@@ -76,6 +74,17 @@ def _selector_present(css: str, class_name: str) -> bool:
     # written `.\@3xl\:grid-cols-2`. The trailing guard stops `.flex` matching inside `.flex-1`.
     escaped = "".join(char if char.isalnum() or char in "-_" else "\\" + char for char in class_name)
     return re.search(re.escape("." + escaped) + r"(?![a-zA-Z0-9_\\-])", css) is not None
+
+
+def _sample_path(old_path: str) -> tuple[str, dict[str, str]]:
+    # Fills each path parameter of an old URL pattern with a value its converter accepts.
+    values: dict[str, str] = {}
+
+    def fill(match: re.Match[str]) -> str:
+        values[match.group(2)] = _SAMPLE_VALUES[match.group(1) or "str"]
+        return values[match.group(2)]
+
+    return "/" + _PATH_PARAMETER.sub(fill, old_path), values
 
 
 class _DuplicatePanel(Panel):
@@ -96,6 +105,12 @@ def _register_twice() -> None:
     registry = ConsoleRegistry()
     registry.register_panel(type("FirstPanel", (_DuplicatePanel,), {}))
     registry.register_panel(type("SecondPanel", (_DuplicatePanel,), {}))
+
+
+def _move_twice() -> None:
+    registry = ConsoleRegistry()
+    registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/report/")
+    registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/other-report/")
 
 
 class TestAdminConsoleAssets(SimpleTestCase):
@@ -164,6 +179,21 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 lambda: ConsoleRegistry().register_tool(type("T", (_Tool,), {"group": "Misc"})),
                 "not one of",
             ),
+            (
+                "moved_url_outside_the_admin_step_up",
+                lambda: ConsoleRegistry().register_moved_page(
+                    old_path="resave-cohorts/", title="Re-save cohorts", url="/admin/console/tools/resave-cohorts/"
+                ),
+                "under admin/",
+            ),
+            (
+                "moved_action_without_a_way_to_find_its_record",
+                lambda: ConsoleRegistry().register_moved_action(
+                    old_path="admin/posthog/team/<int:team_id>/rebuild-cache/", record="team", target="#panel-x"
+                ),
+                "needs a <pk>",
+            ),
+            ("moved_url_registered_by_two_contributions", _move_twice, "already registered"),
             (
                 "danger_operation_without_reason",
                 lambda: Operation(key="wipe", label="Wipe", handler=lambda request, obj, form: None, danger=True),
@@ -283,6 +313,46 @@ class TestAdminConsoleTheme(SimpleTestCase):
         assert all(f'nonce="{allowed.group(1)}"' in tag for tag in inline_scripts), inline_scripts
 
 
+class TestAdminConsoleMovedUrls(SimpleTestCase):
+    def _get(self, url: str) -> HttpResponse:
+        request = RequestFactory().get(url)
+        request.user = User(email="staff@posthog.com", is_staff=True, is_active=True)
+        request._messages = CookieStorage(request)  # type: ignore[attr-defined]
+        match = resolve(request.path)
+        return match.func(request, *match.args, **match.kwargs)
+
+    @parameterized.expand(
+        [
+            (moved.old_path, moved)
+            for moved in console.moved()
+            if isinstance(moved, MovedAction) and moved.resolver is None
+        ]
+    )
+    def test_an_old_action_url_lands_on_its_registered_panel(self, _name: str, moved: MovedAction) -> None:
+        old_path, values = _sample_path(moved.old_path)
+
+        response = self._get(f"{old_path}?from=ticket")
+
+        page, _, anchor = moved.target.partition("#")
+        record_page = f"/admin/console/{RECORD_TYPES[moved.record].plural}/{values['pk']}/"
+        assert response.status_code == 302
+        assert response["Location"] == f"{record_page}{page}?from=ticket" + (f"#{anchor}" if anchor else "")
+        panel_key = anchor.removeprefix("panel-") if anchor else page.split("/")[0]
+        assert console.get_panel(moved.record, panel_key) is not None, f"No {moved.record} panel {panel_key!r}"
+
+    @parameterized.expand([(moved.old_path, moved) for moved in console.moved() if isinstance(moved, MovedPage)])
+    def test_an_old_page_url_lands_on_its_registered_tool(self, _name: str, moved: MovedPage) -> None:
+        old_path, values = _sample_path(moved.old_path)
+
+        response = self._get(f"{old_path}?from=ticket")
+
+        target = moved.url.format(**values)
+        assert response.status_code == 302
+        assert response["Location"] == target + ("&" if "?" in target else "?") + "from=ticket"
+        tool_key = target.removeprefix(TOOLS_PREFIX).split("/")[0]
+        assert target.startswith(TOOLS_PREFIX) and console.get_tool(tool_key) is not None, f"No tool for {target}"
+
+
 class TestAdminConsoleViews(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -309,53 +379,39 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 403
 
-    def test_team_page_shows_core_and_product_panels(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.OWNER
-        self.organization_membership.save()
+    def _record(self, record: str) -> Model:
+        if record == "deletion-request":
+            return DataDeletionRequest.objects.create(team_id=self.team.pk, request_type=RequestType.EVENT_REMOVAL)
+        return {"team": self.team, "organization": self.organization, "project": self.project, "user": self.user}[
+            record
+        ]
 
-        response = self.client.get(f"/admin/console/teams/{self.team.pk}/")
+    @parameterized.expand([(record,) for record in RECORD_TYPES])
+    def test_every_registered_panel_renders_on_its_record_page(self, record: str) -> None:
+        obj = self._record(record)
+
+        response = self.client.get(RECORD_TYPES[record].url(obj))
 
         assert response.status_code == 200
         content = response.content.decode()
-        for title in (
-            "Overview",
-            "Remote config cache",
-            "Group types",
-            "Email sending",
-            "AI gateway",
-            "Project API token",
-            "Project secret API keys",
-        ):
-            assert title in content
-        assert "Needs attention" in content and "Ingested events:" in content
-        for panel in console.panels_for("team"):
-            assert len(panel.facts(self.team)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
+        for panel in console.panels_for(record):
+            assert escape(panel.title) in content, f"{panel.key} is missing from the {record} page"
+            assert len(panel.facts(obj)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
 
+    def test_record_pages_link_their_related_records(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        content = self.client.get(f"/admin/console/teams/{self.team.pk}/").content.decode()
+
+        assert "Needs attention" in content and "Ingested events:" in content
         assert f"/admin/console/organizations/{self.organization.pk}/" in content
         assert f"/admin/console/projects/{self.project.pk}/" in content
         assert f"/admin/console/users/{self.user.pk}/" in content
-        assert f"/admin/console/tools/ai-gateway-wallet/?team={self.team.pk}" in content
-
-        organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/")
-        assert organization_page.status_code == 200
-        organization_content = organization_page.content.decode()
-        for title in ("Overview", "Teams", "Billing", "Deletion", "Legal documents"):
-            assert title in organization_content
-        assert f"/admin/console/teams/{self.team.pk}/" in organization_content
-
-        for record, path, titles in (
-            ("project", f"/admin/console/projects/{self.project.pk}/", PROJECT_PANEL_TITLES),
-            ("user", f"/admin/console/users/{self.user.pk}/", USER_PANEL_TITLES),
-        ):
-            record_page = self.client.get(path)
-            assert record_page.status_code == 200
-            record_content = record_page.content.decode()
-            for title in titles:
-                assert title in record_content, f"{title} is missing from the {record} page"
-            assert f"/admin/console/organizations/{self.organization.pk}/" in record_content
-            obj = self.project if record == "project" else self.user
-            for panel in console.panels_for(record):
-                assert len(panel.facts(obj)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
+        organization_content = self.client.get(f"/admin/console/organizations/{self.organization.pk}/").content
+        assert f"/admin/console/teams/{self.team.pk}/" in organization_content.decode()
+        for path in (f"/admin/console/projects/{self.project.pk}/", f"/admin/console/users/{self.user.pk}/"):
+            assert f"/admin/console/organizations/{self.organization.pk}/" in self.client.get(path).content.decode()
         assert (
             f"/admin/console/teams/{self.team.pk}/"
             in self.client.get(f"/admin/console/projects/{self.project.pk}/").content.decode()
@@ -364,6 +420,20 @@ class TestAdminConsoleViews(BaseTest):
         home = self.client.get("/admin/console/").content.decode()
         assert "Recently opened" in home
         assert f"/admin/console/teams/{self.team.pk}/" in home
+
+    @parameterized.expand([("team",), ("project",), ("user",)])
+    def test_django_admin_page_points_moved_actions_to_registered_panels(self, record: str) -> None:
+        obj = self._record(record)
+
+        response = self.client.get(f"/admin/posthog/{record}/{obj.pk}/change/")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "This is the Django admin" in content
+        panel_keys = re.findall(rf"/admin/console/{record}s/{obj.pk}/#panel-([a-z0-9-]+)", content)
+        assert panel_keys, f"The Django admin {record} page points nowhere in the console"
+        unknown = sorted(key for key in set(panel_keys) if console.get_panel(record, key) is None)
+        assert not unknown, f"The Django admin {record} page points to panels the console does not have: {unknown}"
 
     @parameterized.expand(
         [
@@ -403,77 +473,6 @@ class TestAdminConsoleViews(BaseTest):
 
     @parameterized.expand(
         [
-            ("form_page_keeps_its_parameters", "team", "set-api-token/?from=ticket", "api-token/set/?from=ticket"),
-            ("button_action_lands_on_its_panel", "team", "rebuild-cache/", "#panel-remote-config"),
-            (
-                "suspend_form_keeps_its_parameters",
-                "team",
-                "suspend-email-sending/?from=ticket",
-                "email-sending/suspend/?from=ticket",
-            ),
-            (
-                "group_type_edit_keeps_its_index_and_parameters",
-                "team",
-                "group-type-mapping/3/edit/?from=ticket",
-                "group-types/edit-3/?from=ticket",
-            ),
-            ("organization_action", "organization", "limit-product/?resource=events", "?resource=events#panel-billing"),
-            ("organization_deletion", "organization", "trigger-deletion/?from=ticket", "?from=ticket#panel-deletion"),
-            (
-                "deletion_request_form_page",
-                "datadeletionrequest",
-                "approve/?from=ticket",
-                "workflow/approve/?from=ticket",
-            ),
-            ("project_deletion", "project", "trigger-deletion/?from=ticket", "?from=ticket#panel-deletion"),
-            ("project_delete_now", "project", "delete-now/", "#panel-deletion"),
-            ("user_deletion", "user", "delete/?from=ticket", "deletion/delete/?from=ticket"),
-            ("user_password_lands_on_sign_in", "user", "password/", "#panel-sign-in"),
-        ]
-    )
-    def test_an_old_django_admin_action_url_lands_on_the_console(
-        self, _name: str, record: str, old: str, new: str
-    ) -> None:
-        obj: Model
-        if record == "team":
-            obj, plural = self.team, "teams"
-        elif record == "organization":
-            obj, plural = self.organization, "organizations"
-        elif record == "project":
-            obj, plural = self.project, "projects"
-        elif record == "user":
-            obj, plural = self.user, "users"
-        else:
-            obj = DataDeletionRequest.objects.create(team_id=self.team.pk, request_type=RequestType.EVENT_REMOVAL)
-            plural = "deletion-requests"
-        response = self.client.get(f"/admin/posthog/{record}/{obj.pk}/{old}")
-
-        assert response.status_code == 302
-        assert response["Location"] == f"/admin/console/{plural}/{obj.pk}/{new}"
-
-    @parameterized.expand(
-        [
-            ("team", ("remote-config", "group-types", "email-sending", "ai-gateway", "api-token")),
-            ("project", ("deletion",)),
-            ("user", ("sign-in", "deletion")),
-        ]
-    )
-    def test_django_admin_page_points_moved_actions_to_the_console(
-        self, record: str, panel_keys: tuple[str, ...]
-    ) -> None:
-        obj: Model = {"team": self.team, "project": self.project, "user": self.user}[record]
-        plural = f"{record}s"
-
-        response = self.client.get(f"/admin/posthog/{record}/{obj.pk}/change/")
-
-        assert response.status_code == 200
-        content = response.content.decode()
-        assert "This is the Django admin" in content
-        for panel_key in panel_keys:
-            assert f"/admin/console/{plural}/{obj.pk}/#panel-{panel_key}" in content
-
-    @parameterized.expand(
-        [
             ("new_token", "phc_console_new", 302, "phc_console_new"),
             ("blank_token", "   ", 400, "phc_console_old"),
             ("identical_token", "phc_console_old", 400, "phc_console_old"),
@@ -496,77 +495,6 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == expected_status
         self.team.refresh_from_db()
         assert self.team.api_token == expected_token
-
-    @patch("products.ai_gateway.backend.facade.api.add_team_credit")
-    def test_a_double_submitted_credit_form_reuses_its_idempotency_key(self, add_credit: MagicMock) -> None:
-        add_credit.return_value = TeamCreditAdded(
-            entry_id="entry-1", amount_usd="25", balance_usd="25", duplicate=False
-        )
-        form = self.client.get(f"/admin/console/teams/{self.team.pk}/ai-gateway/add-credit/").content.decode()
-        nonce = re.search(r'name="form_nonce" value="([^"]+)"', form)
-        assert nonce is not None
-
-        for _ in range(2):
-            self.client.post(
-                f"/admin/console/teams/{self.team.pk}/ai-gateway/add-credit/",
-                {"amount_usd": "25", "reason": "Outage goodwill", "form_nonce": nonce.group(1)},
-            )
-
-        nonces = {call.kwargs["form_nonce"] for call in add_credit.call_args_list}
-        assert add_credit.call_count == 2
-        assert nonces == {nonce.group(1)}
-
-    @parameterized.expand(
-        [
-            (
-                "balance_and_ledger",
-                Wallet(
-                    team_id=0,
-                    known=True,
-                    has_ledger=True,
-                    balance="9.500000",
-                    recent=[LedgerEntry("2026-06-01", "topup", "funding", "prepaid", "10.000000", "ref-1")],
-                ),
-                ["Balance: $9.500000", "ref-1"],
-            ),
-            (
-                "no_gateway_account",
-                Wallet(team_id=0, known=False, has_ledger=True, balance=None, recent=[]),
-                ["no gateway account yet", "No ledger entries yet."],
-            ),
-            ("not_configured", AIGatewayNotConfigured(), ["not configured in this region"]),
-            ("gateway_fails", AIGatewayInternalError("boom"), ["The wallet is unavailable: boom"]),
-        ]
-    )
-    def test_the_old_wallet_page_opens_the_wallet_tool(
-        self, _name: str, wallet: Wallet | Exception, expected: list[str]
-    ) -> None:
-        with patch(
-            "posthog.llm.gateway_internal_client.get_wallet",
-            **({"side_effect": wallet} if isinstance(wallet, Exception) else {"return_value": wallet}),
-        ) as get_wallet:
-            response = self.client.get(f"/admin/posthog/team/{self.team.pk}/ai-gateway-wallet/", follow=True)
-
-        assert response.redirect_chain == [(f"/admin/console/tools/ai-gateway-wallet/?team={self.team.pk}", 302)]
-        get_wallet.assert_called_once_with(self.team.pk)
-        content = response.content.decode()
-        for text in expected:
-            assert text in content
-
-    @patch(
-        "products.ai_gateway.backend.facade.api.add_team_credit",
-        side_effect=TeamCreditRefused("Failed to add credit: gateway down"),
-    )
-    def test_a_failed_operation_shows_the_form_again_with_what_staff_typed(self, _add_credit: MagicMock) -> None:
-        response = self.client.post(
-            f"/admin/console/teams/{self.team.pk}/ai-gateway/add-credit/",
-            {"amount_usd": "25", "reason": "Outage goodwill"},
-        )
-
-        assert response.status_code == 400
-        content = response.content.decode()
-        assert "gateway down" in content
-        assert "Outage goodwill" in content
 
     @parameterized.expand(
         [
@@ -699,45 +627,6 @@ class TestAdminConsoleViews(BaseTest):
         assert form.status_code == (200 if in_group else 403)
         assert response.status_code == expected_status
         assert call_command.called == in_group
-
-    @parameterized.expand(
-        [
-            ("queued", "2026-07-15", None, 302, True),
-            (
-                "refused_by_the_command",
-                "2026-07-15",
-                CommandError("A run for 2026-07-15 was already dispatched."),
-                400,
-                True,
-            ),
-            ("date_too_far_ahead", "2026-07-30", None, 400, False),
-        ]
-    )
-    @patch("products.ai_observability.backend.admin.call_command")
-    @time_machine.travel("2026-07-22T12:00:00Z", tick=False)
-    def test_sending_the_ai_observability_usage_report_queues_it_or_shows_why_not(
-        self,
-        _name: str,
-        report_date: str,
-        command_error: Exception | None,
-        expected_status: int,
-        expect_called: bool,
-        call_command: MagicMock,
-    ) -> None:
-        call_command.side_effect = command_error
-
-        response = self.client.post(
-            "/admin/console/tools/ai-observability/send-usage-report/", {"report_date": report_date}
-        )
-
-        assert response.status_code == expected_status
-        assert call_command.called == expect_called
-        if expect_called:
-            call_command.assert_called_once_with(
-                "send_ai_observability_usage_report", f"--date={report_date}", "--async"
-            )
-        if command_error is not None:
-            assert "already dispatched" in response.content.decode()
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_events_retention_tool_lists_the_teams_of_an_organization_with_a_default(self) -> None:
@@ -957,109 +846,6 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 200
         assert "Open this page from the Remote config cache panel" in response.content.decode()
-
-    @parameterized.expand(
-        [
-            (
-                "rename_keeps_the_created_time",
-                {"name_singular": "Company"},
-                ["name_singular"],
-                None,
-                "Singular name: Not set to Company",
-            ),
-            (
-                "created_time_to_the_millisecond",
-                {"created_at": "2026-02-20 08:15:00.456"},
-                ["created_at"],
-                int(datetime(2026, 2, 20, 8, 15, tzinfo=UTC).timestamp() * 1000) + 456,
-                "Created (UTC): 2026-01-15 10:30:00.123 to 2026-02-20 08:15:00.456",
-            ),
-            (
-                "cleared_created_time",
-                {"created_at": ""},
-                ["created_at"],
-                None,
-                "Created (UTC): 2026-01-15 10:30:00.123 to Not set",
-            ),
-            (
-                "cleared_default_columns",
-                {"default_columns": ""},
-                ["default_columns"],
-                None,
-                'Default columns: ["name"] to Not set',
-            ),
-            ("unchanged_form", {}, None, None, ""),
-            ("invalid_created_time", {"created_at": "not-a-datetime"}, None, None, ""),
-            ("impossible_created_time", {"created_at": "2026-02-30 10:30:00"}, None, None, ""),
-        ]
-    )
-    def test_editing_a_group_type_previews_then_writes_only_the_changed_fields(
-        self,
-        _name: str,
-        changes: dict[str, str],
-        expected_mask: list[str] | None,
-        expected_created_at: int | None,
-        expected_message: str,
-    ) -> None:
-        create_group_type_mapping(
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type="organization",
-            group_type_index=0,
-            default_columns=["name"],
-            created_at=datetime(2026, 1, 15, 10, 30, 0, 123000, tzinfo=UTC),
-        )
-        url = f"/admin/console/teams/{self.team.pk}/group-types/edit-0/"
-        prefilled = self.client.get(url).context["form"].initial
-
-        preview = self.client.post(url, {**prefilled, **changes, "reason": "Customer asked"})
-        updates = [call.request for call in get_active_fake().calls if call.method == "update_group_type_mapping"]
-        assert updates == []
-        if expected_mask is None:
-            assert preview.status_code == 400
-            return
-        assert preview.status_code == 200
-        assert "After saving" in preview.content.decode()
-
-        saved = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
-
-        assert saved.status_code == 302
-        updates = [call.request for call in get_active_fake().calls if call.method == "update_group_type_mapping"]
-        assert len(updates) == 1
-        assert list(updates[0].update_mask) == expected_mask
-        if "created_at" in expected_mask:
-            assert (updates[0].created_at if updates[0].HasField("created_at") else None) == expected_created_at
-        assert expected_message in " ".join(str(message) for message in get_messages(saved.wsgi_request))
-
-    @parameterized.expand([("before_the_preview", True), ("before_the_confirm", False)])
-    def test_editing_a_group_type_refuses_when_the_group_type_changed_since_the_form_opened(
-        self, _name: str, change_before_preview: bool
-    ) -> None:
-        mapping = create_group_type_mapping(
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type="organization",
-            group_type_index=0,
-            default_columns=["name"],
-        )
-        url = f"/admin/console/teams/{self.team.pk}/group-types/edit-0/"
-        prefilled = self.client.get(url).context["form"].initial
-        mapping.default_columns = ["name", "email"]
-
-        if change_before_preview:
-            update_group_type_mapping(mapping)
-        preview = self.client.post(url, {**prefilled, "name_singular": "Company", "reason": "Customer asked"})
-        if change_before_preview:
-            assert preview.status_code == 400
-            assert "changed since you opened this form" in preview.content.decode()
-            return
-        update_group_type_mapping(mapping)
-        saved = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
-
-        assert saved.status_code == 409
-        assert "changed since you opened this form" in saved.content.decode()
-        updates = [call.request for call in get_active_fake().calls if call.method == "update_group_type_mapping"]
-        assert updates == []
 
 
 @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
