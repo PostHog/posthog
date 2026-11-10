@@ -24,6 +24,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
@@ -40,6 +41,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
+from posthog.models.instance_setting import get_instance_setting
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.mcp_analytics.backend.hogql_queries.base import (
@@ -322,6 +324,7 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
 
     query: MCPDashboardQuery
     cached_response: CachedMCPDashboardQueryResponse
+    _batch: Optional["MCPDashboardQueryRunner"] = None
 
     def validate(self) -> None:
         super().validate()
@@ -336,6 +339,11 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
 
     def validate_query_runner_access(self, user: "User") -> bool:
         return validate_mcp_analytics_access(self.team, user)
+
+    @property
+    def shared_database(self) -> Database:
+        # A batch's sections build the database once between them, and only when one misses the cache.
+        return self._batch.shared_database if self._batch else super().shared_database
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         raise NotImplementedError("The dashboard is many queries, not one.")
@@ -505,6 +513,7 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
             ch_user=self.ch_user,
         )
         runner.is_query_service = self.is_query_service
+        runner._batch = self
         return runner
 
     def _run_section(
@@ -560,6 +569,8 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
             workload=self.workload,
             ch_user=self.ch_user,
         )
+        if runner.modifiers == self.modifiers and get_instance_setting("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED"):
+            runner._shared_database = self.shared_database
         return runner.calculate().results
 
     def _hogql_rows(self, section: MCPDashboardSection, hogql: HogQLSection) -> Any:
@@ -596,6 +607,7 @@ class MCPDashboardQueryRunner(HarnessLabelQueryRunner[MCPDashboardQueryResponse]
             limit_context=self.limit_context,
             workload=self.workload,
             ch_user=self.ch_user,
+            context=self.build_hogql_context(),
         )
         if response.error:
             raise QueryError(response.error)
