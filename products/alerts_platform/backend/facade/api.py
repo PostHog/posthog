@@ -20,6 +20,7 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationSend,
     HandbackRefusal,
     HeldDeliveryAddress,
+    NativeConfigurationMatch,
     NewAlertDestination,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
@@ -93,12 +94,12 @@ def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) ->
     return delivery_holds.reschedule_hold(address, release_after=release_after)
 
 
-def source_suppressed_holds_by_legacy_id(
-    *, team_id: int, legacy_configuration_id: UUID, evaluation_keys: Collection[str]
+def source_suppressed_holds_by_public_id(
+    *, team_id: int, public_id: UUID, evaluation_keys: Collection[str]
 ) -> frozenset[str]:
     """The named evaluations of an alert the platform owns whose held delivery its source released
     with a suppress. A suppress by the safety net, for a configuration turned off, is left out."""
-    return delivery_holds.source_suppressed_holds_by_legacy_id(team_id, legacy_configuration_id, evaluation_keys)
+    return delivery_holds.source_suppressed_holds_by_public_id(team_id, public_id, evaluation_keys)
 
 
 def record_verdict_change(change: VerdictChange, *, now: datetime) -> AlertDeliveryRequest | None:
@@ -221,6 +222,15 @@ def native_configuration_keys(
     return platform_reads.native_configuration_keys(
         team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
     )
+
+
+def native_configuration_matches(
+    *, team_id: int, source_kind: SourceKind, search: str | None = None
+) -> tuple[NativeConfigurationMatch, ...]:
+    """Every alert of a kind with no source row, with what a source's list filters, sorts and pages
+    them on beside its own rows. With `search`, only the ones whose name matches it, exact and
+    similar alike: the source keeps only the exact tier when any row of either kind is exact."""
+    return platform_reads.native_configuration_matches(team_id=team_id, source_kind=source_kind.value, search=search)
 
 
 def native_configuration_ids(
