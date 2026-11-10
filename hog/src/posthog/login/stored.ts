@@ -201,35 +201,46 @@ interface RemovedLogin {
 // Removes a login's secret and its record. Under the renewal lock, so a renewal in another hog process
 // can't restore the login after this removes it. The store can hold a secret hog can't read, such as
 // a key an older hog accepted, and it goes too.
+// A removal that fails once the secret is read revokes the login before it throws, because the
+// secret can be gone already and a retry couldn't revoke it.
 async function removeLogin(runtime: Runtime, target: LoginTarget): Promise<RemovedLogin | undefined> {
-    return withLoginLock(runtime, target, async () => {
-        const settings = await readSettings(runtime)
-        const record = loginFor(settings, target)
-        if (!record) {
-            return undefined
-        }
+    let loaded: AccessKey | undefined
 
-        const login = await readLogin(runtime, settings, target)
-        // Reading the login can have moved its secret, so the record comes from settings.json again.
-        return withFileLock(runtime, LOGINS_LOCK, async () => {
-            const current = await readSettings(runtime)
-            const stored = loginFor(current, target) ?? record
-            const { host, projectId } = itemOf(stored)
-            const removed = await openStore(runtime, stored.store).remove(itemName(host, projectId))
+    try {
+        return await withLoginLock(runtime, target, async () => {
+            const settings = await readSettings(runtime)
+            const record = loginFor(settings, target)
+            if (!record) {
+                return undefined
+            }
 
-            // A move that copied the secret to the login's own item but failed to save settings.json
-            // leaves that copy behind, so it becomes a pending removal.
-            const copy: StoredItem[] = stored.storedUnderHost
-                ? [{ store: stored.store, host: stored.host, projectId: stored.projectId }]
-                : []
-            await writeSettings(runtime, {
-                ...withLogin(current, target, undefined),
-                pendingRemovals: [...current.pendingRemovals, ...copy],
+            const login = await readLogin(runtime, settings, target)
+            loaded = login?.key
+
+            // Reading the login can have moved its secret, so the record comes from settings.json again.
+            return withFileLock(runtime, LOGINS_LOCK, async () => {
+                const current = await readSettings(runtime)
+                const stored = loginFor(current, target) ?? record
+                const { host, projectId } = itemOf(stored)
+                const removed = await openStore(runtime, stored.store).remove(itemName(host, projectId))
+
+                // A move that copied the secret to the login's own item but failed to save settings.json
+                // leaves that copy behind, so it becomes a pending removal.
+                const copy: StoredItem[] = stored.storedUnderHost
+                    ? [{ store: stored.store, host: stored.host, projectId: stored.projectId }]
+                    : []
+                await writeSettings(runtime, {
+                    ...withLogin(current, target, undefined),
+                    pendingRemovals: [...current.pendingRemovals, ...copy],
+                })
+
+                return { record: stored, key: login?.key, removed }
             })
-
-            return { record: stored, key: login?.key, removed }
         })
-    })
+    } catch (error) {
+        await loaded?.logout(runtime).catch(() => undefined)
+        throw error
+    }
 }
 
 // A login that is gone from this machine can't be revoked later, so an error from `work` waits for
@@ -349,9 +360,11 @@ export async function logoutAll(runtime: Runtime): Promise<LoggedOutLogin[]> {
             const current = await readSettings(runtime)
             await writeSettings(runtime, {
                 ...current,
-                pendingRemovals: current.pendingRemovals.filter(
-                    (item) => item.store === 'keychain' && failed.has(itemName(item.host, item.projectId))
-                ),
+                // Another hog process can have added an item after this one listed them, and it stays.
+                pendingRemovals: current.pendingRemovals.filter((item) => {
+                    const name = itemName(item.host, item.projectId)
+                    return !names.has(name) || (item.store === 'keychain' && failed.has(name))
+                }),
             })
 
             return new Set(removed)
