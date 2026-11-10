@@ -184,8 +184,8 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
             <DashboardConversionRecommendations />
             {hasSources && hasSyncedMarketingSources && (
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-12">
-                    {marketingTiles?.map((tile, i) => (
-                        <QueryTileItem key={i} tile={tile} />
+                    {marketingTiles?.map((tile) => (
+                        <QueryTileItem key={tile.tileId} tile={tile} />
                     ))}
                 </div>
             )}
