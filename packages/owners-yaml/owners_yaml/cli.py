@@ -173,7 +173,8 @@ def cmd_unowned(repo_root: Path | None, against: str | None, prefix: str | None)
         try:
             paths = newly_unowned(resolver.repo_root, against)
         except subprocess.CalledProcessError as exc:
-            raise click.ClickException(f"could not compare with {against!r}: {exc.stderr.strip()}") from exc
+            reason = exc.stderr.strip() or "no merge base"
+            raise click.ClickException(f"could not compare with {against!r}: {reason}") from exc
         for path in paths:
             click.echo(path)
         return

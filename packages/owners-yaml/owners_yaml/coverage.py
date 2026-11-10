@@ -50,9 +50,10 @@ def newly_unowned(
         # Git pairs a moved file with its old path only when the index holds the new path. A copy
         # of the index takes the untracked files, so the index of the repository does not change.
         with tempfile.TemporaryDirectory() as scratch:
-            index = shutil.copy(
-                _git(repo_root, "rev-parse", "--path-format=absolute", "--git-path", "index").strip(), scratch
-            )
+            index = os.path.join(scratch, "index")
+            current = _git(repo_root, "rev-parse", "--path-format=absolute", "--git-path", "index").strip()
+            if os.path.exists(current):
+                shutil.copy(current, index)
             _git(repo_root, "add", "--all", "--intent-to-add", ".", index=index)
             diff = _git(repo_root, *diff_args, index=index)
             files = frozenset(_git(repo_root, "ls-files", "-z", index=index).split("\0")) - {""}
@@ -78,10 +79,11 @@ def newly_unowned(
 
     # An ownership file decides only the paths below its directory, so a file outside the changed
     # directories keeps the owners it had.
+    reowned_directories = tuple(reowned)
     candidates = sorted(
         path
         for path in files
-        if (path in path_at_base or path.startswith(tuple(reowned))) and (include is None or include(path))
+        if (path in path_at_base or path.startswith(reowned_directories)) and (include is None or include(path))
     )
     unowned = [path for path in candidates if lacks_owner(head.resolve(path))]
     if not unowned:

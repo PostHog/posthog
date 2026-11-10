@@ -1327,10 +1327,13 @@ def test_unowned_against_lists_only_what_the_worktree_leaves_unowned(
     assert result.output.split() == expected
 
 
-def test_newly_unowned_counts_a_file_git_does_not_track_yet(repo_with_a_gap: Path) -> None:
+@pytest.mark.parametrize("has_an_index", [True, False])
+def test_newly_unowned_counts_a_file_git_does_not_track_yet(repo_with_a_gap: Path, has_an_index: bool) -> None:
     _write(repo_with_a_gap, ".git/info/exclude", "ignored/\n")
     for rel in ("gap/untracked.py", "ignored/untracked.py"):
         _write(repo_with_a_gap, rel, "later = 1\n")
+    if not has_an_index:
+        (repo_with_a_gap / ".git/index").unlink()
 
     assert newly_unowned(repo_with_a_gap, "HEAD") == ["gap/untracked.py"]
 
@@ -1359,6 +1362,15 @@ def test_newly_unowned_reads_head_when_the_check_is_on_a_push(
     _change(repo_with_a_gap, {}, {"gap/uncommitted.py": "later = 1\n"})
 
     assert newly_unowned(repo_with_a_gap, "HEAD~1", committed_only=True) == expected
+
+
+def test_newly_unowned_reads_a_bare_repository_when_the_check_is_on_a_push(repo_with_a_gap: Path) -> None:
+    _change(repo_with_a_gap, {}, {"gap/new.py": "new = 1\n"})
+    _git(repo_with_a_gap, "add", "-A")
+    _git(repo_with_a_gap, "commit", "-q", "-m", "change")
+    _git(repo_with_a_gap, "clone", "-q", "--bare", ".", "bare.git")
+
+    assert newly_unowned(repo_with_a_gap / "bare.git", "HEAD~1", committed_only=True) == ["gap/new.py"]
 
 
 def test_a_branch_from_before_newly_unowned_imports_its_check_and_cannot_run_it() -> None:

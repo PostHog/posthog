@@ -283,10 +283,10 @@ class GitRefSource:
     def __init__(self, repo_root: Path, ref: str = "HEAD") -> None:
         self._git = ["git", "-C", str(repo_root)]
         self.ref = ref
-        listing = subprocess.run(
-            [*self._git, "ls-tree", "-r", "-z", "--name-only", ref], capture_output=True, text=True, check=True
-        )
-        self.files: frozenset[str] = frozenset(path for path in listing.stdout.split("\0") if path)
+        listing = subprocess.run([*self._git, "ls-tree", "-r", "-z", ref], capture_output=True, text=True, check=True)
+        entries = (entry.split("\t", 1) for entry in listing.stdout.split("\0") if entry)
+        self._blobs = {path: mode_type_blob.split()[2] for mode_type_blob, path in entries}
+        self.files: frozenset[str] = frozenset(self._blobs)
         self._texts_by_name: dict[str, dict[str, str]] = {}
 
     def read(self, path: str) -> str | None:
@@ -300,11 +300,9 @@ class GitRefSource:
     def _cat(self, paths: list[str]) -> dict[str, str]:
         """One ``git cat-file --batch`` per file name. The resolver asks for an ownership file per
         directory, and a ``git show`` for each takes seconds on this repo."""
-        # `./` starts the path at the repo root. Without it git starts at its top level, which is a
-        # different directory when the repo root is below it.
         batch = subprocess.run(
             [*self._git, "cat-file", "--batch"],
-            input="".join(f"{self.ref}:./{path}\n" for path in paths).encode(),
+            input="".join(f"{self._blobs[path]}\n" for path in paths).encode(),
             capture_output=True,
             check=True,
         ).stdout
