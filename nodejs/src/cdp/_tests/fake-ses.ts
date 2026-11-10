@@ -94,8 +94,9 @@ export async function startFakeSes(configurationSets: ConfigurationSets): Promis
                 return
             }
             const simple = request.Content?.Simple
-            if (!simple) {
-                respond(res, 400, { message: 'Content.Simple is required.' }, 'BadRequestException')
+            const contentParts = [simple?.Subject, simple?.Body?.Text, simple?.Body?.Html]
+            if (!simple?.Subject || contentParts.some((part) => part !== undefined && typeof part.Data !== 'string')) {
+                respond(res, 400, { message: 'Every subject and body part needs Data.' }, 'BadRequestException')
                 return
             }
             if (!isNameValueList(request.EmailTags) || !isNameValueList(simple.Headers)) {
