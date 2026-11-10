@@ -4208,8 +4208,6 @@ def _definition_metadata_table(
         name=f"_{kind}_definition_metadata",
         postgres_table_name=postgres_table_name,
         access_scope=access_scope,
-        # Object-level access control applies to the definition, not to its metadata row.
-        access_control_id_field="definition_id",
         description=f"Internal table (PostgreSQL `{postgres_table_name}`) of the metadata people edit on {kind} definitions; not for direct querying — use the columns of `system.{kind}_definitions`.",
         fields={
             "definition_id": UUIDDatabaseField(
