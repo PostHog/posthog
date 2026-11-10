@@ -1558,6 +1558,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("encrypted_code_change", False, {"hog": MOVED_SENDER_HOG}, status.HTTP_400_BAD_REQUEST),
             ("plaintext_rename", True, {"name": "Renamed"}, status.HTTP_200_OK),
             ("plaintext_code_change", True, {"hog": MOVED_SENDER_HOG}, status.HTTP_400_BAD_REQUEST),
+            (
+                "plaintext_made_public",
+                True,
+                {"inputs_schema": [SENDER_SCHEMA[0], {**SENDER_SCHEMA[1], "secret": False}]},
+                status.HTTP_400_BAD_REQUEST,
+            ),
         ]
     )
     def test_secret_saved_before_origins_were_stored_is_a_legacy_secret(
