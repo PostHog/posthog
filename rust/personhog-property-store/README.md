@@ -34,8 +34,8 @@ Every service that uses the store reads these. The leader refuses `PROPERTY_STOR
 | `PROPERTY_STORE_READ_TIMEOUT_MS` | `1000` | Bound on one point read, including a reader open it triggers |
 | `PROPERTY_STORE_OPEN_TIMEOUT_MS` | `10000` | Bound on opening a partition's shards at a leader warm, which replays the WAL |
 | `PROPERTY_STORE_MAX_FRESH_READS` | `8` | One-off reads of the latest state in flight at once; more are refused |
-| `PROPERTY_STORE_EXPRESS_BUCKETS` | (empty) | Comma-separated Express buckets the writer copies SSTs into, one per zone |
-| `PROPERTY_STORE_EXPRESS_READ_BUCKET` | (empty) | The Express bucket this pod reads SSTs from, normally its own zone's. A miss, error or timeout falls back to the URL above |
+| `PROPERTY_STORE_EXPRESS_BUCKETS` | (empty) | Comma-separated Express buckets, one per zone. The writer copies SSTs into each; a reader tries the others when its own does not answer |
+| `PROPERTY_STORE_EXPRESS_READ_BUCKET` | (empty) | The Express bucket this pod reads SSTs from first, normally its own zone's. A miss, error or timeout tries the other zones' buckets, then the URL above. A bucket that times out is skipped for 30 seconds |
 | `PROPERTY_STORE_EXPRESS_COPY_TIMEOUT_MS` | `5000` | Bound on one copy during an upload; a slow copy is dropped and left to the repair command |
 | `PROPERTY_STORE_EXPRESS_READ_TIMEOUT_MS` | `100` | Bound on an Express read before falling back |
 
@@ -69,7 +69,7 @@ Reader side:
 | `personhog_property_store_read_timeouts_total` | counter | Reads that hit `PROPERTY_STORE_READ_TIMEOUT_MS` |
 | `personhog_property_store_fresh_reads_total{outcome}` | counter | One-off reads of the latest state: `found`, `missing`, `error`, or `refused` above `PROPERTY_STORE_MAX_FRESH_READS` |
 | `personhog_property_store_fresh_read_ms` | histogram | One-off read latency, including its open |
-| `personhog_property_store_express_reads_total{outcome}` | counter | SST reads from the Express bucket: `hit`, or fell back because `missing`, `error` or `timeout`; `retry` is a read SlateDB reissued after a validation failure, sent straight to Standard |
+| `personhog_property_store_express_reads_total{bucket, outcome}` | counter | SST reads per Express bucket: `hit`, or moved on because `missing`, `error` or `timeout`, or `skipped` while the bucket cools down after a timeout; `retry` is a read SlateDB reissued after a validation failure, sent straight to Standard |
 | `personhog_property_store_express_read_ms` | histogram | Express read latency on hits |
 
 SlateDB's own metrics are published as `slatedb_*` without a shard label; gauges are summed across a process's open shards, except epochs, timestamps, heartbeats and `slatedb_db_l0_sst_count`, which take the maximum. `slatedb_db_l0_sst_count` rising is compaction falling behind. `slatedb_object_store_request_duration_seconds` is object store request latency.

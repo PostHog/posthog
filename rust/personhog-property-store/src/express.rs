@@ -316,46 +316,115 @@ async fn abort_copy(copy: &mut CopyUpload, copy_timeout: Duration) {
     }
 }
 
+/// How long a bucket that timed out is skipped, so a stalled zone costs one timeout, not one per read.
+const STALL_COOLDOWN: Duration = Duration::from_secs(30);
+
+#[derive(Debug)]
+struct ExpressCopy {
+    bucket: Bucket,
+    stalled_until: std::sync::Mutex<Option<Instant>>,
+}
+
+impl ExpressCopy {
+    fn stalled(&self) -> bool {
+        self.stalled_until
+            .lock()
+            .expect("express stall lock poisoned")
+            .is_some_and(|until| Instant::now() < until)
+    }
+
+    fn stall(&self) {
+        *self
+            .stalled_until
+            .lock()
+            .expect("express stall lock poisoned") = Some(Instant::now() + STALL_COOLDOWN);
+    }
+}
+
+/// Reads an SST from the first Express copy that answers, normally the pod's own zone and then the
+/// others, and from Standard only when none does: every zone holds a copy of every SST.
 #[derive(Debug)]
 pub struct ReadThroughStore {
     primary: Arc<dyn ObjectStore>,
-    express: Bucket,
+    express: Vec<ExpressCopy>,
     read_timeout: Duration,
 }
 
 impl ReadThroughStore {
-    pub fn new(primary: Arc<dyn ObjectStore>, express: Bucket, read_timeout: Duration) -> Self {
+    pub fn new(
+        primary: Arc<dyn ObjectStore>,
+        express: Vec<Bucket>,
+        read_timeout: Duration,
+    ) -> Self {
         Self {
             primary,
-            express,
+            express: express
+                .into_iter()
+                .map(|bucket| ExpressCopy {
+                    bucket,
+                    stalled_until: std::sync::Mutex::new(None),
+                })
+                .collect(),
             read_timeout,
         }
     }
 
-    fn record_read(&self, outcome: &'static str) {
-        counter!("personhog_property_store_express_reads_total", "outcome" => outcome).increment(1);
+    fn record_read(&self, bucket: &Bucket, outcome: &'static str) {
+        counter!(
+            "personhog_property_store_express_reads_total",
+            "bucket" => bucket.name.clone(),
+            "outcome" => outcome
+        )
+        .increment(1);
     }
 
-    fn fell_back(&self, error: Option<object_store::Error>) {
+    fn fell_back(&self, bucket: &Bucket, error: Option<object_store::Error>) {
         let outcome = match error {
             None => "timeout",
             Some(object_store::Error::NotFound { .. }) => "missing",
             Some(e) => {
-                tracing::debug!(error = %e, "express read failed; reading standard");
+                tracing::debug!(bucket = %bucket.name, error = %e, "express read failed; trying the next copy");
                 "error"
             }
         };
-        self.record_read(outcome);
+        self.record_read(bucket, outcome);
+    }
+
+    async fn read_copies<T, F, Fut>(&self, read: F) -> Option<T>
+    where
+        F: Fn(Arc<dyn ObjectStore>) -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        for copy in &self.express {
+            if copy.stalled() {
+                self.record_read(&copy.bucket, "skipped");
+                continue;
+            }
+            let started = Instant::now();
+            match tokio::time::timeout(self.read_timeout, read(Arc::clone(&copy.bucket.store)))
+                .await
+            {
+                Ok(Ok(value)) => {
+                    histogram!("personhog_property_store_express_read_ms")
+                        .record(started.elapsed().as_secs_f64() * 1000.0);
+                    self.record_read(&copy.bucket, "hit");
+                    return Some(value);
+                }
+                Ok(Err(e)) => self.fell_back(&copy.bucket, Some(e)),
+                Err(_) => {
+                    copy.stall();
+                    self.fell_back(&copy.bucket, None);
+                }
+            }
+        }
+        None
     }
 }
 
 impl fmt::Display for ReadThroughStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "ReadThroughStore({}, {})",
-            self.express.name, self.primary
-        )
+        let names: Vec<&str> = self.express.iter().map(|c| c.bucket.name()).collect();
+        write!(f, "ReadThroughStore({}, {})", names.join(","), self.primary)
     }
 }
 
@@ -417,56 +486,36 @@ impl ObjectStore for ReadThroughStore {
         let retry = ObjectStoreCallTag::from_extensions(&options.extensions)
             .is_some_and(|tag| tag.retry.is_some());
         if retry {
-            self.record_read("retry");
+            counter!("personhog_property_store_express_reads_total", "bucket" => "standard", "outcome" => "retry")
+                .increment(1);
             return self.primary.get_opts(location, options).await;
         }
         if !is_replicated(location) || options.head || conditional {
             return self.primary.get_opts(location, options).await;
         }
-        let started = Instant::now();
-        let read = async {
-            buffered(
-                self.express
-                    .store
-                    .get_opts(location, options.clone())
-                    .await?,
-            )
-            .await
-        };
-        match tokio::time::timeout(self.read_timeout, read).await {
-            Ok(Ok(result)) => {
-                histogram!("personhog_property_store_express_read_ms")
-                    .record(started.elapsed().as_secs_f64() * 1000.0);
-                self.record_read("hit");
-                return Ok(result);
-            }
-            Ok(Err(e)) => self.fell_back(Some(e)),
-            Err(_) => self.fell_back(None),
+        let copied = self
+            .read_copies(|store| {
+                let options = options.clone();
+                async move { buffered(store.get_opts(location, options).await?).await }
+            })
+            .await;
+        match copied {
+            Some(result) => Ok(result),
+            None => self.primary.get_opts(location, options).await,
         }
-        self.primary.get_opts(location, options).await
     }
 
     async fn get_ranges(&self, location: &Path, ranges: &[Range<u64>]) -> Result<Vec<Bytes>> {
         if !is_replicated(location) {
             return self.primary.get_ranges(location, ranges).await;
         }
-        let started = Instant::now();
-        match tokio::time::timeout(
-            self.read_timeout,
-            self.express.store.get_ranges(location, ranges),
-        )
-        .await
-        {
-            Ok(Ok(bytes)) => {
-                histogram!("personhog_property_store_express_read_ms")
-                    .record(started.elapsed().as_secs_f64() * 1000.0);
-                self.record_read("hit");
-                return Ok(bytes);
-            }
-            Ok(Err(e)) => self.fell_back(Some(e)),
-            Err(_) => self.fell_back(None),
+        let copied = self
+            .read_copies(|store| async move { store.get_ranges(location, ranges).await })
+            .await;
+        match copied {
+            Some(bytes) => Ok(bytes),
+            None => self.primary.get_ranges(location, ranges).await,
         }
-        self.primary.get_ranges(location, ranges).await
     }
 
     fn delete_stream(
@@ -517,6 +566,7 @@ mod tests {
         inner: InMemory,
         refuse: bool,
         delay: Duration,
+        reads: std::sync::atomic::AtomicUsize,
     }
 
     impl Faulty {
@@ -525,6 +575,7 @@ mod tests {
                 inner: InMemory::new(),
                 refuse: true,
                 delay: Duration::ZERO,
+                reads: Default::default(),
             }
         }
 
@@ -533,6 +584,7 @@ mod tests {
                 inner: InMemory::new(),
                 refuse: false,
                 delay,
+                reads: Default::default(),
             }
         }
 
@@ -569,6 +621,7 @@ mod tests {
             self.inner.put_multipart_opts(l, o).await
         }
         async fn get_opts(&self, l: &Path, o: GetOptions) -> Result<GetResult> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
             self.gate().await?;
             self.inner.get_opts(l, o).await
         }
@@ -766,7 +819,7 @@ mod tests {
         }
         let store = ReadThroughStore::new(
             primary,
-            Bucket::new("express", Arc::new(express)),
+            vec![Bucket::new("express", Arc::new(express))],
             Duration::from_millis(200),
         );
 
@@ -778,6 +831,42 @@ mod tests {
 
         assert_eq!(&ranged[..], expected);
         assert_eq!(&whole[..], expected);
+    }
+
+    #[tokio::test]
+    async fn a_stalled_copy_costs_one_timeout_and_the_next_zone_answers() {
+        let primary = Arc::new(InMemory::new());
+        let sst = Path::from(SST);
+        primary
+            .put(&sst, PutPayload::from_static(b"from standard"))
+            .await
+            .unwrap();
+        let stalled = Arc::new(Faulty::slow(Duration::from_secs(5)));
+        let other_zone = Arc::new(InMemory::new());
+        other_zone
+            .put(&sst, PutPayload::from_static(b"from other zone"))
+            .await
+            .unwrap();
+        let store = ReadThroughStore::new(
+            primary,
+            vec![
+                Bucket::new("own-zone", stalled.clone()),
+                Bucket::new("other-zone", other_zone),
+            ],
+            Duration::from_millis(100),
+        );
+
+        let started = Instant::now();
+        for _ in 0..10 {
+            assert_eq!(&read(&store, &sst).await.unwrap()[..], b"from other zone");
+        }
+
+        assert_eq!(stalled.reads.load(Ordering::SeqCst), 1);
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "{:?}",
+            started.elapsed()
+        );
     }
 
     fn config() -> PropertyStoreConfig {
@@ -831,7 +920,7 @@ mod tests {
             &config(),
             Arc::new(ReadThroughStore::new(
                 hidden,
-                Bucket::new("express", copy),
+                vec![Bucket::new("express", copy)],
                 Duration::from_secs(1),
             )),
         )
@@ -903,7 +992,7 @@ mod tests {
             &config(),
             Arc::new(ReadThroughStore::new(
                 standard,
-                Bucket::new("express", copy),
+                vec![Bucket::new("express", copy)],
                 Duration::from_secs(1),
             )),
         )

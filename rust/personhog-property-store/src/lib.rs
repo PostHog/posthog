@@ -128,13 +128,22 @@ pub fn reader_object_store(
     config: &PropertyStoreConfig,
 ) -> Result<Arc<dyn ObjectStore>, PropertyStoreError> {
     let primary = object_store(config)?;
-    let bucket = config.express_read_bucket.trim();
-    if bucket.is_empty() {
+    let own = config.express_read_bucket.trim();
+    if own.is_empty() {
         return Ok(primary);
     }
+    let order = std::iter::once(own).chain(
+        config
+            .express_bucket_list()
+            .into_iter()
+            .filter(|bucket| *bucket != own),
+    );
+    let buckets = order
+        .map(|bucket| Ok(express::Bucket::new(bucket, bucket_store(config, bucket)?)))
+        .collect::<Result<Vec<_>, PropertyStoreError>>()?;
     Ok(Arc::new(express::ReadThroughStore::new(
         primary,
-        express::Bucket::new(bucket, bucket_store(config, bucket)?),
+        buckets,
         config.express_read_timeout(),
     )))
 }
