@@ -52,10 +52,14 @@ class TestExperimentQuantileMetric(ExperimentQueryRunnerBaseTest):
         return [self._exposure(variant), *(self._app_ready(variant, {"app_ready_ms": value}) for value in values)]
 
     def _run(
-        self, metric: ExperimentQuantileMetric, *, use_precomputation: bool = False, method: str = "frequentist"
+        self,
+        metric: ExperimentQuantileMetric,
+        *,
+        use_precomputation: bool = False,
+        stats_config: dict[str, Any] | None = None,
     ) -> ExperimentQueryRunner:
         experiment = self.create_experiment(feature_flag=self.feature_flag)
-        experiment.stats_config = {"method": method}
+        experiment.stats_config = stats_config or {"method": "frequentist"}
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
         return ExperimentQueryRunner(
@@ -197,14 +201,25 @@ class TestExperimentQuantileMetric(ExperimentQueryRunnerBaseTest):
         assert test.validation_failures is not None
         assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA in test.validation_failures
 
-    @parameterized.expand([("frequentist",), ("bayesian",)])
+    @parameterized.expand(
+        [
+            ("frequentist", {"method": "frequentist"}),
+            (
+                "frequentist_sequential",
+                {"method": "frequentist", "frequentist": {"sequential_testing_enabled": True}},
+            ),
+            ("bayesian", {"method": "bayesian"}),
+        ]
+    )
     @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
-    def test_quantile_metric_reaches_inference_with_enough_users(self, method: str) -> None:
+    def test_quantile_metric_reaches_inference_with_enough_users(
+        self, _name: str, stats_config: dict[str, Any]
+    ) -> None:
         self.feature_flag = self.create_feature_flag()
         metric = ExperimentQuantileMetric(
             source=EventsNode(event="app_ready", math_property="app_ready_ms"), quantile=0.5
         )
-        query_runner = self._run(metric, method=method)
+        query_runner = self._run(metric, stats_config=stats_config)
 
         journeys: dict[str, list[dict[str, Any]]] = {}
         for i in range(60):
@@ -223,7 +238,7 @@ class TestExperimentQuantileMetric(ExperimentQueryRunnerBaseTest):
         assert (result.baseline.quantile_grid[0], test.quantile_grid[0]) == (61, 161)
         assert (result.baseline.validation_failures, test.validation_failures) == ([], [])
 
-        if method == "frequentist":
+        if stats_config["method"] == "frequentist":
             interval = cast(ExperimentVariantResultFrequentist, test).confidence_interval
         else:
             interval = cast(ExperimentVariantResultBayesian, test).credible_interval
