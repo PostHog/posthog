@@ -714,11 +714,18 @@ describe('experimentMetricsLogic', () => {
                 expectedTriggers: [],
             },
             {
-                name: 'does not refresh stale results on a stopped experiment',
+                name: 'does not refresh a stopped experiment whose results reach the end date',
                 experiment: { ...EXPERIMENT, end_date: '2025-01-30T21:55:00Z' } as Experiment,
                 latest: staleCompletedRecalculation,
                 loads: 1,
                 expectedTriggers: [],
+            },
+            {
+                name: 'refreshes a stopped experiment whose results stop well before the end date',
+                experiment: { ...EXPERIMENT, end_date: hoursAgo(24) } as Experiment,
+                latest: { ...completedRecalculation, query_to: hoursAgo(40) },
+                loads: 1,
+                expectedTriggers: ['stale_refresh'],
             },
             {
                 name: 'does not refresh stale results on a paused experiment',

@@ -9,7 +9,7 @@ Module-level free functions (not methods on ExperimentService) so the API view c
 """
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.conf import settings
@@ -500,8 +500,8 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
     caller must not start a workflow for it either. A user-driven trigger inside
     ``MIN_USER_RECALCULATION_INTERVAL`` after the latest completed run finished raises
     ``RecalculationRateLimited`` when the organization has the rate-limit flag on. A ``stale_refresh`` whose
-    latest terminal run has a ``query_to`` inside ``STALE_REFRESH_MIN_RESULT_AGE`` returns that run with
-    ``is_existing=True``, and the caller must not start a workflow. Otherwise creates a fresh pending row.
+    latest terminal run is not stale (``_results_are_stale``) returns that run with ``is_existing=True``, and the
+    caller must not start a workflow. Otherwise creates a fresh pending row.
     """
     return _request_recalculation(experiment, user, trigger, max_age=_recalculation_max_age(experiment))
 
@@ -569,7 +569,7 @@ def _request_recalculation(
             if (
                 latest is not None
                 and latest.query_to is not None
-                and latest.query_to > timezone.now() - STALE_REFRESH_MIN_RESULT_AGE
+                and not _results_are_stale(experiment, latest.query_to)
             ):
                 return build_job_payload(latest, is_existing=True)
 
@@ -614,6 +614,12 @@ def _request_recalculation(
             metric_uuids=[m.uuid for m in metrics],
         )
         return build_job_payload(recalc, is_existing=False)
+
+
+def _results_are_stale(experiment: Experiment, query_to: datetime) -> bool:
+    """Whether results stop at least STALE_REFRESH_MIN_RESULT_AGE before the window end, which is now for a running
+    experiment and the end date for a stopped one. Mirrors resultsAreStale in experimentMetricsLogic.ts."""
+    return experiment_window_end(experiment, timezone.now()) - query_to >= STALE_REFRESH_MIN_RESULT_AGE
 
 
 def active_recalculation_filter() -> Q:

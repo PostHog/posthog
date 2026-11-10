@@ -190,21 +190,28 @@ class TestRecalculationService(BaseTest):
 
     @parameterized.expand(
         [
-            ("fresh_latest_is_returned", 1, False),
-            ("stale_latest_starts_new", 13, True),
+            ("fresh_latest_is_returned", None, 1, False),
+            ("stale_latest_starts_new", None, 13, True),
+            ("ended_latest_that_reaches_the_end_is_returned", 48, 48, False),
+            ("ended_latest_a_few_hours_short_of_the_end_is_returned", 48, 53, False),
+            ("ended_latest_that_stops_well_before_the_end_starts_new", 48, 61, True),
         ]
     )
     def test_stale_refresh_checks_result_age_with_server_time(
-        self, name: str, query_to_hours_ago: int, expects_new_run: bool
+        self, name: str, ended_hours_ago: int | None, query_to_hours_ago: int, expects_new_run: bool
     ):
+        now = timezone.now()
         exp = self._launched_experiment(flag_key=f"stale-{name}")
+        if ended_hours_ago is not None:
+            exp.end_date = now - timedelta(hours=ended_hours_ago)
+            exp.save()
         latest = ExperimentMetricsRecalculation.objects.create(
             team=self.team,
             experiment=exp,
             status="completed",
             trigger="manual",
-            query_to=timezone.now() - timedelta(hours=query_to_hours_ago),
-            completed_at=timezone.now() - timedelta(hours=query_to_hours_ago),
+            query_to=now - timedelta(hours=query_to_hours_ago),
+            completed_at=now - timedelta(hours=query_to_hours_ago),
         )
 
         result = request_recalculation(exp, self.user, "stale_refresh")

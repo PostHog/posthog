@@ -88,10 +88,14 @@ const LATEST_REQUEST_TIMEOUT_MS = 30 * 1000
 const POLL_REQUEST_TIMEOUT_MS = 15 * 1000
 /** Each stale refresh is a full ClickHouse recalculation, so this threshold sets the load that page visits add. */
 const STALE_RESULTS_THRESHOLD_HOURS = 12
-/** A paused experiment collects no new data. An exposure-frozen one still collects metric events. */
+/**
+ * A paused experiment collects no new data. An exposure-frozen one still collects metric events. A stopped one needs
+ * one more run when its results stop well before the end date.
+ */
 const STALE_REFRESH_STATUSES: ReadonlySet<ExperimentStatus> = new Set([
     ExperimentStatus.Running,
     ExperimentStatus.ExposureFrozen,
+    ExperimentStatus.Stopped,
 ])
 
 function pollIntervalMs(runAgeMs: number): number {
@@ -210,11 +214,23 @@ const recalculationHasGap = (experiment: Experiment, recalculation: Recalculatio
     return currentMetricUuids(experiment).some((uuid) => !coveredUuids.has(uuid))
 }
 
-const resultsAreStale = (experiment: Experiment, recalculation: RecalculationPayload): boolean =>
-    STALE_REFRESH_STATUSES.has(getExperimentStatus(experiment)) &&
-    currentMetricUuids(experiment).length > 0 &&
-    !!recalculation.query_to &&
-    dayjs.utc().diff(dayjs.utc(recalculation.query_to), 'hour', true) > STALE_RESULTS_THRESHOLD_HOURS
+/**
+ * Results that stop more than the threshold before the window end: now for a running experiment, the end date for a
+ * stopped one. `_results_are_stale` in products/experiments/backend/recalculation.py repeats this rule, so change both.
+ */
+const resultsAreStale = (experiment: Experiment, recalculation: RecalculationPayload): boolean => {
+    if (
+        !STALE_REFRESH_STATUSES.has(getExperimentStatus(experiment)) ||
+        currentMetricUuids(experiment).length === 0 ||
+        !recalculation.query_to
+    ) {
+        return false
+    }
+    const now = dayjs.utc()
+    const endDate = experiment.end_date ? dayjs.utc(experiment.end_date) : null
+    const windowEnd = endDate && endDate.isBefore(now) ? endDate : now
+    return windowEnd.diff(dayjs.utc(recalculation.query_to), 'hour', true) > STALE_RESULTS_THRESHOLD_HOURS
+}
 
 type MetricErrorState = { detail: string; retriable: boolean } | null
 type ResolveByUuid<T> = (uuid: string) => T
