@@ -10,7 +10,8 @@ import { Hub, Team } from '~/types'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { classifyHogError } from '../utils/hog-error-classification'
+import { HogConfigurationError, classifyHogError } from '../utils/hog-error-classification'
+import { replaceIntegrationInputsWithRefs } from '../utils/integration-input-refs'
 import { NATIVE_PUSH_TEMPLATE_ID } from '../utils/push-subscription-utils'
 import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
@@ -575,6 +576,86 @@ describe('Hog Inputs', () => {
 
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
             expect(inputs.push_subscription).toBeNull()
+        })
+    })
+
+    describe('resolveIntegrationRefs', () => {
+        let hogFunction: HogFunctionType
+
+        beforeEach(() => {
+            hogFunction = createHogFunction({
+                team_id: team.id,
+                inputs: { oauth: { value: integrationId1 }, channels: { value: [integrationId1, integrationId2] } },
+                inputs_schema: [
+                    { key: 'oauth', type: 'integration', required: true },
+                    { key: 'channels', type: 'integration_multi', required: true },
+                    { key: 'body', type: 'json', required: false },
+                ],
+            })
+        })
+
+        it('gives the function the same integration values as a fresh build', async () => {
+            const built = await hogInputsService.buildInputs(hogFunction, createHogExecutionGlobals())
+            const persisted = replaceIntegrationInputsWithRefs(built)
+            expect(JSON.stringify(persisted)).not.toContain('token')
+
+            const resolved = await hogInputsService.resolveIntegrationRefs(hogFunction, persisted)
+
+            expect(resolved).toEqual(built)
+            expect(resolved.oauth.access_token_raw).toBe('token')
+        })
+
+        it('passes the resolved values of a job queued before references through unchanged', async () => {
+            const built = await hogInputsService.buildInputs(hogFunction, createHogExecutionGlobals())
+
+            await expect(hogInputsService.resolveIntegrationRefs(hogFunction, built)).resolves.toBe(built)
+        })
+
+        it('does not resolve a reference in an input that is not an integration input', async () => {
+            const inputs = { body: { $integration_ref: integrationId1 } }
+
+            await expect(hogInputsService.resolveIntegrationRefs(hogFunction, inputs)).resolves.toBe(inputs)
+        })
+
+        it.each([
+            ['a deleted integration', 'oauth', () => Promise.resolve({ $integration_ref: team.id + 50 })],
+            [
+                'a deleted integration_multi item',
+                'channels',
+                () => Promise.resolve([{ $integration_ref: team.id + 50 }]),
+            ],
+            [
+                "another team's integration",
+                'oauth',
+                async () => {
+                    const otherTeam = (await createTestTeamFixture(hub.postgres)).team
+                    const foreign = await insertIntegration(hub.postgres, otherTeam.id, {
+                        kind: 'slack',
+                        sensitive_config: { access_token: hub.encryptedFields.encrypt('fake-foreign-token') },
+                    })
+                    return { $integration_ref: foreign.id }
+                },
+            ],
+            [
+                'a posthog connection',
+                'oauth',
+                async () => {
+                    const connection = await insertIntegration(hub.postgres, team.id, {
+                        kind: 'posthog',
+                        sensitive_config: { access_token: hub.encryptedFields.encrypt('fake-connection-token') },
+                    })
+                    return { $integration_ref: connection.id }
+                },
+            ],
+        ])('fails with a clear error for a reference to %s', async (_name, key, buildRef) => {
+            const inputs = { [key]: await buildRef() }
+
+            const error = await hogInputsService.resolveIntegrationRefs(hogFunction, inputs).catch((e) => e)
+
+            expect(error).toBeInstanceOf(HogConfigurationError)
+            expect(error.message).toBe(
+                `The integration for input '${key}' could not be loaded. It may have been deleted. Select a connected integration for this input.`
+            )
         })
     })
 })

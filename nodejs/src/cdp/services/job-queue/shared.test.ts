@@ -1,7 +1,9 @@
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
-import { CyclotronJobInvocationResult } from '../../types'
+import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'
 import { createInvocation } from '../../utils/invocation-utils'
+import { serializeInvocation } from './job-queue-kafka'
+import { invocationToV2JobInit } from './job-queue-postgres-v2'
 import { createInvocationSanitizer, sanitizeInvocationForPersistence } from './shared'
 
 describe('sanitizeInvocationForPersistence', () => {
@@ -272,5 +274,131 @@ describe('createInvocationSanitizer', () => {
 
         const [sanitized] = sanitizer.sanitizeResults([result])
         expect(sanitized.invocation.state!.globals.groups).toBeUndefined()
+    })
+})
+
+describe('integration input references', () => {
+    const FAKE_SECRETS = ['fake-access-token-value', 'fake-auth-token-value', 'fake-signing-key-value']
+
+    const hogFunction = createHogFunction({
+        ...HOG_EXAMPLES.simple_fetch,
+        inputs_schema: [
+            { key: 'url', type: 'string', required: true },
+            { key: 'twilio', type: 'integration', required: true },
+            { key: 'channels', type: 'integration_multi', required: true },
+        ],
+    })
+
+    // The shape `HogInputsService.loadIntegrationInputs` gives a function: config, sensitive_config and the raw token.
+    const resolvedInputs = (): Record<string, any> => ({
+        url: 'https://example.com',
+        twilio: {
+            $integration_id: 11,
+            account_sid: 'AC-fake',
+            auth_token: 'fake-auth-token-value',
+            access_token: '$$_access_token_placeholder_11_abc',
+            access_token_raw: 'fake-access-token-value',
+        },
+        channels: [
+            { $integration_id: 12, project_id: 'fake-project', access_token_raw: 'fake-access-token-value' },
+            { $integration_id: 13, bundle_id: 'com.example.app', signing_key: 'fake-signing-key-value' },
+        ],
+    })
+
+    const hogFunctionInvocation = () =>
+        createInvocation({ ...createHogExecutionGlobals(), inputs: resolvedInputs() }, hogFunction)
+
+    const pausedWorkflowInvocation = (): CyclotronJobInvocation => ({
+        id: 'flow-invocation',
+        teamId: 1,
+        functionId: 'flow-1',
+        queue: 'hogflow',
+        queuePriority: 0,
+        state: {
+            event: createHogExecutionGlobals().event,
+            actionStepCount: 1,
+            currentAction: {
+                id: 'action-1',
+                startedAtTimestamp: 0,
+                hogFunctionState: {
+                    globals: { ...createHogExecutionGlobals(), inputs: resolvedInputs() },
+                    timings: [],
+                    attempts: 0,
+                },
+            },
+        },
+    })
+
+    const serializers: [string, (invocation: CyclotronJobInvocation) => string][] = [
+        ['the postgres job state', (invocation) => invocationToV2JobInit(invocation).state!.toString('utf-8')],
+        ['the kafka job message', (invocation) => JSON.stringify(serializeInvocation(invocation))],
+    ]
+
+    describe.each([
+        ['a hog function invocation', hogFunctionInvocation],
+        ['a workflow paused in a function step', pausedWorkflowInvocation],
+    ])('for %s', (_name, buildInvocation) => {
+        it.each(serializers)('keeps every integration secret out of %s', (_serializer, serialize) => {
+            const sanitizer = createInvocationSanitizer(
+                { CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '' },
+                { isEnabled: () => true }
+            )
+            const invocation = buildInvocation()
+
+            const serialized = serialize(sanitizer.sanitizeInvocations([invocation])[0])
+
+            for (const secret of FAKE_SECRETS) {
+                expect(serialized).not.toContain(secret)
+            }
+            expect(serialized).toContain('"twilio":{"$integration_ref":11}')
+            expect(serialized).toContain('"channels":[{"$integration_ref":12},{"$integration_ref":13}]')
+            expect(serialized).toContain('"url":"https://example.com"')
+            // The invocation the worker keeps in memory still holds the resolved values.
+            expect(JSON.stringify(invocation)).toContain('fake-auth-token-value')
+        })
+
+        it('keeps the resolved values while the rollout is off', () => {
+            const sanitizer = createInvocationSanitizer(
+                { CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '' },
+                { isEnabled: () => false }
+            )
+
+            const serialized = JSON.stringify(sanitizer.sanitizeInvocations([buildInvocation()])[0])
+
+            expect(serialized).toContain('fake-auth-token-value')
+            expect(serialized).not.toContain('$integration_ref')
+        })
+    })
+
+    it('replaces the integrations in queued results too', () => {
+        const sanitizer = createInvocationSanitizer(
+            { CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '' },
+            { isEnabled: () => true }
+        )
+        const result: CyclotronJobInvocationResult = {
+            invocation: hogFunctionInvocation(),
+            finished: false,
+            error: null,
+            logs: [],
+            metrics: [],
+            capturedPostHogEvents: [],
+            warehouseWebhookPayloads: [],
+            messageAssets: [],
+            conversionWatchers: [],
+        }
+
+        const [sanitized] = sanitizer.sanitizeResults([result])
+
+        expect(sanitized.invocation.state!.globals.inputs.twilio).toEqual({ $integration_ref: 11 })
+    })
+
+    it.each([
+        ['no integration input', { url: 'https://example.com', body: { a: 1 } }],
+        ['an integration input that did not resolve', { url: 'https://example.com', twilio: null, channels: [] }],
+    ])('returns the original invocation when there is %s', (_name, inputs) => {
+        const invocation = createInvocation({ ...createHogExecutionGlobals(), inputs }, hogFunction)
+        delete invocation.state.globals.groups
+
+        expect(sanitizeInvocationForPersistence(invocation, { stripIntegrationSecrets: true })).toBe(invocation)
     })
 })

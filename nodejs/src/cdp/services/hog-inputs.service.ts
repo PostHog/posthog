@@ -4,10 +4,16 @@ import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { logger } from '~/common/utils/logger'
 
-import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
+import {
+    HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionType,
+    IntegrationType,
+} from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { HogConfigurationError, isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
+import { INTEGRATION_REF_KEY, isIntegrationRef } from '../utils/integration-input-refs'
 import { LiquidRenderBudget, LiquidRenderer } from '../utils/liquid'
 import { NATIVE_PUSH_TEMPLATE_ID, getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
 import { IntegrationManagerService } from './managers/integration-manager.service'
@@ -213,6 +219,90 @@ export class HogInputsService {
             .map((signature) => signedAccessTokenPlaceholder(base, signature))
     }
 
+    // IMPORTANT: Check the team ID is correct — never resolve an integration from another team.
+    private resolveIntegration(
+        integration: IntegrationType | null | undefined,
+        teamId: HogFunctionType['team_id']
+    ): Record<string, any> | null {
+        if (!integration || integration.team_id !== teamId) {
+            return null
+        }
+        // A `posthog` connection holds its creator's grant into another project, and only the creator
+        // may use it. A function runs for the whole team, so resolving one would hand that grant to
+        // every member who can edit or test functions.
+        if (integration.kind === 'posthog') {
+            return null
+        }
+        if (isWarehouseSourceIntegration(integration)) {
+            return null
+        }
+        return {
+            $integration_id: integration.id,
+            ...integration.config,
+            ...integration.sensitive_config,
+            ...(integration.sensitive_config.access_token || integration.config?.access_token
+                ? {
+                      access_token: this.accessTokenPlaceholder(integration.id),
+                      access_token_raw: integration.sensitive_config.access_token ?? integration.config?.access_token,
+                  }
+                : {}),
+        }
+    }
+
+    /**
+     * Puts the resolved integration back in place of each reference that the job queue stored.
+     * Inputs of jobs queued before references existed hold the resolved values, so they pass through unchanged.
+     * Returns the same object when there is no reference to resolve.
+     */
+    public async resolveIntegrationRefs(
+        hogFunction: HogFunctionType,
+        inputs: Record<string, any>
+    ): Promise<Record<string, any>> {
+        // Only an integration input holds a value that the server resolved. A reference elsewhere came from
+        // event data, and resolving it would put a secret where the event sender chose.
+        const integrationKeys = new Set(
+            allInputSchemas(hogFunction)
+                .filter((schema) => schema.type === 'integration' || schema.type === 'integration_multi')
+                .map((schema) => schema.key)
+        )
+        const refEntries = Object.entries(inputs).filter(
+            ([key, value]) =>
+                integrationKeys.has(key) &&
+                (isIntegrationRef(value) || (Array.isArray(value) && value.some(isIntegrationRef)))
+        )
+        if (refEntries.length === 0) {
+            return inputs
+        }
+
+        const ids = refEntries.flatMap(([, value]) =>
+            (Array.isArray(value) ? value : [value]).filter(isIntegrationRef).map((ref) => ref[INTEGRATION_REF_KEY])
+        )
+        const integrations = await this.integrationManager.getMany(ids)
+
+        // An empty value would reach the third party as a request with no credentials, so a reference that
+        // does not resolve fails the invocation.
+        const resolveRef = (key: string, value: unknown): unknown => {
+            if (!isIntegrationRef(value)) {
+                return value
+            }
+            const resolved = this.resolveIntegration(integrations[value[INTEGRATION_REF_KEY]], hogFunction.team_id)
+            if (!resolved) {
+                throw new HogConfigurationError(
+                    `The integration for input '${key}' could not be loaded. It may have been deleted. Select a connected integration for this input.`
+                )
+            }
+            return resolved
+        }
+
+        const resolvedInputs = { ...inputs }
+        for (const [key, value] of refEntries) {
+            resolvedInputs[key] = Array.isArray(value)
+                ? value.map((item) => resolveRef(key, item))
+                : resolveRef(key, value)
+        }
+        return resolvedInputs
+    }
+
     public async loadIntegrationInputs(
         hogFunction: HogFunctionType,
         newGlobals?: HogFunctionInvocationGlobalsWithInputs,
@@ -223,10 +313,7 @@ export class HogInputsService {
         const singleInputsToLoad: Record<string, number> = {}
         const multiInputsToLoad: Record<string, number[]> = {}
 
-        const allSchemas = [
-            ...(hogFunction.inputs_schema ?? []),
-            ...(hogFunction.mappings?.flatMap((m) => m.inputs_schema ?? []) ?? []),
-        ]
+        const allSchemas = allInputSchemas(hogFunction)
         const allInputs: Record<string, CyclotronInputType | null | undefined> = {
             ...hogFunction.inputs,
         }
@@ -258,34 +345,8 @@ export class HogInputsService {
         const integrations = await this.integrationManager.getMany(allIds)
         const returnInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }> = {}
 
-        // IMPORTANT: Check the team ID is correct — never resolve an integration from another team.
-        const resolveIntegration = (id: number): Record<string, any> | null => {
-            const integration = integrations[id]
-            if (!integration || integration.team_id !== hogFunction.team_id) {
-                return null
-            }
-            // A `posthog` connection holds its creator's grant into another project, and only the creator
-            // may use it. A function runs for the whole team, so resolving one would hand that grant to
-            // every member who can edit or test functions.
-            if (integration.kind === 'posthog') {
-                return null
-            }
-            if (isWarehouseSourceIntegration(integration)) {
-                return null
-            }
-            return {
-                $integration_id: integration.id,
-                ...integration.config,
-                ...integration.sensitive_config,
-                ...(integration.sensitive_config.access_token || integration.config?.access_token
-                    ? {
-                          access_token: this.accessTokenPlaceholder(integration.id),
-                          access_token_raw:
-                              integration.sensitive_config.access_token ?? integration.config?.access_token,
-                      }
-                    : {}),
-            }
-        }
+        const resolveIntegration = (id: number): Record<string, any> | null =>
+            this.resolveIntegration(integrations[id], hogFunction.team_id)
 
         Object.entries(singleInputsToLoad).forEach(([key, id]) => {
             // Without this the template runs with an empty connection, and a URL built from it fails far from the cause.
@@ -326,6 +387,11 @@ export class HogInputsService {
         return returnInputs
     }
 }
+
+const allInputSchemas = (hogFunction: HogFunctionType): NonNullable<HogFunctionType['inputs_schema']> => [
+    ...(hogFunction.inputs_schema ?? []),
+    ...(hogFunction.mappings?.flatMap((m) => m.inputs_schema ?? []) ?? []),
+]
 
 // A row with the `warehouse_source_type` key holds data warehouse source credentials. They are never Hog function
 // inputs. This matches the Python check: the key blocks with any value, and a config that is not an object blocks too.

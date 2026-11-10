@@ -194,7 +194,15 @@ export class HogExecutorService {
                 // current hog function config. Callers that pre-resolve inputs
                 // (e.g. the mappings path) skip the rebuild.
                 if (invocation.state.globals.inputs) {
-                    globals = invocation.state.globals
+                    // The resolved values stay local to this run, so the state the queue persists keeps references.
+                    const inputs = await this.hogInputsService.resolveIntegrationRefs(
+                        invocation.hogFunction,
+                        invocation.state.globals.inputs
+                    )
+                    globals =
+                        inputs === invocation.state.globals.inputs
+                            ? invocation.state.globals
+                            : { ...invocation.state.globals, inputs }
                 } else {
                     // Mapping destinations need their per-mapping inputs
                     // re-merged here — they aren't part of the top-level config
