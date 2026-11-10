@@ -328,6 +328,7 @@ impl IngestionConsumer {
                 _ = &mut poll_deadline, if deadline.is_some() => Woke::Deadline,
                 _ = &mut drain_deadline, if drain_until.is_some() => Woke::DrainTimedOut,
                 _ = self.rebalance().wait_for_rebalance() => Woke::Rebalanced,
+                err = self.committer.stopped() => Woke::CommitterStopped(err),
                 received = self.consumer.recv(), if reading => Woke::Received(received),
             };
             // The rebalance callbacks run inside `recv`, also in a `recv` that
@@ -355,11 +356,11 @@ impl IngestionConsumer {
                 }
                 Woke::Error(Some(message)) => Some(anyhow::anyhow!(message)),
                 Woke::Error(None) => Some(anyhow::anyhow!("batcher error channel closed")),
+                Woke::CommitterStopped(err) => {
+                    self.stop_on_commit_error(err);
+                    return;
+                }
                 Woke::Tick => {
-                    if let Some(err) = self.committer.take_fatal() {
-                        self.stop_on_commit_error(err);
-                        return;
-                    }
                     self.handle.report_healthy();
                     poller.on_ticked();
                     None
@@ -682,6 +683,7 @@ enum Woke<'a> {
     Deadline,
     DrainTimedOut,
     Rebalanced,
+    CommitterStopped(CommitError),
     Received(Result<BorrowedMessage<'a>, KafkaError>),
 }
 

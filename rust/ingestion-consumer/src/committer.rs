@@ -81,13 +81,21 @@ struct Shared {
     state: Mutex<State>,
     queued: Notify,
     round_done: Notify,
+    stopped: Notify,
 }
 
 #[derive(Default)]
 struct State {
     queued: HashMap<TopicPartition, Offset>,
     in_flight: HashMap<TopicPartition, Offset>,
-    fatal: Option<CommitError>,
+    stopped: bool,
+    stop_reason: Option<CommitError>,
+}
+
+enum Round {
+    Committed,
+    Retry,
+    Stop,
 }
 
 impl State {
@@ -126,7 +134,7 @@ impl Committer {
         self.shared.round_done.notify_waiters();
     }
 
-    /// False when `timeout` passes first.
+    /// False when `timeout` passes first or the committer stopped.
     pub(crate) async fn flush(
         &self,
         topic_partitions: &[TopicPartition],
@@ -149,8 +157,16 @@ impl Committer {
         .await
     }
 
-    pub(crate) fn take_fatal(&self) -> Option<CommitError> {
-        self.shared.state().fatal.take()
+    pub(crate) async fn stopped(&self) -> CommitError {
+        loop {
+            let stopped = self.shared.stopped.notified();
+            tokio::pin!(stopped);
+            stopped.as_mut().enable();
+            if let Some(err) = self.shared.state().stop_reason.take() {
+                return err;
+            }
+            stopped.await;
+        }
     }
 
     async fn wait_until(&self, timeout: Duration, done: impl Fn(&State) -> bool) -> bool {
@@ -159,8 +175,14 @@ impl Committer {
             let round_done = self.shared.round_done.notified();
             tokio::pin!(round_done);
             round_done.as_mut().enable();
-            if done(&self.shared.state()) {
-                return true;
+            {
+                let state = self.shared.state();
+                if done(&state) {
+                    return true;
+                }
+                if state.stopped {
+                    return false;
+                }
             }
             if tokio::time::timeout_at(deadline, round_done).await.is_err() {
                 return false;
@@ -191,15 +213,15 @@ impl Shared {
 
     /// A rejected offset goes back in the queue unless a newer one for its
     /// partition arrived during the round.
-    fn finish_round(&self, result: Result<(), CommitError>) -> bool {
+    fn finish_round(&self, result: Result<(), CommitError>) -> Round {
         let mut state = self.state();
         let sent = std::mem::take(&mut state.in_flight);
-        let failed = match result {
+        let round = match result {
             Ok(()) => {
                 for (topic_partition, offset) in &sent {
                     record_committed(topic_partition, *offset);
                 }
-                false
+                Round::Committed
             }
             Err(err) => {
                 counter!("ingestion_consumer_commit_failures_total", "kind" => err.kind())
@@ -209,15 +231,20 @@ impl Shared {
                     for (topic_partition, offset) in sent {
                         state.queued.entry(topic_partition).or_insert(offset);
                     }
+                    Round::Retry
                 } else {
-                    state.fatal.get_or_insert(err);
+                    state.stopped = true;
+                    state.stop_reason = Some(err);
+                    Round::Stop
                 }
-                true
             }
         };
         drop(state);
         self.round_done.notify_waiters();
-        failed
+        if matches!(round, Round::Stop) {
+            self.stopped.notify_waiters();
+        }
+        round
     }
 }
 
@@ -233,8 +260,10 @@ async fn run<C: CommitClient>(shared: Arc<Shared>, client: Arc<C>, retry_wait: D
                 Ok(committed) => committed.map_err(CommitError::from),
                 Err(join_error) => Err(CommitError::from(join_error)),
             };
-        if shared.finish_round(result) {
-            tokio::time::sleep(retry_wait).await;
+        match shared.finish_round(result) {
+            Round::Committed => {}
+            Round::Retry => tokio::time::sleep(retry_wait).await,
+            Round::Stop => return,
         }
     }
 }
@@ -417,15 +446,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_client_error_is_fatal_and_its_offsets_are_not_sent_again() {
+    async fn a_client_error_stops_the_committer() {
         let fixture = Fixture::with_replies(vec![Reply::ClientError]);
         fixture.committer.submit(&offsets(&[(0, 1)]));
 
-        assert!(fixture.committer.flush_all(FLUSH).await);
+        let stop_reason = tokio::time::timeout(FLUSH, fixture.committer.stopped())
+            .await
+            .expect("the committer stops");
         assert!(matches!(
-            fixture.committer.take_fatal(),
-            Some(CommitError::Kafka(KafkaError::SetPartitionOffset(_)))
+            stop_reason,
+            CommitError::Kafka(KafkaError::SetPartitionOffset(_))
         ));
+        fixture.committer.submit(&offsets(&[(0, 2)]));
+        assert!(!fixture.committer.flush_all(FLUSH).await);
         assert_eq!(fixture.calls(), vec![offsets(&[(0, 1)])]);
     }
 }
