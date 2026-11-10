@@ -1,5 +1,3 @@
-"""The project files guard for transactional email templates, which send through a workflow."""
-
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
@@ -21,10 +19,6 @@ class LinkedTemplate(Protocol):
 
 
 def require_linked_workflow_editor(context: "DeletionContext | RestoreContext", template: LinkedTemplate) -> None:
-    """Deleting or restoring a transactional template needs editor access to its workflow.
-
-    The template's own access rules don't cover the workflow it sends through, which can carry its own.
-    """
     if template.transactional_hog_flow_id is None:
         return
     denied = "You need editor access to this template's transactional email workflow."
