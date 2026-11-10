@@ -17,7 +17,7 @@ export const PERSONHOG_ADDR = '127.0.0.1:50052'
 
 export type Secrets = { encryptionSaltKeys: string; transactionalEmailJwtSecret: string }
 
-export type RoleSpec = { role: Role; port: number; env: NodeJS.ProcessEnv }
+export type RoleSpec = { role: Role; env: NodeJS.ProcessEnv }
 
 export function secretsOf(env: NodeJS.ProcessEnv): Secrets {
     return {
@@ -32,7 +32,6 @@ export function roleSpecs(base: NodeJS.ProcessEnv, edgeUrl: string, secrets: Sec
     const [markerKey, markerValue] = MARKER.split('=')
     return CdpRole.options.map((role) => ({
         role,
-        port: ROLE_PORTS[role],
         env: {
             ...inherited,
             NODE_ENV: 'dev',
