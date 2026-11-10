@@ -10,7 +10,6 @@ from django.db import close_old_connections, connection, transaction
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
-from posthog.api.file_system import deletion
 from posthog.api.file_system.access_levels import filter_workflow_files_by_access_level
 from posthog.constants import AvailableFeature
 from posthog.models.file_system.file_system import FileSystem
@@ -20,7 +19,9 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.messaging.backend.models.message_template import MessageTemplate
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.services.template_file_guard import lock_template_for_delete
 
 
 class TestWorkflowFolders(APIBaseTest):
@@ -205,6 +206,21 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(created.status_code, 400, created.content)
         self.assertEqual(created.json()["attr"], "_create_in_folder")
         self.assertFalse(FileSystem.objects.filter(team=self.team, type="folder").exists())
+
+    def test_template_delete_lock_hands_back_a_save_that_committed_after_the_delete_read(self) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/", {"name": "Welcome", "type": "email"}, format="json"
+        )
+        template = MessageTemplate.objects.get(id=created.json()["id"])
+        renamed = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{template.id}/", {"name": "Welcome v2"}, format="json"
+        )
+        self.assertEqual(renamed.status_code, 200, renamed.content)
+
+        with transaction.atomic():
+            lock_template_for_delete(template)
+
+        self.assertEqual(template.name, "Welcome v2")
 
     def test_disabled_files_do_not_leave_an_empty_unfiled_tree(self) -> None:
         self.client.post(
@@ -516,42 +532,3 @@ class TestWorkflowTreeDeleteDuringSave(NonAtomicBaseTest):
         deleted = self.client.delete(f"{files_url}{file_id}/")
         self.assertEqual(deleted.status_code, 200, deleted.content)
         self.assertEqual(self.client.get(object_url).status_code, 404)
-
-    def test_template_tree_delete_keeps_a_save_that_commits_after_the_delete_read_the_template(self) -> None:
-        created = self.client.post(
-            f"/api/projects/{self.team.id}/messaging_templates/",
-            {"name": "Welcome", "type": "email"},
-            format="json",
-        )
-        self.assertEqual(created.status_code, 201, created.content)
-        template_id = created.json()["id"]
-        files_url = f"/api/projects/{self.team.id}/file_system/"
-        file_id = self.client.get(files_url, {"type": "message_template", "ref": template_id}).json()["results"][0][
-            "id"
-        ]
-
-        def rename_in_another_transaction() -> None:
-            close_old_connections()
-            try:
-                with connection.cursor() as cursor:
-                    cursor.execute(
-                        "UPDATE posthog_messagetemplate SET name = %s WHERE id = %s", ["Welcome v2", template_id]
-                    )
-            finally:
-                close_old_connections()
-
-        read_template = deletion._get_object
-
-        def read_then_let_a_save_commit(*args: Any, **kwargs: Any) -> Any:
-            template = read_template(*args, **kwargs)
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                executor.submit(rename_in_another_transaction).result(timeout=10)
-            return template
-
-        with patch.object(deletion, "_get_object", side_effect=read_then_let_a_save_commit):
-            deleted = self.client.delete(f"{files_url}{file_id}/")
-
-        self.assertEqual(deleted.status_code, 200, deleted.content)
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT name, deleted FROM posthog_messagetemplate WHERE id = %s", [template_id])
-            self.assertEqual(cursor.fetchone(), ("Welcome v2", True))
