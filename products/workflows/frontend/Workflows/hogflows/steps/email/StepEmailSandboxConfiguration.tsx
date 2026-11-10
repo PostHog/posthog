@@ -9,6 +9,8 @@ import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 
 import { sandboxSenderLogic } from '../../../../Channels/sandboxSenderLogic'
 import { workflowLogic } from '../../../workflowLogic'
+import { hogFlowEditorTestLogic } from '../../panel/testing/hogFlowEditorTestLogic'
+import { buildSampleGlobals } from '../components/HogFlowFunctionConfiguration'
 import { StepSchemaErrors } from '../components/StepSchemaErrors'
 import { WorkflowAutoSaveIndicator } from '../components/WorkflowAutoSaveIndicator'
 import { emailSenderControlLogic } from './emailSenderControlLogic'
@@ -16,9 +18,10 @@ import { SandboxEmailAction, withSandboxEmail } from './emailStepVariants'
 import { SandboxSenderChoiceProvider } from './SandboxSenderChoiceProvider'
 
 export function StepEmailSandboxConfiguration({ node }: { node: Node<SandboxEmailAction> }): JSX.Element {
-    const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
+    const { actionValidationErrorsById, logicProps, workflow } = useValues(workflowLogic)
+    const { sampleGlobals: realSampleGlobals } = useValues(hogFlowEditorTestLogic(logicProps))
     const { setWorkflowAction } = useActions(workflowLogic)
-    const { provisioning, provisionError } = useValues(sandboxSenderLogic)
+    const { provisioning, provisionError, setupProblem } = useValues(sandboxSenderLogic)
     const { provisionSandboxSender } = useActions(sandboxSenderLogic)
     const action = node.data
     const { chooseSender } = useActions(
@@ -39,16 +42,16 @@ export function StepEmailSandboxConfiguration({ node }: { node: Node<SandboxEmai
     return (
         <>
             <StepSchemaErrors />
-            {provisionError && (
+            {setupProblem && (
                 <LemonBanner
-                    type="error"
+                    type={provisionError ? 'error' : 'warning'}
                     action={{
-                        children: 'Try again',
+                        children: provisionError ? 'Try again' : 'Set up the sandbox sender',
                         loading: provisioning,
                         onClick: () => provisionSandboxSender('sender_control'),
                     }}
                 >
-                    {provisionError}
+                    {setupProblem}
                 </LemonBanner>
             )}
             <SandboxSenderChoiceProvider actionId={action.id}>
@@ -56,6 +59,7 @@ export function StepEmailSandboxConfiguration({ node }: { node: Node<SandboxEmai
                     <EmailTemplater
                         key={action.id}
                         type="native_email_sandbox"
+                        variables={buildSampleGlobals(workflow.trigger, workflow.variables, realSampleGlobals)}
                         value={
                             {
                                 ...email.value,
