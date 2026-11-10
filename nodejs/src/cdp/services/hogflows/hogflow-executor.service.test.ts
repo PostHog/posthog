@@ -12,6 +12,7 @@ import { template as customerTaskTemplate } from '~/cdp/templates/_destinations/
 import { template as setVariableTemplate } from '~/cdp/templates/_destinations/posthog_workflows/posthog-set-variable.template'
 import { compileHog } from '~/cdp/templates/compiler'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
+import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
 import { createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -40,7 +41,7 @@ import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { SandboxEmailService } from '../messaging/sandbox/sandbox-email.service'
 import { SandboxEmailSendStep } from '../messaging/sandbox/sandbox-email-step'
 import { SandboxMessage } from '../messaging/sandbox/sandbox-message'
-import { CdpBillableInvocation } from '../usage/cdp-usage-reporter.service'
+import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 import { QueuedSend } from './transactional-email'
@@ -3122,10 +3123,14 @@ describe('Hogflow Executor', () => {
         }
 
         it('bills hog functions and own-domain email, and never a sandbox email in the same run', async () => {
-            const billed: CdpBillableInvocation[] = []
-            const usageReporter = {
-                reportBillableInvocation: (invocation: CdpBillableInvocation) => billed.push(invocation),
-            }
+            const ingested: UsageRecordInput[] = []
+            const usageIngestion = {
+                ingest: (records: UsageRecordInput[]) => {
+                    ingested.push(...records)
+                    return Promise.resolve([])
+                },
+            } as unknown as UsageIngestionClient
+            const usageReporter = new CdpUsageReporterService(usageIngestion, () => true)
             const sandboxMailbox: SandboxMessage[] = []
             const sandboxSes = {
                 send: (message: SandboxMessage) => {
@@ -3141,7 +3146,7 @@ describe('Hogflow Executor', () => {
                 hub.integrationManager,
                 null,
                 undefined,
-                usageReporter as any,
+                usageReporter,
                 {
                     sandboxEmail: {
                         enabled: true,
@@ -3339,7 +3344,8 @@ describe('Hogflow Executor', () => {
             expect(emailBilling).toHaveLength(2)
 
             expect(sandboxMailbox.map((message) => message.to.address)).toEqual(['member@example.com'])
-            expect(billed.map(({ usageKey }) => usageKey).sort()).toEqual([
+            await usageReporter.shutdown()
+            expect(ingested.map(({ usageKey }) => usageKey).sort()).toEqual([
                 'workflow_billable_invocations',
                 'workflow_billable_invocations',
                 'workflow_emails_sent',
