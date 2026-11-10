@@ -1,6 +1,11 @@
 from parameterized import parameterized
 
-from posthog.schema import EventsNode, ExperimentMeanMetric
+from posthog.schema import (
+    EventsNode,
+    ExperimentMeanMetric,
+    ExperimentWarehouseNativeNode,
+    ExperimentWarehouseNativeUnitBinding,
+)
 
 from products.experiments.backend.hogql_queries.cuped_config import (
     DEFAULT_CUPED_LOOKBACK_DAYS,
@@ -68,6 +73,18 @@ def _threshold_metric() -> ExperimentMeanMetric:
 def test_get_cuped_config_disabled_for_threshold_metric(name, stats_config, team_default_enabled):
     # A thresholded mean is a binary outcome; CUPED variance reduction does not apply.
     config = get_cuped_config(stats_config, _threshold_metric(), team_default_enabled=team_default_enabled)
+    assert config.enabled is False
+
+
+def test_get_cuped_config_disabled_for_warehouse_native_source():
+    metric = ExperimentMeanMetric(
+        source=ExperimentWarehouseNativeNode(
+            connection_id="connection",
+            query="SELECT customer_id AS entity_id, paid_at AS timestamp FROM payments",
+            unit=ExperimentWarehouseNativeUnitBinding(unit_type="customer", id_namespace="customer_id"),
+        )
+    )
+    config = get_cuped_config({"cuped": {"enabled": True}}, metric, team_default_enabled=True)
     assert config.enabled is False
 
 

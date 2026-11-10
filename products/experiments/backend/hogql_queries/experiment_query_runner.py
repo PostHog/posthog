@@ -20,6 +20,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentStatsBase,
+    ExperimentWarehouseNativeExposureConfig,
     HogQLQueryModifiers,
     IntervalType,
     MultipleVariantHandling,
@@ -55,6 +56,7 @@ from products.experiments.backend.hogql_queries.experiment_query_context import 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
+    normalize_to_exposure_criteria,
 )
 from products.experiments.backend.hogql_queries.exposures_precompute import ExposuresPrecompute
 from products.experiments.backend.hogql_queries.metric_events_precompute import (
@@ -81,6 +83,11 @@ from products.experiments.backend.metric_resolution import (
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.warehouse_native_query_builder import WarehouseNativeQueryBuilder
+from products.experiments.backend.warehouse_native_sources import (
+    validate_experiment_warehouse_native_sources,
+    warehouse_native_exposure_config,
+)
 from products.experiments.backend.warehouse_timestamp_validation import enforce_warehouse_metric_timestamp_types
 
 logger = structlog.get_logger(__name__)
@@ -178,6 +185,11 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             now=datetime.now(),
         )
         self.is_data_warehouse_query = metric_reads_data_warehouse(self.query.metric)
+        # A warehouse-native metric runs in the customer's warehouse. It has no ClickHouse query and no precompute.
+        self.is_warehouse_native_query = (
+            metric_uses_warehouse_native_source(self.query.metric)
+            or warehouse_native_exposure_config(self.experiment.exposure_criteria) is not None
+        )
 
         self.stats_method = get_experiment_stats_method(self.experiment)
 
@@ -262,14 +274,14 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return get_or_create_team_extension(self.team, TeamExperimentsConfig)
 
     def _exposures_precompute_applicable(self) -> bool:
-        return self._exposures_precompute.applicable
+        return not self.is_warehouse_native_query and self._exposures_precompute.applicable
 
     def _precompute_skip_reason(self) -> Optional[PrecomputeSkipReason]:
         """Why precompute was not used, for the query-performance UI. None when it was attempted."""
         return self._exposures_precompute.ineligibility_reason()
 
     def _metric_events_precompute_applicable(self) -> bool:
-        return self._metric_events_precompute.applicable
+        return not self.is_warehouse_native_query and self._metric_events_precompute.applicable
 
     def _metric_events_ineligibility_reason(self) -> Optional[str]:
         return self._metric_events_precompute.ineligibility_reason()
@@ -555,24 +567,57 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             workload=self.workload,
         )
 
-        if self.multiple_variant_handling == MultipleVariantHandling.EXCLUDE:
-            response.results = [result for result in response.results if result[0] != MULTIPLE_VARIANT_KEY]
+        return self._variant_rows(response.results, response.columns or [])
 
-        sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
-
-        return sorted_results, response.columns or []
-
-    def _refuse_warehouse_sources(self) -> None:
-        exposure_config = (self.experiment.exposure_criteria or {}).get("exposure_config") or {}
+    def _evaluate_warehouse_native_query(self) -> tuple[list[tuple], list[str]]:
+        """Runs the metric in the customer's warehouse. Only the totals per variant come back."""
+        if self.experiment.only_count_matured_users:
+            raise ExposedHogQLError(
+                "Warehouse-native metrics cannot exclude participants whose conversion window has not elapsed yet. "
+                "Turn that setting off in the experiment settings."
+            )
+        # A shared metric can change after the experiment was saved, so the sources are checked again here.
+        connection_id = validate_experiment_warehouse_native_sources(
+            exposure_criteria=self.experiment.exposure_criteria,
+            metrics=[self.metric.model_dump(mode="json")],
+            team=self.team,
+            user=self.user,
+        )
+        criteria = normalize_to_exposure_criteria(self.experiment.exposure_criteria)
+        exposure = criteria.exposure_config if criteria else None
         if (
-            metric_uses_warehouse_native_source(self.metric)
-            or exposure_config.get("kind") == "ExperimentWarehouseNativeExposureConfig"
+            connection_id is None
+            or not isinstance(exposure, ExperimentWarehouseNativeExposureConfig)
+            or not isinstance(self.metric, ExperimentMeanMetric | ExperimentRatioMetric)
         ):
-            raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
+            raise ExposedHogQLError("Warehouse-native experiments support mean and ratio metrics only.")
+
+        statement = WarehouseNativeQueryBuilder(
+            exposure=exposure,
+            metric=self.metric,
+            variants=tuple(self.variants),
+            date_from=self.date_range_query.date_from(),
+            date_to=self.date_range_query.date_to(),
+            multiple_variant_handling=self.multiple_variant_handling,
+        ).build()
+        response = execute_hogql_query(
+            query_type="ExperimentQuery",
+            query=statement,
+            team=self.team,
+            user=self.user,
+            send_raw_query=True,
+            connection_id=connection_id,
+            timings=self.timings,
+        )
+        return self._variant_rows(response.results, response.columns or [])
+
+    def _variant_rows(self, rows: list[tuple], columns: list[str]) -> tuple[list[tuple], list[str]]:
+        if self.multiple_variant_handling == MultipleVariantHandling.EXCLUDE:
+            rows = [row for row in rows if row[0] != MULTIPLE_VARIANT_KEY]
+        return sorted(rows, key=lambda row: self.variants.index(row[0])), columns
 
     @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
-        self._refuse_warehouse_sources()
         variant_results = self._prepare_variant_results()
 
         if self._has_breakdown(variant_results):
@@ -593,7 +638,10 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return result
 
     def _prepare_variant_results(self) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
-        sorted_results, columns = self._evaluate_experiment_query()
+        if self.is_warehouse_native_query:
+            sorted_results, columns = self._evaluate_warehouse_native_query()
+        else:
+            sorted_results, columns = self._evaluate_experiment_query()
         variant_results = get_variant_results(sorted_results, columns)
         return self._add_missing_variants(variant_results)
 
@@ -699,6 +747,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # The actors response returns its generated SQL, which would expose the evaluation rules.
         if self._uses_evaluation_pass_markers():
             raise ValidationError("Persons are not available for evaluation pass rate metrics.")
+        if self.is_warehouse_native_query:
+            raise ValidationError("Persons are not available for warehouse-native metrics.")
         return build_experiment_actors_query(self)
 
     def _uses_evaluation_pass_markers(self) -> bool:
