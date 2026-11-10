@@ -1,7 +1,12 @@
+import { defaultConfig } from '~/common/config/config'
+import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { PostgresUse } from '~/common/utils/db/postgres'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
+import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
 import { FrequencyCapCheck } from '../recipient-preferences.service'
-import { SES_THROTTLE } from './_tests/fake-ses-endpoint'
+import { SES_REJECTED, SES_SERVER_ERROR, SES_THROTTLE, SesReply } from './_tests/fake-ses-endpoint'
 import { SANDBOX_FROM_ADDRESS, SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
 import { SandboxSendOutcome, SandboxSendRequest } from './sandbox-email.service'
 
@@ -219,18 +224,92 @@ describe('SandboxEmailService', () => {
         }
     )
 
-    it('charges a step visit retried after an SES throttle once, and again when it names another member', async () => {
-        await world.addMember(personal('other@example.com'))
-        const service = world.service({ caps: { team: 1, recipient: 1 } })
-        world.ses.replyNext(SES_THROTTLE)
+    it.each<[string, SesReply, SandboxSendOutcome, SandboxSendOutcome]>([
+        [
+            'throttles it',
+            SES_THROTTLE,
+            { status: 'retry', reason: 'ses_throttled' },
+            { status: 'accepted', messageId: 'ses-1' },
+        ],
+        [
+            'rejects it',
+            SES_REJECTED,
+            { status: 'failed', reason: 'ses_rejected' },
+            { status: 'accepted', messageId: 'ses-1' },
+        ],
+        [
+            'fails in a way that may have sent it',
+            SES_SERVER_ERROR,
+            { status: 'retry', reason: 'ses_transient' },
+            { status: 'skipped', reason: 'daily_cap_reached' },
+        ],
+    ])(
+        'charges a step visit replayed after SES %s only when SES may have taken the email',
+        async (_case, reply, first, replayed) => {
+            await world.addMember(personal('other@example.com'))
+            const service = world.service({ caps: { team: 1, recipient: 1 } })
+            world.ses.replyNext(reply)
 
-        await expect(service.send(request())).resolves.toEqual({ status: 'retry', reason: 'ses_throttled' })
-        await expect(service.send(request())).resolves.toMatchObject({ status: 'accepted' })
-        await expect(service.send(request(to('other@example.com')))).resolves.toEqual({
-            status: 'skipped',
-            reason: 'daily_cap_reached',
-        })
+            await expect(service.send(request())).resolves.toEqual(first)
+            await expect(service.send(request())).resolves.toEqual(replayed)
+            await expect(service.send(request(to('other@example.com')))).resolves.toEqual({
+                status: 'skipped',
+                reason: 'daily_cap_reached',
+            })
+        }
+    )
+
+    it('charges a step visit replayed after its worker died while SES took the email', async () => {
+        const service = world.service({ caps: { team: 5, recipient: 1 } })
+        world.ses.replyNext({ kind: 'deliver-without-reply' })
+
+        const diedWaitingForSes = service.send(request())
+        await waitForExpect(() => expect(world.ses.delivered).toHaveLength(1))
+
+        await expect(service.send(request())).resolves.toEqual({ status: 'skipped', reason: 'daily_cap_reached' })
         expect(recipients()).toEqual([member()])
+        world.ses.dropConnections()
+        await expect(diedWaitingForSes).resolves.toEqual({ status: 'retry', reason: 'ses_transient' })
+    })
+
+    it('sends nothing and retries when the cap store stops answering before the claim is charged', async () => {
+        const store = new StallingValkeyProxy({
+            host: defaultConfig.CDP_REDIS_HOST,
+            port: defaultConfig.CDP_REDIS_PORT,
+        })
+        const pool = createRedisV2PoolFromConfig({
+            connection: {
+                url: '127.0.0.1',
+                options: {
+                    port: await store.start(),
+                    password: defaultConfig.CDP_REDIS_PASSWORD,
+                    retryStrategy: () => null,
+                },
+                name: 'sandbox-service-stalls-after-claim',
+                exitOnRepeatedErrors: false,
+            },
+            poolMinSize: 0,
+            poolMaxSize: 1,
+        })
+        const stallsAfterClaim: RedisV2 = {
+            ...pool,
+            useClient: async (options, callback) => {
+                const result = await pool.useClient(options, callback)
+                store.stopAnswering()
+                return result
+            },
+        }
+        const capsLimiter = new RateLimiterService(stallsAfterClaim, { name: 'stalls-after-claim' })
+
+        try {
+            await expect(world.service({ faults: { capsLimiter } }).send(request())).resolves.toEqual({
+                status: 'retry',
+                reason: 'cap_storage_unavailable',
+            })
+        } finally {
+            store.stop()
+        }
+        expect(world.ses.attempts).toBe(0)
     })
 
     it('charges a step visit again when it is replayed after SES accepted it', async () => {

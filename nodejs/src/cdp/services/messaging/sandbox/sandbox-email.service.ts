@@ -138,6 +138,9 @@ export class SandboxEmailService {
         if (!caps.ok) {
             return refusal(caps.reason)
         }
+        if (!(await caps.markSending())) {
+            return refusal('cap_storage_unavailable')
+        }
         const message = buildSandboxMessage({
             email: email.data,
             organizationId: authorization.organizationId,
@@ -155,8 +158,8 @@ export class SandboxEmailService {
             isTest,
             ...(parentRunId ? { parentRunId } : {}),
         })
-        if (sent.status === 'accepted') {
-            await caps.markSent().catch(() => false)
+        if (sent.status === 'failed' || (sent.status === 'retry' && sent.reason === 'ses_throttled')) {
+            await caps.releaseUnsent()
         }
         return sent
     }

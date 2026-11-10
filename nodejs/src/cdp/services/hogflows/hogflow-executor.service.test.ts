@@ -3159,7 +3159,12 @@ describe('Hogflow Executor', () => {
                                         storedAddress: 'member@example.com',
                                         tenant: { sendingStatus: 'ENABLED', syncedAt: new Date(Date.now()) },
                                     }),
-                                claimCaps: () => Promise.resolve({ ok: true, markSent: () => Promise.resolve(true) }),
+                                claimCaps: () =>
+                                    Promise.resolve({
+                                        ok: true,
+                                        markSending: () => Promise.resolve(true),
+                                        releaseUnsent: () => Promise.resolve(true),
+                                    }),
                                 ses: sandboxSes,
                                 now: () => new Date(Date.now()),
                             }),
