@@ -7,6 +7,7 @@ import jwt from 'jsonwebtoken'
 import { DateTime } from 'luxon'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
+import pino from 'pino'
 import { Counter, register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
@@ -95,6 +96,18 @@ jest.mock('node:dns/promises', () => ({
     })),
 }))
 
+const emittedLogLines = (): { lines: string[]; stop: () => void } => {
+    const target = logger as unknown as { pino: pino.Logger }
+    const original = target.pino
+    const lines: string[] = []
+    target.pino = pino({ level: 'debug' }, { write: (line: string) => void lines.push(line) })
+    return {
+        lines,
+        stop: () => {
+            target.pino = original
+        },
+    }
+}
 describe('CDP API', () => {
     let hub: Hub
     let cdpDeps: CdpConsumerBaseDeps
@@ -3621,18 +3634,23 @@ describe('CDP API', () => {
             it('queues a send with files whose email step fails to render at accept, and logs none of its variables', async () => {
                 const secret = `reset-token-${randomUUID()}`
                 const options = await storedTemplateRendering({ html: '{% include variables.chunk %}' }, secret)
-                const warn = jest.spyOn(logger, 'warn')
+                const emitted = emittedLogLines()
 
-                const res = await sendWithFiles(newKey(), [reference(invoice)], options)
+                let res: supertest.Response
+                try {
+                    res = await sendWithFiles(newKey(), [reference(invoice)], options)
+                } finally {
+                    emitted.stop()
+                }
 
                 expect(res.status).toBe(202)
                 expect(await queuedIds()).toEqual([res.body.invocation_id])
-                expect(warn).toHaveBeenCalledWith(
-                    '⚠️',
-                    'Could not render the email step of a send with files',
-                    expect.anything()
-                )
-                expect(JSON.stringify(warn.mock.calls)).not.toContain(secret)
+                expect(
+                    emitted.lines.some((line) =>
+                        String(parseJSON(line).msg).endsWith('Could not render the email step of a send with files')
+                    )
+                ).toBe(true)
+                expect(emitted.lines.join('')).not.toContain(secret)
             })
 
             const storedUtmValue = async (utmCampaign: string): Promise<SendOptions> => {

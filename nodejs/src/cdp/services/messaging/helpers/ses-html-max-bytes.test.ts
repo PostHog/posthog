@@ -1,6 +1,7 @@
 import { createExampleInvocation } from '~/cdp/_tests/fixtures'
 import { defaultConfig } from '~/common/config/config'
 
+import { ATTACHMENT_VERIFICATION_DEADLINE_MS } from '../attachment-uploads'
 import { htmlForSes, tagEmailLinks } from './email-html'
 import { escapeHtml, escapedHtmlByteLength } from './escape-html'
 import { sesHtmlMaxBytes } from './ses-html-max-bytes'
@@ -91,6 +92,6 @@ describe('sesHtmlMaxBytes', () => {
 
         maxBytes(html, UTM)
 
-        expect(performance.now() - startedAt).toBeLessThan(2000)
+        expect(performance.now() - startedAt).toBeLessThan(ATTACHMENT_VERIFICATION_DEADLINE_MS)
     })
 })

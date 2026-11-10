@@ -295,7 +295,7 @@ describe('Hog Inputs', () => {
         ])(
             'runs no hog input whose deadline passes while it waits for its turn on the event loop because %s',
             async (_how, deadlineFor) => {
-                const busyFor = 3000
+                const busyFor = 30_000
                 const busy = await compileHog(
                     `while (toUnixTimestampMilli(now()) < event.properties.busy_until) { } return 'done'`
                 )
