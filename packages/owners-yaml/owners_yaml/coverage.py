@@ -6,6 +6,7 @@ import os
 import shutil
 import tempfile
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 from .census import UNOWNED_TEAM, owning_team
@@ -20,7 +21,12 @@ def _git(repo_root: Path, *args: str, index: str | None = None) -> str:
 
 
 def newly_unowned(
-    repo_root: Path, against: str, *, committed_only: bool = False, teams_only: bool = False
+    repo_root: Path,
+    against: str,
+    *,
+    committed_only: bool = False,
+    teams_only: bool = False,
+    include: Callable[[str], object] | None = None,
 ) -> list[str]:
     """Files that are unowned now and were not at the merge base of HEAD and ``against``.
 
@@ -31,7 +37,7 @@ def newly_unowned(
     The worktree is the files on disk that git does not ignore, tracked or not.
     ``committed_only`` reads HEAD and not the worktree, for a check on what a push carries.
     ``teams_only`` also counts a file that only ``@handles`` own, for a check that needs a team to
-    route to.
+    route to. ``include`` limits the check to the paths it accepts, and no other path is resolved.
     """
     merge_base = _git(repo_root, "merge-base", against, "HEAD").strip()
     diff_args = ("diff", "--name-status", "-z", "--find-renames", "--relative", merge_base)
@@ -75,8 +81,11 @@ def newly_unowned(
     candidates = [
         path
         for path in sorted(files)
-        if path in path_at_base
-        or any(not directory or path.startswith(directory + SEP) for directory in reowned_directories)
+        if (include is None or include(path))
+        and (
+            path in path_at_base
+            or any(not directory or path.startswith(directory + SEP) for directory in reowned_directories)
+        )
     ]
     unowned = [path for path in candidates if lacks_owner(head.resolve(path))]
     if not unowned:

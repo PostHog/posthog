@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import PurePosixPath
 
 import click
 from hogli.manifest import REPO_ROOT
-from owners_yaml import newly_unowned, runner_for_path
+from owners_yaml import OwnersResolver, newly_unowned, runner_for_path
 
 from hogli_commands.preflight_checks import Outcome, Scope
 
@@ -14,15 +15,17 @@ HINT = "Name the owner in the nearest owners.yaml. `hogli owners:who <path>` sho
 
 
 def _unowned_new_tests(against: str, committed_only: bool) -> list[str]:
-    unowned = newly_unowned(REPO_ROOT, against, committed_only=committed_only, teams_only=True)
-    return [path for path in unowned if runner_for_path(path)]
+    return newly_unowned(REPO_ROOT, against, committed_only=committed_only, teams_only=True, include=runner_for_path)
 
 
 def check_test_owners(scope: Scope) -> Outcome:
+    ownership_filenames = OwnersResolver(REPO_ROOT).ownership_filenames()
+    if not any(runner_for_path(path) or PurePosixPath(path).name in ownership_filenames for path in scope.changed):
+        return "pass", "no test or ownership file changed"
     tests = _unowned_new_tests(scope.merge_base, scope.committed_only)
     if not tests:
         return "pass", "every new test has an owner"
-    return "warning", f"CI fails on {len(tests)} new test(s) with no owner, such as {tests[0]}. {HINT}"
+    return "fail", f"CI fails on {len(tests)} new test(s) with no owner, such as {tests[0]}. {HINT}"
 
 
 @click.command(name="lint:test-owners", help="Fail when the branch leaves a test file with no owner.")

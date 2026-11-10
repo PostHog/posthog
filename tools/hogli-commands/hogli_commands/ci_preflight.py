@@ -179,7 +179,6 @@ DIFF_CHECKS: list[DiffCheck] = [
         triggers=["*"],
         verify=None,
         run=check_test_owners,
-        soft=True,
     ),
     DiffCheck(
         key="ruff-format",

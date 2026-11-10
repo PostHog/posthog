@@ -4,9 +4,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from unittest.mock import patch
 
 from click.testing import CliRunner
-from hogli_commands import ownership_lint
+from hogli_commands import ci_preflight, ownership_lint
 from hogli_commands.preflight_checks import Scope
 
 OWNERS_YAML = """\
@@ -21,51 +22,50 @@ rules:
     owners: null
 """
 
-Add = Callable[[str], None]
+Add = Callable[..., None]
 
 
 @pytest.fixture
 def add(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git: Callable[..., str]) -> Add:
-    (tmp_path / "owners.yaml").write_text(OWNERS_YAML)
-    git(tmp_path, "init", "-q")
-    git(tmp_path, "add", "-A")
-    git(tmp_path, "commit", "-q", "-m", "init")
-    monkeypatch.setattr(ownership_lint, "REPO_ROOT", tmp_path)
-
-    def add_file(path: str) -> None:
+    def add_file(path: str, text: str = "") -> None:
         (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / path).write_text("")
+        (tmp_path / path).write_text(text)
         git(tmp_path, "add", "-A")
 
+    git(tmp_path, "init", "-q")
+    add_file("owners.yaml", OWNERS_YAML)
+    add_file("owned/test_old.py")
+    git(tmp_path, "commit", "-q", "-m", "init")
+    monkeypatch.setattr(ownership_lint, "REPO_ROOT", tmp_path)
     return add_file
 
 
 class TestLintTestOwners:
     @pytest.mark.parametrize(
-        ("path", "exit_code", "status"),
+        ("path", "text", "left_with_no_team"),
         [
-            pytest.param("gap/test_new.py", 1, "warning", id="pytest_file_with_no_owner"),
-            pytest.param("gap/New.test.tsx", 1, "warning", id="jest_file_with_no_owner"),
-            pytest.param("person/test_new.py", 1, "warning", id="test_that_only_a_person_owns"),
-            pytest.param("exempt/test_new.py", 0, "pass", id="test_under_owners_null"),
-            pytest.param("owned/test_new.py", 0, "pass", id="test_with_an_owner"),
-            pytest.param("gap/new.py", 0, "pass", id="file_that_is_not_a_test"),
+            pytest.param("gap/test_new.py", "", "gap/test_new.py", id="pytest_file_with_no_owner"),
+            pytest.param("gap/New.test.tsx", "", "gap/New.test.tsx", id="jest_file_with_no_owner"),
+            pytest.param("person/test_new.py", "", "person/test_new.py", id="test_that_only_a_person_owns"),
+            pytest.param("owners.yaml", "version: 1\nowners: []\n", "owned/test_old.py", id="rule_removed"),
+            pytest.param("exempt/test_new.py", "", None, id="test_under_owners_null"),
+            pytest.param("owned/test_new.py", "", None, id="test_with_an_owner"),
+            pytest.param("gap/new.py", "", None, id="file_that_is_not_a_test"),
         ],
     )
-    def test_ci_fails_and_preflight_warns_on_a_new_test_with_no_owner(
-        self, add: Add, path: str, exit_code: int, status: str
+    def test_ci_and_preflight_fail_on_a_test_left_with_no_team_owner(
+        self, add: Add, path: str, text: str, left_with_no_team: str | None
     ) -> None:
-        add(path)
+        add(path, text)
 
         result = CliRunner().invoke(ownership_lint.cmd_lint_test_owners, ["--against", "HEAD"])
         outcome = ownership_lint.check_test_owners(
             Scope(files=[path], changed=[path], merge_base="HEAD", committed_only=False)
         )
 
-        assert result.exit_code == exit_code
-        assert (path in result.output) == bool(exit_code)
-        assert outcome[0] == status
-        assert (path in outcome[1]) == bool(exit_code)
+        assert result.exit_code == (1 if left_with_no_team else 0)
+        assert outcome[0] == ("fail" if left_with_no_team else "pass")
+        assert left_with_no_team is None or (left_with_no_team in result.output and left_with_no_team in outcome[1])
 
     def test_committed_reads_head_and_not_the_working_tree(self, add: Add) -> None:
         add("gap/test_new.py")
@@ -73,6 +73,28 @@ class TestLintTestOwners:
         result = CliRunner().invoke(ownership_lint.cmd_lint_test_owners, ["--against", "HEAD", "--committed"])
 
         assert result.exit_code == 0
+
+    def test_the_pre_push_hook_blocks_a_committed_test_with_no_team_owner(
+        self, add: Add, git: Callable[..., str], tmp_path: Path
+    ) -> None:
+        add("gap/test_new.py")
+        git(tmp_path, "commit", "-q", "-m", "change")
+        registered = [check for check in ci_preflight.DIFF_CHECKS if check.key == "test-owners"]
+
+        with patch.multiple(
+            ci_preflight,
+            DIFF_CHECKS=registered,
+            changed_files=lambda *args, **kwargs: ["gap/test_new.py"],
+            _merge_base=lambda against: "HEAD~1",
+            _fetch_master=lambda: None,
+            _staleness=lambda files: ("pass", "", {}),
+            check_stack_depth=lambda: ("skipped", ""),
+            _emit_telemetry=lambda summary: None,
+        ):
+            result = CliRunner().invoke(ci_preflight.ci_preflight, ["--strict"])
+
+        assert result.exit_code == 1
+        assert "gap/test_new.py" in result.output
 
     @pytest.mark.parametrize(
         "path",
