@@ -63,7 +63,6 @@ from products.data_modeling.backend.facade.api import (
     IncrementalFilterError,
     WritePlan,
     clear_incremental_state,
-    get_incremental_state,
     inject_incremental_filter,
     record_incremental_history,
     resolve_write_plan,
@@ -1002,9 +1001,7 @@ async def _materialize_fully(
     # The stored watermark and fingerprint still describe the last complete table, and the next
     # plan would upsert onto the partial one. Clear them before the delete so that the next run
     # rebuilds again. The end of a successful rebuild stores them again.
-    state = get_incremental_state(objects.saved_query)
-    if state.watermark is not None or state.definition_fingerprint is not None:
-        await database_sync_to_async_pool(clear_incremental_state)(objects.saved_query)
+    await database_sync_to_async_pool(clear_incremental_state)(objects.saved_query)
 
     # delete existing table first to avoid schema conflicts
     s3 = get_s3_client()
