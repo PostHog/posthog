@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 from django.apps import apps
 from django.core.cache import cache
 from django.db import OperationalError, connection
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -25,6 +25,7 @@ from social_django.models import UserSocialAuth
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.errors import ClickHouseQueryTimeOut
 from posthog.models import OAuthApplication, Organization, User
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team.team import Team
@@ -735,6 +736,20 @@ class TestSignalReportListAPI(APIBaseTest):
         rows = response.json()["results"]
         row = next(r for r in rows if r["id"] == str(report.id))
         assert row["priority"] == "P2"
+
+    def test_list_marks_a_report_whose_implementation_run_is_working(self):
+        working = self._create_report()
+        idle = self._create_report()
+        task = apps.get_model("tasks", "Task").objects.create(team=self.team, title="impl", description="d")
+        record_implementation_task(team_id=self.team.id, report_id=str(working.id), task_id=str(task.id))
+        apps.get_model("tasks", "TaskRun").objects.create(team=self.team, task=task, status="in_progress")
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = {row["id"]: row for row in response.json()["results"]}
+        assert rows[str(working.id)]["implementation_in_flight"] is True
+        assert rows[str(idle.id)]["implementation_in_flight"] is False
 
     def test_list_uses_latest_priority_artefact_by_created_at(self):
         report = self._create_report()
@@ -1497,12 +1512,13 @@ class TestSignalReportListAPI(APIBaseTest):
             side_effect=flag_result if isinstance(flag_result, Exception) else None,
         ):
             expected_monitoring = {str(monitoring.id)} if enabled else set()
-            filtered = self.client.get(self._list_url(status="monitoring"))
-            assert filtered.status_code == status.HTTP_200_OK
-            assert {row["id"] for row in filtered.json()["results"]} == expected_monitoring
-            filtered_count = self.client.get(self._list_url(status="monitoring", count_only="true"))
-            assert filtered_count.status_code == status.HTTP_200_OK
-            assert filtered_count.json()["count"] == len(expected_monitoring)
+            for query in [{"status": "monitoring"}, {"view": "monitoring"}]:
+                filtered = self.client.get(self._list_url(**query))
+                assert filtered.status_code == status.HTTP_200_OK
+                assert {row["id"] for row in filtered.json()["results"]} == expected_monitoring
+                filtered_count = self.client.get(self._list_url(**query, count_only="true"))
+                assert filtered_count.status_code == status.HTTP_200_OK
+                assert filtered_count.json()["count"] == len(expected_monitoring)
 
             for query in [{"status": "resolved"}, {"view": "resolved"}]:
                 response = self.client.get(self._list_url(**query))
@@ -2933,26 +2949,35 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("default", {}, True),
-            ("opted_out", {"include_source_metadata": "false"}, False),
+            ("default", {}, None, True, True),
+            ("opted_out", {"include_source_metadata": "false"}, None, False, False),
+            ("timed_out", {}, ClickHouseQueryTimeOut(), True, False),
         ]
     )
-    def test_list_source_metadata_opt_out(self, _name, query, expect_lookup):
+    def test_list_source_metadata(self, _name, query, fetch_error, expect_lookup, expect_available):
         report = self._create_report()
 
-        with patch(
-            "products.signals.backend.views.fetch_source_products_for_reports",
-            return_value={
-                str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name="signals-scout-support")
-            },
-        ) as fetch_source_products:
+        with (
+            override_settings(SIGNALS_REPORT_LIST_SOURCE_METADATA_TIMEOUT_SECONDS=2),
+            patch(
+                "products.signals.backend.views.fetch_source_products_for_reports",
+                return_value={
+                    str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name="signals-scout-support")
+                },
+                side_effect=fetch_error,
+            ) as fetch_source_products,
+        ):
             response = self.client.get(self._list_url(**query))
 
         assert response.status_code == status.HTTP_200_OK
+        assert response.json()["source_metadata_available"] is expect_available
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
-        assert fetch_source_products.called is expect_lookup
-        assert row["source_products"] == (["zendesk"] if expect_lookup else [])
-        assert row["scout_name"] == ("signals-scout-support" if expect_lookup else None)
+        if expect_lookup:
+            assert fetch_source_products.call_args.kwargs == {"max_execution_time": 2}
+        else:
+            fetch_source_products.assert_not_called()
+        assert row["source_products"] == (["zendesk"] if expect_available else [])
+        assert row["scout_name"] == ("signals-scout-support" if expect_available else None)
 
     def test_source_metadata_returns_one_entry_per_requested_id(self):
         known, unknown = str(uuid.uuid4()), str(uuid.uuid4())

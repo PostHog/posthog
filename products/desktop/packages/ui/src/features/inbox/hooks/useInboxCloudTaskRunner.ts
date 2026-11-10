@@ -122,7 +122,18 @@ export interface UseInboxCloudTaskRunnerReturn {
   run: () => Promise<boolean>;
   /** True while a task is being created. */
   isRunning: boolean;
+  /**
+   * Run the checks `run` makes before it starts, showing the same error. Lets a
+   * caller stop before a side effect that only makes sense if the run can start.
+   */
+  checkPrerequisites: () => boolean;
 }
+
+type PrerequisiteFailure = {
+  code: InboxReportActionFailureCode;
+  /** Null for the offline case, which has its own toast. */
+  description: string | null;
+};
 
 /**
  * Shared driver for one-click "create an auto-mode cloud task" flows
@@ -154,6 +165,51 @@ export function useInboxCloudTaskRunner({
   const queryClient = useQueryClient();
   const { isOnline } = useConnectivity();
 
+  const prerequisiteFailure = useCallback((): PrerequisiteFailure | null => {
+    if (!isOnline) return { code: "offline", description: null };
+    if (!cloudRepository && !allowMissingRepository) {
+      return {
+        code: "missing_repository",
+        description: copy.missingRepository,
+      };
+    }
+    // A repo-less run has no GitHub identity; only require the user integration
+    // when a repository is actually in play.
+    if (cloudRepository && !getUserIntegrationIdForRepo(cloudRepository)) {
+      return {
+        code: "missing_integration",
+        description: copy.missingIntegration,
+      };
+    }
+    if (!cloudRegion)
+      return { code: "signed_out", description: copy.signedOut };
+    return null;
+  }, [
+    isOnline,
+    cloudRepository,
+    allowMissingRepository,
+    getUserIntegrationIdForRepo,
+    cloudRegion,
+    copy,
+  ]);
+
+  const showPrerequisiteFailure = useCallback(
+    (failure: PrerequisiteFailure) => {
+      if (failure.description === null) {
+        showOfflineToast();
+      } else {
+        toast.error(copy.errorTitle, { description: failure.description });
+      }
+    },
+    [copy],
+  );
+
+  const checkPrerequisites = useCallback(() => {
+    const failure = prerequisiteFailure();
+    if (failure) showPrerequisiteFailure(failure);
+    return failure === null;
+  }, [prerequisiteFailure, showPrerequisiteFailure]);
+
   const run = useCallback(async () => {
     if (runningRef.current) return false;
     const log = logger.scope(loggerScope);
@@ -178,34 +234,17 @@ export function useInboxCloudTaskRunner({
       });
     };
 
-    if (!isOnline) {
-      showOfflineToast();
-      trackActionResult("failed", "offline");
+    const failure = prerequisiteFailure();
+    if (failure || !cloudRegion) {
+      if (failure) {
+        showPrerequisiteFailure(failure);
+        trackActionResult("failed", failure.code);
+      }
       return false;
     }
-
-    if (!cloudRepository && !allowMissingRepository) {
-      toast.error(copy.errorTitle, { description: copy.missingRepository });
-      trackActionResult("failed", "missing_repository");
-      return false;
-    }
-
-    // A repo-less run has no GitHub identity; only resolve/require the user
-    // integration when a repository is actually in play.
     const githubUserIntegrationId = cloudRepository
       ? getUserIntegrationIdForRepo(cloudRepository)
       : null;
-    if (cloudRepository && !githubUserIntegrationId) {
-      toast.error(copy.errorTitle, { description: copy.missingIntegration });
-      trackActionResult("failed", "missing_integration");
-      return false;
-    }
-
-    if (!cloudRegion) {
-      toast.error(copy.errorTitle, { description: copy.signedOut });
-      trackActionResult("failed", "signed_out");
-      return false;
-    }
 
     runningRef.current = true;
     setIsRunning(true);
@@ -379,10 +418,10 @@ export function useInboxCloudTaskRunner({
       setIsRunning(false);
     }
   }, [
-    isOnline,
+    prerequisiteFailure,
+    showPrerequisiteFailure,
     loggerScope,
     cloudRepository,
-    allowMissingRepository,
     cloudRegion,
     reportId,
     reportTitle,
@@ -400,5 +439,5 @@ export function useInboxCloudTaskRunner({
     redirectOnSuccess,
   ]);
 
-  return { run, isRunning };
+  return { run, isRunning, checkPrerequisites };
 }

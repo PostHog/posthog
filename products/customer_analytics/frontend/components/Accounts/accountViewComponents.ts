@@ -28,6 +28,13 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
     { kind: 'session_replays', tagName: 'SessionReplays', label: 'Session replays' },
     { kind: 'notes', tagName: 'Notes', label: 'Notes', systemTabId: 'system:notes' },
     {
+        kind: 'automations',
+        tagName: 'Automations',
+        label: 'Automations',
+        systemTabId: 'system:automations',
+        featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_AUTOMATIONS_WIDGET,
+    },
+    {
         kind: 'tasks',
         tagName: 'Tasks',
         label: 'Tasks',

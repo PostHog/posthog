@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 
@@ -190,7 +191,7 @@ def _clean_existing_external_context(integration: IntegrationRecord, external_co
 
 
 def list_external_references(team_id: int) -> QuerySet[ErrorTrackingExternalReference]:
-    return ErrorTrackingExternalReference.objects.select_related("integration").filter(issue__team_id=team_id)
+    return ErrorTrackingExternalReference.objects.filter(issue__team_id=team_id)
 
 
 def get_external_reference(reference_id: UUID, team_id: int) -> ErrorTrackingExternalReference | None:
@@ -362,23 +363,29 @@ def search_external_issues(
     raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
 
 
-def build_external_issue_url(reference: ErrorTrackingExternalReference) -> str:
-    return external_issue_url(reference.integration, reference.external_context)
+def get_reference_integrations(
+    team_id: int, references: Iterable[ErrorTrackingExternalReference]
+) -> dict[int, IntegrationRecord]:
+    return IntegrationManager.any.get_many(team_id, {reference.integration_id for reference in references})
 
 
-def external_issue_id(reference: ErrorTrackingExternalReference) -> str:
+def build_external_issue_url(reference: ErrorTrackingExternalReference, integration: IntegrationRecord) -> str:
+    return external_issue_url(integration, reference.external_context)
+
+
+def external_issue_id(reference: ErrorTrackingExternalReference, integration: IntegrationRecord) -> str:
     external_context = reference.external_context or {}
     id_field = {
         IntegrationKind.GITHUB.value: "number",
         IntegrationKind.GITLAB.value: "issue_id",
         IntegrationKind.LINEAR.value: "id",
         IntegrationKind.JIRA.value: "key",
-    }.get(reference.integration.kind)
+    }.get(integration.kind)
     value = external_context.get(id_field) if id_field else reference.external_id
     if value is None:
         return ""
     external_id = str(value)
-    if reference.integration.kind in {
+    if integration.kind in {
         IntegrationKind.GITHUB,
         IntegrationKind.GITLAB,
     } and not external_id.startswith("#"):

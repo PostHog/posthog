@@ -1,6 +1,6 @@
 import type { QueryKey } from '@tanstack/react-query'
 
-import type { InsightSnapshot } from '@/model/views'
+import type { InsightSnapshot, ViewKind } from '@/model/views'
 
 import { useSnapshot } from '../viewsCache'
 
@@ -16,6 +16,10 @@ export interface ChartSheetSource {
     refreshItem?: (itemKey: string) => boolean
     /** The dashboard the chart sits on, for the About sheet's Source section. */
     dashboardName?: string | null
+    /** "Open on web" for a chart that is not a saved insight. Without it the sheet opens `/insights/{shortId}`. */
+    web?: { path: string; viewType: ViewKind }
+    /** False hides "About this chart", which describes a saved insight. */
+    about?: boolean
 }
 
 /** The source's snapshot as the cache holds it now. */

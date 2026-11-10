@@ -27,7 +27,7 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
-import { createdAfterForWindow } from '../filterOptions'
+import { createdAfterForWindow, isMergeKeySortField } from '../filterOptions'
 import { captureInboxReportAction, type InboxReportActionSurface, setInboxServedRanker } from '../inboxAnalytics'
 import {
     INBOX_PRIMARY_REPORT_SECTION_KEY,
@@ -120,15 +120,28 @@ export function sectionListLogicProps(sectionKey: InboxReportSectionKey): Report
     return { sectionKey, listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey] }
 }
 
+/** Whose personal ranking a list reads: the teammate of a Personalized list with a teammate scope, else the user. */
+function personalRankingOwner(sortField: InboxSortField, teammateUuid: unknown): unknown {
+    return sortField === 'personal' ? teammateUuid : undefined
+}
+
 /**
  * The personal ranking a state already loaded with. The flat list merges the states by
  * `inbox_merge_key`, and keys from two rankings do not compare. A state that loads later, such as one
  * the user selects after a rebuild, must request the same ranking as the states already on screen.
+ * Only a ranking of the same owner counts: after a switch to or from a teammate scope, the states
+ * still on screen hold another person's ranking.
  */
-function loadedPersonalRankingId(): string | undefined {
+function loadedPersonalRankingId(sortField: InboxSortField, teammateUuid: string | undefined): string | undefined {
+    const owner = personalRankingOwner(sortField, teammateUuid)
     for (const sectionKey of INBOX_REPORT_SECTION_KEYS) {
         const response = reportListLogic.findMounted(sectionListLogicProps(sectionKey))?.values.reportsResponse
-        if (response?.requestContext?.sortField === 'personal' && response.ranking_id) {
+        if (
+            response?.ranker === 'personal' &&
+            response.ranking_id &&
+            response.requestContext &&
+            personalRankingOwner(response.requestContext.sortField, response.requestParams?.teammate_uuid) === owner
+        ) {
             return response.ranking_id
         }
     }
@@ -251,6 +264,7 @@ export interface reportListLogicValues {
     livePrReportIds: string[]
     loadedContext: ReportListRequestContext | null
     loadedPersonalFallback: boolean
+    loadedPersonalOrder: boolean
     loadedQueryKey: string | null
     loadedRanker: string | null
     loadedRankingPill: boolean
@@ -496,6 +510,7 @@ export interface reportListLogicMeta {
             activeScoutFilter: string[],
             priorityFilter: SignalReportPriority[],
             scopeReviewerUuid: string | undefined,
+            scope: InboxScope,
             scopeAssignee: 'mine' | undefined,
             activeCreatedWindow: InboxCreatedWindow | null,
             arg: any
@@ -522,6 +537,7 @@ export interface reportListLogicMeta {
         loadedContext: (reportsResponse: ReportListResponse | null) => ReportListRequestContext | null
         loadedRanker: (reportsResponse: ReportListResponse | null) => string | null
         loadedRankingPill: (reportsResponse: ReportListResponse | null) => boolean
+        loadedPersonalOrder: (reportsResponse: ReportListResponse | null) => boolean
         loadedPersonalFallback: (reportsResponse: ReportListResponse | null) => boolean
     }
 }
@@ -694,7 +710,9 @@ export const reportListLogic = kea<reportListLogicType>([
                         ...listRequestParams(params),
                         offset: 0,
                         limit: PAGE_SIZE,
-                        ranking_id: requestContext.sortField === 'personal' ? loadedPersonalRankingId() : undefined,
+                        ranking_id: isMergeKeySortField(requestContext.sortField)
+                            ? loadedPersonalRankingId(requestContext.sortField, params.teammate_uuid)
+                            : undefined,
                     })
                     // A newer first-page request for a changed query supersedes this one.
                     breakpoint()
@@ -849,6 +867,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 s.activeScoutFilter,
                 s.priorityFilter,
                 s.scopeReviewerUuid,
+                s.scope,
                 s.scopeAssignee,
                 s.activeCreatedWindow,
                 (_, p) => p.listParams,
@@ -861,10 +880,12 @@ export const reportListLogic = kea<reportListLogicType>([
                 scoutFilter: string[],
                 priorityFilter: import('../types').SignalReportPriority[],
                 suggestedReviewer: string | undefined,
+                scope: InboxScope,
                 assignee: 'mine' | undefined,
                 activeCreatedWindow: InboxCreatedWindow | null,
                 listParams
             ) => {
+                const teammateUuid = teammateUuidFromScope(scope)
                 return {
                     ...listParams,
                     search: appliedInboxSearch(searchQuery),
@@ -873,6 +894,9 @@ export const reportListLogic = kea<reportListLogicType>([
                     scout: scoutFilter.length > 0 ? scoutFilter.join(',') : undefined,
                     priority: priorityFilter.length > 0 ? priorityFilter.join(',') : undefined,
                     suggested_reviewers: suggestedReviewer,
+                    // `suggested_reviewers` only filters. These make `sort=personal` read the teammate's ranking.
+                    scope: teammateUuid ? 'teammate' : undefined,
+                    teammate_uuid: teammateUuid,
                     assignee,
                     created_window: activeCreatedWindow ?? undefined,
                     // Rows render from Postgres alone; `loadReportSourceMeta` fills the source line after.
@@ -989,6 +1013,12 @@ export const reportListLogic = kea<reportListLogicType>([
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): boolean =>
                 reportsResponse?.ranking_pill === true || reportsResponse?.requestContext?.sortField === 'personal',
+        ],
+        // A stored personal ranking ordered the list: the Personalized sort, or the Recommended sort in the
+        // arm that serves the personal order.
+        loadedPersonalOrder: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: ReportListResponse | null): boolean => reportsResponse?.ranker === 'personal',
         ],
         // The user asked for the Personalized sort, but they have no stored personal ranking, so the
         // server answered with the Recommended order.

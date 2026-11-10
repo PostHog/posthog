@@ -69,12 +69,13 @@ def test_superseded_result_cannot_overwrite_a_replacement_during_commit(
             with team_scope(team.id, canonical=True), connection.cursor() as cursor:
                 cursor.execute("SELECT pg_backend_pid()")
                 worker_pid.put(cursor.fetchone()[0])
-                MetricResultStore(experiment_id=experiment.id).record_run_failure(
+                # A failure never replaces a completed row, so only a result write needs the terminal-run guard.
+                MetricResultStore(experiment_id=experiment.id).record_run_result(
                     str(stale.id),
                     calculation_config,
                     window=query_to,
                     query_from=query_from,
-                    error_message="abandoned calculation failed",
+                    result={"stale": True},
                     query_id=None,
                 )
         finally:

@@ -386,15 +386,22 @@ class TestComputeSettlement(BaseTest):
         registry = push.call_args.args[1]
         assert registry.get_sample_value("posthog_tasks_sandbox_sessions_unsettled_over_hour") == 0
 
-    @parameterized.expand([("malformed", "not-a-date"), ("future", None)])
-    def test_invalid_settle_since_stops_sweep_and_still_pushes_gauges(self, _name: str, value: str | None) -> None:
+    @parameterized.expand(
+        [
+            ("malformed_settle_since", "GATEWAY_COMPUTE_SETTLE_SINCE", "not-a-date"),
+            ("future_settle_since", "GATEWAY_COMPUTE_SETTLE_SINCE", None),
+            ("unresolved_wallet", "SANDBOX_AI_GATEWAY_MINT_KEY", "phs_unknown_mint_key"),
+        ]
+    )
+    def test_deployment_error_stops_sweep_and_still_pushes_gauges(
+        self, _name: str, setting: str, value: str | None
+    ) -> None:
         self._session(ended_at=self.now - timedelta(minutes=90))
-        settle_since = value or (self.now + timedelta(days=1)).isoformat()
         labels = {"outcome": "deployment_error"}
         errors_before = REGISTRY.get_sample_value("posthog_tasks_compute_settlements_total", labels) or 0
 
         with (
-            override_settings(GATEWAY_COMPUTE_SETTLE_SINCE=settle_since),
+            override_settings(**{setting: value or (self.now + timedelta(days=1)).isoformat()}),
             patch(HTTPX_POST) as post,
             patch("posthog.metrics.push_registry") as push,
         ):
@@ -572,11 +579,12 @@ class TestComputeSettlement(BaseTest):
             {"keys": {"obo": str(self.team.id)}, "compute_usd": "4.622400", "billable_compute_usd": "4.622400"},
             {"keys": {"obo": "999"}, "compute_usd": "2.000000", "billable_compute_usd": "0"},
         ]
-        report = httpx.Response(200, json={"rows": rows}, request=httpx.Request("GET", GATEWAY_URL))
+        report = httpx.Response(200, json={"rows": rows, "truncated": False}, request=httpx.Request("GET", GATEWAY_URL))
         with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=report) as get:
             result = reconcile_compute_settlement(since, self.now, self.team.id)
 
         assert get.call_args.kwargs["params"]["group_by"] == "obo,charge_kind"
+        assert get.call_args.kwargs["params"]["order_by"] == "key"
         assert result.writer_parity == (
             TeamComputeDelta(
                 team_id=str(self.team.id), local_usd=Decimal("4.622400"), gateway_usd=Decimal("4.622400"), local_rows=2
