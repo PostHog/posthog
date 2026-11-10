@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from django.db.models import Case, IntegerField, Value, When
 
+from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
@@ -36,6 +37,13 @@ logger = logging.getLogger(__name__)
 REPO_SELECTION_DUMMY_REPOSITORY = "PostHog/.github"
 
 _MAX_GITHUB_REPOS = 1000
+
+# Applied when a caller names no model, so the selector does not follow the agent server's
+# default model. No service tier is set, because the flex tier queues requests and Slack users
+# wait in the thread for the answer.
+DEFAULT_REPO_SELECTION_RUNTIME_ADAPTER = "codex"
+DEFAULT_REPO_SELECTION_MODEL = "gpt-6-luna"
+DEFAULT_REPO_SELECTION_REASONING_EFFORT = "medium"
 
 # The prompt-injection guard shared by every optional guidance section rendered from stored,
 # member-written text. Keep it one definition so an edit cannot weaken one section silently.
@@ -134,7 +142,12 @@ def _account_type_sort_key(row: IntegrationRecord) -> tuple[bool, str]:
 
 
 def resolve_team_github_integration(
-    team_id: int, team: Team | None = None, requester_user_id: int | None = None, team_only: bool = False
+    team_id: int,
+    team: Team | None = None,
+    requester_user_id: int | None = None,
+    team_only: bool = False,
+    *,
+    include_unavailable: bool = False,
 ) -> GitHubIntegrationBase | None:
     """Resolve the GitHub source the agent should use for this team.
 
@@ -162,7 +175,10 @@ def resolve_team_github_integration(
             for row in IntegrationManager.github.oauth.list(team_id)
             # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
             # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
-            if row.errors != ERROR_TOKEN_REFRESH_FAILED and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+            if include_unavailable
+            or (
+                row.errors != ERROR_TOKEN_REFRESH_FAILED and INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in row.config
+            )
         ),
         # Prioritize orgs vs users (alphabetically), then oldest first. `list` is already oldest
         # first and `sorted` is stable.
@@ -304,6 +320,30 @@ def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> se
     Anything else is dropped from the candidate list (no SQL evidence, or unfixable code)."""
     qs = github.integration.repository_cache_entries.filter(team_id=team_id, archived=False)
     return set(qs.values_list("full_name", flat=True))
+
+
+@frozen
+class _SelectorRuntime:
+    model: str | None
+    runtime_adapter: str | None
+    reasoning_effort: str | None
+
+
+def _resolve_repo_selection_runtime(
+    model: str | None, runtime_adapter: str | None, reasoning_effort: str | None
+) -> _SelectorRuntime:
+    """The caller's runtime, or the selector default when it names no model.
+
+    The default replaces the model and the adapter together, because the agent server derives the
+    provider from the adapter and a Codex model on the Claude adapter cannot be routed.
+    """
+    if model is not None or runtime_adapter is not None:
+        return _SelectorRuntime(model=model, runtime_adapter=runtime_adapter, reasoning_effort=reasoning_effort)
+    return _SelectorRuntime(
+        model=DEFAULT_REPO_SELECTION_MODEL,
+        runtime_adapter=DEFAULT_REPO_SELECTION_RUNTIME_ADAPTER,
+        reasoning_effort=reasoning_effort or DEFAULT_REPO_SELECTION_REASONING_EFFORT,
+    )
 
 
 def _routing_rules_block(team_id: int, candidate_repos: list[str]) -> str | None:
@@ -804,6 +844,7 @@ async def select_repository(
         visibility=visibility,
         source_repository=_eligible_source_repository(source_repository, candidate_repos),
     )
+    runtime = _resolve_repo_selection_runtime(model, runtime_adapter, reasoning_effort)
     sandbox_context = CustomPromptSandboxContext(
         team_id=team_id,
         user_id=user_id,
@@ -814,11 +855,10 @@ async def select_repository(
         github_read_access=True,
         disable_skills=True,
         sandbox_resources=SandboxResources(cpu_cores=2, memory_gb=8),
-        # Optional agent runtime/model override (e.g. the Codex runtime + gpt-5.5). All-None keeps
-        # the agent-server default; threaded through from the caller's per-step resolution.
-        model=model,
-        runtime_adapter=runtime_adapter,
-        reasoning_effort=reasoning_effort,
+        # The caller's per-step runtime/model override, or the selector default when it names none.
+        model=runtime.model,
+        runtime_adapter=runtime.runtime_adapter,
+        reasoning_effort=runtime.reasoning_effort,
         service_tier=service_tier,
     )
 

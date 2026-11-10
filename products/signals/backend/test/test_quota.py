@@ -23,6 +23,9 @@ def _team() -> "Team":
     return cast(
         "Team",
         SimpleNamespace(
+            id=1,
+            pk=1,
+            parent_team_id=None,
             api_token="phc_token",
             organization_id="0195a000-0000-0000-0000-000000000000",
             organization=SimpleNamespace(usage={}),
@@ -70,6 +73,7 @@ def test_fail_open_metric_noops_outside_activity():
 )
 def test_self_driving_quota_gate_enforces_only_when_limited_and_flag_on(limited, flag_on, expected_enforced):
     with (
+        patch("products.signals.backend.trial.policy.TrialPolicy.admission_grant", return_value=None),
         patch("products.signals.backend.quota.is_team_limited", return_value=limited),
         patch("products.signals.backend.quota.posthoganalytics.feature_enabled", return_value=flag_on) as flag_mock,
     ):
@@ -82,6 +86,7 @@ def test_self_driving_quota_gate_enforces_only_when_limited_and_flag_on(limited,
 def test_self_driving_quota_gate_fails_open_on_flag_error():
     # A flag-service outage must not start blocking pipelines: limited stays visible, enforcement off.
     with (
+        patch("products.signals.backend.trial.policy.TrialPolicy.admission_grant", return_value=None),
         patch("products.signals.backend.quota.is_team_limited", return_value=True),
         patch(
             "products.signals.backend.quota.posthoganalytics.feature_enabled",

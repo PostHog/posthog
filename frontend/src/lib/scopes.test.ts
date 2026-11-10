@@ -154,7 +154,7 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.access_type).toBe('all')
         })
 
-        it('uses the generated Agent CLI scopes with key-disabled writes removed', () => {
+        it('uses the generated Agent CLI scopes with key-disabled and opt-in-only writes removed', () => {
             const preset = findPreset('agent_cli')
             expect(preset.scopes).toEqual(AGENT_CLI_API_KEY_SCOPES)
             expect(preset.scopes).toEqual(
@@ -164,6 +164,12 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.scopes).not.toContain('integration:write')
             expect(preset.scopes).not.toContain('user:write')
         })
+    })
+
+    it('leaves integration write for a person to choose instead of adding it in the MCP Server preset', () => {
+        const preset = findPreset('mcp_server')
+        expect(preset.scopes).toContain('integration:read')
+        expect(preset.scopes).not.toContain('integration:write')
     })
 
     it.each(API_KEY_SCOPE_PRESETS.filter(({ value }) => value !== 'all_access').map(({ value }) => value))(

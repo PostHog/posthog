@@ -34,6 +34,29 @@ describe('API helper', () => {
         ApiConfig.setCurrentTeamId(2)
     })
 
+    describe('conversation queue', () => {
+        it.each([
+            { messages: [], max_queue_messages: 2 },
+            {
+                messages: [{ id: 'queue-2', content: 'Next message', created_at: '2026-01-01T00:00:00Z' }],
+                max_queue_messages: 2,
+            },
+        ])('parses the queue delete response with messages $messages', async (queue) => {
+            fakeFetch.mockResolvedValueOnce(
+                new Response(JSON.stringify(queue), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
+            )
+
+            await expect(api.conversations.queue.delete('conversation-1', 'queue-1')).resolves.toEqual(queue)
+            expect(fakeFetch).toHaveBeenCalledWith(
+                '/api/projects/2/conversations/conversation-1/queue/queue-1/',
+                expect.objectContaining({ method: 'DELETE' })
+            )
+        })
+    })
+
     describe('events', () => {
         it('can build URL for events with properties', async () => {
             await api.events.list(
@@ -465,6 +488,28 @@ describe('API helper', () => {
             status: 400,
             data: { message: 'Could not fetch schemas from source.' },
         } satisfies Partial<ApiError>)
+    })
+
+    it('reports the DRF error code of a failed response as a client_request_failure', async () => {
+        fakeFetch.mockResolvedValueOnce({
+            ok: false,
+            status: 400,
+            statusText: '',
+            headers: new Headers(),
+            json: () =>
+                Promise.resolve({ type: 'validation_error', code: 'token_invalid', detail: 'Token is not valid' }),
+        })
+
+        await api.create('api/users/@me/two_factor_validate/', { token: '123456' }).catch(() => null)
+
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'client_request_failure',
+            expect.objectContaining({
+                pathname: '/api/users/@me/two_factor_validate/',
+                status: 400,
+                code: 'token_invalid',
+            })
+        )
     })
 
     describe('OAuth mode auth headers', () => {
