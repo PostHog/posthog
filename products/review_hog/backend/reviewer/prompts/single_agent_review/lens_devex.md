@@ -67,8 +67,12 @@ Leave out problems that existed before this pull request, anything a required li
 
 ## Severity
 
-- **Must fix:** the change breaks CI, a deploy, a release or a developer command for other people, a required check can pass without running its work, or pull request author input reaches a privileged job.
-- **Should fix:** a broken rule with a concrete cost, a claim the change does not keep, or a failure on a realistic path that affects only the changed file.
+Rate the failure the change causes, not the importance of the file it is in.
+
+- **Must fix:** in normal use, with no unusual input and no rare timing, the change stops CI, a deploy, a release or a developer command from working for other people, lets a required check pass without doing its work, or lets pull request author input reach a job that holds a secret or a write token.
+- **Should fix:** a failure that needs a retry, a race, an unusual input or a manual step to happen, a broken rule with a concrete cost, or a claim the change does not keep.
 - **Consider:** a simpler existing mechanism that does the same job.
+
+When a finding sits between two levels, choose the lower one.
 
 Report nothing when no candidate meets this bar.

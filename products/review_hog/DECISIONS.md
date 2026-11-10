@@ -198,7 +198,7 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
-### 🧪 BUILT 2026-11-10 — devex lens: a Standard session routed by `owners.yaml` (flag off, not measured)
+### 🧪 BUILT 2026-11-10 — devex lens: a Standard session routed by `owners.yaml` (flag off, pilot failed two bars)
 
 - **What.** A Standard turn adds one lens session, `DEVEX_LENS` (`lens_devex.md`, pass 2003), when the PR changes a file the devex team owns and `reviewhog-devex-lens` is on for the PR.
   `_devex_lens_files` (`temporal/activities.py`) is the router. It asks `posthog/ownership` which changed files `owners.yaml` on the default branch gives to `team-devex`, with no model call.
@@ -208,11 +208,13 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
 - **Cohorts.** The lens is outside `FLASH_LENSES`, because that table feeds every single-agent fingerprint.
   A turn hashes `lens_devex.md` only when it runs the lens.
   This amends "No team slot" in the 2026-10-06 entry. There is one slot, it is DevEx-owned, and it is routed by ownership.
-- **Where the rules live.** The prompt holds the review method. The session reads the `AGENTS.md` files above the changed paths, then the guides and skills those files route the change to. For a CI file it also identifies the execution engine and traces five areas.
+- **Where the rules live.** The prompt holds the review method. The session reads the `AGENTS.md` files above the changed paths, then the guides and skills those files route the change to. For a CI file it also identifies the execution engine and follows the change through the events, failure paths, concurrency groups and cache keys of the job.
   The rules stay in those guides, and the session reads them from the checkout.
   A guide that the PR edits is read at the merge base.
 - **Left out.** Coordinated turns (the coordinator has no sub-agent slot for it), delta turns (the session has no part of a delta), and the Deep pipeline.
-- **Before the flag goes on.** Run `eval/experiments/2026-11-devex-lens/PLAN.md`. Its first step measures Standard alone, and the experiment stops there if Standard already finds the labelled issues.
+- **Measured.** A local pilot (`eval/experiments/2026-11-devex-lens/FINAL_REPORT.md`) found a small gain and no lost Standard finding: 13 and 14 of 21 labelled findings against 10 and 11, and 1 more of 26 on a second set.
+  The lens failed the plan's recall bar and its cost bar. Its session costs 1.5 to 1.7 times a shipped lens session.
+- **Before the flag goes on.** Run `eval/experiments/2026-11-devex-lens/PLAN.md` through `run_review`, with its bars agreed first.
 - **A second routed lens** needs the same shape (ownership route, own fingerprint key, off by default) and its own measured result.
   If several teams ask, test one session that receives the guides of every matched area before adding a session per team.
 

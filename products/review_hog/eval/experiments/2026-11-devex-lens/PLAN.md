@@ -1,6 +1,7 @@
 # PLAN: devex lens for changes to devex-owned files
 
-Status: planned. No run yet. The lens ships behind `reviewhog-devex-lens`, which stays off until this experiment has a result.
+Status: a local pilot ran, and [FINAL_REPORT.md](./FINAL_REPORT.md) has its result. The lens failed the recall and cost bars below, so `reviewhog-devex-lens` stays off.
+The experiment as written here, through `run_review` and with bars agreed first, has not run.
 
 **Question:** on a PR that changes a file the devex team owns, does a Standard review with the devex lens session find problems that Standard alone misses, without adding noise?
 
