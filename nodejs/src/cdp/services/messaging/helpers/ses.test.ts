@@ -1,20 +1,52 @@
+import { createSign, generateKeyPairSync } from 'node:crypto'
 import { register } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
+import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
+import { FetchResponse, fetch } from '~/common/utils/request'
 
-import { SesWebhookHandler, nonexistentRecipients, normalizeClickUrl, resolveClickDestination } from './ses'
+import {
+    SNS_SIGNING_CERT_CACHE_SIZE,
+    SesWebhookHandler,
+    nonexistentRecipients,
+    normalizeClickUrl,
+    resolveClickDestination,
+} from './ses'
 import { EmailTrackingCodeSigner } from './tracking-code'
+
+jest.mock('~/common/utils/request', () => ({
+    ...jest.requireActual('~/common/utils/request'),
+    fetch: jest.fn(),
+}))
 
 // Hardcoded (not imported) so a change to the header constant fails this test.
 const TRACKING_CODE_HEADER = 'X-PostHog-Tracking-Code'
 
 const signer = new EmailTrackingCodeSigner(defaultConfig.ENCRYPTION_SALT_KEYS, 'http://localhost:8010')
 
+const snsSigningKeys = generateKeyPairSync('rsa', { modulusLength: 2048 })
+const snsSigningCertPem = snsSigningKeys.publicKey.export({ type: 'spki', format: 'pem' }).toString()
+
 describe('SesWebhookHandler', () => {
     let handler: SesWebhookHandler
+    let snsRequests: string[]
+    let snsAvailable: boolean
     beforeEach(() => {
         handler = new SesWebhookHandler(signer)
+        snsRequests = []
+        snsAvailable = true
+        jest.mocked(fetch).mockImplementation((url: string): Promise<FetchResponse> => {
+            snsRequests.push(url)
+            const body = new URL(url).pathname.endsWith('.pem') ? snsSigningCertPem : ''
+            return Promise.resolve({
+                status: snsAvailable ? 200 : 503,
+                headers: {},
+                text: () => Promise.resolve(body),
+                json: () => Promise.resolve(parseJSON(body)),
+                dump: () => Promise.resolve(),
+            })
+        })
     })
 
     // Mirrors what the sender writes: the custom header carries the full signed code (including
@@ -804,45 +836,78 @@ describe('SesWebhookHandler', () => {
     })
 
     it('confirms SubscriptionConfirmation with valid SNS SubscribeURL', async () => {
-        const fetchSpy = jest.spyOn(handler as any, 'fetchText').mockResolvedValue('')
         const snsEnvelope = buildConfirmationEnvelope(
             'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&TopicArn=arn:aws:sns:us-east-1:123456789012:ses-topic&Token=token-123'
         )
         const result = await handler.handleWebhook({ body: snsEnvelope, headers: {}, verifySignature: false })
         expect(result.status).toBe(200)
-        expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining('https://sns.us-east-1.amazonaws.com/'))
-        fetchSpy.mockRestore()
+        expect(snsRequests).toEqual([snsEnvelope.SubscribeURL])
     })
 
     // Signs like AWS SNS SignatureVersion=1: alphabetical key/value lines of the fields each
-    // envelope type signs, and serves the matching certificate.
+    // envelope type signs, with the key whose certificate the fake SNS serves.
     const SIGNED_FIELDS: Record<string, string[]> = {
         Notification: ['Message', 'MessageId', 'Timestamp', 'TopicArn', 'Type'],
         SubscriptionConfirmation: ['Message', 'MessageId', 'SubscribeURL', 'Timestamp', 'Token', 'TopicArn', 'Type'],
     }
-    const signEnvelope = (envelope: Record<string, any>): jest.SpyInstance => {
-        const { generateKeyPairSync, createSign } = jest.requireActual<typeof import('node:crypto')>('node:crypto')
-        const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
-        const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
+    const signEnvelope = (envelope: Record<string, any>): void => {
         const stringToSign = SIGNED_FIELDS[envelope.Type].map((k) => `${k}\n${envelope[k]}`).join('\n') + '\n'
         const sign = createSign('RSA-SHA1')
         sign.update(stringToSign, 'utf8')
-        envelope.Signature = sign.sign(privateKey, 'base64')
-        return jest
-            .spyOn(handler as any, 'fetchText')
-            .mockImplementation((url) => Promise.resolve((url as string).endsWith('.pem') ? publicKeyPem : ''))
+        envelope.Signature = sign.sign(snsSigningKeys.privateKey, 'base64')
     }
 
     it('confirms a signed SubscriptionConfirmation end to end (SubscribeURL is part of the signed string)', async () => {
         const envelope = buildConfirmationEnvelope(
             'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&TopicArn=arn:aws:sns:us-east-1:123456789012:ses-topic&Token=token-123'
         )
-        const fetchSpy = signEnvelope(envelope)
+        signEnvelope(envelope)
 
         const result = await handler.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
         expect(result.status).toBe(200)
-        expect(fetchSpy).toHaveBeenCalledWith(envelope.SubscribeURL)
-        fetchSpy.mockRestore()
+        expect(snsRequests).toContain(envelope.SubscribeURL)
+    })
+
+    describe('the SNS signing certificate', () => {
+        const certUrl = 'https://sns.us-east-1.amazonaws.com/cert.pem'
+        const deliverSigned = (signingCertUrl = certUrl): ReturnType<SesWebhookHandler['handleWebhook']> => {
+            const envelope = {
+                Type: 'Notification',
+                MessageId: 'sns-msg-1',
+                TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-topic',
+                Message: 'Successfully validated SNS topic for Amazon SES event publishing.',
+                Timestamp: '2025-10-03T12:10:00Z',
+                SignatureVersion: '1',
+                SigningCertURL: signingCertUrl,
+            }
+            signEnvelope(envelope)
+            return handler.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
+        }
+
+        it('is downloaded once, whatever query or fragment its URL carries', async () => {
+            for (const url of [certUrl, `${certUrl}?Version=2`, `${certUrl}#copy`]) {
+                expect((await deliverSigned(url)).status).toBe(200)
+            }
+            expect(snsRequests).toEqual([certUrl])
+        })
+
+        it('is downloaded again once more distinct certificates than the cache holds came after it', async () => {
+            const urls = Array.from(
+                { length: SNS_SIGNING_CERT_CACHE_SIZE + 1 },
+                (_, i) => `https://sns.us-east-1.amazonaws.com/cert-${i}.pem`
+            )
+            for (const url of [...urls, urls[0]]) {
+                await deliverSigned(url)
+            }
+            expect(snsRequests).toEqual([...urls, urls[0]])
+        })
+
+        it('is downloaded again after a failed download', async () => {
+            snsAvailable = false
+            expect((await deliverSigned()).status).toBe(403)
+            snsAvailable = true
+            expect((await deliverSigned()).status).toBe(200)
+        })
     })
 
     describe('a Notification whose Message is not JSON', () => {
@@ -875,7 +940,7 @@ describe('SesWebhookHandler', () => {
             async ({ message, logged }) => {
                 const warnSpy = jest.spyOn(logger, 'warn')
                 const envelope = plainTextNotification(message)
-                const fetchSpy = signEnvelope(envelope)
+                signEnvelope(envelope)
                 const before = await ignoredCount()
 
                 const result = await handler.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
@@ -889,13 +954,11 @@ describe('SesWebhookHandler', () => {
                     messageLength: message.length,
                     messagePrefix: logged,
                 })
-                fetchSpy.mockRestore()
                 warnSpy.mockRestore()
             }
         )
 
         it('is rejected when its signature does not verify', async () => {
-            const fetchSpy = jest.spyOn(handler as any, 'fetchText').mockResolvedValue('not a certificate')
             const before = await ignoredCount()
 
             const result = await handler.handleWebhook({
@@ -906,7 +969,6 @@ describe('SesWebhookHandler', () => {
 
             expect(result.status).toBe(403)
             expect(await ignoredCount()).toBe(before)
-            fetchSpy.mockRestore()
         })
     })
 
@@ -1325,7 +1387,7 @@ describe('SesWebhookHandler', () => {
             }
         )
 
-        it('rejects a Notification whose TopicArn is not on the allowlist', async () => {
+        it('rejects a Notification whose TopicArn is not on the allowlist before downloading its certificate', async () => {
             const restricted = new SesWebhookHandler(signer, ['arn:aws:sns:us-east-1:123456789012:allowed-topic'])
             const envelope = buildEnvelope('arn:aws:sns:us-east-1:999999999999:other-topic', {
                 eventType: 'Bounce',
@@ -1336,9 +1398,9 @@ describe('SesWebhookHandler', () => {
                     timestamp: '2025-10-03T12:04:00Z',
                 },
             })
-            const result = await restricted.handleWebhook({ body: envelope, headers: {}, verifySignature: false })
-            expect(result.status).toBe(403)
-            expect(result.hardBounceRecipients).toBeUndefined()
+            const result = await restricted.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
+            expect(result).toEqual({ status: 403, body: { error: 'SNS TopicArn not allowed' } })
+            expect(snsRequests).toEqual([])
         })
 
         it('accepts a Notification whose TopicArn matches the allowlist', async () => {
