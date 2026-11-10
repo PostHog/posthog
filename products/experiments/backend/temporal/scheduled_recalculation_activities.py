@@ -57,7 +57,12 @@ def _capture(experiment: Experiment, event: str, properties: dict[str, Any]) -> 
         posthoganalytics.capture(
             distinct_id=distinct_id,
             event=event,
-            properties={"experiment_id": experiment.id, "team_id": team.id, **properties},
+            properties={
+                "experiment_id": experiment.id,
+                "team_id": team.id,
+                **properties,
+                "$update_person_last_seen_at": False,
+            },
             groups=groups(organization=team.organization, team=team),
         )
     except Exception:

@@ -75,6 +75,7 @@ from products.customer_analytics.backend.facade.constants import (
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG,
     CUSTOMER_ANALYTICS_TRACK_RULES_FLAG,
 )
+from products.customer_analytics.backend.presentation.views.account_automations import AccountAutomationSerializer
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountByExternalIdQuerySerializer,
     AccountChannelSummarySerializer,
@@ -2235,6 +2236,28 @@ class AccountViewSet(
             return result
 
         return facade_page_response(self, fetch, serializer_class=MeetingSerializer)
+
+    @extend_schema(responses={200: AccountAutomationSerializer(many=True)})
+    @action(
+        methods=["GET"],
+        detail=True,
+        required_scopes=["account:read", "hog_flow:read", "person:read", "event:read"],
+    )
+    def automations(self, request: Request, *args: object, **kwargs: object) -> Response:
+        def fetch(page: PageRequest) -> Page[contracts.AccountAutomation]:
+            try:
+                return api.list_account_automations(
+                    team=self.team,
+                    account_id=self.kwargs["pk"],
+                    user_access_control=self.user_access_control,
+                    page=page,
+                )
+            except api.Account_DoesNotExist:
+                raise NotFound() from None
+            except api.ResourceForbiddenError:
+                raise PermissionDenied() from None
+
+        return facade_page_response(self, fetch, serializer_class=AccountAutomationSerializer)
 
     def dangerously_get_required_scopes(self, request: Request, view) -> builtins.list[str] | None:
         super_method = getattr(super(), "dangerously_get_required_scopes", None)

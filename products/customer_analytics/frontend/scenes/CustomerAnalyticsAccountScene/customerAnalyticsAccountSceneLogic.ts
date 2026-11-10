@@ -29,7 +29,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from '~/layout/today/todayPeople'
-import { tagsModel } from '~/models/tagsModel'
 import { Breadcrumb, UserType } from '~/types'
 
 import {
@@ -620,7 +619,6 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                 const account = await accountsPartialUpdate(String(projectId), accountId, { tags })
                 await breakpoint()
                 actions.updateTagsDone(account)
-                tagsModel.findMounted()?.actions.loadTags()
                 posthog.capture(AccountsEvents.TagsUpdated, { tag_count: tags.length })
             } catch (error) {
                 if (error instanceof Error && isBreakpoint(error)) {

@@ -819,7 +819,15 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert field.name == "id-hype"
         assert field.hogql_value == "`id-hype`"
 
-    def test_serialize_database_warehouse_table_source(self):
+    @parameterized.expand(
+        [
+            ("synced", "2024-01-01", "2024-01-01 00:00:00+00:00"),
+            ("never_synced", None, None),
+        ]
+    )
+    def test_serialize_database_warehouse_table_source(
+        self, _name: str, last_synced_at: str | None, expected_last_synced_at: str | None
+    ) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
@@ -844,7 +852,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             source=source,
             table=warehouse_table,
             should_sync=True,
-            last_synced_at="2024-01-01",
+            last_synced_at=last_synced_at,
             # No status but should be completed because a data warehouse table already exists
         )
 
@@ -869,7 +877,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert table.schema_.should_sync is True
         assert table.schema_.incremental is False
         assert table.schema_.status is None
-        assert table.schema_.last_synced_at == "2024-01-01 00:00:00+00:00"
+        assert table.schema_.last_synced_at == expected_last_synced_at
 
         field = table.fields.get("id")
         assert field is not None

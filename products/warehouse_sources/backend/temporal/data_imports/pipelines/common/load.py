@@ -146,7 +146,7 @@ async def notify_revenue_analytics_that_sync_has_completed(
                         posthoganalytics.capture(
                             distinct_id=user.distinct_id,
                             event="revenue_analytics_ready",
-                            properties={"source_type": source.source_type},
+                            properties={"source_type": source.source_type, "$update_person_last_seen_at": False},
                         )
 
                 # Mark the team as notified, avoiding spamming emails

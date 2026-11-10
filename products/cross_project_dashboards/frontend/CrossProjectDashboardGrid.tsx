@@ -76,7 +76,7 @@ export function CrossProjectDashboardGrid({
     )
 
     const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
-        useDashboardLayoutInteraction({ layoutEditMode, updateLayouts })
+        useDashboardLayoutInteraction({ enabled: layoutEditMode, updateLayouts })
 
     // Debounce width changes to the grid. Rapidly crossing the width leaves tiles squashed at one column.
     const [gridWidth, setGridWidth] = useState(width)
@@ -224,8 +224,8 @@ export function CrossProjectDashboardGrid({
                         className={
                             layoutEditMode
                                 ? // Dragging is bounded to the grid's height, so the padding leaves room to drop a tile in a new row.
-                                  'dashboard-edit-mode box-content pb-[40vh]'
-                                : 'dashboard-view-mode mb-8'
+                                  'dashboard-layout-editable box-content pb-[40vh]'
+                                : 'dashboard-layout-static mb-8'
                         }
                         dragConfig={dragConfig}
                         resizeConfig={resizeConfig}

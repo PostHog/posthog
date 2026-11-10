@@ -1505,7 +1505,6 @@ MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS = get_list(get_from_env("MCP_STORE_SLACK_DE
 # AEO citation-tracking POC (products/aeo). The scheduled runner only covers
 # teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.
 AEO_CITATION_TEAM_IDS = get_list(get_from_env("AEO_CITATION_TEAM_IDS", ""))
-AEO_TARGET_DOMAINS = get_list(get_from_env("AEO_TARGET_DOMAINS", "posthog.com"))
 # Scores brand sentiment on the evals Temporal queue after each run. Off until that worker carries the model.
 AEO_BRAND_SENTIMENT_ENABLED = get_from_env("AEO_BRAND_SENTIMENT_ENABLED", False, type_cast=str_to_bool)
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
