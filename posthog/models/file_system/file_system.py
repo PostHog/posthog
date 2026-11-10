@@ -74,7 +74,7 @@ def create_or_update_file(
     all_existing = (
         FileSystem.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref)
         .filter(~Q(shortcut=True))
-        .all()
+        .order_by("id")
     )
     for existing in all_existing:
         has_existing = True
