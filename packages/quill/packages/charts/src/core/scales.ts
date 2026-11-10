@@ -607,6 +607,13 @@ export function computePercentStackData(series: Series[], labels: string[]): Map
     return buildStackData(series, labels, { offset: stackOffsetExpand })
 }
 
+/** True when a stacked layout has a value the plain stack would clamp to 0. */
+export function hasNegativeStackValue(series: Series[]): boolean {
+    return series.some(
+        (s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay && s.data?.some((value) => value < 0)
+    )
+}
+
 /** Stack that preserves negative segments — positives accumulate upward from 0, negatives
  *  downward from 0 (stackOffsetDiverging). Used by Lifecycle, where `dormant` is emitted
  *  as a negative series so it renders below the zero baseline. */
