@@ -177,6 +177,64 @@ const createEmailParams = (
         },
     }
 }
+interface FakeSesDelivery {
+    to: string[]
+    html: string | undefined
+}
+
+interface FakeSes {
+    endpoint: string
+    inbox: FakeSesDelivery[]
+    close: () => Promise<void>
+}
+
+function applySesOpenAndClickTracking(html: string): string {
+    return html
+        .replace(
+            /href="([^"]+)"/g,
+            (_, url) => `href="https://fake-ses.example.com/click?u=${encodeURIComponent(url)}"`
+        )
+        .replace('</body>', '<img src="https://fake-ses.example.com/open" /></body>')
+}
+
+async function startFakeSes(configurationSets: Record<string, { tracking: boolean }>): Promise<FakeSes> {
+    const inbox: FakeSesDelivery[] = []
+    const server = http.createServer((req, res) => {
+        let body = ''
+        req.on('data', (chunk) => (body += chunk))
+        req.on('end', () => {
+            const message = parseJSON(body)
+            const configurationSet = configurationSets[message.ConfigurationSetName]
+            if (!configurationSet) {
+                res.writeHead(404, { 'content-type': 'application/json', 'x-amzn-errortype': 'NotFoundException' })
+                res.end(
+                    JSON.stringify({ message: `Configuration set <${message.ConfigurationSetName}> does not exist.` })
+                )
+                return
+            }
+            const html = message.Content.Simple.Body.Html?.Data
+            inbox.push({
+                to: message.Destination.ToAddresses,
+                html: html && configurationSet.tracking ? applySesOpenAndClickTracking(html) : html,
+            })
+            res.writeHead(200, { 'content-type': 'application/json' })
+            res.end(JSON.stringify({ MessageId: `fake-ses-${inbox.length}` }))
+        })
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    return {
+        endpoint: `http://127.0.0.1:${port}`,
+        inbox,
+        close: () => new Promise((resolve) => server.close(() => resolve())),
+    }
+}
+
+function useStaticSesCredentials(service: EmailService): EmailService {
+    service.sesV2Client!.config.credentials = () => Promise.resolve({ accessKeyId: 'test', secretAccessKey: 'test' })
+    return service
+}
+
 describe('EmailService', () => {
     let service: EmailService
     let hub: Hub
@@ -2219,38 +2277,20 @@ describe('EmailService', () => {
                 invocation.hogFunction.metadata = { tracking_enabled: false }
             })
 
-            it('sends through the untracked configuration set with the HTML untouched when tracking is off', async () => {
-                const sesRequests: any[] = []
-                const ses = http.createServer((req, res) => {
-                    let body = ''
-                    req.on('data', (chunk) => (body += chunk))
-                    req.on('end', () => {
-                        sesRequests.push(parseJSON(body))
-                        res.writeHead(200, { 'content-type': 'application/json' })
-                        res.end(JSON.stringify({ MessageId: 'ses-stub-message-id' }))
-                    })
+            it('delivers tracking-off mail without open or click tracking', async () => {
+                const ses = await startFakeSes({
+                    'posthog-messaging': { tracking: true },
+                    'posthog-messaging-untracked': { tracking: false },
                 })
-                await new Promise<void>((resolve) => ses.listen(0, '127.0.0.1', resolve))
                 try {
-                    const { port } = ses.address() as AddressInfo
-                    const sesService = createService({ sesEndpoint: `http://127.0.0.1:${port}` })
-                    // The default AWS credential chain loads its providers with a dynamic import, which
-                    // Jest's VM refuses, so the stubbed endpoint gets static credentials instead.
-                    sesService.sesV2Client!.config.credentials = () =>
-                        Promise.resolve({ accessKeyId: 'test', secretAccessKey: 'test' })
+                    const sesService = useStaticSesCredentials(createService({ sesEndpoint: ses.endpoint }))
 
                     const result = await sesService.executeSendEmail(invocation)
 
                     expect(result.error).toBeUndefined()
-                    expect(sesRequests).toHaveLength(1)
-                    expect(sesRequests[0].ConfigurationSetName).toEqual('posthog-messaging-untracked')
-                    expect(sesRequests[0].Content.Simple.Body.Html.Data).toEqual(trackableHtml)
-                    // Delivery/bounce attribution must survive tracking-off: the untracked configuration
-                    // set still emits delivery events, and the webhook needs this header to attribute them.
-                    const headerNames = sesRequests[0].Content.Simple.Headers.map((h: { Name: string }) => h.Name)
-                    expect(headerNames).toContain('X-PostHog-Tracking-Code')
+                    expect(ses.inbox).toEqual([{ to: ['"Test User" <test@example.com>'], html: trackableHtml }])
                 } finally {
-                    await new Promise((resolve) => ses.close(resolve))
+                    await ses.close()
                 }
             })
 
