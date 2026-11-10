@@ -89,14 +89,20 @@ export function SpinnerOverlay({
     /** @default "spinning" */
     mode?: 'spinning' | 'editing'
 }): JSX.Element {
+    const ref = useCancelAnimationsOnUnmount<HTMLDivElement>()
+
     return (
         <div
+            ref={ref}
             className={twJoin(
                 'SpinnerOverlay',
                 sceneLevel && 'SpinnerOverlay--scene-level',
-                sceneLevel && 'h-[calc(100vh-var(--scene-layout-header-height))]'
+                sceneLevel && mode === 'spinning' && 'SpinnerOverlay--thinking',
+                spinnerProps.frozen && 'SpinnerOverlay--frozen'
             )}
             aria-hidden={!visible}
+            role={sceneLevel && mode === 'spinning' ? 'status' : undefined}
+            aria-label={sceneLevel && mode === 'spinning' ? 'Loading' : undefined}
         >
             {mode === 'editing' ? (
                 <IconPencil className="text-5xl text-accent z-10 drop-shadow-xl" />

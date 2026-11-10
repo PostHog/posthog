@@ -99,4 +99,85 @@
     &.SpinnerOverlay--scene-level::before {
         background: var(--color-bg-primary);
     }
+
+    &.SpinnerOverlay--thinking {
+        overflow: hidden;
+        isolation: isolate;
+
+        &::before,
+        &::after {
+            position: absolute;
+            inset: -50%;
+            content: '';
+            background:
+                radial-gradient(ellipse at 30% 40%, var(--color-teal-400), transparent 45%),
+                radial-gradient(ellipse at 70% 40%, var(--color-blue-400), transparent 45%),
+                radial-gradient(ellipse at 50% 70%, var(--color-purple-400), transparent 45%);
+            opacity: 0.12;
+            animation: SpinnerOverlay__think 16s linear infinite;
+        }
+
+        &::after {
+            animation-duration: 23s;
+            animation-direction: reverse;
+        }
+
+        .Spinner {
+            display: none;
+        }
+
+        &.SpinnerOverlay--frozen,
+        &[aria-hidden='true'] {
+            &::before,
+            &::after {
+                animation-play-state: paused;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            transition: none;
+
+            &::before,
+            &::after {
+                animation: none;
+            }
+        }
+
+        @media (forced-colors: active) {
+            &::before,
+            &::after {
+                display: none;
+            }
+
+            .Spinner {
+                --spinner-color: CanvasText;
+
+                display: inline-block;
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .Spinner__layer,
+                .Spinner__layer > circle {
+                    animation: none;
+                }
+            }
+        }
+    }
+}
+
+@keyframes SpinnerOverlay__think {
+    0% {
+        opacity: 0.12;
+        transform: rotate(0deg) scale(1);
+    }
+
+    50% {
+        opacity: 0.22;
+        transform: rotate(180deg) scale(1.15);
+    }
+
+    100% {
+        opacity: 0.12;
+        transform: rotate(360deg) scale(1);
+    }
 }

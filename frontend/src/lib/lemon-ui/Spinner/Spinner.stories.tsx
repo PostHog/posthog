@@ -20,6 +20,22 @@ export function Default(): JSX.Element {
     return <Spinner />
 }
 
+export function SceneLevel(): JSX.Element {
+    return (
+        <div className="relative h-96 bg-primary">
+            <SpinnerOverlay sceneLevel frozen />
+        </div>
+    )
+}
+
+export function SceneLevelNarrow(): JSX.Element {
+    return (
+        <div className="relative h-96 w-96 bg-primary">
+            <SpinnerOverlay sceneLevel frozen />
+        </div>
+    )
+}
+
 export function Sizes(): JSX.Element {
     return (
         <div className="deprecated-space-y-2">
