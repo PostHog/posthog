@@ -137,8 +137,16 @@ return {0, math.ceil(slotAt - now), 1}
 `
 
 const MARK_CLAIM_SPENT_LUA = `
-if redis.call('hexists', KEYS[1], 'attempt:' .. ARGV[1]) == 1 then
-    redis.call('hset', KEYS[1], 'spent', 1)
+if redis.call('hexists', KEYS[1], 'attempt:' .. ARGV[1]) == 1 and not redis.call('hget', KEYS[1], 'spent') then
+    redis.call('hset', KEYS[1], 'spent', ARGV[1])
+    return 1
+end
+return 0
+`
+
+const RELEASE_CLAIM_SPEND_LUA = `
+if redis.call('hget', KEYS[1], 'spent') == ARGV[1] then
+    redis.call('hdel', KEYS[1], 'spent')
     return 1
 end
 return 0
@@ -271,18 +279,30 @@ export class RateLimiterService {
     }
 
     public async markClaimSpent(claim: { key: string; attempt: string }): Promise<boolean> {
+        return await this.evalClaimMark('markClaimSpent', MARK_CLAIM_SPENT_LUA, claim)
+    }
+
+    public async releaseClaimSpend(claim: { key: string; attempt: string }): Promise<boolean> {
+        return await this.evalClaimMark('releaseClaimSpend', RELEASE_CLAIM_SPEND_LUA, claim)
+    }
+
+    private async evalClaimMark(
+        operation: string,
+        script: string,
+        claim: { key: string; attempt: string }
+    ): Promise<boolean> {
         try {
             const result = await this.valkey.useClient(
                 {
-                    name: `rate-limiter:${this.config.name}:markClaimSpent`,
+                    name: `rate-limiter:${this.config.name}:${operation}`,
                     timeout: 1000,
                     deadlineMs: CLAIM_DEADLINE_MS,
                 },
-                (client) => client.eval(MARK_CLAIM_SPENT_LUA, 1, claim.key, claim.attempt)
+                (client) => client.eval(script, 1, claim.key, claim.attempt)
             )
             return result === 1
         } catch (err) {
-            logger.warn('🪙', `RateLimiterService(${this.config.name}) mark claim spent threw`, {
+            logger.warn('🪙', `RateLimiterService(${this.config.name}) ${operation} threw`, {
                 key: claim.key,
                 error: String(err),
             })

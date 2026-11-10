@@ -34,7 +34,9 @@ describe('claimSandboxCaps', () => {
 
     const sameSend = () => ({ organizationId, teamId, storedAddress: 'member@example.com', claimId: randomUUID() })
 
-    const granted = (result: SandboxCapClaim) => {
+    type Granted = Extract<SandboxCapClaim, { ok: true }>
+
+    const granted = (result: SandboxCapClaim): Granted => {
         if (!result.ok) {
             throw new Error(`expected a granted claim, got ${result.reason}`)
         }
@@ -131,40 +133,58 @@ describe('claimSandboxCaps', () => {
             await claimSandboxCaps(new RateLimiterService(replyLost, { name: 'reply-lost' }), caps, sendAttempt)
         ).toEqual({ ok: false, reason: 'cap_storage_unavailable' })
         const retry = granted(await claimSandboxCaps(limiter, caps, sendAttempt))
-        expect(await retry.markSent()).toBe(true)
+        expect(await retry.markSending()).toBe(true)
         expect(await claim(caps, 'member@example.com')).toMatchObject({ ok: true })
         expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
     })
 
-    it('charges a replayed claim again once its send was marked sent', async () => {
+    it('charges a replayed claim again once an attempt marked it sending, whether or not that send finished', async () => {
         const caps = { team: 5, recipient: 2 }
         const sendAttempt = sameSend()
         const first = granted(await claimSandboxCaps(limiter, caps, sendAttempt))
-        expect(await first.markSent()).toBe(true)
+        expect(await first.markSending()).toBe(true)
 
         expect(await claimSandboxCaps(limiter, caps, sendAttempt)).toMatchObject({ ok: true })
         expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
     })
 
-    it("leaves a replay's claim reusable when the earlier attempt's sent mark arrives late", async () => {
-        const caps = { team: 5, recipient: 2 }
+    it('lets a replay reuse the charge for free once the sending attempt released its unsent claim', async () => {
+        const caps = { team: 5, recipient: 1 }
         const sendAttempt = sameSend()
         const first = granted(await claimSandboxCaps(limiter, caps, sendAttempt))
-        await first.markSent()
-        granted(await claimSandboxCaps(limiter, caps, sendAttempt))
+        expect(await first.markSending()).toBe(true)
+        expect(await first.releaseUnsent()).toBe(true)
 
-        expect(await first.markSent()).toBe(false)
-        expect(await claimSandboxCaps(limiter, caps, sendAttempt)).toMatchObject({ ok: true })
+        const retry = granted(await claimSandboxCaps(limiter, caps, sendAttempt))
+        expect(await retry.markSending()).toBe(true)
+        expect(await claim(caps, 'other@example.com')).toMatchObject({ ok: true })
         expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
     })
 
-    it('charges a replay again when an attempt that overlapped a free retry was the one that sent', async () => {
+    it.each([
+        ['sending mark', (claim: Granted) => claim.markSending()],
+        ['release', (claim: Granted) => claim.releaseUnsent()],
+    ])("keeps a replay's charge when the earlier charge's %s arrives late", async (_late, late) => {
         const caps = { team: 5, recipient: 2 }
         const sendAttempt = sameSend()
         const first = granted(await claimSandboxCaps(limiter, caps, sendAttempt))
-        granted(await claimSandboxCaps(limiter, caps, sendAttempt))
+        await first.markSending()
+        const replay = granted(await claimSandboxCaps(limiter, caps, sendAttempt))
+        expect(await replay.markSending()).toBe(true)
 
-        expect(await first.markSent()).toBe(true)
+        expect(await late(first)).toBe(false)
+        expect(await claimSandboxCaps(limiter, caps, sendAttempt)).toEqual({ ok: false, reason: 'daily_cap_reached' })
+    })
+
+    it('lets only one of two overlapping attempts on one charge send, and only that one release it', async () => {
+        const caps = { team: 5, recipient: 2 }
+        const sendAttempt = sameSend()
+        const first = granted(await claimSandboxCaps(limiter, caps, sendAttempt))
+        const overlapping = granted(await claimSandboxCaps(limiter, caps, sendAttempt))
+
+        expect(await first.markSending()).toBe(true)
+        expect(await overlapping.markSending()).toBe(false)
+        expect(await overlapping.releaseUnsent()).toBe(false)
         expect(await claimSandboxCaps(limiter, caps, sendAttempt)).toMatchObject({ ok: true })
         expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
     })
@@ -285,7 +305,10 @@ describe('claimSandboxCaps', () => {
             expect(await answerWithin(claimSandboxCaps(stalling, caps, sameSend()), 10_000)).toMatchObject({ ok: true })
 
             store.stopAnsweringOpenConnections()
-            expect(await answerWithin(first.markSent(), 10_000)).toBe(false)
+            expect(await answerWithin(first.markSending(), 10_000)).toBe(false)
+
+            store.stopAnswering()
+            expect(await answerWithin(first.releaseUnsent(), 10_000)).toBe(false)
         })
 
         it('refuses at once while abandoned claims still wait for a connection, and claims again once storage answers', async () => {
