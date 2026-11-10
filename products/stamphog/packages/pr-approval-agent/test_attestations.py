@@ -63,19 +63,20 @@ def _proof_marker(**overrides: object) -> str:
         "pr": _REVIEWED.pr_number,
         "head_sha": _REVIEWED.head_sha,
         "merge_base": _REVIEWED.merge_base_sha,
-        "workflow_sha": "c" * 40,
+        "blobs": dict.fromkeys(_DEPENDENCY_PROOF.publisher_files, "c" * 40),
         **overrides,
     }
     return f"<!-- stamphog:v1 {json.dumps(payload)} -->"
 
 
 def _proof(**overrides: object) -> dict:
-    marker_overrides = {k: overrides.pop(k) for k in list(overrides) if k in {"files", "pr", "head_sha", "merge_base"}}
+    marker_keys = {"files", "pr", "head_sha", "merge_base", "blobs"}
+    marker_overrides = {k: overrides.pop(k) for k in list(overrides) if k in marker_keys}
     return _check(
         "Dependency proof",
         app_id=_PROVER_APP_ID,
         summary=_proof_marker(**marker_overrides),
-        publisher_files_current=overrides.pop("publisher_files_current", True),
+        pinned_blobs_current=overrides.pop("pinned_blobs_current", True),
         **overrides,
     )
 
@@ -169,7 +170,9 @@ def test_object_marker_lifts_every_declared_category_for_the_proven_files() -> N
         pytest.param(_proof(pr=8), id="other-pr"),
         pytest.param(_proof(head_sha="d" * 40), id="other-head"),
         pytest.param(_proof(merge_base="d" * 40), id="other-merge-base"),
-        pytest.param(_proof(publisher_files_current=False), id="publisher-changed"),
+        pytest.param(_proof(pinned_blobs_current=False), id="publisher-changed"),
+        pytest.param(_proof(blobs={"pnpm-workspace.yaml": "c" * 40}), id="publisher-file-not-pinned"),
+        pytest.param(_proof(blobs=None), id="no-blobs"),
         pytest.param(_check("Dependency proof", app_id=_PROVER_APP_ID, summary=_proof_marker()), id="unconfirmed"),
         pytest.param(_check("Dependency proof", app_id=_PROVER_APP_ID, files=[_LOCKFILE]), id="list-marker"),
     ],

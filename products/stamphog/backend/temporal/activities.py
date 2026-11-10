@@ -70,6 +70,7 @@ from products.stamphog.backend.facade.review_evidence import (
     get_review_evidence_providers,
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
+from products.stamphog.backend.logic.attestation_pins import get_check_runs_with_pins
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.engine_pregate import (
     ENGINE_DIR,
@@ -510,7 +511,7 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
         # top-level discussion misses; fails closed on truncation/errors, same as get_pr_discussion.
         review_threads_future = submit("review_threads", client.get_pr_review_threads, repo, number)
         # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
-        check_runs_future = submit("check_runs", client.get_check_runs, repo, run.head_sha)
+        check_runs_future = submit("check_runs", get_check_runs_with_pins, client, repo, run.head_sha)
         commit_messages_future = submit("commit_messages", _pr_commit_messages, client, repo, number, run.head_sha)
         reactions_future = submit("pr_reactions", client.get_pr_reactions, repo, number)
         policy_futures = {
@@ -968,7 +969,7 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
         context["files"] = pinned_files
         # A deny lift rests on a check run, and a newer run of the same check may have failed since
         # the context fetch. The lift must hold at posting time, not at review start.
-        context["check_runs"] = client.get_check_runs(repo, run.head_sha)
+        context["check_runs"] = get_check_runs_with_pins(client, repo, run.head_sha)
         attestation = run_engine_attest(context, policy_files)
         if attestation.reason == "dependency_manifest" and 0 < len(attestation.manifests) <= _MAX_ATTESTED_MANIFESTS:
             manifest_contents = fetch_manifest_contents(

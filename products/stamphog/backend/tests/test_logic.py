@@ -18,6 +18,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged, base_merge_is_clean
+from products.stamphog.backend.logic.attestation_pins import get_check_runs_with_pins
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary, _build_selection_prompt
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
@@ -816,6 +817,59 @@ class CommitGraphqlTests(SimpleTestCase):
     ) -> None:
         with pytest.raises(expected):
             self._blame(fakes.FakeResponse(200, json_data={"errors": [error]}))
+
+
+class _PinClient:
+    def __init__(self, check_runs: list[dict], default_branch: dict[str, str | None]) -> None:
+        self.check_runs = check_runs
+        self.default_branch = default_branch
+        self.blob_reads = 0
+
+    def get_check_runs(self, repo: str, head_sha: str) -> list[dict]:
+        return self.check_runs
+
+    def get_default_branch_blob_shas(self, repo: str, paths: list[str]) -> dict[str, str | None]:
+        self.blob_reads += 1
+        return {path: self.default_branch.get(path) for path in paths}
+
+
+def _pinning_check_run(blobs: object) -> dict:
+    return {"output": {"summary": f"<!-- stamphog:v1 {json.dumps({'files': [], 'blobs': blobs})} -->"}}
+
+
+class AttestationPinTests(SimpleTestCase):
+    _DEFAULT_BRANCH: dict[str, str | None] = {"prover.py": "a" * 40, ".npmrc": "b" * 40}
+
+    @parameterized.expand(
+        [
+            ("every_pin_holds", {"prover.py": "a" * 40, ".npmrc": "b" * 40}, True),
+            ("an_absent_file_stays_absent", {"prover.py": "a" * 40, "frontend/.npmrc": None}, True),
+            ("a_pinned_file_changed", {"prover.py": "c" * 40}, False),
+            ("a_file_absent_at_the_proof_now_exists", {".npmrc": None}, False),
+            ("a_pinned_file_was_deleted", {"gone.py": "a" * 40}, False),
+            ("no_pins", {}, False),
+            ("malformed_pins", ["prover.py"], False),
+            ("more_paths_than_the_limit", {f"f{index}": None for index in range(65)}, False),
+        ]
+    )
+    def test_a_pinning_check_run_is_current_only_while_every_blob_matches(
+        self, _name: str, blobs: object, expected: bool
+    ) -> None:
+        client = _PinClient([_pinning_check_run(blobs)], self._DEFAULT_BRANCH)
+
+        [check_run] = get_check_runs_with_pins(cast(StamphogGitHubClient, client), "acme/widgets", "sha")
+
+        assert check_run["pinned_blobs_current"] is expected
+
+    def test_only_a_bounded_number_of_pinning_check_runs_is_read(self) -> None:
+        pinning = [_pinning_check_run({"prover.py": "a" * 40}) for _ in range(7)]
+        client = _PinClient([{"output": {"summary": '<!-- stamphog:v1 ["a.py"] -->'}}, *pinning], self._DEFAULT_BRANCH)
+
+        unpinned, *marked = get_check_runs_with_pins(cast(StamphogGitHubClient, client), "acme/widgets", "sha")
+
+        assert "pinned_blobs_current" not in unpinned
+        assert [check_run["pinned_blobs_current"] for check_run in marked] == [True] * 5 + [False] * 2
+        assert client.blob_reads == 5
 
 
 class BuildAppJwtIssuerTests(SimpleTestCase):

@@ -1195,11 +1195,13 @@ class StamphogGitHubClient:
             raise StamphogGitHubError(f"No merge base in the compare payload for {base_sha}...{head_sha}")
         return sha
 
-    def _commit_graphql(self, repo: str, query: str, variables: dict[str, Any], *, timeout: int) -> dict:
+    def _commit_graphql(
+        self, repo: str, query: str, variables: dict[str, Any], *, timeout: int, priority: Priority = Priority.BATCH
+    ) -> dict:
         """Run a query against one commit object of ``repo`` and return that commit's fields.
 
-        Raises on any HTTP, GraphQL, or shape failure. These queries feed an advisory signal, so
-        they run on the sheddable BATCH lane.
+        Raises on any HTTP, GraphQL, or shape failure. Most of these queries feed an advisory
+        signal, so the default is the sheddable BATCH lane.
         """
         owner, name = repo.split("/", 1)
         response = self._request(
@@ -1208,7 +1210,7 @@ class StamphogGitHubClient:
             endpoint="/graphql",
             json_body={"query": query, "variables": {"owner": owner, "name": name, **variables}},
             timeout=timeout,
-            priority=Priority.BATCH,
+            priority=priority,
         )
         if response.status_code != 200:
             raise StamphogGitHubError(f"GraphQL request failed on {repo}", status_code=response.status_code)
@@ -1329,6 +1331,22 @@ class StamphogGitHubClient:
             return RepoPathEntry(kind=kind, text=base64.b64decode(data["content"]).decode("utf-8"))
         except (binascii.Error, UnicodeDecodeError) as exc:
             raise StamphogGitHubError(f"Failed to decode base64 contents for {repo}:{path}") from exc
+
+    def get_default_branch_blob_shas(self, repo: str, paths: list[str]) -> dict[str, str | None]:
+        """The blob sha of each of ``paths`` on the default branch now, None for a path it lacks.
+
+        One request, one alias per path. The paths come from a check run, so they travel as GraphQL
+        variables and never as query text.
+        """
+        declarations = " ".join(f"$p{index}: String!" for index in range(len(paths)))
+        aliases = " ".join(f"p{index}: file(path: $p{index}) {{ oid }}" for index in range(len(paths)))
+        query = (
+            f"query($owner: String!, $name: String!, {declarations}) {{ repository(owner: $owner, name: $name) {{ "
+            f'object(expression: "HEAD") {{ ... on Commit {{ {aliases} }} }} }} }}'
+        )
+        variables = {f"p{index}": path for index, path in enumerate(paths)}
+        commit = self._commit_graphql(repo, query, variables, timeout=15, priority=Priority.CRITICAL)
+        return {path: (commit.get(f"p{index}") or {}).get("oid") for index, path in enumerate(paths)}
 
     def get_default_branch_file(self, repo: str, path: str, *, priority: Priority = Priority.CRITICAL) -> str | None:
         """Fetch a file's text from the repo's DEFAULT branch, or ``None`` if it doesn't exist.

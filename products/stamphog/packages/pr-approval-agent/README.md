@@ -395,6 +395,7 @@ A deny category can be lifted by a CI check that the policy names under `attesta
 Each entry pins a check name to the GitHub App that publishes it, the categories it may lift, the paths it may lift them for, and optionally companion `sibling_files` and the `publisher_files` the check runs from.
 The check embeds the files it vouches for in a `<!-- stamphog:v1 ... -->` marker in its summary; the engine lifts only the listed files that are in the diff and match the entry's paths, by exact path, and only for the entry's categories.
 Those files still count toward every other deny category.
+An entry with `publisher_files` accepts only a result that pins those files to blob shas, and only while the default branch still holds every blob the result pins, so a proof made by an older publisher or under older rules lifts nothing.
 The shipped default names no attestation; this repository's `.stamphog/policy.yml` names `Migration risk` for the `migrations` category.
 The engine knows nothing about what a check proves. See `attestations.py` for the marker contract and the proof conditions.
 
