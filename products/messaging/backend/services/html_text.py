@@ -36,7 +36,8 @@ VOID_TAGS = frozenset(
     }
 )
 LINK_SCHEMES = ("http://", "https://", "mailto:")
-UNSUBSCRIBE_PLACEHOLDER = re.compile(r"\{\{\s*unsubscribe_url\s*\}\}")
+JAVASCRIPT_WHITESPACE = r"[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]"
+UNSUBSCRIBE_PLACEHOLDER = re.compile(rf"\{{\{{{JAVASCRIPT_WHITESPACE}*unsubscribe_url{JAVASCRIPT_WHITESPACE}*\}}\}}")
 BLANK_LINES = re.compile(r"\n{3,}")
 WHITESPACE = re.compile(r"\s+")
 LINE_END = "\x00"
