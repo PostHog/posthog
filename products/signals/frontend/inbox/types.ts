@@ -192,6 +192,8 @@ export enum SignalReportStatus {
     SUPPRESSED = 'suppressed',
 }
 
+SignalReportStatus satisfies Record<Uppercase<SignalReportApi['status']>, SignalReportApi['status']>
+
 export interface SignalReportArtefact {
     id: string
     type: string
