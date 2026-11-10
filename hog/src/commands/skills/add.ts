@@ -1,7 +1,7 @@
 import { join, relative } from 'node:path'
 import { z } from 'zod'
 
-import type { SkillAssetStatus, SkillsLibrary } from '@posthog/mcp/src/cli/library-types'
+import type { SkillAssetStatus, SkillsLibrary, SkillsRelease } from '@posthog/mcp/src/cli/library-types'
 
 import { printDownloadWarnings } from '@/commands/learn'
 import { KNOWN_AGENTS, knownAgent } from '@/core/agent'
@@ -79,6 +79,7 @@ async function assertInsideRoot(runtime: Runtime, root: string, path: string): P
 
 async function installOne(
     library: SkillsLibrary,
+    release: SkillsRelease,
     runtime: Runtime,
     root: string,
     id: string,
@@ -88,7 +89,7 @@ async function installOne(
     const path = join(root, folder, id)
     await assertInsideRoot(runtime, root, path)
 
-    const result = await library.install(id, { cwd: root, force, skillsDir: folder })
+    const result = await library.install(id, { cwd: root, force, skillsDir: folder, release })
     if (result.ok) {
         return { path, status: 'installed' }
     }
@@ -156,7 +157,15 @@ export default defineCommand({
                 const key = join(target.folder, id)
                 let outcome = outcomes.get(key)
                 if (!outcome) {
-                    outcome = await installOne(library, ctx.runtime, root, id, target.folder, options.force === true)
+                    outcome = await installOne(
+                        library,
+                        listed.value.release,
+                        ctx.runtime,
+                        root,
+                        id,
+                        target.folder,
+                        options.force === true
+                    )
                     outcomes.set(key, outcome)
                 }
 
