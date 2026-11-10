@@ -177,7 +177,8 @@ Use project default clears the personal model choice for Slack, PostHog Desktop,
 Workspace project and channel welcome controls appear only for Slack workspace admins.
 The Home tab also keeps the Talk to the team invitation and the task list with its filters, refresh, links, and pagination.
 Use sample tasks and an interview invitation when you preview the full Home tab. Admin previews must also include workspace activity.
-Home headings and task statuses use text labels. Running tasks use a static ASCII marker, `[...]`, instead of an emoji.
+Task statuses use ASCII labels in Slack's native colored tags: `[>] In progress`, `[x] Done`, `[!] Failed`, `[-] Canceled`, `[.] Queued`, and `[ ] Not started`.
+The tags keep the status words visible. The symbols are static. Slack controls the colors for the viewer's theme.
 
 > The `canvases:read` user scope lets the Slack MCP connection read canvases that the authorizing user can access.
 > The `search:read.private`, `search:read.im`, and `search:read.mpim` user scopes let the dev Slack MCP connection search private channels, DMs, and group DMs. Existing connections keep their old scopes until the person disconnects and connects again.

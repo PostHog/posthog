@@ -56,6 +56,9 @@ from products.slack_app.backend.services.model_catalogue import (
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
 from products.slack_app.backend.services.slack_app_home_stats import (
     DEFAULT_STATS_WINDOW_DAYS,
+    OUTCOME_CANCELLED,
+    OUTCOME_DONE,
+    OUTCOME_FAILED,
     OUTCOME_RUNNING,
     STATS_MAX_TASKS,
     STATS_WINDOW_OPTIONS,
@@ -165,12 +168,12 @@ TASKS_FILTER_ALL = "all"
 # we surface on the card. Kept here so the renderer and resolver stay in sync.
 TASKS_STATUS_OPTIONS: tuple[tuple[str, str], ...] = (
     (TASKS_FILTER_ALL, "All statuses"),
-    ("in_progress", "In progress"),
-    ("completed", "Done"),
-    ("failed", "Failed"),
-    ("cancelled", "Canceled"),
-    ("queued", "Queued"),
-    ("not_started", "Not started"),
+    ("in_progress", "[>] In progress"),
+    ("completed", "[x] Done"),
+    ("failed", "[!] Failed"),
+    ("cancelled", "[-] Canceled"),
+    ("queued", "[.] Queued"),
+    ("not_started", "[ ] Not started"),
 )
 
 EDIT_MODAL_PERSONAL_CALLBACK_ID = "slack_app_ai_prefs:personal"
@@ -1125,7 +1128,15 @@ def _footer_blocks() -> list[dict]:
     return []
 
 
-_TASK_STATUS_LABELS: dict[str, str] = {**dict(TASKS_STATUS_OPTIONS), "in_progress": "`[...]` In progress"}
+_TASK_STATUS_LABELS: dict[str, str] = dict(TASKS_STATUS_OPTIONS)
+_TASK_STATUS_COLORS: dict[str, str] = {
+    "in_progress": "blue",
+    "completed": "green",
+    "failed": "red",
+    "cancelled": "gray",
+    "queued": "yellow",
+    "not_started": "gray",
+}
 
 
 def _tasks_section_blocks(state: TasksState) -> list[dict]:
@@ -1162,29 +1173,11 @@ def _tasks_section_blocks(state: TasksState) -> list[dict]:
 
 
 def _task_item_block(item: TaskItem) -> list[dict]:
-    """One task row split across two Block Kit blocks for visual hierarchy.
-
-    The title goes in a `section` (full-size mrkdwn); the optional error
-    message and the status · repo · links · PR · updated meta go in a single
-    `context` block underneath. Context renders text noticeably smaller and
-    dimmer than section, so the supporting detail recedes while the title
-    stays scannable.
-
-    The title opens the Slack thread, because that is where the conversation the
-    row summarises actually happened and it keeps the reader in Slack. The web
-    and desktop views are the alternatives, so they sit in the meta line.
-
-    Failed tasks surface the error and the meta line — error context never
-    replaces the surrounding state. Newlines in the upstream error message
-    collapse to spaces so a traceback doesn't blow the row open vertically.
-    """
     status_label = _TASK_STATUS_LABELS.get(item.status or "", "")
     title_target = item.thread_url or item.posthog_url
     title_line = f"*<{title_target}|{item.title}>*" if title_target else f"*{item.title}*"
 
     meta_parts: list[str] = []
-    if status_label:
-        meta_parts.append(status_label)
     if item.repository:
         meta_parts.append(f"`{item.repository}`")
     if item.posthog_url:
@@ -1204,6 +1197,24 @@ def _task_item_block(item: TaskItem) -> list[dict]:
         sub_rows.append(" · ".join(meta_parts))
 
     blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": title_line}}]
+    if status_label:
+        blocks.append(
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [
+                            {
+                                "type": "tag",
+                                "text": status_label,
+                                "color": _TASK_STATUS_COLORS.get(item.status or "", "gray"),
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
     if sub_rows:
         # Slack caps context elements at 75 chars of plain text but allows
         # much longer mrkdwn — a single mrkdwn element holds the whole stack
@@ -1310,6 +1321,13 @@ _STATS_MAX_FIELDS = 10
 # Eight levels of block-fill, so a sparkline reads as a shape rather than a row of dots.
 _SPARK_LEVELS = "▁▂▃▄▅▆▇█"
 
+_OUTCOME_TASK_STATUSES: dict[str, str] = {
+    OUTCOME_DONE: "completed",
+    OUTCOME_FAILED: "failed",
+    OUTCOME_CANCELLED: "cancelled",
+    OUTCOME_RUNNING: "in_progress",
+}
+
 
 def _stats_section_blocks(state: StatsState) -> list[dict]:
     """Render the workspace-activity card: a KPI grid, two text charts, a leaderboard."""
@@ -1399,13 +1417,21 @@ def _format_duration(seconds: int | None) -> str:
 
 
 def _stats_outcomes_block(state: StatsState) -> dict | None:
-    """Outcome split as a muted text line — it's the least interesting of the four
-    breakdowns, and giving up its chart keeps the card inside Slack's per-surface
-    data-visualization budget."""
     if not state.outcomes:
         return None
-    parts = [f"{'`[...]` ' if s.label == OUTCOME_RUNNING else ''}{s.value} {s.label.lower()}" for s in state.outcomes]
-    return {"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(parts)}]}
+    elements: list[dict[str, str]] = []
+    for outcome in state.outcomes:
+        status = _OUTCOME_TASK_STATUSES.get(outcome.label, "")
+        if elements:
+            elements.append({"type": "text", "text": " "})
+        elements.append(
+            {
+                "type": "tag",
+                "text": f"{_TASK_STATUS_LABELS.get(status, outcome.label)}: {outcome.value}",
+                "color": _TASK_STATUS_COLORS.get(status, "gray"),
+            }
+        )
+    return {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": elements}]}
 
 
 def _stats_trend_block(state: StatsState) -> dict | None:

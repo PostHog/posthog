@@ -807,12 +807,6 @@ class TestTasksCard:
         return TaskItem(**defaults)
 
     def _task_items(self, view: dict, expected_count: int) -> list[tuple[str, str]]:
-        """Return per-task (title_text, sub_text) tuples.
-
-        Each task renders as a section (title) immediately followed by a
-        context block carrying the error/meta rows. Sub-text is "" when the
-        task has no meta — happens only in tests that pass an empty TaskItem.
-        """
         items: list[tuple[str, str]] = []
         blocks = view["blocks"]
         for index, block in enumerate(blocks):
@@ -825,6 +819,8 @@ class TestTasksCard:
             ):
                 title = block["text"]["text"]
                 neighbour = blocks[index + 1] if index + 1 < len(blocks) else None
+                if neighbour and neighbour.get("type") == "rich_text":
+                    neighbour = blocks[index + 2] if index + 2 < len(blocks) else None
                 sub = ""
                 if neighbour and neighbour.get("type") == "context":
                     sub = neighbour["elements"][0]["text"]
@@ -842,9 +838,23 @@ class TestTasksCard:
         assert "*Tasks*" in text
         assert "Mention @PostHog" in text
 
-    def test_each_task_renders_as_title_section_plus_context_meta(self):
+    @pytest.mark.parametrize(
+        "status, label, color",
+        [
+            ("in_progress", "[>] In progress", "blue"),
+            ("completed", "[x] Done", "green"),
+            ("failed", "[!] Failed", "red"),
+            ("cancelled", "[-] Canceled", "gray"),
+            ("queued", "[.] Queued", "yellow"),
+            ("not_started", "[ ] Not started", "gray"),
+        ],
+    )
+    def test_each_task_renders_as_title_section_plus_context_meta(self, status: str, label: str, color: str) -> None:
         state = TasksState(
-            items=(self._item(), self._item(title="Refactor mention dispatcher", status="completed", pr_url=None)),
+            items=(
+                self._item(status=status),
+                self._item(title="Refactor mention dispatcher", status="completed", pr_url=None),
+            ),
             available_repos=("posthog/posthog",),
             has_any_tasks=True,
             page=0,
@@ -853,12 +863,18 @@ class TestTasksCard:
         )
         view = render_home_view(**self._kwargs(tasks_state=state))
         items = self._task_items(view, expected_count=2)
-        # Title is the full-size mrkdwn section; meta lives under it in a
-        # context block so Slack renders it smaller/dimmer than the title.
         title, sub = items[0]
         # The title opens the Slack thread — the conversation this row summarises.
         assert title == "*<https://slack.com/archives/C1/p1234567890123456|Fix flaky retention test>*"
-        assert "`[...]` In progress" in sub
+        tags = [
+            element
+            for block in view["blocks"]
+            if block["type"] == "rich_text"
+            for section in block["elements"]
+            for element in section["elements"]
+            if element["type"] == "tag"
+        ]
+        assert tags[0] == {"type": "tag", "text": label, "color": color}
         assert "`posthog/posthog`" in sub
         assert "<https://app/project/1/tasks/abc|View on web>" in sub
         assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub
@@ -880,15 +896,12 @@ class TestTasksCard:
         view = render_home_view(**self._kwargs(tasks_state=state))
         title, sub = self._task_items(view, expected_count=1)[0]
         assert title == "*<https://slack.com/archives/C1/p1234567890123456|Fix flaky retention test>*"
-        # The supporting context block stacks the error message above the
-        # standard status/repo/links/PR/updated meta. Error never replaces
-        # the surrounding state.
         sub_rows = sub.split("\n\n")
         assert len(sub_rows) == 2
         # Newlines in the upstream message collapse to spaces so the row
         # doesn't blow open vertically.
         assert sub_rows[0] == "`boom: timed out waiting for runner stack trace omitted`"
-        assert "Failed" in sub_rows[1]
+        assert "[!] Failed" in _all_text(view)
         assert "`posthog/posthog`" in sub_rows[1]
         assert "<https://app/project/1/tasks/abc|View on web>" in sub_rows[1]
         assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub_rows[1]
