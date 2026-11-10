@@ -10220,12 +10220,13 @@ export interface PaginatedTrendingInsightListApi {
 }
 
 /**
- * * `standalone` - standalone
- * * `dashboard` - dashboard
+ * * `standalone` - Standalone
+ * * `dashboard` - Dashboard
  */
-export type QueryContextEnumApi = (typeof QueryContextEnumApi)[keyof typeof QueryContextEnumApi]
+export type InsightViewQueryContextEnumApi =
+    (typeof InsightViewQueryContextEnumApi)[keyof typeof InsightViewQueryContextEnumApi]
 
-export const QueryContextEnumApi = {
+export const InsightViewQueryContextEnumApi = {
     Standalone: 'standalone',
     Dashboard: 'dashboard',
 } as const
@@ -10233,9 +10234,9 @@ export const QueryContextEnumApi = {
 export interface InsightViewedRequestApi {
     /** Saved query context viewed. Omit for unattributed or modified queries; history is still recorded.
      *
-     * * `standalone` - standalone
-     * * `dashboard` - dashboard */
-    query_context?: QueryContextEnumApi
+     * * `standalone` - Standalone
+     * * `dashboard` - Dashboard */
+    query_context?: InsightViewQueryContextEnumApi
     /**
      * Dashboard containing the viewed tiles. Required for dashboard context.
      * @minimum 1

@@ -61031,13 +61031,13 @@ export namespace Schemas {
     }
 
     /**
-     * * `standalone` - standalone
-     * * `dashboard` - dashboard
+     * * `standalone` - Standalone
+     * * `dashboard` - Dashboard
      */
-    export type QueryContextEnum = typeof QueryContextEnum[keyof typeof QueryContextEnum];
+    export type InsightViewQueryContextEnum = typeof InsightViewQueryContextEnum[keyof typeof InsightViewQueryContextEnum];
 
 
-    export const QueryContextEnum = {
+    export const InsightViewQueryContextEnum = {
       Standalone: 'standalone',
       Dashboard: 'dashboard',
     } as const;
@@ -61045,9 +61045,9 @@ export namespace Schemas {
     export interface InsightViewedRequest {
       /** Saved query context viewed. Omit for unattributed or modified queries; history is still recorded.
        *
-       * * `standalone` - standalone
-       * * `dashboard` - dashboard */
-      query_context?: QueryContextEnum;
+       * * `standalone` - Standalone
+       * * `dashboard` - Dashboard */
+      query_context?: InsightViewQueryContextEnum;
       /**
          * Dashboard containing the viewed tiles. Required for dashboard context.
          * @minimum 1

@@ -175,9 +175,9 @@ import {
 } from 'products/dashboards/frontend/widgetFetchUtils'
 import { createDashboardWidgetTileRefreshScheduler } from 'products/dashboards/frontend/widgetTileRefreshScheduler'
 import type { ZoomRange } from 'products/dashboards/frontend/zoomPreview'
+import { insightsViewedCreate } from 'products/product_analytics/frontend/generated/api'
 import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
 import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
-import { insightsViewedCreate } from 'products/product_analytics/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'

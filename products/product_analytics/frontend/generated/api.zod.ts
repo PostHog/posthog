@@ -925,10 +925,10 @@ export const insightsViewedCreateBodyInsightIdsMax = 2500
 export const InsightsViewedCreateBody = /* @__PURE__ */ zod.object({
     query_context: zod
         .enum(['standalone', 'dashboard'])
-        .describe('\* `standalone` - standalone\n\* `dashboard` - dashboard')
+        .describe('\* `standalone` - Standalone\n\* `dashboard` - Dashboard')
         .optional()
         .describe(
-            'Saved query context viewed. Omit for unattributed or modified queries; history is still recorded.\n\n\* `standalone` - standalone\n\* `dashboard` - dashboard'
+            'Saved query context viewed. Omit for unattributed or modified queries; history is still recorded.\n\n\* `standalone` - Standalone\n\* `dashboard` - Dashboard'
         ),
     dashboard_id: zod
         .number()

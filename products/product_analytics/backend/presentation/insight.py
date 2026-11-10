@@ -205,6 +205,7 @@ from products.product_analytics.backend.facade.enums import (
     InsightDataChecksDepth,
     InsightDataCheckSkipReason,
     InsightDataChecksStatus,
+    InsightViewQueryContext,
 )
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 from products.product_analytics.backend.presentation.insight_metadata import (
@@ -1717,7 +1718,7 @@ INSIGHT_VIEWED_MAX_IDS = 2500
 
 class InsightViewedRequestSerializer(serializers.Serializer):
     query_context = serializers.ChoiceField(
-        choices=["standalone", "dashboard"],
+        choices=InsightViewQueryContext.choices,
         required=False,
         help_text="Saved query context viewed. Omit for unattributed or modified queries; history is still recorded.",
     )
