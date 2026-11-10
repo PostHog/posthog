@@ -14,14 +14,15 @@ type Row = Record<string, string | number>
 
 function wherePredicate(term: string, columns: string[], dateFrom: string | undefined): ((row: Row) => boolean) | null {
     const timestampOf = (row: Row): number => Date.parse(String(row.timestamp))
-    const equals = term.match(/^(lower\()?(\w+)\)? = '([^']*)'$/)
-    if (equals && columns.includes(equals[2]) && !!equals[1] === term.startsWith('lower(')) {
-        const [, lower, column, value] = equals
-        return (row) => (lower ? String(row[column]).toLowerCase() : row[column]) === value
+    const equals = term.match(/^(?:lower\((\w+)\)|(\w+)) = '([^']*)'$/)
+    const equalsColumn = equals?.[1] ?? equals?.[2]
+    if (equals && equalsColumn && columns.includes(equalsColumn)) {
+        const lower = equals[1] !== undefined
+        return (row) => (lower ? String(row[equalsColumn]).toLowerCase() : row[equalsColumn]) === equals[3]
     }
-    const within = term.match(/^(\w+) IN \[(.*)\]$/)
+    const within = term.match(/^(\w+) IN \[('[^']*'(?:, '[^']*')*)\]$/)
     if (within && columns.includes(within[1])) {
-        const values = [...within[2].matchAll(/'([^']*)'/g)].map(([, value]) => value)
+        const values = within[2].split(', ').map((value) => value.slice(1, -1))
         return (row) => values.includes(String(row[within[1]]))
     }
     const window = term.match(/^toTimeZone\(timestamp, 'UTC'\) (>=|<) toDateTime\('([^']*)', 'UTC'\)$/)
@@ -35,9 +36,7 @@ function wherePredicate(term: string, columns: string[], dateFrom: string | unde
     return null
 }
 
-// Answers HogQL queries from in-memory tables. It evaluates the SELECT, WHERE, GROUP BY, ORDER BY and LIMIT forms
-// the broadcast queries use and answers 400 to any other form, so a changed query can't pass on rows it never asked for.
-function hogQLFake(tables: Record<string, Row[]>): MockSignature {
+function strictHogQLFake(tables: Record<string, Row[]>): MockSignature {
     return async ({ request }) => {
         const body = (await request.json()) as { query: { query: string }; filters_override?: { date_from?: string } }
         const sql = body.query.query.replace(/\s+/g, ' ').trim()
@@ -190,7 +189,7 @@ describe('broadcastPerformanceLogic', () => {
             const runId = `run-errored-${channel}`
             useMocks({
                 post: {
-                    '/api/environments/:team_id/query/:kind/': hogQLFake({
+                    '/api/environments/:team_id/query/:kind/': strictHogQLFake({
                         app_metrics: [
                             // An aborting step records `failed` at step and run level, so the run-level row must not count twice.
                             failedMetric(runId, 'step_1', 245),
