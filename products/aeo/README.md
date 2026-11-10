@@ -5,7 +5,7 @@ Answers two questions for a project: **are AI answer engines citing our domain**
 Everything is built from existing machinery:
 
 - **Prompt execution (Track A)** goes through the AI gateway (`AI_GATEWAY_URL`) using the providers' native web-search tools, so the citations are the models' real ones. Every call emits a `$ai_generation` event carrying cost, which lands in the gateway-key owner's project (not the checked team's) tagged with `team_id` for attribution. Citations are parsed from the **live response**, because the gateway's captured events intentionally drop web-search result payloads, so the cited URLs exist nowhere else.
-- **Perplexity** (off by default) runs `perplexity/sonar` with the `web_search` tool through the AI gateway's `/responses` path, like the OpenAI engine. See [Perplexity engine](#perplexity-engine).
+- **Perplexity** (off by default) runs `posthog/perplexity/sonar` with the `web_search` tool through the AI gateway's `/responses` path, like the OpenAI engine. See [Perplexity engine](#perplexity-engine).
 - **Breadth (Track B)** uses Exa `/answer` — its citations are Exa's own (a proxy, not a measurement of ChatGPT/Claude behavior), useful as a cheap retrievability check and as a comparison baseline against Track A.
 - **Storage**: the citation record is a Postgres table read through HogQL as `system.aeo_citation_checks`, so insights, the SQL editor, the query API, and MCP all read it while the runner stays the only writer. Events were the first design and were wrong for this: anyone holding a project's public capture token can submit them, which would let a stranger forge citation results and feed text to the alerting scout. The prompt set is a second small table (`posthog_aeo_prompt`). No new ClickHouse tables.
 - **Alerting** is a per-team signals scout (see `scout/SKILL.md`) that reads that table and files inbox/Slack reports on citation-rate drops or spikes. Engine-derived columns carry third-party text by nature, so the runner strips invisible characters and LLM framing markers before writing (`posthog/security/llm_prompt_sanitization.py`), and the scout drives findings from counts while quoting text inertly.
@@ -23,7 +23,7 @@ Environment (all default empty — the runner is a no-op until configured):
 | `AEO_CITATION_TEAM_IDS`                    | Comma-separated team ids the scheduled runner covers.                                                                          |
 | `AEO_TARGET_DOMAINS`                       | Domains counted as "us" in citations (default `posthog.com`).                                                                  |
 | `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                                                                                        |
-| `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `perplexity/sonar`).                                                                  |
+| `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).      |
 
 The scheduled task is additionally gated per team by the `aeo-citation-tracking` feature flag.
 
@@ -89,7 +89,7 @@ Within a topic, prompts never checked come first, then the least recently checke
 ## Perplexity engine
 
 `perplexity-web-search` sends each prompt to the AI gateway's `/responses` path, which routes it to Perplexity through the gateway's perplexity host.
-The request carries model `AEO_PERPLEXITY_MODEL` (default `perplexity/sonar`), the `web_search` tool with `search_type: "fast"`, one research step, and instructions that ask for inline `[n]` citation markers.
+The request carries model `AEO_PERPLEXITY_MODEL` (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`), the `web_search` tool with `search_type: "fast"`, one research step, and instructions that ask for inline `[n]` citation markers.
 Like the other gateway engines, each call emits a `$ai_generation` event tagged with `aeo_prompt_id` and `aeo_run_id`.
 
 - **Off by default.** The engine runs only when the AI gateway is configured **and** `AEO_PERPLEXITY_ENABLED` is true. Legal sign-off is still pending: do not turn it on until legal confirms which Perplexity terms cover the `web_search` output that the runner stores and shows.
