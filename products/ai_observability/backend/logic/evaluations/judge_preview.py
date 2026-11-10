@@ -127,8 +127,8 @@ def run_judge_test(
     """Judge up to `MAX_JUDGE_TEST_UNITS` units: exactly `sample_ids`, or the latest ones the scope matches.
     Saves nothing and emits no results.
 
-    `reading` wraps the ClickHouse reads that pick the units, so a caller can hold its query slots for them
-    without holding them through the model calls.
+    `reading` wraps each ClickHouse read, so a caller can hold its query slots for them without holding them
+    through the model calls.
 
     Raises `JudgeModelError` for a provider key the model cannot use, and `JudgeTestAlreadyRunningError` while
     this user's previous test is still running.
@@ -163,7 +163,7 @@ def run_judge_test(
                 error = "Not run, because the earlier runs took over a minute."
             else:
                 try:
-                    result = units.judge(evaluation, unit, user)
+                    result = units.judge(evaluation, unit, user, reading)
                 except Exception as judge_error:
                     error = _error_message(judge_error)
             rows.append(

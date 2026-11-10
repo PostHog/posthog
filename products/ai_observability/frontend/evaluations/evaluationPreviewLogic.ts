@@ -74,8 +74,9 @@ export function resultOutcome(
     if (evaluation.evaluation_type === 'hog') {
         return result.outcome
     }
-    if (result.error) {
-        return 'error'
+    // An error and a not-applicable answer do not depend on the pass rule, so the server's outcome stands.
+    if (result.outcome === 'error' || result.outcome === 'na') {
+        return result.outcome
     }
     const rule = evaluation.output_config.passing_rule
     let passes: boolean | null
@@ -106,10 +107,10 @@ function scope(evaluation: EvaluationConfig): Pick<TestHogRequestApi, 'condition
     }
 }
 
-/** Starting the next request of a kind aborts this one. A hidden tab keeps its request, because a judge test is paid for. */
-function requestSignal(cache: Record<string, any>, kind: 'samples' | 'test'): AbortSignal {
+/** Starting the next traffic request aborts this one. A hidden tab keeps its request, so coming back shows no failed load. */
+function requestSignal(cache: Record<string, any>): AbortSignal {
     const controller = new AbortController()
-    cache.disposables.add(() => () => controller.abort(), `${kind}Request`, { pauseOnPageHidden: false })
+    cache.disposables.add(() => () => controller.abort(), 'samplesRequest', { pauseOnPageHidden: false })
     return controller.signal
 }
 
@@ -136,9 +137,6 @@ export interface evaluationPreviewLogicActions {
     clearTestResults: () => {
         value: true
     }
-    markTestDiscarded: () => {
-        value: true
-    }
     loadSamples: (_: void) => void
     loadSamplesFailure: (
         error: string,
@@ -153,6 +151,9 @@ export interface evaluationPreviewLogicActions {
     ) => {
         samples: EvaluationSampleTrafficItemApi[] | null
         payload?: void
+    }
+    markTestDiscarded: () => {
+        value: true
     }
     testRows: ({ auto }: { auto: boolean }) => {
         auto: boolean
@@ -181,8 +182,8 @@ export interface evaluationPreviewLogicActions {
 export interface evaluationPreviewLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        everyTestErrored: (testResults: Record<string, TestHogResultItemApi> | null) => boolean
         rows: (samples: EvaluationSampleTrafficItemApi[] | null) => EvaluationSampleTrafficItemApi[]
+        everyTestErrored: (testResults: Record<string, TestHogResultItemApi> | null) => boolean
         samplesKey: (evaluation: EvaluationConfig | null) => string
         testKey: (evaluation: EvaluationConfig | null) => string
     }
@@ -227,7 +228,7 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                         const response = await evaluationsSampleTrafficCreate(
                             currentTeamId.toString(),
                             scope(evaluation),
-                            { signal: requestSignal(cache, 'samples') }
+                            { signal: requestSignal(cache) }
                         )
                         breakpoint()
                         return response.results
@@ -245,6 +246,10 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                 testRows: async ({ auto }: { auto: boolean }, breakpoint) => {
                     if (auto) {
                         await breakpoint(HOG_RETEST_DEBOUNCE_MS[values.evaluation?.target ?? 'generation'])
+                        // The server finishes a request the browser gave up on, so the next automatic test waits
+                        // for the one in flight. Edits made meanwhile collapse into the last one.
+                        await cache.autoTest
+                        breakpoint()
                     }
                     const { evaluation, currentTeamId, rows, testKey } = values
                     const kind = testableKind(evaluation)
@@ -253,40 +258,36 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                     }
                     const teamId = currentTeamId.toString()
                     const outputConfig = evaluation.output_config as TestHogRequestApi['output_config']
-                    const options = { signal: requestSignal(cache, 'test') }
                     let response: Awaited<ReturnType<typeof evaluationsTestHogCreate>>
+                    let settle = (): void => {}
+                    if (auto) {
+                        cache.autoTest = new Promise<void>((resolve) => {
+                            settle = resolve
+                        })
+                    }
                     try {
                         response =
                             kind === 'hog' && evaluation.evaluation_type === 'hog'
-                                ? await evaluationsTestHogCreate(
-                                      teamId,
-                                      {
-                                          ...scope(evaluation),
-                                          source: evaluation.evaluation_config.source,
-                                          output_type: evaluation.output_type as TestHogRequestApi['output_type'],
-                                          output_config: outputConfig,
-                                          allows_na: evaluation.output_config.allows_na ?? false,
-                                          sample_ids: rows.map((row) => row.sample_id),
-                                      },
-                                      options
-                                  )
-                                : await evaluationsTestOnSampleCreate(
-                                      teamId,
-                                      {
-                                          ...scope(evaluation),
-                                          evaluation_type: 'llm_judge',
-                                          evaluation_config:
-                                              evaluation.evaluation_config as EvaluationTestOnSampleRequestApi['evaluation_config'],
-                                          model_configuration:
-                                              evaluation.model_configuration as EvaluationTestOnSampleRequestApi['model_configuration'],
-                                          output_type:
-                                              evaluation.output_type as EvaluationTestOnSampleRequestApi['output_type'],
-                                          output_config:
-                                              outputConfig as EvaluationTestOnSampleRequestApi['output_config'],
-                                          sample_ids: rows.slice(0, JUDGE_TEST_LIMIT).map((row) => row.sample_id),
-                                      },
-                                      options
-                                  )
+                                ? await evaluationsTestHogCreate(teamId, {
+                                      ...scope(evaluation),
+                                      source: evaluation.evaluation_config.source,
+                                      output_type: evaluation.output_type as TestHogRequestApi['output_type'],
+                                      output_config: outputConfig,
+                                      allows_na: evaluation.output_config.allows_na ?? false,
+                                      sample_ids: rows.map((row) => row.sample_id),
+                                  })
+                                : await evaluationsTestOnSampleCreate(teamId, {
+                                      ...scope(evaluation),
+                                      evaluation_type: 'llm_judge',
+                                      evaluation_config:
+                                          evaluation.evaluation_config as EvaluationTestOnSampleRequestApi['evaluation_config'],
+                                      model_configuration:
+                                          evaluation.model_configuration as EvaluationTestOnSampleRequestApi['model_configuration'],
+                                      output_type:
+                                          evaluation.output_type as EvaluationTestOnSampleRequestApi['output_type'],
+                                      output_config: outputConfig as EvaluationTestOnSampleRequestApi['output_config'],
+                                      sample_ids: rows.slice(0, JUDGE_TEST_LIMIT).map((row) => row.sample_id),
+                                  })
                     } catch (error) {
                         // A newer test or an edit replaced this one, so its failure would hide the current results.
                         breakpoint()
@@ -294,6 +295,8 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                             return values.testResults
                         }
                         throw error
+                    } finally {
+                        settle()
                     }
                     breakpoint()
                     // A judge edit clears the results without starting a test, so nothing cancels this call. Its

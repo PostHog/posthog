@@ -58,6 +58,8 @@ describe('evaluationPreviewLogic', () => {
     let logic: ReturnType<typeof evaluationPreviewLogic.build>
     let testCalls: string[]
     let testedIds: string[][]
+    let inFlight: number
+    let mostInFlight: number
     let saved: EvaluationConfig
     let pending: Promise<void> | null
     let failure: [number, Record<string, string>] | null
@@ -65,6 +67,8 @@ describe('evaluationPreviewLogic', () => {
     beforeEach(() => {
         testCalls = []
         testedIds = []
+        inFlight = 0
+        mostInFlight = 0
         pending = null
         failure = null
         const respond =
@@ -72,7 +76,9 @@ describe('evaluationPreviewLogic', () => {
             async ({ request }: { request: Request }) => {
                 testCalls.push(endpoint)
                 testedIds.push(((await request.json()) as { sample_ids: string[] }).sample_ids)
+                mostInFlight = Math.max(mostInFlight, ++inFlight)
                 await pending
+                inFlight--
                 return failure ?? [200, { results: [testResult] }]
             }
         useMocks({
@@ -95,18 +101,20 @@ describe('evaluationPreviewLogic', () => {
     }
 
     it.each([
-        ['a judge result passes on true', 'llm_judge', {}, 'pass'],
+        ['a judge result passes on true', 'llm_judge', {}, testResult, 'pass'],
+        ['a judge detector fails on true', 'llm_judge', { true_is_failure: true }, testResult, 'fail'],
+        ['a Hog result keeps the outcome the server gave it', 'hog', { true_is_failure: true }, testResult, 'pass'],
         [
-            'a judge detector fails on true, matching the polarity switch',
+            'a judge keeps a not-applicable answer',
             'llm_judge',
-            { true_is_failure: true },
-            'fail',
+            {},
+            { ...testResult, result: null, outcome: 'na' },
+            'na',
         ],
-        ['a Hog result keeps the outcome the server gave it', 'hog', { true_is_failure: true }, 'pass'],
-    ])('%s', (_name, evaluationType, outputConfig, outcome) => {
+    ])('%s', (_name, evaluationType, outputConfig, result, outcome) => {
         expect(
             resultOutcome(
-                testResult as TestHogResultItemApi,
+                result as TestHogResultItemApi,
                 {
                     ...evaluation,
                     evaluation_type: evaluationType,
@@ -131,6 +139,27 @@ describe('evaluationPreviewLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(testCalls).toEqual(['hog', 'hog'])
+    })
+
+    it('holds the next automatic test until the one in flight returns', async () => {
+        mount({ ...evaluation, target: 'generation' } as EvaluationConfig)
+        await expectLogic(logic).toFinishAllListeners()
+        let release = (): void => {}
+        pending = new Promise((resolve) => {
+            release = resolve
+        })
+
+        llmEvaluationLogic(props).actions.setHogSource('return false')
+        while (testCalls.length < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        llmEvaluationLogic(props).actions.setHogSource('return 1 == 1')
+        await new Promise((resolve) => setTimeout(resolve, 700))
+        release()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(testCalls).toEqual(['hog', 'hog', 'hog'])
+        expect(mostInFlight).toBe(1)
     })
 
     it('tests a judge only on a click, and clears its results once the prompt changes', async () => {

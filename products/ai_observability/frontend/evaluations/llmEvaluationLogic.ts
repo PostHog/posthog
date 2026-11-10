@@ -1707,12 +1707,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (!isLLMJudgeEvaluation(evaluation)) {
                     return false
                 }
-                if (evaluationId === 'new') {
-                    // A team with no provider key has no model to pick. Its judge starts paused, so it is
-                    // created without a model, and gets one once a key is added.
-                    return evaluation.enabled || judgeModelGroups.some((group) => group.models.length > 0)
+                // A team with no provider key has no model to pick. Its judge stays paused without one, and
+                // gets a model once a key is added.
+                if (
+                    !evaluation.enabled &&
+                    !evaluation.model_configuration &&
+                    !judgeModelGroups.some((group) => group.models.length > 0)
+                ) {
+                    return false
                 }
                 if (
+                    evaluationId === 'new' ||
                     originalEvaluation?.evaluation_type !== 'llm_judge' ||
                     evaluation.evaluation_config?.judge_method != null
                 ) {

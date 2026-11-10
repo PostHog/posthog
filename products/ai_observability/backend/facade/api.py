@@ -611,7 +611,7 @@ def run_unsaved_judge(
     reading: Callable[[], AbstractContextManager[None]] = nullcontext,
 ) -> list[contracts.EvaluationTestResult]:
     """Judge up to `MAX_JUDGE_TEST_UNITS` units with an unsaved LLM judge, on the team's own provider key.
-    Saves nothing and emits no results. `reading` wraps the ClickHouse reads only, not the model calls.
+    Saves nothing and emits no results. `reading` wraps each ClickHouse read, and no model call.
 
     Raises `contracts.JudgeModelError` and `contracts.JudgeTestAlreadyRunningError`."""
     return run_judge_test(team, user, judge, scope, sample_ids, reading=reading)

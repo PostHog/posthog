@@ -1230,6 +1230,26 @@ class TestEvaluationConfigsApi(APIBaseTest):
             self.assertEqual(response.data["attr"], "model_configuration")
             self.assertEqual(Evaluation.objects.count(), 0)
 
+    def test_paused_judge_without_a_model_stays_editable_until_it_is_turned_on(self) -> None:
+        created = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Judge without model",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Test", "judge_method": "llm"},
+                "output_type": "boolean",
+                "enabled": False,
+            },
+            format="json",
+        )
+        url = f"/api/environments/{self.team.id}/evaluations/{created.json()['id']}/"
+
+        edited = self.client.patch(url, {"output_config": {"allows_na": True}}, format="json")
+        turned_on = self.client.patch(url, {"enabled": True}, format="json")
+
+        self.assertEqual(edited.status_code, status.HTTP_200_OK, edited.json())
+        self.assertEqual(turned_on.status_code, status.HTTP_400_BAD_REQUEST, turned_on.json())
+
     def test_configured_llm_judge_rejects_clearing_model_configuration(self) -> None:
         eval_obj, mc = self._create_configured_llm_judge()
 
@@ -2356,7 +2376,11 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
             usage=Mock(input_tokens=10, output_tokens=5, total_tokens=15),
         )
 
-        with patch(fetch_path, wraps=import_string(fetch_path)) as fetch:
+        slots_path = "products.ai_observability.backend.api.evaluations.query_concurrency_slots"
+        with (
+            patch(fetch_path, wraps=import_string(fetch_path)) as fetch,
+            patch(slots_path, wraps=import_string(slots_path)) as slots,
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/evaluations/test_on_sample/",
                 {
@@ -2377,6 +2401,7 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
         [row] = response.json()["results"]
         self.assertEqual((row["sample_id"], row["result"], row["outcome"]), (self.units["a"][target], True, "pass"))
         self.assertEqual(fetch.call_args.kwargs["user"], self.user)
+        self.assertEqual(slots.call_count, 2)
 
     @patch("products.ai_observability.backend.logic.evaluations.preview_units.load_generation_events")
     @patch("products.ai_observability.backend.logic.evaluations.preview_units.run_generation_llm_judge")

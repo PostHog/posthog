@@ -169,6 +169,7 @@ def load_generation_events(
 # The inner query finds each unit's latest generation without reading payloads, so the outer one reads
 # the heavy columns of one generation per unit rather than of every generation in a long trace or session.
 # `ai_events` can hold that generation twice, so the outer query keeps one row per unit.
+# The outer query names the units again, because the table has no index on uuid to find the rows by.
 _UNIT_PREVIEW_SQL = f"""
 SELECT
     {{unit_key}} AS unit_id,
@@ -178,6 +179,7 @@ SELECT
 FROM posthog.ai_events AS ai_events
 WHERE event = '$ai_generation'
   AND timestamp > now() - toIntervalDay({EVALUATION_TEST_LOOKBACK_DAYS})
+  AND {{unit_key}} IN {{unit_ids}}
   AND uuid IN (
     SELECT argMax(uuid, timestamp)
     FROM posthog.ai_events AS ai_events

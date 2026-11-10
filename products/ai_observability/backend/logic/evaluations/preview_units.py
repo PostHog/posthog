@@ -5,7 +5,8 @@ evaluation would pick, previews them and judges one, with the same functions the
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from datetime import UTC, datetime
 from typing import Any, ClassVar
 
@@ -46,6 +47,8 @@ from .preview_queries import (
     load_generation_ids,
     load_unit_previews,
 )
+
+Reading = Callable[[], AbstractContextManager[None]]
 
 DEFAULT_PREVIEW_UNITS = 5
 MAX_PREVIEW_UNITS = 10
@@ -107,8 +110,9 @@ class PreviewUnits[Unit](ABC):
         """A preview per unit id. A unit with no generation left to preview is absent."""
 
     @abstractmethod
-    def judge(self, evaluation: dict[str, Any], unit: Unit, user: User) -> EvaluationActivityResult:
-        """Grade one unit with the function a live run uses, as `user`. Nothing is emitted or saved."""
+    def judge(self, evaluation: dict[str, Any], unit: Unit, user: User, reading: Reading) -> EvaluationActivityResult:
+        """Grade one unit with the function a live run uses, as `user`. Nothing is emitted or saved.
+        `reading` wraps the ClickHouse reads the judge makes, and not its model call."""
 
     def sample_ids(self, team: Team, user: User, sampling: PreviewSampling, count: int) -> list[str]:
         return [self.unit_id(unit) for unit in self.load(team, user, sampling, count)]
@@ -142,7 +146,9 @@ class GenerationUnits(PreviewUnits[GenerationEvent]):
             for unit in units
         }
 
-    def judge(self, evaluation: dict[str, Any], unit: GenerationEvent, user: User) -> EvaluationActivityResult:
+    def judge(
+        self, evaluation: dict[str, Any], unit: GenerationEvent, user: User, reading: Reading
+    ) -> EvaluationActivityResult:
         return run_generation_llm_judge(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=unit))
 
 
@@ -172,7 +178,9 @@ class TraceUnits(_AggregateUnits[TraceHogTestSample]):
     def unit_id(self, unit: TraceHogTestSample) -> str:
         return unit.trace_id
 
-    def judge(self, evaluation: dict[str, Any], unit: TraceHogTestSample, user: User) -> EvaluationActivityResult:
+    def judge(
+        self, evaluation: dict[str, Any], unit: TraceHogTestSample, user: User, reading: Reading
+    ) -> EvaluationActivityResult:
         # No window end, like a live run, which reads the whole trace. A pinned trace's trigger is its first
         # generation, so a window from there could cut off the generation that matched the filters.
         return run_trace_llm_judge(
@@ -183,6 +191,7 @@ class TraceUnits(_AggregateUnits[TraceHogTestSample]):
                 window_start=unit.trigger_timestamp.isoformat(),
             ),
             user=user,
+            reading=reading,
         )
 
 
@@ -206,7 +215,7 @@ class SessionUnits(_AggregateUnits[str]):
     def unit_id(self, unit: str) -> str:
         return unit
 
-    def judge(self, evaluation: dict[str, Any], unit: str, user: User) -> EvaluationActivityResult:
+    def judge(self, evaluation: dict[str, Any], unit: str, user: User, reading: Reading) -> EvaluationActivityResult:
         return run_session_llm_judge(
             ExecuteSessionEvaluationInputs(
                 evaluation=evaluation,
@@ -215,6 +224,7 @@ class SessionUnits(_AggregateUnits[str]):
                 window_start=datetime.now(UTC).isoformat(),
             ),
             user=user,
+            reading=reading,
         )
 
 

@@ -6,7 +6,8 @@ something back from here, the two would cycle. The settle phase and the emit act
 only the fetch-and-evaluate half is session-specific.
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -465,11 +466,14 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
 
 
 def run_session_llm_judge(
-    inputs: ExecuteSessionEvaluationInputs, *, user: "User | None" = None
+    inputs: ExecuteSessionEvaluationInputs,
+    *,
+    user: "User | None" = None,
+    reading: Callable[[], AbstractContextManager[None]] = nullcontext,
 ) -> EvaluationActivityResult:
     """The session judge outside any activity wrapper, so the editor's test endpoint grades a session
     exactly the way a live run does. A test passes the requesting user, so their property restrictions
-    apply to what the judge reads."""
+    apply to what the judge reads, and `reading`, which wraps the ClickHouse read and not the model call."""
     evaluation = inputs.evaluation
 
     if evaluation["evaluation_type"] != "llm_judge":
@@ -492,13 +496,14 @@ def run_session_llm_judge(
     output_config = evaluation.get("output_config") or {}
     allows_na = output_config.get("allows_na", False)
 
-    outcome = fetch_session_for_evaluation(
-        inputs.team_id,
-        inputs.session_id,
-        datetime.fromisoformat(inputs.window_start),
-        inputs.window_end_datetime,
-        user=user,
-    )
+    with reading():
+        outcome = fetch_session_for_evaluation(
+            inputs.team_id,
+            inputs.session_id,
+            datetime.fromisoformat(inputs.window_start),
+            inputs.window_end_datetime,
+            user=user,
+        )
     if outcome.skip_reason or outcome.traces is None:
         return build_session_skip_result(allows_na, outcome.skip_reason or "session_not_found", output_type=output_type)
 

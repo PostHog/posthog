@@ -557,11 +557,27 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
         }
 
-    def _is_paused_draft(self, data: dict[str, object]) -> bool:
-        """A new evaluation created paused. An LLM judge may leave its model unset then, because a team with no
-        provider key has no model to pick yet. Turning it on runs `_validate_can_run`, which needs a key and a
-        model that can run it."""
-        return self.instance is None and data.get("enabled") is False
+    def _is_paused_without_model(self, data: dict[str, object]) -> bool:
+        """An LLM judge that is created paused without a model, or stays that way through an edit. A team with
+        no provider key has no model to pick, so the judge may wait for one. Turning it on runs
+        `_validate_can_run`, which needs a key and a model that can run it.
+
+        A new evaluation counts only when the payload sets `enabled` to false, so a request that forgot the
+        model still gets the error. An edit counts only when it leaves the type and the judge method as they
+        are, so choosing a method for an older evaluation still asks for a model."""
+        if data.get("model_configuration") or data.get("enabled", False) is not False:
+            return False
+        if self.instance is None:
+            return "enabled" in data
+        config = data.get("evaluation_config", self.instance.evaluation_config)
+        method = config.get("judge_method") if isinstance(config, dict) else None
+        return (
+            self.instance.evaluation_type == EvaluationType.LLM_JUDGE.value
+            and data.get("evaluation_type", self.instance.evaluation_type) == EvaluationType.LLM_JUDGE.value
+            and not self.instance.enabled
+            and self.instance.model_configuration_id is None
+            and method == (self.instance.evaluation_config or {}).get("judge_method")
+        )
 
     def _uses_decision_model(self, data: dict[str, object]) -> bool:
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
@@ -583,7 +599,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
 
         model_configuration = self._effective_model_configuration(data) or {}
         if judge_method is not None and not model_configuration:
-            if self._is_paused_draft(data):
+            if self._is_paused_without_model(data):
                 return False
             raise serializers.ValidationError(
                 {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
@@ -655,7 +671,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 self.instance and self.instance.model_configuration_id and "model_configuration" in data
             )
             if (
-                newly_requires_model_configuration and not self._is_paused_draft(data)
+                newly_requires_model_configuration and not self._is_paused_without_model(data)
             ) or clears_existing_model_configuration:
                 raise serializers.ValidationError(
                     {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
@@ -2155,7 +2171,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 judge,
                 _preview_scope(data),
                 sample_ids,
-                # The slots cover the reads that pick the units, not the model calls after them.
+                # The slots cover each read, not the model calls between them.
                 reading=lambda: query_concurrency_slots(team),
             )
         except contracts.JudgeModelError as error:
