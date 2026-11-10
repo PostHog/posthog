@@ -517,7 +517,6 @@ pub async fn send_issue_created_notification(
     let fingerprint = processed_properties.fingerprint().to_string();
     store_error_tracking_event_properties(
         &*context.issue_buckets_redis_client,
-        context.shadow_redis_client.as_ref(),
         EventPropertiesLimits {
             ttl_seconds: context.config.event_properties_ttl_seconds,
             max_bytes: context.config.event_properties_max_bytes,
@@ -554,7 +553,6 @@ struct EventPropertiesLimits {
 
 async fn store_error_tracking_event_properties(
     redis: &(dyn common_redis::Client + Send + Sync),
-    shadow: Option<&std::sync::Arc<dyn common_redis::Client + Send + Sync>>,
     limits: EventPropertiesLimits,
     team_id: i32,
     event_uuid: Uuid,
@@ -579,9 +577,8 @@ async fn store_error_tracking_event_properties(
         return;
     }
 
-    let shadow_payload = shadow.map(|_| payload.clone());
     if let Err(error) = redis
-        .set_bytes(key.clone(), payload, Some(limits.ttl_seconds))
+        .set_bytes(key, payload, Some(limits.ttl_seconds))
         .await
     {
         metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED, "reason" => "redis", "notification_type" => notification_type)
@@ -590,9 +587,6 @@ async fn store_error_tracking_event_properties(
         return;
     }
 
-    if let Some(payload) = shadow_payload {
-        crate::modes::shadow_redis::set_bytes(shadow, key, payload, limits.ttl_seconds);
-    }
     metrics::counter!(ISSUE_CREATED_EVENT_PROPERTIES_STORED, "notification_type" => notification_type)
         .increment(1);
 }
@@ -607,7 +601,6 @@ pub async fn send_issue_reopened_notification(
 ) -> Result<(), UnhandledError> {
     store_error_tracking_event_properties(
         &*context.issue_buckets_redis_client,
-        context.shadow_redis_client.as_ref(),
         EventPropertiesLimits {
             ttl_seconds: context.config.event_properties_ttl_seconds,
             max_bytes: context.config.event_properties_max_bytes,
@@ -642,7 +635,6 @@ pub async fn send_issue_spiking_notification(
 ) -> Result<(), UnhandledError> {
     store_error_tracking_event_properties(
         &*context.issue_buckets_redis_client,
-        context.shadow_redis_client.as_ref(),
         EventPropertiesLimits {
             ttl_seconds: context.config.event_properties_ttl_seconds,
             max_bytes: context.config.event_properties_max_bytes,
@@ -869,71 +861,48 @@ mod test {
 
     #[tokio::test]
     async fn stores_full_event_properties_as_raw_json_with_a_ttl() {
-        crate::modes::shadow_redis::with_test_circuit(async {
-            let redis = MockRedisClient::new();
-            let shadow = std::sync::Arc::new(MockRedisClient::new());
-            let shadow_client: std::sync::Arc<dyn common_redis::Client + Send + Sync> =
-                shadow.clone();
-            let event_uuid = Uuid::parse_str("01982721-5e00-7000-8000-000000000001").unwrap();
-            let properties_json = serde_json::json!({
-                "$exception_list": [{"type": "Error", "value": "boom 💥"}],
-                "$exception_fingerprint": "abc",
-                "$exception_fingerprint_record": [{"type": "manual"}],
-                "$exception_issue_id": Uuid::nil(),
-                "$exception_handled": false,
-                "$exception_types": ["Error"],
-                "$exception_values": ["boom 💥"],
-                "$exception_sources": [],
-                "$exception_functions": [],
-                "custom": {"nested": [1, null, true]},
-            });
-            let properties: ProcessedExceptionProperties =
-                serde_json::from_value(properties_json.clone()).unwrap();
+        let redis = MockRedisClient::new();
+        let event_uuid = Uuid::parse_str("01982721-5e00-7000-8000-000000000001").unwrap();
+        let properties_json = serde_json::json!({
+            "$exception_list": [{"type": "Error", "value": "boom 💥"}],
+            "$exception_fingerprint": "abc",
+            "$exception_fingerprint_record": [{"type": "manual"}],
+            "$exception_issue_id": Uuid::nil(),
+            "$exception_handled": false,
+            "$exception_types": ["Error"],
+            "$exception_values": ["boom 💥"],
+            "$exception_sources": [],
+            "$exception_functions": [],
+            "custom": {"nested": [1, null, true]},
+        });
+        let properties: ProcessedExceptionProperties =
+            serde_json::from_value(properties_json.clone()).unwrap();
 
-            super::store_error_tracking_event_properties(
-                &redis,
-                Some(&shadow_client),
-                super::EventPropertiesLimits {
-                    ttl_seconds: 172_800,
-                    max_bytes: 1_048_576,
-                },
-                42,
-                event_uuid,
-                "issue_created",
-                &properties,
-            )
-            .await;
-
-            let calls = redis.get_calls();
-            assert_eq!(calls.len(), 1);
-            assert_eq!(calls[0].op, "set_bytes");
-            tokio::time::timeout(std::time::Duration::from_secs(1), async {
-                while shadow.get_calls().is_empty() {
-                    tokio::task::yield_now().await;
-                }
-            })
-            .await
-            .unwrap();
-            let shadow_calls = shadow.get_calls();
-            assert_eq!(shadow_calls.len(), 1);
-            assert_eq!(shadow_calls[0].op, calls[0].op);
-            assert_eq!(shadow_calls[0].key, calls[0].key);
-            assert!(matches!(
-                (&shadow_calls[0].value, &calls[0].value),
-                (MockRedisValue::Bytes(shadow_bytes, shadow_ttl), MockRedisValue::Bytes(bytes, ttl))
-                    if shadow_bytes == bytes && shadow_ttl == ttl
-            ));
-            match &calls[0].value {
-                MockRedisValue::Bytes(payload, Some(172_800)) => {
-                    assert_eq!(
-                        serde_json::from_slice::<serde_json::Value>(payload).unwrap(),
-                        properties_json
-                    );
-                }
-                value => panic!("unexpected Redis value: {value:?}"),
-            }
-        })
+        super::store_error_tracking_event_properties(
+            &redis,
+            super::EventPropertiesLimits {
+                ttl_seconds: 172_800,
+                max_bytes: 1_048_576,
+            },
+            42,
+            event_uuid,
+            "issue_created",
+            &properties,
+        )
         .await;
+
+        let calls = redis.get_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].op, "set_bytes");
+        match &calls[0].value {
+            MockRedisValue::Bytes(payload, Some(172_800)) => {
+                assert_eq!(
+                    serde_json::from_slice::<serde_json::Value>(payload).unwrap(),
+                    properties_json
+                );
+            }
+            value => panic!("unexpected Redis value: {value:?}"),
+        }
     }
 
     #[tokio::test]
@@ -956,7 +925,6 @@ mod test {
 
         super::store_error_tracking_event_properties(
             &redis,
-            None,
             super::EventPropertiesLimits {
                 ttl_seconds: 172_800,
                 max_bytes: 128,
