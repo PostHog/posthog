@@ -58,7 +58,8 @@ from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 UNSUBSCRIBE_LINK_CASES = json.loads((Path(__file__).parents[2] / "unsubscribe_link_cases.json").read_text())
 CLICKABLE_UNSUBSCRIBE_LINKS = [(case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if case["has_unsubscribe_link"]]
 MISSING_UNSUBSCRIBE_LINKS = [
-    (case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if not case["has_unsubscribe_link"]
+    *((case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if not case["has_unsubscribe_link"]),
+    ("text_link_running_into_liquid_markup", {"html": "", "text": "Unsubscribe: {{ unsubscribe_url }}{% endif %}"}),
 ]
 TWO_FILES = [{"filename": "a.csv", "content": "YSxi"}, {"filename": "notes.txt", "content": "aGk="}]
 CDP_ACCEPTS = {"return_value": MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})}
