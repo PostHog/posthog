@@ -53,6 +53,7 @@ from products.signals.dags.inbox_ranking.tests.test_multihead import D0, DAYS, H
 from products.signals.dags.inbox_ranking.training import recipe as recipe_module
 from products.signals.dags.inbox_ranking.training.dag import (
     METADATA_FILE,
+    PROMOTION_FILE,
     check_recipe,
     model_object_key,
     served_object_key,
@@ -232,7 +233,7 @@ def test_the_manifest_serves_an_nn_model_with_the_xgboost_champion_as_a_challeng
     assert sorted(served.heads) == sorted(NN_HEAD_NAMES)
 
 
-def test_the_nn_decision_is_graded_against_the_served_nn_model_and_writes_nothing(no_side_effects):
+def test_the_nn_decision_is_graded_against_the_served_nn_model_and_writes_only_its_record(no_side_effects):
     served = _nn_metadata("2026-08-16")
     client = _S3(
         {
@@ -252,6 +253,12 @@ def test_the_nn_decision_is_graded_against_the_served_nn_model_and_writes_nothin
 
     assert metadata is not None
     assert metadata[f"{NN_MODEL_NAME}_incumbent_champion_version"].value == "2026-08-16"
+    record_key = model_object_key(PREFIX, NN_MODEL_NAME, PARTITION, PROMOTION_FILE)
+    record = json.loads(client.objects.pop(record_key))
+    assert (record["incumbent_key"], record["would_promote"]) == (
+        f"{NN_MODEL_NAME}@2026-08-16",
+        metadata[f"{NN_MODEL_NAME}_would_promote"].value,
+    )
     assert client.objects == before
 
 

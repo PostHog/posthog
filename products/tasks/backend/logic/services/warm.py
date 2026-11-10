@@ -237,8 +237,8 @@ class SandboxWarmer:
                 # The provider kills a Modal box at its TTL even when the close stamp never lands, so a
                 # stale row must not lock anyone out. Hogland's TTL is an idle timeout that proxied
                 # requests extend without touching the row, so a hogland row counts while its run is live.
-                Q(ttl_expires_at__gt=timezone.now())
-                | Q(sandbox_backend="hogland", task_run__status__in=cls._LIVE_RUN_STATUSES)
+                Q(ttl_expires_at__gt=timezone.now()) | Q(sandbox_backend="hogland"),
+                task_run__status__in=cls._LIVE_RUN_STATUSES,
             )
         )
         if exclude_run_id is not None:
