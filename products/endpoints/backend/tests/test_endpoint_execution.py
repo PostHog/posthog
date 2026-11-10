@@ -1,6 +1,12 @@
 from datetime import timedelta
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    NonAtomicBaseTest,
+    _create_event,
+    flush_persons_and_events,
+)
 from unittest import mock
 
 from django.core.cache import cache
@@ -2935,6 +2941,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(error_after - error_before, 0.0)
         mock_capture.assert_not_called()
 
+
+class TestEndpointFailureSignal(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def test_emit_failure_signal_reaches_workflow_boundary(self):
         """The failure-signal plumbing must make it to the Temporal boundary when the
         org/source gates allow it — anything raising before that is a plumbing bug."""
@@ -2951,15 +2961,15 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             is_active=True,
         )
 
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product=SignalSourceConfig.SourceProduct.ENDPOINTS,
+            source_type=SignalSourceConfig.SourceType.ENDPOINT_EXECUTION_FAILED,
+            enabled=True,
+        )
         mock_client = mock.AsyncMock()
-        with (
-            mock.patch(
-                "products.signals.backend.facade.api.async_connect",
-                new=mock.AsyncMock(return_value=mock_client),
-            ),
-            # The gate runs on a separate DB connection (thread_sensitive=False) and can't see
-            # rows from the test transaction, so patch it rather than creating a config row.
-            mock.patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
+        with mock.patch(
+            "products.signals.backend.facade.api.async_connect", new=mock.AsyncMock(return_value=mock_client)
         ):
             _emit_endpoint_failure_signal(self.team, endpoint, RuntimeError("boom"), materialized=False, version=1)
 
