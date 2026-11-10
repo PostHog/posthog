@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -233,26 +235,33 @@ describe('broadcastsLogic', () => {
     })
 
     it('drops a live row’s lookup without an error when the list unmounts before its runs arrive', async () => {
-        let releaseRuns!: (jobs: HogFlowBatchJobApi[]) => void
-        jest.spyOn(generatedApi, 'hogFlowsBatchJobsList').mockReturnValue(
-            new Promise((resolve) => {
-                releaseRuns = resolve
-            })
-        )
-        jest.spyOn(generatedApi, 'hogFlowsSchedulesList').mockResolvedValue([])
+        let releaseRuns!: () => void
+        const runsHeld = new Promise<void>((resolve) => {
+            releaseRuns = resolve
+        })
+        batchJobs = async () => {
+            await runsHeld
+            return [200, [RUN]]
+        }
+        const settleRequestsAheadOfANewOne = async (): Promise<void> => {
+            await generatedApi.hogFlowsBatchJobsList(String(MOCK_TEAM_ID), LIVE.id)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+        }
         const rejections: unknown[] = []
         const onRejection = (error: unknown): void => {
             rejections.push(error)
         }
         process.on('unhandledRejection', onRejection)
-        page = { results: [LIVE], count: 1 }
-        await reload()
+        try {
+            page = { results: [LIVE], count: 1 }
+            await reload()
 
-        logic.unmount()
-        releaseRuns([RUN])
-        // A macrotask runs only after every queued continuation of the released lookup has settled.
-        await new Promise((resolve) => setTimeout(resolve, 0))
-        process.off('unhandledRejection', onRejection)
+            logic.unmount()
+            releaseRuns()
+            await settleRequestsAheadOfANewOne()
+        } finally {
+            process.off('unhandledRejection', onRejection)
+        }
 
         expect(rejections).toEqual([])
     })
