@@ -75,8 +75,16 @@ describe('metrics query nodes', () => {
     it('saved insights with the same query keep separate logics', async () => {
         const { container } = render(
             <>
-                <Query query={METRICS_QUERY} readOnly context={{ insightProps: { dashboardItemId: 'tile-a' } }} />
-                <Query query={METRICS_QUERY} readOnly context={{ insightProps: { dashboardItemId: 'tile-b' } }} />
+                <Query
+                    query={METRICS_QUERY}
+                    readOnly
+                    context={{ insightProps: { dashboardItemId: 'tile-a' as InsightShortId } }}
+                />
+                <Query
+                    query={METRICS_QUERY}
+                    readOnly
+                    context={{ insightProps: { dashboardItemId: 'tile-b' as InsightShortId } }}
+                />
             </>
         )
         await waitFor(() => expect(container.querySelector('.Spinner')).toBeNull())
