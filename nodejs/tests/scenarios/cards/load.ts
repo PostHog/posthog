@@ -15,6 +15,12 @@ export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
 export const ROLE_RESTART_BACKOFF_MS = 2000
 const JANITOR_STALL_BACKOFF_FIRST_RETRY_SPREAD_MS = 5000
 const STALLING_VALVES = ['role.kill', 'role.freeze', 'pg.drop_connections']
+const PROCESS_ENV_SETTINGS = [
+    'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD',
+    'HOG_BYTECODE_CACHE_REQUIRED',
+    'HOG_BYTECODE_CACHE_REWRITE',
+    'SES_ALLOWED_SNS_TOPIC_ARNS',
+]
 
 export type LoadedCard = { card: Card; profile: Profile; cardHash: string; profileHash: string }
 
@@ -160,7 +166,7 @@ function checkProfile(
     const queue = 'CDP_SES_WEBHOOKS_QUEUE_ENABLED'
     return [
         ...Object.keys(profile.settings)
-            .filter((name) => !(name in defaults))
+            .filter((name) => !Object.hasOwn(defaults, name) && !PROCESS_ENV_SETTINGS.includes(name))
             .map((name) => `profile.settings.${name}: not a setting the roles read`),
         ...(profile.name === card.profile
             ? []

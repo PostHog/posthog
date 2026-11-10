@@ -223,6 +223,12 @@ describe('load', () => {
             'profile.settings.CYCLOTRON_NODE_JANITOR_STALL_TIMOUT_MS: not a setting the roles read',
         ],
         [
+            'a profile setting only the object prototype has',
+            card,
+            { ...profile, settings: { toString: 'false' } },
+            'profile.settings.toString: not a setting the roles read',
+        ],
+        [
             'a profile that uses a YAML alias',
             card,
             'name: synthetic\ntraffic: &loop { event_email: { ratePerSecond: 2 }, again: *loop }\nsettings: {}\n',
@@ -259,6 +265,17 @@ describe('load', () => {
         ],
     ])('accepts %s whose convergeWithin outlasts the janitor bound', (_name, valves) => {
         expect(loadCard({ ...card, valves, convergeWithin: '48s' }).card.valves).toHaveLength(valves.length)
+    })
+
+    it('accepts the settings a role reads straight from the process environment', () => {
+        const settings = {
+            EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: '3',
+            HOG_BYTECODE_CACHE_REQUIRED: 'false',
+            HOG_BYTECODE_CACHE_REWRITE: 'false',
+            SES_ALLOWED_SNS_TOPIC_ARNS: 'arn:aws:sns:us-east-1:000000000000:scenario-feedback',
+        }
+
+        expect(loadCard(card, { ...profile, settings }).profile.settings).toEqual(settings)
     })
 
     const settings = { CDP_SES_WEBHOOKS_QUEUE_ENABLED: 'false', CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '30000' }

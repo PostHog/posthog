@@ -29,12 +29,14 @@ describe('provider edge', () => {
         await edge.close()
     })
 
-    const send = (to: string, trackingCode?: string): Promise<string> =>
+    type Destination = { ToAddresses: string[]; CcAddresses?: string[]; BccAddresses?: string[] }
+
+    const send = (to: string | Destination, trackingCode?: string): Promise<string> =>
         ses
             .send(
                 new SendEmailCommand({
                     FromEmailAddress: 'flows@www.example.com',
-                    Destination: { ToAddresses: [to] },
+                    Destination: typeof to === 'string' ? { ToAddresses: [to] } : to,
                     Content: {
                         Simple: {
                             Subject: { Data: 'Hello' },
@@ -224,6 +226,15 @@ describe('provider edge', () => {
         expect((await call('DELETE', pathOf(forAlice))).status).toBe(204)
 
         expect(await sendEach([ALICE, BOB])).toEqual(outcomes)
+    })
+
+    it.each<[string, Destination]>([
+        ['cc', { ToAddresses: [ALICE], CcAddresses: [BOB] }],
+        ['bcc', { ToAddresses: [ALICE], BccAddresses: [BOB] }],
+    ])('applies a fault to a send whose %s addresses hold the matched recipient', async (_name, destination) => {
+        await addFault(rejectFor(BOB))
+
+        expect(await send(destination)).toBe('MessageRejected')
     })
 
     it('answers a fault id it no longer holds with a 404', async () => {
