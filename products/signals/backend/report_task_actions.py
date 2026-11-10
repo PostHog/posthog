@@ -390,6 +390,7 @@ _PULL_REQUEST_RUN_INTRO_LINE = re.compile(
 PULL_REQUEST_RUN_START_GRACE = timedelta(minutes=2)
 
 PULL_REQUEST_RUN_ACTIVE_DETAIL = "A run is already working on this report's pull request. Follow that run instead."
+PROMPT_CHANGED_DETAIL = "The report's suggested prompts changed. List the actions again and pick the prompt you want."
 
 
 def is_pull_request_run_request(description: str | None) -> bool:

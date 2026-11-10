@@ -961,6 +961,12 @@ export const SignalsReportsActionsRunCreateBody = () => zod.object({
         .min(signalsReportsActionsRunCreateBodySuggestedPromptIndexMin)
         .optional()
         .describe('Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.'),
+    suggested_prompt_text: zod
+        .string()
+        .optional()
+        .describe(
+            "Optional for `suggested_prompt`: the `text` the actions list showed at `suggested_prompt_index`. When the report's prompt at that index no longer matches it exactly, the run does not start and the response is 409 `report_action_prompt_changed`."
+        ),
     message: zod
         .string()
         .max(signalsReportsActionsRunCreateBodyMessageMax)

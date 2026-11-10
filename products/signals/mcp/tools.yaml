@@ -172,9 +172,11 @@ tools:
             `task_id`, `run_id`, and `task_url`; follow the run with tasks-runs-retrieve. If `run_error` is set, the
             task exists but its run did not start. The run cannot ask questions, so it writes a note to the report's
             work log when it needs a decision. 409 `report_action_run_active` means a run already works on the pull
-            request: follow its `task_id` and `run_id`. 403 `report_action_sandbox_refused` means start the action from
-            a person's session. 402 and 429 mean a trial, task, or usage limit: do not retry until it clears. For
-            `report_action_unavailable`, the detail says why.
+            request: follow its `task_id` and `run_id`. For `suggested_prompt`, also pass the list's `text` as
+            `suggested_prompt_text`; 409 `report_action_prompt_changed` means the report's prompts changed after you
+            listed them, so list the actions again before you retry. 403 `report_action_sandbox_refused` means start the
+            action from a person's session. 402 and 429 mean a trial, task, or usage limit: do not retry until it
+            clears. For `report_action_unavailable`, the detail says why.
         param_overrides:
             id:
                 aliases:

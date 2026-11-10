@@ -247,6 +247,7 @@ from products.signals.backend.report_search import (
 from products.signals.backend.report_task_actions import (
     AI_CONSENT_DISABLED_REASON,
     INBOX_REPORT_ACTION_EVENT,
+    PROMPT_CHANGED_DETAIL,
     PULL_REQUEST_RUN_ACTIVE_DETAIL,
     ReportActionState,
     ReportTaskActionContext,
@@ -4026,7 +4027,9 @@ class SignalReportViewSet(
                 response=SignalReportTaskActionErrorSerializer,
                 description=(
                     "A run is already working on this report's pull request (code `report_action_run_active`). "
-                    "The body carries its `task_id` and `run_id`."
+                    "The body carries its `task_id` and `run_id`. Or the report's suggested prompt at "
+                    "`suggested_prompt_index` no longer matches `suggested_prompt_text` "
+                    "(code `report_action_prompt_changed`)."
                 ),
             ),
             429: OpenApiResponse(
@@ -4071,7 +4074,12 @@ class SignalReportViewSet(
         report_action = resolve_report_task_action(
             context, report, kind, data.get("suggested_prompt_index"), state=state, message=data.get("message")
         )
+        expected_prompt = data.get("suggested_prompt_text")
         if report_action is None:
+            if expected_prompt is not None:
+                return self._task_action_error(
+                    "report_action_prompt_changed", PROMPT_CHANGED_DETAIL, status.HTTP_409_CONFLICT
+                )
             raise exceptions.NotFound("This report has no suggested prompt at that index.")
 
         def capture(outcome: str, limit_code: str | None = None) -> None:
@@ -4084,6 +4092,12 @@ class SignalReportViewSet(
                 team=self.team,
                 organization=self.organization,
                 request=request,
+            )
+
+        if expected_prompt is not None and expected_prompt != report_action.question:
+            capture("limited", "report_action_prompt_changed")
+            return self._task_action_error(
+                "report_action_prompt_changed", PROMPT_CHANGED_DETAIL, status.HTTP_409_CONFLICT
             )
 
         if report_action.disabled_reason is not None:
