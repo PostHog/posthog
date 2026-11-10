@@ -115,9 +115,14 @@ function checkStallBound(card: Card, setting: (name: string) => string): string[
     const names = ['CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS', 'CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS']
     const unreadable = names.filter((name) => !(milliseconds(name) >= 0))
     if (unreadable.length > 0) {
-        return unreadable.map((name) => `profile.settings.${name}: not a number of milliseconds`)
+        return unreadable.map((name) => `profile.settings.${name}: not a number of milliseconds at or above zero`)
     }
-    const stalls = card.valves.filter(({ valve }) => STALLING_VALVES.includes(valve)).length
+    const connectionDrops = card.valves.filter(({ valve }) => valve === 'pg.drop_connections').length
+    const perRole = new Map<string, number>()
+    card.valves
+        .filter(({ valve }) => valve === 'role.kill' || valve === 'role.freeze')
+        .forEach(({ target }) => perRole.set(target, (perRole.get(target) ?? 0) + 1))
+    const stalls = Math.max(0, ...perRole.values()) + connectionDrops
     const baseMs = Math.max(milliseconds('CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS'), 0) || 0
     const maxMs =
         milliseconds('CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS') > 0

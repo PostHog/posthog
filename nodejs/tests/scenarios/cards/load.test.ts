@@ -145,17 +145,36 @@ describe('load', () => {
             'a stall timeout the janitor would read as no number',
             { ...card, valves: [emailWorkerKill], convergeWithin: '18s' },
             { ...profile, settings: { CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '' } },
-            'profile.settings.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: not a number of milliseconds',
+            'profile.settings.CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: not a number of milliseconds at or above zero',
         ],
         [
             'a negative sweep interval',
             { ...card, valves: [emailWorkerKill], convergeWithin: '48s' },
             { ...profile, settings: { CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: '-30000' } },
-            'profile.settings.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: not a number of milliseconds',
+            'profile.settings.CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: not a number of milliseconds at or above zero',
         ],
         [
             'a second stall whose backoff convergeWithin does not outlast',
             { ...card, valves: [emailWorkerKill, emailWorkerKill], convergeWithin: '100s' },
+            undefined,
+            'convergeWithin: 100s must exceed 107s',
+        ],
+        [
+            'a kill and a connection drop, which can stall the same job',
+            {
+                ...card,
+                valves: [
+                    emailWorkerKill,
+                    {
+                        valve: 'pg.drop_connections',
+                        target: 'postgres',
+                        dose: { share: 1 },
+                        when: emailWorkerKill.when,
+                        for: '1s',
+                    },
+                ],
+                convergeWithin: '100s',
+            },
             undefined,
             'convergeWithin: 100s must exceed 107s',
         ],
@@ -232,8 +251,14 @@ describe('load', () => {
         ])
     })
 
-    it('accepts a kill whose convergeWithin outlasts the janitor bound', () => {
-        expect(loadCard({ ...card, valves: [emailWorkerKill], convergeWithin: '48s' }).card.valves).toHaveLength(1)
+    it.each<[string, object[]]>([
+        ['one kill', [emailWorkerKill]],
+        [
+            'kills on two roles, which stall different jobs',
+            [emailWorkerKill, { ...emailWorkerKill, target: 'cdp-cyclotron-worker-hogflow' }],
+        ],
+    ])('accepts %s whose convergeWithin outlasts the janitor bound', (_name, valves) => {
+        expect(loadCard({ ...card, valves, convergeWithin: '48s' }).card.valves).toHaveLength(valves.length)
     })
 
     const settings = { CDP_SES_WEBHOOKS_QUEUE_ENABLED: 'false', CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '30000' }
