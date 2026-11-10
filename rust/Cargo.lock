@@ -9230,7 +9230,6 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.21",
  "tokio",
- "tokio-util",
  "tonic 0.12.3",
  "tower 0.4.13",
  "tracing",
