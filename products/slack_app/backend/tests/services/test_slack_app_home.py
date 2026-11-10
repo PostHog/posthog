@@ -759,7 +759,7 @@ class TestDailyFocusControls:
     @pytest.mark.parametrize(
         "last_run_at, expected_next_run",
         [
-            # Still today, because 14:30 in Prague comes after noon UTC.
+            # Still today, because the click at 13:00 in Prague comes before 14:30.
             (datetime(2026, 11, 6, 8, 0, tzinfo=UTC), datetime(2026, 11, 9, 13, 30, tzinfo=UTC)),
             # Today's 09:00 run already went out, so the new time starts tomorrow, not with a second DM today.
             (datetime(2026, 11, 9, 8, 0, tzinfo=UTC), datetime(2026, 11, 10, 13, 30, tzinfo=UTC)),

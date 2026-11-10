@@ -448,7 +448,7 @@ def test_a_daily_run_reads_since_the_last_run_and_sends_once(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("reason", ["quiet_day", "turned_off", "flag_off", "no_project_access", "out_of_ai_credits"])
-def test_a_daily_run_sends_nothing_on_a_quiet_day_or_when_turned_off(
+def test_a_daily_run_sends_nothing_when_it_cannot_or_need_not_run(
     reason: str, org_team_user, link_user, slack: dict[str, MagicMock]
 ) -> None:
     _, team, user = org_team_user
