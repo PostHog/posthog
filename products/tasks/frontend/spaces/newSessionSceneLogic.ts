@@ -70,8 +70,12 @@ export interface newSessionSceneLogicActions {
     pickSpace: (spaceId: string) => {
         spaceId: string
     }
-    sessionStarted: (sessionId: string) => {
+    sessionStarted: (
+        sessionId: string,
+        suggestionId?: string | null
+    ) => {
         sessionId: string
+        suggestionId: string | null
     }
     setRouteSpaceId: (spaceId: string | null) => {
         spaceId: string | null
@@ -109,7 +113,7 @@ export const newSessionSceneLogic = kea<newSessionSceneLogicType>([
     actions({
         pickSpace: (spaceId: string) => ({ spaceId }),
         setRouteSpaceId: (spaceId: string | null) => ({ spaceId }),
-        sessionStarted: (sessionId: string) => ({ sessionId }),
+        sessionStarted: (sessionId: string, suggestionId: string | null = null) => ({ sessionId, suggestionId }),
     }),
     reducers({
         routeSpaceId: [null as string | null, { setRouteSpaceId: (_, { spaceId }) => spaceId }],
@@ -145,14 +149,16 @@ export const newSessionSceneLogic = kea<newSessionSceneLogicType>([
         pickSpace: ({ spaceId }) => {
             router.actions.push(urls.taskSpaceNewSession(spaceId))
         },
-        sessionStarted: ({ sessionId }) => {
+        sessionStarted: ({ sessionId, suggestionId }) => {
             // pinned: analytics event name and properties. Renaming them breaks dashboards.
             posthog.capture('today new session started', {
                 space_role: values.space?.system_role ?? null,
                 space_source: values.spaceChoice.source,
-                suggestion_id: values.selectedSuggestionId,
+                suggestion_id: suggestionId,
             })
-            actions.clearSelectedSuggestion()
+            if (values.selectedSuggestionId === suggestionId) {
+                actions.clearSelectedSuggestion()
+            }
             if (!values.space) {
                 actions.loadSpaces()
             }
