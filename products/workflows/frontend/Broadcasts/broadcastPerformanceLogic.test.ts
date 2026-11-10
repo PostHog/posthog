@@ -33,6 +33,7 @@ function hogQLFake(appMetrics: AppMetricRow[], logEntries: LogEntryRow[]): MockS
             const wanted = sql.match(new RegExp(`\\b${column} = '([^']*)'`))?.[1]
             return wanted === undefined || wanted === value
         }
+        const select = (sql.match(/SELECT\s+(.*?)\s+FROM/s)?.[1] ?? '').split(/,\s*/)
         if (/FROM app_metrics/.test(sql)) {
             const metricNames = sql.match(/metric_name IN \[([^\]]*)\]/)?.[1].match(/'[^']*'/g)
             const groupBy =
@@ -43,7 +44,10 @@ function hogQLFake(appMetrics: AppMetricRow[], logEntries: LogEntryRow[]): MockS
             if (groupBy.some((column) => column !== 'metric_name' && column !== 'instance_id')) {
                 return [400, { detail: `Unexpected GROUP BY ${groupBy.join(', ')}` }]
             }
-            const totals = new Map<string, [number, ...string[]]>()
+            if (select.some((term) => term !== 'sum(count) AS total' && !groupBy.includes(term))) {
+                return [400, { detail: `Unexpected SELECT ${select.join(', ')}` }]
+            }
+            const totals = new Map<string, Record<string, string | number>>()
             for (const row of appMetrics) {
                 if (!matches('app_source_id', row.app_source_id)) {
                     continue
@@ -51,13 +55,17 @@ function hogQLFake(appMetrics: AppMetricRow[], logEntries: LogEntryRow[]): MockS
                 if (metricNames && !metricNames.includes(`'${row.metric_name}'`)) {
                     continue
                 }
-                const groups = groupBy.map((column) => row[column as 'metric_name' | 'instance_id'])
-                const total = totals.get(groups.join('\0'))?.[0] ?? 0
-                totals.set(groups.join('\0'), [total + row.count, ...groups])
+                const key = groupBy.map((column) => row[column as 'metric_name' | 'instance_id']).join('\0')
+                const total = Number(totals.get(key)?.total ?? 0) + row.count
+                totals.set(key, { ...row, total })
             }
-            return [200, { results: [...totals.values()] }]
+            const columns = select.map((term) => (term === 'sum(count) AS total' ? 'total' : term))
+            return [200, { results: [...totals.values()].map((group) => columns.map((column) => group[column])) }]
         }
         if (/FROM log_entries/.test(sql)) {
+            if (select.some((term) => !['message', 'level', 'timestamp', 'log_source_id'].includes(term))) {
+                return [400, { detail: `Unexpected SELECT ${select.join(', ')}` }]
+            }
             const order = sql.match(/ORDER BY (.*?)\s+LIMIT (\d+)/s)
             const keys = (order?.[1].split(/,\s*(?![^(]*\))/) ?? []).map((term) => {
                 const prefix = term.match(/^startsWith\(message, '([^']*)'\) DESC$/)?.[1]
@@ -81,7 +89,7 @@ function hogQLFake(appMetrics: AppMetricRow[], logEntries: LogEntryRow[]): MockS
                     return 0
                 })
                 .slice(0, order ? Number(order[2]) : undefined)
-            return [200, { results: rows.map((row) => [row.message]) }]
+            return [200, { results: rows.map((row) => select.map((column) => row[column as keyof LogEntryRow])) }]
         }
         return [400, { detail: 'Unexpected table' }]
     }
