@@ -105,6 +105,9 @@ If the only way to exercise your logic is to stand up a database, a request, and
 Pull it into a pure function or a kea logic and test _that_ directly: you get a faster test and better-factored code at once.
 Escalating to the next rung is the last resort, not the default.
 
+When you extract a decision this way, such as the dedupe, routing, or eligibility rule that [.agents/architecture.md](../../architecture.md) keeps pure, put the case matrix on the pure function and keep one database-backed test as a wiring guard.
+Without that guard, a refactor that stops calling the decision passes every pure case.
+
 - If logic is in (or can be moved to) a pure function, test the function — don't stand up a DB, a request, or a render.
 - Frontend: test the **kea logic** (`logic.actions` / `logic.values`), not a full component render, whenever the behavior lives in the logic.
   A `render()` + DOM-query test is for things only the DOM can show.

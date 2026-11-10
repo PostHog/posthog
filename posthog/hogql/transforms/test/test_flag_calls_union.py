@@ -709,6 +709,16 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 column_type="Nullable(Float64)",
                 new_events_schema=True,
             ),
+            # Each branch serializes the key in the SELECT and in the copied filter with functions HogQL can print.
+            param(
+                "serialized_property_on_the_native_events_schema_on_mode_2",
+                f"SELECT toJSONString(properties.probe) FROM events WHERE {MIXED} "
+                "AND toJSONString(properties.probe) = '123'",
+                True,
+                True,
+                mode=ONLY,
+                new_events_schema=True,
+            ),
             param(
                 "typed_materialized_column_with_materialization_disabled",
                 f"SELECT properties.probe FROM events WHERE {MIXED}",
@@ -1331,6 +1341,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         query: str | ast.SelectQuery,
         mode: FlagEvaluationsMode,
         persons_on_events: PersonsOnEventsMode | None = None,
+        new_events_schema: bool | None = None,
         **modifiers: Any,
     ):
         _set_mode(self.organization, mode)
@@ -1340,7 +1351,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 modifiers=HogQLQueryModifiers(
                     personsOnEventsMode=persons_on_events,
-                    useNewEventsSchema=_events_schema_for(mode, None),
+                    useNewEventsSchema=_events_schema_for(mode, new_events_schema),
                     **modifiers,
                 ),
             )
@@ -1728,6 +1739,160 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
 
         assert self._run(query, FlagEvaluationsMode.READ_FLAG_EVALUATIONS).results == [(0,)]
 
+    @parameterized.expand(
+        [
+            (
+                "scan",
+                "SELECT event, toJSONString(properties.probe), properties.probe = 'text' FROM events "
+                f"WHERE {MIXED} AND distinct_id = 'json' ORDER BY timestamp, event",
+            ),
+            (
+                "alias",
+                "SELECT e.event, toJSONString(e.properties.probe), e.properties.probe = 'text' FROM events AS e "
+                f"WHERE {E_MIXED} AND e.distinct_id = 'json' ORDER BY e.timestamp, e.event",
+            ),
+            (
+                "joined_scan",
+                _global_join(
+                    "SELECT e.event, toJSONString(e.properties.probe), e.properties.probe = 'text' FROM events AS e "
+                    "INNER JOIN (SELECT 'json' AS distinct_id) AS j ON e.distinct_id = j.distinct_id "
+                    f"WHERE {E_MIXED} ORDER BY e.timestamp, e.event"
+                ),
+            ),
+            (
+                "subquery",
+                "SELECT event, json, is_text FROM (SELECT event, timestamp, toJSONString(properties.probe) AS json, "
+                f"properties.probe = 'text' AS is_text FROM events WHERE {MIXED} AND distinct_id = 'json') "
+                "ORDER BY timestamp, event",
+            ),
+            # The person join reads its key from a second scan of the union, which the serialized read passes through.
+            param(
+                "person_join",
+                "SELECT event, toJSONString(properties.probe), properties.probe = 'text' FROM events "
+                f"WHERE {MIXED} AND distinct_id = 'json' ORDER BY timestamp, event, person.id",
+                persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            ),
+            # Each branch copies the filter, so the flag_evaluations branch has to serialize the key as events does.
+            param(
+                "filter",
+                "SELECT event, toJSONString(properties.probe), properties.probe = 'text' FROM events "
+                f"WHERE {MIXED} AND distinct_id = 'json' AND toJSONString(properties.probe) = '123' "
+                "ORDER BY timestamp, event",
+                kept=[123],
+            ),
+            # The read of `probe.json` takes the name that the JSON text of `probe` would otherwise get.
+            (
+                "export_name_collision",
+                "SELECT event, toJSONString(properties.probe), properties.probe = 'text' AND properties.probe.json IS NULL "
+                f"FROM events WHERE {MIXED} AND distinct_id = 'json' ORDER BY timestamp, event",
+            ),
+            (
+                "integer_key",
+                "SELECT event, toJSONString(properties[1]), properties[1] = 'text' FROM events "
+                f"WHERE {MIXED} AND distinct_id = 'json' ORDER BY timestamp, event",
+            ),
+            # Events reads a temporary key from its own column, which the masked document does not cover.
+            param(
+                "restricted_temporary_key",
+                "SELECT event, toJSONString(properties.$sdk_debug_probe), properties.$sdk_debug_probe = 'text' "
+                f"FROM events WHERE {MIXED} AND distinct_id = 'json' ORDER BY timestamp, event",
+                restriction="$sdk_debug_probe.hidden",
+            ),
+        ]
+    )
+    def test_serialized_property_keeps_its_json_type_on_the_native_events_table(
+        self,
+        _name: str,
+        query: str | ast.SelectQuery,
+        persons_on_events: PersonsOnEventsMode | None = None,
+        kept: list | None = None,
+        restriction: str | None = None,
+    ):
+        if restriction is not None:
+            _restrict(self.organization, self.team, restriction)
+        missing = object()
+        stored_and_read = [
+            (123, 123),
+            ({"a": 1}, {"a": 1}),
+            ([1, 2], [1, 2]),
+            ("text", "text"),
+            ({}, None),
+            (None, None),
+            (missing, None),
+        ]
+        # The first key makes a read by position differ from a read of the key "1".
+        self._create_json_rows(
+            [
+                {} if stored is missing else {"first": "x", "probe": stored, "1": stored, "$sdk_debug_probe": stored}
+                for stored, _ in stored_and_read
+            ]
+        )
+
+        rows = self._run(query, ONLY, persons_on_events, new_events_schema=True).results
+
+        # The two tables format an object's JSON text differently, so the test compares parsed values.
+        parsed = [
+            (event, text if text in (None, "null") else json.loads(text), is_text) for event, text, is_text in rows
+        ]
+        assert parsed == [
+            (event, read, read == "text")
+            for stored, read in stored_and_read
+            if kept is None or stored in kept
+            for event in ("$feature_flag_called", "$pageview")
+        ]
+
+    @parameterized.expand(
+        [
+            # Events reads a key that a restriction overlaps from the masked document.
+            param("restricted_child", "properties.probe", 123, '"123"', restriction="probe.hidden"),
+            # Events rebuilds a flag property from `$feature_flags`, which holds text.
+            ("flag_property", "properties.`$feature/probe`", 123, '"123"'),
+            ("nested_key", "properties.probe.a", {"a": 123}, '"123"'),
+            param("legacy_events", "properties.probe", 123, '"123"', new_events_schema=False),
+            # Events reads a declared path as its declared type, which is String for `$browser`.
+            ("declared_path", "properties.$browser", 123, '"123"'),
+            # `toJSONString` of a SELECT alias serializes the text the alias holds, so both rows pass the filter.
+            param(
+                "select_alias_filter",
+                "properties.probe AS p",
+                123,
+                '"123"',
+                where="AND toJSONString(p) = '\"123\"'",
+            ),
+        ]
+    )
+    def test_serialized_property_keeps_the_text_events_returns(
+        self,
+        _name: str,
+        read: str,
+        stored,
+        expected: str,
+        restriction: str | None = None,
+        new_events_schema: bool = True,
+        where: str = "",
+    ):
+        if restriction is not None:
+            _restrict(self.organization, self.team, restriction)
+        self._create_json_rows([{"probe": stored, "$feature/probe": stored, "$browser": stored}])
+
+        query = f"SELECT event, toJSONString({read}) FROM events WHERE {MIXED} AND distinct_id = 'json' {where}"
+        rows = self._run(query, ONLY, new_events_schema=new_events_schema).results
+
+        assert sorted(rows) == [("$feature_flag_called", expected), ("$pageview", expected)]
+
+    def _create_json_rows(self, rows: list[dict]) -> None:
+        start = datetime.now(UTC) - timedelta(hours=len(rows))
+        with self.settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True):
+            for index, properties in enumerate(rows):
+                timestamp = start + timedelta(hours=index)
+                _create_event(
+                    event="$pageview", distinct_id="json", team=self.team, timestamp=timestamp, properties=properties
+                )
+                _create_flag_evaluations(
+                    self.team.pk, "json-flag", timestamp=timestamp, distinct_id="json", properties=properties
+                )
+            flush_persons_and_events()
+
     def test_restricted_property_is_hidden_in_every_branch(self):
         _restrict(self.organization, self.team, "source")
         query = f"SELECT properties.source FROM events WHERE {MIXED}"
@@ -1737,6 +1902,8 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             self._run(f"{query} AND properties.source = 'events'", FlagEvaluationsMode.READ_FLAG_EVALUATIONS).results
             == []
         )
+        serialized = f"SELECT toJSONString(properties.source) FROM events WHERE {MIXED}"
+        assert {row[0] for row in self._run(serialized, ONLY, new_events_schema=True).results} == {None}
 
     @parameterized.expand(
         [
