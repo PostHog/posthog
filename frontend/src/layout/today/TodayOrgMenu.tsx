@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear, IconPlusSmall, IconReceipt, IconToggle } from '@posthog/icons'
+import { IconGear, IconPlusSmall, IconReceipt } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
-import { useNavSwitch } from 'lib/components/NavSwitch/NavSwitch'
 import { IconPersonAdd } from 'lib/lemon-ui/icons'
 import { organizationLogic } from 'scenes/organizationLogic'
 
@@ -35,7 +34,6 @@ export function TodayOrgMenu(): JSX.Element {
     const { organizations, invites, orgMenuActions, orgSearchValue, isSwitchingOrganization } =
         useValues(todayOrgMenuLogic)
     const { setOrgSearchValue, switchOrganization, openInvite, runOrgMenuAction } = useActions(todayOrgMenuLogic)
-    const navSwitch = useNavSwitch()
     const name = currentOrganization?.name ?? 'Select organization'
 
     return (
@@ -97,28 +95,15 @@ export function TodayOrgMenu(): JSX.Element {
                     })),
                 },
             ]}
-            actions={[
-                ...orgMenuActions.map((key) => ({
-                    value: key,
-                    ...ACTION_ROWS[key],
-                    description:
-                        key === 'billing' && billingText ? (
-                            <span className={SEVERITY_TEXT_CLASS[billingSeverity]}>{billingText}</span>
-                        ) : undefined,
-                    onSelect: () => runOrgMenuAction(key),
-                })),
-                ...(navSwitch.available
-                    ? [
-                          {
-                              value: 'nav-switch',
-                              label: navSwitch.newNavOn ? 'Use old navigation' : 'Use new navigation',
-                              leading: <IconToggle />,
-                              dataAttr: 'today-org-menu-nav-switch',
-                              onSelect: () => navSwitch.switchNav('org_menu'),
-                          },
-                      ]
-                    : []),
-            ]}
+            actions={orgMenuActions.map((key) => ({
+                value: key,
+                ...ACTION_ROWS[key],
+                description:
+                    key === 'billing' && billingText ? (
+                        <span className={SEVERITY_TEXT_CLASS[billingSeverity]}>{billingText}</span>
+                    ) : undefined,
+                onSelect: () => runOrgMenuAction(key),
+            }))}
             selectedValue={currentOrganization?.id ?? null}
             defaultWidth={256}
             resizeKey="today-org-menu"

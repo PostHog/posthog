@@ -13,15 +13,19 @@ import { PostHogErrorBoundary } from '@posthog/react'
 
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { posthogStatusLogic } from 'lib/components/HelpMenu/posthogStatusLogic'
+import { navSwitchLogic } from 'lib/components/NavSwitch/navSwitchLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { todayMenuLinkItem } from './todayMenuLinkItem'
+import { TodayNavSwitchMenuItem } from './TodayNavSwitchMenuItem'
 import { SEVERITY_TEXT_CLASS } from './todayRailSeverity'
 import { todayRailStatusLogic } from './todayRailStatusLogic'
 import { TodayRailTile } from './TodayRailTile'
+import { TodayTabBarTab } from './TodayTabBarTab'
+import { todayTourLogic } from './todayTourLogic'
 
 // Flag-gated, so users without the flag skip the wizard chunk.
 const WizardRunsUnseenDot = lazyWithRetry(() =>
@@ -36,10 +40,10 @@ const WizardRunsMoreMenuItem = lazyWithRetry(() =>
 )
 
 /**
- * The rail's "More" menu. The help menu shortcut opens it too.
+ * The "More" menu, on the rail or in the phone layout's tab bar. The help menu shortcut opens it too.
  * Its `data-attr`s are pinned: they match the classic help menu, so autocapture data stays continuous.
  */
-export function TodayMoreMenu(): JSX.Element {
+export function TodayMoreMenu({ placement = 'rail' }: { placement?: 'rail' | 'tab-bar' }): JSX.Element {
     const { isHelpMenuOpen } = useValues(helpMenuLogic)
     const { setHelpMenuOpen } = useActions(helpMenuLogic)
     const { statusPageUrl } = useValues(posthogStatusLogic)
@@ -48,12 +52,16 @@ export function TodayMoreMenu(): JSX.Element {
     const wizardUiEnabled = useFeatureFlag('WIZARD_UI_ENABLED')
     const { currentProjectId } = useValues(projectLogic)
     const [hasUnseenWizardRuns, setHasUnseenWizardRuns] = useState(false)
+    const { switchAvailable } = useValues(navSwitchLogic)
+    const { tourActive } = useValues(todayTourLogic)
+    const Tile = placement === 'tab-bar' ? TodayTabBarTab : TodayRailTile
 
     return (
-        <DropdownMenu open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen}>
+        // The tour opens this menu and shows its card beside it. A modal menu would swallow the first click on the card.
+        <DropdownMenu open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen} modal={!tourActive}>
             <DropdownMenuTrigger
                 render={
-                    <TodayRailTile
+                    <Tile
                         label="More"
                         icon={
                             <>
@@ -84,7 +92,7 @@ export function TodayMoreMenu(): JSX.Element {
                     />
                 }
             />
-            <DropdownMenuContent side="right" align="end" className="w-56">
+            <DropdownMenuContent side={placement === 'tab-bar' ? 'top' : 'right'} align="end" className="w-56">
                 <DropdownMenuItem
                     render={todayMenuLinkItem(statusPageUrl, { external: true })}
                     description={
@@ -115,6 +123,7 @@ export function TodayMoreMenu(): JSX.Element {
                         </Suspense>
                     </PostHogErrorBoundary>
                 )}
+                {switchAvailable && <TodayNavSwitchMenuItem />}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                     render={todayMenuLinkItem('https://posthog.com/changelog', { external: true })}

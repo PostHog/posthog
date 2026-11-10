@@ -452,6 +452,8 @@ Grouped items: pass `items={[{ label, items }]}` shapes, render `AutocompleteGro
 
 Hide close button: `<DialogContent showCloseButton={false}>`
 
+Style the backdrop of one dialog with `overlayClassName`, for example a darker backdrop for a one-off announcement. Keep the backdrop's `[data-starting-style]` and `[data-ending-style]` opacity at 0 so it still fades.
+
 `DialogBody` defaults its `render` to a `ScrollArea` (scroll shadows and a pinned footer for free).
 To style the scrollable viewport (`data-slot="scroll-area-viewport"`), pass `viewportClassName`.
 For example, drop the default `1rem` viewport padding for full-bleed content: `<DialogBody viewportClassName="p-0">`.
@@ -965,7 +967,7 @@ When the tool returned pages, fill the body with `ChatSourceList` > `ChatSource`
 </ChatMarker>
 ```
 
-`ChatGlobe` is exported on its own: a globe whose meridians sweep, for when you can say _what_ is loading rather than only that something is (`Spinner` covers the rest). It sizes and tints from its container like any icon. It animates with SMIL, which **CSS cannot disable** — it reads `useReducedMotion()` and renders a still globe instead. Reach for that hook only where a media query can't reach; CSS is the right place for everything else.
+`ChatGlobe` is exported on its own: a globe whose meridians sweep, for when you can say _what_ is loading rather than only that something is (`Spinner` covers the rest). It sizes and tints from its container like any icon. It animates with SMIL, which **CSS cannot disable** — it reads `useReducedMotion()` and renders a still globe instead. The hook is exported. Reach for it only where a media query can't reach, such as Web Animations API calls or timers; CSS is the right place for everything else.
 
 ### Chat task list (a plan, worked through)
 

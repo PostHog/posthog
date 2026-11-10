@@ -6,7 +6,6 @@ import { Suspense, useEffect, useRef } from 'react'
 import { Skeleton, ToastProvider } from '@posthog/quill'
 
 import 'scenes/project-homepage/today/Today.scss'
-import { NavSwitchButtons } from 'lib/components/NavSwitch/NavSwitch'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
@@ -16,6 +15,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
+import { TodayNavSwitchDialog } from './TodayNavSwitchDialog'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
@@ -25,6 +25,7 @@ import { TodaySidebarCollapseButton } from './TodaySidebarCollapseButton'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodaySidebarPinButton } from './TodaySidebarPinButton'
 import { TodayTabBar } from './TodayTabBar'
+import { TodayTour } from './TodayTour'
 
 const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
 const TodayAnalyticsSidebar = lazyWithRetry(() =>
@@ -133,10 +134,17 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         </div>
     )
 
-    const newSpaceDialog = activePane === 'spaces' && (
-        <Suspense fallback={null}>
-            <NewSpaceDialog />
-        </Suspense>
+    const overlays = (
+        <>
+            {/* Mounted here so the sidebar and the spaces page open the same dialog. */}
+            {activePane === 'spaces' && (
+                <Suspense fallback={null}>
+                    <NewSpaceDialog />
+                </Suspense>
+            )}
+            <TodayNavSwitchDialog />
+            <TodayTour />
+        </>
     )
 
     if (phoneLayout) {
@@ -157,7 +165,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         <TodaySidebarFooter />
                     </aside>
                     <TodayTabBar />
-                    {newSpaceDialog}
+                    {overlays}
                 </div>
             </ToastProvider>
         )
@@ -192,9 +200,6 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                             style={{ width: sidebarWidth }}
                         >
                             {pane}
-                            <div className="mt-auto flex-none border-t border-[var(--border)] px-2 py-2">
-                                <NavSwitchButtons surface="today_sidebar" />
-                            </div>
                         </aside>
                     </>
                 ) : (
@@ -207,16 +212,12 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                             style={{ width: sidebarWidth }}
                         >
                             {pane}
-                            <div className="mt-auto flex-none border-t border-[var(--border)] px-2 py-2">
-                                <NavSwitchButtons surface="today_sidebar" />
-                            </div>
                             {/* The frame already draws the seam, so the handle's own line shows only on hover. */}
                             <Resizer {...resizerLogicProps} visible={false} className="z-2" offset={0} />
                         </aside>
                     )
                 )}
-                {/* Mounted here so the sidebar and the spaces page open the same dialog. */}
-                {newSpaceDialog}
+                {overlays}
             </div>
         </ToastProvider>
     )

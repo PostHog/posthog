@@ -14,7 +14,8 @@ import {
     IconToggle,
 } from '@posthog/icons'
 
-import { useNavSwitch } from 'lib/components/NavSwitch/NavSwitch'
+import { navSwitchLogic } from 'lib/components/NavSwitch/navSwitchLogic'
+import { IconBurst } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
@@ -84,7 +85,8 @@ export function NewAccountMenu({
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const projectSubmenu = useSubmenuSafeTriangle()
     const organizationSubmenu = useSubmenuSafeTriangle()
-    const navSwitch = useNavSwitch()
+    const { switchAvailable, switchLabel } = useValues(navSwitchLogic)
+    const { switchNav } = useActions(navSwitchLogic)
 
     const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Extended_Pictographic}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
@@ -458,13 +460,13 @@ export function NewAccountMenu({
                                     </>
                                 )}
 
-                                {navSwitch.available && (
+                                {switchAvailable && (
                                     <Menu.Item
-                                        onClick={() => navSwitch.switchNav('account_menu')}
+                                        onClick={() => switchNav('account_menu')}
                                         render={
                                             <ButtonPrimitive menuItem data-attr="new-account-menu-nav-switch">
-                                                <IconToggle />
-                                                {navSwitch.newNavOn ? 'Use old navigation' : 'Use new navigation'}
+                                                <IconBurst />
+                                                {switchLabel}
                                             </ButtonPrimitive>
                                         }
                                     />

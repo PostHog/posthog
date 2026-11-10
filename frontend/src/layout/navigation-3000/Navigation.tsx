@@ -4,6 +4,7 @@ import { useMountedLogic, useValues } from 'kea'
 import { ReactNode, useLayoutEffect } from 'react'
 
 import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
+import { navSwitchLogic } from 'lib/components/NavSwitch/navSwitchLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
@@ -29,6 +30,8 @@ export function Navigation({
     useMountedLogic(mcpHintLogic)
     // Its mount resumes an AI approval that an SSO re-login interrupted, on whichever page the user lands.
     useMountedLogic(aiConsentLogic)
+    // Owns the navigation switch under both layouts, so its dialog state survives the in-place swap.
+    useMountedLogic(navSwitchLogic)
 
     const { mode } = useValues(navigation3000Logic)
     const { todayRailEnabled: todayRail, phoneLayout } = useValues(todayShellLogic)

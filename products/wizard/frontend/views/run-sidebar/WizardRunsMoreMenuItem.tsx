@@ -66,7 +66,7 @@ export function WizardRunsMoreMenuItem({ projectId }: { projectId: string }): JS
             render={todayMenuLinkItem(urls.wizardRuns())}
             description={
                 <span className="flex flex-col gap-1">
-                    <span>The Wizard is a setup agent that automatically installs PostHog for you</span>
+                    <span>Install PostHog with an agent</span>
                     <RunCounts runs={userRuns} />
                 </span>
             }
