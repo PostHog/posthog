@@ -463,6 +463,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
 
     describe('with a send whose SES call never settles, not even on abort', () => {
         const callsCannotOutlast = CONSUMER_STOP_DEADLINE_MS - RESULT_WRITE_MARGIN_MS
+        const waitForCallsMs = callsCannotOutlast - ATTACHMENT_SEND_DEADLINE_MS
 
         // The SDK resolves credentials before it signs a request and does not abort that step, so a credentials
         // source that never answers leaves the call running past its deadline. SES itself cannot do that: the
@@ -475,11 +476,25 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 },
             })
 
-        const useFakeClock = (): number[] => {
+        const useFakeClock = (): { sendDeadlinesStarted: number[]; callWaitsStarted: number[] } => {
             jest.useFakeTimers({
                 doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'queueMicrotask', 'hrtime', 'performance'],
             })
             const sendDeadlinesStarted: number[] = []
+            const callWaitsStarted: number[] = []
+            // The worker starts its wait for the call only after real work that follows the deadline, so the test
+            // times the write from that start rather than from the deadline.
+            const fakeSetTimeout = global.setTimeout
+            const timers = jest.spyOn(global, 'setTimeout').mockImplementation(((
+                callback: (...args: unknown[]) => void,
+                ms?: number,
+                ...args: unknown[]
+            ) => {
+                if (ms === waitForCallsMs) {
+                    callWaitsStarted.push(Date.now())
+                }
+                return fakeSetTimeout(callback, ms, ...args)
+            }) as typeof setTimeout)
             // Node runs AbortSignal.timeout on a timer that jest does not replace, so the send deadline would pass on
             // the real clock.
             const timeout = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
@@ -495,11 +510,27 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 return controller.signal
             })
             backToRealClock = () => {
+                timers.mockRestore()
                 timeout.mockRestore()
                 jest.useRealTimers()
                 backToRealClock = () => undefined
             }
-            return sendDeadlinesStarted
+            return { sendDeadlinesStarted, callWaitsStarted }
+        }
+
+        // Yields to real I/O without moving the clock, until the check passes or `withinMs` of real time passed.
+        async function inRealTime<T>(check: () => T, withinMs: number): Promise<T> {
+            const until = performance.now() + withinMs
+            for (;;) {
+                try {
+                    return check()
+                } catch (error) {
+                    if (performance.now() >= until) {
+                        throw error
+                    }
+                    await new Promise((resolve) => setImmediate(resolve))
+                }
+            }
         }
 
         // Moves the clock on a poll at a time, so the worker's loop wakes, until the check passes or `before` is
@@ -520,7 +551,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         it('writes its result once its deadline and the wait for its call passed, before a stop that starts while it runs returns, and keeps its room taken', async () => {
             const [stuck] = await enqueue(transactionalSend([invoice.metadata]))
             const clockStarted = Date.now()
-            const sendDeadlinesStarted = useFakeClock()
+            const { sendDeadlinesStarted, callWaitsStarted } = useFakeClock()
             let callStarted = false
             const worker = await startWorker(
                 roomFor(1),
@@ -532,7 +563,14 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 expect(callStarted).toBe(true)
             }, clockStarted + 1_000)
             const [deadlineStarted] = sendDeadlinesStarted
-            const writeDue = deadlineStarted + callsCannotOutlast
+            const deadlinePassed = deadlineStarted + ATTACHMENT_SEND_DEADLINE_MS
+            await jest.advanceTimersByTimeAsync(deadlinePassed - Date.now())
+            const callWaitStarted = await inRealTime(() => {
+                const started = callWaitsStarted.find((startedAt) => startedAt >= deadlinePassed)
+                expect(started).toBeDefined()
+                return started!
+            }, 10_000)
+            const writeDue = callWaitStarted + waitForCallsMs
 
             // Short of the due time by less than the wait for its call, so a result written without that wait shows.
             await jest.advanceTimersByTimeAsync(writeDue - 2_000 - Date.now())
