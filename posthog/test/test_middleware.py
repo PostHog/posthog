@@ -46,6 +46,7 @@ from posthog.middleware import (
     SignedClientIPOutcome,
     UnversionedStaticPathMiddleware,
     per_request_logging_context_middleware,
+    request_route,
     user_logging_context_middleware,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -3119,6 +3120,26 @@ async def test_chqueries_middleware_tags_route_id_under_asgi() -> None:
 
 @parameterized.expand(
     [
+        ("ids_templated", "/api/projects/123/feature_flags/456/", "api/projects/{project_id}/feature_flags/{pk}/"),
+        (
+            "format_suffix_folded",
+            "/api/projects/123/feature_flags/456.json",
+            "api/projects/{project_id}/feature_flags/{pk}/",
+        ),
+        ("optional_suffix_dropped", "/api/signup", "api/signup/"),
+        ("api_404_catch_all", "/api/this_does_not_exist/123/", "unmatched"),
+        ("unresolved", None, "unmatched"),
+    ]
+)
+def test_request_route_is_a_bounded_template(name, path, expected):
+    request = HttpRequest()
+    request.resolver_match = resolve(path) if path else None
+
+    assert request_route(request) == expected
+
+
+@parameterized.expand(
+    [
         ("api_path_emits", "/api/projects/@current/query/", True),
         ("api_capture_excluded", "/api/projects/@current/capture/", False),
         ("non_api_path_excluded", "/login", False),
@@ -3134,6 +3155,7 @@ def test_chqueries_middleware_api_latency_histogram_scope(name, path, should_emi
 
     labels = {
         "view": "project_query-list",
+        "route": "api/projects/{team_id}/query/",
         "method": "GET",
         "source": "web",
         "access_method": "",
@@ -3176,6 +3198,7 @@ def test_chqueries_middleware_api_latency_labels(name, user_agent, access_method
 
     labels = {
         "view": "project_query-list",
+        "route": "api/projects/{team_id}/query/",
         "method": "GET",
         "source": expected_source,
         "access_method": expected_access,
@@ -3220,6 +3243,7 @@ def test_chqueries_middleware_api_latency_status_class(name, status_code, expect
 
     labels = {
         "view": "project_query-list",
+        "route": "api/projects/{team_id}/query/",
         "method": "GET",
         "source": "web",
         "access_method": "",
@@ -3250,6 +3274,7 @@ def test_chqueries_middleware_api_latency_records_on_raise():
 
     labels = {
         "view": "project_query-list",
+        "route": "api/projects/{team_id}/query/",
         "method": "GET",
         "source": "web",
         "access_method": "",

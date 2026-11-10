@@ -210,22 +210,43 @@ describe('reportListLogic', () => {
             laterLogic.unmount()
         })
 
+        // A teammate scope also names the teammate as the ranking owner, so `sort=personal` reads their ranking.
         it.each([
-            { scope: INBOX_SCOPE_FOR_YOU, suggested_reviewers: MOCK_USER_UUID, assignee: undefined },
-            { scope: INBOX_SCOPE_CLAIMED_BY_YOU, suggested_reviewers: undefined, assignee: 'mine' },
-            { scope: 'teammate:t-1', suggested_reviewers: 't-1', assignee: undefined },
-            { scope: INBOX_SCOPE_ENTIRE_PROJECT, suggested_reviewers: undefined, assignee: undefined },
-        ] as { scope: InboxScope; suggested_reviewers?: string; assignee?: string }[])(
-            'narrows the $scope request to suggested_reviewers=$suggested_reviewers and assignee=$assignee',
-            ({ scope, suggested_reviewers, assignee }) => {
+            { scope: INBOX_SCOPE_FOR_YOU, sent: { suggested_reviewers: MOCK_USER_UUID } },
+            { scope: INBOX_SCOPE_CLAIMED_BY_YOU, sent: { assignee: 'mine' } },
+            {
+                scope: 'teammate:t-1',
+                sent: { suggested_reviewers: 't-1', scope: 'teammate', teammate_uuid: 't-1' },
+            },
+            { scope: INBOX_SCOPE_ENTIRE_PROJECT, sent: {} },
+        ] as { scope: InboxScope; sent: Record<string, string> }[])(
+            'narrows the $scope request to $sent',
+            ({ scope, sent }) => {
                 logic.actions.setScope(scope)
-                const { suggested_reviewers: sentReviewers, assignee: sentAssignee } = logic.values.listApiParams
-                expect({ suggested_reviewers: sentReviewers, assignee: sentAssignee }).toEqual({
-                    suggested_reviewers,
-                    assignee,
+                const { suggested_reviewers, assignee, scope: sentScope, teammate_uuid } = logic.values.listApiParams
+                expect({ suggested_reviewers, assignee, scope: sentScope, teammate_uuid }).toEqual({
+                    suggested_reviewers: undefined,
+                    assignee: undefined,
+                    scope: undefined,
+                    teammate_uuid: undefined,
+                    ...sent,
                 })
             }
         )
+
+        it("does not send the viewer's personal ranking id when switching to a teammate scope", async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_PERSONALIZED_SORT], {
+                [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true,
+            })
+            inboxFiltersLogic.actions.setSort('personal', 'asc')
+            await expectLogic(logic).toFinishAllListeners()
+            requestedRankingIds = []
+
+            logic.actions.setScope('teammate:t-1')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requestedRankingIds).toEqual([null])
+        })
 
         it.each([
             { name: 'tags the row with a new claim', scope: INBOX_SCOPE_ENTIRE_PROJECT, assignee: myClaim },
@@ -797,7 +818,7 @@ describe('reportListLogic', () => {
         afterEach(() => logic.unmount())
 
         it('counts the rows whose pull request is still in flight, drafts included', () => {
-            expect(logic.values.livePrReportIds).toEqual(['1', '3', '5'])
+            expect(logic.values.livePrReportIds).toEqual(['1', '5'])
         })
     })
     // Snapshots refresh on read, like error tracking counts: a loaded page sends the ids whose saved
