@@ -8,8 +8,8 @@ import type { JSX } from 'react'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { showServerFormError } from 'lib/forms/showServerFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     API_SCOPES,
@@ -429,14 +429,12 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
 
     listeners(({ actions, values }) => ({
         submitEditingKeyFailure: ({ error }) => {
-            if (!(error instanceof ApiError)) {
-                return
-            }
-            if (error.attr && error.attr in values.editingKey) {
-                actions.setEditingKeyManualErrors({ [error.attr]: error.detail || error.message })
-            } else {
-                lemonToast.error(error.detail || 'Could not save the project secret API key. Try again.')
-            }
+            showServerFormError(
+                error,
+                values.editingKey,
+                actions.setEditingKeyManualErrors,
+                'Could not save the project secret API key. Try again.'
+            )
         },
         setEditingKeyValue: async ({ name, value }) => {
             const key = Array.isArray(name) ? name[0] : name

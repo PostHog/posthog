@@ -11,6 +11,7 @@ import { ApiError } from 'lib/api-error'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { showServerFormError } from 'lib/forms/showServerFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SCOPE_DOCS } from 'lib/scopeDocs.generated'
@@ -767,15 +768,12 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             }
         },
         submitEditingKeyFailure: ({ error }) => {
-            // kea-forms swallows the rejected API call, so the server's message has to be copied to the form here
-            if (!(error instanceof ApiError)) {
-                return
-            }
-            if (error.attr && error.attr in values.editingKey) {
-                actions.setEditingKeyManualErrors({ [error.attr]: error.detail || error.message })
-            } else {
-                lemonToast.error(error.detail || 'Could not save the personal API key. Try again.')
-            }
+            showServerFormError(
+                error,
+                values.editingKey,
+                actions.setEditingKeyManualErrors,
+                'Could not save the personal API key. Try again.'
+            )
         },
         setEditingKeyValue: async ({ name, value }) => {
             const key = Array.isArray(name) ? name[0] : name
