@@ -725,17 +725,6 @@ class TransactionalEmailContent:
     reply_to: str = ""
 
 
-@frozen
-class TransactionalEmailWorkflow:
-    """What a send checks on a transactional email's workflow before it runs it."""
-
-    status: str
-    # False when someone removed the email step from the workflow, so the send can't be checked.
-    has_email_step: bool
-    message_category_type: str | None
-    message_category_id: str | None
-
-
 class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
 

@@ -9,8 +9,8 @@ from products.messaging.backend.facade.contracts import (
     EmailStatus,
     FieldNotAccepted,
     QueuedEmail,
+    SendCategoryDefinition,
     TransactionalEmailError,
-    UnknownCategory,
 )
 from products.messaging.backend.services.transactional_email import (
     PIPELINE_ADDRESS_PATTERN,
@@ -18,8 +18,6 @@ from products.messaging.backend.services.transactional_email import (
     SENDER_ADDRESS_PATTERN,
     TransactionalEmailStage,
     check_transactional_update,
-    code_send_category_id,
-    is_marketing_category,
     lock_transactional_workflow_id,
     make_transactional,
     observe_transactional_email_stage,
@@ -29,7 +27,6 @@ from products.messaging.backend.services.transactional_email import (
     send_transactional_email,
     sender_address_error,
     sync_transactional_workflow,
-    template_category_type,
     transactional_email_stage,
 )
 from products.messaging.backend.services.transactional_email_status import get_email_status
@@ -48,10 +45,8 @@ __all__ = [
     "TransactionalEmailError",
     "TransactionalEmailStage",
     "CategoriesNotEnabled",
-    "UnknownCategory",
+    "SendCategoryDefinition",
     "check_transactional_update",
-    "code_send_category_id",
-    "is_marketing_category",
     "get_email_status",
     "lock_transactional_workflow_id",
     "make_transactional",
@@ -62,6 +57,5 @@ __all__ = [
     "send_transactional_email",
     "sender_address_error",
     "sync_transactional_workflow",
-    "template_category_type",
     "transactional_email_stage",
 ]

@@ -93,8 +93,8 @@ tools:
             resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again.
             Sends of a template with no category or a transactional one ignore marketing opt-outs, so never file
             marketing email there. A template in a marketing category is refused unless the project can send marketing
-            email over the API, and its sends then skip recipients who opted out. The template needs a subject and a
-            body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the
+            email over the API. Its body must then hold {{ unsubscribe_url }}, and its sends skip recipients who opted
+            out. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the
             project's default sender is used). Requires human typed confirmation. The response has
             transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user
             can review and publish it. Then tell the user what is left: create a project secret API key with
@@ -154,21 +154,23 @@ tools:
             update. No template has to exist in PostHog first. Name the email with template_key (for example welcome);
             sends under one key share a workflow, so their metrics and runs group together. Pass the subject and the
             body as html, text or both, exactly as the recipient should see it: PostHog renders nothing, so {{ }} goes
-            out as typed. The one exception is a marketing email: pass category with the key of one of the project's
-            marketing message categories, and put {{ unsubscribe_url }} where the unsubscribe link goes; PostHog fills
-            in the recipient's link and skips recipients who opted out (recipient_opted_out). Leave category out for a
-            transactional email. When the user points you at a local file, such as an HTML email in their repository,
-            read the file yourself and pass its content as html. This tool can't read files or URLs. from must be an
-            address on a domain the project verified; sender_not_verified means nothing was sent. Leave from out to send
-            from the project's default sender; sender_required means the project has several senders and no default, so
-            ask the user which address to send from. Sending takes two calls: prepare checks only the arguments and
-            returns a message for the user, and execute sends it only after the user replies with the literal word
-            'confirm'. PostHog checks the sender and the content when execute runs, so settle from before prepare, and
-            tell the user which address the email goes out from (the address you pass, or the project's default sender).
-            Each execute call sends an email, so never repeat one that succeeded. A 503, a timeout or a connection error
-            means PostHog did not confirm the send, and the email may still go out: do not try again on your own, tell
-            the user. A 404 with code not_found means sending email from code is not enabled for this project, or the
-            project does not exist: stop and tell the user.
+            out as typed. The one exception is a marketing email: pass category as an object with key, type marketing,
+            name and an optional description, and put {{ unsubscribe_url }} where the unsubscribe link goes. PostHog
+            creates the category when the project has no category with that key, fills in the recipient's link, and
+            skips recipients who opted out (recipient_opted_out). A marketing email can't have cc or bcc. Use the key of
+            an existing category when the user names one, and leave category out for a transactional email. When the
+            user points you at a local file, such as an HTML email in their repository, read the file yourself and pass
+            its content as html. This tool can't read files or URLs. from must be an address on a domain the project
+            verified; sender_not_verified means nothing was sent. Leave from out to send from the project's default
+            sender; sender_required means the project has several senders and no default, so ask the user which address
+            to send from. Sending takes two calls: prepare checks only the arguments and returns a message for the user,
+            and execute sends it only after the user replies with the literal word 'confirm'. PostHog checks the sender
+            and the content when execute runs, so settle from before prepare, and tell the user which address the email
+            goes out from (the address you pass, or the project's default sender). Each execute call sends an email, so
+            never repeat one that succeeded. A 503, a timeout or a connection error means PostHog did not confirm the
+            send, and the email may still go out: do not try again on your own, tell the user. A 404 with code not_found
+            means sending email from code is not enabled for this project, or the project does not exist: stop and tell
+            the user.
         exclude_params:
             - template_id
             - message_data

@@ -7,14 +7,12 @@ from products.workflows.backend.facade.contracts import (
     TransactionalEmailContentInvalid,
     TransactionalEmailSenderRequired,
     TransactionalEmailSenderUnavailable,
-    TransactionalEmailWorkflow,
     WorkflowNotFound,
 )
 from products.workflows.backend.services.transactional_email_workflows import (
     code_send_sender_id,
     create_code_email_workflow,
     create_transactional_email_workflow,
-    get_transactional_email_workflow,
     resolve_transactional_email_sender,
     update_transactional_email_workflow,
 )
@@ -26,12 +24,10 @@ __all__ = [
     "TransactionalEmailContentInvalid",
     "TransactionalEmailSenderRequired",
     "TransactionalEmailSenderUnavailable",
-    "TransactionalEmailWorkflow",
     "WorkflowNotFound",
     "code_send_sender_id",
     "create_code_email_workflow",
     "create_transactional_email_workflow",
     "resolve_transactional_email_sender",
-    "get_transactional_email_workflow",
     "update_transactional_email_workflow",
 ]

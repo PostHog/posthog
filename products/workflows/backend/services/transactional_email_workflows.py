@@ -6,7 +6,6 @@ from typing import Optional
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import BooleanField, ExpressionWrapper, F, Func, JSONField, Q, TextField, Value
 
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.scoping import with_team_scope
@@ -17,7 +16,6 @@ from products.workflows.backend.facade.contracts import (
     TransactionalEmailContentInvalid,
     TransactionalEmailSenderRequired,
     TransactionalEmailSenderUnavailable,
-    TransactionalEmailWorkflow,
     WorkflowNotFound,
 )
 from products.workflows.backend.facade.enums import HogFlowOriginProduct
@@ -45,7 +43,6 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
             "message_category_id": str(content.message_category_id) if content.message_category_id else None,
             "message_category_type": content.message_category_type,
             "sensitive": content.sensitive,
-            # Sends from code don't count toward the frequency cap yet, so a template's sends don't either.
             **({"skip_frequency_cap": True} if content.message_category_type == "marketing" else {}),
         },
         email={
@@ -199,54 +196,12 @@ def code_send_sender_id(*, team_id: int, email: str | None) -> int:
     return _sender_without_address(team_id) if email is None else _sender_on_domain(team_id, email)
 
 
-def _email_step(actions: list[dict]) -> dict | None:
-    # The email step is missing when someone edited the workflow directly. The update writes it back.
-    return next((action for action in actions if action.get("id") == TRANSACTIONAL_EMAIL_ACTION_ID), None)
-
-
 def _current_sender(flow: HogFlow) -> int | None:
-    email = _email_step(flow.actions)
+    # The email step is missing when someone edited the workflow directly. The update writes it back.
+    email = next((action for action in flow.actions if action.get("id") == TRANSACTIONAL_EMAIL_ACTION_ID), None)
     if email is None:
         return None
     return email["config"]["inputs"]["email"]["value"]["from"].get("integrationId")
-
-
-def _step_config_text(key: str) -> Func:
-    return Func(F("_step_config"), Value(key), function="jsonb_extract_path_text", output_field=TextField())
-
-
-def get_transactional_email_workflow(*, team_id: int, hog_flow_id: UUID) -> TransactionalEmailWorkflow:
-    # Postgres picks out the step's category, so the email body in the step never leaves the database on a send.
-    row = (
-        HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id)
-        .alias(
-            _step_config=Func(
-                F("actions"),
-                Func(
-                    Value(f'$[*] ? (@.id == "{TRANSACTIONAL_EMAIL_ACTION_ID}").config'),
-                    template="%(expressions)s::jsonpath",
-                    output_field=TextField(),
-                ),
-                function="jsonb_path_query_first",
-                output_field=JSONField(),
-            )
-        )
-        .annotate(
-            _has_email_step=ExpressionWrapper(Q(_step_config__isnull=False), output_field=BooleanField()),
-            _category_type=_step_config_text("message_category_type"),
-            _category_id=_step_config_text("message_category_id"),
-        )
-        .values("status", "_has_email_step", "_category_type", "_category_id")
-        .first()
-    )
-    if row is None:
-        raise WorkflowNotFound()
-    return TransactionalEmailWorkflow(
-        status=row["status"],
-        has_email_step=row["_has_email_step"],
-        message_category_type=row["_category_type"],
-        message_category_id=row["_category_id"],
-    )
 
 
 # Callers run outside a workflows request, so the revision writes need the team scope set here.

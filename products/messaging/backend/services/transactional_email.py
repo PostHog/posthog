@@ -26,9 +26,9 @@ from posthog.plugins.plugin_server_api import (
 )
 
 from products.messaging.backend.facade.contracts import (
-    CategoryMismatch,
     CodeEmail,
     ContentTooLarge,
+    CopiesNotAllowed,
     DeliveryUnavailable,
     EmailAttachment,
     FieldNotAccepted,
@@ -38,12 +38,14 @@ from products.messaging.backend.facade.contracts import (
     InvalidRecipient,
     InvalidRequest,
     MarketingTemplate,
+    MessageCategoryKind,
     NamedSenderNotVerified,
     QueuedEmail,
     QuotaLimited,
     RecipientOptedOut,
     RecipientSuppressed,
     RecipientUnreachable,
+    SendCategory,
     SenderNotVerified,
     SenderRequired,
     SenderUnavailable,
@@ -54,13 +56,18 @@ from products.messaging.backend.facade.contracts import (
     TooManyKeys,
     TransactionalEmailError,
     TransactionalEmailPaused,
-    UnknownCategory,
     UnsubscribeLinkRequired,
 )
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
-from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 from products.messaging.backend.services.html_text import UNSUBSCRIBE_PLACEHOLDER, text_from_html
+from products.messaging.backend.services.send_categories import (
+    RequestedCategory,
+    code_send_category,
+    requested_kind,
+    template_category,
+    template_send_category,
+)
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
 from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailCategoryType,
@@ -68,11 +75,9 @@ from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContentInvalid,
     TransactionalEmailSenderRequired,
     TransactionalEmailSenderUnavailable,
-    TransactionalEmailWorkflow,
     code_send_sender_id,
     create_code_email_workflow,
     create_transactional_email_workflow,
-    get_transactional_email_workflow,
     resolve_transactional_email_sender,
     update_transactional_email_workflow,
 )
@@ -194,8 +199,6 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
 
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
 
-TRANSACTIONAL_CATEGORY = "transactional"
-
 TRANSACTIONAL_EMAIL_KEY_LIMIT = 1000
 TRANSACTIONAL_EMAIL_KEY_LOCK = "transactional-email-keys"
 
@@ -210,8 +213,11 @@ def check_sendable(
 ) -> None:
     """Raise when a template with these fields can't be sent over the API."""
     _require_email_content(template_type, content)
-    if not marketing_enabled:
-        _require_not_marketing(_template_category(team_id, message_category_id))
+    category = template_category(team_id, message_category_id)
+    _require_marketing_enabled(category, marketing_enabled)
+    if _is_marketing(category):
+        email = content["email"]
+        _require_unsubscribe_link(email.get("html") or "", email.get("text") or "")
 
 
 def _require_email_content(template_type: str, content: dict) -> None:
@@ -222,28 +228,25 @@ def _require_email_content(template_type: str, content: dict) -> None:
         raise TemplateNotSendable("The template has no email body, so it can't be sent.")
 
 
-def _require_not_marketing(category: MessageCategory | None) -> None:
-    if _is_marketing(category):
+def _require_marketing_enabled(category: MessageCategory | None, marketing_enabled: bool) -> None:
+    if _is_marketing(category) and not marketing_enabled:
         raise MarketingTemplate("The template is in a marketing category. Only transactional templates can be sent.")
 
 
-def _template_category(team_id: int, message_category_id: UUID | None) -> MessageCategory | None:
-    if not message_category_id:
-        return None
-    # A deleted category still classifies the template, and the category field accepts one.
-    return MessageCategory.objects.filter(team_id=team_id, id=message_category_id).first()
+def _require_unsubscribe_link(html: str, text: str) -> None:
+    if not UNSUBSCRIBE_PLACEHOLDER.search(html or text):
+        raise UnsubscribeLinkRequired(
+            "A marketing email needs an unsubscribe link. Put `{{ unsubscribe_url }}` where the link goes, such as "
+            '`<a href="{{ unsubscribe_url }}">Unsubscribe</a>`, and PostHog fills in the recipient\'s link.'
+        )
 
 
 def _is_marketing(category: MessageCategory | None) -> bool:
     return category is not None and category.category_type == MessageCategoryType.MARKETING
 
 
-def template_category_type(team_id: int, message_category_id: UUID | None) -> TransactionalEmailCategoryType:
-    return _category_type(_template_category(team_id, message_category_id))
-
-
-def _category_type(category: MessageCategory | None) -> TransactionalEmailCategoryType:
-    return "marketing" if _is_marketing(category) else "transactional"
+def _template_category_type(team_id: int, message_category_id: UUID | None) -> TransactionalEmailCategoryType:
+    return "marketing" if _is_marketing(template_category(team_id, message_category_id)) else "transactional"
 
 
 # An address longer than this can't be delivered, and the bound keeps the pattern below fast.
@@ -299,7 +302,7 @@ def _content(template: MessageTemplate) -> TransactionalEmailContent:
         # Templates made transactional before they stored a sender keep their workflow's sender.
         from_integration_id=sender.get("integrationId"),
         message_category_id=template.message_category_id,
-        message_category_type=template_category_type(template.team_id, template.message_category_id),
+        message_category_type=_template_category_type(template.team_id, template.message_category_id),
         sensitive=template.sensitive,
         from_email=sender.get("email") or "",
         from_name=sender.get("name") or "",
@@ -442,37 +445,14 @@ class TemplateSend:
     category: MessageCategory | None
 
 
-def _template_send(team_id: int, template: TransactionalTemplate, *, marketing_enabled: bool = False) -> TemplateSend:
+def _template_send(team_id: int, template: TransactionalTemplate, *, marketing_enabled: bool) -> TemplateSend:
     if not template.transactional_hog_flow_id:
         raise TemplateNotTransactional("The template isn't transactional. Make it transactional to send it.")
     _require_email_content(template.type, template.content)
-    category = _template_category(team_id, template.message_category_id)
-    # A category's type can change after the template was made transactional.
-    if not marketing_enabled:
-        _require_not_marketing(category)
-    try:
-        workflow = get_transactional_email_workflow(team_id=team_id, hog_flow_id=template.transactional_hog_flow_id)
-    except WorkflowNotFound as e:
-        raise TransactionalEmailPaused("This email's workflow no longer exists.") from e
-    _require_status_active(workflow.status)
-    _require_step_in_category(workflow, category)
+    category = template_category(team_id, template.message_category_id)
+    _require_marketing_enabled(category, marketing_enabled)
+    _require_active(team_id, template.transactional_hog_flow_id)
     return TemplateSend(hog_flow_id=template.transactional_hog_flow_id, category=category)
-
-
-def _require_step_in_category(workflow: TransactionalEmailWorkflow, category: MessageCategory | None) -> None:
-    # The CDP reads opt-outs from the step, which keeps the category from the template's last save.
-    if not workflow.has_email_step:
-        if _is_marketing(category):
-            raise TemplateNotSendable("This email's workflow has no email step. Save the template again to send it.")
-        return
-    stale_type = workflow.message_category_type != _category_type(category)
-    stale_category = (
-        category is not None and _is_marketing(category) and workflow.message_category_id != str(category.id)
-    )
-    if stale_type or stale_category:
-        raise TemplateNotSendable(
-            "The template's category changed since the template was last saved. Save the template again to send it."
-        )
 
 
 def _require_active(team_id: int, hog_flow_id: UUID) -> None:
@@ -480,27 +460,8 @@ def _require_active(team_id: int, hog_flow_id: UUID) -> None:
         workflow = get_workflow_summary(team_id=team_id, workflow_id=str(hog_flow_id))
     except WorkflowNotFound as e:
         raise TransactionalEmailPaused("This email's workflow no longer exists.") from e
-    _require_status_active(workflow.status)
-
-
-def _require_status_active(status: str) -> None:
-    if status != "active":
+    if workflow.status != "active":
         raise TransactionalEmailPaused("This email's workflow isn't active. Turn it back on to send.")
-
-
-def _code_email_workflow_id(team_id: int, key: str) -> UUID:
-    template = _template_for_key(team_id, key)
-    if template is not None:
-        try:
-            return _template_send(team_id, template).hog_flow_id
-        except MarketingTemplate:
-            raise MarketingTemplate(
-                "The template under this `template_key` is in a marketing category, so code can't send its own "
-                "content under that key. Send the template by `template_id`, or use another `template_key`."
-            ) from None
-    hog_flow_id = _key_workflow_id(team_id, key)
-    _require_active(team_id, hog_flow_id)
-    return hog_flow_id
 
 
 def _template_for_key(team_id: int, key: str) -> MessageTemplate | None:
@@ -577,35 +538,6 @@ def require_code_email_access(
         require_workflow_create()
 
 
-def is_marketing_category(category: str | None) -> bool:
-    return category is not None and category != TRANSACTIONAL_CATEGORY
-
-
-def code_send_category_id(team_id: int, category: str | None) -> UUID | None:
-    """The marketing category a code send names by key, or None for a transactional send."""
-    if not is_marketing_category(category):
-        return None
-    assert category is not None
-    if category == ALL_MESSAGE_PREFERENCE_CATEGORY_ID:
-        raise UnknownCategory(category)
-    category_id = (
-        MessageCategory.objects.filter(
-            team_id=team_id, key=category, deleted=False, category_type=MessageCategoryType.MARKETING
-        )
-        .values_list("id", flat=True)
-        .first()
-    )
-    if category_id is None:
-        raise UnknownCategory(category)
-    return category_id
-
-
-def _require_template_category(own: MessageCategory | None, category: str | None) -> None:
-    own_key = own.key if own is not None and _is_marketing(own) else TRANSACTIONAL_CATEGORY
-    if category is not None and category != own_key:
-        raise CategoryMismatch(own_key)
-
-
 def send_transactional_email(
     team: Team,
     template: UUID | TransactionalTemplate,
@@ -614,7 +546,7 @@ def send_transactional_email(
     distinct_id: str | None,
     message_data: dict[str, Any],
     idempotency_key: str | None = None,
-    category: str | None = None,
+    category: RequestedCategory = None,
     marketing_enabled: bool = False,
     timeout: float = 10,
 ) -> QueuedEmail:
@@ -624,11 +556,24 @@ def send_transactional_email(
         if isinstance(template, UUID):
             model = MessageTemplate.objects.get(team_id=team.id, id=template, deleted=False)
             send = _template_send(team.id, model, marketing_enabled=marketing_enabled)
+            email = model.content["email"]
         else:
             send = _template_send(team.id, template, marketing_enabled=marketing_enabled)
-        _require_template_category(send.category, category)
+            email = template.content["email"]
+        if _is_marketing(send.category):
+            _require_unsubscribe_link(email.get("html") or "", email.get("text") or "")
+        send_category = template_send_category(send.category, category)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
-    return _queue(team.id, send.hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
+    if send_category is not None:
+        payload["message_category"] = {"id": str(send_category.id), "type": send_category.type}
+    return _queue(
+        team.id,
+        send.hog_flow_id,
+        payload,
+        run_transactional_workflow,
+        timeout=timeout,
+        category_type=_kind_of(send_category),
+    )
 
 
 def send_code_email(
@@ -638,18 +583,30 @@ def send_code_email(
     to: str,
     distinct_id: str | None,
     idempotency_key: str | None = None,
+    marketing_enabled: bool = False,
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key, (*email.cc, *email.bcc))
-    if email.message_category_id and not _has_unsubscribe_link(email):
-        raise UnsubscribeLinkRequired(
-            "A marketing email needs an unsubscribe link. Put `{{ unsubscribe_url }}` where the link goes, such as "
-            '`<a href="{{ unsubscribe_url }}">Unsubscribe</a>`, and PostHog fills in the recipient\'s link.'
-        )
     with transactional_email_stage("workflow_lookup"):
-        accepted_send = _accepted_send(team.id, email)
-        hog_flow_id = _code_email_workflow_id(team.id, email.key)
+        template = _template_for_key(team.id, email.key)
+        category: SendCategory | None = None
+        if template is not None:
+            send = _template_send(team.id, template, marketing_enabled=marketing_enabled)
+            hog_flow_id = send.hog_flow_id
+            category = template_send_category(send.category, email.category)
+            kind = _kind_of(category)
+        else:
+            kind = requested_kind(email.category)
+        _require_marketing_rules(email, kind)
+        accepted_send = _accepted_send(team.id, email, kind)
+        if template is None:
+            with transaction.atomic():
+                hog_flow_id = _key_workflow_id(team.id, email.key)
+                _require_active(team.id, hog_flow_id)
+                category = code_send_category(team.id, email.category)
+        if category is not None:
+            accepted_send["messageCategory"] = {"id": str(category.id), "type": category.type}
     payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
-    return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email)
+    return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email, category_type=_kind_of(category))
 
 
 def _check_send_request(to: str, idempotency_key: str | None, copies: tuple[str, ...] = ()) -> None:
@@ -679,18 +636,27 @@ def _send_payload(
     return payload
 
 
-def _has_unsubscribe_link(email: CodeEmail) -> bool:
-    return bool(UNSUBSCRIBE_PLACEHOLDER.search(email.html or email.text))
+def _kind_of(category: SendCategory | None) -> MessageCategoryKind:
+    return "transactional" if category is None else category.type
 
 
-def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
+def _require_marketing_rules(email: CodeEmail, kind: MessageCategoryKind) -> None:
+    if kind != "marketing":
+        return
+    _require_unsubscribe_link(email.html, email.text)
+    if email.cc or email.bcc:
+        raise CopiesNotAllowed(
+            "A marketing email can't have `cc` or `bcc` recipients. Send each recipient their own email."
+        )
+
+
+def _accepted_send(team_id: int, email: CodeEmail, kind: MessageCategoryKind) -> dict[str, Any]:
     accepted: dict[str, Any] = {
         "content": _without_empty(
             {
                 "subject": email.subject,
                 "html": email.html,
-                "text": email.text
-                or text_from_html(email.html, keep_unsubscribe_link=email.message_category_id is not None),
+                "text": email.text or text_from_html(email.html, keep_unsubscribe_link=kind == "marketing"),
             }
         ),
         "from": _without_empty(_code_send_sender(team_id, email.sender)),
@@ -704,8 +670,6 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
         accepted["bcc"] = list(email.bcc)
     if email.attachments:
         accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
-    if email.message_category_id:
-        accepted["messageCategoryId"] = str(email.message_category_id)
     return accepted
 
 
@@ -750,6 +714,7 @@ def _queue(
     post: _PipelinePost,
     *,
     timeout: float = 10,
+    category_type: MessageCategoryKind = "transactional",
 ) -> QueuedEmail:
     started_at = time.monotonic()
     try:
@@ -795,7 +760,9 @@ def _queue(
         raise error_class(message)
 
     body = response.json()
-    return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
+    return QueuedEmail(
+        message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)), category_type=category_type
+    )
 
 
 def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
