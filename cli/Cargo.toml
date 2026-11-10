@@ -77,7 +77,7 @@ similar = "3.2.1"
 # With this feature, `open::that_detached` on Windows calls ShellExecuteExW. Without it, it runs
 # `cmd /c start` and cmd parses the URL. WebUrl::open_in_browser relies on the feature.
 open = { version = "5", features = ["shellexecute-on-windows"] }
-zip = { version = "7.2.0", default-features = false, features = ["deflate", "deflate-flate2-zlib"] }
+zip = { version = "2.2", default-features = false, features = ["deflate", "deflate-zlib"] }
 tempfile = "3"
 symbolic = { version = "12.12", features = ["debuginfo"] }
 plist = "1"
