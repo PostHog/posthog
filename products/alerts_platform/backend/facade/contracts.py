@@ -419,14 +419,15 @@ class PlatformHandback:
 
 @frozen
 class PlatformAlertRuntime:
-    """Where an alert the platform owns stands, and how it splits into instances, for a source whose
-    API still shows the alert."""
+    """Where an alert the platform owns stands, and the settings only its copy stores, for a source
+    whose API still shows the alert."""
 
     state: PlatformAlertState
     last_notified_at: datetime | None
     consecutive_failures: int
     next_check_at: datetime | None
     grouping: Grouping
+    labels: dict[str, str]
 
 
 @frozen
