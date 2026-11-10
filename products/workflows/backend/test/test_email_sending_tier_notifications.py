@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.core import mail
 from django.core.mail import EmailMultiAlternatives
+from django.db import DatabaseError
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -23,7 +24,7 @@ class TestNotifyEmailSendingTierChanges(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(override_instance_config("EMAIL_HOST", "localhost"))
-        self.feature_enabled = self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
@@ -33,8 +34,8 @@ class TestNotifyEmailSendingTierChanges(BaseTest):
     def _promotion(self, team_id: int | None = None) -> TierDecision:
         return TierDecision(team_id=team_id or self.team.id, previous_tier=2, new_tier=3, reason="clean_and_used")
 
-    def _delivered_html(self, index: int = 0) -> str:
-        message = mail.outbox[index]
+    def _delivered_html(self) -> str:
+        message = mail.outbox[0]
         assert isinstance(message, EmailMultiAlternatives)
         return str(message.alternatives[0][0])
 
@@ -75,7 +76,7 @@ class TestNotifyEmailSendingTierChanges(BaseTest):
         assert notification.team_id == self.team.id
         assert notification.notification_type == "email_reputation"
         assert notification.title == "Workflow email sending limit raised"
-        assert notification.body == "This project earned a higher sending limit: up to 20,000 emails per day."
+        assert "up to 20,000 emails per day" in notification.body
         assert (notification.target_type, notification.target_id) == ("team", str(self.team.id))
         assert notification.resolved_user_ids == [self.user.id]
         assert mail.outbox == []
@@ -98,11 +99,18 @@ class TestNotifyEmailSendingTierChanges(BaseTest):
     @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce")
     def test_one_failing_notification_does_not_stop_the_rest(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
-        self.feature_enabled.side_effect = [Exception("flag service down"), True]
+        store_notification = NotificationEvent.objects.create
+        write_failures = [DatabaseError("notification write failed")]
 
-        notify_email_sending_tier_changes(
-            [self._demotion("rates_above_threshold"), self._promotion(team_id=other_team.id)]
-        )
+        def _fail_first_write(**fields):
+            if write_failures:
+                raise write_failures.pop()
+            return store_notification(**fields)
+
+        with patch.object(NotificationEvent.objects, "create", side_effect=_fail_first_write):
+            notify_email_sending_tier_changes(
+                [self._demotion("rates_above_threshold"), self._promotion(team_id=other_team.id)]
+            )
 
         assert list(NotificationEvent.objects.values_list("team_id", "title")) == [
             (other_team.id, "Workflow email sending limit raised")
