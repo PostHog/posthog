@@ -440,6 +440,9 @@ def load_workspace(git: Git, ref: str, directory: str) -> dict[str, Any]:
 
 
 def load_yaml(text: bytes) -> dict[str, Any]:
+    # PyYAML ends a line at U+0085, U+2028 and U+2029, and pnpm's parser does not.
+    if any(separator.encode() in text for separator in ("\x85", " ", " ")):
+        raise Refused("a YAML file uses a line separator that pnpm does not read")
     # pnpm never writes an alias or an explicit tag, and either would let two texts build one
     # structure. The C parser skips a Python compose hook, so the event stream is read for them.
     for event in yaml.parse(text, Loader=StrictLoader):
