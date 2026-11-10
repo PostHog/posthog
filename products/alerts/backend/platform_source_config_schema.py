@@ -96,4 +96,5 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     native=NativeAlertLifecycle(check_interval_minutes=MINUTES_PER_DAY, remove_destinations=remove_native_destinations),
     native_create=creates_native_alert,
     incident_event_ids=INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,
+    kept_source_config_keys=frozenset({"config", "skip_weekend", "evaluation_delay_intervals"}),
 )

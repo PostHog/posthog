@@ -1003,6 +1003,15 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             calculation_interval=validated_data.get("calculation_interval", instance.calculation_interval),
             instance=instance,
         )
+        # Again under the lock, because `validate` counted without it and another update can race.
+        if msg := AlertConfiguration.update_limit_error(
+            team_id=instance.team_id,
+            organization=self.context["get_organization"](),
+            calculation_interval=validated_data.get("calculation_interval", instance.calculation_interval),
+            enabled=resulting_enabled,
+            existing=instance,
+        ):
+            raise ValidationError({"calculation_interval": [msg]})
         enable_now = enabled_changed and validated_data["enabled"]
         if enable_now:
             apply_enable(instance)

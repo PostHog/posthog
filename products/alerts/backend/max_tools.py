@@ -417,6 +417,15 @@ class UpsertAlertTool(MaxTool):
                     message=refusal.message,
                     error_code="plan_limit_reached" if refusal.reason == "cap" else "validation_failed",
                 )
+            # Again under the lock, because the check above counted without it and another update can race.
+            if error := AlertConfiguration.update_limit_error(
+                team_id=alert.team_id,
+                organization=self._team.organization,
+                calculation_interval=new_interval,
+                enabled=new_enabled,
+                existing=alert,
+            ):
+                return _SaveRefusal(message=error, error_code="plan_limit_reached")
             update_fields: list[str] = []
             conditions_or_threshold_changed = False
             schedule_reset_required = False
