@@ -145,8 +145,8 @@ class MaterializationFailedError(Exception):
     pass
 
 
-class UnknownSavedQueryError(Exception):
-    """The saved query id does not name a live (not deleted) saved query in the team."""
+class UnknownNodeError(Exception):
+    """The node id does not name a live node in the team, so there is nothing to watch."""
 
 
 @dataclass(frozen=True)

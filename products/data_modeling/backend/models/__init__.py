@@ -4,12 +4,12 @@ from .datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from .datawarehouse_saved_query import DataWarehouseSavedQuery
 from .datawarehouse_saved_query_column_annotation import DataWarehouseSavedQueryColumnAnnotation
 from .datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
-from .datawarehouse_saved_query_subscription import DataWarehouseSavedQuerySubscription
 from .edge import CycleDetectionError, DAGMismatchError, DataModelingEdgeManager, DataModelingEdgeQuerySet, Edge
 from .github_sync_config import GitHubSyncConfig, GitHubSyncStatus
 from .github_sync_plan import GitHubSyncPlan, GitHubSyncPlanStatus
 from .github_synced_model import GitHubSyncedModel
 from .node import Node, NodeType
+from .node_subscription import NodeSubscription
 
 __all__ = [
     "DAG",
@@ -25,7 +25,6 @@ __all__ = [
     "DataWarehouseSavedQuery",
     "DataWarehouseSavedQueryColumnAnnotation",
     "DataWarehouseSavedQueryDraft",
-    "DataWarehouseSavedQuerySubscription",
     "Edge",
     "GitHubSyncConfig",
     "GitHubSyncStatus",
@@ -33,5 +32,6 @@ __all__ = [
     "GitHubSyncPlanStatus",
     "GitHubSyncedModel",
     "Node",
+    "NodeSubscription",
     "NodeType",
 ]

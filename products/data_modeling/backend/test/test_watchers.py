@@ -5,16 +5,18 @@ from parameterized import parameterized
 from posthog.models import Organization, Team, User
 
 from products.data_modeling.backend.facade import api
-from products.data_modeling.backend.facade.contracts import UnknownSavedQueryError
+from products.data_modeling.backend.facade.contracts import UnknownNodeError
+from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.datawarehouse_saved_query_subscription import (
-    DataWarehouseSavedQuerySubscription,
-)
+from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.models.node_subscription import NodeSubscription
+from products.data_modeling.backend.test.helpers import metric_node
 
 
 class TestWatchers(BaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.dag = DAG.get_or_create_default(self.team)
         self.users = {
             "creator": self.user,
             "member": self._create_user("member@example.com"),
@@ -23,6 +25,16 @@ class TestWatchers(BaseTest):
                 Organization.objects.create(name="Other org"), "outsider@example.com", None
             ),
         }
+
+    def _view_node(self, name: str = "view", creator: str | None = "creator", deleted: bool = False) -> Node:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=name,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            created_by=self.users[creator] if creator else None,
+            deleted=deleted,
+        )
+        return Node.objects.create(team=self.team, dag=self.dag, saved_query=saved_query, type=NodeType.VIEW)
 
     @parameterized.expand(
         [
@@ -39,63 +51,64 @@ class TestWatchers(BaseTest):
     def test_watcher_user_ids(
         self, _name: str, creator: str | None, rows: list[tuple[str, bool]], expected: set[str]
     ) -> None:
-        saved_query = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="view", created_by=self.users[creator] if creator else None
-        )
+        node = self._view_node(creator=creator)
         for user_key, subscribed in rows:
-            DataWarehouseSavedQuerySubscription.objects.for_team(self.team.id).create(
-                team_id=self.team.id, saved_query=saved_query, user=self.users[user_key], subscribed=subscribed
+            NodeSubscription.objects.for_team(self.team.id).create(
+                team_id=self.team.id, node=node, user=self.users[user_key], subscribed=subscribed
             )
 
-        assert api.watcher_user_ids(self.team.id, saved_query.id) == {self.users[key].id for key in expected}
+        assert api.watcher_user_ids(self.team.id, node.id) == {self.users[key].id for key in expected}
 
-    def test_set_watching_keeps_one_row_per_user_and_view(self) -> None:
-        saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="view", created_by=self.user)
+    def test_node_without_saved_query_can_be_watched(self) -> None:
+        node = metric_node(self.team, self.dag, "metric")
+        assert api.watcher_user_ids(self.team.id, node.id) == frozenset()
+
+        api.set_watching(self.team.id, node.id, self.users["member"].id, True)
+
+        assert api.watcher_user_ids(self.team.id, node.id) == {self.users["member"].id}
+
+    def test_set_watching_keeps_one_row_per_user_and_node(self) -> None:
+        node = self._view_node()
         member = self.users["member"]
 
-        api.set_watching(self.team.id, saved_query.id, member.id, True)
-        api.set_watching(self.team.id, saved_query.id, member.id, True)
-        assert api.watcher_user_ids(self.team.id, saved_query.id) == {self.user.id, member.id}
+        api.set_watching(self.team.id, node.id, member.id, True)
+        api.set_watching(self.team.id, node.id, member.id, True)
+        assert api.watcher_user_ids(self.team.id, node.id) == {self.user.id, member.id}
 
-        api.set_watching(self.team.id, saved_query.id, self.user.id, False)
-        api.set_watching(self.team.id, saved_query.id, member.id, False)
-        assert api.watcher_user_ids(self.team.id, saved_query.id) == frozenset()
+        api.set_watching(self.team.id, node.id, self.user.id, False)
+        api.set_watching(self.team.id, node.id, member.id, False)
+        assert api.watcher_user_ids(self.team.id, node.id) == frozenset()
 
-        api.set_watching(self.team.id, saved_query.id, self.user.id, True)
-        assert api.watcher_user_ids(self.team.id, saved_query.id) == {self.user.id}
-        assert (
-            DataWarehouseSavedQuerySubscription.objects.for_team(self.team.id).filter(saved_query=saved_query).count()
-            == 2
-        )
+        api.set_watching(self.team.id, node.id, self.user.id, True)
+        assert api.watcher_user_ids(self.team.id, node.id) == {self.user.id}
+        assert NodeSubscription.objects.for_team(self.team.id).filter(node=node).count() == 2
 
-    @parameterized.expand([("other_team",), ("deleted",)])
-    def test_set_watching_rejects_saved_query_outside_team(self, case: str) -> None:
+    @parameterized.expand([("other_team",), ("deleted_saved_query",)])
+    def test_set_watching_rejects_node_that_is_not_live_in_team(self, case: str) -> None:
         if case == "other_team":
             other_team = Team.objects.create(organization=self.organization, name="Other team")
-            saved_query = DataWarehouseSavedQuery.objects.create(team=other_team, name="view")
+            node = metric_node(other_team, DAG.get_or_create_default(other_team), "metric")
         else:
-            saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="view", deleted=True)
+            node = self._view_node(deleted=True)
 
-        with self.assertRaises(UnknownSavedQueryError):
-            api.set_watching(self.team.id, saved_query.id, self.user.id, True)
-        assert not DataWarehouseSavedQuerySubscription.objects.unscoped().filter(saved_query=saved_query).exists()
+        with self.assertRaises(UnknownNodeError):
+            api.set_watching(self.team.id, node.id, self.user.id, True)
+        assert not NodeSubscription.objects.unscoped().filter(node=node).exists()
 
-    def test_watched_saved_query_ids(self) -> None:
+    def test_watched_node_ids(self) -> None:
         member = self.users["member"]
-
-        def view(name: str, **kwargs) -> DataWarehouseSavedQuery:
-            return DataWarehouseSavedQuery.objects.create(team=self.team, name=name, **kwargs)
-
-        created = view("created", created_by=self.user)
-        created_opted_out = view("created_opted_out", created_by=self.user)
-        subscribed = view("subscribed", created_by=member)
-        not_subscribed = view("not_subscribed", created_by=member)
-        view("created_deleted", created_by=self.user, deleted=True)
+        created = self._view_node("created")
+        created_opted_out = self._view_node("created_opted_out")
+        subscribed = self._view_node("subscribed", creator="member")
+        not_subscribed = self._view_node("not_subscribed", creator="member")
+        self._view_node("created_deleted", deleted=True)
+        metric = metric_node(self.team, self.dag, "metric")
         other_team = Team.objects.create(organization=self.organization, name="Other team")
-        DataWarehouseSavedQuery.objects.create(team=other_team, name="other_team", created_by=self.user)
+        metric_node(other_team, DAG.get_or_create_default(other_team), "other_team_metric")
 
         api.set_watching(self.team.id, created_opted_out.id, self.user.id, False)
         api.set_watching(self.team.id, subscribed.id, self.user.id, True)
+        api.set_watching(self.team.id, metric.id, self.user.id, True)
 
-        assert api.watched_saved_query_ids(self.team.id, self.user.id) == {created.id, subscribed.id}
-        assert api.watched_saved_query_ids(self.team.id, member.id) == {subscribed.id, not_subscribed.id}
+        assert api.watched_node_ids(self.team.id, self.user.id) == {created.id, subscribed.id, metric.id}
+        assert api.watched_node_ids(self.team.id, member.id) == {subscribed.id, not_subscribed.id}
