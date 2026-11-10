@@ -59,8 +59,9 @@ function strictHogQLFake(tables: Record<string, Row[]>): MockSignature {
             rows = rows.filter(predicate)
         }
         const groupColumns = list(groupBy)
-        const columns = groupBy ? [...groupColumns, 'total'] : tableColumns
-        const selected = list(select).map((term) => (groupBy && term === 'sum(count) AS total' ? 'total' : term))
+        const sumsCount = !!groupBy && list(select).includes('sum(count) AS total')
+        const columns = groupBy ? [...groupColumns, ...(sumsCount ? ['total'] : [])] : tableColumns
+        const selected = list(select).map((term) => (sumsCount && term === 'sum(count) AS total' ? 'total' : term))
         if (groupColumns.some((column) => !tableColumns.includes(column))) {
             return unsupported(`GROUP BY ${groupBy}`)
         }
