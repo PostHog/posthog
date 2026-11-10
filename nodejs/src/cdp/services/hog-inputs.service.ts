@@ -256,6 +256,7 @@ export class HogInputsService {
         }
 
         const integrations = await this.integrationManager.getMany(allIds)
+        const decryptFailures = await this.integrationManager.getDecryptFailures(allIds)
         const returnInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }> = {}
 
         // IMPORTANT: Check the team ID is correct — never resolve an integration from another team.
@@ -298,6 +299,9 @@ export class HogInputsService {
             if (isUsed && isWarehouseSourceIntegration(integrations[id])) {
                 throw new HogConfigurationError(warehouseIntegrationMessage(key))
             }
+            if (isUsed && (decryptFailures[id]?.length ?? 0) > 0) {
+                throw new HogConfigurationError(decryptIntegrationMessage(key))
+            }
             returnInputs[key] = { value: resolveIntegration(id) }
         })
 
@@ -314,6 +318,16 @@ export class HogInputsService {
                 )
             ) {
                 throw new HogConfigurationError(warehouseIntegrationMessage(key))
+            }
+            if (
+                ids.some(
+                    (id) =>
+                        usedIds.includes(id) &&
+                        integrations[id]?.team_id === hogFunction.team_id &&
+                        (decryptFailures[id]?.length ?? 0) > 0
+                )
+            ) {
+                throw new HogConfigurationError(decryptIntegrationMessage(key))
             }
             returnInputs[key] = { value: ids.map(resolveIntegration).filter((v) => v !== null) }
         })
@@ -342,6 +356,9 @@ const isWarehouseSourceIntegration = (integration: { config?: unknown } | null |
 
 const warehouseIntegrationMessage = (key: string): string =>
     `The integration for input '${key}' can't be used as a function input. Select a different integration for this input.`
+
+const decryptIntegrationMessage = (key: string): string =>
+    `The integration for input '${key}' could not be decrypted. Reconnect the integration.`
 
 export const formatHogInput = async (
     bytecode: any,

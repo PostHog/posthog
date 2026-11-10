@@ -10,7 +10,8 @@ import { Hub, Team } from '~/types'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { classifyHogError } from '../utils/hog-error-classification'
+import { EncryptedFields } from '../utils/encryption-utils'
+import { HogConfigurationError, classifyHogError } from '../utils/hog-error-classification'
 import { NATIVE_PUSH_TEMPLATE_ID } from '../utils/push-subscription-utils'
 import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
@@ -219,6 +220,14 @@ describe('Hog Inputs', () => {
         let hogFunction: HogFunctionType
         let globals: HogFunctionInvocationGlobals
 
+        const insertUndecryptableIntegration = async (id: number, teamId = team.id): Promise<void> => {
+            await insertIntegration(hub.postgres, teamId, {
+                id,
+                kind: 'slack',
+                sensitive_config: { access_token: new EncryptedFields('f'.repeat(32)).encrypt('token') },
+            })
+        }
+
         beforeEach(async () => {
             hogFunction = createHogFunction({
                 id: 'hog-function-1',
@@ -356,6 +365,56 @@ describe('Hog Inputs', () => {
             await expect(
                 hogInputsService.buildInputs(hogFunction, globals, hogFunction.mappings[0].inputs ?? {})
             ).rejects.toThrow("The integration for input 'slack' no longer exists.")
+        })
+
+        it.each<[string, string, (id: number) => number | number[]]>([
+            ['integration', 'oauth', (id: number): number => id],
+            ['integration_multi', 'channels', (id: number): number[] => [integrationId1, id]],
+        ])('fails a used %s input when the integration cannot be decrypted', async (type, key, value) => {
+            const id = 100000000 + team.id
+            await insertUndecryptableIntegration(id)
+            hogFunction.inputs = { [key]: { value: value(id) } }
+            hogFunction.inputs_schema = [{ key, type: type as any, required: true }]
+
+            const error = await hogInputsService.buildInputs(hogFunction, globals).catch((e) => e)
+
+            expect(error).toBeInstanceOf(HogConfigurationError)
+            expect(error.message).toContain('could not be decrypted')
+            expect(classifyHogError(error, { runtimeContract: 'any' })).toBe('config')
+        })
+
+        it('loads an undecryptable integration on a mapping this invocation does not use', async () => {
+            const id = 100000000 + team.id
+            await insertUndecryptableIntegration(id)
+            hogFunction.mappings = [
+                { inputs: { slack: { value: id } }, inputs_schema: [{ key: 'slack', type: 'integration' }] },
+            ]
+
+            await expect(hogInputsService.buildInputs(hogFunction, globals)).resolves.toBeDefined()
+            const loaded = await hogInputsService.loadIntegrationInputs(hogFunction)
+            expect(loaded.slack.value).toMatchObject({ $integration_id: id })
+        })
+
+        it.each([
+            ['integration', "The integration for input 'connection' no longer exists."],
+            ['integration_multi', null],
+        ])('does not reveal decrypt failures from another team for %s', async (type, message) => {
+            const otherTeam = (await createTestTeamFixture(hub.postgres)).team
+            const foreignId = 100000000 + otherTeam.id
+            await insertUndecryptableIntegration(foreignId, otherTeam.id)
+            hogFunction.inputs = {
+                connection: { value: type === 'integration' ? foreignId : [integrationId1, foreignId] },
+            }
+            hogFunction.inputs_schema = [{ key: 'connection', type: type as any, required: true }]
+
+            const result = await hogInputsService.buildInputs(hogFunction, globals).catch((e) => e)
+
+            if (message) {
+                expect(result.message).toContain(message)
+            } else {
+                expect(result).not.toBeInstanceOf(Error)
+            }
+            expect(result.message ?? '').not.toContain('could not be decrypted')
         })
 
         it('should not load a posthog connection', async () => {
