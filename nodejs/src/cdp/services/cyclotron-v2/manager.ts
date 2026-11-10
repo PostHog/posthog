@@ -113,6 +113,21 @@ const rescheduleFailureCounter = new Counter({
     labelNames: ['kind'] as const,
 })
 
+type EnqueuePhase = 'depth_check' | 'sequence_reserve' | 'insert'
+
+// The top bucket sits well past the 10 s depth-check interval, so that a slow
+// depth query that blocks every enqueue for a full interval stays visible.
+const enqueuePhaseHistogram = new Histogram({
+    name: 'cdp_cyclotron_v2_enqueue_phase_duration_seconds',
+    help: 'Time spent in each awaited step of createJob and bulkCreateJobs.',
+    labelNames: ['phase'] as const,
+    buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60],
+})
+
+function startPhaseTimer(phase: EnqueuePhase): () => number {
+    return enqueuePhaseHistogram.startTimer({ phase })
+}
+
 const cancelMarkedCounter = new Counter({
     name: 'cdp_cyclotron_v2_cancel_marked',
     help: 'In-flight cyclotron jobs flagged for cancellation, split by the job status at marking time.',
@@ -179,7 +194,12 @@ export class CyclotronV2Manager {
 
     async createJob(input: CyclotronV2JobInit): Promise<string> {
         const job = CyclotronV2JobInitSchema.parse(input)
-        await this.insertGuard()
+        const endDepthCheck = startPhaseTimer('depth_check')
+        try {
+            await this.insertGuard()
+        } finally {
+            endDepthCheck()
+        }
 
         const id = job.id ?? uuidv7()
         const now = new Date()
@@ -210,6 +230,7 @@ export class CyclotronV2Manager {
                RETURNING id`
             : 'RETURNING id'
         let result: { rows: { id: string }[] }
+        const endInsert = startPhaseTimer('insert')
         try {
             result = await this.pool.query<{ id: string }>(
                 `INSERT INTO cyclotron_jobs
@@ -238,6 +259,8 @@ export class CyclotronV2Manager {
         } catch (err) {
             dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
             throw err
+        } finally {
+            endInsert()
         }
         if (job.overwriteExisting && result.rows.length === 0) {
             // Existing row was in an active state — refuse to clobber.
@@ -263,7 +286,12 @@ export class CyclotronV2Manager {
         const jobs = inputs.map((input) => CyclotronV2JobInitSchema.parse(input))
         const overwriteExisting = jobs.some((j) => j.overwriteExisting)
 
-        await this.insertGuard()
+        const endDepthCheck = startPhaseTimer('depth_check')
+        try {
+            await this.insertGuard()
+        } finally {
+            endDepthCheck()
+        }
 
         const ids: string[] = []
         const teamIds: number[] = []
@@ -319,6 +347,7 @@ export class CyclotronV2Manager {
                RETURNING id`
             : 'RETURNING id'
         let result: { rows: { id: string }[] }
+        const endInsert = startPhaseTimer('insert')
         try {
             result = await this.pool.query<{ id: string }>(
                 `INSERT INTO cyclotron_jobs
@@ -365,6 +394,8 @@ export class CyclotronV2Manager {
         } catch (err) {
             dbWriteFailureCounter.labels({ kind: isTransientPgError(err) ? 'transient' : 'logical' }).inc()
             throw err
+        } finally {
+            endInsert()
         }
 
         if (overwriteExisting) {
@@ -430,8 +461,11 @@ export class CyclotronV2Manager {
         // so they slot in next to established teams. Existing-team rows still
         // add just `increment` (we subtract the MAX shift back out in the ON
         // CONFLICT branch). MAX is computed once per batch via the CTE.
-        const upsertResult = await this.pool.query<{ team_id: number; counter: string }>(
-            `WITH max_counter AS (
+        const endSequenceReserve = startPhaseTimer('sequence_reserve')
+        let upsertResult: { rows: { team_id: number; counter: string }[] }
+        try {
+            upsertResult = await this.pool.query<{ team_id: number; counter: string }>(
+                `WITH max_counter AS (
                  SELECT COALESCE(MAX(counter), 0) AS m FROM cyclotron_email_team_seq
              )
              INSERT INTO cyclotron_email_team_seq (team_id, counter)
@@ -441,8 +475,11 @@ export class CyclotronV2Manager {
                 SET counter = cyclotron_email_team_seq.counter
                             + (EXCLUDED.counter - (SELECT m FROM max_counter))
              RETURNING team_id, counter`,
-            [teamIds, increments]
-        )
+                [teamIds, increments]
+            )
+        } finally {
+            endSequenceReserve()
+        }
 
         const newCounters = new Map<number, bigint>(upsertResult.rows.map((r) => [r.team_id, BigInt(r.counter)]))
 

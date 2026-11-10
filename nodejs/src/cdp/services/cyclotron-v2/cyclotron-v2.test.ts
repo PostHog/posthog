@@ -191,6 +191,23 @@ async function churnCountForQueue(queue: string): Promise<number> {
     return line ? Number(line.trim().split(' ').pop()) : 0
 }
 
+const ENQUEUE_PHASES = ['depth_check', 'sequence_reserve', 'insert'] as const
+
+async function enqueuePhaseCounts(): Promise<Record<(typeof ENQUEUE_PHASES)[number], number>> {
+    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_enqueue_phase_duration_seconds')
+    const countOf = (phase: string): number => {
+        const line = metric
+            .split('\n')
+            .find((l) => l.startsWith(`cdp_cyclotron_v2_enqueue_phase_duration_seconds_count{phase="${phase}"}`))
+        return line ? Number(line.trim().split(' ').pop()) : 0
+    }
+    return {
+        depth_check: countOf('depth_check'),
+        sequence_reserve: countOf('sequence_reserve'),
+        insert: countOf('insert'),
+    }
+}
+
 describe('Cyclotron V2', () => {
     jest.setTimeout(3000)
     // Declared here, assigned in beforeAll
@@ -1913,6 +1930,28 @@ describe('Cyclotron V2', () => {
                 expect(await readDequeueSeq(hogId)).toBeNull()
             })
 
+            it.each([
+                {
+                    batch: 'an email and hogflow',
+                    queues: [EMAIL_QUEUE, 'hogflow'],
+                    expected: { depth_check: 1, sequence_reserve: 1, insert: 1 },
+                },
+                {
+                    batch: 'a hogflow-only',
+                    queues: ['hogflow', 'hogflow'],
+                    expected: { depth_check: 1, sequence_reserve: 0, insert: 1 },
+                },
+            ])('times each enqueue phase of $batch batch', async ({ queues, expected }) => {
+                const before = await enqueuePhaseCounts()
+                await manager.bulkCreateJobs(queues.map((queueName) => ({ teamId: 7, queueName })))
+                const after = await enqueuePhaseCounts()
+
+                const recorded = Object.fromEntries(
+                    ENQUEUE_PHASES.map((phase) => [phase, after[phase] - before[phase]])
+                )
+                expect(recorded).toEqual(expected)
+            })
+
             it('uses counter * 16M + team_id as the formula', async () => {
                 const teamId = 42
                 const [id] = await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE }])
@@ -2945,6 +2984,34 @@ describe('Cyclotron V2', () => {
             await ended
 
             expect(await droppedClientCount('worker')).toBe(before + 1)
+        })
+
+        it('reports queries waiting for a client of a full pool until the client is released', async () => {
+            const waitingFor = async (pool: string): Promise<number | undefined> => {
+                const metric = register.getSingleMetric('cdp_cyclotron_v2_pg_pool_clients')
+                const samples = metric ? (await metric.get()).values : []
+                return samples.find((s) => s.labels.pool === pool && s.labels.state === 'waiting')?.value
+            }
+            const pool = createCyclotronPool('subscription_matcher', { connectionString: DB_URL, max: 1 })
+            const client = await pool.connect()
+            let released = false
+            const release = (): void => {
+                if (!released) {
+                    released = true
+                    client.release()
+                }
+            }
+            stops.push(async () => {
+                release()
+                await pool.end()
+            })
+            const queued = pool.query('SELECT 1')
+
+            expect(await waitingFor('subscription_matcher')).toBe(1)
+
+            release()
+            await queued
+            expect(await waitingFor('subscription_matcher')).toBe(0)
         })
 
         it('a check-in on a dropped client commits nothing, and the janitor hands the job back once', async () => {
