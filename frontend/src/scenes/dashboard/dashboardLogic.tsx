@@ -752,9 +752,9 @@ export interface dashboardLogicValues {
     buttonTileId: DashboardTileIdOrNew
     canAutoPreview: boolean
     canEditDashboard: boolean
+    canRedoLayoutChange: boolean
     canRestrictDashboard: boolean
     canSaveProjectDashboardTemplate: boolean
-    canRedoLayoutChange: boolean
     canUndoLayoutChange: boolean
     cancellingPreview: boolean
     carryingTile: boolean
@@ -1224,6 +1224,9 @@ export interface dashboardLogicActions {
     recheckRefreshEligibility: () => {
         value: true
     }
+    redoLayoutChange: () => {
+        value: true
+    }
     refreshDashboardItem: (payload: { tile: DashboardTile }) => {
         tile: DashboardTile
     }
@@ -1624,9 +1627,6 @@ export interface dashboardLogicActions {
     }
     triggerDashboardUpdate: (payload: any) => {
         payload: any
-    }
-    redoLayoutChange: () => {
-        value: true
     }
     undoLayoutChange: () => {
         value: true
