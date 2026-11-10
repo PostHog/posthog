@@ -136,20 +136,19 @@ def find_personal_api_key(token: str) -> tuple[PersonalAPIKey, str] | None:
 def get_organization_personal_api_keys(organization: "Organization") -> QuerySet[PersonalAPIKey]:
     """Personal API keys of org members that can access this organization or any of its projects.
 
-    Includes fully unscoped keys (which can reach everything the owner can), keys explicitly scoped
-    to this organization, and keys scoped to any of the organization's teams.
+    Authentication applies each non-empty scope list as its own limit, so a key must pass both: its
+    organization scope is empty or names this organization, and its project scope is empty or names
+    one of this organization's projects.
     """
     team_ids = list(organization.teams.values_list("id", flat=True))
     return (
         PersonalAPIKey.objects.filter(user__organization_membership__organization_id=organization.id)
         .filter(
-            Q(scoped_organizations__contains=[str(organization.id)])
-            | Q(scoped_teams__overlap=team_ids)
-            | (
-                (Q(scoped_organizations__isnull=True) | Q(scoped_organizations=[]))
-                & (Q(scoped_teams__isnull=True) | Q(scoped_teams=[]))
-            )
+            Q(scoped_organizations__isnull=True)
+            | Q(scoped_organizations=[])
+            | Q(scoped_organizations__contains=[str(organization.id)])
         )
+        .filter(Q(scoped_teams__isnull=True) | Q(scoped_teams=[]) | Q(scoped_teams__overlap=team_ids))
         .select_related("user")
         .distinct()
     )

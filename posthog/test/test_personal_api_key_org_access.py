@@ -32,6 +32,15 @@ class TestGetOrganizationPersonalAPIKeys(BaseTest):
         other_team = Team.objects.create(organization=other_org, name="other team")
         self._create_key(member, scoped_organizations=[str(other_org.id)], label="other-org")
         self._create_key(member, scoped_teams=[other_team.id], label="other-team")
+        self._create_key(
+            member, scoped_organizations=[str(other_org.id)], scoped_teams=[self.team.id], label="other-org-own-team"
+        )
+        self._create_key(
+            member,
+            scoped_organizations=[str(self.organization.id), str(other_org.id)],
+            scoped_teams=[other_team.id],
+            label="both-orgs-other-team",
+        )
 
         assert get_organization_personal_api_keys(self.organization).count() == 0
 
