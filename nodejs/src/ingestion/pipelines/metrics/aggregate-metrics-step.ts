@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { logger } from '~/common/utils/logger'
 import { ChunkProcessingStep } from '~/ingestion/framework/builders'
-import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
+import { PipelineResult, PipelineResultType, drop, ok } from '~/ingestion/framework/results'
 import { ValueMatcher } from '~/types'
 
 import { aggregateMetricRecords, isAggregatable } from './aggregate-metric-records'
@@ -49,8 +49,17 @@ async function decodeInput<T extends AggregateMetricsInput>(value: T, index: num
     }
 }
 
-// Each message takes back at most as many points as it gave, so it stays under the producer size limit.
-// The first message takes the size counters of the dropped messages so that the ingested totals stay the same.
+// Bounds the records decoded at one time. `bytesUncompressed` is the size of the OTLP request, which
+// tracks the decoded size of its records.
+const MAX_CHUNK_BYTES_UNCOMPRESSED = 32 * 1024 * 1024
+
+function encodedSize(input: DecodedInput, record: MetricRecord): number {
+    return input.decoded.type.toBuffer(record).length
+}
+
+// Each output message is filled up to the encoded size of the largest input message, so it stays under the
+// producer size limit. The input records take at least as many bytes as the output records, so the
+// capacity of the input messages is enough.
 async function aggregateMessages<T extends AggregateMetricsInput>(
     values: T[],
     inputs: DecodedInput[],
@@ -64,10 +73,28 @@ async function aggregateMessages<T extends AggregateMetricsInput>(
         return
     }
 
-    const recordsPerInput = inputs.map((input) => [
-        ...input.passthrough,
-        ...aggregated.splice(0, input.aggregatable.length),
-    ])
+    const passthroughBytes = inputs.map((input) =>
+        input.passthrough.reduce((total, record) => total + encodedSize(input, record), 0)
+    )
+    const budget = Math.max(
+        ...inputs.map(
+            (input, position) =>
+                passthroughBytes[position] +
+                input.aggregatable.reduce((total, record) => total + encodedSize(input, record), 0)
+        )
+    )
+    const recordsPerInput = inputs.map((input) => [...input.passthrough])
+    const usedBytes = [...passthroughBytes]
+    let position = 0
+    for (const record of aggregated) {
+        const size = encodedSize(inputs[0], record)
+        while (position < inputs.length - 1 && usedBytes[position] + size > budget) {
+            position++
+        }
+        recordsPerInput[position].push(record)
+        usedBytes[position] += size
+    }
+
     const encoded = await Promise.all(
         inputs.map((input, position) =>
             recordsPerInput[position].length === 0
@@ -76,11 +103,12 @@ async function aggregateMessages<T extends AggregateMetricsInput>(
         )
     )
 
-    const first = values[inputs[0].index]
-    let bytesUncompressed = first.bytesUncompressed
-    let recordCount = first.recordCount
-    for (let position = 1; position < inputs.length; position++) {
-        const { index } = inputs[position]
+    // The first message that keeps records takes the size counters of the dropped messages, so that
+    // the ingested totals stay the same.
+    const survivor = encoded.findIndex((buffer) => buffer !== null)
+    let bytesUncompressed = 0
+    let recordCount = 0
+    inputs.forEach(({ index }, position) => {
         const buffer = encoded[position]
         if (buffer === null) {
             bytesUncompressed += values[index].bytesUncompressed
@@ -89,13 +117,62 @@ async function aggregateMessages<T extends AggregateMetricsInput>(
         } else {
             results[index] = ok({ ...values[index], message: { ...values[index].message, value: buffer } })
         }
-    }
-    results[inputs[0].index] = ok({
-        ...first,
-        message: { ...first.message, value: encoded[0]! },
-        bytesUncompressed,
-        recordCount,
     })
+    const survivorResult = results[inputs[survivor].index]
+    if (survivorResult.type === PipelineResultType.OK) {
+        survivorResult.value.bytesUncompressed += bytesUncompressed
+        survivorResult.value.recordCount += recordCount
+    }
+}
+
+async function aggregateChunk<T extends AggregateMetricsInput>(
+    values: T[],
+    indices: number[],
+    results: PipelineResult<T>[]
+): Promise<void> {
+    const decoded = await Promise.all(indices.map((index) => decodeInput(values[index], index)))
+    const bySchema = new Map<string, DecodedInput[]>()
+    for (const input of decoded) {
+        if (input === null || input.aggregatable.length === 0) {
+            continue
+        }
+        const schema = input.decoded.meta['avro.schema']?.toString() ?? ''
+        const key = `${input.decoded.codec}:${schema}`
+        const inputs = bySchema.get(key)
+        if (inputs) {
+            inputs.push(input)
+        } else {
+            bySchema.set(key, [input])
+        }
+    }
+    for (const inputs of bySchema.values()) {
+        try {
+            await aggregateMessages(values, inputs, results)
+        } catch (error) {
+            logger.error('metrics_aggregation_encode_failed', { error: String(error) })
+            metricsAggregationSkippedCounter.inc({ reason: 'encode_error' }, inputs.length)
+        }
+    }
+}
+
+function splitByBytes<T extends AggregateMetricsInput>(values: T[], indices: number[]): number[][] {
+    const chunks: number[][] = []
+    let chunk: number[] = []
+    let chunkBytes = 0
+    for (const index of indices) {
+        const bytes = values[index].bytesUncompressed
+        if (chunk.length > 0 && chunkBytes + bytes > MAX_CHUNK_BYTES_UNCOMPRESSED) {
+            chunks.push(chunk)
+            chunk = []
+            chunkBytes = 0
+        }
+        chunk.push(index)
+        chunkBytes += bytes
+    }
+    if (chunk.length > 0) {
+        chunks.push(chunk)
+    }
+    return chunks
 }
 
 // Merges only messages of one team and one source partition, because ClickHouse tracks freshness per
@@ -120,33 +197,11 @@ export function createAggregateMetricsStep<T extends AggregateMetricsInput>(
             }
         })
 
-        await Promise.all(
-            [...groups.values()].map(async (indices) => {
-                const decoded = await Promise.all(indices.map((index) => decodeInput(values[index], index)))
-                const bySchema = new Map<string, DecodedInput[]>()
-                for (const input of decoded) {
-                    if (input === null || input.aggregatable.length === 0) {
-                        continue
-                    }
-                    const schema = input.decoded.meta['avro.schema']?.toString() ?? ''
-                    const key = `${input.decoded.codec}:${schema}`
-                    const inputs = bySchema.get(key)
-                    if (inputs) {
-                        inputs.push(input)
-                    } else {
-                        bySchema.set(key, [input])
-                    }
-                }
-                for (const inputs of bySchema.values()) {
-                    try {
-                        await aggregateMessages(values, inputs, results)
-                    } catch (error) {
-                        logger.error('metrics_aggregation_encode_failed', { error: String(error) })
-                        metricsAggregationSkippedCounter.inc({ reason: 'encode_error' }, inputs.length)
-                    }
-                }
-            })
-        )
+        for (const indices of groups.values()) {
+            for (const chunk of splitByBytes(values, indices)) {
+                await aggregateChunk(values, chunk, results)
+            }
+        }
 
         return results
     }

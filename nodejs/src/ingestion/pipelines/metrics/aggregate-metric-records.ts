@@ -21,6 +21,10 @@ function aggregationKind(record: MetricRecord): AggregationKind | null {
     ) {
         return null
     }
+    // A sample query filters by trace, so a point linked to a trace keeps its own value.
+    if ((unwrap<Buffer>(record.trace_id)?.length ?? 0) > 0) {
+        return null
+    }
     const temporality = unwrap<string>(record.aggregation_temporality)
     if (temporality === 'delta') {
         return 'delta'
@@ -71,8 +75,8 @@ function aggregateDelta(records: MetricRecord[]): MetricRecord[] {
     return [withValueAndCount(sorted[sorted.length - 1], value, count)]
 }
 
-// The first point keeps a reset between two groups visible to the query, and the point before
-// each drop in value keeps the increase before a reset.
+// The first point keeps a reset between two groups visible to the query. The points on both sides of
+// each drop in value keep the reset visible when the value climbs past its old level in one group.
 function aggregateCumulative(records: MetricRecord[]): MetricRecord[] {
     const sorted = sortByTimestamp(records)
     const last = sorted.length - 1
@@ -82,7 +86,8 @@ function aggregateCumulative(records: MetricRecord[]): MetricRecord[] {
         const record = sorted[index]
         count += countOf(record)
         const beforeReset = index < last && valueOf(sorted[index + 1]) < valueOf(record)
-        if (index === 0 || index === last || beforeReset) {
+        const afterReset = index > 0 && valueOf(record) < valueOf(sorted[index - 1])
+        if (index === 0 || index === last || beforeReset || afterReset) {
             kept.push(withValueAndCount(record, valueOf(record), count))
             count = 0n
         }
