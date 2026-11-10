@@ -6,6 +6,7 @@ from datetime import timedelta
 import structlog
 from temporalio import activity, common, workflow
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -25,7 +26,7 @@ class RunQuotaLimitingAllOrgsInputs:
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class QuotaLimitingResult:
     duration_s: float = 0.0
     orgs_total: int = 0
