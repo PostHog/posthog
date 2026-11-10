@@ -9,12 +9,23 @@ import { SETUP_NEXT } from '../state'
 const QUESTION = 'What do you want to use PostHog for?'
 const COMMAND = `${SETUP_NEXT} --reason "<their answer>" --products <id,id>`
 
-const INSTRUCTIONS = [
-    `Ask the person: "${QUESTION}"`,
-    `Then pick the products in context.products that match their answer, and run \`${COMMAND}\` yourself.`,
-    'When nothing matches, pass --products product-analytics.',
-    'Add --region eu only when they mention the EU or data residency.',
-].join(' ')
+const SENT_NOTICE = 'Your answer goes to PostHog, to improve setup.'
+const KEPT_NOTICE = 'Your answer stays on this machine.'
+
+// The agent asks in our place, so it passes on the same notice the terminal shows.
+function instructions(telemetry: boolean): string {
+    const notice = telemetry
+        ? `Tell them: "${SENT_NOTICE} To keep it on this machine, set HOG_NO_TELEMETRY=1."`
+        : `Tell them: "${KEPT_NOTICE}"`
+
+    return [
+        `Ask the person: "${QUESTION}"`,
+        notice,
+        `Then pick the products in context.products that match their answer, and run \`${COMMAND}\` yourself.`,
+        'When nothing matches, pass --products product-analytics.',
+        'Add --region eu only when they mention the EU or data residency.',
+    ].join(' ')
+}
 
 type Answers = Pick<SetupInput, 'reason' | 'products' | 'region'>
 
@@ -26,9 +37,7 @@ async function askAtTerminal(run: SetupRun, given: Answers, needsRegion: boolean
         return given
     }
 
-    const help = run.ctx.telemetry.isEnabled
-        ? 'Your answer goes to PostHog, to improve setup.'
-        : 'Your answer stays on this machine.'
+    const help = run.ctx.telemetry.isEnabled ? SENT_NOTICE : KEPT_NOTICE
     const reason =
         given.reason ??
         (await prompts.text(QUESTION, {
@@ -84,7 +93,12 @@ export const purpose: Step = {
             run.context.products = await run.productsContext()
             return {
                 code: 'setup_needs_answers',
-                next: { kind: 'ask_user', ask: QUESTION, command: COMMAND, instructions: INSTRUCTIONS },
+                next: {
+                    kind: 'ask_user',
+                    ask: QUESTION,
+                    command: COMMAND,
+                    instructions: instructions(ctx.telemetry.isEnabled),
+                },
             }
         }
 

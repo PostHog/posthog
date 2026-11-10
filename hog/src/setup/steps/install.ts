@@ -17,10 +17,8 @@ export function readCommand({ skill, path }: SkillFile): string {
 }
 
 async function fillInstallContext(run: SetupRun): Promise<void> {
-    const [{ host }, project] = await Promise.all([
-        run.requireLogin(),
-        run.ctx.posthog().then((api) => api.get('', ProjectSchema)),
-    ])
+    const [{ host }, api] = await Promise.all([run.requireLogin(), run.api()])
+    const project = await api.get('', ProjectSchema)
     const region = regionOf(host)
 
     run.context.token = project.api_token

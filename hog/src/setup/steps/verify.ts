@@ -20,7 +20,7 @@ export function eventsContext(startedAt: number, count: number | null): EventsCo
 }
 
 export async function countEvents(run: SetupRun, events: EventsContext): Promise<number> {
-    const response = await runHogQL((await run.ctx.posthog()).withoutStepUp(), events.query)
+    const response = await runHogQL(await run.api(), events.query)
     return CountSchema.catch(0).parse(response.results[0]?.[0])
 }
 

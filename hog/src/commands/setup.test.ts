@@ -202,6 +202,12 @@ describe('hog setup', () => {
         expect((fresh.json() as any).context.products.map((product: { id: string }) => product.id)).toContain(
             'mcp-analytics'
         )
+        expect((fresh.json() as any).next.instructions).toContain('Your answer stays on this machine.')
+
+        const askedWithTelemetry = await machine.run(['setup'], { telemetry: true })
+        expect((askedWithTelemetry.json() as any).next.instructions).toContain(
+            'Your answer goes to PostHog, to improve setup. To keep it on this machine, set HOG_NO_TELEMETRY=1.'
+        )
 
         const started = await machine.run(['setup', 'next', ...ANSWERS], { telemetry: true })
         expect(started.json()).toMatchObject({
@@ -320,6 +326,18 @@ describe('hog setup', () => {
         expect(weeksLater.json()).toMatchObject({
             context: { events: { since: new Date(START - day).toISOString(), count: 2 } },
         })
+    })
+
+    test('a key in --dotenv-file for another project stops setup before it reports a token', async () => {
+        const machine = world({ '/work/p.env': `HOG_PERSONAL_API_KEY=phx_test\nHOG_PROJECT_ID=7\nHOG_HOST=${EU}\n` })
+        await machine.run(['setup', 'next', ...ANSWERS])
+        await machine.run(['setup', 'next'])
+
+        const result = await machine.run(['--dotenv-file', '/work/p.env', 'setup', 'next'])
+
+        expect(result.exitCode).toBe(2)
+        expect(result.error()).toMatchObject({ code: 'setup_project_mismatch' })
+        expect(result.stdout).not.toContain(TOKEN)
     })
 
     test('a person answers at the terminal, and options they pass are not asked again', async () => {
