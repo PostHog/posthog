@@ -56,8 +56,7 @@ from products.alerts.backend.models.alert import (
     AlertConfiguration,
     AlertSubscription,
 )
-from products.alerts_platform.backend.facade.api import delete_configuration, native_configuration_ids
-from products.alerts_platform.backend.facade.contracts import InvalidPlatformAlertEdit, SourceKind
+from products.alerts_platform.backend.facade.contracts import InvalidPlatformAlertEdit
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -123,9 +122,9 @@ def delete_insight_alerts(insight_ids: Collection[int]) -> None:
     queryset delete, because a queryset delete never calls ``AlertConfiguration.delete()``, and
     ModelActivityMixin hangs its per-row activity logging off that override.
 
-    Alerts with no insight row go after the transaction commits, because the platform resolves
-    their open incidents first, and a rollback cannot take a resolve back. One that fails to go
-    switches itself off on its next check, because its insight is gone.
+    Alerts with no insight row go in a workflow started after the transaction commits, because the
+    platform resolves their open incidents first, which calls the providers, and a rollback cannot
+    take a resolve back. The workflow retries each delete.
     """
     # Caller-supplied ids that are already team-scoped by the caller's own query.
     # nosemgrep: idor-lookup-without-team
@@ -137,22 +136,14 @@ def delete_insight_alerts(insight_ids: Collection[int]) -> None:
         "team_id", "id"
     ):
         insights_by_team.setdefault(team_id, []).append(insight_id)
-    transaction.on_commit(lambda: _delete_native_insight_alerts(insights_by_team))
+    transaction.on_commit(lambda: _start_native_cleanup(insights_by_team))
 
 
-def _delete_native_insight_alerts(insights_by_team: dict[int, list[int]]) -> None:
-    for team_id, insight_ids in insights_by_team.items():
-        for configuration_id in native_configuration_ids(
-            team_id=team_id, source_kind=SourceKind.INSIGHT, source_config_key="insight_id", values=insight_ids
-        ):
-            try:
-                delete_configuration(
-                    team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=configuration_id
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to delete an insight alert with no insight row", configuration_id=str(configuration_id)
-                )
+def _start_native_cleanup(insights_by_team: dict[int, list[int]]) -> None:
+    # Deferred, so the Temporal client stays off this facade's import graph.
+    from products.alerts.backend.platform_native_cleanup import start_native_cleanup  # noqa: PLC0415
+
+    start_native_cleanup(insights_by_team)
 
 
 def snooze_alert_from_slack(

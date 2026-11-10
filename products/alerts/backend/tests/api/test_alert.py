@@ -34,6 +34,7 @@ from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALE
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
+from products.alerts.backend.platform_native_cleanup import NativeCleanupInputs, delete_native_alert, native_alert_ids
 from products.alerts.backend.presentation.views.alert import AlertSerializer
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import list_configurations
@@ -893,8 +894,15 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    @parameterized.expand([("soft_delete",), ("bulk_delete",), ("query_that_cannot_alert",)])
-    def test_an_alert_with_no_insight_row_goes_with_its_insight(self, path: str) -> None:
+    @parameterized.expand(
+        [
+            ("soft_delete", True),
+            ("bulk_delete", True),
+            ("query_that_cannot_alert", True),
+            ("soft_delete_with_temporal_down", False),
+        ]
+    )
+    def test_an_alert_with_no_insight_row_goes_with_its_insight(self, path: str, temporal_up: bool) -> None:
         insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
         with team_scope(self.team.id):
             native, kept = (
@@ -922,8 +930,21 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             },
         )
 
-        with self.captureOnCommitCallbacks(execute=True):
-            if path == "soft_delete":
+        started: list[NativeCleanupInputs] = []
+
+        async def start(inputs: NativeCleanupInputs) -> None:
+            if not temporal_up:
+                raise ConnectionError("Temporal is unreachable")
+            started.append(inputs)
+            # What the workflow's activities run.
+            for configuration_id in native_alert_ids(inputs):
+                delete_native_alert(inputs.team_id, configuration_id)
+
+        with (
+            mock.patch("products.alerts.backend.platform_native_cleanup._start", side_effect=start),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if path.startswith("soft_delete"):
                 self.client.patch(f"/api/projects/{self.team.id}/insights/{insight['id']}", {"deleted": True})
             elif path == "bulk_delete":
                 self.client.post(
@@ -943,6 +964,8 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             )
         destination.refresh_from_db()
         assert ({view.id for view in remaining.configurations}, destination.deleted) == ({kept.id}, True)
+        expected_start = [NativeCleanupInputs(team_id=self.team.id, insight_ids=(insight["id"],))]
+        assert started == (expected_start if temporal_up else [])
 
     def test_hogql_alert_survives_insight_update_and_is_listed_on_insight(self) -> None:
         hogql_insight_data: dict[str, Any] = {
