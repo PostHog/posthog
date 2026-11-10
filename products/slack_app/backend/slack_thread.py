@@ -11,7 +11,9 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationRecord
+from posthog.models.integration import SlackIntegration
+from posthog.models.team import Team
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
@@ -42,6 +44,7 @@ from products.slack_app.backend.services.slack_messages import (
     turn_feedback_block,
 )
 from products.slack_app.backend.services.task_notifications import task_slack_notifications_muted
+from products.slack_app.backend.services.workspace_integrations import SLACK_ROW_READER
 from products.tasks.backend.facade.reply_suggestions import SuggestedReply, suggest_replies
 
 if TYPE_CHECKING:
@@ -259,7 +262,7 @@ class SlackThreadHandler:
         # Who this reply is for, which can differ from the task creator because a thread
         # outlives its opener.
         self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
-        self._integration: Integration | None = None
+        self._integration: IntegrationRecord | None = None
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
@@ -322,10 +325,9 @@ class SlackThreadHandler:
             )
         return self._muted_cache[key]
 
-    def _get_integration(self) -> Integration:
+    def _get_integration(self) -> IntegrationRecord:
         if self._integration is None:
-            # nosemgrep: idor-lookup-without-team (internal context, ID from Slack event mapping)
-            self._integration = Integration.objects.get(id=self.context.integration_id)
+            self._integration = SLACK_ROW_READER.get_by_id(self.context.integration_id)
         return self._integration
 
     @property
@@ -1014,7 +1016,7 @@ class SlackThreadHandler:
         from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
 
         attribution = slack_reply_attribution(
-            privacy_mode=is_privacy_mode_enabled(integration.team),
+            privacy_mode=is_privacy_mode_enabled(Team.objects.get(id=integration.team_id)),
             trace_id=self.turn_trace_id,
             session_id=self._session_id(),
             distinct_id=posthog_user.distinct_id if posthog_user else None,

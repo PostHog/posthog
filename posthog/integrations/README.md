@@ -64,6 +64,7 @@ These reads go across teams, for example to the teams that share one GitHub inst
 - `list_by_external_id(external_id, team_ids=None)` returns the rows with this external id.
 - `get_by_external_id(external_id, id)` returns the row with this id and this external id, or raises `IntegrationNotFound`.
 - `count_by_external_id(external_id)` and `exists_by_external_id(external_id)`.
+- `get_by_id(id)` returns the row with this id, or raises `IntegrationNotFound`. Use it only when the caller holds a bare row id and no team.
 
 They need an accessor with a kind: on `IntegrationManager.any` they raise `ValueError`, because external ids are unique only per provider.
 Do not take the first row of `list_by_external_id` without `team_ids`: the rule `github-installation-first-team` flags it for GitHub.
