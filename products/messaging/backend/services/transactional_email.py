@@ -542,9 +542,10 @@ def send_code_email(
         _require_marketing_rules(email, kind)
         accepted_send = _accepted_send(team.id, email, kind)
         if template is None:
-            category = code_send_category(team.id, email.category)
-            hog_flow_id = _key_workflow_id(team.id, email.key)
-            _require_active(team.id, hog_flow_id)
+            with transaction.atomic():
+                hog_flow_id = _key_workflow_id(team.id, email.key)
+                _require_active(team.id, hog_flow_id)
+                category = code_send_category(team.id, email.category)
         if category is not None:
             accepted_send["messageCategory"] = {"id": str(category.id), "type": category.type}
     payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}

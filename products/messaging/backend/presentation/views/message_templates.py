@@ -505,7 +505,7 @@ class SendCategoryField(serializers.Field):
 
     def to_internal_value(self, data: Any) -> Literal["transactional"] | SendCategoryDefinition:
         if data == TRANSACTIONAL_CATEGORY:
-            return TRANSACTIONAL_CATEGORY
+            return "transactional"
         if not isinstance(data, Mapping):
             self.fail("invalid")
         definition = SendCategoryDefinitionSerializer(data=data)
@@ -1071,6 +1071,15 @@ class TransactionalEmailSendMixin:
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
             raise exceptions.PermissionDenied("You need editor access to workflows to send under a new key.")
 
+    def _require_category_editor(self) -> None:
+        if is_authenticated_via_project_secret_api_key(self.request):
+            return
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+            raise exceptions.PermissionDenied(
+                "You need editor access to workflows to send with a category object, because the send can create or "
+                "change the category."
+            )
+
     def _report_first_code_send_after_commit(self, request: Any, addressed_by: str) -> None:
         if not self._takes_code_sends() or not isinstance(request.user, ProjectSecretAPIKeyUser):
             return
@@ -1495,6 +1504,8 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 require_workflow_editor=self._require_workflow_editor,
                 require_workflow_create=self._require_workflow_create,
             )
+            if isinstance(data.get("category"), SendCategoryDefinition):
+                self._require_category_editor()
         return self._queue_send(
             request,
             lambda idempotency_key: send_code_email(

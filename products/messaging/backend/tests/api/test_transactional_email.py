@@ -724,6 +724,15 @@ class TestTransactionalEmail(APIBaseTest):
     UNSUBSCRIBE_HTML = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
     NEWSLETTER = {"key": "newsletter", "type": "marketing", "name": "Newsletter"}
 
+    def _at_key_limit(self) -> None:
+        patcher = patch.object(transactional_email, "TRANSACTIONAL_EMAIL_KEY_LIMIT", 0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _archived_key_workflow(self) -> None:
+        hog_flow_id = transactional_email._key_workflow_id(self.team.id, self._code_send()["template_key"])
+        HogFlow.objects.filter(team=self.team, id=hog_flow_id).update(status="archived")
+
     def _category(self, key: str = "newsletter", **fields: Any) -> MessageCategory:
         return MessageCategory.objects.create(
             team=self.team,
@@ -847,6 +856,18 @@ class TestTransactionalEmail(APIBaseTest):
                 lambda test: test._category(key="promos"),
                 {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML},
                 "too_many_categories",
+            ),
+            (
+                "key_limit_reached",
+                lambda test: test._at_key_limit(),
+                {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML},
+                "too_many_keys",
+            ),
+            (
+                "workflow_archived",
+                lambda test: test._archived_key_workflow(),
+                {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML},
+                "transactional_email_paused",
             ),
             ("bare_key", None, {"category": "newsletter"}, "invalid_input"),
             (
@@ -1976,6 +1997,35 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert HogFlow.objects.filter(team=self.team).count() == workflows_before
         assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("no_category", {}, status.HTTP_202_ACCEPTED),
+            (
+                "category_object",
+                {
+                    "category": {"key": "newsletter", "type": "marketing", "name": "Newsletter"},
+                    "html": '<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+                },
+                status.HTTP_403_FORBIDDEN,
+            ),
+        ]
+    )
+    def test_editor_access_to_a_keys_workflow_cannot_change_categories(
+        self, mock_post, _flag, _name, fields, expected_status
+    ):
+        mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
+        hog_flow_id = transactional_email._key_workflow_id(self.team.id, "weekly")
+        self._login_member("viewer@example.com", {None: "viewer", str(hog_flow_id): "editor"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging/send/email/",
+            {"to": "user@example.com", "template_key": "weekly", "subject": "Weekly", "html": "<p>Hi</p>", **fields},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert not MessageCategory.objects.filter(team=self.team).exists()
 
     @parameterized.expand([("unlinked", None), ("linked_to_a_deleted_workflow", uuid4())])
     def test_editor_access_to_one_workflow_cannot_create_another(self, mock_post, _flag, _name, linked_hog_flow_id):
