@@ -68,9 +68,8 @@ from products.signals.backend.temporal.signal_queries import (
     soft_delete_report_signals,
     wait_for_signal_in_clickhouse_activity,
 )
-from products.signals.backend.temporal.summary import RESEARCH_SANDBOX_RETRY_BUDGET, SignalReportSummaryWorkflow
+from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow, summary_execution_timeout
 from products.signals.backend.temporal.types import (
-    IMPLEMENTATION_DEBOUNCE_SECONDS,
     RESEARCH_DEBOUNCE_SECONDS,
     EmitSignalInputs,
     ExistingReportMatch,
@@ -1831,14 +1830,7 @@ async def _process_signal_batch(
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                # The hour covers the research work; the two terms after it cover the workflow's own
-                # sleeps, which the hour was never sized for — the research debounce at entry and the
-                # implementation buffer at settle. A run that loops through several buffers can still
-                # outlive this; it's a backstop, and the report stays READY and re-promotes.
-                execution_timeout=timedelta(
-                    hours=1, seconds=report_input.debounce_seconds + IMPLEMENTATION_DEBOUNCE_SECONDS
-                )
-                + RESEARCH_SANDBOX_RETRY_BUDGET,
+                execution_timeout=summary_execution_timeout(report_input.debounce_seconds),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
             metrics.increment_research_run_collapsed()
