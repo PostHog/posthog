@@ -13,6 +13,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 
 | Command                                   | Status                                                                                                                   |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `hog setup`, `hog setup next`             | Takes this folder from nothing to PostHog installed and events arriving, one step at a time. See [Setup](#setup).        |
 | `hog auth login`                          | Logs in through the browser to one project, and names it in `posthog.json`. Agents finish with `hog auth login --wait`.  |
 | `hog auth add <scope...>`                 | Adds scopes to your login, approved in the browser. Agents finish with `hog auth add --wait`.                            |
 | `hog auth status`                         | Shows whether hog is logged in, whose key it is, which login it picked and why. Exits with code 1 without a working key. |
@@ -82,6 +83,32 @@ Not planned:
 `-o text` or `-o json` overrides the default, and `--raw` prints a command's full result as JSON.
 Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
 
+## Setup
+
+`hog setup` shows where the setup of this folder is, and changes nothing.
+`hog setup next` does the current step, keeps going through every step that needs nobody, and stops at the first one that needs the person or the agent.
+The setup is built for a coding agent: it asks the person one question, and runs `hog setup next` itself after each step.
+A person at a terminal gets prompts for any answer the options leave out.
+Agents get JSON: `{ step, status, code, done, next: { kind, command, ask, read, instructions }, context }`, where `next.kind` is `run`, `ask_user`, `tell_user`, `read`, `wait` or `done`.
+[src/setup/README.md](src/setup/README.md) draws the steps for a person alone and for a person with an agent.
+
+| Step        | `hog setup next`                                                                                                                                                              | Done when                                     |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `purpose`   | The agent asks "What do you want to use PostHog for?", and passes the answer as `--reason` and the matching product ids as `--products a,b`. `--region eu` is for EU hosting. | The answers are stored                        |
+| `login`     | Starts a browser login to the chosen host, where new users can sign up, and returns. The next `hog setup next` waits for the approval.                                        | A login for this folder's host and project    |
+| `project`   | Names the project in `posthog.json` and tells PostHog which products were picked. A failure there only warns.                                                                 | Always, once it ran                           |
+| `agents-md` | Adds a note to `AGENTS.md`, and to `CLAUDE.md` when it doesn't import `AGENTS.md`, so a later session continues the setup.                                                    | Always, once it ran                           |
+| `install`   | Returns the project token and host, and the two `hog learn` commands that read the install skill and its rules.                                                               | Both files were read, and `next` ran after it |
+| `review`    | Asks the agent to check its changes against the rules.                                                                                                                        | `--reviewed`, or yes at the terminal          |
+| `verify`    | Looks for events PostHog received since the setup started. Exits with code 1 while there are none.                                                                            | An event arrived                              |
+| `products`  | Lists the other products and the command that starts each, and the PostHog skills that could help later, which `hog skills add <id...>` adds.                                 | `--products-ack`, or shown at the terminal    |
+| `connected` | Rewrites the note in `AGENTS.md` with the commands for later PostHog work. From then on `hog setup` shows a summary.                                                          | Always                                        |
+
+The setup belongs to the folder of the closest `posthog.json`, or to the working folder when there is none, so each app in a monorepo has its own.
+The answers, the start time, the skill files `hog learn` served in that folder and the finished steps live in `~/.posthog/setup/`, one file per folder. Everything else is checked on each run.
+Without that file, as in a fresh clone, the setup starts at the first step it can't prove done, and a clone whose `AGENTS.md` has the final note counts as set up.
+The note sits between `<!-- posthog:setup:start -->` and `<!-- posthog:setup:end -->`, and nothing outside the markers changes.
+
 ## Agent skills
 
 `hog learn` serves PostHog's agent skills, the step-by-step guides agents follow for PostHog tasks, with the grammar of the `learn` command in the PostHog MCP server's `exec` tool:
@@ -132,12 +159,14 @@ hog sends usage events to PostHog, so the team can see who uses which commands a
 - `posthog cli command run`, once per command, the same event posthog-cli sends: the command, exit code, duration, the names of the options passed, the detected agent, the CI provider and runner (such as GitHub Actions on Depot or Blacksmith), the OS, and counts from the result, such as rows returned or endpoints pushed.
 - `$exception` when a command fails, with the error code, message, hint and HTTP status. A message can name a file, or quote part of a query or an API answer.
 - `error_tracking_cli_sourcemaps_upload_started`, `_finished` and `_endpoint_fallback`, as in posthog-cli.
+- `hog setup started`, with your answer to what you want to use PostHog for, the products picked and the region, `hog setup step completed` with the step, and `hog setup completed`. The question says that hog sends the answer. With telemetry off, hog keeps it on your machine only.
 
 With a PostHog Cloud key, events belong to your PostHog user, organization and project, the same ones the web app uses.
 hog looks them up once per key with `/api/users/@me/` and `/api/projects/<id>/`, and keeps the answer in `~/.posthog/hog-telemetry-identity.json` for 30 days.
 A CI job that uses its OIDC token counts as its workload instead: events carry an ID hashed from the provider and the repository, the provider's name and your organization, and no person.
 Without a key, with a self-hosted PostHog, or with a key that can't read those, events belong to a random ID in `~/.posthog/hog-telemetry-id`.
-Usage events never carry argument or option values or API keys.
+Usage events never carry argument or option values or API keys, except the setup answer above.
+When you log in, hog ties the random ID's earlier events to your PostHog user, so what you did before logging in, such as the first `hog setup` answers, counts with your sign-up.
 `hog learn` adds the names of the PostHog skills it served, how it read them, and whether each release came from the network or the saved copy. A name counts only once it matched a published skill, so the event never carries what you typed, such as search keywords or a skill that doesn't exist.
 
 Telemetry is on by default and goes to the same PostHog project as posthog-cli's.

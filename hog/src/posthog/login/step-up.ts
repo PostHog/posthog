@@ -1,4 +1,4 @@
-import { clearPending, refuseInCi, runApproval, type PendingResult } from '@/core/approval'
+import { clearPending, refuseInCi, runApproval, waitIdentity, type PendingResult } from '@/core/approval'
 import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 import type { AccessKey } from '@/posthog/access-key'
@@ -115,7 +115,7 @@ export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<S
 
     refuseInCi(ctx, ADD_COMMAND, `${CI_CREDENTIALS_HINT} Either way, ask for the scopes the job needs.`)
     const flow = loginFlow(ctx.runtime, key.host, [...held, ...added], {
-        command: ADD_COMMAND,
+        identity: waitIdentity(ADD_COMMAND),
         requiredScopes: added,
         projectId: key.projectId,
     })

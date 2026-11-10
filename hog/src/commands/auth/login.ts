@@ -2,97 +2,30 @@ import { dirname } from 'node:path'
 
 import { printPending, refuseInCi, resumeApproval, runApproval, type PendingResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
-import { configPathFor, updateConfig, type PostHogConfig } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Prompts } from '@/core/prompts'
 import { validationError } from '@/core/schema'
 import { PersonalAPIKey, type AccessKey } from '@/posthog/access-key'
-import type { StoreChoice } from '@/posthog/credential-store/types'
 import { CI_CREDENTIALS_HINT } from '@/posthog/credentials'
 import { LOGIN_SCOPES, READ_ONLY_LOGIN_SCOPES } from '@/posthog/device-auth'
-import { cloudRegion, HostSchema, parseHost, REGIONS, sameHost } from '@/posthog/host'
+import { cloudRegion, HostSchema, parseHost, REGION_CHOICES, REGION_IDS, REGIONS } from '@/posthog/host'
 import { parseProjectId, ProjectIdSchema } from '@/posthog/ids'
-import { LOGIN_COMMAND, loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
+import { finishLogin, type FinishedLogin } from '@/posthog/login/finish'
+import { LOGIN_COMMAND, loginFlow, loginWait } from '@/posthog/login/flow'
 import { parsePersonalApiKey, PersonalApiKeySchema } from '@/posthog/tokens'
 
-interface ConfigWrite {
-    path: string
-    status: 'created' | 'updated' | 'unchanged' | 'failed'
-    error: string | null
-}
-
-type LoginResult =
-    | (PendingResult & { host: string })
-    | {
-          status: 'logged_in'
-          host: string
-          projectId: string
-          store: StoreChoice
-          credentialsPath: string | null
-          keychainError: string | null
-          // What the login may do, as PostHog reports it.
-          scopes: string[] | null
-          // ISO 8601, for an OAuth login. hog renews the token before then.
-          expiresAt: string | null
-          config: ConfigWrite
-          next: string
-      }
+type LoginResult = (PendingResult & { host: string }) | (FinishedLogin & { next: string })
 
 function nextCommand(scopes: readonly string[] | null): string {
     const canQuery = scopes?.some((scope) => scope === '*' || scope.startsWith('query:')) ?? false
     return canQuery ? 'hog query run "select event, count() from events group by event"' : 'hog --help'
 }
 
-function hasLogin(config: PostHogConfig, { host, projectId }: LoggedIn): boolean {
-    return (
-        config.host !== undefined &&
-        sameHost(config.host, host) &&
-        config.projectId !== undefined &&
-        parseProjectId(config.projectId) === projectId
-    )
-}
-
-// Commands pick their login from the closest posthog.json, so login writes its host and project
-// there. A new file goes in this folder. The login is already saved, so a failed write only warns.
-async function writeLoginToConfig(ctx: Context, login: LoggedIn): Promise<ConfigWrite> {
-    const loaded = await ctx.config()
-    if (loaded && hasLogin(loaded.config, login)) {
-        return { path: loaded.path, status: 'unchanged', error: null }
-    }
-
-    try {
-        const path = await updateConfig(ctx.runtime, loaded, (raw) => {
-            raw.host = login.host
-            raw.projectId = Number(login.projectId)
-        })
-
-        return { path, status: loaded ? 'updated' : 'created', error: null }
-    } catch (error) {
-        const path = configPathFor(ctx.runtime, loaded)
-        return { path, status: 'failed', error: error instanceof Error ? error.message : String(error) }
-    }
-}
-
 async function finish(ctx: Context, key: AccessKey): Promise<LoginResult> {
-    const loggedIn = await saveLogin(ctx.runtime, key)
-    const config = await writeLoginToConfig(ctx, loggedIn)
-    const { host, projectId, store, credentialsPath, keychainError, status } = loggedIn
-    const { scopes, expiresAt } = status
-
-    return {
-        status: 'logged_in',
-        host,
-        projectId,
-        store,
-        credentialsPath,
-        keychainError,
-        scopes,
-        expiresAt: expiresAt === null ? null : new Date(expiresAt).toISOString(),
-        config,
-        next: nextCommand(scopes),
-    }
+    const finished = await finishLogin(ctx, key)
+    return { ...finished, next: nextCommand(finished.scopes) }
 }
 
 async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
@@ -120,7 +53,7 @@ export default defineCommand({
     options: {
         region: {
             type: 'string',
-            choices: ['us', 'eu'],
+            choices: REGION_IDS,
             placeholder: 'region',
             description:
                 'Where your PostHog account is hosted, as in the us.posthog.com or eu.posthog.com address. Use --host for self-hosted PostHog',
@@ -178,8 +111,7 @@ export default defineCommand({
             const choice = await prompts.select(
                 'Where is your PostHog account hosted?',
                 [
-                    { value: 'us', label: 'US Cloud', hint: 'us.posthog.com' },
-                    { value: 'eu', label: 'EU Cloud', hint: 'eu.posthog.com' },
+                    ...REGION_CHOICES,
                     {
                         value: 'key',
                         label: 'Paste a personal API key',

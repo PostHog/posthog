@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { z } from 'zod'
 
 import type { ApiToolLibrary, SkillsLibrary, SkillsLibraryOptions } from '@posthog/mcp/src/cli/library-types'
@@ -60,6 +61,8 @@ function fakePrompts(answers: string[]): Prompts {
     }
     return {
         select: (message) => next(message) as never,
+        // The answer lists the values picked, separated by commas.
+        multiselect: async (message) => (await next(message)).split(',').filter(Boolean) as never,
         text: (message) => next(message),
         password: (message) => next(message),
         confirm: async (message) => (await next(message)) === 'yes',
@@ -212,6 +215,10 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
                 .sort()
         },
         writeFile: async (path, contents) => {
+            files[path] = contents
+        },
+        realPath: async (path) => resolve(path),
+        replaceFile: async (path, contents) => {
             files[path] = contents
         },
         writePrivateFile: async (path, contents) => {

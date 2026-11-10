@@ -11,8 +11,10 @@ import learn from './learn'
 import { LEGACY_COMMANDS } from './legacy'
 import query from './query'
 import schema from './schema'
+import setup from './setup'
 
 export const COMMANDS: CommandTree = {
+    setup,
     auth,
     ci,
     query,

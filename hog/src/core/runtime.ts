@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { access, chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 
 import type { ApiToolLibrary, SkillsLibrary, SkillsLibraryOptions } from '@posthog/mcp/src/cli/library-types'
 
@@ -57,6 +57,12 @@ export interface Runtime {
     glob: (pattern: string, cwd: string) => Promise<string[]>
     // Writes a project file, such as a generated SDK, and creates the folders above it.
     writeFile: (path: string, contents: string) => Promise<void>
+    // Where a write to `path` lands, with every link resolved. A missing file resolves inside its
+    // folder's real path. Throws for a link to a missing file, whose write could land anywhere.
+    realPath: (path: string) => Promise<string>
+    // Both replace the file with one rename, so a failed write leaves the old contents. `replaceFile`
+    // keeps an existing file's mode, and `writePrivateFile` makes the file readable only by its owner.
+    replaceFile: (path: string, contents: string) => Promise<void>
     writePrivateFile: (path: string, contents: string) => Promise<void>
     // Creates a private file unless the path exists, and resolves to false if it does, so it works as a lock.
     createFile: (path: string, contents: string) => Promise<boolean>
@@ -158,6 +164,51 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     })
 }
 
+// A rename is atomic, so a crash never leaves a half-written file. The temporary name is random and
+// `wx` refuses an existing path, so nobody can plant a symlink there first. `keep` keeps an existing
+// file's mode, and a new file gets the default one. The mode is set with chmod, because the umask
+// would strip bits from a mode passed to the write.
+async function writeAtomically(path: string, contents: string, mode: number | 'keep'): Promise<void> {
+    const fileMode =
+        mode === 'keep'
+            ? await stat(path).then(
+                  (stats) => stats.mode & 0o7777,
+                  () => undefined
+              )
+            : mode
+    const temporary = `${path}.${randomUUID()}.tmp`
+
+    try {
+        await writeFile(temporary, contents, { flag: 'wx', mode: fileMode === undefined ? 0o666 : 0o600 })
+        if (fileMode !== undefined) {
+            await chmod(temporary, fileMode)
+        }
+
+        await rename(temporary, path)
+    } catch (error) {
+        await rm(temporary, { force: true })
+        throw error
+    }
+}
+
+async function realPath(path: string): Promise<string> {
+    try {
+        return await realpath(path)
+    } catch (error) {
+        const missing = (error as NodeJS.ErrnoException).code === 'ENOENT'
+        if (
+            !missing ||
+            (await lstat(path).then(
+                () => true,
+                () => false
+            ))
+        ) {
+            throw error
+        }
+        return join(await realpath(dirname(path)), basename(path))
+    }
+}
+
 export function processRuntime(): Runtime {
     return {
         env: process.env,
@@ -215,18 +266,11 @@ export function processRuntime(): Runtime {
             await mkdir(dirname(path), { recursive: true })
             await writeFile(path, contents)
         },
-        // A rename is atomic, so a crash never leaves a half-written file. The temporary name is
-        // random and `wx` refuses an existing path, so nobody can plant a symlink there first.
+        realPath: (path) => realPath(resolve(path)),
+        replaceFile: (path, contents) => writeAtomically(path, contents, 'keep'),
         writePrivateFile: async (path, contents) => {
             await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-            const temporary = `${path}.${randomUUID()}.tmp`
-            try {
-                await writeFile(temporary, contents, { mode: 0o600, flag: 'wx' })
-                await rename(temporary, path)
-            } catch (error) {
-                await rm(temporary, { force: true })
-                throw error
-            }
+            await writeAtomically(path, contents, 0o600)
         },
         createFile: async (path, contents) => {
             await mkdir(dirname(path), { recursive: true, mode: 0o700 })

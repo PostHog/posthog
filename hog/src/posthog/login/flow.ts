@@ -1,4 +1,10 @@
-import { clearPending, type ApprovalFlow, type ApprovalWait } from '@/core/approval'
+import {
+    clearPendingFor,
+    waitIdentity,
+    type ApprovalFlow,
+    type ApprovalIdentity,
+    type ApprovalWait,
+} from '@/core/approval'
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 import type { AccessKey, AccessKeyStatus } from '@/posthog/access-key'
@@ -17,11 +23,12 @@ import { readLogin, writeLogin } from './stored'
 
 export const LOGIN_COMMAND = 'hog auth login'
 export const ADD_COMMAND = 'hog auth add'
-const LOGIN_COMMANDS = [LOGIN_COMMAND, ADD_COMMAND]
 
 // A login approved later must not replace a newer login, or one removed by logout, through `--wait`.
+// Another command that starts logins, such as `hog setup next`, names its pending items after
+// `hog auth login`, so this clears them too.
 export async function clearPendingLogins(runtime: Runtime): Promise<void> {
-    await Promise.all(LOGIN_COMMANDS.map((command) => clearPending(runtime, command)))
+    await Promise.all([LOGIN_COMMAND, ADD_COMMAND].map((command) => clearPendingFor(runtime, command)))
 }
 
 export interface LoggedIn {
@@ -40,10 +47,15 @@ function sameScopes(a: readonly string[], b: readonly string[]): boolean {
     return [...a].sort().join(' ') === [...b].sort().join(' ')
 }
 
-// What `<command> --wait` needs to finish the login a previous run of `command` started.
-export function loginWait(runtime: Runtime, command = LOGIN_COMMAND): ApprovalWait<PendingLogin, OAuthLogin> {
+// What resuming needs to finish the login a previous run of `identity.command` started.
+export function loginWait(
+    runtime: Runtime,
+    identity: ApprovalIdentity = waitIdentity(LOGIN_COMMAND)
+): ApprovalWait<PendingLogin, OAuthLogin> {
+    const { command } = identity
+
     return {
-        command,
+        ...identity,
         noun: 'login',
         pending: PendingLoginSchema,
         // `hog auth add` with no scopes is a usage error, so starting over has to name them.
@@ -60,13 +72,15 @@ export function loginFlow(
     host: Host,
     scopes: readonly string[],
     {
-        command = LOGIN_COMMAND,
+        identity = waitIdentity(LOGIN_COMMAND),
         requiredScopes = [],
         projectId,
-    }: { command?: string; requiredScopes?: readonly string[]; projectId?: ProjectId } = {}
+    }: { identity?: ApprovalIdentity; requiredScopes?: readonly string[]; projectId?: ProjectId } = {}
 ): ApprovalFlow<PendingLogin, OAuthLogin> {
+    const { command } = identity
+
     return {
-        ...loginWait(runtime, command),
+        ...loginWait(runtime, identity),
         start: () => startDeviceLogin(runtime, host, { scopes, requiredScopes, command, projectId }),
         reuse: (existing) =>
             existing.host === host &&
