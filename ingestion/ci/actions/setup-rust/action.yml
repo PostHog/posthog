@@ -73,6 +73,17 @@ runs:
               done
               rustup default "$TOOLCHAIN"
 
+        # openssl-src fails to assemble on the 22.04 runners, so every cargo invocation links
+        # the system OpenSSL instead of building the vendored one.
+        - name: Install system OpenSSL
+          shell: bash
+          run: |
+              if ! pkg-config --exists openssl; then
+                sudo rm -f /etc/apt/sources.list.d/*twingate*
+                sudo apt-get update
+                sudo apt-get install -y libssl-dev pkg-config
+              fi
+
         - name: Set Cargo defaults
           shell: bash
           run: |
@@ -81,4 +92,7 @@ runs:
               fi
               if [ -z "${CARGO_TERM_COLOR+set}" ]; then
                 echo CARGO_TERM_COLOR=always >> "$GITHUB_ENV"
+              fi
+              if [ -z "${OPENSSL_NO_VENDOR+set}" ]; then
+                echo OPENSSL_NO_VENDOR=1 >> "$GITHUB_ENV"
               fi

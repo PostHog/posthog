@@ -162,8 +162,8 @@ jobs:
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
-            # The persons database is created by the stack's Postgres init script and filled by
-            # ingestion's own migrations below. No Django runs here.
+            # The persons database is created and filled by ingestion's own migrations below.
+            # No Django runs here.
             - name: Start the services
               working-directory: ingestion/ci
               env:
@@ -181,10 +181,12 @@ jobs:
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=ingestion-cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
             - uses: ./ingestion/ci/actions/setup-sccache
             - uses: ./ingestion/ci/actions/setup-sqlx-cli
-            - name: Run the persons migrations
+            - name: Create and migrate the persons database
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
-              run: sqlx migrate run --source ../ingestion/rust/persons_migrations/
+              run: |
+                  sqlx database create
+                  sqlx migrate run --source ../ingestion/rust/persons_migrations/
             - name: Install cargo-binstall
               uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
             - name: Install cargo-nextest

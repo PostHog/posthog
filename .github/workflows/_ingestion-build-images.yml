@@ -117,17 +117,12 @@ jobs:
 
         steps:
             - name: Check Out Repo
-              # The Rust images build from the repository root with rust/Dockerfile, which
-              # needs the whole workspace; non-cone mode keeps files in the project root
-              # out of the checkout.
+              # The images build from the repository root: the Rust ones need the whole cargo
+              # workspace and the Node ones the root workspace files plus the Django apps the
+              # schema check reads, so each Dockerfile's dockerignore trims the context instead.
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ inputs.checkout-ref || '' }}
-                  sparse-checkout: |
-                      ingestion/
-                      rust/
-                      proto/
-                  sparse-checkout-cone-mode: false
 
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
