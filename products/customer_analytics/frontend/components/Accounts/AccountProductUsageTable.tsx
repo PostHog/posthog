@@ -3,7 +3,8 @@ import './AccountProductUsageTable.scss'
 import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { LemonCheckbox, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { DotMatrix } from 'lib/components/DotMatrix/DotMatrix'
 
@@ -42,10 +43,7 @@ export function AccountProductUsageTable({
     const rowByKey = new Map(presentation.rows.map((row) => [row.key, row]))
     return (
         <div className="AccountProductUsageTable flex flex-col gap-3 min-w-0" data-attr="account-product-usage-table">
-            <p className="text-xs text-secondary mb-0">
-                A user counts when they take a product action or spend 30 seconds to 30 minutes on its pages.
-            </p>
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-4">
                 <LemonSegmentedButton
                     value={grouping}
                     onChange={setGrouping}
@@ -60,9 +58,18 @@ export function AccountProductUsageTable({
                     label="Show first use"
                     data-attr="account-product-usage-first-use"
                 />
+                <LemonButton
+                    type="tertiary"
+                    size="xsmall"
+                    icon={<IconInfo />}
+                    aria-label="How activity is counted"
+                    tooltip="A user counts when they take a product action or spend 30 seconds to 30 minutes on its pages."
+                    data-attr="account-product-usage-info"
+                />
             </div>
             <DotMatrix
                 {...presentation}
+                embedded
                 emptyState={emptyState}
                 loading={loading}
                 rowClassName={(row) => `AccountProductUsageTable__${rowByKey.get(row.key)?.kind}`}

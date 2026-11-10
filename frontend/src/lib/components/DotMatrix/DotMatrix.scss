@@ -9,6 +9,12 @@
     border-radius: 8px;
     container-type: inline-size;
 
+    &--embedded {
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+    }
+
     &__legend {
         display: flex;
         flex-direction: column;

@@ -37,6 +37,10 @@ Activity requests share the DataNode query queue. Disposing a queued tile preven
 Account tiles and the book grid share setup-specific empty messages from `../ProductActivity/productUsagePresentation.ts`. Product usage preserves loaded user details when optional first-use history fails. History failures have a separate retry.
 Custom HogQL matrices cap columns times series at 512 glyph slots per row. Chronological columns keep the most recent periods, and the bound notice explains omitted columns.
 Account tile queries use metadata-only query telemetry for every source, including custom HogQL. Query contents and translated SQL stay out of analytics events.
+Account activity matrices use its embedded mode inside view cards.
+`AccountViewTileHeaderActions` places widget-owned controls in the enclosing tile header, with an inline fallback outside a tile.
+`DotMatrixTileSettings` uses this slot for the Options gear and custom-query edit action.
+Product grouping and first-use controls share a left-aligned row with an activity-definition tooltip.
 Its Storybook fixtures live beside the renderer stories.
 `accountDotMatrixTileLogic` saves the data source, display mode, and weeks through the account view config callback. Series selection stays local to the mounted tile. Selecting Custom HogQL again reopens the saved query as a draft without saving or rerunning it.
 

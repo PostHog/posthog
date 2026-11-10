@@ -82,6 +82,7 @@ export function AccountDotMatrixTile({
                                 (matrixResultLoading || (displayResult && !presentation.error)) && (
                                     <DotMatrix<ActivityMatrixDatum>
                                         {...presentation.matrix}
+                                        embedded
                                         mode={config.mode}
                                         countOf={
                                             presentation.matrix.countOf ??
