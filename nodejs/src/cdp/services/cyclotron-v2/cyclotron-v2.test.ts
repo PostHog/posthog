@@ -2029,6 +2029,32 @@ describe('Cyclotron V2', () => {
             await assertPool.query(`DROP SCHEMA ${PROBE_SCHEMA} CASCADE`)
         })
 
+        async function pollOnce(
+            worker: CyclotronV2Worker,
+            polled: Promise<void>,
+            processBatch: () => Promise<void> = () => Promise.resolve()
+        ): Promise<void> {
+            let timer: ReturnType<typeof setTimeout> | undefined
+            try {
+                await worker.connect(processBatch)
+                await Promise.race([
+                    polled,
+                    new Promise<never>((_, reject) => {
+                        timer = setTimeout(() => reject(new Error('the worker did not finish a poll')), 1000)
+                    }),
+                ])
+            } finally {
+                clearTimeout(timer)
+                await worker.disconnect()
+            }
+        }
+
+        function pollSignal(): { polled: Promise<void>; markPolled: () => void } {
+            let markPolled: () => void = () => {}
+            const polled = new Promise<void>((resolve) => (markPolled = resolve))
+            return { polled, markPolled }
+        }
+
         // The rate-limited worker consults its hook only when a job is due, so that case
         // seeds one due job and reads the hook call as the end of its poll.
         const operations: [string, number, (dbUrl: string) => Promise<void>][] = [
@@ -2036,29 +2062,25 @@ describe('Cyclotron V2', () => {
                 'the worker dequeue',
                 0,
                 async (dbUrl) => {
-                    const worker = createWorker(BACKLOG_QUEUE, { pool: { dbUrl } })
-                    await new Promise<void>((polled) => {
-                        void worker.connect(() => Promise.resolve(polled()))
-                    })
-                    await worker.disconnect()
+                    const { polled, markPolled } = pollSignal()
+                    await pollOnce(createWorker(BACKLOG_QUEUE, { pool: { dbUrl } }), polled, () =>
+                        Promise.resolve(markPolled())
+                    )
                 },
             ],
             [
                 'the rate-limited worker count',
                 1,
                 async (dbUrl) => {
-                    let counted: () => void = () => {}
-                    const polled = new Promise<void>((resolve) => (counted = resolve))
+                    const { polled, markPolled } = pollSignal()
                     const worker = new CyclotronV2RateLimitedWorker(
                         { pool: { dbUrl }, queueName: BACKLOG_QUEUE, pollDelayMs: 10, boundedPolls: true },
                         () => {
-                            counted()
+                            markPolled()
                             return Promise.resolve({ limit: 0 })
                         }
                     )
-                    await worker.connect(() => Promise.resolve())
-                    await polled
-                    await worker.disconnect()
+                    await pollOnce(worker, polled)
                 },
             ],
             [
