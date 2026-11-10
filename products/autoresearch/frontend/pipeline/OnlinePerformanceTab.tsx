@@ -35,7 +35,7 @@ function LiftCell({ lift, share, baseRate }: { lift: number | null; share: numbe
     }
     return (
         <Tooltip title={`This lift is near its maximum, because ${liftCeilingHint(share, baseRate)}.`}>
-            <span>{`${fmt(lift, 2)}× (near max)`}</span>
+            <span className="whitespace-nowrap">{`${fmt(lift, 2)}× (near max)`}</span>
         </Tooltip>
     )
 }

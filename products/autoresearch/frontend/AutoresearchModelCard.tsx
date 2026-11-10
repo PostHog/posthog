@@ -12,7 +12,7 @@ import { autoresearchLogic } from './autoresearchLogic'
 import { AutoresearchLiveTrainingRunApi, AutoresearchPipelineApi } from './generated/api.schemas'
 import { ModelCardMenu } from './ModelCardMenu'
 import { firstCheckCountdown, modelCardState } from './modelCardState'
-import { formatAuc, isLiftAtCeiling, liftCeilingHint, modelQuality } from './modelQuality'
+import { formatAuc, formatLiftCeiling, isLiftAtCeiling, modelQuality } from './modelQuality'
 import { ModelQualityTag } from './ModelQualityTag'
 import { MetricSparkline } from './pipeline/MetricSparkline'
 import { pipelineQuestion } from './pipelineQuestion'
@@ -146,7 +146,11 @@ function ConfirmedBody({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX
                     <Headline
                         value={`${pipeline.champion_lift_at_10.toFixed(1)}× lift`}
                         label={quality.sentence}
-                        hint={isLiftAtCeiling(pipeline.champion_lift_at_10, 0.1) ? liftCeilingHint(0.1) : undefined}
+                        hint={
+                            isLiftAtCeiling(pipeline.champion_lift_at_10, 0.1)
+                                ? `max ${formatLiftCeiling(0.1)}`
+                                : undefined
+                        }
                     />
                 ) : (
                     <span className="text-xs text-secondary break-words">{quality.sentence}</span>

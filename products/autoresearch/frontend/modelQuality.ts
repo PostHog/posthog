@@ -69,10 +69,14 @@ export function isLiftAtCeiling(lift: number, share: number, baseRate?: number |
     return lift >= liftCeiling(share, baseRate) * LIFT_CEILING_TOLERANCE
 }
 
+/** "10×" */
+export function formatLiftCeiling(share: number, baseRate?: number | null): string {
+    return `${Number(liftCeiling(share, baseRate).toFixed(1))}×`
+}
+
 /** "the top 10% can get at most 10×" */
 export function liftCeilingHint(share: number, baseRate?: number | null): string {
-    const ceiling = Number(liftCeiling(share, baseRate).toFixed(1))
-    return `the top ${Math.round(share * 100)}% can get at most ${ceiling}×`
+    return `the top ${Math.round(share * 100)}% can get at most ${formatLiftCeiling(share, baseRate)}`
 }
 
 /** The top feature when its importance is at least `DOMINANT_DRIVER_RATIO` times the second feature's. */
