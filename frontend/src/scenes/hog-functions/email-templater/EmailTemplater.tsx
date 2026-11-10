@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
 import { ReactNode, useContext, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -269,6 +269,7 @@ export function NativeEmailIntegrationChoice({
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
     const sandbox = useContext(SandboxSenderChoiceContext)
     const sandboxHint = sandboxSenderHint(sandbox)
+    const { flushPendingDesignEdit } = useAsyncActions(emailTemplaterLogic)
     const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
     const selectedIntegrationIds = value?.integrationIds?.length
         ? value.integrationIds
@@ -280,21 +281,32 @@ export function NativeEmailIntegrationChoice({
     // visible again on reopen without any separate reveal state.
     const overridesVisible = value?.email !== undefined || value?.name !== undefined
 
+    // Switching between an own sender and the sandbox sender replaces the step's form, unmounting the
+    // email editor, so a canvas edit still inside its debounce must reach the step first.
+    const switchSenderKind = (switchSender: () => void): void => {
+        void flushPendingDesignEdit().then(switchSender)
+    }
+
     const onChangeIntegration = (integrationId: number): void => {
         if (integrationId === -1) {
             window.open(urls.workflows('channels'), '_blank')
             return
         }
         if (integrationId === SANDBOX_SENDER_VALUE) {
-            sandbox?.onSelect()
+            switchSenderKind(() => sandbox?.onSelect())
             return
         }
-        onChange({ ...value, integrationId, integrationIds: undefined })
+        const next = { ...value, integrationId, integrationIds: undefined }
+        if (sandbox?.selected) {
+            switchSenderKind(() => onChange(next))
+            return
+        }
+        onChange(next)
     }
 
     const onChangeIntegrations = (integrationIds: number[]): void => {
         if (integrationIds.includes(SANDBOX_SENDER_VALUE)) {
-            sandbox?.onSelect()
+            switchSenderKind(() => sandbox?.onSelect())
             return
         }
         if (integrationIds.length > MAX_WORKFLOW_EMAIL_SENDERS) {

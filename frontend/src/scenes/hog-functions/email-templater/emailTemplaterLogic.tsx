@@ -431,6 +431,9 @@ export interface emailTemplaterLogicActions {
     designUpdated: () => {
         value: true
     }
+    flushPendingDesignEdit: () => {
+        value: true
+    }
     hideAdvancedField: (key: EmailMetaFieldKey) => {
         key: EmailMetaFieldKey
     }
@@ -579,6 +582,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         designLoaded: true,
         applyTemplate: (template: MessageTemplate) => ({ template }),
         closeWithConfirmation: true,
+        flushPendingDesignEdit: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
         saveAsTemplate: (name: string, description: string) => ({ name, description }),
         setActiveContentTab: (tab: 'visual' | 'plaintext') => ({ tab }),
@@ -779,7 +783,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
     })),
 
-    listeners(({ props, values, actions, cache }) => ({
+    listeners(({ props, values, actions, asyncActions, cache }) => ({
         // Person properties load after the editor starts, and the editor only reads its options once.
         loadPersonPropertyDefinitionsSuccess: () => {
             const mergeTags = buildMergeTags(values.personPropertyDefinitions, props.type, props.variables)
@@ -938,10 +942,15 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 })
                 return
             }
-            // A canvas edit made in the last 500ms is still inside designUpdated's debounce; closing
-            // unmounts the editor before it exports, silently dropping that edit. Flush it now,
-            // while the editor is still mounted. The debounced continuation then no-ops (or never
-            // resolves post-unmount), since lastEditorDesign already matches.
+            await asyncActions.flushPendingDesignEdit()
+            actions.setIsModalOpen(false)
+        },
+
+        flushPendingDesignEdit: async () => {
+            // A canvas edit made in the last 500ms is still inside designUpdated's debounce; closing the
+            // editor or switching the step's sender unmounts it before it exports, silently dropping that
+            // edit. Flush it now, while the editor is still mounted. The debounced continuation then
+            // no-ops (or never resolves post-unmount), since lastEditorDesign already matches.
             if (props.liveChanges && cache.pendingDesignEdit && values.isEmailEditorReady) {
                 const editor = values.emailEditorRef?.editor
                 if (editor) {
@@ -963,7 +972,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     }
                 }
             }
-            actions.setIsModalOpen(false)
         },
 
         saveAsTemplate: async ({ name, description }) => {
