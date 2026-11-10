@@ -322,3 +322,11 @@ class WizardScanResult:
     id: UUID
     # False when the session already reported this scan, so nothing was written.
     created: bool
+
+
+@frozen
+class WizardDetectedWarehouseSource:
+    kind: str
+    warehouse_source_type: str
+    first_seen_at: datetime
+    last_seen_at: datetime
