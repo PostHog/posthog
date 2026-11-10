@@ -27,8 +27,6 @@ from dependency_proof.policy import LOCKFILE, MANIFEST, WORKSPACE_FILE, Refused,
 YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 REGISTRY = "https://registry.npmjs.org/"
 RELEASE_AGE_LOOKUPS = 50
-# Matches the whole block, because the frozen registry view below must not exempt its entries.
-RELEASE_AGE_EXCLUSIONS = re.compile(rb"^minimumReleaseAgeExclude:\n(?:(?:[ \t]+.*|)\n)*", re.MULTILINE)
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 PULL_REQUEST_NUMBER = re.compile(r"[1-9][0-9]*")
 PULL_REQUEST_PAGE = 100
@@ -204,33 +202,20 @@ def run_command(command: list[str], cwd: Path) -> None:
     subprocess.run(command, cwd=cwd, check=True, env=env)
 
 
-def replay_command(updates: list[str], recursive: bool, release_age_minutes: int) -> list[str]:
-    """Renovate's targeted pnpm update, replayed against the registry as Renovate saw it at the head commit.
+def replay_commands(updates: list[str], install: bool, recursive: bool) -> list[list[str]]:
+    """The pnpm commands Renovate runs for one lockfile.
 
-    pnpm counts `minimumReleaseAge` back from now, so the head's own view is the policy's release age
-    plus the time since the head commit. That hides everything published since the head commit,
-    which keeps caret ranges and `latest` dist-tags from resolving to newer versions, and it holds
-    every transitive dependency the update pulls in to the same age as Renovate's run did.
+    Renovate runs `pnpm install` when it edits a manifest. It then runs one `pnpm update` for the
+    dependencies it moves inside a range that it leaves unchanged.
     """
-    return [
-        "pnpm",
-        "update",
-        "--no-save",
-        *updates,
-        "--lockfile-only",
-        *(["--recursive"] if recursive else []),
-        "--ignore-scripts",
-        "--ignore-pnpmfile",
-        f"--config.minimumReleaseAge={release_age_minutes}",
-    ]
-
-
-def frozen_workspace_settings(text: bytes) -> bytes:
-    """The workspace settings without `minimumReleaseAgeExclude`, so the frozen age applies to every package."""
-    frozen = RELEASE_AGE_EXCLUSIONS.sub(b"", text)
-    if "minimumReleaseAgeExclude" in load_yaml(frozen):
-        raise Refused(f"{WORKSPACE_FILE} writes minimumReleaseAgeExclude in a form this proof does not read")
-    return frozen
+    flags = ["--lockfile-only", *(["--recursive"] if recursive else []), "--ignore-scripts", "--ignore-pnpmfile"]
+    commands = []
+    if install:
+        # A runner sets `CI`, and `pnpm install` then refuses to change the lockfile without this flag.
+        commands.append(["pnpm", "install", *flags, "--no-frozen-lockfile"])
+    if updates:
+        commands.append(["pnpm", "update", "--no-save", *updates, *flags])
+    return commands
 
 
 def comparable(lockfile: bytes) -> dict[str, Any]:
@@ -248,14 +233,26 @@ def comparable(lockfile: bytes) -> dict[str, Any]:
 
 
 def replay_lockfile(
-    worktree: Path, directory: str, head_manifests: Mapping[str, bytes], command: list[str], run: Runner
+    worktree: Path,
+    directory: str,
+    head_manifests: Mapping[str, bytes],
+    commands: list[list[str]],
+    release_age_minutes: Callable[[], int],
+    run: Runner,
 ) -> bytes:
-    """The lockfile pnpm writes in the merge-base tree once the head manifests are in place."""
+    """The lockfile pnpm writes in the merge-base tree once the head manifests are in place.
+
+    Each command sees the registry as Renovate saw it at the head commit. pnpm counts
+    `minimumReleaseAge` back from now, so the age it gets is the policy's release age plus the time
+    since the head commit. That hides everything published since the head commit, which keeps caret
+    ranges and `latest` dist-tags from resolving to newer versions. A package that
+    `minimumReleaseAgeExclude` names stays exempt, and `blocked_reason` refuses an update that adds
+    or changes one.
+    """
     for path, text in head_manifests.items():
         (worktree / path).write_bytes(text)
-    workspace = worktree / join(directory, WORKSPACE_FILE)
-    workspace.write_bytes(frozen_workspace_settings(workspace.read_bytes()))
-    run(command, worktree / directory)
+    for command in commands:
+        run([*command, f"--config.minimumReleaseAge={release_age_minutes()}"], worktree / directory)
     return (worktree / join(directory, LOCKFILE)).read_bytes()
 
 
@@ -309,9 +306,6 @@ def prove(
 
     git.fetch(merge_base, head)
     files = policy.eligible_paths(git.changed_files(merge_base, head))
-    renovate = policy.json5_loads(
-        require(git.show(workflow_sha, ".github/renovate.json5"), ".github/renovate.json5").decode()
-    )
     groups = lockfile_groups(files, git, merge_base)
     worktree = Path(env["MERGE_BASE_DIR"])
     git.add_worktree(worktree, merge_base)
@@ -336,7 +330,6 @@ def prove(
             workflow_sha,
             merge_base,
             head,
-            renovate,
             directory,
             manifests,
             release_age_minutes,
@@ -345,18 +338,13 @@ def prove(
 
 
 def lockfile_groups(files: list[str], git: Git, merge_base: str) -> dict[str, list[str]]:
-    """Changed manifests keyed by the lockfile directory whose workspace they belong to."""
+    """Changed manifests keyed by the directory of the nearest lockfile at or above them."""
     groups: dict[str, list[str]] = {}
     for path in files:
         directory = policy.lockfile_dir(path, lambda candidate: git.blob(merge_base, candidate) is not None)
-        if path.rpartition("/")[2] == LOCKFILE:
-            groups.setdefault(directory, [])
-            continue
-        workspace = load_workspace(git, merge_base, directory)
-        relative = path.rpartition("/")[0][len(directory) :].lstrip("/")
-        if not policy.is_workspace_member(relative, workspace.get("packages") or []):
-            raise Refused(f"{path} is outside the workspace of {join(directory, LOCKFILE)}")
-        groups.setdefault(directory, []).append(path)
+        manifests = groups.setdefault(directory, [])
+        if path.rpartition("/")[2] == MANIFEST:
+            manifests.append(path)
     for directory in groups:
         if join(directory, LOCKFILE) not in files:
             raise Refused(f"{join(directory, LOCKFILE)} did not change")
@@ -372,7 +360,6 @@ def prove_group(
     workflow_sha: str,
     merge_base: str,
     head: str,
-    renovate: Mapping[str, Any],
     directory: str,
     manifests: list[str],
     release_age_minutes: Callable[[], int],
@@ -394,24 +381,25 @@ def prove_group(
         require(git.show(workflow_sha, join(directory, str(only_built))), str(only_built)) if only_built else None
     )
     blocked = policy.blocked_patterns(
-        workspace, default_manifest, renovate, None if only_built_text is None else only_built_text.decode()
+        workspace, default_manifest, None if only_built_text is None else only_built_text.decode()
     )
 
-    head_manifests = {path: require(git.show(head, path), path) for path in manifests}
-    for path, text in head_manifests.items():
-        policy.check_manifest(
-            path, policy.load_manifest(require(git.show(merge_base, path), path)), policy.load_manifest(text)
-        )
     base_lock_text, head_lock_text = (
         require(git.show(merge_base, lockfile), lockfile),
         require(git.show(head, lockfile), lockfile),
     )
     base_lock, head_lock = load_yaml(base_lock_text), load_yaml(head_lock_text)
+    head_manifests = {path: require(git.show(head, path), path) for path in manifests}
+    for path, text in head_manifests.items():
+        policy.check_member(path, directory, base_lock)
+        policy.check_manifest(
+            path, policy.load_manifest(require(git.show(merge_base, path), path)), policy.load_manifest(text)
+        )
     changes = policy.direct_changes(base_lock, head_lock)
-    for name in sorted({name for name, _, _ in changes} | set(policy.new_packages(base_lock, head_lock))):
+    for name in sorted({change.name for change in changes} | set(policy.new_packages(base_lock, head_lock))):
         if reason := policy.blocked_reason(name, blocked):
             raise Refused(reason)
-    releases = sorted({(name, new) for name, old, new in changes if old != new})
+    releases = sorted({(change.name, change.new) for change in changes if change.old != change.new})
     if not releases:
         raise Refused(f"{lockfile} changes no direct dependency version")
     if len(releases) > RELEASE_AGE_LOOKUPS:
@@ -422,9 +410,12 @@ def prove_group(
 
     version = policy.pnpm_version(policy.load_manifest(require(git.show(merge_base, root_manifest), root_manifest)))
     run(["npm", "install", "--global", "--no-audit", "--no-fund", f"pnpm@{version}"], worktree)
-    updates = [f"{name}@{new}" for name, new in releases]
-    command = replay_command(updates, bool(workspace.get("packages")), release_age_minutes())
-    if comparable(replay_lockfile(worktree, directory, head_manifests, command, run)) != comparable(head_lock_text):
+    updates = sorted(
+        {f"{change.name}@{change.new}" for change in changes if change.old != change.new and not change.range_changed}
+    )
+    commands = replay_commands(updates, bool(manifests), bool(workspace.get("packages")))
+    replayed = replay_lockfile(worktree, directory, head_manifests, commands, release_age_minutes, run)
+    if comparable(replayed) != comparable(head_lock_text):
         raise Refused(f"pnpm writes a different {lockfile} for this update")
     return set(settings)
 

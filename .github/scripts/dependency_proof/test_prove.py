@@ -18,13 +18,12 @@ import pytest
 from dependency_proof import prove as prover
 from dependency_proof.policy import RENOVATE_BOT_USER_ID, Refused
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 REPOSITORY = "PostHog/posthog"
 HEAD, MERGE_BASE, WORKFLOW_SHA = "a" * 40, "b" * 40, "c" * 40
 NOW = datetime(2026, 11, 9, 12, tzinfo=UTC)
 WORKSPACE = b"packages:\n    - '.'\nminimumReleaseAge: 10080\nminimumReleaseAgeExclude:\n    - posthog-js\n    - '@posthog/*'\nallowBuilds:\n    esbuild: true\n"
 PROVER = ".github/scripts/dependency_proof/prove.py"
-RENOVATE = b"{ packageRules: [ { matchPackageNames: ['posthog-js'], minimumReleaseAge: null, }, ], }"
+REPLAY_FLAGS = ["--lockfile-only", "--recursive", "--ignore-scripts", "--ignore-pnpmfile"]
 
 
 def _fake_blob_sha(text: bytes) -> str:
@@ -49,7 +48,6 @@ def lockfile(name: str, specifier: str, version: str, integrity: str = "sha512-x
 def trees(name: str = "left-pad", head_range: str = "^1.3.1", head_version: str = "1.3.1", **head_extra: bytes) -> dict:
     base = {
         "pnpm-workspace.yaml": WORKSPACE,
-        ".github/renovate.json5": RENOVATE,
         "package.json": manifest(name, "^1.3.0"),
         "pnpm-lock.yaml": lockfile(name, "^1.3.0", "1.3.0"),
     }
@@ -163,14 +161,23 @@ def test_a_pull_request_by_a_person_attests_nothing(tmp_path: Path) -> None:
     assert prove(environment(tmp_path), github, FakeGit({}), registry, FakePnpm(b"")) == prover.Proof([], {})
 
 
-def test_an_eligible_update_is_attested_after_a_frozen_targeted_replay(tmp_path: Path) -> None:
-    pnpm = FakePnpm(lockfile("left-pad", "^1.3.1", "1.3.1", deprecated=True))
-    git = FakeGit({**trees(), WORKFLOW_SHA: {**trees()[WORKFLOW_SHA], PROVER: b"the prover"}})
+@pytest.mark.parametrize(
+    ("head_range", "files", "replay"),
+    [
+        ("^1.3.1", ["package.json", "pnpm-lock.yaml"], ["pnpm", "install", *REPLAY_FLAGS, "--no-frozen-lockfile"]),
+        ("^1.3.0", ["pnpm-lock.yaml"], ["pnpm", "update", "--no-save", "left-pad@1.3.1", *REPLAY_FLAGS]),
+    ],
+)
+def test_an_eligible_update_is_attested_after_a_frozen_replay_of_renovates_command(
+    tmp_path: Path, head_range: str, files: list[str], replay: list[str]
+) -> None:
+    pnpm = FakePnpm(lockfile("left-pad", head_range, "1.3.1", deprecated=True))
+    update = trees(head_range=head_range)
+    git = FakeGit({**update, WORKFLOW_SHA: {**update[WORKFLOW_SHA], PROVER: b"the prover"}})
     proof = prove(environment(tmp_path), FakeGitHub(pull()), git, registry, pnpm)
     assert proof == prover.Proof(
-        ["package.json", "pnpm-lock.yaml"],
+        files,
         {
-            ".github/renovate.json5": _fake_blob_sha(RENOVATE),
             ".github/scripts/dependency_proof/__init__.py": None,
             ".github/scripts/dependency_proof/__main__.py": None,
             ".github/scripts/dependency_proof/policy.py": None,
@@ -186,24 +193,10 @@ def test_an_eligible_update_is_attested_after_a_frozen_targeted_replay(tmp_path:
     worktree = tmp_path / "merge-base"
     assert pnpm.commands == [
         (["npm", "install", "--global", "--no-audit", "--no-fund", "pnpm@11.28.5"], worktree),
-        (
-            [
-                "pnpm",
-                "update",
-                "--no-save",
-                "left-pad@1.3.1",
-                "--lockfile-only",
-                "--recursive",
-                "--ignore-scripts",
-                "--ignore-pnpmfile",
-                "--config.minimumReleaseAge=10201",
-            ],
-            worktree,
-        ),
+        ([*replay, "--config.minimumReleaseAge=10201"], worktree),
     ]
-    assert (worktree / "package.json").read_bytes() == manifest("left-pad", "^1.3.1")
-    assert b"minimumReleaseAgeExclude" not in (worktree / "pnpm-workspace.yaml").read_bytes()
-    assert b"allowBuilds:\n    esbuild: true\n" in (worktree / "pnpm-workspace.yaml").read_bytes()
+    assert (worktree / "package.json").read_bytes() == manifest("left-pad", head_range)
+    assert (worktree / "pnpm-workspace.yaml").read_bytes() == WORKSPACE
 
 
 @pytest.mark.parametrize(
@@ -283,10 +276,15 @@ def test_an_eligible_update_is_attested_after_a_frozen_targeted_replay(tmp_path:
         ),
         (
             FakeGitHub(pull()),
-            FakeGit(every_tree(**{"pnpm-workspace.yaml": b"minimumReleaseAgeExclude: [posthog-js]\n"})),
+            FakeGit(
+                {
+                    sha: {**tree, "tools/package.json": manifest("left-pad", "^1.3.1" if sha == HEAD else "^1.3.0")}
+                    for sha, tree in trees().items()
+                }
+            ),
             None,
             None,
-            "in a form this proof does not read",
+            "tools/package.json is not a project of pnpm-lock.yaml",
         ),
     ],
 )
@@ -391,14 +389,6 @@ def test_fetch_retries_a_transport_failure(monkeypatch: pytest.MonkeyPatch, erro
     monkeypatch.setattr(prover.time, "sleep", lambda seconds: None)
 
     assert prover.fetch(urllib.request.Request("https://registry.npmjs.org/left-pad")) == b"{}"
-
-
-def test_frozen_workspace_settings_drop_the_repository_exclusions() -> None:
-    frozen = prover.frozen_workspace_settings((REPO_ROOT / "pnpm-workspace.yaml").read_bytes())
-    assert b"minimumReleaseAgeExclude" not in frozen
-    assert b"posthog-js-lite" not in frozen
-    assert b"minimumReleaseAge: 10080\n" in frozen
-    assert b"allowBuilds:\n" in frozen
 
 
 @pytest.mark.parametrize(
