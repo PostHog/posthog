@@ -8,10 +8,12 @@ from posthog.errors import (
     CHQueryErrorCannotParseUuid,
     CHQueryErrorInvalidJoinOnExpression,
     CHQueryErrorMalformedCsvRow,
+    CHQueryErrorNotImplemented,
     CHQueryErrorUnknownType,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
+    classify_query_error,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
@@ -48,6 +50,17 @@ class TestWrapClickhouseQueryError:
                 6,
                 "CANNOT_PARSE_TEXT",
                 "Cannot parse a value as the requested type. Check your input formats and type conversions.",
+            ),
+            (
+                20,
+                "NUMBER_OF_COLUMNS_DOESNT_MATCH",
+                "The number of columns doesn't match. Make sure both sides of an IN, and each part of a UNION, "
+                "have the same number of columns.",
+            ),
+            (
+                27,
+                "CANNOT_PARSE_INPUT_ASSERTION_FAILED",
+                "Cannot parse a value in the expected format. Check the format of your data and your type conversions.",
             ),
             (38, "CANNOT_PARSE_DATE", "Cannot parse a date. Check your date values and their format."),
             (41, "CANNOT_PARSE_DATETIME", "Cannot parse a date and time. Check your datetime values and their format."),
@@ -94,6 +107,11 @@ class TestWrapClickhouseQueryError:
                 "SIZES_OF_ARRAYS_DONT_MATCH",
                 "Array sizes do not match. Make sure arrays used together have the same number of elements.",
             ),
+            (
+                206,
+                "ALIAS_REQUIRED",
+                "A subquery or table function in a JOIN needs an alias. Add one, for example JOIN (SELECT ...) AS sub.",
+            ),
             (376, "CANNOT_PARSE_UUID", "Cannot parse a UUID. Check the format of the values converted to UUIDs."),
             (
                 403,
@@ -112,6 +130,12 @@ class TestWrapClickhouseQueryError:
                 "Invalid LIMIT or OFFSET expression. Use a constant number in the supported range.",
             ),
             (467, "CANNOT_PARSE_BOOL", "Cannot parse a boolean. Check for values other than true, false, 1, or 0."),
+            (
+                475,
+                "INVALID_WITH_FILL_EXPRESSION",
+                "Invalid WITH FILL expression. FROM and TO must be constants of the same type as the column you "
+                "order by. STEP must be a number, or an interval such as INTERVAL 1 DAY for date and time columns.",
+            ),
             (
                 491,
                 "UNACCEPTABLE_URL",
@@ -271,10 +295,14 @@ class TestWrapClickhouseQueryError:
             # SYNTAX_ERROR (62) stays internal: HogQL validates syntax first, so a raw CH syntax error
             # signals a PostHog SQL-generation bug that belongs in error tracking.
             (62, "SYNTAX_ERROR"),
+            # NOT_FOUND_COLUMN_IN_BLOCK (10) comes from SQL that PostHog generates, so the user cannot fix it.
+            (10, "NOT_FOUND_COLUMN_IN_BLOCK"),
             (115, "UNKNOWN_SETTING"),
             (497, "ACCESS_DENIED"),
             (499, "S3_ERROR"),
             (516, "AUTHENTICATION_FAILED"),
+            # POSTGRESQL_CONNECTION_FAILURE (614) can name a database host in its raw message.
+            (614, "POSTGRESQL_CONNECTION_FAILURE"),
             (1000, "POCO_EXCEPTION"),
             (1001, "STD_EXCEPTION"),
             (9999, "FUTURE_ERROR"),
@@ -287,3 +315,106 @@ class TestWrapClickhouseQueryError:
 
         assert isinstance(wrapped, InternalCHQueryError)
         assert not isinstance(wrapped, ExposedCHQueryError)
+
+    @parameterized.expand(
+        [
+            (
+                "correlated_subquery_with_remote_table",
+                "Correlated subqueries are not supported with remote tables.",
+                "A subquery refers to a column of the outer query, which ClickHouse doesn't support here. "
+                "Rewrite it as a JOIN, or move the filter into the outer query.",
+            ),
+            (
+                "correlated_subquery_in_in_function",
+                "Correlated subqueries are not supported as IN function arguments yet, but found in expression: "
+                "globalIn(private_column, _subquery_1)",
+                "A subquery refers to a column of the outer query, which ClickHouse doesn't support here. "
+                "Rewrite it as a JOIN, or move the filter into the outer query.",
+            ),
+            (
+                "cannot_decorrelate",
+                "Cannot decorrelate query, because 'Window' step is not supported.",
+                "A subquery refers to a column of the outer query, which ClickHouse doesn't support here. "
+                "Rewrite it as a JOIN, or move the filter into the outer query.",
+            ),
+            (
+                "range_offset_frame",
+                "The RANGE OFFSET frame for 'private_type' ORDER BY column is not implemented.",
+                "A window frame with RANGE and an offset doesn't work with the type of this ORDER BY column. "
+                "Use a ROWS frame, or change the type of the ORDER BY column.",
+            ),
+            (
+                "unquoted_uuid",
+                "Conversion between numeric types and UUID is not supported. Probably the passed UUID is unquoted.",
+                "A number is being converted to a UUID, which ClickHouse doesn't support. "
+                "Put the UUID value in quotes.",
+            ),
+        ]
+    )
+    def test_not_implemented_exposes_user_caused_shapes_with_fixed_message(
+        self, _name: str, shape: str, message: str
+    ) -> None:
+        raw_message = (
+            f"DB::Exception: {shape} In query SELECT private_column FROM private_table WHERE token = "
+            "'fake-signed-token'. Received from private-host.example.com:9000. Stack trace: private-stack-frame"
+        )
+        err = ServerException(raw_message, code=48, nested=ServerException("fake-nested-secret", code=1000))
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, CHQueryErrorNotImplemented)
+        assert str(wrapped) == message
+        assert wrapped.message == message
+        assert wrapped.code == 48
+        assert wrapped.code_name == "not_implemented"
+        assert wrapped.nested is None
+
+    @parameterized.expand(
+        [
+            (
+                "decimal_scales",
+                "Conditional functions with different Decimal scales: 'Decimal(18, 2)' and 'Decimal(18, 10)'.",
+            ),
+            (
+                "insert_into_nothing",
+                "Cannot insert element into Nothing: In scope SELECT private_column FROM private_table.",
+            ),
+            ("unsupported_method_on_function", "Method structureEquals is not supported for FunctionNode."),
+            (
+                "plan_header_mismatch",
+                "Current query is not supported yet, because can't find '__table1.private_column' in current header.",
+            ),
+        ]
+    )
+    def test_other_not_implemented_shapes_stay_internal(self, _name: str, raw_message: str) -> None:
+        err = ServerException(f"DB::Exception: {raw_message} Stack trace: private-stack-frame", code=48)
+
+        wrapped = wrap_clickhouse_query_error(err)
+
+        assert isinstance(wrapped, InternalCHQueryError)
+        assert not isinstance(wrapped, ExposedCHQueryError)
+        assert look_up_clickhouse_error_code_meta(err).get_category() == QueryErrorCategory.ERROR
+
+    @parameterized.expand(
+        [
+            (
+                "correlated_subquery",
+                "Correlated subqueries are not supported with remote tables.",
+                QueryErrorCategory.USER_ERROR,
+            ),
+            (
+                "range_offset_frame",
+                "The RANGE OFFSET frame for 'private_type' ORDER BY column is not implemented.",
+                QueryErrorCategory.USER_ERROR,
+            ),
+            ("decimal_scales", "Conditional functions with different Decimal scales.", QueryErrorCategory.ERROR),
+            ("insert_into_nothing", "Cannot insert element into Nothing.", QueryErrorCategory.ERROR),
+        ]
+    )
+    def test_not_implemented_category_follows_the_message_shape(
+        self, _name: str, shape: str, category: QueryErrorCategory
+    ) -> None:
+        raw = ServerException(f"DB::Exception: {shape} Stack trace: private-stack-frame", code=48)
+
+        assert classify_query_error(raw) == category
+        assert classify_query_error(wrap_clickhouse_query_error(raw)) == category
