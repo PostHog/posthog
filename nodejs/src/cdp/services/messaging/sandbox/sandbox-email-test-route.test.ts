@@ -247,7 +247,7 @@ describe('sandbox email test sends', () => {
         expect(world.ses.delivered).toEqual([])
     })
 
-    it('refuses a test send before the editor stops waiting when the SES send rate store stops answering', async () => {
+    it('refuses a test send before the editor stops waiting when the SES send rate store stops answering, and sends on a fresh connection once it answers', async () => {
         const store = new StallingValkeyProxy({
             host: defaultConfig.CDP_REDIS_HOST,
             port: defaultConfig.CDP_REDIS_PORT,
@@ -278,6 +278,9 @@ describe('sandbox email test sends', () => {
 
             expect(answer).toEqual({ status: 'failed', reason: 'send_rate_limited' })
             expect(world.ses.delivered).toEqual([])
+
+            store.answerNewConnections()
+            await expect(tester().send(testRun())).resolves.toMatchObject({ status: 'accepted' })
         } finally {
             store.stopLeavingClientsSilent()
         }
