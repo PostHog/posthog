@@ -210,6 +210,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         [
             ("list", "", ["hog_flow:read"], "person:read"),
             ("retrieve", "{message_id}/", ["hog_flow:read"], "person:read"),
+            ("activity", "{message_id}/activity/", ["hog_flow:read", "person:read"], "query:read"),
             ("stats_over_time", "stats_over_time/", ["query:read"], "hog_flow:read"),
             (
                 "results",
@@ -245,6 +246,74 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             assert response.status_code == status.HTTP_404_NOT_FOUND
         else:
             assert (response.json()["template_id"], response.json()["template_name"]) == (None, "")
+
+    def test_shows_what_the_recipient_did_around_the_send(self, _flag):
+        create_person(team=self.team, distinct_ids=["jane", "jane-anonymous"])
+        create_person(team=self.team, distinct_ids=["someone-else"])
+        message_id = self._send(3 * 24 * 60, "jane@example.com", [("sent", 1, ""), ("clicked", 300, "")])
+        sent_at = NOW - timedelta(days=3) + timedelta(seconds=1)
+        sync_execute(
+            """
+            INSERT INTO message_assets_data
+                (team_id, function_kind, function_id, parent_run_id, invocation_id, action_id, kind, distinct_id,
+                 person_id, recipient, subject, status, sent_at, version, is_deleted, html)
+            VALUES
+            """,
+            [
+                {
+                    "team_id": self.team.id,
+                    "function_kind": "hog_flow",
+                    "function_id": self.workflow_id,
+                    "parent_run_id": "",
+                    "invocation_id": message_id,
+                    "action_id": "transactional_email",
+                    "kind": "email",
+                    "distinct_id": "jane",
+                    "person_id": "",
+                    "recipient": "jane@example.com",
+                    "subject": "Reset",
+                    "status": "sent",
+                    "sent_at": sent_at,
+                    "version": 1,
+                    "is_deleted": 0,
+                    "html": "",
+                }
+            ],
+        )
+        for event, distinct_id, offset, session_id in [
+            ("$pageview", "jane-anonymous", -timedelta(hours=2), "before"),
+            ("$feature_flag_called", "jane", -timedelta(hours=1), "before"),
+            ("$pageview", "jane", timedelta(minutes=5), "after"),
+            ("upgraded_plan", "jane", timedelta(minutes=6), "after"),
+            ("invoice_paid", "jane", timedelta(minutes=10), None),
+            ("$pageview", "someone-else", timedelta(minutes=7), "other"),
+            ("$pageview", "jane", timedelta(days=8), "much-later"),
+        ]:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=distinct_id,
+                timestamp=sent_at + offset,
+                properties={"$session_id": session_id} if session_id else {},
+            )
+        flush_persons_and_events()
+
+        response = self.client.get(self._url(f"{message_id}/activity/"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["distinct_id"] == "jane"
+        assert datetime.fromisoformat(body["sent_at"]) == sent_at
+        assert [(e["event"], e["session_id"]) for e in body["before"]] == [("$pageview", "before")]
+        assert [(e["event"], e["session_id"]) for e in body["after"]] == [
+            ("$pageview", "after"),
+            ("upgraded_plan", "after"),
+            ("invoice_paid", None),
+        ]
+        assert [(s["session_id"], s["event_count"], s["started_after_send"]) for s in body["sessions"]] == [
+            ("before", 1, False),
+            ("after", 2, True),
+        ]
 
     def test_counts_sends_per_template_and_per_sending_domain(self, _flag):
         self._send(30, "a@example.com", [("sent", 1, ""), ("delivered", 2, ""), ("opened", 60, ""), ("opened", 90, "")])
@@ -430,6 +499,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         listed = self.client.get(self._url()).json()["results"]
         detail = self.client.get(self._url(f"{hidden_id}/"))
+        activity = self.client.get(self._url(f"{hidden_id}/activity/"))
         results = self.client.get(self._url("results/"), {"workflow_id": restricted, "event": "purchase"})
 
         stats = self.client.get(self._url("stats/"), {"group_by": "sending_domain"}).json()["results"]
@@ -438,6 +508,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert [r["message_id"] for r in listed] == [deleted_id, visible_id]
         assert sum(bucket["counts"]["sent"] for bucket in over_time) == 2
         assert detail.status_code == status.HTTP_404_NOT_FOUND
+        assert activity.status_code == status.HTTP_404_NOT_FOUND
         assert results.status_code == status.HTTP_404_NOT_FOUND
         assert {row["label"] for row in stats} == {"mail.example.com", "old.example.com"}
         assert self.client.get(self._url(f"{deleted_id}/")).json()["recipient"] == "old@example.com"
