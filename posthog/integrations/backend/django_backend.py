@@ -1,0 +1,247 @@
+"""The `StorageBackend` that keeps the rows in the `Integration` Django model.
+
+This is the only module of the SDK that queries the model. The rows come back as model instances,
+typed as the read-only `IntegrationRecord`.
+"""
+
+import builtins
+from collections.abc import Mapping, Sequence
+
+from django.db import IntegrityError, transaction
+from django.db.models import Q
+
+from posthog.integrations.backend.patching import changed_fields
+from posthog.integrations.backend.protocol import (
+    KindScope,
+    NewIntegration,
+    RowFilter,
+    RowScope,
+    SourceRows,
+    TokenRefresh,
+)
+from posthog.integrations.contracts import (
+    SOURCE_MARKER_CONFIG_KEY,
+    ConfigValue,
+    IntegrationConflict,
+    IntegrationNotFound,
+    IntegrationPatch,
+    IntegrationRecord,
+)
+from posthog.integrations.enums import AuthType
+from posthog.models.integration.auth_types import ANY, default_auth_type
+from posthog.models.integration.model import Integration, IntegrationQuerySet, defer_repository_cache_fields
+from posthog.models.integration.oauth import OauthIntegration
+
+# The unique key of a row: (team, kind, external id).
+_UNIQUE_KEY_CONSTRAINT = "posthog_integration_kind_id_unique"
+
+
+def _rows() -> IntegrationQuerySet:
+    # The GitHub repository cache can be large. Django loads a deferred column when code reads it.
+    return defer_repository_cache_fields(Integration.objects._with_auth(ANY))
+
+
+def _auth_type_q(kind: str, auth_type: AuthType) -> Q:
+    stored = Q(config__auth_type=auth_type.value)
+    if auth_type == default_auth_type(kind):
+        # A JSON null counts as unset, the same as in `auth_types.rows_with_default_auth_type_q`. A
+        # stored default is possible too: `QuerySet.update()` skips the `normalized_config` of `save()`.
+        return Q(config__auth_type__isnull=True) | Q(config__auth_type=None) | stored
+    return stored
+
+
+def _kind_name(kind: KindScope) -> str:
+    return kind.kind
+
+
+def _scope_q(scope: RowScope) -> Q:
+    q = Q()
+    if scope.kinds is not None:
+        if all(kind.auth_types is None for kind in scope.kinds):
+            q &= Q(kind__in=sorted(kind.kind for kind in scope.kinds))
+        else:
+            # An empty Q() in an OR matches every row, so start from a clause that matches none.
+            by_kind = Q(pk__in=[])
+            for kind in sorted(scope.kinds, key=_kind_name):
+                if kind.auth_types is None:
+                    by_kind |= Q(kind=kind.kind)
+                    continue
+                for auth_type in sorted(kind.auth_types):
+                    by_kind |= Q(kind=kind.kind) & _auth_type_q(kind.kind, auth_type)
+            q &= by_kind
+    if scope.source_rows == SourceRows.EXCLUDE:
+        q &= ~Q(config__has_key=SOURCE_MARKER_CONFIG_KEY)
+    elif scope.source_rows == SourceRows.ONLY:
+        q &= Q(config__has_key=SOURCE_MARKER_CONFIG_KEY)
+    return q
+
+
+def _where_q(where: Mapping[str, ConfigValue]) -> Q:
+    q = Q()
+    for key, value in where.items():
+        # `__exact`, so a key named like a lookup (`contains`, `regex`) still reads as a key.
+        # nosemgrep: orm-field-injection - the accessor checks that the key is one JSON key segment, and `__exact` fixes the lookup
+        q &= Q(**{f"config__{key}__exact": value})
+    return q
+
+
+def _is_unique_key_violation(error: IntegrityError) -> bool:
+    constraint = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None)
+    return constraint == _UNIQUE_KEY_CONSTRAINT or _UNIQUE_KEY_CONSTRAINT in str(error)
+
+
+def _patch_row(row: Integration, patch: IntegrationPatch) -> builtins.list[str]:
+    """Apply `patch` to the row in memory. Returns the fields whose value changed."""
+    changed = changed_fields(config=row.config, sensitive_config=row.sensitive_config, errors=row.errors, patch=patch)
+    for field, value in changed.items():
+        setattr(row, field, value)
+    return builtins.list(changed)
+
+
+class DjangoBackend:
+    """The rows in the `posthog_integration` table of the Django database."""
+
+    def _team_rows(self, scope: RowScope, team_id: int) -> IntegrationQuerySet:
+        return _rows().filter(_scope_q(scope), team_id=team_id)
+
+    def _selected(self, scope: RowScope, row_filter: RowFilter) -> IntegrationQuerySet:
+        if row_filter.team_id is not None:
+            rows = self._team_rows(scope, row_filter.team_id)
+        elif row_filter.team_ids is not None:
+            rows = _rows().filter(_scope_q(scope), team_id__in=builtins.list(row_filter.team_ids))
+        else:
+            rows = _rows().filter(_scope_q(scope))
+        rows = rows.filter(_where_q(row_filter.where))
+        return rows if row_filter.external_id is None else rows.filter(integration_id=row_filter.external_id)
+
+    def _row(self, scope: RowScope, team_id: int, id: int, *, lock: bool = False) -> Integration:
+        rows = self._team_rows(scope, team_id)
+        try:
+            return (rows.select_for_update() if lock else rows).get(id=id)
+        except (Integration.DoesNotExist, ValueError, TypeError) as error:
+            raise IntegrationNotFound(f"No integration {id!r} in {scope!r} for team {team_id}") from error
+
+    def get(self, scope: RowScope, *, team_id: int, id: int) -> IntegrationRecord:
+        return self._row(scope, team_id, id)
+
+    def get_many(self, scope: RowScope, *, team_id: int, ids: Sequence[int]) -> dict[int, IntegrationRecord]:
+        return {row.id: row for row in self._team_rows(scope, team_id).filter(id__in=builtins.list(ids))}
+
+    def find(self, scope: RowScope, row_filter: RowFilter) -> IntegrationRecord | None:
+        return self._selected(scope, row_filter).order_by("created_at", "id").first()
+
+    def list(
+        self, scope: RowScope, row_filter: RowFilter, *, newest_first: bool = False
+    ) -> builtins.list[IntegrationRecord]:
+        order = ("-created_at", "-id") if newest_first else ("created_at", "id")
+        return builtins.list(self._selected(scope, row_filter).order_by(*order))
+
+    def exists(self, scope: RowScope, row_filter: RowFilter) -> bool:
+        return self._selected(scope, row_filter).exists()
+
+    def count(self, scope: RowScope, row_filter: RowFilter) -> int:
+        return self._selected(scope, row_filter).count()
+
+    def get_by_external_id(self, scope: RowScope, *, external_id: str, id: int) -> IntegrationRecord:
+        try:
+            return _rows().filter(_scope_q(scope)).get(integration_id=external_id, id=id)
+        except (Integration.DoesNotExist, ValueError, TypeError) as error:
+            raise IntegrationNotFound(f"No integration {id!r} with external id {external_id!r} in {scope!r}") from error
+
+    def create(self, new: NewIntegration) -> IntegrationRecord:
+        try:
+            with transaction.atomic():
+                return _rows().create(
+                    team_id=new.team_id,
+                    kind=new.kind,
+                    integration_id=new.external_id,
+                    config=dict(new.config),
+                    sensitive_config=dict(new.sensitive_config),
+                    created_by_id=new.created_by_id,
+                )
+        except IntegrityError as error:
+            if not _is_unique_key_violation(error):
+                raise
+            raise IntegrationConflict(
+                f"Team {new.team_id} already has a {new.kind!r} integration with external id {new.external_id!r}"
+            ) from error
+
+    def upsert(self, scope: RowScope, new: NewIntegration) -> tuple[IntegrationRecord, bool]:
+        new_config = dict(new.config)
+        new_sensitive_config = dict(new.sensitive_config)
+        key = {"team_id": new.team_id, "kind": new.kind, "integration_id": new.external_id}
+        with transaction.atomic():
+            row = _rows().select_for_update().filter(**key).first()
+            if row is None:
+                try:
+                    with transaction.atomic():
+                        created = _rows().create(
+                            **key,
+                            config=new_config,
+                            sensitive_config=new_sensitive_config,
+                            created_by_id=new.created_by_id,
+                        )
+                    return created, True
+                except IntegrityError as error:
+                    if not _is_unique_key_violation(error):
+                        raise
+                    row = _rows().select_for_update().get(**key)
+            if not self._team_rows(scope, row.team_id).filter(id=row.id).exists():
+                raise IntegrationConflict(
+                    f"Integration {row.id} with external id {new.external_id!r} is not in {scope!r}"
+                )
+            row.config = new_config
+            row.sensitive_config = new_sensitive_config
+            update_fields = ["config", "sensitive_config"]
+            if new.created_by_id is not None:
+                row.created_by_id = new.created_by_id
+                update_fields.append("created_by")
+            row.save(update_fields=update_fields)
+            return row, False
+
+    def update(self, scope: RowScope, *, team_id: int, id: int, patch: IntegrationPatch) -> IntegrationRecord:
+        with transaction.atomic():
+            row = self._row(scope, team_id, id, lock=True)
+            update_fields = _patch_row(row, patch)
+            if update_fields:
+                row.save(update_fields=update_fields)
+            return row
+
+    def delete(self, scope: RowScope, *, team_id: int, id: int) -> None:
+        self._row(scope, team_id, id).delete()
+
+    def update_by_external_id(self, scope: RowScope, *, external_id: str, patch: IntegrationPatch) -> int:
+        # One `bulk_update` writes the changed rows, so no `post_save` signal fires.
+        with transaction.atomic():
+            rows = _rows().filter(_scope_q(scope)).select_for_update().filter(integration_id=external_id).order_by("id")
+            changed: builtins.list[Integration] = []
+            fields: set[str] = set()
+            for row in rows:
+                row_fields = _patch_row(row, patch)
+                if row_fields:
+                    changed.append(row)
+                    fields.update(row_fields)
+            if changed:
+                _rows().bulk_update(changed, sorted(fields))
+        return len(changed)
+
+    def delete_by_external_id(self, scope: RowScope, *, external_id: str) -> int:
+        # Each row is deleted on its own, so the delete signals fire.
+        deleted = 0
+        with transaction.atomic():
+            for row in _rows().filter(_scope_q(scope)).filter(integration_id=external_id):
+                row.delete()
+                deleted += 1
+        return deleted
+
+    def refresh_access_token(
+        self, scope: RowScope, *, team_id: int, id: int, stale_access_token: str | None
+    ) -> TokenRefresh:
+        with transaction.atomic():
+            row = self._row(scope, team_id, id, lock=True)
+            oauth = OauthIntegration(row)
+            stale = stale_access_token is not None and row.access_token == stale_access_token
+            if not (stale or oauth.access_token_expired()):
+                return TokenRefresh(record=row, result="fresh")
+            oauth.refresh_access_token()
+            return TokenRefresh(record=row, result="error" if row.errors else "stale_token" if stale else "refreshed")
