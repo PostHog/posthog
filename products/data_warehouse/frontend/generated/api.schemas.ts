@@ -2234,6 +2234,8 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+    acknowledge_breaking_changes?: boolean
     /** @nullable */
     readonly is_materialized: boolean | null
     /** Where this SavedQuery is created.
@@ -2362,6 +2364,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+    acknowledge_breaking_changes?: boolean
     /** @nullable */
     readonly is_materialized?: boolean | null
     /** Where this SavedQuery is created.

@@ -144,7 +144,7 @@ def get_highlights(
             return replace(content, status=status)
     if ready is not None:
         with suppress(ValidationError):
-            return replace(_HIGHLIGHTS.validate_python(ready.content), status=status)
+            return replace(_with_slots(_HIGHLIGHTS.validate_python(ready.content)), status=status)
     return contracts.Highlights(
         status=status,
         generated_at=None,
@@ -218,6 +218,10 @@ def _start(
     except Exception as error:
         logger.exception("today_highlights_start_failed", highlights_id=str(row.id))
         capture_exception(error, {"highlights_id": str(row.id), "product": "today"})
+
+
+def _with_slots(content: contracts.Highlights) -> contracts.Highlights:
+    return content if content.pulse_slots is not None else _pulse_content(content, {}, [])
 
 
 def _pulse_content(
@@ -370,10 +374,8 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
             **{metric.key: metric for metric in PINNED_METRICS.validate_json(inputs.pinned)},
         },
     )
-    if "_pulse_sources" in row.content:
-        highlights = _pulse_content(
-            highlights, progress, _HIGHLIGHTS.validate_python(row.content).pulse_slots or [], complete=True
-        )
+    previous_slots = _HIGHLIGHTS.validate_python(row.content).pulse_slots if "_pulse_sources" in row.content else []
+    highlights = _pulse_content(highlights, progress, previous_slots or [], complete=True)
     failed = [result for result in inputs.results if result.failed]
     usable = bool(highlights.items or highlights.pulse)
     row.status = (
