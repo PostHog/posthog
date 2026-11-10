@@ -103,6 +103,9 @@ import type {
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
     PropertyDefinitionsListParams,
+    PropertyUsageMetricsRequestApi,
+    PropertyUsageMetricsResponseApi,
+    ResolvedWorkloadSubjectApi,
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SearchIntentRequestApi,
@@ -145,6 +148,7 @@ import type {
     WorkloadTrustPolicyApi,
     WorkloadTrustPolicyRequestApi,
     WorkloadTrustPolicyRequestsListParams,
+    WorkloadTrustPolicyRequestsResolveSubjectRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -2733,6 +2737,27 @@ export const propertyDefinitionsSeenTogetherRetrieve = async (
     })
 }
 
+export const getPropertyDefinitionsUsageMetricsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/property_definitions/usage_metrics/`
+}
+
+/**
+ * Returns how many query executions referenced each property in the last 30 days, including cached insight views. Batched: send up to 100 properties at once. Counts are cached for 24 hours.
+ * @summary 30-day query usage for a set of properties
+ */
+export const propertyDefinitionsUsageMetricsCreate = async (
+    projectId: string,
+    propertyUsageMetricsRequestApi: PropertyUsageMetricsRequestApi,
+    options?: RequestInit
+): Promise<PropertyUsageMetricsResponseApi> => {
+    return apiMutator<PropertyUsageMetricsResponseApi>(getPropertyDefinitionsUsageMetricsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(propertyUsageMetricsRequestApi),
+    })
+}
+
 export const getSessionRecordingsSharingListUrl = (projectId: string, recordingId: string) => {
     return `/api/projects/${projectId}/session_recordings/${recordingId}/sharing/`
 }
@@ -3216,6 +3241,60 @@ export const workloadTrustPolicyRequestsRejectCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getWorkloadTrustPolicyRequestsProvidersRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workload_trust_policy_requests/providers/`
+}
+
+/**
+ * The supported providers and the settings a job needs, for any member who asks for a policy.
+ */
+export const workloadTrustPolicyRequestsProvidersRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<WorkloadProvidersResponseApi> => {
+    return apiMutator<WorkloadProvidersResponseApi>(getWorkloadTrustPolicyRequestsProvidersRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkloadTrustPolicyRequestsResolveSubjectRetrieveUrl = (
+    projectId: string,
+    params: WorkloadTrustPolicyRequestsResolveSubjectRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/workload_trust_policy_requests/resolve_subject/?${stringifiedParams}`
+        : `/api/projects/${projectId}/workload_trust_policy_requests/resolve_subject/`
+}
+
+/**
+ * Find a workload's immutable ID from the name people know it by, so nobody has to look the ID up
+ * to ask for or write a policy.
+ */
+export const workloadTrustPolicyRequestsResolveSubjectRetrieve = async (
+    projectId: string,
+    params: WorkloadTrustPolicyRequestsResolveSubjectRetrieveParams,
+    options?: RequestInit
+): Promise<ResolvedWorkloadSubjectApi> => {
+    return apiMutator<ResolvedWorkloadSubjectApi>(
+        getWorkloadTrustPolicyRequestsResolveSubjectRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getRevokeLeakedKeyCreateUrl = () => {

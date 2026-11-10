@@ -1,3 +1,4 @@
+import json
 import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -11,21 +12,27 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter, PersonPropertyFilter, PropertyOperator
+from posthog.schema import (
+    AnyPropertyFilterDiscriminated,
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    PropertyOperator,
+    SessionPropertyFilter,
+)
 
 from posthog.hogql.database.database import Database
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 from posthog.utils import generate_cache_key
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.mcp_analytics.backend import intent_generation, logic, mcp_harness
 from products.mcp_analytics.backend.facade import api, contracts, enums
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPSession
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 INTERNAL_CLIENT = "internal-bot"
@@ -228,6 +235,33 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert listed(None, False) == {"kept", "dropped"}
         assert listed(properties, filter_test_accounts) == expected
 
+    @parameterized.expand(
+        [
+            ("event_filter", _tool_name_filter("query_run"), False),
+            ("person_filter", _person_email_filter("kept@example.com"), False),
+            (
+                "session_filter",
+                [SessionPropertyFilter(key="$entry_current_url", value=["x"], operator=PropertyOperator.IS_NOT)],
+                True,
+            ),
+        ]
+    )
+    def test_loads_the_warehouse_catalog_only_for_filters_that_need_it(
+        self, _name: str, properties: list[AnyPropertyFilterDiscriminated], loads_catalog: bool
+    ) -> None:
+        create_person(team=self.team, distinct_ids=["kept_user"], properties={"email": "kept@example.com"})
+        session_id = str(uuid7())
+        self._seed_session(session_id, ["query_run"], distinct_id="kept_user")
+        flush_persons_and_events()
+
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_database:
+            sessions = api.list_mcp_sessions(self.team, limit=50, offset=0, properties=properties)
+            calls = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=50, offset=0, properties=properties)
+
+        assert create_database.called == loads_catalog
+        assert [s.session_id for s in sessions.results] == [session_id]
+        assert [c.tool_name for c in calls.results] == ["query_run"]
+
     def test_test_account_filter_changes_invalidate_the_session_cache(self) -> None:
         external_session_id = str(uuid7())
         internal_session_id = str(uuid7())
@@ -413,22 +447,24 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert order("password") == [new_id, big_id, old_id]
         assert order("-DROP TABLE") == [new_id, big_id, old_id]
 
-    def test_has_next_signals_more_pages(self) -> None:
-        # Identical session_end across all three so only the session_id tiebreaker
+    # 100 is the endpoint's default page size, and HogQL's default row limit for a query without one.
+    @parameterized.expand([("small_page", 2), ("default_page", 100)])
+    def test_has_next_signals_more_pages(self, _name: str, limit: int) -> None:
+        # Identical session_end across all sessions so only the session_id tiebreaker
         # gives a stable order — the assertion below would flake without it.
         # IDs are pre-sorted so the tiebreaker resolves deterministically.
         ts = datetime.now(tz=UTC) - timedelta(minutes=5)
-        ids = _sorted_uuid7s(3)
+        ids = _sorted_uuid7s(limit + 1)
         for session_id in ids:
             self._seed_session(session_id, ["query_run"], session_start=ts, session_end=ts)
 
         # Over-fetch (limit+1) lets the first page know more exists without a count query.
-        first = api.list_mcp_sessions(self.team, limit=2, offset=0)
-        assert len(first.results) == 2
+        first = api.list_mcp_sessions(self.team, limit=limit, offset=0)
+        assert len(first.results) == limit
         assert first.has_next is True
 
         # Last page returns the remainder and reports no further pages.
-        second = api.list_mcp_sessions(self.team, limit=2, offset=2)
+        second = api.list_mcp_sessions(self.team, limit=limit, offset=limit)
         assert len(second.results) == 1
         assert second.has_next is False
 
@@ -577,7 +613,8 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
 
         assert session_id not in results
 
-    def test_detail_shows_all_events_for_overlapping_session(self) -> None:
+    @parameterized.expand([("unbounded", False), ("bounded_by_session_end", True)])
+    def test_detail_shows_all_events_for_overlapping_session(self, _name: str, bound_by_session_end: bool) -> None:
         # Clicking an overlapping session shows every event: the UI passes the full
         # session_start as the scan bound, so the pre-window event is included too.
         session_id = str(uuid7())
@@ -596,7 +633,12 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
             if s.session_id == session_id
         )
         page = api.list_mcp_tool_calls(
-            self.team, session_id=session_id, limit=500, offset=0, date_from=session.session_start
+            self.team,
+            session_id=session_id,
+            limit=500,
+            offset=0,
+            date_from=session.session_start,
+            date_to=session.session_end if bound_by_session_end else None,
         )
 
         assert [c.tool_name for c in page.results] == ["before_window", "in_window"]
@@ -1051,11 +1093,16 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
                 {"$mcp_oauth_client_name": "cursor-vscode"},
                 mcp_harness.UNIDENTIFIED_HARNESS_LABEL,
             ),
+            ("custom_rule_on_client_name", {"$mcp_client_name": "acme-agent"}, "Acme Agent"),
+            ("custom_rule_on_user_agent_only", {"$mcp_client_user_agent": "acme-agent/2.0 (node)"}, "Acme Agent"),
+            ("custom_rule_beats_built_in", {"$mcp_client_name": "cursor-internal"}, "Our Cursor"),
         ]
     )
     def test_attributes_clients_from_every_identity_signal(
         self, _name: str, properties: dict[str, Any], expected: str
     ) -> None:
+        MCPCustomHarness.objects.create(team=self.team, name="Acme Agent", match_pattern="acme-agent")
+        MCPCustomHarness.objects.create(team=self.team, name="Our Cursor", match_pattern="cursor-internal")
         self._emit_call(properties, count=2)
 
         overview = api.get_activity_overview(self.team)
@@ -1204,6 +1251,102 @@ class TestListMCPToolCalls(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         )
 
         assert [c.tool_name for c in page.results] == expected
+
+    @parameterized.expand(
+        [
+            (
+                "captured_failure",
+                {
+                    "$mcp_is_error": True,
+                    "$mcp_parameters": {"query": "select 1", "limit": 5},
+                    "$mcp_error_type": "api_5xx",
+                    "$mcp_error_status": 503,
+                    "$mcp_response": {"content": [{"type": "text", "text": "upstream 503"}], "isError": True},
+                },
+                {"query": "select 1", "limit": 5},
+                ("api_5xx", "503"),
+            ),
+            ("string_argument", {"$mcp_parameters": 'say "hi"\nnow \\ done'}, 'say "hi"\nnow \\ done', ("", "")),
+            ("numeric_string_argument", {"$mcp_parameters": "123"}, "123", ("", "")),
+            (
+                "big_integer_argument",
+                {"$mcp_parameters": {"id": 1234567890123456789}},
+                {"id": 1234567890123456789},
+                ("", ""),
+            ),
+            ("nothing_captured", {}, None, ("", "")),
+        ]
+    )
+    def test_returns_captured_arguments_result_and_error_bucket(
+        self,
+        _name: str,
+        extra_properties: dict[str, Any],
+        expected_parameters: Any,
+        expected_bucket: tuple[str, str],
+    ) -> None:
+        session_id = str(uuid7())
+        start = datetime.now(tz=UTC) - timedelta(minutes=5)
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="seed",
+            timestamp=start,
+            properties={"$session_id": session_id, "$mcp_tool_name": "query_run", **extra_properties},
+        )
+
+        [call] = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=50, offset=0, date_from=start).results
+
+        assert (json.loads(call.parameters) if call.parameters else None) == expected_parameters
+        assert (call.error_type, call.error_status) == expected_bucket
+        assert (json.loads(call.response) if call.response else None) == extra_properties.get("$mcp_response")
+
+    @parameterized.expand(
+        [
+            (
+                "exec_discovery_with_failure_details",
+                {
+                    "$mcp_exec_verb": "info",
+                    "$mcp_exec_target_tool": "execute-sql",
+                    "$mcp_input_keys": ["context", "query"],
+                    "$mcp_error_code": "unknown_command",
+                    "$mcp_error_field": "query",
+                    "$mcp_llm_model": "claude-opus-5-5",
+                },
+                ("info", "execute-sql", ["context", "query"], "unknown_command", "query", "claude-opus-5-5"),
+            ),
+            ("nothing_captured", {}, ("", "", [], "", "", "")),
+            ("malformed_input_keys", {"$mcp_input_keys": "query"}, ("", "", [], "", "", "")),
+            ("deeply_nested_input_keys", {"$mcp_input_keys": [[[["query"]]]]}, ("", "", [], "", "", "")),
+            (
+                "blank_or_control_input_keys",
+                {"$mcp_input_keys": ["query", "", "  ", "line\nbreak"]},
+                ("", "", ["query"], "", "", ""),
+            ),
+        ]
+    )
+    def test_returns_exec_input_and_error_details(
+        self, _name: str, extra_properties: dict[str, Any], expected: tuple[str, str, list[str], str, str, str]
+    ) -> None:
+        session_id = str(uuid7())
+        start = datetime.now(tz=UTC) - timedelta(minutes=5)
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="seed",
+            timestamp=start,
+            properties={"$session_id": session_id, "$mcp_tool_name": "exec", **extra_properties},
+        )
+
+        [call] = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=50, offset=0, date_from=start).results
+
+        assert (
+            call.exec_verb,
+            call.exec_target_tool,
+            call.input_keys,
+            call.error_code,
+            call.error_field,
+            call.llm_model,
+        ) == expected
 
     def test_has_next_signals_more_pages(self) -> None:
         session_id = str(uuid7())

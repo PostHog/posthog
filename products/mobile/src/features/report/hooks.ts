@@ -55,7 +55,7 @@ function useLiveReport(reportId: string, enabled: boolean, refreshWhileVisible: 
     const taskId = report.data && artefacts.data ? reportTaskId(report.data, artefacts.data.results) : undefined
     const task = useQuery({
         queryKey: reportKeys.task(scope, taskId),
-        queryFn: ({ signal }) => getTask(taskId as string, signal) as Promise<TaskWithCreator>,
+        queryFn: ({ signal }) => getTask(scope, taskId as string, signal) as Promise<TaskWithCreator>,
         enabled: active && taskId !== undefined,
         retry: retryUnlessMissing,
         refetchInterval,

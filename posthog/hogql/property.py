@@ -60,9 +60,9 @@ from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.dataclasses import frozen
 from posthog.interval_specs import get_interval_func
-from posthog.models import Property, PropertyDefinition, Team
+from posthog.models import Property, Team
 from posthog.models.element import Element
-from posthog.models.event import Selector
+from posthog.models.event import MAX_SELECTOR_LENGTH, Selector
 from posthog.models.property import BehavioralPropertyType, PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
@@ -71,6 +71,7 @@ from products.actions.backend.facade.api import get_action
 from products.actions.backend.facade.contracts import Action, ActionNotFound, ActionStep
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
@@ -2023,6 +2024,8 @@ def element_property_key_to_breakdown_expr(key: str) -> ast.Expr:
 
 
 def selector_to_expr(selector_string: str):
+    if len(selector_string) > MAX_SELECTOR_LENGTH:
+        raise QueryError(f"Selector is too long. The maximum length is {MAX_SELECTOR_LENGTH} characters.")
     selector = Selector(selector_string, escape_slashes=False)
     if selector.is_unsatisfiable():
         # The id-only shortcut below skips the regex, so [id="a"][id="b"] would match every

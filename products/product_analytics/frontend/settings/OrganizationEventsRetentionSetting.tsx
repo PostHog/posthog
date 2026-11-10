@@ -39,6 +39,7 @@ export function OrganizationEventsRetentionSetting(): JSX.Element | null {
                 planMonths={organizationRetention.plan_retention_months}
                 nextMonthlyCleanupOn={organizationRetention.next_monthly_cleanup_on}
                 passSchedule={null}
+                level="organization"
                 scope="Events in projects without their own period"
                 owner="this organization"
                 note="Projects without their own period use this."

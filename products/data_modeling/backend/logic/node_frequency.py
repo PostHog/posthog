@@ -72,12 +72,23 @@ class NodeIdentity:
     is_posthog_table: bool  # `events`, `persons` and friends, readable by anyone on the project
 
 
+def parse_warehouse_table_id(properties: Mapping[str, Any] | None) -> uuid.UUID | None:
+    """The imported table a node stands for, or None when its properties hold no valid id."""
+    table_id = properties.get(_WAREHOUSE_TABLE_ID_KEY) if isinstance(properties, Mapping) else None
+    if not isinstance(table_id, str):
+        return None
+    try:
+        return uuid.UUID(table_id)
+    except ValueError:
+        return None
+
+
 def node_identity(node: Node) -> NodeIdentity:
     """Resolve one node to the resource its name belongs to."""
     if node.saved_query_id is not None:
         return NodeIdentity(saved_query_id=str(node.saved_query_id), warehouse_table_id=None, is_posthog_table=False)
     properties = node.properties or {}
-    table_id = properties.get(_WAREHOUSE_TABLE_ID_KEY)
+    table_id = parse_warehouse_table_id(properties)
     return NodeIdentity(
         saved_query_id=None,
         warehouse_table_id=str(table_id) if table_id else None,
@@ -675,11 +686,12 @@ def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:
 def seed_targets(dag: DAG) -> dict[str, timedelta]:
     """Derive a starting target per schedulable node from what the DAG already carries.
 
-    A node inherits its saved query's `sync_frequency_interval` if set, else the DAG's
-    `sync_frequency_interval`; nodes with neither are omitted. This deliberately preserves the
-    distinct per-query frequencies of teams still on v1 (whose DAG runs several schedules at
-    different cadences) rather than flattening everything to a single DAG cadence. Read-only;
-    the preview overlays these in memory, and a backfill can persist them.
+    A node inherits its saved query's legacy `sync_frequency_interval` column if set, else the DAG's
+    `sync_frequency_interval`; nodes with neither are omitted. The column is no longer written, but
+    teams still on v1 have it populated: their DAG runs several schedules at different cadences, and
+    reading it keeps those distinct per-query frequencies through the conversion instead of
+    flattening everything to a single DAG cadence. Read-only; the preview overlays these in memory,
+    and a backfill can persist them.
     """
     seeds: dict[str, timedelta] = {}
     for node in schedulable_nodes(dag).select_related("saved_query"):

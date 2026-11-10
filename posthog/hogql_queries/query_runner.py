@@ -66,6 +66,7 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    InboxUsageQuery,
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
@@ -74,6 +75,7 @@ from posthog.schema import (
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsTableQuery,
+    MCPDashboardQuery,
     MCPHarnessBreakdownQuery,
     MCPMissingCapabilitiesQuery,
     MCPModelBreakdownQuery,
@@ -190,7 +192,7 @@ from posthog.hogql_queries.query_failure_handling import (
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.breakdowns import has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.utils.entities import every_warehouse_series_reads_flag_calls, has_data_warehouse_node
-from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
+from posthog.hogql_queries.utils.event_usage import PROPERTY_USAGE_TRACKING_FLAG, log_event_usage_from_query_metadata
 from posthog.hogql_queries.utils.properties import has_any_property_filters
 from posthog.hogql_queries.utils.result_series import get_response_action_names
 from posthog.hogql_queries.validation.validation import (
@@ -647,6 +649,7 @@ def enforce_api_queries_budget(team: Team, query: object | None = None) -> None:
 
 
 RunnableQueryNode = Union[
+    InboxUsageQuery,
     TrendsQuery,
     FunnelsQuery,
     RetentionQuery,
@@ -680,6 +683,7 @@ RunnableQueryNode = Union[
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
     MetricsQuery,
+    MCPDashboardQuery,
     MCPHarnessBreakdownQuery,
     MCPModelBreakdownQuery,
     MCPProtocolVersionBreakdownQuery,
@@ -724,6 +728,13 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
             user=user,
+        )
+
+    if kind == "InboxUsageQuery":
+        from products.signals.backend.facade.spend import InboxUsageQueryRunner
+
+        return InboxUsageQueryRunner(
+            query=query, team=team, timings=timings, limit_context=limit_context, modifiers=modifiers, user=user
         )
 
     if kind == "TrendsQuery":
@@ -1389,6 +1400,17 @@ def get_query_runner(
 
         return MCPProtocolVersionBreakdownQueryRunner(
             query=cast(MCPProtocolVersionBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPDashboardQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPDashboardQueryRunner
+
+        return MCPDashboardQueryRunner(
+            query=cast(MCPDashboardQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -2393,6 +2415,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _query_single_flight_enabled(self) -> bool:
         return self._team_flag_enabled_locally(QUERY_SINGLE_FLIGHT_FLAG)
 
+    @cached_property
+    def _property_usage_tracking_enabled(self) -> bool:
+        return self._team_flag_enabled_locally(PROPERTY_USAGE_TRACKING_FLAG)
+
     def _team_flag_enabled_locally(self, flag_key: str) -> bool:
         # only_evaluate_locally keeps this flag check off the network - this runs on the query
         # hot path, so an inconclusive local evaluation must mean "off", never an HTTP call.
@@ -2818,6 +2844,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     results.query_metadata,
                     team_id=self.team.id,
                     user_id=query_run.user.id if query_run.user else None,
+                    log_properties=self._property_usage_tracking_enabled,
                 )
 
             last_refresh = last_refresh_from_cached_result(results)
@@ -2981,7 +3008,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             }
 
             try:
-                query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
+                query_metadata = extract_query_metadata(
+                    query=self.query, team=self.team, include_properties=self._property_usage_tracking_enabled
+                ).model_dump()
                 fresh_response_dict["query_metadata"] = query_metadata
 
                 # Don't log usage for warming queries
@@ -2990,6 +3019,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         query_metadata,
                         team_id=self.team.id,
                         user_id=query_run.user.id if query_run.user else None,
+                        log_properties=self._property_usage_tracking_enabled,
                     )
             except Exception as e:
                 # fail silently if we can't extract query metadata

@@ -24,8 +24,10 @@ REQUEST_TIMEOUT_SECONDS = 60
 class ImpactPartnerResumeConfig:
     # The last page fetched. Re-fetched on resume (merge dedupes).
     page: Optional[int] = None
-    # Actions: ISO start of the date window currently being processed.
+    # Actions: ISO bounds of the exact window being processed, narrower than the top-level grid
+    # once a 400 has split it. A bookmark missing `window_end` (an older run) restarts instead.
     window_start: Optional[str] = None
+    window_end: Optional[str] = None
 
 
 def _get_session(account_sid: str, auth_token: str, api_version: str) -> requests.Session:
@@ -105,6 +107,53 @@ def _iter_windows(start: datetime, end: datetime, max_days: int) -> Iterator[tup
         cursor = window_end
 
 
+# Impact caps a date-windowed query at 10 pages, 400ing every page of a denser window regardless
+# of which one is requested. Our 45-day span cap doesn't prevent that, so narrow and retry instead.
+MIN_SPLIT_WINDOW = timedelta(days=1)  # floor so an unrelated, persistent 400 still surfaces
+
+
+@dataclasses.dataclass(frozen=True)
+class ActionsWindow:
+    start: datetime
+    end: datetime
+
+
+@dataclasses.dataclass(frozen=True)
+class FetchedActionsPage:
+    window: ActionsWindow
+    page: int
+    rows: list[dict[str, Any]]
+
+
+def _split_window(window: ActionsWindow) -> list[ActionsWindow]:
+    midpoint = window.start + (window.end - window.start) / 2
+    return [ActionsWindow(start=window.start, end=midpoint), ActionsWindow(start=midpoint, end=window.end)]
+
+
+def _fetch_actions_window(
+    session: requests.Session,
+    account_sid: str,
+    config: ImpactPartnerEndpointConfig,
+    window: ActionsWindow,
+    logger: FilteringBoundLogger,
+    start_param: str,
+    end_param: str,
+    start_page: int,
+) -> Iterator[FetchedActionsPage]:
+    """Yield a page at a time for `window`, narrowing it if Impact rejects it as too large."""
+    params: dict[str, Any] = {start_param: _format_datetime(window.start), end_param: _format_datetime(window.end)}
+    try:
+        for page, rows in _paginate_endpoint(session, account_sid, config, params, logger, start_page=start_page):
+            yield FetchedActionsPage(window=window, page=page, rows=rows)
+    except requests.HTTPError as e:
+        status = e.response.status_code if e.response is not None else None
+        if status != 400 or (window.end - window.start) <= MIN_SPLIT_WINDOW:
+            raise
+        logger.debug(f"Impact Partner: narrowing a {window.end - window.start} Actions window after a 400")
+        for half in _split_window(window):
+            yield from _fetch_actions_window(session, account_sid, config, half, logger, start_param, end_param, 1)
+
+
 def _paginate_endpoint(
     session: requests.Session,
     account_sid: str,
@@ -145,20 +194,25 @@ def _windows_for_actions(
     return list(_iter_windows(start, now, MAX_WINDOW_DAYS))
 
 
-def _resume_window_index(
+def _resume_target(
     windows: list[tuple[datetime, datetime]], resume: Optional[ImpactPartnerResumeConfig]
-) -> Optional[int]:
-    """Find which date window a saved bookmark points at.
+) -> Optional[tuple[int, ActionsWindow]]:
+    """Find the top-level window a saved bookmark falls inside, and the exact slice to resume.
 
-    Returns None when there's no bookmark or it no longer matches (window boundaries derive
-    from the current time, so they shift between runs), in which case the caller starts over
-    (merge dedupes the re-yielded rows).
+    Matches by containment, since a 400 split can leave the bookmark narrower than the top-level
+    window. Returns None when there's no bookmark, no `window_end`, or no window contains it
+    (boundaries derive from the current time, so they shift between runs); the caller then starts
+    over, which merge dedupes.
     """
-    if resume is None or resume.window_start is None:
+    if resume is None or resume.window_start is None or resume.window_end is None:
+        return None
+    saved_start = _to_datetime(resume.window_start)
+    saved_end = _to_datetime(resume.window_end)
+    if saved_start is None or saved_end is None:
         return None
     for index, window in enumerate(windows):
-        if window[0].isoformat() == resume.window_start:
-            return index
+        if window[0] <= saved_start and saved_end <= window[1]:
+            return index, ActionsWindow(start=saved_start, end=saved_end)
     return None
 
 
@@ -206,29 +260,38 @@ def _get_rows_windowed(
     # so history is walked in date windows only, with no per-campaign fan-out.
     windows = _windows_for_actions(should_use_incremental_field, db_incremental_field_last_value)
 
+    def _run(window: ActionsWindow, start_page: int) -> Iterator[list[dict[str, Any]]]:
+        for fetched in _fetch_actions_window(
+            session, account_sid, config, window, logger, start_param, end_param, start_page
+        ):
+            if fetched.rows:
+                yield fetched.rows
+            # Save after yielding: a crash re-fetches this same page and merge dedupes it.
+            resumable_source_manager.save_state(
+                ImpactPartnerResumeConfig(
+                    page=fetched.page,
+                    window_start=fetched.window.start.isoformat(),
+                    window_end=fetched.window.end.isoformat(),
+                )
+            )
+
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    resume_index = _resume_window_index(windows, resume)
-    start_index = resume_index if resume_index is not None else 0
+    target = _resume_target(windows, resume)
+    start_index = target[0] if target is not None else 0
     if start_index > 0:
         logger.debug(f"Impact Partner: resuming Actions from window {start_index}/{len(windows)}")
 
     for index in range(start_index, len(windows)):
         window = windows[index]
-        # Resume the bookmarked window at its saved page; every other window starts at page 1.
-        start_page = 1
-        if resume is not None and index == resume_index and resume.page:
-            start_page = resume.page
-        params: dict[str, Any] = {
-            start_param: _format_datetime(window[0]),
-            end_param: _format_datetime(window[1]),
-        }
-        for page, rows in _paginate_endpoint(session, account_sid, config, params, logger, start_page=start_page):
-            if rows:
-                yield rows
-            # Save after yielding: a crash re-fetches this same page and merge dedupes it.
-            resumable_source_manager.save_state(
-                ImpactPartnerResumeConfig(page=page, window_start=window[0].isoformat())
-            )
+        if target is not None and index == target[0]:
+            # Resume the exact bookmarked slice, which a 400 may have narrowed below this window.
+            resumed_window = target[1]
+            yield from _run(resumed_window, resume.page if resume and resume.page else 1)
+            if resumed_window.end < window[1]:
+                # A split leaves the rest of this window unfetched; get it before moving on.
+                yield from _run(ActionsWindow(start=resumed_window.end, end=window[1]), 1)
+        else:
+            yield from _run(ActionsWindow(start=window[0], end=window[1]), 1)
 
 
 def get_rows(

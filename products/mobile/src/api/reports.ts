@@ -6,7 +6,7 @@ import type {
     SignalsReportsListParams,
 } from '../../../signals/frontend/generated/api.schemas'
 
-import { ApiError, apiJson, apiUrl, projectPath } from './client'
+import { ApiError, apiJson, apiUrl, scopedPath } from './client'
 
 // Shapes follow `products/signals/backend/serializers.py` and `report_read_state.py`, keeping the fields the app reads.
 
@@ -233,8 +233,12 @@ function isInboxReport(value: unknown): boolean {
     return isRecord(value) && Object.entries(INBOX_REPORT_FIELDS).every(([field, validate]) => validate(value[field]))
 }
 
-export async function fetchInboxPage(offset: number, signal?: AbortSignal): Promise<InboxPageApi> {
-    const page = await apiJson<InboxPageApi>(projectPath('signals/reports/'), {
+export async function fetchInboxPage(
+    scope: ProjectScope | null,
+    offset: number,
+    signal?: AbortSignal
+): Promise<InboxPageApi> {
+    const page = await apiJson<InboxPageApi>(scopedPath(scope, 'signals/reports/'), {
         query: { view: 'for_you', sort: 'priority', limit: INBOX_PAGE_SIZE, offset } satisfies SignalsReportsListParams,
         signal,
     })
@@ -251,12 +255,20 @@ export async function fetchInboxPage(offset: number, signal?: AbortSignal): Prom
     return page
 }
 
-export function fetchReport(reportId: string, signal?: AbortSignal): Promise<SignalReportApi> {
-    return apiJson<SignalReportApi>(projectPath(`signals/reports/${encodeURIComponent(reportId)}/`), { signal })
+export function fetchReport(
+    scope: ProjectScope | null,
+    reportId: string,
+    signal?: AbortSignal
+): Promise<SignalReportApi> {
+    return apiJson<SignalReportApi>(scopedPath(scope, `signals/reports/${encodeURIComponent(reportId)}/`), { signal })
 }
 
-export function fetchReportSignals(reportId: string, signal?: AbortSignal): Promise<ReportSignalsApi> {
-    return apiJson<ReportSignalsApi>(projectPath(`signals/reports/${encodeURIComponent(reportId)}/signals/`), {
+export function fetchReportSignals(
+    scope: ProjectScope | null,
+    reportId: string,
+    signal?: AbortSignal
+): Promise<ReportSignalsApi> {
+    return apiJson<ReportSignalsApi>(scopedPath(scope, `signals/reports/${encodeURIComponent(reportId)}/signals/`), {
         signal,
     })
 }
@@ -265,12 +277,13 @@ export const ARTEFACT_PAGE_SIZE = 100
 
 /** `GET signals/reports/{id}/artefacts/`, newest first. */
 export function fetchReportArtefacts(
+    scope: ProjectScope | null,
     reportId: string,
     signal?: AbortSignal,
     offset = 0
 ): Promise<PaginatedApi<ReportArtefactApi>> {
     return apiJson<PaginatedApi<ReportArtefactApi>>(
-        projectPath(`signals/reports/${encodeURIComponent(reportId)}/artefacts/`),
+        scopedPath(scope, `signals/reports/${encodeURIComponent(reportId)}/artefacts/`),
         {
             query: { limit: ARTEFACT_PAGE_SIZE, ...(offset ? { offset } : {}) },
             signal,
@@ -280,14 +293,15 @@ export function fetchReportArtefacts(
 
 /** Find the latest full reviewer assignment, which may be older than the first artefact page. */
 export async function fetchLatestReviewerArtefact(
+    scope: ProjectScope | null,
     reportId: string,
     signal?: AbortSignal
 ): Promise<ReportArtefactApi | null> {
-    const path = projectPath(`signals/reports/${encodeURIComponent(reportId)}/artefacts/`)
+    const path = scopedPath(scope, `signals/reports/${encodeURIComponent(reportId)}/artefacts/`)
     const firstUrl = new URL(apiUrl(path))
     let offset = 0
     for (;;) {
-        const page = await fetchReportArtefacts(reportId, signal, offset)
+        const page = await fetchReportArtefacts(scope, reportId, signal, offset)
         const reviewer = page.results.find((artefact) => artefact.type === 'suggested_reviewers')
         if (reviewer || !page.next) {
             return reviewer ?? null
@@ -310,8 +324,13 @@ export async function fetchLatestReviewerArtefact(
 export const READ_STATE_BATCH = 100
 
 /** Without `read` this only reads the states; with it, it sets them for the current user and returns the new states. */
-export function postReadStates(reportIds: string[], read?: boolean, signal?: AbortSignal): Promise<ReadStatesApi> {
-    return apiJson<ReadStatesApi>(projectPath('signals/reports/read_state/'), {
+export function postReadStates(
+    scope: ProjectScope | null,
+    reportIds: string[],
+    read?: boolean,
+    signal?: AbortSignal
+): Promise<ReadStatesApi> {
+    return apiJson<ReadStatesApi>(scopedPath(scope, 'signals/reports/read_state/'), {
         method: 'POST',
         json: read === undefined ? { report_ids: reportIds } : { report_ids: reportIds, read },
         signal,
@@ -319,21 +338,26 @@ export function postReadStates(reportIds: string[], read?: boolean, signal?: Abo
 }
 
 /** `POST signals/reports/{id}/state/` with `potential`: hides the report until `count` more signals arrive. */
-export function snoozeReportForSignals(reportId: string, count: number): Promise<SignalReportApi> {
-    return apiJson<SignalReportApi>(projectPath(`signals/reports/${encodeURIComponent(reportId)}/state/`), {
+export function snoozeReportForSignals(
+    scope: ProjectScope | null,
+    reportId: string,
+    count: number
+): Promise<SignalReportApi> {
+    return apiJson<SignalReportApi>(scopedPath(scope, `signals/reports/${encodeURIComponent(reportId)}/state/`), {
         method: 'POST',
         json: { state: 'potential', snooze_for: count },
     })
 }
 
 function postVerdict(
+    scope: ProjectScope | null,
     reportId: string,
     state: 'resolved' | 'suppressed',
     reason: ResolveReason | DismissReason,
     note = ''
 ): Promise<SignalReportApi> {
     const trimmed = note.trim().slice(0, VERDICT_NOTE_MAX_LENGTH)
-    return apiJson<SignalReportApi>(projectPath(`signals/reports/${encodeURIComponent(reportId)}/state/`), {
+    return apiJson<SignalReportApi>(scopedPath(scope, `signals/reports/${encodeURIComponent(reportId)}/state/`), {
         method: 'POST',
         json: { state, dismissal_reason: reason, ...(trimmed ? { dismissal_note: trimmed } : {}) },
     })
@@ -343,21 +367,35 @@ function postVerdict(
  * `POST signals/reports/{id}/state/` with `resolved`: marks the report done and closes its open implementation PR.
  * A 409 means the report's current status cannot move to resolved; its `error` says why.
  */
-export function resolveReport(reportId: string, reason: ResolveReason, note?: string): Promise<SignalReportApi> {
-    return postVerdict(reportId, 'resolved', reason, note)
+export function resolveReport(
+    scope: ProjectScope | null,
+    reportId: string,
+    reason: ResolveReason,
+    note?: string
+): Promise<SignalReportApi> {
+    return postVerdict(scope, reportId, 'resolved', reason, note)
 }
 
 /**
  * `POST signals/reports/{id}/state/` with `suppressed`: the report leaves the inbox, and the agent that filed it reads
  * the note on its next run. A 409 means the report's current status cannot move to suppressed; its `error` says why.
  */
-export function dismissReport(reportId: string, reason: DismissReason, note?: string): Promise<SignalReportApi> {
-    return postVerdict(reportId, 'suppressed', reason, note)
+export function dismissReport(
+    scope: ProjectScope | null,
+    reportId: string,
+    reason: DismissReason,
+    note?: string
+): Promise<SignalReportApi> {
+    return postVerdict(scope, reportId, 'suppressed', reason, note)
 }
 
 /** `PUT signals/reports/{id}/reviewers/`: replaces the suggested reviewers. Returns the new artefact. */
-export function putReportReviewers(reportId: string, content: SuggestedReviewerWriteApi[]): Promise<ReportArtefactApi> {
-    return apiJson<ReportArtefactApi>(projectPath(`signals/reports/${encodeURIComponent(reportId)}/reviewers/`), {
+export function putReportReviewers(
+    scope: ProjectScope | null,
+    reportId: string,
+    content: SuggestedReviewerWriteApi[]
+): Promise<ReportArtefactApi> {
+    return apiJson<ReportArtefactApi>(scopedPath(scope, `signals/reports/${encodeURIComponent(reportId)}/reviewers/`), {
         method: 'PUT',
         json: { content },
     })
@@ -377,27 +415,42 @@ export interface ReportArtefactWriteApi {
 export const MANUAL_PRIORITY_EXPLANATION = 'Priority set by hand from the PostHog mobile app'
 
 /** `POST signals/reports/{id}/artefacts/` with a `priority_judgment`: the newest one is the report's priority. */
-export function postPriorityJudgment(reportId: string, priority: ReportPriority): Promise<ReportArtefactWriteApi> {
-    return apiJson<ReportArtefactWriteApi>(projectPath(`signals/reports/${encodeURIComponent(reportId)}/artefacts/`), {
-        method: 'POST',
-        json: { artefact_type: 'priority_judgment', content: { priority, explanation: MANUAL_PRIORITY_EXPLANATION } },
-    })
+export function postPriorityJudgment(
+    scope: ProjectScope | null,
+    reportId: string,
+    priority: ReportPriority
+): Promise<ReportArtefactWriteApi> {
+    return apiJson<ReportArtefactWriteApi>(
+        scopedPath(scope, `signals/reports/${encodeURIComponent(reportId)}/artefacts/`),
+        {
+            method: 'POST',
+            json: {
+                artefact_type: 'priority_judgment',
+                content: { priority, explanation: MANUAL_PRIORITY_EXPLANATION },
+            },
+        }
+    )
 }
 
-export function fetchAvailableReviewers(query: string, signal?: AbortSignal): Promise<AvailableReviewersApi> {
-    return apiJson<AvailableReviewersApi>(projectPath('signals/reports/available_reviewers/'), {
+export function fetchAvailableReviewers(
+    scope: ProjectScope | null,
+    query: string,
+    signal?: AbortSignal
+): Promise<AvailableReviewersApi> {
+    return apiJson<AvailableReviewersApi>(scopedPath(scope, 'signals/reports/available_reviewers/'), {
         query: { query: query || undefined },
         signal,
     })
 }
 
 export function fetchReportPullRequestChecks(
+    scope: ProjectScope | null,
     reportId: string,
     pullRequestId: string,
     signal?: AbortSignal
 ): Promise<PullRequestChecksResponseApi> {
     return apiJson<PullRequestChecksResponseApi>(
-        projectPath(`signals/reports/${encodeURIComponent(reportId)}/pr_checks/`),
+        scopedPath(scope, `signals/reports/${encodeURIComponent(reportId)}/pr_checks/`),
         { query: { pull_request_id: pullRequestId }, signal }
     )
 }

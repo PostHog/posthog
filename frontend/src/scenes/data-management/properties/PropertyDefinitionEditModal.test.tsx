@@ -2,7 +2,6 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, within } from '@testing-library/react'
 
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { PropertyDefinitionEditModal } from './PropertyDefinitionEditModal'
@@ -12,11 +11,6 @@ describe('PropertyDefinitionEditModal', () => {
     afterEach(cleanup)
 
     it('shows the editable property definition fields', () => {
-        useMocks({
-            get: {
-                '/api/projects/:team/tags/': [],
-            },
-        })
         initKeaTests()
 
         const propertyDefinition = {

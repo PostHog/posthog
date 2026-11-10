@@ -7,6 +7,19 @@ class BillingProvider(StrEnum):
     VERCEL = "vercel"
 
 
+class RatedUsageGrant(TypedDict):
+    grant_id: str
+    cents: int
+
+
+class RatedUsageItem(TypedDict):
+    team_id: int
+    product: str
+    day: str
+    cents: int
+    grants: NotRequired[list[RatedUsageGrant]]
+
+
 # Mirror of `billing/billing/types/usage.py::SupportedUsageType` in the billing repo.
 # These identifiers are accepted by the billing service's /api/v2/usage/ and
 # /api/v2/spend/ endpoints through the `usage_types` query param.
@@ -139,6 +152,7 @@ class CustomerProduct(TypedDict):
     price_description: Optional[str]
     image_url: Optional[str]
     type: str
+    subscribed: NotRequired[Optional[bool]]
     free_allocation: int
     tiers: list[Tier]
     tiered: bool
@@ -205,6 +219,8 @@ class CustomerInfo(TypedDict):
 class BillingStatus(TypedDict):
     license: LicenseInfo
     customer: CustomerInfo
+    computed_at: NotRequired[str]
+    latest_usage_report_date: NotRequired[Optional[str]]
 
 
 class ProductPlan(TypedDict):

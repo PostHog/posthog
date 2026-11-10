@@ -41,10 +41,7 @@ pub fn build_behavioral_globals(
     } else {
         Value::Object(Map::new())
     };
-    let person = object([
-        ("id", text(&event.person_id)),
-        ("properties", person_properties),
-    ]);
+    let person = person(&event.person_id, person_properties);
 
     let mut roots = Roots::new(build.materialize());
     roots.set(GlobalRoot::Event, || text(&event.event));
@@ -127,6 +124,26 @@ fn empty_group() -> Value {
     object([("properties", Value::Object(Map::new()))])
 }
 
+/// `MAT_COL_NULL_SENTINELS` in `posthog/hogql/database/schema/util/null_sentinels.py`.
+const NULL_SENTINELS: [&str; 2] = ["", "null"];
+
+/// Legacy reads a top-level person property through its non-nullable `pmat_` column or its Numeric,
+/// DateTime or Boolean definition where one exists, and both read these texts as NULL. Raise
+/// `EVALUATOR_VERSION` in [`crate::fingerprint`] with any change here.
+fn person(id: &str, mut properties: Value) -> Value {
+    if let Some(map) = properties.as_object_mut() {
+        for value in map.values_mut() {
+            if value
+                .as_str()
+                .is_some_and(|text| NULL_SENTINELS.contains(&text))
+            {
+                *value = Value::Null;
+            }
+        }
+    }
+    object([("id", text(id)), ("properties", properties)])
+}
+
 pub fn build_person_property_globals(event: &CohortStreamEvent) -> Result<Value, GlobalsError> {
     let person_properties =
         parse_optional_json(event.person_properties.as_deref(), "person_properties")?;
@@ -169,7 +186,7 @@ pub fn person_scan_globals(team_id: TeamId, person_id: Uuid, properties: Value) 
 /// The one constructor of the `{"person":{"id","properties"},"project":{"id"}}` shape.
 fn person_scope_globals(team_id: i32, person_id: &str, person_properties: Value) -> Value {
     json!({
-        "person": { "id": person_id, "properties": person_properties },
+        "person": person(person_id, person_properties),
         "project": { "id": team_id },
     })
 }
@@ -222,6 +239,7 @@ mod tests {
     use hogvm::stl_map;
 
     use crate::hogvm::analysis::{Projection, ReadPath};
+    use crate::hogvm::{CohortEvaluator, ConditionProgram, EvalOutcome};
 
     use super::*;
 
@@ -469,12 +487,24 @@ mod tests {
         assert_eq!(globals["person"]["properties"], json!({}));
     }
 
+    const NULL_TEXT_PERSON_PROPERTIES: &str =
+        r#"{"a":"","b":"null","c":"NULL","d":" ","e":null,"f":{"g":""},"h":0}"#;
+
+    fn null_text_person_properties_read_as_null() -> Value {
+        json!({ "a": null, "b": null, "c": "NULL", "d": " ", "e": null, "f": { "g": "" }, "h": 0 })
+    }
+
     /// Shape lock: the scan builder and the live event builder must produce byte-equal globals for
     /// equal inputs — the correctness anchor that keeps seeder evals equivalent to live evals.
     #[test]
     fn scan_globals_are_byte_equal_to_event_globals_for_equal_inputs() {
         let person_id = Uuid::parse_str("01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee").unwrap();
-        for properties in [r#"{"email":"u@p.com","plan":"paid"}"#, "", "{}"] {
+        for properties in [
+            r#"{"email":"u@p.com","plan":"paid"}"#,
+            "",
+            "{}",
+            NULL_TEXT_PERSON_PROPERTIES,
+        ] {
             let mut e = event();
             e.team_id = 42;
             e.person_id = person_id.to_string();
@@ -496,7 +526,65 @@ mod tests {
             build_person_scan_globals(TeamId(42), person_id, "").unwrap()["person"]["properties"],
             json!({})
         );
+        assert_eq!(
+            build_person_scan_globals(TeamId(42), person_id, NULL_TEXT_PERSON_PROPERTIES).unwrap()
+                ["person"]["properties"],
+            null_text_person_properties_read_as_null()
+        );
         assert!(build_person_scan_globals(TeamId(42), person_id, "{not json").is_err());
+    }
+
+    #[test]
+    fn behavioral_globals_read_null_text_person_properties_as_null_and_keep_event_properties() {
+        let mut e = event();
+        e.properties = Some(r#"{"k":"","n":"null"}"#.to_string());
+        e.person_properties = Some(NULL_TEXT_PERSON_PROPERTIES.to_string());
+        let globals = build_behavioral_globals(&e, GlobalsBuild::whole(GlobalsPlan::FULL)).unwrap();
+        assert_eq!(
+            globals["person"]["properties"],
+            null_text_person_properties_read_as_null()
+        );
+        assert_eq!(
+            globals["pdi"]["person"]["properties"],
+            null_text_person_properties_read_as_null()
+        );
+        assert_eq!(globals["properties"], json!({ "k": "", "n": "null" }));
+    }
+
+    #[test]
+    fn a_null_text_person_property_is_not_set_and_equals_no_text() {
+        // As `generate_cohort_filter_bytecode` stores these person leaves on `email`.
+        let leaves = [
+            (
+                "is_set",
+                r#"["_H",1,31,32,"email",32,"properties",32,"person",1,3,12]"#,
+                false,
+            ),
+            (
+                "is_not_set",
+                r#"["_H",1,31,32,"email",32,"properties",32,"person",1,3,11]"#,
+                true,
+            ),
+            (
+                "exact ''",
+                r#"["_H",1,32,"",32,"email",32,"properties",32,"person",1,3,11]"#,
+                false,
+            ),
+        ];
+        let mut evaluator = CohortEvaluator::new();
+        for blob in [r#"{"email":""}"#, r#"{"email":"null"}"#] {
+            evaluator
+                .set_globals(build_person_scan_globals(TeamId(42), Uuid::nil(), blob).unwrap());
+            for (leaf, stored, expected) in leaves {
+                let stored: Vec<Value> = serde_json::from_str(stored).unwrap();
+                let program = ConditionProgram::from_stored(&stored).unwrap();
+                let outcome = evaluator.evaluate_detailed(&program);
+                assert!(
+                    matches!(outcome, EvalOutcome::Matched(matched) if matched == expected),
+                    "{leaf} on {blob}: {outcome:?}"
+                );
+            }
+        }
     }
 
     #[test]

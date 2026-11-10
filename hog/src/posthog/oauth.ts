@@ -38,6 +38,17 @@ export const TokenResponse = z.object({
 
 export type TokenResponse = z.output<typeof TokenResponse>
 
+export function grantLifetime(
+    runtime: Runtime,
+    body: Pick<TokenResponse, 'expires_in' | 'scope'>,
+    scopes: string[]
+): { expiresAt: number; scopes: string[] } {
+    return {
+        expiresAt: runtime.now() + body.expires_in * 1000,
+        scopes: body.scope ? body.scope.split(' ').filter(Boolean) : scopes,
+    }
+}
+
 // An RFC 6749 error answer. hog reads `error` only when the answer is one.
 export const OAuthErrorBody = z.object({
     error: z.string().optional().catch(undefined),
@@ -87,6 +98,7 @@ export class OAuthLogin implements AccessKey {
     readonly expiresAt: number
     readonly scopes: string[]
     readonly loginId: string
+    readonly identifiesPerson = true
 
     constructor(fields: OAuthLoginFields) {
         this.host = fields.host
@@ -121,10 +133,17 @@ export class OAuthLogin implements AccessKey {
             projectId: previous.projectId,
             accessToken: body.access_token,
             refreshToken,
-            expiresAt: runtime.now() + body.expires_in * 1000,
-            scopes: body.scope ? body.scope.split(' ').filter(Boolean) : previous.scopes,
+            ...grantLifetime(runtime, body, previous.scopes),
             loginId: previous.loginId ?? randomUUID(),
         })
+    }
+
+    // In the same project a step-up keeps the stored login's id, so running commands pick up these
+    // tokens. A personal API key's login key is the secret itself, which settings.json must never hold.
+    continuing(stored: AccessKey): OAuthLogin {
+        return stored instanceof OAuthLogin && stored.projectId === this.projectId
+            ? new OAuthLogin({ ...this, loginId: stored.loginId })
+            : this
     }
 
     get token(): OAuthAccessToken {
@@ -229,6 +248,8 @@ export class OAuthLogin implements AccessKey {
             scopes: this.scopes,
             expiresAt: this.expiresAt,
             rejected: 'PostHog rejected the token. Someone may have revoked it.',
+            fix: 'hog auth login',
+            provider: null,
         }
     }
 

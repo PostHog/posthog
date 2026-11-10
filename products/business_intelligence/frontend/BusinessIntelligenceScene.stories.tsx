@@ -278,7 +278,8 @@ export default meta
 
 export const RelationshipKeyCheck: StoryObj = {
     render: () => <WorksheetStage config={config} />,
-    play: async () => {
+    play: async (context) => {
+        await meta.play?.(context)
         await userEvent.click(
             await waitFor(() => {
                 const summary = document.querySelector('[data-attr="bi-source-context"] summary')
