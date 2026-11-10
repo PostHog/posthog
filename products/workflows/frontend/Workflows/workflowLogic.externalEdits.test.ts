@@ -422,22 +422,43 @@ describe('workflowLogic external edits', () => {
         expect(saved.name).toBe('Typed before the reload')
     })
 
-    it('shows the banner when the reload fails while edits wait to be saved', async () => {
+    const editElsewhere = (): void => resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
+    const ownReload = (): void => logic.actions.loadWorkflow()
+
+    it.each([
+        { case: 'edits wait to be saved', run: [editElsewhere], keepLocalEdits: true, edit: true, banner: true },
+        { case: 'the form is clean', run: [editElsewhere], keepLocalEdits: true, edit: false, banner: false },
+        { case: 'local edits are not kept', run: [editElsewhere], keepLocalEdits: false, edit: true, banner: false },
+        { case: 'it was our own reload', run: [ownReload], keepLocalEdits: true, edit: true, banner: false },
+        {
+            case: 'an edit lands during it',
+            run: [ownReload, editElsewhere],
+            keepLocalEdits: true,
+            edit: true,
+            banner: true,
+        },
+    ])('when the reload fails and $case, shows the banner: $banner', async ({ run, keepLocalEdits, edit, banner }) => {
         silenceKeaLoadersErrors()
+        jest.useFakeTimers()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS]: keepLocalEdits })
         useMocks({
             get: {
-                '/api/environments/:team_id/hog_flows/:id/': () => [500, { detail: 'boom' }],
+                '/api/environments/:team_id/hog_flows/:id/': () => [500, { detail: `boom ${(getCalls += 1)}` }],
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
         })
-        logic.actions.setWorkflowValue('name', 'Typed before the reload')
+        if (edit) {
+            logic.actions.setWorkflowValue('name', 'Typed before the reload')
+        }
 
-        await expectLogic(logic, () => {
-            resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
-        }).toDispatchActions(['setSyncingExternalEdit', 'loadWorkflow', 'loadWorkflowFailure'])
+        await expectLogic(logic, () => run.forEach((step) => step())).toDispatchActions(
+            run.map(() => 'loadWorkflowFailure')
+        )
 
-        expect(logic.values.externallyEdited).toBe(true)
-        expect(logic.values.workflow.name).toBe('Typed before the reload')
+        expect(getCalls).toBe(1 + run.length)
+        expect(logic.values.externallyEdited).toBe(banner)
+        expect(logic.values.isSyncingExternalEdit).toBe(false)
+        expect(logic.values.workflow.name).toBe(edit ? 'Typed before the reload' : 'External edits test')
     })
 
     it('lets the server copy win when the flag is off', async () => {
