@@ -11,9 +11,9 @@ from parameterized import parameterized
 from posthog.models import OrganizationMembership, Team
 from posthog.models.instance_setting import override_instance_config
 
-from products.notifications.backend.models import NotificationEvent
+from products.notifications.backend.facade.testing import stored_notifications_for_team
+from products.workflows.backend.services import email_sending_tier_notifications
 from products.workflows.backend.services.email_sending_tier import TierDecision
-from products.workflows.backend.services.email_sending_tier_notifications import notify_email_sending_tier_changes
 
 
 @override_settings(
@@ -40,22 +40,23 @@ class TestNotifyEmailSendingTierChanges(BaseTest):
         return str(message.alternatives[0][0])
 
     def _assert_nothing_reached_anyone(self) -> None:
-        assert not NotificationEvent.objects.exists()
+        assert stored_notifications_for_team(self.team.id) == []
         assert mail.outbox == []
 
     @parameterized.expand([("off",), ("shadow",)])
     def test_nothing_fires_until_the_mode_is_enforce(self, mode: str) -> None:
         with override_settings(WORKFLOWS_EMAIL_TIER_MODE=mode):
-            notify_email_sending_tier_changes([self._demotion("rates_above_threshold"), self._promotion()])
+            email_sending_tier_notifications.notify_email_sending_tier_changes(
+                [self._demotion("rates_above_threshold"), self._promotion()]
+            )
         self._assert_nothing_reached_anyone()
 
     @parameterized.expand([("rates_above_threshold",), ("workflow_auto_paused",), ("ses_reputation_high",)])
     @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce")
     def test_a_rate_demotion_notifies_in_app_and_by_email(self, reason: str) -> None:
-        notify_email_sending_tier_changes([self._demotion(reason)])
+        email_sending_tier_notifications.notify_email_sending_tier_changes([self._demotion(reason)])
 
-        notification = NotificationEvent.objects.get()
-        assert notification.team_id == self.team.id
+        [notification] = stored_notifications_for_team(self.team.id)
         assert notification.notification_type == "email_reputation"
         assert notification.title == "Workflow email sending limit lowered"
         assert "this project's limit is now 5,000 emails per day" in notification.body
@@ -70,10 +71,9 @@ class TestNotifyEmailSendingTierChanges(BaseTest):
 
     @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce")
     def test_a_promotion_notifies_in_app_only(self) -> None:
-        notify_email_sending_tier_changes([self._promotion()])
+        email_sending_tier_notifications.notify_email_sending_tier_changes([self._promotion()])
 
-        notification = NotificationEvent.objects.get()
-        assert notification.team_id == self.team.id
+        [notification] = stored_notifications_for_team(self.team.id)
         assert notification.notification_type == "email_reputation"
         assert notification.title == "Workflow email sending limit raised"
         assert "up to 20,000 emails per day" in notification.body
@@ -91,7 +91,7 @@ class TestNotifyEmailSendingTierChanges(BaseTest):
     )
     @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce")
     def test_decay_suspensions_and_holds_stay_silent(self, reason: str, previous: int, new: int) -> None:
-        notify_email_sending_tier_changes(
+        email_sending_tier_notifications.notify_email_sending_tier_changes(
             [TierDecision(team_id=self.team.id, previous_tier=previous, new_tier=new, reason=reason)]
         )
         self._assert_nothing_reached_anyone()
@@ -99,21 +99,22 @@ class TestNotifyEmailSendingTierChanges(BaseTest):
     @override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce")
     def test_one_failing_notification_does_not_stop_the_rest(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
-        store_notification = NotificationEvent.objects.create
+        create_notification = email_sending_tier_notifications.create_notification
         write_failures = [DatabaseError("notification write failed")]
 
-        def _fail_first_write(**fields):
+        def _fail_first_write(data):
             if write_failures:
                 raise write_failures.pop()
-            return store_notification(**fields)
+            return create_notification(data)
 
-        with patch.object(NotificationEvent.objects, "create", side_effect=_fail_first_write):
-            notify_email_sending_tier_changes(
+        with patch.object(email_sending_tier_notifications, "create_notification", side_effect=_fail_first_write):
+            email_sending_tier_notifications.notify_email_sending_tier_changes(
                 [self._demotion("rates_above_threshold"), self._promotion(team_id=other_team.id)]
             )
 
-        assert list(NotificationEvent.objects.values_list("team_id", "title")) == [
-            (other_team.id, "Workflow email sending limit raised")
+        assert stored_notifications_for_team(self.team.id) == []
+        assert [n.title for n in stored_notifications_for_team(other_team.id)] == [
+            "Workflow email sending limit raised"
         ]
         # The demotion email must survive the in-app failure: it reaches the admins who can act.
         assert len(mail.outbox) == 1
