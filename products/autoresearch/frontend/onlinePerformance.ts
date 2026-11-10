@@ -6,7 +6,7 @@ import {
     ConfusionByCutoffApi,
     OnlinePerformanceRowApi,
 } from './generated/api.schemas'
-import { formatAuc, isLiftAtCeiling, liftCeilingHint, modelQuality } from './modelQuality'
+import { formatAuc, isLiftAtCeiling, liftCeilingNote, modelQuality } from './modelQuality'
 import { eventName } from './pipelineQuestion'
 import {
     PredictionSegmentDefinition,
@@ -98,9 +98,7 @@ export function accuracyStats(row: OnlinePerformanceRowApi, target: string): Acc
                       : lift != null
                         ? `Against everyone, ${date}`
                         : `Not measured, ${date}`,
-            tooltip: liftAtCeiling
-                ? `How many times more likely the top 10% were to do ${eventName(target)} than everyone the model scored. This lift is near its maximum, because ${liftCeilingHint(0.1, row.base_rate)}.`
-                : `How many times more likely the top 10% were to do ${eventName(target)} than everyone the model scored.`,
+            tooltip: `How many times more likely the top 10% were to do ${eventName(target)} than everyone the model scored.${liftAtCeiling ? ` ${liftCeilingNote(0.1, row.base_rate)}` : ''}`,
         },
         {
             key: 'rate',

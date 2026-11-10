@@ -17,7 +17,7 @@ export const DOMINANT_DRIVER_RATIO = 3
  * A lift at this share of its ceiling or more counts as at the ceiling.
  * Holdout and realized lift land a little below the exact ceiling, for example 4.94 against 5 at the top 20%.
  */
-export const LIFT_CEILING_TOLERANCE = 0.97
+const LIFT_CEILING_TOLERANCE = 0.97
 
 export type ModelQualityVerdict = 'Strong' | 'Fair' | 'Weak'
 
@@ -61,7 +61,7 @@ export function formatAuc(auc: number): string {
  * The highest lift that the top `share` of people can get.
  * Either everyone who did the target is in the top share, or everyone in the top share did the target.
  */
-export function liftCeiling(share: number, baseRate?: number | null): number {
+function liftCeiling(share: number, baseRate?: number | null): number {
     return baseRate != null && baseRate > share ? 1 / baseRate : 1 / share
 }
 
@@ -69,14 +69,10 @@ export function isLiftAtCeiling(lift: number, share: number, baseRate?: number |
     return lift >= liftCeiling(share, baseRate) * LIFT_CEILING_TOLERANCE
 }
 
-/** "10×" */
-export function formatLiftCeiling(share: number, baseRate?: number | null): string {
-    return `${Number(liftCeiling(share, baseRate).toFixed(1))}×`
-}
-
-/** "the top 10% can get at most 10×" */
-export function liftCeilingHint(share: number, baseRate?: number | null): string {
-    return `the top ${Math.round(share * 100)}% can get at most ${formatLiftCeiling(share, baseRate)}`
+/** "This lift is near its maximum, because the top 10% can get at most 10×." */
+export function liftCeilingNote(share: number, baseRate?: number | null): string {
+    const ceiling = Number(liftCeiling(share, baseRate).toFixed(1))
+    return `This lift is near its maximum, because the top ${Math.round(share * 100)}% can get at most ${ceiling}×.`
 }
 
 /** The top feature when its importance is at least `DOMINANT_DRIVER_RATIO` times the second feature's. */

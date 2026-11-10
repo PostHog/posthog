@@ -7,7 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
-import { isLiftAtCeiling, liftCeilingHint } from '../modelQuality'
+import { isLiftAtCeiling, liftCeilingNote } from '../modelQuality'
 import { accuracyStats, accuracySummary, percent } from '../onlinePerformance'
 import { eventName } from '../pipelineQuestion'
 import { AccuracyTrendCard } from './AccuracyTrendCard'
@@ -34,7 +34,7 @@ function LiftCell({ lift, share, baseRate }: { lift: number | null; share: numbe
         return <>{`${fmt(lift, 2)}×`}</>
     }
     return (
-        <Tooltip title={`This lift is near its maximum, because ${liftCeilingHint(share, baseRate)}.`}>
+        <Tooltip title={liftCeilingNote(share, baseRate)}>
             <span className="whitespace-nowrap">{`${fmt(lift, 2)}× (near max)`}</span>
         </Tooltip>
     )
