@@ -224,7 +224,7 @@ def is_generated_path(path: str, generated_path_patterns: list[str]) -> bool:
 
 
 def read_page_sources(
-    github: GitHubReader, docs_repository: str, source_path_by_key: Mapping[str, str]
+    github: GitHubReader, docs_repository: str, source_path_by_key: Mapping[str, str], *, docs_commit_sha: str | None
 ) -> dict[str, str]:
     page_text_by_key: dict[str, str] = {}
     for page_key, source_path in list(source_path_by_key.items())[:MAX_READ_PAGES]:
@@ -232,6 +232,7 @@ def read_page_sources(
             "GET",
             f"/repos/{docs_repository}/contents/{source_path}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
+            params={"ref": docs_commit_sha} if docs_commit_sha else None,
             headers={"Accept": "application/vnd.github.raw"},
             priority=Priority.NORMAL,
         )

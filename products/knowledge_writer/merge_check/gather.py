@@ -8,12 +8,14 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
+import requests
 
 from ..backend.logic.pull_requests import MAX_PULL_REQUEST_PAGES, PULL_REQUESTS_PER_PAGE, writer_pull_request
 from ..backend.settings import DocsSource
 from .sources import (
     GitHubReader,
     LandedChange,
+    UnexpectedGitHubResponse,
     is_generated_path,
     is_test_path,
     read_diff_by_path,
@@ -29,6 +31,8 @@ SITEMAP_LOCATION_PATTERN = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>")
 MAX_CHILD_SITEMAPS = 50
 DOCS_PULL_REQUEST_LOOKBACK = timedelta(days=14)
 MAX_RELEASES = 30
+RELEASES_PER_PAGE = 100
+MAX_RELEASE_PAGES = 20
 CI_PATH_PATTERN = re.compile(r"^(\.github|\.circleci|\.buildkite|\.gitlab|\.depot)/|(^|/)Dockerfile[^/]*$")
 OWNERSHIP_PATH_PATTERN = re.compile(r"(^|/)(CODEOWNERS|OWNERS|owners\.ya?ml)$")
 TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"MEMBER", "OWNER", "COLLABORATOR"})
@@ -100,6 +104,7 @@ class MergeEvidence:
     editable_pages: tuple[DocsPage, ...]
     not_editable_page_urls: tuple[str, ...]
     is_docs_tree_truncated: bool
+    docs_commit_sha: str | None
     release_line: ReleaseLine | None
     docs_pull_requests: tuple[DocsPullRequest, ...]
 
@@ -126,16 +131,22 @@ def gather_merge(
     github: GitHubReader,
     http: httpx.Client,
     writer_login: str | None,
+    is_pinned_to_merge: bool = False,
 ) -> MergeEvidence:
+    merged_at = parse_github_time(listed.get("merged_at"))
+    docs_as_of = merged_at if is_pinned_to_merge else None
     diff_by_path = read_diff_by_path(github, change)
     generated_path_patterns = read_generated_path_patterns(github, change.repository, change.after)
-    docs_tree_paths, is_docs_tree_truncated = read_docs_tree(github, source.docs_repository)
+    docs_commit_sha = read_docs_commit_sha(github, source.docs_repository, docs_as_of) if docs_as_of else None
+    docs_tree_paths, is_docs_tree_truncated = read_docs_tree(github, source.docs_repository, docs_commit_sha or "HEAD")
     source_path_by_suffix = docs_source_path_by_suffix(docs_tree_paths)
     pages = [
         docs_page(url, source.docs_url_prefix, source_path_by_suffix)
         for url in read_sitemap_urls(http, source.sitemap_url)
         if url.startswith(source.docs_url_prefix)
     ]
+    if docs_as_of is not None and not is_docs_tree_truncated:
+        pages = [page for page in pages if page.source_path is not None]
     return MergeEvidence(
         change=change,
         title=listed.get("title") or "",
@@ -149,12 +160,14 @@ def gather_merge(
             page.url for page in pages if page.source_path is None and not is_docs_tree_truncated
         ),
         is_docs_tree_truncated=is_docs_tree_truncated,
-        release_line=read_release_line(github, change.repository),
+        docs_commit_sha=docs_commit_sha,
+        release_line=read_release_line(github, change.repository, published_by=docs_as_of),
         docs_pull_requests=read_docs_pull_requests(
             github,
             source.docs_repository,
             change,
-            merged_at=parse_github_time(listed.get("merged_at")),
+            merged_at=merged_at,
+            docs_as_of=docs_as_of,
             docs_source_paths=frozenset(source_path_by_suffix.values()),
             writer_login=writer_login,
         ),
@@ -178,10 +191,23 @@ def classify_path(path: str, generated_path_patterns: list[str]) -> PathClass:
     return PathClass.CODE
 
 
-def read_docs_tree(github: GitHubReader, docs_repository: str) -> tuple[list[str], bool]:
+def read_docs_commit_sha(github: GitHubReader, docs_repository: str, docs_as_of: datetime) -> str:
     response = read_github(
         github,
-        f"/repos/{docs_repository}/git/trees/HEAD",
+        f"/repos/{docs_repository}/commits",
+        endpoint="/repos/{owner}/{repo}/commits",
+        params={"until": docs_as_of.isoformat(), "per_page": 1},
+    )
+    commits = response.json()
+    if not commits:
+        raise UnexpectedGitHubResponse(f"{docs_repository} has no commit before {docs_as_of.isoformat()}")
+    return commits[0]["sha"]
+
+
+def read_docs_tree(github: GitHubReader, docs_repository: str, tree_ref: str) -> tuple[list[str], bool]:
+    response = read_github(
+        github,
+        f"/repos/{docs_repository}/git/trees/{tree_ref}",
         endpoint="/repos/{owner}/{repo}/git/trees/{tree_sha}",
         params={"recursive": 1},
     )
@@ -242,18 +268,16 @@ def sitemap_text(response: httpx.Response) -> str:
     return response.text
 
 
-def read_release_line(github: GitHubReader, repository: str) -> ReleaseLine | None:
-    response = github.api_request(
-        "GET",
-        f"/repos/{repository}/releases",
-        endpoint="/repos/{owner}/{repo}/releases",
-        params={"per_page": MAX_RELEASES},
-    )
-    if response.status_code == 404:
+def read_release_line(github: GitHubReader, repository: str, *, published_by: datetime | None) -> ReleaseLine | None:
+    releases = read_releases(github, repository, published_by=published_by)
+    if releases is None:
         return None
-    response.raise_for_status()
     published = sorted(
-        (release for release in response.json() if not release.get("draft") and release.get("published_at")),
+        (
+            release
+            for release in releases
+            if not release.get("draft") and happened_by(release.get("published_at"), published_by)
+        ),
         key=lambda release: release["published_at"],
         reverse=True,
     )
@@ -268,12 +292,55 @@ def read_release_line(github: GitHubReader, repository: str) -> ReleaseLine | No
     )
 
 
+def read_releases(
+    github: GitHubReader, repository: str, *, published_by: datetime | None
+) -> list[dict[str, Any]] | None:
+    if published_by is None:
+        response = read_releases_page(github, repository, {"per_page": MAX_RELEASES})
+        return None if response is None else response.json()
+    releases: list[dict[str, Any]] = []
+    for page in range(1, MAX_RELEASE_PAGES + 1):
+        response = read_releases_page(github, repository, {"per_page": RELEASES_PER_PAGE, "page": page})
+        if response is None:
+            return None
+        listed_page = response.json()
+        releases.extend(listed_page)
+        if len(listed_page) < RELEASES_PER_PAGE or has_stable_release_by(releases, published_by):
+            return releases
+    raise UnexpectedGitHubResponse(
+        f"{repository} has no stable release before {published_by.isoformat()} in {MAX_RELEASE_PAGES} pages"
+    )
+
+
+def read_releases_page(github: GitHubReader, repository: str, params: dict[str, str | int]) -> requests.Response | None:
+    response = github.api_request(
+        "GET",
+        f"/repos/{repository}/releases",
+        endpoint="/repos/{owner}/{repo}/releases",
+        params=params,
+    )
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    return response
+
+
+def has_stable_release_by(releases: list[dict[str, Any]], published_by: datetime) -> bool:
+    return any(
+        not release.get("draft")
+        and not release.get("prerelease")
+        and happened_by(release.get("published_at"), published_by)
+        for release in releases
+    )
+
+
 def read_docs_pull_requests(
     github: GitHubReader,
     docs_repository: str,
     change: LandedChange,
     *,
     merged_at: datetime | None,
+    docs_as_of: datetime | None,
     docs_source_paths: frozenset[str],
     writer_login: str | None,
 ) -> tuple[DocsPullRequest, ...]:
@@ -282,10 +349,15 @@ def read_docs_pull_requests(
     oldest_update = merged_at - DOCS_PULL_REQUEST_LOOKBACK if merged_at else None
     found_by_url: dict[str, DocsPullRequest] = {}
     for listed in listed_pull_requests(github, docs_repository, state="all", oldest_update=oldest_update):
-        is_merged = bool(listed.get("merged_at"))
+        if docs_as_of is not None and not happened_by(listed.get("created_at"), docs_as_of):
+            continue
+        is_merged = happened_by(listed.get("merged_at"), docs_as_of)
+        is_closed = listed.get("state") == "closed" and (
+            docs_as_of is None or happened_by(listed.get("closed_at"), docs_as_of)
+        )
         is_by_writer = writer_pull_request(listed, docs_repository, writer_login) is not None
         is_trusted = is_by_writer or is_merged or listed.get("author_association") in TRUSTED_AUTHOR_ASSOCIATIONS
-        if listed.get("state") == "closed" and not is_merged:
+        if is_closed and not is_merged:
             continue
         if not is_trusted:
             continue
@@ -297,25 +369,33 @@ def read_docs_pull_requests(
             github, docs_repository, listed["number"], docs_source_paths
         ):
             continue
-        found_by_url[listed["html_url"]] = docs_pull_request(listed, is_opened_by_knowledge_writer=is_by_writer)
+        found_by_url[listed["html_url"]] = docs_pull_request(
+            listed, is_merged=is_merged, is_opened_by_knowledge_writer=is_by_writer
+        )
     if writer_login is None:
         return tuple(found_by_url.values())
     for listed in listed_pull_requests(github, docs_repository, state="open", oldest_update=None):
         if listed["html_url"] in found_by_url or writer_pull_request(listed, docs_repository, writer_login) is None:
             continue
+        if docs_as_of is not None and not happened_by(listed.get("created_at"), docs_as_of):
+            continue
         is_referenced = reference_pattern.search(title_and_body(listed)) or is_referenced_in_comments(
             github, docs_repository, listed["number"], reference_pattern
         )
         if is_referenced:
-            found_by_url[listed["html_url"]] = docs_pull_request(listed, is_opened_by_knowledge_writer=True)
+            found_by_url[listed["html_url"]] = docs_pull_request(
+                listed, is_merged=False, is_opened_by_knowledge_writer=True
+            )
     return tuple(found_by_url.values())
 
 
-def docs_pull_request(listed: Mapping[str, Any], *, is_opened_by_knowledge_writer: bool) -> DocsPullRequest:
+def docs_pull_request(
+    listed: Mapping[str, Any], *, is_merged: bool, is_opened_by_knowledge_writer: bool
+) -> DocsPullRequest:
     return DocsPullRequest(
         url=listed["html_url"],
         author=str((listed.get("user") or {}).get("login", "")),
-        is_merged=bool(listed.get("merged_at")),
+        is_merged=is_merged,
         is_opened_by_knowledge_writer=is_opened_by_knowledge_writer,
     )
 
@@ -384,3 +464,10 @@ def parse_github_time(value: object) -> datetime | None:
     if not isinstance(value, str):
         return None
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def happened_by(github_time: object, as_of: datetime | None) -> bool:
+    happened_at = parse_github_time(github_time)
+    if happened_at is None:
+        return False
+    return as_of is None or happened_at <= as_of

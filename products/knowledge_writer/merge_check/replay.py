@@ -95,6 +95,7 @@ def eval_command(arguments: argparse.Namespace) -> int:
                         source=source,
                         writer_login=arguments.writer_login,
                         variants=variants,
+                        is_pinned_to_merge=True,
                     )
             except EVAL_ROW_ERRORS as error:
                 for variant in variants:

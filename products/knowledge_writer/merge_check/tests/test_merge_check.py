@@ -1,7 +1,7 @@
 import json
 from collections.abc import Callable
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -13,7 +13,12 @@ from products.knowledge_writer.backend.facade.contracts import MergeCheckReport
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind
 from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START
 from products.knowledge_writer.backend.settings import DocsSource
-from products.knowledge_writer.merge_check.check import MergeNotConfirmed, MergeNotOnDefaultBranch, run_merge_check
+from products.knowledge_writer.merge_check.check import (
+    MergeNotConfirmed,
+    MergeNotOnDefaultBranch,
+    merge_reports_by_variant,
+    run_merge_check,
+)
 from products.knowledge_writer.merge_check.facts import (
     Audience,
     AudienceFact,
@@ -41,6 +46,7 @@ INTERNAL_ONLY_DIFF = (
     "diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml\n-old\n+new\n"
 )
 WRITER_LOGIN = "knowledge-writer[bot]"
+DOCS_COMMIT_SHA = "e" * 40
 DOCS_SOURCE = DocsSource(
     docs_repository="PostHog/posthog.com",
     sitemap_url="https://posthog.com/sitemap/sitemap-0.xml",
@@ -61,6 +67,7 @@ class FakePostHogGitHub:
         comparison_with_default_branch: str = "behind",
         merge_diff: str = GENERATED_CHUNK + SCRIPT_CHUNK + COMPONENT_CHUNK,
         docs_page_paths: tuple[str, ...] = tuple(FLAGS_PATHS),
+        pinned_docs_page_paths: tuple[str, ...] | None = None,
         docs_pull_requests: tuple[dict[str, object], ...] = (),
         docs_pull_request_comments: tuple[str, ...] = (),
         page_text_by_path: dict[str, str] | None = None,
@@ -70,6 +77,7 @@ class FakePostHogGitHub:
         self.comparison_with_default_branch = comparison_with_default_branch
         self.merge_diff = merge_diff
         self.docs_page_paths = docs_page_paths
+        self.pinned_docs_page_paths = pinned_docs_page_paths or docs_page_paths
         self.docs_pull_requests = docs_pull_requests
         self.docs_pull_request_comments = docs_pull_request_comments
         self.page_text_by_path = page_text_by_path or {}
@@ -93,8 +101,14 @@ class FakePostHogGitHub:
             return github_response("# Generated code\nposthog/schema.py linguist-generated\n")
         if path.endswith(f"/commits/{self.commit_sha}"):
             return github_response(self.merge_diff)
-        if path == "/repos/PostHog/posthog.com/git/trees/HEAD":
-            tree = [{"path": f"contents/docs/{page_path}.mdx", "type": "blob"} for page_path in self.docs_page_paths]
+        if path == "/repos/PostHog/posthog.com/commits":
+            return github_response(json.dumps([{"sha": DOCS_COMMIT_SHA}]))
+        if path in (
+            "/repos/PostHog/posthog.com/git/trees/HEAD",
+            f"/repos/PostHog/posthog.com/git/trees/{DOCS_COMMIT_SHA}",
+        ):
+            page_paths = self.docs_page_paths if path.endswith("/HEAD") else self.pinned_docs_page_paths
+            tree = [{"path": f"contents/docs/{page_path}.mdx", "type": "blob"} for page_path in page_paths]
             return github_response(json.dumps({"tree": tree, "truncated": False}))
         if path == "/repos/PostHog/posthog.com/pulls":
             return github_response(json.dumps(list(self.docs_pull_requests)))
@@ -116,6 +130,7 @@ def docs_pull_request(
     *,
     author_association: str = "NONE",
     updated_at: str = "2026-10-28T00:00:00Z",
+    created_at: str = "2026-10-26T00:00:00Z",
     source_reference: str = "Follows https://github.com/PostHog/posthog/pull/7",
 ) -> dict[str, object]:
     return {
@@ -123,6 +138,7 @@ def docs_pull_request(
         "state": "open",
         "html_url": "https://github.com/PostHog/posthog.com/pull/41",
         "updated_at": updated_at,
+        "created_at": created_at,
         "user": {"login": author_login},
         "author_association": author_association,
         "head": {"ref": "docs/flags", "repo": {"full_name": "PostHog/posthog.com"}},
@@ -138,7 +154,20 @@ def check_merge(
     *,
     is_final_attempt: bool = False,
     variant: Variant = Variant.JUDGE,
+    is_pinned_to_merge: bool = False,
 ) -> MergeCheckReport:
+    if is_pinned_to_merge:
+        return merge_reports_by_variant(
+            landed(commit_sha),
+            is_final_attempt=is_final_attempt,
+            github=github,
+            http=fake_sitemap(),
+            anthropic_client=anthropic_client,
+            source=DOCS_SOURCE,
+            writer_login=WRITER_LOGIN,
+            variants=(variant,),
+            is_pinned_to_merge=True,
+        )[variant]
     return run_merge_check(
         landed(commit_sha),
         is_final_attempt=is_final_attempt,
@@ -262,20 +291,41 @@ def test_update_naming_no_sitemap_page_becomes_create() -> None:
     assert (report.needs_docs, report.change_kind, report.page_urls) == (True, DocsChangeKind.CREATE, ())
 
 
-def test_sitemap_pages_without_a_docs_source_are_kept_from_the_judge() -> None:
+@pytest.mark.parametrize(
+    "github_options, is_pinned_to_merge, not_editable_count",
+    [
+        pytest.param({"docs_page_paths": tuple(FLAGS_PATHS[:150])}, False, "50", id="head"),
+        pytest.param(
+            {
+                "pinned_docs_page_paths": tuple(FLAGS_PATHS[:150]),
+                "docs_pull_requests": (
+                    docs_pull_request(WRITER_LOGIN, LINK_BACK_START, created_at="2026-10-28T00:00:00Z"),
+                ),
+            },
+            True,
+            "0",
+            id="pinned_to_merge_ignores_later_pages_and_docs_pull_requests",
+        ),
+    ],
+)
+def test_sitemap_pages_without_a_docs_source_are_kept_from_the_judge(
+    github_options: dict[str, Any], is_pinned_to_merge: bool, not_editable_count: str
+) -> None:
     commit_sha = "d" * 40
     judge_requests: list[dict] = []
     verdict = JudgeVerdict(
         needs_docs=True, change_kind=DocsChangeKind.UPDATE, page_urls=[FLAGS_PATHS[-1]], reason="new option"
     )
-    github = FakePostHogGitHub(commit_sha, docs_page_paths=tuple(FLAGS_PATHS[:150]))
+    github = FakePostHogGitHub(commit_sha, **github_options)
 
-    report = check_merge(commit_sha, github, judge_recording(verdict, judge_requests))
+    report = check_merge(
+        commit_sha, github, judge_recording(verdict, judge_requests), is_pinned_to_merge=is_pinned_to_merge
+    )
 
     judge_content = judge_requests[0]["messages"][0]["content"]
     assert FLAGS_PATHS[149] in judge_content and FLAGS_PATHS[-1] not in judge_content
     assert (report.change_kind, report.page_urls) == (DocsChangeKind.CREATE, ())
-    assert ("not_editable_here", "50") in [(row.criterion, row.value) for row in report.criteria]
+    assert ("not_editable_here", not_editable_count) in [(row.criterion, row.value) for row in report.criteria]
 
 
 @pytest.mark.parametrize(

@@ -63,6 +63,7 @@ def merge_reports_by_variant(
     source: DocsSource | None,
     writer_login: str | None,
     variants: tuple[Variant, ...],
+    is_pinned_to_merge: bool = False,
 ) -> dict[Variant, MergeCheckReport]:
     commit_sha = change.after
     listed = read_numbered_pull_request(github, change)
@@ -81,7 +82,15 @@ def merge_reports_by_variant(
         return dict.fromkeys(
             variants, no_docs_report(change, title=pull_request.title, reason="docs_source_unconfigured")
         )
-    evidence = gather_merge(change, listed, source=source, github=github, http=http, writer_login=writer_login)
+    evidence = gather_merge(
+        change,
+        listed,
+        source=source,
+        github=github,
+        http=http,
+        writer_login=writer_login,
+        is_pinned_to_merge=is_pinned_to_merge,
+    )
     gates = rule_gates(evidence)
     if gates.blocking_reason is not None:
         gated_report = no_docs_report(
@@ -128,7 +137,9 @@ def merge_reports_by_variant(
         for key, page in page_by_key.items()
         if key in named_page_keys and page.source_path is not None
     }
-    page_text_by_key = read_page_sources(github, source.docs_repository, source_path_by_key)
+    page_text_by_key = read_page_sources(
+        github, source.docs_repository, source_path_by_key, docs_commit_sha=evidence.docs_commit_sha
+    )
     gated = GatedMerge(
         change=change,
         pull_request=pull_request,
