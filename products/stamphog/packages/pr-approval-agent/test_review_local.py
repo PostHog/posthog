@@ -965,8 +965,15 @@ def test_main_prints_the_result_with_phase_timings_as_its_last_line(monkeypatch,
 
 _RENOVATE = BotAuthor(name="renovate", login="renovate[bot]", id=29139614)
 _DOCS_PROOF = Attestation(
-    name="docs_proof", check="Docs proof", app_id=77, lifts=("infra_cicd",), paths=(r"^docs/",), sibling_files=()
+    name="docs_proof",
+    check="Docs proof",
+    app_id=77,
+    lifts=("infra_cicd",),
+    paths=(r"^docs/",),
+    sibling_files=(),
+    publisher_files=("tools/docs_proof.py",),
 )
+_DOCS_LINT = replace(_DOCS_PROOF, name="docs_lint", check="Docs lint", app_id=78, paths=(r"^docs/linted\.md$",))
 
 
 def _bot_context(
@@ -974,9 +981,25 @@ def _bot_context(
 ) -> dict:
     context = _run_context([_api_file(f, status="modified") if isinstance(f, str) else f for f in files], check_runs)
     context["pr"] = {**context["pr"], "user": {"login": login, "type": "Bot", "id": user_id}}
+    context["merge_base_sha"] = "m" * 40
     context["admitted_bot"] = "renovate[bot]"
     context["folder_policies_known"] = True
     return context
+
+
+def _docs_proof(files: list[str]) -> dict:
+    marker = {
+        "files": files,
+        "pr": 1,
+        "head_sha": "h" * 40,
+        "merge_base": "m" * 40,
+        "blobs": {"tools/docs_proof.py": "c" * 40},
+    }
+    return {
+        **_proof("Docs proof", 77, []),
+        "output": {"summary": f"<!-- stamphog:v1 {json.dumps(marker)} -->"},
+        "pinned_blobs_current": True,
+    }
 
 
 def _proof(check: str, app_id: int, files: list[str]) -> dict:
@@ -1002,7 +1025,7 @@ _MIGRATION = "posthog/migrations/0999_add_col.py"
         ),
         pytest.param(
             (_RENOVATE,),
-            _bot_context([_MIGRATION, ".github/workflows/ci.yml"], [_proof("Migration risk", 2492437, [_MIGRATION])]),
+            _bot_context(["docs/a.md", ".github/workflows/ci.yml"], [_docs_proof(["docs/a.md"])]),
             "REFUSED",
             "every_file_attested",
             id="a-file-outside-every-proof",
@@ -1010,29 +1033,40 @@ _MIGRATION = "posthog/migrations/0999_add_col.py"
         pytest.param(
             (_RENOVATE,),
             _bot_context(
-                [{**_api_file(_MIGRATION, status="renamed"), "previous_filename": "posthog/migrations/0998_old.py"}],
-                [_proof("Migration risk", 2492437, [_MIGRATION])],
+                [{**_api_file("docs/a.md", status="renamed"), "previous_filename": "docs/old.md"}],
+                [_docs_proof(["docs/a.md"])],
             ),
             "REFUSED",
             "every_file_attested",
             id="a-rename-leaves-its-old-path-unproven",
         ),
         pytest.param(
-            (_RENOVATE,), _bot_context([_MIGRATION], _PENDING_MIGRATION_CHECK), "WAIT", None, id="pending-proof"
+            (_RENOVATE,),
+            _bot_context([_MIGRATION], [_proof("Migration risk", 2492437, [_MIGRATION])]),
+            "REFUSED",
+            "every_file_attested",
+            id="a-proof-without-a-pinned-publisher",
+        ),
+        pytest.param(
+            (_RENOVATE,),
+            _bot_context([_MIGRATION], _PENDING_MIGRATION_CHECK),
+            "REFUSED",
+            "every_file_attested",
+            id="pending-proof-without-a-pinned-publisher",
         ),
         pytest.param(
             (_RENOVATE,),
             _bot_context(["docs/a.md"], [{"name": "Docs proof", "status": "in_progress", "conclusion": None}]),
             "WAIT",
             None,
-            id="pending-proof-without-a-deny",
+            id="pending-proof",
         ),
         pytest.param(
             (_RENOVATE,),
-            _bot_context([_MIGRATION], [_proof("Migration risk", 2492437, [_MIGRATION])]),
+            _bot_context(["docs/linted.md"], [_docs_proof(["docs/linted.md"])]),
             None,
             None,
-            id="every-file-proven",
+            id="every-file-proven-while-another-check-runs",
         ),
     ],
 )
@@ -1041,9 +1075,12 @@ def test_an_admitted_bot_is_reviewed_only_when_every_file_is_proven(
 ) -> None:
     # The server stamps the admitted login, and the engine checks it against the policy again, so
     # a server that admits a bot the policy does not name still refuses. A bot carries no author
-    # trust, so a file outside every proof refuses, and a proof still running waits.
+    # trust, so a file outside every pinned proof refuses, and a pinned proof still running waits.
+    # `Docs lint` never reports here, and it must not hold back a PR whose files are all proven.
     policy = replace(
-        review_pr.POLICY, bot_authors=bot_authors, attestations=(*review_pr.POLICY.attestations, _DOCS_PROOF)
+        review_pr.POLICY,
+        bot_authors=bot_authors,
+        attestations=(*review_pr.POLICY.attestations, _DOCS_PROOF, _DOCS_LINT),
     )
     monkeypatch.setattr(review_pr, "POLICY", policy)
     monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
@@ -1051,15 +1088,17 @@ def test_an_admitted_bot_is_reviewed_only_when_every_file_is_proven(
 
     outcome = review_local.pregate(context)
 
+    # The worker's check before an approval is posted must agree with the pre-check.
+    assert review_local.attest(context)["attested"] is (expect_verdict is None)
     assert outcome["final"] is (expect_verdict is not None)
     if expect_verdict is None:
         assert outcome["not_final_reason"]
         return
     result = outcome["result"]
     assert result["final_verdict"] == expect_verdict
-    assert result["classification"].get("admitted_bot", "renovate[bot]") == "renovate[bot]"
     failed = {gate["gate"] for gate in result["gates"] if not gate["passed"]}
     if failed_gate is not None:
         assert failed_gate in failed
+        assert result["classification"]["admitted_bot"] == "renovate[bot]"
     elif expect_verdict == "REFUSED":
         assert "bot" in result["reviewer"]["reasoning"].lower()

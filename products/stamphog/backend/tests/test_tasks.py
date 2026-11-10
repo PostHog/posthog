@@ -11,7 +11,9 @@ from django.test import override_settings
 from django.utils.dateparse import parse_datetime
 
 import requests
+from celery.exceptions import Retry
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models import Project, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.instance_setting import override_instance_config
@@ -307,6 +309,31 @@ def test_a_bot_the_policy_names_is_reviewed_on_its_own_identity(
         assert runs[0].output["bot_admission"] == {"name": "renovate", "login": "renovate[bot]", "id": _RENOVATE_ID}
         assert runs[0].output["review_trigger"] == "bot_admission"
         mock_execute.github.get_collaborator_permission.assert_not_called()
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_rate_limited_bot_policy_read_backs_off_before_it_answers_the_pr(team, repo_config):
+    # The policy may admit this bot, so the skip path must not tell the PR that stamphog skips bots,
+    # or remove its label, before the retry has read the policy.
+    with team_scope(team.id):
+        repo_config.review_mode = ReviewMode.LABEL
+        repo_config.save(update_fields=["review_mode"])
+    cache.delete(f"stamphog:bot_authors:{repo_config.id}")
+    payload = _renovate_pr(labels=[repo_config.trigger_label])
+    with (
+        team_scope(team.id),
+        patch("products.stamphog.backend.logic.bot_admission.StamphogGitHubClient") as policy_client,
+        patch("products.stamphog.backend.tasks.tasks.StamphogGitHubClient") as github,
+        pytest.raises(Retry) as retry,
+    ):
+        policy_client.return_value.get_default_branch_file.side_effect = GitHubRateLimitError(
+            "rate limited", retry_after=300
+        )
+        process_pull_request_event.apply(args=(payload, f"delivery-bot-{uuid.uuid4()}"))
+
+    assert retry.value.when == 300
+    github.return_value.upsert_sticky_comment.assert_not_called()
+    github.return_value.remove_pr_label.assert_not_called()
 
 
 @pytest.mark.parametrize(

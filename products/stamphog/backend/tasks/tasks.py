@@ -1244,12 +1244,17 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                     "stamphog_pr_event_untrusted_skip_dismiss_failed", delivery_id=delivery_id, error=str(e)
                 )
                 raise cast(Any, process_pull_request_event).retry(exc=e)
-        if skip_reason == "bot_author":
-            _clear_trigger_label_from_bot_pr(installation_id, repo, pr, action)
         if carve_out_error is not None:
             # The dismissal above already ran, so the stale-approval invariant holds however many
             # retries fail. Retry so the carve-out re-review is re-attempted once the failure clears.
-            raise cast(Any, process_pull_request_event).retry(exc=carve_out_error)
+            # The retry also decides whether this is a bot PR that stamphog skips, so the label
+            # cleanup below waits for it.
+            countdown = (
+                max(carve_out_error.retry_after or 0, 60) if isinstance(carve_out_error, GitHubRateLimitError) else None
+            )
+            raise cast(Any, process_pull_request_event).retry(exc=carve_out_error, countdown=countdown)
+        if skip_reason == "bot_author":
+            _clear_trigger_label_from_bot_pr(installation_id, repo, pr, action)
         logger.info(
             "stamphog_pr_event_skipped",
             repo=repo,

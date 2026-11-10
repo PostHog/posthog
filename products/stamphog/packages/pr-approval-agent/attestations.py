@@ -69,6 +69,20 @@ def lifted_files(
     return lifted
 
 
+def pinned_files(
+    attestations: Iterable[Attestation],
+    check_runs: list[dict],
+    pr_file_paths: list[str],
+    reviewed: ReviewedHead,
+) -> set[str]:
+    """The files proven by an attestation that declares `publisher_files`.
+
+    Only such a proof names this PR and head, and comes from a publisher the default branch pins.
+    """
+    pinned = [attestation for attestation in attestations if attestation.publisher_files]
+    return set().union(*lifted_files(pinned, check_runs, pr_file_paths, reviewed).values())
+
+
 def pending_attestations(
     attestations: Iterable[Attestation], check_runs: list[dict], pr_file_paths: list[str]
 ) -> list[Attestation]:

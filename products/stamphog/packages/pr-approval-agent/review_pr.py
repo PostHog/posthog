@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from attestations import ReviewedHead, lifted_files, pending_attestations, pending_check_names
+from attestations import ReviewedHead, lifted_files, pending_attestations, pending_check_names, pinned_files
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
     DENY_EXEMPT_AUTHOR_TEAMS,
@@ -322,13 +322,21 @@ class Pipeline:
     def pending_lifting_attestations(self) -> list[Attestation]:
         """The attestations still running whose lifts cover every deny category, or nothing.
 
-        Empty when no category is denied, when a denied category has no pending check that may lift
-        it, or when no check is pending. The deny-list verdict stands in each case.
+        Empty when no category is denied and no bot file lacks a proof, when a denied category or an
+        unproven bot file has no pending check that may cover it, or when no check is pending. The
+        gate verdict stands in each case.
         """
         deny = set(self.classification.get("deny_categories", []))
-        if not deny and not self.admitted_bot:
+        unproven: set[str] = set()
+        candidates = POLICY.attestations
+        if self.admitted_bot:
+            unproven = set(self.pr.deny_paths) - set(self.classification.get("pinned_files", []))
+            candidates = tuple(attestation for attestation in candidates if attestation.publisher_files)
+        if not deny and not unproven:
             return []
-        pending = pending_attestations(POLICY.attestations, self.pr.check_runs, self.pr.file_paths)
+        pending = pending_attestations(candidates, self.pr.check_runs, self.pr.file_paths)
+        if any(not pending_attestations(pending, self.pr.check_runs, [path]) for path in unproven):
+            return []
         if not pending or not deny <= set().union(*(set(a.lifts) for a in pending)):
             return []
         return pending
@@ -480,6 +488,7 @@ class Pipeline:
         cc = parse_conventional_commit(pr.title)
         reviewed = ReviewedHead(pr_number=pr.number, head_sha=pr.head_sha, merge_base_sha=pr.merge_base_sha)
         lifted = lifted_files(POLICY.attestations, pr.check_runs, file_paths, reviewed)
+        pinned = pinned_files(POLICY.attestations, pr.check_runs, file_paths, reviewed)
         # The server polls GitHub for these checks after a WAIT, so the list names each one by the
         # check name and App id that a check run carries.
         attestation_checks = {
@@ -569,6 +578,7 @@ class Pipeline:
             "deny_categories": deny,
             "title_scrutiny_flags": title_flags,
             "lifted_files": {category: sorted(files) for category, files in sorted(lifted.items())},
+            "pinned_files": sorted(pinned),
             "attestations": attestation_checks,
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
@@ -578,7 +588,12 @@ class Pipeline:
             "has_ci_changes": has_ci_workflow_changes(file_paths),
             "ownership": ownership,
             "folder_policy_prose": self.effective_policy.folder_prose,
-            "assurance": self._summarize_assurance(),
+            "assurance": {
+                **self._summarize_assurance(),
+                # A bot has no reviewer and no owning team, so the proof of every file is the
+                # independent assurance of its PR.
+                "every_file_proven": bool(self.admitted_bot and pr.deny_paths) and set(pr.deny_paths) <= pinned,
+            },
             # Judgment-layer signal for the reviewer prompt, attached later on
             # the T1-agent path only (see _maybe_compute_familiarity). None here
             # keeps the other paths' prompts byte-identical to before.
@@ -740,16 +755,19 @@ class Pipeline:
         return True, "no deny categories matched"
 
     def _check_every_file_attested(self) -> tuple[bool, str]:
-        """An admitted bot's PR may only hold files that an attestation vouched for.
+        """An admitted bot's PR may only hold files that a pinned attestation vouched for.
 
         A human author is trusted for the files no check covers. A bot has no such trust, so a file
-        outside every attestation's proof, a workflow edit for example, refuses the PR. A rename's
-        old path counts as a file too, so content cannot leave a proven path unproven.
+        outside every proof, a workflow edit for example, refuses the PR. Only a proof from an
+        attestation that declares `publisher_files` counts, because a check that a job of the PR
+        can post proves nothing about a PR nobody wrote. A rename's old path counts as a file too,
+        so content cannot leave a proven path unproven.
         """
         if not self.admitted_bot:
             return True, "not a bot PR"
-        attested: set[str] = set().union(*self.classification["lifted_files"].values())
-        unattested = sorted(set(self.pr.deny_paths) - attested)
+        if not self.pr.deny_paths:
+            return False, "the PR changes no file"
+        unattested = sorted(set(self.pr.deny_paths) - set(self.classification["pinned_files"]))
         if unattested:
             return False, f"no attestation covers: {', '.join(unattested[:5])}"
         return True, "every file attested"
@@ -1181,6 +1199,8 @@ class Pipeline:
         )
         for completed_review in assurance.get("head_review_evidence") or []:
             bullets.append(f"{describe_review_evidence(completed_review)}.")
+        if assurance.get("every_file_proven"):
+            bullets.append("A pinned CI check proved every changed file.")
         if head_reviewers:
             bullets.append(f"{', '.join(head_reviewers)} reviewed the current head.")
         elif thumbs:

@@ -47,7 +47,7 @@ Retrieving one run also returns the reviewer's reasoning, the same text stamphog
 A project member can also ask for a review directly, by creating a review run (`POST review_runs/`, or the `stamphog-review-runs-create` MCP tool), and then poll the run for its verdict.
 The request replaces the trigger label, so it works in label mode.
 Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from outside the repository, and PRs whose author lacks write access are refused.
-A bot-authored PR is reviewed only when the repository names that bot under `bot_authors` in its policy, and then only when an attestation vouches for every file in it.
+A bot-authored PR is reviewed only when the repository names that bot under `bot_authors` in its policy, and then only when a pinned attestation vouches for every file in it.
 
 ## Connect a repository
 
@@ -152,8 +152,10 @@ Exception files use the same default-branch trust boundary as the rest of `polic
 A repository may list under `bot_authors` the bots whose PRs stamphog reviews, each as a `name`, the bot's `login` and its numeric account `id`.
 A matching PR skips the bot-author refusal, the review mode and the write-permission check, because the policy entry replaces them.
 Every other gate stays, and one more applies.
-An attestation must vouch for every file in the PR, so a bot can only land the kinds of change a check proves.
-Name a bot only when each such check is published by a dedicated GitHub App whose key the default branch alone can use, for example through an Environment restricted to that branch, and when the entry lists the check's `publisher_files`.
+An attestation that lists `publisher_files` must vouch for every file in the PR, so a bot can only land the kinds of change a pinned check proves.
+A check without `publisher_files` proves nothing for a bot, because its marker does not name the PR it proved.
+That proof is also the PR's independent assurance, because a bot has no reviewer and no owning team.
+Name a bot only when each such check is published by a dedicated GitHub App whose key the default branch alone can use, for example through an Environment restricted to that branch.
 Anyone who can post a check run as that App can approve the bot's PRs.
 The list is read from the default branch, like the rest of the policy.
 
