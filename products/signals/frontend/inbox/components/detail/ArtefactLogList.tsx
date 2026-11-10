@@ -58,7 +58,6 @@ import {
     AutostartSkipContent,
     CheckLifecycleContent,
     CheckResultContent,
-    CheckObservationContent,
     CheckScheduledContent,
     CodeReviewContent,
     CodeReferenceContent,
@@ -87,7 +86,6 @@ import {
     WorkClaimContent,
     WorkReleaseContent,
 } from './artefactTypes'
-import { CheckObservationBody } from './CheckObservationBody'
 import { prActivityTitle } from './prActivityPresentation'
 import { CHECK_LIFECYCLE_ENTRIES, inconclusiveReasonLabel } from './reportCheckPresentation'
 
@@ -170,7 +168,6 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     autostart_skip: IconPause,
     code_review: IconListCheck,
     check_result: IconCalendar,
-    check_observation: IconCalendar,
     check_scheduled: IconCalendar,
     check_expired: IconCalendar,
     check_cancelled: IconCalendar,
@@ -661,12 +658,6 @@ function renderArtefactSummary(artefact: SignalReportArtefact, monitoringEnabled
                 </LemonTag>
             ) : null
         }
-        case 'check_observation':
-            return (
-                <LemonTag size="small" type="muted">
-                    Interim measurement
-                </LemonTag>
-            )
         case 'check_result': {
             const outcome = (content as CheckResultContent).outcome
             const meta = outcome ? CHECK_OUTCOME[outcome] : null
@@ -823,8 +814,6 @@ function renderArtefactBody({
             return <AutostartSkipBody content={content as AutostartSkipContent} />
         case 'code_review':
             return <CodeReviewBody content={content as CodeReviewContent} />
-        case 'check_observation':
-            return <CheckObservationBody content={content as CheckObservationContent} />
         case 'check_result':
             return <CheckResultBody content={content as CheckResultContent} />
         case 'check_scheduled':

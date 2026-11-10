@@ -24,6 +24,8 @@ import {
     monitoringChartTargetLines,
     type ReportMonitoringChartWindow,
 } from '../../utils/reportMonitoringChart'
+import { CHART_TIMELINE_HEIGHT, ReportChartMonitoringTimeline } from './ReportChartMonitoringTimeline'
+import type { MonitoringTimeline } from './reportCheckObservations'
 import { ReportObservationChart } from './ReportObservationChart'
 
 export function ReportCheckMetricChart({
@@ -34,6 +36,7 @@ export function ReportCheckMetricChart({
     goalBounds,
     version,
     monitoring,
+    timeline,
 }: {
     reportId: string
     metric: ReportMetricApi
@@ -42,6 +45,7 @@ export function ReportCheckMetricChart({
     goalBounds?: { lower: number; upper: number } | null
     version: string
     monitoring?: ReportMonitoringChartWindow
+    timeline?: MonitoringTimeline | null
 }): JSX.Element {
     const { timezone } = useValues(teamLogic)
     const [observedAt] = useState(() => Date.now())
@@ -92,7 +96,10 @@ export function ReportCheckMetricChart({
                 type={reportMetricChartType(metric)}
                 interval={chartQuery.interval}
                 markers={
-                    monitoring ? monitoringChartMarkers(points.labels, monitoring, observedAt, timezone) : undefined
+                    // A chart limited to the observation window starts at Monitoring start, and its strip shows now.
+                    monitoring && !monitoring.endsAt
+                        ? monitoringChartMarkers(points.labels, monitoring, observedAt, timezone)
+                        : undefined
                 }
                 goalLines={
                     monitoring
@@ -107,6 +114,14 @@ export function ReportCheckMetricChart({
                         : undefined
                 }
                 goalValue={!monitoring && goalGrain === 'per_interval' ? (goal ?? undefined) : undefined}
+                footer={
+                    timeline
+                        ? {
+                              node: <ReportChartMonitoringTimeline timeline={timeline} now={observedAt} />,
+                              height: CHART_TIMELINE_HEIGHT,
+                          }
+                        : undefined
+                }
             />
             {!monitoring && goalGrain === 'whole_window' && targets.length > 0 && (
                 <div className="text-xs text-secondary">

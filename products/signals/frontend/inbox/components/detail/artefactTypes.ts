@@ -133,6 +133,8 @@ export interface CheckResultContent {
 }
 
 export interface CheckObservationContent extends Pick<CheckResultContent, 'title' | 'explanation' | 'observed_value'> {
+    check_id?: string
+    monitoring_started_at?: string
     measured_at?: string
     monitoring_ends_at?: string | null
     matches?: boolean | null
@@ -345,6 +347,8 @@ export function selectVisibleReportActivity(artefacts: SignalReportArtefact[]): 
             artefact.type !== 'impact_measurement_plan' &&
             // The report shows its product suggestion under the evidence, so the log would only repeat it.
             artefact.type !== 'source_suggestion' &&
+            // Follow-up checks lists each interim measurement under its own check.
+            artefact.type !== 'check_observation' &&
             (artefact.type !== 'implementation_handover' ||
                 (artefact.content as ImplementationHandoverContent).status !== 'processing')
     )
