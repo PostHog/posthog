@@ -428,6 +428,7 @@ class PlatformAlertRuntime:
     next_check_at: datetime | None
     grouping: Grouping
     labels: dict[str, str]
+    annotations: dict[str, str]
 
 
 @frozen
