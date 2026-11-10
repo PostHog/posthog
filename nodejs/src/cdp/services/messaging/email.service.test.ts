@@ -25,7 +25,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { FAKE_SES_CLICK_PREFIX, FAKE_SES_OPEN_PIXEL, FakeSes } from '~/tests/helpers/fake-ses'
+import { FakeSes } from '~/tests/helpers/fake-ses'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 
@@ -1414,6 +1414,7 @@ describe('EmailService', () => {
         })
         beforeEach(async () => {
             fakeSes.deliveries.length = 0
+            fakeSes.opened = 0
             service = createService({
                 sesEndpoint,
                 sesTrackedConfigurationSet: 'posthog-messaging',
@@ -1490,13 +1491,20 @@ describe('EmailService', () => {
                 expect(result.error).toBeUndefined()
                 expect(fakeSes.deliveries).toHaveLength(1)
                 const [{ html }] = fakeSes.deliveries
-                const delivered = [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(([, href]) =>
-                    href.startsWith(FAKE_SES_CLICK_PREFIX)
-                        ? `tracked ${decodeURIComponent(href.slice(FAKE_SES_CLICK_PREFIX.length))}`
-                        : href
+                const delivered = await Promise.all(
+                    [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(async ([, href]) => {
+                        if (!href.startsWith(sesEndpoint)) {
+                            return href
+                        }
+                        const clicked = await supertest(sesEndpoint).get(new URL(href).pathname)
+                        return clicked.status === 302 ? `tracked ${clicked.headers.location}` : `unusable ${href}`
+                    })
                 )
+                for (const [, src] of html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)) {
+                    await supertest(new URL(src).origin).get(new URL(src).pathname)
+                }
                 expect(delivered).toEqual(links)
-                expect(html.includes(FAKE_SES_OPEN_PIXEL)).toBe(opens)
+                expect(fakeSes.opened).toBe(opens ? 1 : 0)
             }
         )
     })

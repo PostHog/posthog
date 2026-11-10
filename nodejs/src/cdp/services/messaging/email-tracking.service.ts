@@ -208,10 +208,8 @@ export const addTrackingToEmail = (
     // many anchors happened to be trackable. The same template therefore yields the same indices
     // on every send, which is what makes counts comparable across recipients.
     let anchorIndex = 0
-    // An email's links can carry a login code or a reset token. A code send's links go through a
-    // click-tracking redirect only when its caller turned clicks on, whichever workflow it runs on.
-    // A template send's links stay untracked when its step is sensitive. Opens and deliveries are
-    // still tracked.
+    // Links can carry a login code or a reset token, so they skip click tracking unless a code send
+    // turns clicks on, or a template send's step isn't sensitive. Opens and deliveries are still tracked.
     const send = invocation.state?.send
     const allLinksOptedOut = send ? send.tracking.clicks !== true : invocation.hogFunction?.metadata?.sensitive === true
 

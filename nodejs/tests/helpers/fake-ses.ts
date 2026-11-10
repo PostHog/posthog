@@ -18,9 +18,6 @@ const SEND_EMAIL_MEMBERS = new Set([
     'ListManagementOptions',
 ])
 
-export const FAKE_SES_CLICK_PREFIX = 'https://r.fake-ses.example/L0/'
-export const FAKE_SES_OPEN_PIXEL = 'https://r.fake-ses.example/I0/open.gif'
-
 export type FakeSesConfigurationSet = { opens: boolean; clicks: boolean }
 
 export type FakeSesDelivery = {
@@ -36,6 +33,9 @@ const NO_TRACK = /\sses:no-track(?=[\s>=/])/i
 
 export class FakeSes {
     readonly deliveries: FakeSesDelivery[] = []
+    opened = 0
+    private links: string[] = []
+    private origin = ''
     private server: Server | null = null
 
     constructor(private configurationSets: Record<string, FakeSesConfigurationSet>) {}
@@ -43,7 +43,8 @@ export class FakeSes {
     async start(): Promise<string> {
         this.server = createServer((req, res) => void this.handle(req, res))
         await new Promise<void>((resolve) => this.server!.listen(0, '127.0.0.1', resolve))
-        return `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`
+        this.origin = `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`
+        return this.origin
     }
 
     async stop(): Promise<void> {
@@ -54,6 +55,16 @@ export class FakeSes {
         const chunks: Buffer[] = []
         for await (const chunk of req) {
             chunks.push(chunk as Buffer)
+        }
+        const click = req.method === 'GET' && req.url?.match(/^\/L0\/(\d+)$/)
+        if (click && this.links[Number(click[1])]) {
+            res.writeHead(302, { Location: this.links[Number(click[1])] })
+            return void res.end()
+        }
+        if (req.method === 'GET' && req.url === '/I0/open.gif') {
+            this.opened += 1
+            res.writeHead(200, { 'Content-Type': 'image/gif' })
+            return void res.end()
         }
         if (req.method !== 'POST' || req.url !== '/v2/email/outbound-emails') {
             return this.refuse(res, 404, 'NotFoundException', `No route for ${req.method} ${req.url}`)
@@ -84,14 +95,11 @@ export class FakeSes {
             tracked = tracked.replace(ANCHOR, (tag) =>
                 NO_TRACK.test(tag)
                     ? tag
-                    : tag.replace(
-                          HREF,
-                          (_m, href: string) => `href="${FAKE_SES_CLICK_PREFIX}${encodeURIComponent(href)}"`
-                      )
+                    : tag.replace(HREF, (_m, href: string) => `href="${this.origin}/L0/${this.links.push(href) - 1}"`)
             )
         }
         if (configurationSet?.opens) {
-            tracked = `${tracked}<img src="${FAKE_SES_OPEN_PIXEL}" />`
+            tracked = `${tracked}<img src="${this.origin}/I0/open.gif" />`
         }
         return tracked
     }

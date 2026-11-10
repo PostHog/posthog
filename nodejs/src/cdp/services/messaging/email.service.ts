@@ -1059,9 +1059,8 @@ export class EmailService {
 
     // Per-send tracking decision, combining two independent controls:
     // 1. Message-level: `tracking_enabled` on the email step's config (via `hogFunction.metadata`,
-    //    same as `message_category_type`), or `tracking.opens` on a code send. False is a hard off
-    //    regardless of consent, and it also turns clicks off. Absent means tracked, so email
-    //    destination hog functions (which have no such config) keep tracking.
+    //    same as `message_category_type`), or a code send's `tracking.opens`. False is a hard off regardless
+    //    of consent. Absent means tracked, so email destination hog functions without that config keep tracking.
     // 2. Recipient-level consent (marketing only; transactional exempt per CNIL): the team's
     //    consent mode combined with the recipient's stored $email_tracking preference.
     // Consent lookup failures resolve to untracked (fail closed): tracking without verifiable
