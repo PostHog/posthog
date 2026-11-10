@@ -95,3 +95,50 @@ export async function putSecret(
 export async function deleteSecret(db: Queryable, integrationId: string): Promise<void> {
     await query(db, 'DELETE FROM integration_secrets WHERE integration_id = $1', [integrationId])
 }
+
+/** Removes the blobs of many rows. Same transaction rule as `putSecret`. */
+export async function deleteSecrets(db: Queryable, integrationIds: readonly string[]): Promise<void> {
+    if (integrationIds.length === 0) {
+        return
+    }
+    await query(db, 'DELETE FROM integration_secrets WHERE integration_id = ANY($1::uuid[])', [integrationIds])
+}
+
+export interface SecretsSince {
+    /** Rows whose secret changed at or after the position. */
+    changed: Map<string, StoredSecret>
+    /** Rows that have a secret now, changed or not. A live row that is absent has none. */
+    present: Set<string>
+}
+
+/**
+ * The secrets of the given rows, whatever their owner, that changed at or after `since` (a
+ * timestamp text, or null for all). Only the change feed may call it: it does not bind an owner.
+ */
+export async function getSecretsChangedSince(
+    db: Queryable,
+    integrationIds: readonly string[],
+    since: string | null
+): Promise<SecretsSince> {
+    if (integrationIds.length === 0) {
+        return { changed: new Map(), present: new Set() }
+    }
+    const [changed, present] = await Promise.all([
+        query<DbSecretRow>(
+            db,
+            `SELECT integration_id, key_id, wrapped_dek, ciphertext, nonce, enc_version, legacy_unreadable_keys
+             FROM integration_secrets
+             WHERE integration_id = ANY($1::uuid[]) AND ($2::timestamptz IS NULL OR updated_at >= $2::timestamptz)`,
+            [integrationIds, since]
+        ),
+        query<{ integration_id: string }>(
+            db,
+            'SELECT integration_id FROM integration_secrets WHERE integration_id = ANY($1::uuid[])',
+            [integrationIds]
+        ),
+    ])
+    return {
+        changed: new Map(changed.rows.map((row) => [row.integration_id, toStoredSecret(row)])),
+        present: new Set(present.rows.map((row) => row.integration_id)),
+    }
+}
