@@ -1,0 +1,30 @@
+import { useActions, useValues } from 'kea'
+
+import { Button } from '@posthog/quill'
+
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
+
+export function QuillSeriesColorButton({ item }: { item: IndexedTrendResult }): JSX.Element {
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
+    const { getTrendsColor } = useValues(trendsDataLogic(insightProps))
+    const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
+
+    return (
+        <Button
+            size="icon-xs"
+            aria-label="Change color"
+            tooltip="Change color"
+            disabledReason={editingDisabledReason}
+            onClick={() => openModal(item)}
+        >
+            {/* The series color comes from the chart's palette or the user's choice, so it can't be a token. */}
+            {/* eslint-disable-next-line react/forbid-dom-props */}
+            <span className="size-3 rounded-full" style={{ backgroundColor: getTrendsColor(item) }} />
+        </Button>
+    )
+}
