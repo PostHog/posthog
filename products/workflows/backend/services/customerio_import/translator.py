@@ -198,6 +198,8 @@ class _Builder:
                 "cohort_id": self.options.segment_cohorts[segments[0]],
                 "transition": "left" if inverse else "entered",
             }
+        if len(segments) == 1 and not attributes and segments[0] in self.options.pending_segment_cohorts:
+            return _empty_trigger()
         described = [f"in segment {segment}" for segment in segments] + [
             conditions.describe(attribute) for attribute in attributes
         ]
@@ -214,7 +216,9 @@ class _Builder:
         audience = conditions.decode(self.campaign.get("filters"))
         if not audience:
             return
-        translated = conditions.translate_condition(audience, self.options.segment_cohorts)
+        translated = conditions.translate_condition(
+            audience, self.options.segment_cohorts, self.options.pending_segment_cohorts
+        )
         if translated.properties:
             trigger["filters"]["properties"] = list(translated.properties)
         for description in translated.skipped:
@@ -331,14 +335,7 @@ class _Builder:
         return f'"{segment.name}" ({segment_id})' if segment and segment.name else segment_id
 
     def _static_segment_notes(self) -> None:
-        trees: list[Any] = [self.campaign.get("trigger"), self.campaign.get("global_exit_conditions")]
-        trees.append(conditions.decode(self.campaign.get("filters")))
-        for action in self.source_actions.values():
-            trees.append(conditions.decode(action.get("preconditions")))
-            trees.append(conditions.decode(action.get("conditions")))
-            trees.extend(conditions.decode(item) for item in action.get("multi_conditions") or [])
-        referenced = dict.fromkeys(segment for tree in trees for segment in _segment_references(tree))
-        for segment_id in referenced:
+        for segment_id in referenced_segments(self.campaign, list(self.source_actions.values())):
             segment = self.options.segments.get(segment_id)
             if segment is None or segment.type not in _STATIC_SEGMENT_TYPES:
                 continue
@@ -416,7 +413,9 @@ class _Builder:
         precondition = conditions.decode(source.get("preconditions"))
         if not precondition:
             return
-        translated = conditions.translate_condition(precondition, self.options.segment_cohorts)
+        translated = conditions.translate_condition(
+            precondition, self.options.segment_cohorts, self.options.pending_segment_cohorts
+        )
         if translated.properties:
             action["filters"] = {"properties": list(translated.properties)}
         for description in translated.skipped:
@@ -738,7 +737,9 @@ class _Builder:
                     NoteLevel.UNSUPPORTED, f"Wait condition {index + 1} could not be read and was left out.", base
                 )
                 continue
-            translated = conditions.translate_condition(condition, self.options.segment_cohorts)
+            translated = conditions.translate_condition(
+                condition, self.options.segment_cohorts, self.options.pending_segment_cohorts
+            )
             for description in translated.skipped:
                 self.note(NoteLevel.UNSUPPORTED, f"The wait for `{description}` was left out.", base)
             if translated.events:
@@ -809,7 +810,9 @@ class _Builder:
         posthog_conditions: list[dict[str, Any]] = []
         for index, item in enumerate(encoded):
             decoded = conditions.decode(item)
-            translated = conditions.translate_condition(decoded or [], self.options.segment_cohorts)
+            translated = conditions.translate_condition(
+                decoded or [], self.options.segment_cohorts, self.options.pending_segment_cohorts
+            )
             if decoded is None or translated.skipped or translated.events:
                 parts = list(translated.skipped) + [f"event {event['name']}" for event in translated.events]
                 detail = f" `{'; '.join(parts)}`" if parts else ""
@@ -892,6 +895,19 @@ def translate_campaign(
     source: CampaignSource, options: ImportOptions, snippet_room: SnippetRoom | None = None
 ) -> TranslatedWorkflow:
     return _Builder(source, options, snippet_room or SnippetRoom()).build()
+
+
+def referenced_segments(campaign: dict[str, Any], actions: list[dict[str, Any]]) -> list[str]:
+    """The ids of every Customer.io segment the automation's trigger, filters, exits and steps check, in order."""
+    trees: list[Any] = [campaign.get("trigger"), campaign.get("global_exit_conditions")]
+    trees.append(conditions.decode(campaign.get("filters")))
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+        trees.append(conditions.decode(action.get("preconditions")))
+        trees.append(conditions.decode(action.get("conditions")))
+        trees.extend(conditions.decode(item) for item in action.get("multi_conditions") or [])
+    return list(dict.fromkeys(segment for tree in trees for segment in _segment_references(tree)))
 
 
 def _empty_trigger() -> dict[str, Any]:

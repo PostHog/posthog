@@ -64,7 +64,8 @@ function toTemplate(value: unknown): JsonObject | null {
 
 /**
  * Reads the automations out of files a person saved from the Customer.io CLI or MCP. Accepts one automation, a list of
- * them, `{campaigns: [...]}`, and loose template files, which attach to the automations whose steps use them.
+ * them, `{campaigns: [...]}`, loose template files, which attach to the automations whose steps use them, and segment
+ * files, whose rules let the import turn a segment into a cohort.
  */
 export function parseCustomerioFiles(contents: string[]): ParsedCustomerioFile {
     const campaigns: CustomerioCampaignApi[] = []
@@ -114,6 +115,10 @@ export function parseCustomerioFiles(contents: string[]): ParsedCustomerioFile {
             }
             if (Array.isArray(value.segments)) {
                 segments.push(...(value.segments as CustomerioSegmentApi[]))
+            }
+            // One segment with its rules, as `GET /v1/environments/{id}/segments/{id}` returns it.
+            if (isObject(value.segment) && value.segment.id !== undefined) {
+                segments.push(value.segment as unknown as CustomerioSegmentApi)
             }
         }
     }

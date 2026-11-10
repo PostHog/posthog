@@ -6,7 +6,10 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { urls } from 'scenes/urls'
 
-import { WorkflowImportResultApi } from 'products/workflows/frontend/generated/api.schemas'
+import {
+    WorkflowImportResultApi,
+    WorkflowImportSegmentCohortApi,
+} from 'products/workflows/frontend/generated/api.schemas'
 
 import { customerioImportLogic } from './customerioImportLogic'
 
@@ -16,7 +19,8 @@ const AGENT_PROMPT =
     'then import them as drafts.'
 
 const CLI_EXAMPLE = `cio api /v1/environments/$ENV_ID/campaigns/$CAMPAIGN_ID > automation.json
-cio api /v1/environments/$ENV_ID/templates/$TEMPLATE_ID > template.json`
+cio api /v1/environments/$ENV_ID/templates/$TEMPLATE_ID > template.json
+cio api /v1/environments/$ENV_ID/segments/$SEGMENT_ID > segment.json`
 
 const STATUS_TAGS: Record<WorkflowImportResultApi['status'], { label: string; type: LemonTagType }> = {
     preview: { label: 'Ready to import', type: 'default' },
@@ -100,7 +104,8 @@ export function CustomerioImportModal(): JSX.Element {
                     <p className="mb-0 text-secondary">
                         Save each automation, then add the files here. If you imported opt-outs from Customer.io,
                         PostHog reads the message content with that API key. Otherwise, save the templates its messages
-                        use too.
+                        use too. Save the segments an automation checks, and the import turns each one it can match
+                        exactly into a realtime cohort.
                     </p>
                     <CodeSnippet language={Language.Bash}>{CLI_EXAMPLE}</CodeSnippet>
                     <LemonFileInput
@@ -140,6 +145,9 @@ export function CustomerioImportModal(): JSX.Element {
                             ? 'One automation was imported before. Importing replaces its draft, and edits made to it since are lost.'
                             : `${replacing} automations were imported before. Importing replaces their drafts, and edits made to them since are lost.`}
                     </LemonBanner>
+                )}
+                {results && (
+                    <SegmentCohortsSummary segmentCohorts={results.segment_cohorts ?? []} dryRun={results.dryRun} />
                 )}
                 {results && (
                     <LemonTable
@@ -199,4 +207,51 @@ function summarizeNotes(result: WorkflowImportResultApi): string {
         others ? `${others} to review` : null,
     ].filter(Boolean)
     return parts.length ? parts.join(', ') : 'Everything carried over'
+}
+
+const SEGMENT_COHORT_HEADINGS: Record<WorkflowImportSegmentCohortApi['status'], string> = {
+    would_create: 'Importing creates these realtime cohorts from Customer.io segments:',
+    created: 'Created these realtime cohorts from Customer.io segments:',
+    reused: 'Uses these cohorts an earlier import made:',
+    not_converted: 'These segments were not turned into cohorts:',
+}
+
+function SegmentCohortsSummary({
+    segmentCohorts,
+    dryRun,
+}: {
+    segmentCohorts: WorkflowImportSegmentCohortApi[]
+    dryRun: boolean
+}): JSX.Element | null {
+    if (!segmentCohorts.length) {
+        return null
+    }
+    const statuses = (Object.keys(SEGMENT_COHORT_HEADINGS) as WorkflowImportSegmentCohortApi['status'][]).filter(
+        (status) => segmentCohorts.some((item) => item.status === status)
+    )
+    return (
+        <LemonBanner type={dryRun ? 'info' : 'success'} data-attr="customerio-import-segment-cohorts">
+            {statuses.map((status) => (
+                <div key={status}>
+                    <div>{SEGMENT_COHORT_HEADINGS[status]}</div>
+                    <ul className="list-disc pl-5">
+                        {segmentCohorts
+                            .filter((item) => item.status === status)
+                            .map((item) => (
+                                <li key={item.segment_id}>
+                                    {item.cohort_id !== null && status !== 'not_converted' ? (
+                                        <Link to={urls.cohort(item.cohort_id)} target="_blank">
+                                            {item.segment_name || `Segment ${item.segment_id}`}
+                                        </Link>
+                                    ) : (
+                                        item.segment_name || `Segment ${item.segment_id}`
+                                    )}
+                                    {item.reason ? `: ${item.reason}` : null}
+                                </li>
+                            ))}
+                    </ul>
+                </div>
+            ))}
+        </LemonBanner>
+    )
 }

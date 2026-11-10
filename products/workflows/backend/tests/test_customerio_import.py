@@ -38,6 +38,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.presentation.views.data_suggestion_drafts import validated_draft
 from products.workflows.backend.services.customerio_import import conditions, liquid
 from products.workflows.backend.services.customerio_import.images import _file_name
+from products.workflows.backend.services.customerio_import.segments import segment_cohort_filters
 from products.workflows.backend.services.customerio_import.translator import _json_with_liquid, translate_campaign
 
 
@@ -474,6 +475,101 @@ class TestCustomerioConditions(SimpleTestCase):
         assert translated.properties == ()
         assert len(translated.skipped) == 1
 
+    def test_segment_attribute_rules_become_cohort_groups(self) -> None:
+        rules = {
+            "or": [
+                {"attribute": {"field": "plan", "operator": "eq", "value": "trial"}},
+                {
+                    "and": [
+                        {"attribute": {"field": "email", "operator": "exists"}},
+                        {"attribute": {"field": "company", "operator": "contains", "value": "test"}, "inverse": True},
+                        {"attribute": {"field": "seats", "operator": "bw", "value": "1", "value2": "9"}},
+                    ]
+                },
+            ]
+        }
+
+        assert segment_cohort_filters(rules).filters == {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [{"key": "plan", "operator": "exact", "type": "person", "value": "trial"}],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "email", "operator": "is_set", "type": "person", "value": "is_set"},
+                            {"key": "company", "operator": "not_icontains", "type": "person", "value": "test"},
+                            {"key": "seats", "operator": "gte", "type": "person", "value": "1"},
+                            {"key": "seats", "operator": "lte", "type": "person", "value": "9"},
+                        ],
+                    },
+                ],
+            }
+        }
+
+    @parameterized.expand(
+        [
+            (
+                "an attribute change is not an attribute value",
+                {
+                    "and": [
+                        {
+                            "event": {
+                                "type": "attribute_change",
+                                "name": "plan",
+                                "filters": {"and": [{"field": "to", "operator": "eq", "value": "trial"}]},
+                            },
+                            "times": 1,
+                            "within": 0,
+                        }
+                    ]
+                },
+                ["plan changed to trial"],
+            ),
+            (
+                "one translatable rule does not carry the segment",
+                {
+                    "and": [
+                        {"attribute": {"field": "plan", "operator": "eq", "value": "trial"}},
+                        {"event": {"type": "event", "name": "signed_in"}, "times": 3, "within": 604800},
+                    ]
+                },
+                ["performed signed_in at least 3 times within 7 days"],
+            ),
+            (
+                "a relative date would keep people who aged out",
+                {"and": [{"attribute": {"field": "created_at", "operator": "timestamp_gt", "value": "-2592000"}}]},
+                ["created_at timestamp_gt -2592000 (a relative date)"],
+            ),
+            (
+                "a range inside an any-of group",
+                {"or": [{"attribute": {"field": "seats", "operator": "bw", "value": "1", "value2": "9"}}]},
+                ["seats bw 1"],
+            ),
+            (
+                "rules three levels deep",
+                {"and": [{"or": [{"and": [{"attribute": {"field": "plan", "value": "trial"}}]}]}]},
+                ["rules grouped more than two levels deep"],
+            ),
+            (
+                "message activity",
+                {"and": [{"message": {"type": "opened"}}]},
+                ["message activity, such as opened or clicked"],
+            ),
+            ("no rules", {}, ["the segment has no rules"]),
+        ]
+    )
+    def test_segment_with_any_untranslatable_rule_makes_no_cohort(
+        self, _name: str, rules: dict[str, Any], untranslated: list[str]
+    ) -> None:
+        translated = segment_cohort_filters(rules)
+
+        assert translated.filters is None
+        assert list(translated.untranslated) == untranslated
+
     def test_decodes_url_encoded_and_plain_base64(self) -> None:
         condition = [{"type": "attribute", "field": "url", "operator": "eq", "value": "https://example.com/a%20b&c"}]
         plain = base64.b64encode(json.dumps(condition).encode()).decode()
@@ -629,6 +725,121 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert result["status"] == "created", result["validation_errors"]
         trigger = HogFlow.objects.get(pk=result["workflow_id"]).trigger
         assert trigger["cohort_id"] == cohort.id
+
+    def _segment_import(self, key: str | None = None, **overrides: Any) -> dict[str, Any]:
+        source = _onboarding_campaign()
+        segment_trigger = {
+            **source.campaign,
+            "id": "50",
+            "type": "seg_attr",
+            "trigger": {"and": [{"segment": {"id": 16}}]},
+        }
+        branch_on_segment = [
+            {**action, "conditions": _encode([{"type": "segments", "segments": [16]}])}
+            if action["id"] == "6"
+            else action
+            for action in source.actions
+        ]
+        templates = list(source.templates.values())
+        body = {
+            "source": "customerio",
+            "campaigns": [
+                {"campaign": segment_trigger, "actions": source.actions, "templates": templates},
+                {"campaign": source.campaign, "actions": branch_on_segment, "templates": templates},
+            ],
+            "segments": [
+                {
+                    "id": "16",
+                    "name": "Active trials",
+                    "type": "dynamic",
+                    "conditions": {"and": [{"attribute": {"field": "plan", "operator": "eq", "value": "trial"}}]},
+                }
+            ],
+            **overrides,
+        }
+        headers = {"authorization": f"Bearer {key}"} if key else {}
+        with self.settings(REALTIME_COHORT_TEAM_ALLOWLIST=str(self.team.id)):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/workflow_imports/", body, format="json", headers=headers
+            )
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    def _imported_cohorts(self) -> list[Cohort]:
+        return list(Cohort.objects.filter(team=self.team, description__startswith="Imported from Customer.io"))
+
+    def test_segment_rules_become_one_realtime_cohort_that_reimports_reuse(self) -> None:
+        # Segment 1's cohort must not stand in for segment 16.
+        Cohort.objects.create(team=self.team, name="Other", description="Imported from Customer.io segment 1.")
+
+        preview = self._segment_import(dry_run=True)
+        assert [item["status"] for item in preview["segment_cohorts"]] == ["would_create"]
+        assert [result["status"] for result in preview["results"]] == ["preview", "preview"]
+        assert len(self._imported_cohorts()) == 1
+
+        first = self._segment_import()
+        second = self._segment_import()
+
+        cohort = Cohort.objects.get(team=self.team, description__startswith="Imported from Customer.io segment 16.")
+        assert (cohort.name, cohort.cohort_type, cohort.is_static) == ("Active trials", CohortType.REALTIME, False)
+        assert [(item["status"], item["cohort_id"]) for item in first["segment_cohorts"]] == [("created", cohort.id)]
+        assert [(item["status"], item["cohort_id"]) for item in second["segment_cohorts"]] == [("reused", cohort.id)]
+        assert len(self._imported_cohorts()) == 2
+        trigger_flow, branch_flow = (HogFlow.objects.get(pk=result["workflow_id"]) for result in second["results"])
+        assert trigger_flow.trigger == {"type": "cohort", "cohort_id": cohort.id, "transition": "entered"}
+        branch = next(action for action in branch_flow.actions if action["type"] == "conditional_branch")
+        assert {"key": "id", "type": "cohort", "operator": "in", "value": cohort.id} in branch["config"]["conditions"][
+            0
+        ]["filters"]["properties"]
+
+    @parameterized.expand(
+        [
+            ("a rule with no cohort equivalent", {"untranslatable": True}, "plan changed"),
+            ("an API key without the cohort scope", {"scopes": ["hog_flow:write"]}, "cohort:write"),
+            ("a user without cohort access", {"cohort_access": False}, "edit access to cohorts"),
+            ("a project without realtime cohorts", {"realtime": False}, "Realtime cohorts aren't available"),
+            ("an organization without cohort triggers", {"cohort_triggers": False}, "Cohort triggers aren't available"),
+        ]
+    )
+    def test_segment_that_cannot_become_a_cohort_keeps_the_note(
+        self, _name: str, case: dict[str, Any], reason: str
+    ) -> None:
+        key = None
+        if "scopes" in case:
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="key", user=self.user, secure_value=hash_key_value(key), scopes=case["scopes"]
+            )
+            self.client.logout()
+        overrides: dict[str, Any] = {}
+        if case.get("untranslatable"):
+            rules = {"and": [{"event": {"type": "attribute_change", "name": "plan"}, "times": 1, "within": 0}]}
+            overrides["segments"] = [{"id": "16", "name": "Active trials", "type": "dynamic", "conditions": rules}]
+        cohort_access = case.get("cohort_access", True)
+        cohort_triggers = case.get("cohort_triggers", True)
+        with (
+            patch(
+                "products.workflows.backend.presentation.views.workflow_import_drafts.UserAccessControl.check_access_level_for_resource",
+                side_effect=lambda resource, *_args, **_kwargs: cohort_access or resource != "cohort",
+            ),
+            patch(
+                "products.workflows.backend.presentation.views.workflow_import_drafts.realtime_cohorts_available",
+                return_value=case.get("realtime", True),
+            ),
+            patch(
+                "products.workflows.backend.presentation.views.workflow_import_drafts._cohort_conditions_rolled_out",
+                return_value=cohort_triggers,
+            ),
+        ):
+            response = self._segment_import(key=key, **overrides)
+
+        assert [item["status"] for item in response["segment_cohorts"]] == ["not_converted"]
+        assert reason in response["segment_cohorts"][0]["reason"]
+        assert self._imported_cohorts() == []
+        trigger_result = response["results"][0]
+        assert trigger_result["status"] == "created", trigger_result["validation_errors"]
+        assert any(reason in note["message"] for note in trigger_result["notes"])
+        assert HogFlow.objects.get(pk=trigger_result["workflow_id"]).trigger["type"] == "event"
 
     def test_reimport_leaves_a_workflow_the_user_cannot_edit(self) -> None:
         first = self._import()
