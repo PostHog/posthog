@@ -22,6 +22,7 @@ export interface EnrichedEarlyAccessFeature extends Omit<EarlyAccessFeature, 'fl
     flagKey: string
     enabled: boolean
     payload: Record<string, any> | undefined
+    imageUrl?: string
 }
 
 const search = createFeaturePreviewSearch<EnrichedEarlyAccessFeature>()
@@ -35,6 +36,7 @@ export interface featurePreviewsLogicValues {
     conceptEnrollments: Record<string, boolean>
     conceptSurveySubmissions: Record<string, boolean>
     earlyAccessFeatures: EnrichedEarlyAccessFeature[]
+    expandedImageFlagKey: string | null
     filteredEarlyAccessFeatures: EnrichedEarlyAccessFeature[]
     rawEarlyAccessFeatures: EarlyAccessFeature[]
     rawEarlyAccessFeaturesLoading: boolean
@@ -50,6 +52,9 @@ export interface featurePreviewsLogicActions {
         flagKey: string
     }
     cancelEarlyAccessFeatureFeedback: () => {
+        value: true
+    }
+    closeFeaturePreviewImage: () => {
         value: true
     }
     conceptSurveySubmitted: (flagKey: string) => {
@@ -72,6 +77,9 @@ export interface featurePreviewsLogicActions {
     ) => {
         rawEarlyAccessFeatures: EarlyAccessFeature[]
         payload?: any
+    }
+    openFeaturePreviewImage: (flagKey: string) => {
+        flagKey: string
     }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
@@ -155,6 +163,8 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         cancelEarlyAccessFeatureFeedback: true,
         submitEarlyAccessFeatureFeedback: (message: string) => ({ message }),
         copyExternalFeaturePreviewLink: (flagKey: string) => ({ flagKey }),
+        openFeaturePreviewImage: (flagKey: string) => ({ flagKey }),
+        closeFeaturePreviewImage: true,
         // Coming Soon (concept) waitlist: submit an email to the feature's linked survey
         // instead of the one-click enrollment.
         submitConceptSurvey: (flagKey: string, email: string) => ({ flagKey, email }),
@@ -218,6 +228,13 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
+        expandedImageFlagKey: [
+            null as string | null,
+            {
+                openFeaturePreviewImage: (_, { flagKey }) => flagKey,
+                closeFeaturePreviewImage: () => null,
+            },
+        ],
         activeFeedbackFlagKey: {
             beginEarlyAccessFeatureFeedback: (_, { flagKey }) => flagKey,
             cancelEarlyAccessFeatureFeedback: () => null,
@@ -276,6 +293,10 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                     }
                 }
             }
+        },
+        openFeaturePreviewImage: ({ flagKey }) => {
+            // Compare with $feature_enrollment_update to see if images lead to more opt-ins
+            posthog.capture('feature preview image opened', { flag_key: flagKey })
         },
         copyExternalFeaturePreviewLink: ({ flagKey }) => {
             void copyToClipboard(urls.absolute(`/settings/user-feature-previews#${flagKey}`))
@@ -337,6 +358,8 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                             flagKey,
                             // Use payload from early access feature, fallback to empty object
                             payload: ((feature as any).payload as Record<string, any> | undefined) || {},
+                            // posthog-js does not type imageUrl yet, but passes it through from the API
+                            imageUrl: ((feature as any).imageUrl as string | undefined) || undefined,
                             enabled: !!flag || isConceptEnrolled,
                         }
                     })

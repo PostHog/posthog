@@ -4,8 +4,8 @@ import { useEffect, useLayoutEffect, useState } from 'react'
 import { LemonBanner, LemonButton, LemonInput, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { BasicCard } from 'lib/components/Cards/BasicCard'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useAnchor } from 'lib/hooks/useAnchor'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON, areClientFeatureFlagsHonored } from 'lib/logic/featureFlagLogic'
@@ -13,32 +13,10 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { Label } from 'lib/ui/Label/Label'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature } from '~/types'
-
 import { ConceptWaitlistCTA } from './ConceptWaitlistCTA'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
-
-type AvailableFeatureChecker = (feature: AvailableFeature) => boolean
-
-interface FeaturePreviewWarning {
-    /** Returns the warning to display for a feature, or null if none should show. */
-    resolve: (hasAvailableFeature: AvailableFeatureChecker) => React.ReactNode | null
-}
-
-/**
- * Per-flag warnings shown on the early-access card. Add an entry here to surface a warning
- * for a specific preview without touching the FeaturePreview component itself.
- */
-const FEATURE_PREVIEW_WARNINGS: Record<string, FeaturePreviewWarning> = {
-    [FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]: {
-        resolve: (hasAvailableFeature) =>
-            hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
-                ? null
-                : 'This feature requires the Enterprise plan or the Scale add-on. Enabling the preview will not unlock it on your current plan.',
-    },
-}
-
-const hasPosthogJsFailedToLoadFeaturePreviews = (): boolean => !!window.POSTHOG_GLOBAL_ERRORS?.onFeatureFlagsLoadError
+import { FEATURE_PREVIEW_WARNINGS, hasPosthogJsFailedToLoadFeaturePreviews } from './featurePreviewWarnings'
+import { QuillFeaturePreviews } from './QuillFeaturePreviews'
 
 // Feature previews can be linked to by using hash in the url
 // example external link: https://app.posthog.com/settings/user-feature-previews#llm-analytics
@@ -47,6 +25,7 @@ export function FeaturePreviews(): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { loadEarlyAccessFeatures, setSearchTerm } = useActions(featurePreviewsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useLayoutEffect(() => loadEarlyAccessFeatures(), [loadEarlyAccessFeatures])
 
@@ -61,6 +40,16 @@ export function FeaturePreviews(): JSX.Element {
         filteredEarlyAccessFeatures.length === 0 && !rawEarlyAccessFeaturesLoading && !searchTerm
     const failedToLoadFeaturePreviews = shouldShowEmptyState && hasPosthogJsFailedToLoadFeaturePreviews()
     const flagsHonored = areClientFeatureFlagsHonored(preflight)
+
+    if (todayRailNav) {
+        return (
+            <QuillFeaturePreviews
+                features={betaFeatures}
+                failedToLoad={failedToLoadFeaturePreviews}
+                flagsHonored={flagsHonored}
+            />
+        )
+    }
 
     return (
         <div className="flex flex-col gap-2">

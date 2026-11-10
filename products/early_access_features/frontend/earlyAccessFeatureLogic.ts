@@ -56,6 +56,7 @@ export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     description: '',
     stage: EarlyAccessFeatureStage.Draft,
     documentation_url: '',
+    image_url: '',
     feature_flag_id: undefined,
     payload: {},
     // assignee is intentionally left unset: the backend defaults it to the creator

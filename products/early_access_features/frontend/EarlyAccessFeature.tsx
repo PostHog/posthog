@@ -84,6 +84,7 @@ import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assi
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 import { MessageAudienceButton } from 'products/workflows/frontend/MessageAudience/MessageAudienceButton'
 
+import { EarlyAccessFeatureImageInput } from './EarlyAccessFeatureImageInput'
 import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { enrolledPeopleAudience } from './enrolledPeopleAudience'
 import { InstructionsModal } from './InstructionsModal'
@@ -708,6 +709,34 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                 </Link>
                             ) : (
                                 <span className="text-secondary">No documentation URL</span>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {isEditingFeature || isNewEarlyAccessFeature ? (
+                    <div className="max-w-prose">
+                        <LemonField
+                            name="image_url"
+                            label="Image"
+                            showOptional
+                            help="Shown on the feature's card in the opt-in UI. A screenshot or short GIF of the feature works well."
+                        >
+                            <EarlyAccessFeatureImageInput />
+                        </LemonField>
+                    </div>
+                ) : (
+                    <div>
+                        <b>Image</b>
+                        <div>
+                            {earlyAccessFeature.image_url ? (
+                                <img
+                                    src={earlyAccessFeature.image_url}
+                                    alt={`Preview of ${earlyAccessFeature.name}`}
+                                    className="block max-h-60 max-w-full rounded border object-contain"
+                                />
+                            ) : (
+                                <span className="text-secondary">No image</span>
                             )}
                         </div>
                     </div>
