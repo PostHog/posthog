@@ -15,6 +15,7 @@ from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.auth.models import Group
 from django.contrib.messages.storage.cookie import CookieStorage
+from django.core.exceptions import PermissionDenied
 from django.db.models import PROTECT, Model
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
@@ -72,16 +73,18 @@ _TEMPLATE_TAG = re.compile(r"\{%.*?%\}|\{\{.*?\}\}")
 _PATH_PARAMETER = re.compile(r"<(?:(\w+):)?(\w+)>")
 _SAMPLE_VALUES = {"int": "7", "uuid": "0d7b8a52-4f0e-4b8e-9a43-6f1c2e5d9b10", "str": "example", "path": "example"}
 TOOLS_PREFIX = "/admin/console/tools/"
-# Old URLs that take over a Django admin view on purpose: the user and legal document deletes need the console's
-# cleanup, Django's set-password form is off in PostHog, and new deletion requests are created in the console.
+# Old URLs that take over a Django admin view on purpose, because the console adds a reason and cleanup the raw
+# view skips. Each ModelAdmin also refuses its raw view by permission, so the view stays closed when the moved
+# routes are missing.
 INTENTIONAL_ADMIN_OVERRIDES = frozenset(
     {
         "admin/posthog/user/<int:pk>/delete/",
-        "admin/posthog/user/<int:pk>/password/",
         "admin/legal_documents/legaldocument/<path:object_id>/delete/",
         "admin/posthog/datadeletionrequest/add/",
     }
 )
+# Django's set-password form. UserAdmin sets change_password_form to None, so the raw view never shows a form.
+DISABLED_ADMIN_FORMS = frozenset({"admin/posthog/user/<int:pk>/password/"})
 
 
 def _selector_present(css: str, class_name: str) -> bool:
@@ -445,7 +448,7 @@ class TestAdminConsoleMovedUrls(SimpleTestCase):
             return
         # Django admin answers every unknown path with a redirect to the change page or the catch-all 404 view.
         catch_all = route.endswith("<path:object_id>/") or route == "(?P<url>.*)$"
-        assert catch_all or moved.old_path in INTENTIONAL_ADMIN_OVERRIDES, (
+        assert catch_all or moved.old_path in INTENTIONAL_ADMIN_OVERRIDES | DISABLED_ADMIN_FORMS, (
             f"{moved.old_path} hides the live Django admin route {route!r}. Remove that view first, or add the "
             "path to INTENTIONAL_ADMIN_OVERRIDES when the console replaces it on purpose."
         )
@@ -461,6 +464,21 @@ class TestAdminConsoleMovedUrls(SimpleTestCase):
         assert response["Location"] == target + ("&" if "?" in target else "?") + "from=ticket"
         tool_key = target.removeprefix(TOOLS_PREFIX).split("/")[0]
         assert target.startswith(TOOLS_PREFIX) and console.get_tool(tool_key) is not None, f"No tool for {target}"
+
+
+class TestAdminConsoleOverriddenAdminViews(BaseTest):
+    @parameterized.expand([(old_path,) for old_path in sorted(INTENTIONAL_ADMIN_OVERRIDES)])
+    def test_django_admin_refuses_the_raw_view_an_old_url_overrides(self, old_path: str) -> None:
+        register_all_admin()
+        django_admin = URLResolver(RegexPattern(r"^/admin/"), admin.site.get_urls())
+        sample_path, _ = _sample_path(old_path)
+        match = django_admin.resolve(sample_path)
+        request = RequestFactory().get(sample_path)
+        self.user.is_staff = True
+        request.user = self.user
+
+        with self.assertRaises(PermissionDenied):
+            match.func(request, *match.args, **match.kwargs)
 
 
 class TestAdminConsoleViews(BaseTest):
