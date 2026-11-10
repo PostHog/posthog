@@ -38,7 +38,6 @@ const {
     tripwireDomain,
     ALL,
     JAVASCRIPT,
-    NATIVE_BINDING_CONSUMER_LANES,
     NODE,
     PROTO_TREES,
     PYTHON,
@@ -48,6 +47,9 @@ const {
     UNIVERSAL,
     INGESTION,
     INGESTION_AI_RESEARCH,
+    INGESTION_SESSION_REPLAY,
+    INGESTION_AI_EVENTS,
+    INGESTION_LANES,
 } = require('./trunk-impacted-targets')
 const { tachDependents } = require('./turbo-discover')
 
@@ -841,6 +843,7 @@ test('the ml-mirror sidecar image and its workflow stay on the node lanes', () =
 const [RASTERIZER_LANE, RASTERIZER_DIR] = NODE_SUB_LANES.find(([lane]) => lane === 'node:recording-rasterizer')
 const [CDP_LANE] = NODE_SUB_LANES.find(([lane]) => lane === 'node:cdp')
 const ALL_NODE_LANES = [...NODE_LANES].sort()
+const ALL_NODE_AND_INGESTION_LANES = [...NODE_LANES, ...INGESTION_LANES].sort()
 
 const NODE_CONTEXT = {
     ...CONTEXT,
@@ -906,6 +909,49 @@ function writeTree(files) {
     }
     return root
 }
+
+// Ingestion's packages seed their lanes from server files, and the walk crosses package
+// boundaries through workspace specifiers, so a shared file claims every lane that reaches it.
+test('the node lane map seeds ingestion lanes from server files across packages', () => {
+    const ING = 'ingestion/node/packages/ingestion'
+    const tree = {
+        'nodejs/src/index.ts': "import './cdp/executor'\n",
+        'nodejs/src/cdp/executor.ts': "import { log } from '@posthog/node-common/utils/logger'\n",
+        'nodejs/packages/common/src/utils/logger.ts': 'export const log = () => {}\n',
+        'nodejs/packages/common/src/utils/unused.ts': 'export const unused = 1\n',
+        'nodejs/packages/replay-storage/src/keystore.ts': 'export const key = 1\n',
+        [`${ING}/src/index.ts`]:
+            "import './servers/ingestion-general-server'\nimport './servers/ingestion-session-replay-server'\n",
+        [`${ING}/src/servers/ingestion-general-server.ts`]:
+            "import { log } from '@posthog/node-common/utils/logger'\nimport { step } from '~/ingestion/pipelines/analytics/step'\n",
+        [`${ING}/src/servers/ingestion-session-replay-server.ts`]:
+            "import { key } from '@posthog/replay-storage/keystore'\nimport { consume } from '~/ingestion/pipelines/sessionreplay/consumer'\n",
+        [`${ING}/src/ingestion/pipelines/analytics/step.ts`]: 'export const step = 1\n',
+        [`${ING}/src/ingestion/pipelines/sessionreplay/consumer.ts`]: 'export const consume = 1\n',
+        [`${ING}/src/ingestion/pipelines/sessionreplay/consumer.test.ts`]: "import { consume } from './consumer'\n",
+        [`${ING}/src/ingestion/pipelines/orphan.ts`]: 'export const orphan = 1\n',
+    }
+    const root = writeTree(tree)
+    const map = loadNodeLaneMap(root)
+    const context = { ...CONTEXT, nodeLaneMap: map }
+    const lanesOf = (file) => computeTargets([file], context).sort()
+    assert.deepEqual(lanesOf('nodejs/packages/common/src/utils/logger.ts'), [INGESTION, CDP_LANE].sort())
+    assert.deepEqual(lanesOf(`${ING}/src/ingestion/pipelines/analytics/step.ts`), [INGESTION])
+    assert.deepEqual(lanesOf(`${ING}/src/ingestion/pipelines/sessionreplay/consumer.ts`), [INGESTION_SESSION_REPLAY])
+    assert.deepEqual(lanesOf(`${ING}/src/ingestion/pipelines/sessionreplay/consumer.test.ts`), [
+        INGESTION_SESSION_REPLAY,
+    ])
+    assert.deepEqual(lanesOf('nodejs/packages/replay-storage/src/keystore.ts'), [INGESTION_SESSION_REPLAY])
+    assert.deepEqual(lanesOf(`${ING}/src/servers/ingestion-session-replay-server.ts`), [INGESTION_SESSION_REPLAY])
+    // An entry point claims every lane of its package; a file nothing reaches claims them too.
+    assert.deepEqual(lanesOf(`${ING}/src/index.ts`), [INGESTION, INGESTION_AI_EVENTS, INGESTION_SESSION_REPLAY].sort())
+    assert.deepEqual(
+        lanesOf(`${ING}/src/ingestion/pipelines/orphan.ts`),
+        [INGESTION, INGESTION_AI_EVENTS, INGESTION_SESSION_REPLAY].sort()
+    )
+    // A library file nothing reaches falls back to the lanes that import the library at all.
+    assert.deepEqual(lanesOf('nodejs/packages/common/src/utils/unused.ts'), [INGESTION, CDP_LANE].sort())
+})
 
 test('the node lane map follows imports in both directions and fails closed', () => {
     const tree = {
@@ -1088,9 +1134,21 @@ test('a JS lockfile change claims the node lanes whose dependencies it moved', (
             nodeLaneMap,
             [CDP_LANE],
         ],
-        ['a root dependency no lane imports', lockfileWith({ tool: '1.0.1' }), WORKSPACE, nodeLaneMap, ALL_NODE_LANES],
+        [
+            'a root dependency no lane imports',
+            lockfileWith({ tool: '1.0.1' }),
+            WORKSPACE,
+            nodeLaneMap,
+            ALL_NODE_AND_INGESTION_LANES,
+        ],
         ['a root copy of a package nodejs declares', lockfileWith({ rootKafka: '3.0.1' }), WORKSPACE, nodeLaneMap, []],
-        ['a root dependency with no node lane map', lockfileWith({ pad: '1.0.1' }), WORKSPACE, null, ALL_NODE_LANES],
+        [
+            'a root dependency with no node lane map',
+            lockfileWith({ pad: '1.0.1' }),
+            WORKSPACE,
+            null,
+            ALL_NODE_AND_INGESTION_LANES,
+        ],
         ['an unchanged lockfile', base, WORKSPACE, nodeLaneMap, []],
         [
             'a bump only replay-headless resolves',
@@ -1113,14 +1171,14 @@ test('a JS lockfile change claims the node lanes whose dependencies it moved', (
             lockfileWith({ overrides: 'overrides:\n  shim: 1.0.0\n' }),
             WORKSPACE,
             nodeLaneMap,
-            ALL_NODE_LANES,
+            ALL_NODE_AND_INGESTION_LANES,
         ],
         [
             'a workspace change outside the catalog',
             base,
             WORKSPACE.replace('    - packages/*', '    - packages/*\n    - tools/*'),
             nodeLaneMap,
-            ALL_NODE_LANES,
+            ALL_NODE_AND_INGESTION_LANES,
         ],
         ['a catalog-only workspace change', base, WORKSPACE.replace('^1.0.0', '^1.0.1'), nodeLaneMap, []],
         ['a snapshot the walk cannot find', base.replace('  shim@1.0.0: {}', ''), WORKSPACE, nodeLaneMap, null],
@@ -1637,85 +1695,21 @@ test('an affected ingestion crate claims the ingestion lane, not a crate target'
 // The consumer lanes are declared rather than derived, so a second dependent
 // appearing anywhere in the pnpm workspace has to fail here. Reads the real
 // workspace for that reason: a synthetic one cannot notice the new dependent.
-test('nodejs is still the only workspace package importing a rust binding', () => {
-    const workspaceGlobs = parseWorkspacePackageGlobs(
-        fs.readFileSync(path.join(REPO_ROOT, 'pnpm-workspace.yaml'), 'utf8')
-    )
-    // pnpm's package globs are one level deep, so a trailing /* expands by
-    // listing the directory. Negations exclude a package rather than add one.
-    const expand = (glob) => {
-        if (glob.startsWith('!')) {
-            return []
-        }
-        if (!glob.endsWith('/*')) {
-            return [glob]
-        }
-        const parent = path.join(REPO_ROOT, glob.slice(0, -2))
-        if (!fs.existsSync(parent)) {
-            return []
-        }
-        return fs
-            .readdirSync(parent, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory())
-            .map((entry) => path.posix.join(glob.slice(0, -2), entry.name))
-    }
-    const packageDirs = workspaceGlobs.flatMap(expand)
-
-    // An incomplete checkout (e.g. a sparse CI checkout missing workspace
-    // manifests) would silently shrink the inspection set: expand() and the
-    // existsSync checks below skip whatever is absent. The git index stays
-    // complete even when the working tree is sparse, so any tracked manifest
-    // inside the workspace that is not on disk means the checkout dropped it.
-    const matcher = compileWorkspaceMatcher(workspaceGlobs)
-    const trackedManifests = execFileSync('git', ['ls-files', '-z', '--', ':(glob)**/package.json', 'package.json'], {
-        cwd: REPO_ROOT,
-        encoding: 'utf8',
-    })
-        .split('\0')
-        .filter(Boolean)
-    assert.ok(trackedManifests.length > 0, 'git ls-files found no manifests, so the checkout check below is vacuous')
-    for (const manifest of new Set(trackedManifests)) {
-        if (manifest !== 'package.json' && !matcher(manifest)) {
-            continue
-        }
-        assert.ok(
-            fs.existsSync(path.join(REPO_ROOT, manifest)),
-            `${manifest} is tracked by git but absent on disk — an incomplete checkout guts this guard`
+test('every rust binding the workspace publishes has a consumer the import walk can see', () => {
+    const context = buildContext(REPO_ROOT)
+    assert.ok(context.nodeLaneMap, 'the node lane map must build on the real repository')
+    const bindings = [...context.rustInventory.nativeBindings]
+    assert.ok(bindings.length > 0, 'expected the rust workspace to publish npm packages')
+    for (const crate of bindings) {
+        const dir = context.rustInventory.byDir.find((entry) => entry.name === crate).dir
+        const name = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'rust', dir, 'package.json'), 'utf8')).name
+        const lanes = context.nodeLaneMap.packageLanes.get(name)
+        assert.ok(lanes && lanes.size > 0, `${name} (${crate}) is imported by nothing the walk covers`)
+        assert.deepEqual(
+            computeTargets([`rust/${dir}/src/lib.rs`], { ...context, rustAffectedCrates: [crate] }).sort(),
+            [...lanes, `rust:crate:${crate}`].sort()
         )
     }
-
-    const bindingPackages = new Set()
-    for (const dir of packageDirs) {
-        if (!dir.startsWith('rust/')) {
-            continue
-        }
-        const manifest = path.join(REPO_ROOT, dir, 'package.json')
-        if (fs.existsSync(manifest)) {
-            bindingPackages.add(JSON.parse(fs.readFileSync(manifest, 'utf8')).name)
-        }
-    }
-    assert.ok(bindingPackages.size > 0, 'expected the rust workspace to publish npm packages')
-
-    const dependentDirs = []
-    for (const dir of packageDirs) {
-        if (dir.startsWith('rust/')) {
-            continue
-        }
-        const manifest = path.join(REPO_ROOT, dir, 'package.json')
-        if (!fs.existsSync(manifest)) {
-            continue
-        }
-        const pkg = JSON.parse(fs.readFileSync(manifest, 'utf8'))
-        const deps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.optionalDependencies }
-        if (Object.keys(deps).some((name) => bindingPackages.has(name))) {
-            dependentDirs.push(dir)
-        }
-    }
-    assert.deepEqual(
-        dependentDirs.sort(),
-        ['ingestion/node/packages/ai-research', 'nodejs', 'nodejs/packages/hog-engine'],
-        `NATIVE_BINDING_CONSUMER_LANES (${NATIVE_BINDING_CONSUMER_LANES.join(', ')}) must cover every dependent`
-    )
 })
 
 // The cargo lockfile claims no python lane, which holds only while every python
@@ -2360,7 +2354,10 @@ test('ingestion claims only its own lane', () => {
     assert.deepEqual(computeTargets(['ingestion/ci/docker-compose.yml'], CONTEXT), [INGESTION])
     assert.deepEqual(computeTargets(['ingestion/pinned/schema/postgres.sql'], CONTEXT), [INGESTION])
     assert.deepEqual(computeTargets(['.github/workflows/ingestion-rust.yml'], CONTEXT), [INGESTION])
-    assert.deepEqual(computeTargets(['.github/workflows/_ingestion-build-images.yml'], CONTEXT), [INGESTION])
+    assert.deepEqual(
+        computeTargets(['.github/workflows/_ingestion-build-images.yml'], CONTEXT),
+        [...INGESTION_LANES].sort()
+    )
     assert.deepEqual(computeTargets(['ingestion/README.md'], CONTEXT), computeTargets(['README.md'], CONTEXT))
     assert.equal(EVERYTHING.includes(INGESTION), false)
     assert.equal(EVERYTHING.includes(INGESTION_AI_RESEARCH), false)
@@ -2373,30 +2370,52 @@ test('the AI research pipelines inside the ingestion tree have a lane of their o
     assert.deepEqual(computeTargets([server], CONTEXT), [INGESTION_AI_RESEARCH])
 })
 
-// Until the packages are published, nodejs consumes them from the workspace
-// and the hog engine is linked into the ingestion package, so each side still
-// claims the other's lanes for the files that cross.
-test('the unpublished package paths claim their consumers as well', () => {
-    const common = computeTargets(['nodejs/packages/common/src/utils/logger.ts'], CONTEXT)
-    assert.equal(common.includes(INGESTION), true)
-    for (const lane of NODE_LANES) {
-        assert.equal(common.includes(lane), true)
+// Shared packages are consumed by workspace path, so a file in one claims the lanes of every
+// server whose imports reach it, in whichever package that server lives.
+test('a shared package file claims the lanes of the servers that reach it', () => {
+    const context = buildContext(REPO_ROOT)
+    assert.ok(context.nodeLaneMap, 'the node lane map must build on the real repository')
+    const logger = computeTargets(['nodejs/packages/common/src/utils/logger.ts'], context)
+    for (const lane of [...NODE_LANES, ...INGESTION_LANES]) {
+        assert.equal(logger.includes(lane), true, `the logger runs everywhere, missing ${lane}`)
     }
-    const engine = computeTargets(['nodejs/packages/hog-engine/src/cdp/types.ts'], CONTEXT)
+    const engine = computeTargets(['nodejs/packages/hog-engine/src/cdp/types.ts'], context)
     assert.equal(engine.includes(INGESTION), true)
-    const storage = computeTargets(['nodejs/packages/replay-storage/src/keystore/index.ts'], CONTEXT)
-    assert.equal(storage.includes(INGESTION), true)
-    const contract = computeTargets(
+    assert.equal(engine.includes('node:cdp'), true)
+    const persons = computeTargets(
         ['ingestion/node/packages/common/src/persons/repositories/person-repository.ts'],
-        CONTEXT
+        context
     )
-    assert.equal(contract.includes(INGESTION), true)
-    for (const lane of NODE_LANES) {
-        assert.equal(contract.includes(lane), true)
-    }
-    // The services themselves are consumed by nobody.
+    assert.equal(persons.includes(INGESTION), true)
+    assert.equal(persons.includes('node:cdp'), true)
+    assert.equal(persons.includes(INGESTION_AI_RESEARCH), false)
+    const keystore = computeTargets(['nodejs/packages/replay-storage/src/keystore/index.ts'], context)
+    assert.equal(keystore.includes(INGESTION_SESSION_REPLAY), true)
+    assert.equal(keystore.includes(INGESTION), false, 'the replay storage library is not in the core lane')
+    // The pipelines claim only the servers that run them.
     assert.deepEqual(
-        computeTargets(['ingestion/node/packages/ingestion/src/servers/ingestion-general-server.ts'], CONTEXT),
-        [INGESTION]
+        computeTargets(
+            ['ingestion/node/packages/ingestion/src/ingestion/pipelines/ai/costs/providers/llm-costs.json'],
+            context
+        ),
+        [INGESTION_AI_EVENTS]
     )
+    assert.deepEqual(
+        computeTargets(['ingestion/node/packages/ai-research/src/pipelines/ml-mirror/ml-mirror-pipeline.ts'], context),
+        [INGESTION_AI_RESEARCH]
+    )
+    assert.equal(
+        computeTargets(
+            ['ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/consumer.ts'],
+            context
+        ).includes(INGESTION),
+        false
+    )
+    assert.deepEqual(
+        computeTargets(['ingestion/node/packages/ingestion/src/index.ts'], context).sort(),
+        [INGESTION, INGESTION_AI_EVENTS, INGESTION_SESSION_REPLAY].sort()
+    )
+    assert.deepEqual(computeTargets(['nodejs/src/cdp/services/managers/persons-manager.service.ts'], context), [
+        'node:cdp',
+    ])
 })

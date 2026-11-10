@@ -85,7 +85,8 @@ const FIXTURE_FILES: Record<string, string> = {
     'rust/behavioral_cohorts_migrations/20260301000001_initial.sql': 'CREATE TABLE cohort_membership (id bigint);\n',
 
     'nodejs/src/reader.ts': [
-        "import { PostgresUse } from './postgres'",
+        // Split so the merge queue's import walk does not read this fixture as an import of this file.
+        ['import { PostgresUse } from ', "'./postgres'"].join(''),
         'const glob = `${KEY}/*`',
         "const a = 'SELECT * FROM posthog_team'",
         "const b = 'SELECT * FROM posthog_session_session'",

@@ -1452,8 +1452,16 @@ function discoverRustCrates(repoRoot) {
                 if (name) {
                     // A package.json beside the Cargo.toml means the crate also
                     // builds an npm package, so its lane extends past rust/.
-                    const publishesNpmPackage = fs.existsSync(path.join(dir, 'package.json'))
-                    crates.push({ dir: relative, name, publishesNpmPackage, ingestion: root === 'ingestion/rust' })
+                    const manifest = path.join(dir, 'package.json')
+                    const publishesNpmPackage = fs.existsSync(manifest)
+                    const npmName = publishesNpmPackage ? JSON.parse(fs.readFileSync(manifest, 'utf8')).name : null
+                    crates.push({
+                        dir: relative,
+                        name,
+                        publishesNpmPackage,
+                        npmName,
+                        ingestion: root === 'ingestion/rust',
+                    })
                 }
             }
         }
@@ -1497,12 +1505,15 @@ function loadRustInventory(repoRoot) {
         const crateNames = new Set(crates.map((crate) => crate.name))
         const nativeBindings = new Set(crates.filter((crate) => crate.publishesNpmPackage).map((crate) => crate.name))
         const ingestionCrates = new Set(crates.filter((crate) => crate.ingestion).map((crate) => crate.name))
+        const bindingNames = new Map(
+            crates.filter((crate) => crate.npmName).map((crate) => [crate.name, crate.npmName])
+        )
         // Longest directory first so rust/common/hogvm resolves to its own crate
         // rather than to rust/common.
         const byDir = crates
             .map((crate) => ({ dir: crate.dir, name: crate.name }))
             .sort((a, b) => b.dir.length - a.dir.length)
-        return { crateNames, byDir, nativeBindings, ingestionCrates }
+        return { crateNames, byDir, nativeBindings, ingestionCrates, bindingNames }
     } catch (error) {
         console.error(`Rust crate inventory unavailable (${error.message}); widening to every target`)
         return null
@@ -1536,32 +1547,31 @@ const NODE_SUB_LANES = [
 ]
 const NODE_LANES = [NODE_INGESTION, ...NODE_SUB_LANES.map(([lane]) => lane)]
 
-// Ingestion's own tree. Its CI checks out ingestion/ and nothing else, so no
-// file outside the tree can affect its checks and nothing outside the tree
-// claims these targets. The AI research pipelines live inside the tree as
-// directories of their own with a lane of their own. Markdown under the tree
-// is prose like anywhere else.
+// Ingestion's lanes. The Node packages under ingestion/ take part in the import
+// walk below, where a server file seeds its lane and a file claims the lanes of
+// every server that reaches it, across packages. Files the walk does not cover
+// (CI, pinned schemas, proto, the Rust crates, which the determinator maps) fall
+// back to their directory here. Markdown under the tree is prose like anywhere else.
 const INGESTION = 'ingestion'
+const INGESTION_SESSION_REPLAY = 'ingestion:sessionreplay'
+const INGESTION_AI_EVENTS = 'ingestion:ai-events'
 const INGESTION_AI_RESEARCH = 'ingestion:ai-research'
-const INGESTION_AI_RESEARCH_DIRS = ['ingestion/node/packages/ai-research/']
-// Until @posthog/node-common and @posthog/ingestion are published, nodejs
-// consumes them from the workspace, so a change to either still runs the
-// nodejs suites. Each entry goes once its consumers pin a version.
-const INGESTION_EXPORTS = ['ingestion/node/packages/common/', 'ingestion/node/packages/ingestion/src/ingestion/']
+const INGESTION_PACKAGE_LANES = [INGESTION, INGESTION_SESSION_REPLAY, INGESTION_AI_EVENTS]
+const INGESTION_LANES = [...INGESTION_PACKAGE_LANES, INGESTION_AI_RESEARCH]
+const INGESTION_AI_RESEARCH_DIR = 'ingestion/node/packages/ai-research/'
 
-function ingestionLaneFor(file) {
+function ingestionLanesFor(file) {
+    if (/^\.github\/workflows\/ingestion-rust\.yml$/.test(file)) {
+        return [INGESTION]
+    }
     if (/^\.github\/workflows\/_?ingestion-[^/]+\.yml$/.test(file)) {
-        return INGESTION
+        return INGESTION_LANES
     }
     if (!file.startsWith('ingestion/')) {
         return null
     }
-    if (INGESTION_AI_RESEARCH_DIRS.some((dir) => file.startsWith(dir))) {
-        return INGESTION_AI_RESEARCH
-    }
-    return INGESTION
+    return file.startsWith(INGESTION_AI_RESEARCH_DIR) ? [INGESTION_AI_RESEARCH] : [INGESTION]
 }
-const NATIVE_BINDING_CONSUMER_LANES = [...NODE_LANES, INGESTION, INGESTION_AI_RESEARCH]
 
 // Every target this script can emit. A widening decision names this set instead
 // of the "ALL" sentinel, so the set intersection Trunk computes is unchanged
@@ -2006,17 +2016,14 @@ function computeTargets(changedFiles, context) {
     let inertFiles = 0
 
     for (const file of changedFiles) {
-        const ingestionLane = ingestionLaneFor(file)
-        if (ingestionLane) {
+        const ingestionLanes = ingestionLanesFor(file)
+        if (ingestionLanes) {
             if (/\.mdx?$/.test(file)) {
                 inertFiles++
                 continue
             }
-            targets.add(ingestionLane)
-            if (ingestionLane === INGESTION && INGESTION_EXPORTS.some((dir) => file.startsWith(dir))) {
-                for (const lane of NODE_LANES) {
-                    targets.add(lane)
-                }
+            for (const lane of nodePackageOf(file) ? nodeLanesForSource(file, context) : ingestionLanes) {
+                targets.add(lane)
             }
             continue
         }
@@ -2092,13 +2099,6 @@ function computeTargets(changedFiles, context) {
         if (top === 'nodejs') {
             for (const lane of nodeLanesForSource(file, context)) {
                 targets.add(lane)
-            }
-            if (
-                file.startsWith('nodejs/packages/hog-engine/') ||
-                file.startsWith('nodejs/packages/common/') ||
-                file.startsWith('nodejs/packages/replay-storage/')
-            ) {
-                targets.add(INGESTION)
             }
             continue
         }
@@ -2319,9 +2319,11 @@ function computeTargets(changedFiles, context) {
         // dependents are found through package.json rather than Cargo.toml,
         // which is why the determinator's answer alone stops one edge short.
         const bindings = rustInventory.nativeBindings || new Set()
-        if (affectedCrates.some((crate) => bindings.has(crate))) {
-            for (const target of NATIVE_BINDING_CONSUMER_LANES) {
-                targets.add(target)
+        for (const crate of affectedCrates) {
+            if (bindings.has(crate)) {
+                for (const target of nodeLanesForBinding(crate, context)) {
+                    targets.add(target)
+                }
             }
         }
     }
@@ -2440,7 +2442,6 @@ function parseRustAffectedCrates(raw, rustInventory) {
 
 const NODE_SOURCE_ROOT = 'nodejs/src'
 const NODE_TESTS_ROOT = 'nodejs/tests'
-const NODE_IMPORT_ROOTS = [NODE_SOURCE_ROOT, NODE_TESTS_ROOT]
 const NODE_IMPORTER = 'nodejs'
 const ROOT_IMPORTER = '.'
 const NODE_SPECIFIER = String.raw`([^'"\s\x60$]+)`
@@ -2455,6 +2456,86 @@ const NODE_RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.js', '.json', '.d.ts', '/ind
 const NODE_SOURCE_EXTENSIONS = /\.(ts|tsx|js|mjs|cjs)$/
 const NODE_BUILTINS = new Set(require('module').builtinModules)
 const NODE_WORKSPACE_FALLBACK_DIRS = ['common/hogvm', 'common/replay-headless', 'common/replay-shared']
+
+// The Node packages the import walk covers. `~/` in a file points at its own
+// package's src (and `~/tests/` at its tests); `@posthog/<name>/<sub>` points at
+// `<dir>/<exportsBase>/<sub>` of the package with that name. A package with
+// lanes seeds them from its server files: a changed file claims the lanes of
+// every server whose imports reach it, in any package. A library package has
+// no lanes of its own; its files claim the lanes of whatever reaches them.
+const INGESTION_PACKAGE_DIR = 'ingestion/node/packages/ingestion'
+const INGESTION_SERVER_LANES = [
+    [INGESTION_SESSION_REPLAY, 'ingestion-session-replay-'],
+    [INGESTION_AI_EVENTS, 'ai-events-'],
+]
+const NODE_PACKAGES = [
+    {
+        dir: NODE_IMPORTER,
+        name: '@posthog/nodejs',
+        src: NODE_SOURCE_ROOT,
+        tests: NODE_TESTS_ROOT,
+        exportsBase: null,
+        lanes: NODE_LANES,
+        laneOf: (file) => nodeOwnerLane(file),
+        isEntryPoint: (file) => isNodeEntryPoint(file),
+    },
+    {
+        dir: INGESTION_PACKAGE_DIR,
+        name: '@posthog/ingestion',
+        src: `${INGESTION_PACKAGE_DIR}/src`,
+        tests: `${INGESTION_PACKAGE_DIR}/tests`,
+        exportsBase: `${INGESTION_PACKAGE_DIR}/src/ingestion`,
+        lanes: INGESTION_PACKAGE_LANES,
+        laneOf: (file) => {
+            const server = file.startsWith(`${INGESTION_PACKAGE_DIR}/src/servers/`) && !file.endsWith('.test.ts')
+            if (!server) {
+                return null
+            }
+            const name = file.slice(`${INGESTION_PACKAGE_DIR}/src/servers/`.length)
+            const match = INGESTION_SERVER_LANES.find(([, prefix]) => name.startsWith(prefix))
+            return match ? match[0] : INGESTION
+        },
+        isEntryPoint: (file) => file === `${INGESTION_PACKAGE_DIR}/src/index.ts`,
+    },
+    {
+        dir: 'ingestion/node/packages/ai-research',
+        name: '@posthog/ingestion-ai-research',
+        src: 'ingestion/node/packages/ai-research/src',
+        tests: 'ingestion/node/packages/ai-research/tests',
+        exportsBase: 'ingestion/node/packages/ai-research/src',
+        lanes: [INGESTION_AI_RESEARCH],
+        laneOf: (file) =>
+            file.startsWith('ingestion/node/packages/ai-research/src/servers/') && !file.endsWith('.test.ts')
+                ? INGESTION_AI_RESEARCH
+                : null,
+        isEntryPoint: (file) => file === 'ingestion/node/packages/ai-research/src/index.ts',
+    },
+    ...[
+        ['nodejs/packages/common', '@posthog/node-common'],
+        ['nodejs/packages/hog-engine', '@posthog/hog-engine'],
+        ['nodejs/packages/replay-storage', '@posthog/replay-storage'],
+        ['ingestion/node/packages/common', '@posthog/ingestion-common'],
+    ].map(([dir, name]) => ({
+        dir,
+        name,
+        src: `${dir}/src`,
+        tests: `${dir}/tests`,
+        exportsBase: `${dir}/src`,
+        lanes: null,
+        laneOf: () => null,
+        isEntryPoint: () => false,
+    })),
+]
+const NODE_PACKAGES_BY_NAME = new Map(NODE_PACKAGES.map((pkg) => [pkg.name, pkg]))
+const NODE_IMPORTER_PACKAGES = NODE_PACKAGES.filter((pkg) => pkg.lanes)
+const NODE_IMPORTER_LANES = new Map(NODE_IMPORTER_PACKAGES.map((pkg) => [pkg.dir, pkg.lanes]))
+
+// Longest directory first, so nodejs/packages/common is its own package rather than part of nodejs.
+const NODE_PACKAGES_BY_DEPTH = [...NODE_PACKAGES].sort((a, b) => b.dir.length - a.dir.length)
+
+function nodePackageOf(file) {
+    return NODE_PACKAGES_BY_DEPTH.find((pkg) => file.startsWith(`${pkg.dir}/`)) || null
+}
 
 function nodeSubLaneOf(file) {
     const match = NODE_SUB_LANES.find(([, dir]) => file.startsWith(`${dir}/`))
@@ -2484,14 +2565,20 @@ function nodeImportSpecifiers(text) {
 }
 
 function nodeImportBase(fromFile, specifier) {
+    const pkg = nodePackageOf(fromFile)
     if (specifier.startsWith('~/tests/')) {
-        return `${NODE_TESTS_ROOT}/${specifier.slice('~/tests/'.length)}`
+        return `${pkg ? pkg.tests : NODE_TESTS_ROOT}/${specifier.slice('~/tests/'.length)}`
     }
     if (specifier.startsWith('~/')) {
-        return `${NODE_SOURCE_ROOT}/${specifier.slice(2)}`
+        return `${pkg ? pkg.src : NODE_SOURCE_ROOT}/${specifier.slice(2)}`
     }
     if (specifier.startsWith('.')) {
         return path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), specifier))
+    }
+    const name = nodePackageName(specifier)
+    const target = name && NODE_PACKAGES_BY_NAME.get(name)
+    if (target && target.exportsBase && specifier.length > name.length) {
+        return `${target.exportsBase}/${specifier.slice(name.length + 1)}`
     }
     return undefined
 }
@@ -2528,7 +2615,7 @@ function listFilesUnder(repoRoot, relativeDir) {
         for (const entry of fs.readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
             const child = `${dir}/${entry.name}`
             if (entry.isDirectory()) {
-                if (entry.name !== 'node_modules') {
+                if (entry.name !== 'node_modules' && entry.name !== 'dist') {
                     walk(child)
                 }
             } else if (NODE_SOURCE_EXTENSIONS.test(entry.name)) {
@@ -2542,31 +2629,50 @@ function listFilesUnder(repoRoot, relativeDir) {
 
 function readNodeImports(repoRoot) {
     const edges = new Map()
-    const roots = NODE_IMPORT_ROOTS.filter((dir) => fs.existsSync(path.join(repoRoot, dir)))
+    const roots = NODE_PACKAGES.flatMap((pkg) => [pkg.src, pkg.tests]).filter((dir) =>
+        fs.existsSync(path.join(repoRoot, dir))
+    )
     for (const file of roots.flatMap((dir) => listFilesUnder(repoRoot, dir))) {
         const imports = { files: [], packages: new Set() }
         for (const specifier of nodeImportSpecifiers(fs.readFileSync(path.join(repoRoot, file), 'utf8'))) {
+            const name = nodePackageName(specifier)
             const resolved = resolveNodeImport(repoRoot, file, specifier)
             if (resolved === undefined) {
-                const name = nodePackageName(specifier)
                 if (name) {
                     imports.packages.add(name)
                 }
                 continue
             }
             if (resolved === null) {
+                // A workspace package specifier with no source behind it is a native binding (index.node).
+                if (
+                    name &&
+                    NODE_PACKAGES_BY_NAME.has(name) === false &&
+                    !specifier.startsWith('~') &&
+                    !specifier.startsWith('.')
+                ) {
+                    imports.packages.add(name)
+                    continue
+                }
                 const subLane = nodeSubLaneOf(file)
                 if (subLane && nodeSubLaneOf(nodeImportBase(file, specifier)) === subLane) {
                     continue
                 }
-                console.error(`Could not resolve ${specifier} from ${file}; every nodejs file claims every node lane`)
+                console.error(`Could not resolve ${specifier} from ${file}; every node file claims every node lane`)
                 return null
+            }
+            if (name && NODE_PACKAGES_BY_NAME.has(name)) {
+                imports.packages.add(name)
             }
             imports.files.push(resolved)
         }
         edges.set(file, imports)
     }
     return edges
+}
+
+function nodeAllLanes() {
+    return [...NODE_LANES, ...INGESTION_LANES]
 }
 
 function loadNodeLaneMap(repoRoot) {
@@ -2577,7 +2683,7 @@ function loadNodeLaneMap(repoRoot) {
     try {
         edges = readNodeImports(repoRoot)
     } catch (error) {
-        console.error(`Could not map the nodejs imports (${error.message}); every nodejs file claims every node lane`)
+        console.error(`Could not map the node imports (${error.message}); every node file claims every node lane`)
         return null
     }
     if (!edges) {
@@ -2591,8 +2697,16 @@ function loadNodeLaneMap(repoRoot) {
         }
         map.get(key).add(lane)
     }
-    for (const lane of NODE_LANES) {
-        const queue = [...edges.keys()].filter((file) => nodeOwnerLane(file) === lane)
+    const seeds = new Map()
+    for (const file of edges.keys()) {
+        const pkg = nodePackageOf(file)
+        const lane = pkg ? pkg.laneOf(file) : null
+        if (lane) {
+            claim(seeds, lane, file)
+        }
+    }
+    for (const [lane, files] of seeds) {
+        const queue = [...files]
         const seen = new Set()
         while (queue.length > 0) {
             const file = queue.pop()
@@ -2611,35 +2725,76 @@ function loadNodeLaneMap(repoRoot) {
             queue.push(...imports.files)
         }
     }
+    // An entry point imports everything its package runs, so a package it names
+    // belongs to every lane of that package.
     for (const [file, imports] of edges) {
-        if (nodeOwnerLane(file) === null) {
+        const pkg = nodePackageOf(file)
+        if (pkg && pkg.lanes && pkg.isEntryPoint(file)) {
             for (const name of imports.packages) {
-                for (const lane of NODE_LANES) {
+                for (const lane of pkg.lanes) {
                     claim(packageLanes, name, lane)
                 }
             }
         }
     }
-    return { fileLanes, packageLanes }
+    return { fileLanes, packageLanes, edges }
 }
 
+// The lanes a changed Node source file claims: the lanes of the servers whose
+// imports reach it. An entry point claims every lane of its package. A test
+// claims the lanes of what it imports. A file nothing reaches claims its
+// package's lanes, or, for a library, the lanes that import the library at all.
 function nodeLanesForSource(file, context) {
     const map = context.nodeLaneMap
+    const pkg = nodePackageOf(file)
     const deleted = context.deletedFiles && context.deletedFiles.has(file)
-    if (!map || !file.startsWith(`${NODE_SOURCE_ROOT}/`) || file.endsWith('.d.ts') || deleted) {
-        return NODE_LANES
+    if (!map || !pkg || file.endsWith('.d.ts') || deleted) {
+        return pkg && pkg.lanes ? pkg.lanes : nodeAllLanes()
     }
-    const owner = nodeOwnerLane(file)
-    if (owner === null) {
+    if (pkg.isEntryPoint(file)) {
+        return pkg.lanes
+    }
+    if (pkg.dir === NODE_IMPORTER && nodeOwnerLane(file) === null) {
         return NODE_LANES
     }
     const lanes = map.fileLanes.get(file)
-    return lanes ? [...lanes] : [owner]
+    if (lanes) {
+        return [...lanes]
+    }
+    // A test claims the lanes of what it tests: its imports inside its own package.
+    const imports = map.edges && map.edges.get(file)
+    if (imports && /\.test\.ts$/.test(file)) {
+        const fromImports = new Set()
+        for (const imported of imports.files) {
+            if (nodePackageOf(imported) !== pkg) {
+                continue
+            }
+            for (const lane of map.fileLanes.get(imported) || []) {
+                fromImports.add(lane)
+            }
+        }
+        if (fromImports.size > 0) {
+            return [...fromImports]
+        }
+    }
+    if (pkg.lanes) {
+        const owner = pkg.laneOf(file)
+        return owner ? [owner] : pkg.lanes
+    }
+    return nodeLanesForPackage(pkg.name, context)
 }
 
 function nodeLanesForPackage(name, context) {
     const lanes = context.nodeLaneMap && context.nodeLaneMap.packageLanes.get(name)
-    return lanes ? [...lanes] : NODE_LANES
+    return lanes ? [...lanes] : nodeAllLanes()
+}
+
+// A native binding is a workspace package whose source is Rust; its consumers
+// are whoever imports its npm name.
+function nodeLanesForBinding(crate, context) {
+    const names = (context.rustInventory && context.rustInventory.bindingNames) || new Map()
+    const name = names.get(crate)
+    return name ? nodeLanesForPackage(name, context) : nodeAllLanes()
 }
 
 function unquoteYamlKey(key) {
@@ -2801,12 +2956,17 @@ function nodeDependencyFingerprints(lockfile, isWorkspaceMember) {
     if (!entry) {
         throw new LockfileWalkError(`the lockfile has no importer ${NODE_IMPORTER}`)
     }
-    const fingerprints = { node: new Map(), root: new Map() }
-    for (const dependency of importerDependencies(entry)) {
-        fingerprints.node.set(
-            dependency.name,
-            dependencyFingerprint(lockfile, dependency, NODE_IMPORTER, isWorkspaceMember)
-        )
+    const fingerprints = { node: new Map(), root: new Map(), importers: new Map() }
+    for (const pkg of NODE_IMPORTER_PACKAGES) {
+        const importer = importers.entries.get(pkg.dir)
+        if (!importer) {
+            continue
+        }
+        const prints = pkg.dir === NODE_IMPORTER ? fingerprints.node : new Map()
+        for (const dependency of importerDependencies(importer)) {
+            prints.set(dependency.name, dependencyFingerprint(lockfile, dependency, pkg.dir, isWorkspaceMember))
+        }
+        fingerprints.importers.set(pkg.dir, prints)
     }
     const root = importers.entries.get(ROOT_IMPORTER)
     for (const dependency of root ? importerDependencies(root) : []) {
@@ -2857,7 +3017,7 @@ function jsLockfileNodeLanes({ baseLockfile, headLockfile, baseWorkspace, headWo
     if (baseLockfile == null || headLockfile == null || baseWorkspace == null || headWorkspace == null) {
         return null
     }
-    const allLanes = new Set(NODE_LANES)
+    const allLanes = new Set(nodeAllLanes())
     if (workspaceWithoutCatalogs(baseWorkspace) !== workspaceWithoutCatalogs(headWorkspace)) {
         return allLanes
     }
@@ -2881,41 +3041,62 @@ function jsLockfileNodeLanes({ baseLockfile, headLockfile, baseWorkspace, headWo
         }
         throw error
     }
-    const changed = [
-        ...changedDependencies(baseFingerprints.node, headFingerprints.node),
-        ...changedDependencies(baseFingerprints.root, headFingerprints.root).filter(
-            (name) => !baseFingerprints.node.has(name) && !headFingerprints.node.has(name)
-        ),
-    ]
-    return new Set(changed.flatMap((name) => nodeLanesForPackage(name, { nodeLaneMap })))
+    const lanes = new Set()
+    const inAnyImporter = (name) =>
+        [...baseFingerprints.importers.values(), ...headFingerprints.importers.values()].some((prints) =>
+            prints.has(name)
+        )
+    for (const [importer, laneSet] of NODE_IMPORTER_LANES) {
+        const base = baseFingerprints.importers.get(importer) || new Map()
+        const head = headFingerprints.importers.get(importer) || new Map()
+        for (const name of changedDependencies(base, head)) {
+            for (const lane of nodeLanesForPackage(name, { nodeLaneMap })) {
+                if (laneSet.includes(lane)) {
+                    lanes.add(lane)
+                }
+            }
+        }
+    }
+    for (const name of changedDependencies(baseFingerprints.root, headFingerprints.root)) {
+        if (!inAnyImporter(name)) {
+            for (const lane of nodeLanesForPackage(name, { nodeLaneMap })) {
+                lanes.add(lane)
+            }
+        }
+    }
+    return lanes
 }
 
 function nodeWorkspaceDependencies(headLockfile) {
     const lockfile = headLockfile && parsePnpmLockfile(headLockfile)
     const importers = lockfile && lockfile.get('importers')
-    const entry = importers && importers.entries.get(NODE_IMPORTER)
-    if (!entry) {
+    if (!importers || !importers.entries.get(NODE_IMPORTER)) {
         return null
     }
     const dirs = new Map()
-    for (const dependency of importerDependencies(entry)) {
+    const roots = NODE_IMPORTER_PACKAGES.filter((pkg) => importers.entries.get(pkg.dir)).map((pkg) => pkg.dir)
+    for (const [importer, dependency] of roots.flatMap((importer) =>
+        importerDependencies(importers.entries.get(importer)).map((dependency) => [importer, dependency])
+    )) {
         if (!dependency.version.startsWith('link:')) {
             continue
         }
-        const pending = [linkTarget(NODE_IMPORTER, dependency.version)]
+        // Each linked directory is recorded under the name it is imported by, so a file in it
+        // claims the lanes that import that package rather than the lanes of whatever first linked it.
+        const pending = [[linkTarget(importer, dependency.version), dependency.name]]
         while (pending.length > 0) {
-            const dir = pending.pop()
+            const [dir, name] = pending.pop()
             if (!dirs.has(dir)) {
                 dirs.set(dir, new Set())
             }
-            if (dirs.get(dir).has(dependency.name)) {
+            if (dirs.get(dir).has(name)) {
                 continue
             }
-            dirs.get(dir).add(dependency.name)
+            dirs.get(dir).add(name)
             const linked = importers.entries.get(dir)
             for (const next of linked ? importerDependencies(linked) : []) {
                 if (next.version.startsWith('link:')) {
-                    pending.push(linkTarget(dir, next.version))
+                    pending.push([linkTarget(dir, next.version), next.name])
                 }
             }
         }
@@ -2924,6 +3105,9 @@ function nodeWorkspaceDependencies(headLockfile) {
 }
 
 function nodeLanesForWorkspaceFile(file, context) {
+    if (nodePackageOf(file)) {
+        return []
+    }
     const dirs = context.nodeWorkspaceDependencies
     if (!dirs) {
         return NODE_WORKSPACE_FALLBACK_DIRS.some((dir) => file.startsWith(`${dir}/`)) ? NODE_LANES : []
@@ -3023,7 +3207,11 @@ function buildContext(repoRoot) {
 
 module.exports = {
     computeTargets,
-    ingestionLaneFor,
+    ingestionLanesFor,
+    INGESTION_SESSION_REPLAY,
+    INGESTION_AI_EVENTS,
+    INGESTION_LANES,
+    nodePackageOf,
     INGESTION,
     INGESTION_AI_RESEARCH,
     jsLockfileNodeLanes,
@@ -3057,7 +3245,6 @@ module.exports = {
     HOBBY,
     HOGBOX_PREVIEW,
     JAVASCRIPT,
-    NATIVE_BINDING_CONSUMER_LANES,
     NODE,
     PROTO_TREES,
     PYTHON,
