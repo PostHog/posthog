@@ -83,6 +83,11 @@ export function AccountDotMatrixTile({
                                     <DotMatrix<ActivityMatrixDatum>
                                         {...presentation.matrix}
                                         embedded
+                                        legend={
+                                            presentation.matrix.legend === false
+                                                ? false
+                                                : { ...presentation.matrix.legend, hint: false }
+                                        }
                                         mode={config.mode}
                                         countOf={
                                             presentation.matrix.countOf ??
