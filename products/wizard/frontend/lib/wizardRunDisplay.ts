@@ -138,6 +138,40 @@ export function wizardRunProgressStates(run: WizardRunApi): Record<WizardRunProg
     ) as Record<WizardRunProgressStep, WizardRunProgressState>
 }
 
+// The share of a run each step covers. The agent's own work takes most of a run.
+const PROGRESS_STEP_WEIGHTS: Record<WizardRunProgressStep, number> = {
+    [WizardRunProgressStep.Starting]: 0.05,
+    [WizardRunProgressStep.PreparingWorkspace]: 0.1,
+    [WizardRunProgressStep.ExecutingWizard]: 0.75,
+    [WizardRunProgressStep.CreatingArtifacts]: 0.1,
+}
+
+export function wizardRunTaskCounts(tasks: readonly WizardRunTaskApi[]): { completed: number; total: number } {
+    return { completed: tasks.filter((task) => task.status === 'completed').length, total: tasks.length }
+}
+
+export function wizardRunProgressFraction(run: WizardRunApi, tasks: readonly WizardRunTaskApi[]): number {
+    if (run.status === 'completed') {
+        return 1
+    }
+    const currentStep = wizardRunProgressStep(run)
+    if (currentStep === null) {
+        return 0
+    }
+    let fraction = 0
+    for (const step of WIZARD_RUN_PROGRESS_STEPS) {
+        if (step === currentStep) {
+            break
+        }
+        fraction += PROGRESS_STEP_WEIGHTS[step]
+    }
+    const { completed, total } = wizardRunTaskCounts(tasks)
+    if (currentStep === WizardRunProgressStep.ExecutingWizard && total > 0) {
+        fraction += (PROGRESS_STEP_WEIGHTS[currentStep] * completed) / total
+    }
+    return fraction
+}
+
 export function wizardGithubRepositoryUrl(repository: string): string {
     return `https://github.com/${repository}`
 }

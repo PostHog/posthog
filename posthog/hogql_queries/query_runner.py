@@ -2326,7 +2326,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # When rolling out schema changes, cached responses may not match the new schema.
             # Trigger recomputation in this case.
             try:
-                cached_response = CachedResponse(**cached_response_candidate)
+                cached_response = CachedResponse.model_validate(cached_response_candidate, extra="ignore")
                 if raw_results is not None:
                     self.raw_cached_results_bytes = raw_results
             except Exception as e:

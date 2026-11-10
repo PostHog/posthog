@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Collection
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -26,6 +27,7 @@ from products.wizard.backend.facade.contracts import (
     StartWizardInstallInput,
     UpdateWizardRunTaskInput,
     UpsertWizardSessionInput,
+    WizardDetectedWarehouseSource,
     WizardInstallStatusDTO,
     WizardProgram,
     WizardRunArtifactDTO,
@@ -65,6 +67,13 @@ def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
 def organization_has_detected_tool(*, organization_id: str, kinds: Collection[str]) -> bool:
     """Whether the latest scan of any workspace in the organization still finds one of `kinds`."""
     return scans.organization_has_detected_tool(organization_id=organization_id, kinds=kinds)
+
+
+def list_detected_warehouse_sources(
+    team_id: int, *, seen_since: datetime | None = None
+) -> tuple[WizardDetectedWarehouseSource, ...]:
+    """Warehouse sources the latest wizard scans of the team's workspaces still find, most recently seen first."""
+    return scans.list_detected_warehouse_sources(team_id, seen_since=seen_since)
 
 
 TOOL_CATALOG_DESTINATION_CHOICES: list[tuple[str, str]] = CATALOG_DESTINATION_CHOICES

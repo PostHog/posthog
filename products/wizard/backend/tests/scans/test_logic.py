@@ -217,3 +217,17 @@ def test_organization_has_detected_tool_reads_every_project_in_the_organization(
         wizard_facade.organization_has_detected_tool(organization_id=str(team.organization_id), kinds=["OpenAI"])
         is expected
     )
+
+
+@pytest.mark.django_db
+def test_lists_detected_warehouse_sources(team: Team) -> None:
+    _scan(team, "s1", 0, ["Stripe", "Hubspot", "Amplitude"])
+    _scan(team, "s2", 1, ["Stripe"])
+    _scan(team, "s3", 2, ["Postgres", "Stripe"], workspace=OTHER_WORKSPACE)
+
+    all_sources = wizard_facade.list_detected_warehouse_sources(team.id)
+    recent_sources = wizard_facade.list_detected_warehouse_sources(team.id, seen_since=START + timedelta(hours=2))
+
+    assert sorted(s.warehouse_source_type for s in all_sources) == ["Postgres", "Stripe"]
+    assert len(recent_sources) == 2
+    assert {s.warehouse_source_type: s.last_seen_at for s in recent_sources}["Stripe"] == START + timedelta(hours=2)

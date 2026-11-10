@@ -17,6 +17,7 @@ import type {
     RecordWizardScanRequestApi,
     UpdateWizardRunTaskListApi,
     UpsertWizardSessionRequestApi,
+    WizardDetectedWarehouseSourceApi,
     WizardInstallStartApi,
     WizardInstallStartRequestApi,
     WizardInstallStatusApi,
@@ -27,6 +28,7 @@ import type {
     WizardRunsArtifactsListParams,
     WizardRunsListParams,
     WizardScanResultApi,
+    WizardScansDetectedSourcesRetrieveParams,
     WizardSessionDTOApi,
     WizardSessionsLatestRetrieveParams,
     WizardSessionsListParams,
@@ -325,6 +327,39 @@ export const wizardScansCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(recordWizardScanRequestApi),
+    })
+}
+
+export const getWizardScansDetectedSourcesRetrieveUrl = (
+    projectId: string,
+    params?: WizardScansDetectedSourcesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/wizard/scans/detected_sources/?${stringifiedParams}`
+        : `/api/projects/${projectId}/wizard/scans/detected_sources/`
+}
+
+/**
+ * @summary List the data warehouse sources wizard scans found in this project's codebases
+ */
+export const wizardScansDetectedSourcesRetrieve = async (
+    projectId: string,
+    params?: WizardScansDetectedSourcesRetrieveParams,
+    options?: RequestInit
+): Promise<WizardDetectedWarehouseSourceApi[]> => {
+    return apiMutator<WizardDetectedWarehouseSourceApi[]>(getWizardScansDetectedSourcesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
