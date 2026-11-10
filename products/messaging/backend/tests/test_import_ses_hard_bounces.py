@@ -14,10 +14,10 @@ from products.messaging.backend.models.email_hard_bounce import GLOBAL_HARD_BOUN
 
 class FakeSesSuppressionList:
     """The SESv2 account-level suppression list. Like SES, it may return fewer entries than PageSize, so a small
-    list still spans pages, and it throttles a client that keeps asking."""
+    list still spans pages. A client stuck on one page gets SES's throttling error rather than looping forever."""
 
     RESPONSE_PAGE_SIZE = 2
-    REQUEST_BUDGET = 20
+    STUCK_CLIENT_REQUEST_LIMIT = 20
 
     def __init__(self, entries: list[tuple[str, str]]) -> None:
         self._entries = entries
@@ -27,7 +27,7 @@ class FakeSesSuppressionList:
         self, *, Reasons: list[str] | None = None, PageSize: int | None = None, NextToken: str | None = None
     ) -> dict[str, Any]:
         self._requests += 1
-        if self._requests > self.REQUEST_BUDGET:
+        if self._requests > self.STUCK_CLIENT_REQUEST_LIMIT:
             raise ClientError({"Error": {"Code": "TooManyRequestsException"}}, "ListSuppressedDestinations")
         matching = [(email, reason) for email, reason in self._entries if not Reasons or reason in Reasons]
         if NextToken is not None and not NextToken.startswith("offset-"):
