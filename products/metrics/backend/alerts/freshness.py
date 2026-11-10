@@ -86,18 +86,19 @@ def _fetch_instant(
     team: Team, query: ast.SelectQuery | ast.SelectSetQuery, *, query_type: str, max_execution_time: int
 ) -> dt.datetime | None:
     tag_queries(product=Product.METRICS, feature=Feature.ALERTING, source="metrics_alert", team_id=str(team.id))
+    # Reads the logs cluster, where the check's PromQL runs, so a lag there is never hidden by the metrics cluster's checkpoint.
     sql, context = HogQLQueryExecutor(
         query_type=query_type,
         # The executor edits the node it is given, and this one is shared by every call.
         query=clone_expr(query, True),
         team=team,
-        workload=Workload.METRICS,
+        workload=Workload.LOGS,
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
         settings=HogQLGlobalSettings(max_execution_time=max_execution_time, timeout_overflow_mode="throw"),
     ).generate_clickhouse_sql()
-    with _bounded_metrics_client(max_execution_time + _TRANSPORT_MARGIN_SECONDS) as client:
+    with _bounded_logs_client(max_execution_time + _TRANSPORT_MARGIN_SECONDS) as client:
         rows = sync_execute(
-            sql, context.values, workload=Workload.METRICS, team_id=team.id, readonly=True, sync_client=client
+            sql, context.values, workload=Workload.LOGS, team_id=team.id, readonly=True, sync_client=client
         )
     if not rows or rows[0][0] is None:
         return None
@@ -105,10 +106,10 @@ def _fetch_instant(
     return instant if instant.tzinfo is not None else instant.replace(tzinfo=ZoneInfo("UTC"))
 
 
-def _bounded_metrics_client(send_receive_timeout: int) -> AbstractContextManager:
-    """A metrics cluster client whose socket reads and writes time out, as the shared pool's do not."""
+def _bounded_logs_client(send_receive_timeout: int) -> AbstractContextManager:
+    """A logs cluster client whose socket reads and writes time out, as the shared pool's do not."""
     return get_pool(
-        workload=Workload.METRICS,
+        workload=Workload.LOGS,
         ch_user=ClickHouseUser.ALERTS_PLATFORM_METRICS,
         send_receive_timeout=send_receive_timeout,
     ).get_client()
