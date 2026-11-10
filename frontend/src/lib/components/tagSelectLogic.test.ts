@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { LoadTags, tagSelectLogic } from './tagSelectLogic'
+import { LoadTags, excludingTags, tagSelectLogic } from './tagSelectLogic'
 
 const loadTags: LoadTags = async () => ({ results: [], hasMore: false })
 
@@ -71,5 +71,21 @@ describe('tagSelectLogic', () => {
             logic.actions.loadTagPageFailure('Unable to load tags')
         }).toMatchValues({ tagPageError: 'Unable to load tags', tagResults: [{ tag: 'alpha' }] })
         expect(logic.values.tagPageError).toBe('Unable to load tags')
+    })
+
+    it('skips past pages whose tags are all excluded', async () => {
+        const pages: Record<number, Awaited<ReturnType<LoadTags>>> = {
+            0: { results: [{ tag: 'a,b' }, { tag: 'c,d' }], hasMore: true },
+            2: { results: [{ tag: 'e,f' }, { tag: 'valid' }], hasMore: true },
+        }
+        const loadPage = jest.fn<ReturnType<LoadTags>, Parameters<LoadTags>>(async (_, offset) => pages[offset])
+
+        const page = await excludingTags(loadPage, (tag) => tag.includes(','))('', 0)
+
+        expect(page).toEqual({ results: [{ tag: 'valid' }], hasMore: true, nextOffset: 4 })
+        expect(loadPage.mock.calls).toEqual([
+            ['', 0],
+            ['', 2],
+        ])
     })
 })
