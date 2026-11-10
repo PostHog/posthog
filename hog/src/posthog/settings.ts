@@ -200,14 +200,19 @@ export function withLogin(settings: HogSettings, target: LoginTarget, record: Lo
 }
 
 // Resolves to the settings as written. A pending removal that a login uses, or that repeats another,
-// is left out, and so is a `host` that the logins' `loggedInAt` makes unnecessary.
+// is left out. `host` stays while a login there has no `loggedInAt`, because `fallbackHost` falls
+// back to it once every login with `loggedInAt` is gone.
 export async function writeSettings(runtime: Runtime, settings: HogSettings): Promise<HogSettings> {
     const inUse = settings.logins.map(itemOf)
     const pendingRemovals = settings.pendingRemovals.filter(
         (item, index, all) =>
             !inUse.some((used) => sameItem(used, item)) && all.findIndex((other) => sameItem(other, item)) === index
     )
-    const host = settings.logins.some((record) => record.loggedInAt !== undefined) ? undefined : fallbackHost(settings)
+    const { host: lastHost } = settings
+    const keepsHost =
+        lastHost !== undefined &&
+        settings.logins.some((record) => record.loggedInAt === undefined && sameHost(record.host, lastHost))
+    const host = keepsHost ? lastHost : undefined
 
     const logins: Record<string, Record<string, LoginRecord>> = {}
     for (const record of settings.logins) {

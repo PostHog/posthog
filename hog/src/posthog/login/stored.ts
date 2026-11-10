@@ -56,7 +56,8 @@ export async function readSettings(runtime: Runtime): Promise<HogSettings> {
     }
 
     moveTried.add(runtime)
-    return withFileLock(runtime, LOGINS_LOCK, () => moveHostSecrets(runtime))
+    // A home folder hog can't write to, such as a read-only mount, keeps the logins readable where they are.
+    return withFileLock(runtime, LOGINS_LOCK, () => moveHostSecrets(runtime)).catch(() => settings)
 }
 
 // A secret that fails to move stays where it is and keeps working, and the next hog process tries again.
@@ -230,6 +231,17 @@ async function removeLogin(runtime: Runtime, target: LoginTarget): Promise<Remov
     })
 }
 
+// A login that is gone from this machine can't be revoked later, so an error from `work` waits for
+// the revokes already sent.
+async function afterRevokes<T>(revokes: readonly Promise<unknown>[], work: () => Promise<T>): Promise<T> {
+    try {
+        return await work()
+    } catch (error) {
+        await Promise.allSettled(revokes)
+        throw error
+    }
+}
+
 // Outside the renewal lock: once the login is gone, no renewal can rotate the refresh token this revokes.
 function revoke(runtime: Runtime, { record, key }: RemovedLogin): Promise<LogoutOutcome> {
     // hog can't revoke an OAuth login it can't read, so logout says the session may still work.
@@ -244,18 +256,22 @@ export async function logout(runtime: Runtime, target: LoginTarget): Promise<Log
         return undefined
     }
 
-    const { hadPending, failures } = await withFileLock(runtime, LOGINS_LOCK, async () => {
-        const settings = await readSettingsFile(runtime)
-        const hadPending = settings.pendingRemovals.some((item) => sameHost(item.host, target.host))
-        return { hadPending, ...(await removePending(runtime, settings, STORES)) }
-    })
+    const revoked = revoke(runtime, removed)
+    const { hadPending, failures } = await afterRevokes([revoked], () =>
+        withFileLock(runtime, LOGINS_LOCK, async () => {
+            const settings = await readSettingsFile(runtime)
+            const hadPending = settings.pendingRemovals.some((item) => sameHost(item.host, target.host))
+            return { hadPending, ...(await removePending(runtime, settings, STORES)) }
+        })
+    )
+    const outcome = await revoked
 
     if (!removed.removed && !hadPending) {
         return undefined
     }
 
     const leftover = failures.find(({ item }) => item.store === 'keychain' && sameHost(item.host, target.host))
-    return { ...(await revoke(runtime, removed)), keychainLeftover: leftover?.error ?? null }
+    return { ...outcome, keychainLeftover: leftover?.error ?? null }
 }
 
 interface Sweep {
@@ -296,43 +312,51 @@ export async function logoutAll(runtime: Runtime): Promise<LoggedOutLogin[]> {
         }
     }
 
+    // Each revoke goes out as soon as its login is gone, and the rest of the logout doesn't wait for it.
     const steps: {
         name: ItemName
         owner: LoginTarget<ProjectId | null>
-        removed: RemovedLogin | undefined
+        revoked: Promise<LogoutOutcome> | undefined
         swept: Sweep
     }[] = []
-    for (const [name, owner] of owners) {
-        const { host, projectId } = owner
-        const removed =
-            projectId !== null && loginFor(settings, { host, projectId })
-                ? await removeLogin(runtime, { host, projectId })
-                : undefined
-        const swept =
-            removed?.record.store === 'keychain' ? { removed: false, error: null } : await sweepKeychain(runtime, name)
+    const revokes: Promise<LogoutOutcome>[] = []
+    const fromFile = await afterRevokes(revokes, async () => {
+        for (const [name, owner] of owners) {
+            const { host, projectId } = owner
+            const removed =
+                projectId !== null && loginFor(settings, { host, projectId })
+                    ? await removeLogin(runtime, { host, projectId })
+                    : undefined
+            const revoked = removed?.removed ? revoke(runtime, removed) : undefined
+            if (revoked) {
+                revokes.push(revoked)
+            }
 
-        steps.push({ name, owner, removed, swept })
-    }
+            const swept =
+                removed?.record.store === 'keychain'
+                    ? { removed: false, error: null }
+                    : await sweepKeychain(runtime, name)
+            steps.push({ name, owner, revoked, swept })
+        }
 
-    const names = new Set<string>(owners.keys())
-    const fromFile = await withFileLock(runtime, LOGINS_LOCK, async () => {
-        const removed = await file.removeWhere((name) => names.has(name) || parseItemName(name) === undefined)
-        const failed = new Set<string>(steps.flatMap((step) => (step.swept.error ? [step.name] : [])))
+        const names = new Set<string>(owners.keys())
+        return withFileLock(runtime, LOGINS_LOCK, async () => {
+            const removed = await file.removeWhere((name) => names.has(name) || parseItemName(name) === undefined)
+            const failed = new Set<string>(steps.flatMap((step) => (step.swept.error ? [step.name] : [])))
 
-        const current = await readSettingsFile(runtime)
-        await writeSettings(runtime, {
-            ...current,
-            pendingRemovals: current.pendingRemovals.filter(
-                (item) => item.store === 'keychain' && failed.has(itemName(item.host, item.projectId))
-            ),
+            const current = await readSettingsFile(runtime)
+            await writeSettings(runtime, {
+                ...current,
+                pendingRemovals: current.pendingRemovals.filter(
+                    (item) => item.store === 'keychain' && failed.has(itemName(item.host, item.projectId))
+                ),
+            })
+
+            return new Set(removed)
         })
-
-        return new Set(removed)
     })
 
-    const outcomes = await Promise.all(
-        steps.map(({ removed }) => (removed?.removed ? revoke(runtime, removed) : undefined))
-    )
+    const outcomes = await Promise.all(steps.map(({ revoked }) => revoked))
 
     return steps.flatMap(({ name, owner, swept }, index) => {
         const outcome = outcomes[index]

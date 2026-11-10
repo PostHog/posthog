@@ -9,7 +9,7 @@ import { parseProjectId } from '@/posthog/ids'
 import { parsePersonalApiKey } from '@/posthog/tokens'
 import { fakeRuntime, readJson } from '@/testing'
 
-import { loginStorage, writeLogin } from './stored'
+import { loginStorage, readLogin, readSettings, writeLogin } from './stored'
 
 const EU = parseHost('https://eu.posthog.com')
 const US = parseHost('https://us.posthog.com')
@@ -74,5 +74,29 @@ describe('stored logins', () => {
 
         expect(deleted).toEqual([])
         expect(readJson(runtime.files[SETTINGS_FILE] ?? '{}')).toMatchObject({ pendingRemovals })
+    })
+
+    test('a login in the old shape stays readable when hog cannot write to its folder', async () => {
+        const runtime = fakeRuntime({
+            files: {
+                [SETTINGS_FILE]: JSON.stringify({
+                    logins: { [EU]: { store: 'file', type: 'personal_api_key', projectId: '42', host: EU } },
+                    host: EU,
+                }),
+                '/home/test/.config/hog/credentials.json': JSON.stringify({ [EU]: { apiKey: 'phx_read_only' } }),
+            },
+        })
+        const readOnly = Object.assign(new Error('read-only file system'), { code: 'EROFS' })
+        runtime.createFile = async () => {
+            throw readOnly
+        }
+        runtime.writePrivateFile = async () => {
+            throw readOnly
+        }
+
+        const settings = await readSettings(runtime)
+        const login = await readLogin(runtime, settings, { host: EU, projectId: parseProjectId('42') })
+
+        expect(login?.key).toMatchObject({ apiKey: 'phx_read_only' })
     })
 })
