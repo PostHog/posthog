@@ -5,7 +5,7 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { logger } from '~/common/utils/logger'
 
-import { assignEmailDequeueSeq } from './manager'
+import { assignEmailDequeueSeq, timeEnqueuePhase } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -100,8 +100,9 @@ async function insertNewJobsInTx(client: PoolClient, newJobs: CyclotronV2JobInit
         actionIds.push(job.actionId ?? null)
     }
 
-    await client.query(
-        `INSERT INTO cyclotron_jobs
+    await timeEnqueuePhase('insert', () =>
+        client.query(
+            `INSERT INTO cyclotron_jobs
          (id, team_id, function_id, queue_name, status, priority, scheduled, created,
           lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
           parent_run_id, state, distinct_id, person_id, action_id)
@@ -124,20 +125,21 @@ async function insertNewJobsInTx(client: PoolClient, newJobs: CyclotronV2JobInit
             unnest($9::text[]),
             unnest($10::text[]),
             unnest($11::text[])`,
-        [
-            ids,
-            teamIds,
-            functionIds,
-            queueNames,
-            priorities,
-            scheduleds,
-            parentRunIds,
-            states,
-            distinctIds,
-            personIds,
-            actionIds,
-            now,
-        ]
+            [
+                ids,
+                teamIds,
+                functionIds,
+                queueNames,
+                priorities,
+                scheduleds,
+                parentRunIds,
+                states,
+                distinctIds,
+                personIds,
+                actionIds,
+                now,
+            ]
+        )
     )
 
     return ids

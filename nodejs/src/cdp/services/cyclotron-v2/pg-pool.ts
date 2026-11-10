@@ -5,8 +5,7 @@ import { logger } from '~/common/utils/logger'
 
 export type CyclotronPoolName = 'worker' | 'manager' | 'janitor' | 'subscription_matcher'
 
-// pg sets `ending` on `end()`, but @types/pg does not declare it.
-type TrackedPool = Pool & { readonly ending?: boolean }
+type PoolWithEndingFlag = Pool & { readonly ending?: boolean }
 
 const pgClientErrorsCounter = new Counter({
     name: 'cdp_cyclotron_v2_pg_client_errors_total',
@@ -14,7 +13,7 @@ const pgClientErrorsCounter = new Counter({
     labelNames: ['pool'],
 })
 
-const livePools = new Set<{ name: CyclotronPoolName; pool: TrackedPool }>()
+const livePools = new Set<{ name: CyclotronPoolName; pool: PoolWithEndingFlag }>()
 
 function forgetEndedPools(): void {
     for (const entry of livePools) {
@@ -31,18 +30,10 @@ new Gauge({
     collect() {
         this.reset()
         forgetEndedPools()
-        const totals = new Map<CyclotronPoolName, { total: number; idle: number; waiting: number }>()
-        for (const entry of livePools) {
-            const sum = totals.get(entry.name) ?? { total: 0, idle: 0, waiting: 0 }
-            sum.total += entry.pool.totalCount
-            sum.idle += entry.pool.idleCount
-            sum.waiting += entry.pool.waitingCount
-            totals.set(entry.name, sum)
-        }
-        for (const [pool, sum] of totals) {
-            this.labels({ pool, state: 'total' }).set(sum.total)
-            this.labels({ pool, state: 'idle' }).set(sum.idle)
-            this.labels({ pool, state: 'waiting' }).set(sum.waiting)
+        for (const { name, pool } of livePools) {
+            this.inc({ pool: name, state: 'total' }, pool.totalCount)
+            this.inc({ pool: name, state: 'idle' }, pool.idleCount)
+            this.inc({ pool: name, state: 'waiting' }, pool.waitingCount)
         }
     },
 })
