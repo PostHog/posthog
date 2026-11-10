@@ -12,9 +12,12 @@ describe('CyclotronJobQueueKafka on Kafka', () => {
         )
         await queue.startAsProducer()
         await queue.queueInvocations([createExampleInvocation({}, {}, 'hog')])
+        const producer = queue['kafkaProducer']!
+        await producer.checkConnection(2_000)
 
         await Promise.all([queue.stopProducer(), queue.stopProducer()])
 
+        await expect(producer.checkConnection(2_000)).rejects.toThrow()
         await expect(queue.queueInvocations([createExampleInvocation({}, {}, 'hog')])).rejects.toThrow()
     })
 })
