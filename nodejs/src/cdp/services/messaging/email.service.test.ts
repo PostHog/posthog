@@ -20,6 +20,7 @@ import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { FAKE_SES_CLICK_PREFIX, FAKE_SES_OPEN_PIXEL, FakeSes } from '~/tests/helpers/fake-ses'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 
@@ -1340,7 +1341,7 @@ describe('EmailService', () => {
                 links: ['tracked https://example.com/a', 'https://example.com/b'],
                 pixel: true,
             },
-        ])('delivers a code send that $case', async ({ sensitive, tracking, links, pixel }) => {
+        ] as const)('delivers a code send that $case', async ({ sensitive, tracking, links, pixel }) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive }
             invocation.queueParameters = createEmailParams({
                 html: '<body><a href="https://example.com/a">a</a><a href="https://example.com/b" data-ph-no-track>b</a></body>',
@@ -1359,6 +1360,121 @@ describe('EmailService', () => {
             expect(delivered).toEqual(links)
             expect(email.html.includes('/public/m/pixel')).toBe(pixel)
         })
+    })
+    describe('native email sending through SES tracking', () => {
+        const fakeSes = new FakeSes({
+            'posthog-messaging': { opens: true, clicks: true },
+            'posthog-messaging-untracked': { opens: false, clicks: false },
+        })
+        const savedCredentials = { id: process.env.AWS_ACCESS_KEY_ID, secret: process.env.AWS_SECRET_ACCESS_KEY }
+        let sesEndpoint: string
+        let invocation: CyclotronJobInvocationHogFunction
+
+        beforeAll(async () => {
+            process.env.AWS_ACCESS_KEY_ID = 'fake-ses-key'
+            process.env.AWS_SECRET_ACCESS_KEY = 'fake-ses-secret'
+            sesEndpoint = await fakeSes.start()
+        })
+        afterAll(async () => {
+            await fakeSes.stop()
+            for (const [name, value] of [
+                ['AWS_ACCESS_KEY_ID', savedCredentials.id],
+                ['AWS_SECRET_ACCESS_KEY', savedCredentials.secret],
+            ] as const) {
+                if (value === undefined) {
+                    delete process.env[name]
+                } else {
+                    process.env[name] = value
+                }
+            }
+        })
+        beforeEach(async () => {
+            fakeSes.deliveries.length = 0
+            service = createService({
+                sesEndpoint,
+                sesTrackedConfigurationSet: 'posthog-messaging',
+                sesUntrackedConfigurationSet: 'posthog-messaging-untracked',
+            })
+            await insertIntegration(hub.postgres, team.id, {
+                id: getIntegrationId(1),
+                kind: 'email',
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'ses',
+                },
+            })
+            invocation = createExampleInvocation({ team_id: team.id, id: 'function-1' })
+            invocation.id = 'invocation-1'
+            invocation.state.vmState = { stack: [] } as any
+        })
+
+        const untracked = ['https://example.com/a', 'https://example.com/b']
+        const clicksTracked = ['tracked https://example.com/a', 'https://example.com/b']
+        it.each([
+            {
+                case: 'a code send that keeps the defaults',
+                sensitive: false,
+                tracking: {},
+                links: untracked,
+                opens: true,
+            },
+            {
+                case: 'a code send that turns clicks on',
+                sensitive: false,
+                tracking: { clicks: true },
+                links: clicksTracked,
+                opens: true,
+            },
+            {
+                case: 'a sensitive code send that keeps the defaults',
+                sensitive: true,
+                tracking: {},
+                links: untracked,
+                opens: true,
+            },
+            {
+                case: 'a sensitive code send that turns clicks on',
+                sensitive: true,
+                tracking: { clicks: true },
+                links: clicksTracked,
+                opens: true,
+            },
+            {
+                case: 'a code send that turns opens off',
+                sensitive: false,
+                tracking: { opens: false },
+                links: untracked,
+                opens: false,
+            },
+            { case: 'a template send', sensitive: false, tracking: undefined, links: clicksTracked, opens: true },
+            { case: 'a sensitive template send', sensitive: true, tracking: undefined, links: untracked, opens: true },
+        ] as const)(
+            'delivers $case with the links and opens SES tracks',
+            async ({ sensitive, tracking, links, opens }) => {
+                invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive }
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    html: '<body><a href="https://example.com/a">a</a><a href="https://example.com/b" data-ph-no-track>b</a></body>',
+                })
+                invocation.state.send = tracking && { tracking: { captureEngagement: true, ...tracking } }
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(fakeSes.deliveries).toHaveLength(1)
+                const [{ html }] = fakeSes.deliveries
+                const delivered = [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(([, href]) =>
+                    href.startsWith(FAKE_SES_CLICK_PREFIX)
+                        ? `tracked ${decodeURIComponent(href.slice(FAKE_SES_CLICK_PREFIX.length))}`
+                        : href
+                )
+                expect(delivered).toEqual(links)
+                expect(html.includes(FAKE_SES_OPEN_PIXEL)).toBe(opens)
+            }
+        )
     })
     describe('native email sending with ses', () => {
         let invocation: CyclotronJobInvocationHogFunction
