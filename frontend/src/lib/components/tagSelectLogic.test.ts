@@ -36,6 +36,28 @@ describe('tagSelectLogic', () => {
         expect(logic.values.tagResults).toEqual([{ tag: 'beta' }])
     })
 
+    it('loads the next page once, from where the server left off', async () => {
+        initKeaTests()
+        const logic = tagSelectLogic({ logicKey: 'more' })
+        logic.mount()
+        let releasePage: (page: { results: never[]; hasMore: boolean }) => void = () => {}
+        const loadNextPage = jest.fn<ReturnType<LoadTags>, Parameters<LoadTags>>(
+            () => new Promise((resolve) => (releasePage = resolve))
+        )
+        logic.actions.loadTagPageSuccess(
+            { results: [{ tag: 'alpha' }, { tag: 'beta' }], hasMore: true, nextOffset: 3 },
+            { search: '', offset: 0, loadTags, requestEpoch: 0 }
+        )
+
+        logic.actions.loadMoreTags(loadNextPage)
+        logic.actions.loadMoreTags(loadNextPage)
+
+        expect(loadNextPage).toHaveBeenCalledTimes(1)
+        expect(loadNextPage).toHaveBeenCalledWith('', 3)
+        releasePage({ results: [], hasMore: false })
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
     it('keeps loaded tags after a failed page so users can retry', async () => {
         initKeaTests()
         const logic = tagSelectLogic({ logicKey: 'failure' })

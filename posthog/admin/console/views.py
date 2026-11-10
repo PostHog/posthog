@@ -2,6 +2,7 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar, cast
+from urllib.parse import urlencode
 
 from django import forms
 from django.conf import settings
@@ -20,11 +21,12 @@ import structlog
 from posthog.admin.console.bridge import QueuedMessages
 from posthog.admin.console.confirm import ConfirmationToken
 from posthog.admin.console.panels import Fact, Gate, Operation, Owner, Panel, Tone
-from posthog.admin.console.records import RECORD_TYPES, RecordLink, RecordType
+from posthog.admin.console.records import RECORD_TYPES, SUPPORT_TICKET_PARAM, RecordLink, RecordType
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import ConsoleTool, Page, ToolOperation
 from posthog.dataclasses import frozen
 from posthog.git import get_git_commit_short
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -154,8 +156,25 @@ def _search_teams(query: str) -> list[Team]:
     return list(matches.order_by("-id")[:SEARCH_LIMIT])
 
 
+def _with_kept_query(url: str, request: HttpRequest, names: tuple[str, ...]) -> str:
+    kept = [(name, value) for name in names for value in request.GET.getlist(name)]
+    return f"{url}?{urlencode(kept)}" if kept else url
+
+
+def _find_user(query: str) -> User | None:
+    # Team and organization names rarely hold an @, so a query with one is an email address and opens that user.
+    if "@" not in query:
+        return None
+    return EmailLookupHandler.get_user_by_email(query, is_active=None)
+
+
 def console_home(request: HttpRequest) -> HttpResponse:
     query = request.GET.get("q", "").strip()
+    user = _find_user(query)
+    if user is not None:
+        return HttpResponseRedirect(
+            _with_kept_query(reverse("admin_console_user", kwargs={"pk": user.pk}), request, (SUPPORT_TICKET_PARAM,))
+        )
     teams = _search_teams(query)
     if len(teams) == 1:
         if not query.isdigit():
@@ -234,7 +253,14 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
         "admin_console/record.html",
         {
             **_record_context(record_type, obj),
-            "record_links": record_type.links(obj),
+            "record_links": [
+                RecordLink(
+                    label=link.label,
+                    href=_with_kept_query(link.href, request, link.keep_query),
+                    title=link.title,
+                )
+                for link in record_type.links(obj)
+            ],
             "attention": [
                 AttentionItem(panel=rendered.panel, fact=fact)
                 for rendered in panels
@@ -320,10 +346,10 @@ class ConfirmStep:
     def expired(self) -> bool:
         return self.confirmed and self.data is None
 
-    def bind(self, operation: Operation | ToolOperation) -> forms.Form | None:
+    def bind(self, operation: Operation | ToolOperation, initial: dict[str, object] | None = None) -> forms.Form | None:
         if operation.form_class is None:
             return None
-        return operation.form_class(self.data, self.files, initial=operation.form_initial)
+        return operation.form_class(self.data, self.files, initial=initial or operation.form_initial)
 
     def render_expired(self, request: HttpRequest) -> HttpResponse:
         messages.error(request, "This confirmation expired or was made for something else. Review the change again.")
@@ -340,6 +366,21 @@ class ConfirmStep:
             "admin_console/confirm.html",
             {**context, "page": page, "confirm_token": self.confirmation.sign(form)},
         )
+
+
+def _record_form_initial(request: HttpRequest, operation: Operation) -> dict[str, object] | None:
+    # A link preselects a choice, so an old URL that names one of several documents opens the form on it.
+    # Text fields stay empty: a reason taken from a URL would reach the audit log without staff writing it.
+    if operation.form_class is None:
+        return None
+    preselected = {
+        name: request.GET[name]
+        for name, field in operation.form_class.base_fields.items()
+        if isinstance(field, forms.ChoiceField) and name in request.GET
+    }
+    if not preselected:
+        return operation.form_initial
+    return {**(operation.form_initial or {}), **preselected}
 
 
 def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str, operation_key: str) -> HttpResponse:
@@ -368,7 +409,7 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
     step = ConfirmStep(request, ConfirmationToken(request, f"{record_type.key}:{obj.pk}:{panel.key}", operation.key))
     if step.expired:
         return step.render_expired(request)
-    form = step.bind(operation)
+    form = step.bind(operation, initial=_record_form_initial(request, operation))
     title = record_type.title(obj)
     target = OperationTarget(
         kicker="This acts on",
