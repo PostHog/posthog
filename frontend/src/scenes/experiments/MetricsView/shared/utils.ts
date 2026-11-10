@@ -2,6 +2,7 @@ import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import type {
     ActionsNode,
+    CurrencyCode,
     EventsNode,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -25,6 +26,8 @@ import {
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricGoal } from '~/types'
+
+import { formatValueAs } from 'products/experiments/frontend/metricValueFormat'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
 
@@ -302,19 +305,23 @@ export function isProportionMetric(metric: ExperimentMetric): boolean {
     return isExperimentFunnelMetric(metric) || isExperimentRetentionMetric(metric)
 }
 
-export function formatMetricValue(data: any, metric: ExperimentMetric): string {
+export function formatMetricValue(data: any, metric: ExperimentMetric, baseCurrency: CurrencyCode): string {
+    const valueFormat = metric.value_format?.type
     if (isExperimentQuantileMetric(metric)) {
         // The first grid entry is the quantile itself. `sum` holds the count of events at or below it.
         const quantileValue = data.quantile_grid?.[0]
-        return typeof quantileValue === 'number' && Number.isFinite(quantileValue)
-            ? humanFriendlyLargeNumber(quantileValue)
-            : '—'
+        if (typeof quantileValue !== 'number' || !Number.isFinite(quantileValue)) {
+            return '—'
+        }
+        return valueFormat
+            ? formatValueAs(quantileValue, valueFormat, baseCurrency)
+            : humanFriendlyLargeNumber(quantileValue)
     }
     if (isExperimentRatioMetric(metric)) {
         // For ratio metrics, we need to calculate the ratio from sum and denominator_sum
         if (data.denominator_sum && data.denominator_sum > 0) {
             const ratio = data.sum / data.denominator_sum
-            return ratio.toFixed(2)
+            return valueFormat ? formatValueAs(ratio, valueFormat, baseCurrency) : ratio.toFixed(2)
         }
         // The ratio is undefined without denominator data, so don't render a fake zero
         return '—'
@@ -324,7 +331,10 @@ export function formatMetricValue(data: any, metric: ExperimentMetric): string {
     if (isNaN(primaryValue)) {
         return '—'
     }
-    return isProportionMetric(metric) ? `${(primaryValue * 100).toFixed(2)}%` : humanFriendlyLargeNumber(primaryValue)
+    if (isProportionMetric(metric)) {
+        return `${(primaryValue * 100).toFixed(2)}%`
+    }
+    return valueFormat ? formatValueAs(primaryValue, valueFormat, baseCurrency) : humanFriendlyLargeNumber(primaryValue)
 }
 
 export function getMetricSubtitleValues(
