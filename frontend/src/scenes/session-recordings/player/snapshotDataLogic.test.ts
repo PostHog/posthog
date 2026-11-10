@@ -206,6 +206,14 @@ describe('snapshotDataLogic', () => {
                 null,
             ],
             ['reports a rate limit that outlasts every retry', [429], 4, false, 'loadSnapshotsForSourceFailure', null],
+            [
+                'falls back when a rate-limited retry gets another error',
+                [429, 401],
+                2,
+                true,
+                'loadSnapshotsForSourceSuccess',
+                'http_error',
+            ],
         ] as const)(
             '%s',
             async (_, blockStatuses, expectedBlockReads, expectsSnapshotsEndpoint, expectedAction, fallbackReason) => {

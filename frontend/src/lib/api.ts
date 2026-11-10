@@ -4497,6 +4497,10 @@ const api = {
                         pendingRateLimits.delete(url)
                         return block
                     } catch (e) {
+                        // Only an aborted wait leaves the block rate limited; any other answer replaces the 429.
+                        if (!(e instanceof DOMException && e.name === 'AbortError')) {
+                            pendingRateLimits.delete(url)
+                        }
                         controller.abort()
                         throw e
                     }
