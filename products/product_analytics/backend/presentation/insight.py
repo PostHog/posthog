@@ -974,8 +974,7 @@ class InsightSerializer(InsightBasicSerializer):
                 lock_insight_for_evaluation(team_id=instance.team_id, insight_id=instance.id)
                 delete_insight_subscriptions(project_id=instance.team.project_id, insight_ids=[instance.id])
                 hide_tiles_for_insights([instance.id])
-                for alert in instance.alertconfiguration_set.all():
-                    alert.delete()
+                delete_insight_alerts([instance.id])
             else:
                 dashboard_ids = validated_data.pop("dashboards", None)
                 if dashboard_ids is not None:
@@ -991,8 +990,7 @@ class InsightSerializer(InsightBasicSerializer):
         # mismatch (see validate_alert_config + disable_invalid_alert in the alerts temporal activity),
         # so the alert and its history are preserved and the user can reconfigure rather than lose it.
         if updated_insight.alertable_query_kind is None:
-            for alert in instance.alertconfiguration_set.all():
-                alert.delete()
+            delete_insight_alerts([instance.id])
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 

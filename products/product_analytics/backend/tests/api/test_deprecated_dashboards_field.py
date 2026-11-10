@@ -10,8 +10,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication, Sh
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade.testing import create_dashboard, create_insight_tile
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import should_serve_deprecated_dashboards_field
 
@@ -61,9 +60,9 @@ class TestShouldServeDeprecatedDashboardsField(SimpleTestCase):
 class TestDeprecatedDashboardsFieldAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.dashboard = Dashboard.objects.create(team=self.team, name="dash")
+        self.dashboard_id = create_dashboard(team_id=self.team.id, name="dash")
         self.insight = Insight.objects.create(team=self.team, name="insight", saved=True)
-        DashboardTile.objects.create(insight=self.insight, dashboard=self.dashboard)
+        create_insight_tile(dashboard_id=self.dashboard_id, insight_id=self.insight.id)
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -80,24 +79,24 @@ class TestDeprecatedDashboardsFieldAPI(APIBaseTest):
         default_response = self.client.get(url, HTTP_AUTHORIZATION=self.bearer)
         assert default_response.status_code == status.HTTP_200_OK
         assert "dashboards" not in default_response.json()
-        assert [tile["dashboard_id"] for tile in default_response.json()["dashboard_tiles"]] == [self.dashboard.id]
+        assert [tile["dashboard_id"] for tile in default_response.json()["dashboard_tiles"]] == [self.dashboard_id]
 
         opted_in_response = self.client.get(url, {"include_dashboards": "true"}, HTTP_AUTHORIZATION=self.bearer)
         assert opted_in_response.status_code == status.HTTP_200_OK
-        assert opted_in_response.json()["dashboards"] == [self.dashboard.id]
+        assert opted_in_response.json()["dashboards"] == [self.dashboard_id]
 
     def test_unenforced_personal_api_key_still_receives_deprecated_dashboards_field(self):
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/{self.insight.id}/", HTTP_AUTHORIZATION=self.bearer
         )
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["dashboards"] == [self.dashboard.id]
+        assert response.json()["dashboards"] == [self.dashboard_id]
 
     def test_session_auth_does_not_receive_deprecated_dashboards_field(self):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{self.insight.id}/")
         assert response.status_code == status.HTTP_200_OK
         assert "dashboards" not in response.json()
-        assert [tile["dashboard_id"] for tile in response.json()["dashboard_tiles"]] == [self.dashboard.id]
+        assert [tile["dashboard_id"] for tile in response.json()["dashboard_tiles"]] == [self.dashboard_id]
 
     def test_session_auth_write_does_not_echo_deprecated_dashboards_field(self):
         response = self.client.patch(

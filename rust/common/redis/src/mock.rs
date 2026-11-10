@@ -642,6 +642,27 @@ impl Client for MockRedisClient {
         Ok(results)
     }
 
+    /// Reads the values set with `mget_ret` and fails with `mget_error`.
+    async fn get_multiple(
+        &self,
+        keys: Vec<String>,
+    ) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "get_multiple".to_string(),
+            key: format!("keys={}", keys.len()),
+            value: MockRedisValue::VecString(keys.clone()),
+        });
+
+        if let Some(err) = &self.mget_error {
+            return Err(err.clone());
+        }
+
+        Ok(keys
+            .iter()
+            .map(|k| self.mget_ret.get(k).and_then(|v| v.clone()))
+            .collect())
+    }
+
     async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError> {
         self.lock_calls().push(MockRedisCall {
             op: "scard_multiple".to_string(),

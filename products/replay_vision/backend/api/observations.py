@@ -45,6 +45,7 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.exports.backend.facade.api import get_export_asset_content_response
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.replay_vision.backend.api.cloud_only import ReplayVisionCloudOnly
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
@@ -1093,6 +1094,7 @@ class ReplayObservationViewSet(
     NEIGHBOR_SCAN_LIMIT = 5000
 
     scope_object = "replay_scanner"
+    permission_classes = [ReplayVisionCloudOnly]
     required_scopes = ["replay_scanner:read", "session_recording:read"]
     serializer_class = ReplayObservationSerializer
     queryset = ReplayObservation.objects.all()
