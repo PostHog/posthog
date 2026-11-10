@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -572,21 +573,27 @@ describe('messageTemplateLogic', () => {
         })
 
         it('shows a newly created template in the tree', async () => {
+            const storedTemplates: { id: string; name: string }[] = []
             useMocks({
                 get: {
-                    '/api/environments/:team_id/file_system/': ({ request }) =>
-                        new URL(request.url).searchParams.get('ref') === 'created-id'
+                    '/api/environments/:team_id/file_system/': ({ request }) => {
+                        const stored = storedTemplates.find(
+                            (t) => t.id === new URL(request.url).searchParams.get('ref')
+                        )
+                        return stored
                             ? [
                                   200,
-                                  {
-                                      results: [{ ...treeEntry('Welcome'), id: 'file-2', ref: 'created-id' }],
-                                      count: 1,
-                                  },
+                                  { results: [{ ...treeEntry(stored.name), id: 'file-2', ref: stored.id }], count: 1 },
                               ]
-                            : [200, { results: [], count: 0 }],
+                            : [200, { results: [], count: 0 }]
+                    },
                 },
                 post: {
-                    '/api/projects/:team_id/messaging_templates/': { id: 'created-id', name: 'Welcome' },
+                    '/api/projects/:team_id/messaging_templates/': async ({ request }) => {
+                        const created = { id: 'created-id', name: ((await request.json()) as { name: string }).name }
+                        storedTemplates.push(created)
+                        return [201, created]
+                    },
                 },
             })
             const creator = messageTemplateLogic({ id: 'new' })
@@ -630,9 +637,10 @@ describe('messageTemplateLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.saveTemplate({ id: 'existing-id', name: 'Renamed' })
             }).toDispatchActions(['saveTemplateSuccess'])
-            await expectLogic(projectTreeDataLogic, () => {
-                logic.actions.deleteTemplate()
-            }).toDispatchActions(['deleteTypeAndRef'])
+            logic.actions.deleteTemplate()
+            await waitFor(() =>
+                expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']).toBeUndefined()
+            )
             releaseTree()
             await expectLogic(projectTreeDataLogic).toFinishAllListeners()
 
