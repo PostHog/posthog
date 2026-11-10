@@ -173,6 +173,25 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 }
             )
 
+    def _native(self, alert: AlertConfiguration) -> PlatformConfigurationSnapshot:
+        """A platform alert with the row's insight and threshold, and no insight row."""
+        configuration = self._copy(
+            alert,
+            legacy_configuration_id=None,
+            owner=PlatformAlertOwner.PLATFORM,
+            destinations_owner=PlatformAlertOwner.PLATFORM,
+            created_by=self.user,
+            source_config={
+                "insight_id": alert.insight_id,
+                SOURCE_CONDITION_KEY: {
+                    "comparison": {"type": "absolute_value"},
+                    "threshold": {"type": "absolute", "bounds": {"upper": 100.0}},
+                },
+            },
+        )
+        alert.delete()
+        return configuration
+
     def _evaluate_per_series(
         self,
         configuration: PlatformConfigurationSnapshot,
@@ -408,25 +427,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         self, _name: str, has_row: bool, slack: str | None, renders: bool
     ) -> None:
         alert = self._alert()
-        if has_row:
-            chart_alert_id = alert.id
-        else:
-            configuration = self._copy(
-                alert,
-                legacy_configuration_id=None,
-                owner=PlatformAlertOwner.PLATFORM,
-                destinations_owner=PlatformAlertOwner.PLATFORM,
-                created_by=self.user,
-                source_config={
-                    "insight_id": alert.insight_id,
-                    SOURCE_CONDITION_KEY: {
-                        "comparison": {"type": "absolute_value"},
-                        "threshold": {"type": "absolute", "bounds": {"upper": 100.0}},
-                    },
-                },
-            )
-            chart_alert_id = configuration.id
-            alert.delete()
+        chart_alert_id = alert.id if has_row else self._native(alert).id
         if slack == "hog_function":
             HogFunction.objects.create(
                 team=self.team,
@@ -677,14 +678,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            # name, was_firing, owned, paged, breaks, (incident_actions, sends_messages) or no delivery
-            ("source_owned", False, False, False, False, None),
-            ("platform_owned", False, True, False, False, ({}, True)),
-            ("platform_owned_resolve", True, True, False, False, None),
-            ("paged_firing", False, True, True, False, ({"": IncidentAction.TRIGGER}, True)),
-            ("paged_resolve", True, True, True, False, ({"": IncidentAction.RESOLVE}, False)),
-            ("paged_firing_that_breaks", True, True, True, True, ({}, True)),
-            ("paged_but_source_owned", False, False, True, False, None),
+            # name, was_firing, owned, paged through, breaks, (incident_actions, sends_messages) or no delivery
+            ("source_owned", False, False, None, False, None),
+            ("platform_owned", False, True, None, False, ({}, True)),
+            ("platform_owned_resolve", True, True, None, False, None),
+            ("paged_firing", False, True, "hog_function", False, ({"": IncidentAction.TRIGGER}, True)),
+            ("paged_resolve", True, True, "hog_function", False, ({"": IncidentAction.RESOLVE}, False)),
+            ("paged_firing_that_breaks", True, True, "hog_function", True, ({}, True)),
+            ("paged_but_source_owned", False, False, "hog_function", False, None),
+            ("paged_firing_with_no_row", False, True, "platform", False, ({"": IncidentAction.TRIGGER}, True)),
+            ("paged_resolve_with_no_row", True, True, "platform", False, ({"": IncidentAction.RESOLVE}, False)),
         ]
     )
     def test_only_a_platform_owned_firing_failure_or_incident_edge_asks_for_a_delivery(
@@ -692,13 +695,31 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         _name: str,
         was_firing: bool,
         owned: bool,
-        paged: bool,
+        paged: str | None,
         breaks: bool,
         delivered: tuple[dict[str, IncidentAction], bool] | None,
     ) -> None:
         alert = self._alert()
-        configuration = self._copy(alert, **({"owner": PlatformAlertOwner.PLATFORM} if owned else {}))
-        if paged:
+        alert_url = insight_alert_url(self.team.id, alert.insight.short_id, str(alert.id))
+        if paged == "platform":
+            configuration = self._native(alert)
+            alert_url = insight_alert_url(self.team.id, alert.insight.short_id, str(configuration.id))
+            create_alert_destinations(
+                team_id=self.team.id,
+                configuration_id=configuration.id,
+                destinations=(
+                    NewAlertDestination(
+                        data=cast(
+                            AlertDestinationData,
+                            {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": "a" * 32},
+                        ),
+                        event_kinds=(AlertEventKind.FIRING,),
+                    ),
+                ),
+            )
+        else:
+            configuration = self._copy(alert, **({"owner": PlatformAlertOwner.PLATFORM} if owned else {}))
+        if paged == "hog_function":
             HogFunction.objects.create(
                 team=self.team,
                 type="internal_destination",
@@ -730,7 +751,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             [
                 (
                     str(configuration.id),
-                    str(alert.id),
+                    str(configuration.id if paged == "platform" else alert.id),
                     {"firing": "$insight_alert_firing", "errored": INSIGHT_ALERT_ERRORED_EVENT_ID},
                     owned,
                     *delivered,
@@ -751,10 +772,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             for delivery in self.deliveries
         ] == expected
         # A native message links to the alert on its insight, where the insight stack's messages link.
-        assert all(
-            delivery.source_alert_url == insight_alert_url(self.team.id, alert.insight.short_id, str(alert.id))
-            for delivery in self.deliveries
-        )
+        assert all(delivery.source_alert_url == alert_url for delivery in self.deliveries)
 
     @parameterized.expand(
         [
