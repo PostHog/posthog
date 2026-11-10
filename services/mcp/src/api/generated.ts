@@ -119040,6 +119040,8 @@ export namespace Schemas {
          * @nullable
          */
       ready_at: string | null;
+      /** Whether the organization's Trino catalog is backed by hoglake. Hoglake credentials reach nothing otherwise. */
+      hoglake: boolean;
       /** Trino connection target. Null until Trino is ready and reachable. */
       connection: WarehouseTrinoConnection | null;
     }

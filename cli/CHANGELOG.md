@@ -1,5 +1,12 @@
 # posthog-cli
 
+## 0.19.5 — 2026-11-10
+
+### Patch changes
+
+- [b62c3c4dc0b](https://github.com/PostHog/posthog/commit/b62c3c4dc0bd20de54c86d320c3c5de2acd87153) Allow sourcemap uploads without a release when Git metadata cannot complete the release coordinates — Thanks @hpouillot!
+- [b9c0c35403e](https://github.com/PostHog/posthog/commit/b9c0c35403ed7979af7e6176ea5b681d7b79fbc7) Stop shipping an npm-shrinkwrap.json in the npm package, so installing `@posthog/cli` no longer adds its own `prettier` to the project's `node_modules` and `package-lock.json` — Thanks @rafaeelaudibert!
+
 ## 0.19.4 — 2026-11-09
 
 ### Patch changes
