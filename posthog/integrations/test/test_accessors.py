@@ -622,12 +622,10 @@ class TestIntegrationAccessors(BaseTest):
     ) -> None:
         row = self._resend_row(refreshed_ago=refreshed_ago)
 
-        def rotate(oauth: OauthIntegration) -> None:
-            oauth.integration.sensitive_config = {"access_token": "new", "refresh_token": "r2"}
-            oauth.integration.save()
+        rotated = IntegrationPatch(sensitive_config_patch={"access_token": "new", "refresh_token": "r2"})
 
         with (
-            patch.object(OauthIntegration, "refresh_access_token", autospec=True, side_effect=rotate) as refresh,
+            patch.object(OauthIntegration, "token_refresh_patch", autospec=True, return_value=rotated) as refresh,
             CaptureQueriesContext(connection) as queries,
         ):
             result = IntegrationManager.resend.oauth.refresh_access_token(
@@ -655,7 +653,7 @@ class TestIntegrationAccessors(BaseTest):
     def test_refresh_access_token_raises(
         self, _name: str, accessor: Callable[[], Any], row_name: str, error: type[Exception]
     ) -> None:
-        with patch.object(OauthIntegration, "refresh_access_token") as refresh:
+        with patch.object(OauthIntegration, "token_refresh_patch") as refresh:
             with self.assertRaises(error):
                 accessor().refresh_access_token(self.team.id, self.rows[row_name].id)
 
