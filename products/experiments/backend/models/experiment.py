@@ -595,8 +595,9 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         MANUAL = "manual", "Manual"
         AGENT_MCP = "agent_mcp", "Agent (MCP)"
         COLD_RUN = "cold_run", "Cold Run"
-        # The frontend refreshes a running experiment on page load when its latest results are older than its
-        # staleness threshold. Advances the window to now, so every metric recomputes.
+        # The frontend refreshes results on page load when they stop more than its staleness threshold before the
+        # window end, which is now for a running experiment and the end date for a stopped one. Advances the window to
+        # that end, so every metric recomputes.
         STALE_REFRESH = "stale_refresh", "Stale Refresh"
         # Deprecated: feature no longer available.
         AUTO_REFRESH = "auto_refresh", "Auto Refresh"
