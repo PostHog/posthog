@@ -243,16 +243,6 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             **derive_detector_event_fields(self.detector_config),
         }
 
-    @classmethod
-    def from_platform_view(cls, view: PlatformAlertConfigurationView, *, team_id: int) -> AlertConfiguration | None:
-        """An unsaved alert with the settings of a platform alert that has no insight row, or None
-        when its insight is gone."""
-        from products.alerts.backend.platform_insight_alert import (  # noqa: PLC0415 — it imports this model
-            alert_from_platform,
-        )
-
-        return alert_from_platform(view, team_id=team_id, enabled=view.enabled)
-
     @property
     def platform_owned(self) -> bool:
         """The platform evaluates and delivers this alert. The insight stack may still evaluate it to
