@@ -372,6 +372,31 @@ function fileIndex(cache: Record<string, any>): Map<string, FileSystemEntry> {
     return cache.fileIndex
 }
 
+/** Makes a full scan the truth for the files `owns` selects: cached copies that moved or went away elsewhere leave the shared tree, and `scanned` replaces them in the file index. */
+function applyFullScan(
+    cache: Record<string, any>,
+    entries: FileSystemEntry[],
+    scanned: FileSystemEntry[],
+    owns: (entry: FileSystemEntry) => boolean
+): void {
+    const freshPaths = new Map(scanned.map((entry) => [entry.id, entry.path]))
+    for (const cached of Object.values(projectTreeDataLogic.values.folders).flat()) {
+        if (owns(cached) && !cached.shortcut && freshPaths.get(cached.id) !== cached.path) {
+            projectTreeDataLogic.actions.deleteSavedItem(cached)
+        }
+    }
+    projectTreeDataLogic.actions.addLoadedResults({
+        searchTerm: '',
+        results: entries,
+        hasMore: false,
+        lastCount: entries.length,
+    })
+    cache.fileIndex = new Map([
+        ...[...fileIndex(cache)].filter(([, entry]) => !owns(entry)),
+        ...scanned.map((entry): [string, FileSystemEntry] => [entry.id, entry]),
+    ])
+}
+
 function treeFolderId(folder: string | null): string {
     return `project://${folder ?? ''}`
 }
@@ -569,23 +594,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         if (changeCount(cache) !== changesBefore) {
                             continue
                         }
-                        // A full load is the truth for folders and workflow files, so drop cached copies that moved or went away elsewhere.
-                        const freshPaths = new Map(entries.map((entry) => [entry.id, entry.path]))
-                        for (const cached of Object.values(projectTreeDataLogic.values.folders).flat()) {
-                            if (isIndexed(cached) && !cached.shortcut && freshPaths.get(cached.id) !== cached.path) {
-                                projectTreeDataLogic.actions.deleteSavedItem(cached)
-                            }
-                        }
-                        projectTreeDataLogic.actions.addLoadedResults({
-                            searchTerm: '',
-                            results: entries,
-                            hasMore: false,
-                            lastCount: entries.length,
-                        })
-                        cache.fileIndex = new Map([
-                            ...[...fileIndex(cache)].filter(([, entry]) => !isIndexed(entry)),
-                            ...entries.filter(isIndexed).map((entry): [string, FileSystemEntry] => [entry.id, entry]),
-                        ])
+                        applyFullScan(cache, entries, entries.filter(isIndexed), isIndexed)
                         return true
                     }
                     throw new Error('Project files kept changing while the folders loaded')
@@ -606,24 +615,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         if (changeCount(cache) !== changesBefore) {
                             continue
                         }
-                        const files = entries.filter((file) => !file.shortcut)
-                        // This scan is the truth for other products' files, so a file deleted or moved elsewhere stops hiding its old folder.
-                        const freshPaths = new Map(files.map((entry) => [entry.id, entry.path]))
-                        for (const cached of Object.values(projectTreeDataLogic.values.folders).flat()) {
-                            if (!isIndexed(cached) && !cached.shortcut && freshPaths.get(cached.id) !== cached.path) {
-                                projectTreeDataLogic.actions.deleteSavedItem(cached)
-                            }
-                        }
-                        projectTreeDataLogic.actions.addLoadedResults({
-                            searchTerm: '',
-                            results: entries,
-                            hasMore: false,
-                            lastCount: entries.length,
-                        })
-                        cache.fileIndex = new Map([
-                            ...[...fileIndex(cache)].filter(([, entry]) => isIndexed(entry)),
-                            ...files.map((entry): [string, FileSystemEntry] => [entry.id, entry]),
-                        ])
+                        applyFullScan(
+                            cache,
+                            entries,
+                            entries.filter((file) => !file.shortcut),
+                            (entry) => !isIndexed(entry)
+                        )
                         return true
                     }
                     throw new Error('Project files kept changing while the folders loaded')
@@ -969,8 +966,14 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             try {
                 await fileSystemDestroy(String(values.currentTeamId), entry.id, { recursive: false })
                 projectTreeDataLogic.actions.deleteSavedItem(entry)
-            } catch {
-                lemonToast.error("Couldn't delete the folder. It may still contain project files.")
+            } catch (error) {
+                const reason =
+                    error instanceof ApiError && error.code === 'directory_not_empty'
+                        ? 'It still contains project files.'
+                        : error instanceof ApiError && error.detail
+                          ? error.detail
+                          : 'Try again.'
+                lemonToast.error(`Couldn't delete the folder. ${reason}`)
             } finally {
                 actions.setFolderActionPending(false)
             }
@@ -1010,6 +1013,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         // so the view puts back what it indexed, and pages on through a cut folder, instead of reloading the project.
         [projectTreeDataLogic.actionTypes.pruneClosedFolders]: () => actions.restoreFileIndex(),
         [projectTreeDataLogic.actionTypes.loadFolderSuccess]: () => actions.restoreFileIndex(),
+        [projectTreeDataLogic.actionTypes.loadFolderFailure]: () => actions.restoreFileIndex(),
         [projectTreeDataLogic.actionTypes.createSavedItem]: () => {
             cache.changes = changeCount(cache) + 1
         },
@@ -1044,7 +1048,11 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         restoreFileIndex: () => {
             const present = new Set(Object.values(values.folders).flatMap((files) => files.map((entry) => entry.id)))
             const missing = [...fileIndex(cache).values()].filter((entry) => !present.has(entry.id))
-            const evicted = missing.filter((entry) => !(parentPath(entry.path) in values.folders))
+            // A folder whose next page failed is not loaded again, so its cached files go back like evicted ones.
+            const evicted = missing.filter((entry) => {
+                const folder = parentPath(entry.path)
+                return !(folder in values.folders) || values.folderStates[folder] === 'error'
+            })
             if (evicted.length) {
                 projectTreeDataLogic.actions.addLoadedResults({
                     searchTerm: '',

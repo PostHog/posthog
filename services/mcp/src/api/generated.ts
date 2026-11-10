@@ -18552,9 +18552,8 @@ export namespace Schemas {
     /**
      * Typed configuration for a PostgreSQL batch-export destination.
      *
-     * Connection credentials may live in a linked Integration (when one is provided) or
-     * inline in this config (legacy). Mirrors the non-credential fields of
-     * `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
+     * Connection credentials live in the linked Integration, never here. Mirrors the
+     * non-credential fields of `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
      */
     export interface PostgresDestinationConfig {
       /** PostgreSQL database name to connect to. */
@@ -18671,22 +18670,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
-     */
-    export type RedshiftCopyInputsAuthorization = number | string | {
-      aws_access_key_id: string;
-      aws_secret_access_key: string;
-    };
-
-    /**
-     * AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
-     */
-    export type RedshiftCopyInputsBucketCredentials = number | {
-      aws_access_key_id: string;
-      aws_secret_access_key: string;
-    };
-
-    /**
      * S3 staging configuration for a Redshift batch export running in COPY mode.
      */
     export interface RedshiftCopyInputs {
@@ -18696,10 +18679,10 @@ export namespace Schemas {
       region_name: string;
       /** Key prefix for staged files in the S3 bucket. */
       s3_key_prefix: string;
-      /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
-      authorization: RedshiftCopyInputsAuthorization;
-      /** AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
-      bucket_credentials: RedshiftCopyInputsBucketCredentials;
+      /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. */
+      authorization: number | string;
+      /** AWS S3 integration ID used to stage files in the S3 bucket. */
+      bucket_credentials: number;
     }
 
     export type RedshiftDestinationConfigType = typeof RedshiftDestinationConfigType[keyof typeof RedshiftDestinationConfigType];
@@ -18712,8 +18695,7 @@ export namespace Schemas {
     /**
      * Typed configuration for a Redshift batch-export destination.
      *
-     * Connection credentials may live in a linked Integration (when one is provided) or inline in
-     * this config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
+     * Connection credentials live in the linked Integration, never here. Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
      * `products/batch_exports/backend/service.py`.
      */
     export interface RedshiftDestinationConfig {
@@ -39942,6 +39924,16 @@ export namespace Schemas {
       Duration: 'Duration',
     } as const;
 
+    export type PropertyDefinitionTypeNameEnum = typeof PropertyDefinitionTypeNameEnum[keyof typeof PropertyDefinitionTypeNameEnum];
+
+
+    export const PropertyDefinitionTypeNameEnum = {
+      Event: 'event',
+      Person: 'person',
+      Group: 'group',
+      Session: 'session',
+    } as const;
+
     /**
      * Serializer mixin that handles tags for objects.
      */
@@ -39965,6 +39957,13 @@ export namespace Schemas {
       hidden?: boolean | null;
       /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
       readonly warehouse_origin: unknown;
+      /** Kind of property: an event, person, group or session property. */
+      readonly type: PropertyDefinitionTypeNameEnum;
+      /**
+         * Group type index of a group property, null for every other type.
+         * @nullable
+         */
+      readonly group_type_index: number | null;
     }
 
     export interface ErrorDetail {
@@ -54696,7 +54695,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * One row of the workflows list: the summary fields and the workflow type, without the step graph.
+     * Mixin for serializers to add user access control fields
      */
     export interface HogFlowListSummary {
       readonly id: string;
@@ -84356,6 +84355,13 @@ export namespace Schemas {
       hidden?: boolean | null;
       /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
       readonly warehouse_origin?: unknown;
+      /** Kind of property: an event, person, group or session property. */
+      readonly type?: PropertyDefinitionTypeNameEnum;
+      /**
+         * Group type index of a group property, null for every other type.
+         * @nullable
+         */
+      readonly group_type_index?: number | null;
     }
 
     export interface PatchedErrorTrackingAlertUpdateRequest {
@@ -97231,6 +97237,57 @@ export namespace Schemas {
       Event: 'event',
       Person: 'person',
     } as const;
+
+    export interface PropertyUsageEntry {
+      /** Property definition type the name belongs to.
+       *
+       * * `event` - Event
+       * * `person` - Person
+       * * `group` - Group
+       * * `session` - Session */
+      type?: PropertyDefinitionTypeNameEnum;
+      /**
+         * Property name, for example `$current_url`.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Group type index of a group property. Required when `type` is `group`, otherwise omit it.
+         * @minimum 0
+         * @maximum 4
+         * @nullable
+         */
+      group_type_index?: number | null;
+    }
+
+    export interface PropertyUsageMetricsItem {
+      /** Property definition type the name belongs to.
+       *
+       * * `event` - Event
+       * * `person` - Person
+       * * `group` - Group
+       * * `session` - Session */
+      type: PropertyDefinitionTypeNameEnum;
+      /** Property name. */
+      name: string;
+      /**
+         * Group type index of a group property, null for other types.
+         * @nullable
+         */
+      group_type_index: number | null;
+      /** Number of query executions in the last 30 days that referenced this property, including cached insight views. */
+      query_usage_30_day: number;
+    }
+
+    export interface PropertyUsageMetricsRequest {
+      /** Properties to fetch 30-day query usage for, at most 100 per request. */
+      properties: PropertyUsageEntry[];
+    }
+
+    export interface PropertyUsageMetricsResponse {
+      /** One entry per requested property, in request order. */
+      results: PropertyUsageMetricsItem[];
+    }
 
     export interface PropertyValueItem {
       count?: number | null;
@@ -119157,6 +119214,8 @@ export namespace Schemas {
          * @nullable
          */
       ready_at: string | null;
+      /** Whether the organization's Trino catalog is backed by hoglake. Hoglake credentials reach nothing otherwise. */
+      hoglake: boolean;
       /** Trino connection target. Null until Trino is ready and reachable. */
       connection: WarehouseTrinoConnection | null;
     }

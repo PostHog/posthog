@@ -42,29 +42,50 @@ export const NEW_WORKFLOW_HANDOFF: AiFirstHandoffLogicProps = {
     createdIdProperty: 'workflow_id',
 }
 
-export function workflowHandoffInFolder(folder: string | null): AiFirstHandoffLogicProps {
+const FILING_DEADLINE_MS = 10_000
+
+async function fileWorkflow(id: string, folder: string): Promise<void> {
+    // Filing is a follow-up step, so a failed move still opens the workflow the person just made.
+    try {
+        const { results } = await api.fileSystem.list({ type: 'hog_flow', ref: id })
+        const entry = results.find((item) => item.type === 'hog_flow' && item.ref === id && !item.shortcut)
+        if (!entry?.id) {
+            throw new Error('Workflow file not found')
+        }
+        const { newPath, isValidMove } = calculateMovePath(entry, folder)
+        if (isValidMove) {
+            await api.fileSystem.move(entry.id, newPath)
+            projectTreeDataLogic.findMounted()?.actions.movedItem(entry, entry.path, newPath)
+        }
+    } catch {
+        lemonToast.warning(
+            `Your workflow was created, but it couldn't be moved into ${folder}. It's in Unfiled / Workflows.`
+        )
+    }
+}
+
+export function workflowHandoffInFolder(
+    folder: string | null,
+    filingDeadlineMs = FILING_DEADLINE_MS
+): AiFirstHandoffLogicProps {
     if (!folder) {
         return NEW_WORKFLOW_HANDOFF
     }
     return {
         ...NEW_WORKFLOW_HANDOFF,
         prepareCreated: async (id) => {
-            // Filing is a follow-up step, so a failed move still opens the workflow the person just made.
+            // File requests have no timeout, so a stalled one would keep the new workflow from opening. Past the
+            // deadline the workflow opens, and filing goes on: it still moves the file or warns when it fails.
+            let deadline: ReturnType<typeof setTimeout> | undefined
             try {
-                const { results } = await api.fileSystem.list({ type: 'hog_flow', ref: id })
-                const entry = results.find((item) => item.type === 'hog_flow' && item.ref === id && !item.shortcut)
-                if (!entry?.id) {
-                    throw new Error('Workflow file not found')
-                }
-                const { newPath, isValidMove } = calculateMovePath(entry, folder)
-                if (isValidMove) {
-                    await api.fileSystem.move(entry.id, newPath)
-                    projectTreeDataLogic.findMounted()?.actions.movedItem(entry, entry.path, newPath)
-                }
-            } catch {
-                lemonToast.warning(
-                    `Your workflow was created, but it couldn't be moved into ${folder}. It's in Unfiled / Workflows.`
-                )
+                await Promise.race([
+                    fileWorkflow(id, folder),
+                    new Promise<void>((resolve) => {
+                        deadline = setTimeout(resolve, filingDeadlineMs)
+                    }),
+                ])
+            } finally {
+                clearTimeout(deadline)
             }
         },
     }

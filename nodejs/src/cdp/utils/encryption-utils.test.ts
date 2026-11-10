@@ -14,6 +14,7 @@ describe('Encrypted fields', () => {
         const empty = new EncryptedFields('')
         expect(() => empty.encrypt('test')).toThrow('Encryption keys are not set')
         expect(() => empty.decrypt('test')).toThrow('Encryption keys are not set')
+        expect(() => empty.tryDecrypt('test')).toThrow('Encryption keys are not set')
         expect(() => empty.sign('purpose', 'test')).toThrow('Encryption keys are not set')
     })
 

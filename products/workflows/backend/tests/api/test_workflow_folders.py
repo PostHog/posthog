@@ -5,7 +5,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
-from django.db import close_old_connections, transaction
+from django.db import close_old_connections, connection, transaction
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
@@ -75,6 +75,46 @@ class TestWorkflowFolders(APIBaseTest):
             )
             self.assertEqual(restored.status_code, 200 if level == "editor" else 400, restored.content)
 
+    def test_workflow_viewers_cannot_place_or_unlink_a_workflow_file(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        template = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {"name": "Shared email", "type": "email"},
+            format="json",
+        ).json()
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        entry = self.client.get(files_url, {"type": "message_template", "ref": template["id"]}).json()["results"][0]
+        copy = {"path": "Copies/Shared email", "type": "message_template", "ref": template["id"]}
+        self.assertEqual(self.client.post(files_url, copy, format="json").status_code, 201)
+        viewer = User.objects.create_and_join(self.organization, "viewer@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", access_level="viewer", organization_member_id=membership.id
+        )
+        self.client.force_login(viewer)
+
+        placed = self.client.post(files_url, {**copy, "path": "Viewer/Shared email"}, format="json")
+        shortcut = self.client.post(files_url, {**copy, "path": "Viewer/Shortcut", "shortcut": True}, format="json")
+        promoted = self.client.patch(f"{files_url}{shortcut.json()['id']}/", {"shortcut": False}, format="json")
+        folder = self.client.post(files_url, {"path": "Viewer/Folder", "type": "folder"}, format="json")
+        retyped = self.client.patch(
+            f"{files_url}{folder.json()['id']}/", {"type": "message_template", "ref": template["id"]}, format="json"
+        )
+        unlinked = self.client.delete(f"{files_url}{entry['id']}/")
+
+        self.assertEqual(
+            [placed.status_code, promoted.status_code, retyped.status_code, unlinked.status_code],
+            [403, 403, 403, 403],
+            [placed.content, promoted.content, retyped.content, unlinked.content],
+        )
+        rows = self.client.get(files_url, {"type": "message_template", "ref": template["id"]}).json()["results"]
+        self.assertEqual(
+            sorted(row["path"] for row in rows if not row["shortcut"]), sorted([entry["path"], "Copies/Shared email"])
+        )
+
     def test_private_workflow_files_follow_member_grants(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -123,11 +163,14 @@ class TestWorkflowFolders(APIBaseTest):
         removed = self.client.delete(f"/api/projects/{self.team.id}/file_system_shortcut/{stale.id}/")
         self.assertEqual(removed.status_code, 204, removed.content)
 
-        alias = self.client.post(
+        placed = self.client.post(
             files_url, {"path": "Private renewal copy", "type": "hog_flow", "ref": workflow.id.hex}, format="json"
         )
-        self.assertEqual(alias.status_code, 201, alias.content)
-        alias_deleted = self.client.delete(f"{files_url}{alias.json()['id']}/")
+        self.assertEqual(placed.status_code, 403, placed.content)
+        alias = FileSystem.objects.create(
+            team=self.team, path="Private renewal copy", depth=1, type="hog_flow", ref=workflow.id.hex, shortcut=False
+        )
+        alias_deleted = self.client.delete(f"{files_url}{alias.id}/")
         self.assertEqual(alias_deleted.status_code, 404, alias_deleted.content)
         self.assertTrue(HogFlow.objects.filter(pk=workflow.id).exists())
 
@@ -178,18 +221,26 @@ class TestWorkflowFolders(APIBaseTest):
             ("workflow_folder_alias_too_long", "hog_flows", "folder", "a" * 4001),
             ("template_too_deep", "messaging_templates", "_create_in_folder", "/".join(["Level"] * 51)),
             ("template_too_long", "messaging_templates", "_create_in_folder", "a" * 4001),
+            ("workflow_name_past_the_depth", "hog_flows", "_create_in_folder", "/".join(["Level"] * 50)),
+            ("workflow_name_past_the_length", "hog_flows", "_create_in_folder", "a" * 4000),
+            ("template_name_past_the_depth", "messaging_templates", "_create_in_folder", "/".join(["Level"] * 50)),
+            ("template_name_past_the_length", "messaging_templates", "_create_in_folder", "a" * 4000),
+            ("unnamed_workflow_past_the_depth", "hog_flows", "_create_in_folder", "/".join(["Level"] * 50), None),
+            ("unnamed_workflow_past_the_length", "hog_flows", "_create_in_folder", "a" * 3999, ""),
+            ("workflow_folder_alias_name_past_the_depth", "hog_flows", "folder", "/".join(["Level"] * 50)),
+            ("unnamed_workflow_folder_alias_past_the_length", "hog_flows", "folder", "a" * 3999, ""),
         ]
     )
     def test_create_in_folder_rejects_paths_past_the_tree_limits(
-        self, _name: str, resource: str, field: str, folder: str
+        self, _name: str, resource: str, field: str, folder: str, name: str | None = "Bounded"
     ) -> None:
         payloads: dict[str, dict[str, Any]] = {
             "hog_flows": {
-                "name": "Bounded",
+                "name": name,
                 "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
                 "edges": [],
             },
-            "messaging_templates": {"name": "Bounded", "type": "email"},
+            "messaging_templates": {"name": name, "type": "email"},
         }
         payload = payloads[resource]
 
@@ -352,6 +403,78 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/").status_code, 200)
         self.assertEqual(self.client.get(f"{files_url}{file['id']}/").json()["path"], "Campaigns/Welcome")
 
+    @parameterized.expand(
+        [
+            ("workflow_file_system_scopes_only", "hog_flows", ["file_system:read", "file_system:write"], 403, 200),
+            ("workflow_with_write_scope", "hog_flows", ["file_system:write", "hog_flow:write"], 200, 404),
+            (
+                "template_file_system_scopes_only",
+                "messaging_templates",
+                ["file_system:read", "file_system:write"],
+                403,
+                200,
+            ),
+            ("template_with_write_scope", "messaging_templates", ["file_system:write", "hog_flow:write"], 200, 404),
+        ]
+    )
+    def test_tree_delete_of_a_workflow_object_needs_the_workflow_write_scope(
+        self, _name: str, endpoint: str, scopes: list[str], delete_status: int, object_status: int
+    ) -> None:
+        if endpoint == "hog_flows":
+            object_id, file = self._workflow_file_in_folder("archived")
+        else:
+            object_id = self.client.post(
+                f"/api/projects/{self.team.id}/messaging_templates/",
+                {"name": "Scoped email", "type": "email"},
+                format="json",
+            ).json()["id"]
+            file = self.client.get(
+                f"/api/projects/{self.team.id}/file_system/", {"type": "message_template", "ref": object_id}
+            ).json()["results"][0]
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        deleted = self.client.delete(
+            f"/api/projects/{self.team.id}/file_system/{file['id']}/", HTTP_AUTHORIZATION=f"Bearer {key}"
+        )
+
+        self.assertEqual(deleted.status_code, delete_status, deleted.content)
+        self.client.force_login(self.user)
+        stored = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/{object_id}/")
+        self.assertEqual(stored.status_code, object_status, stored.content)
+
+    @parameterized.expand(
+        [
+            ("file_system_scopes_only", ["file_system:read", "file_system:write"], 403, 404),
+            ("with_write_scope", ["file_system:write", "hog_flow:write"], 200, 200),
+        ]
+    )
+    def test_tree_restore_of_a_template_needs_the_workflow_write_scope(
+        self, _name: str, scopes: list[str], restore_status: int, template_status: int
+    ) -> None:
+        template_id = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {"name": "Restored email", "type": "email"},
+            format="json",
+        ).json()["id"]
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        file = self.client.get(files_url, {"type": "message_template", "ref": template_id}).json()["results"][0]
+        self.assertEqual(self.client.delete(f"{files_url}{file['id']}/").status_code, 200)
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        restored = self.client.post(
+            f"{files_url}undo_delete/",
+            {"items": [{"type": "message_template", "ref": template_id}]},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        self.assertEqual(restored.status_code, restore_status, restored.content)
+        self.client.force_login(self.user)
+        template = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template_id}/")
+        self.assertEqual(template.status_code, template_status, template.content)
+
     def test_deleting_workflow_through_the_project_tree_records_activity(self) -> None:
         workflow_id, file = self._workflow_file_in_folder("archived")
         with self.captureOnCommitCallbacks(execute=True):
@@ -464,36 +587,64 @@ class TestWorkflowTreeDeleteDuringSave(NonAtomicBaseTest):
         self.client = APIClient()
         self.client.force_login(self.user)
 
-    def test_tree_delete_refuses_while_a_save_holds_the_workflow(self) -> None:
-        created = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/",
-            {
-                "name": "Welcome",
-                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
-                "edges": [],
-            },
-            format="json",
-        )
-        self.assertEqual(created.status_code, 201, created.content)
-        workflow_id = created.json()["id"]
-        HogFlow.objects.filter(id=workflow_id).update(status=HogFlow.State.ARCHIVED)
+    @parameterized.expand(
+        [
+            (
+                "workflow",
+                "hog_flow",
+                "SELECT 1 FROM posthog_hogflow WHERE id = %s FOR UPDATE",
+                "This workflow is being saved. Try again in a moment.",
+            ),
+            (
+                "template",
+                "message_template",
+                "SELECT 1 FROM posthog_messagetemplate WHERE id = %s FOR UPDATE",
+                "This template is being saved. Try again in a moment.",
+            ),
+        ]
+    )
+    def test_tree_delete_refuses_while_a_save_holds_the_object(
+        self, _name: str, file_type: str, lock_row: str, busy_detail: str
+    ) -> None:
+        if file_type == "hog_flow":
+            created = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/",
+                {
+                    "name": "Welcome",
+                    "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                    "edges": [],
+                },
+                format="json",
+            )
+            self.assertEqual(created.status_code, 201, created.content)
+            object_url = f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/"
+            HogFlow.objects.filter(id=created.json()["id"]).update(status=HogFlow.State.ARCHIVED)
+        else:
+            created = self.client.post(
+                f"/api/projects/{self.team.id}/messaging_templates/",
+                {"name": "Welcome", "type": "email"},
+                format="json",
+            )
+            self.assertEqual(created.status_code, 201, created.content)
+            object_url = f"/api/projects/{self.team.id}/messaging_templates/{created.json()['id']}/"
+        object_id = created.json()["id"]
         files_url = f"/api/projects/{self.team.id}/file_system/"
-        file_id = self.client.get(files_url, {"type": "hog_flow", "ref": workflow_id}).json()["results"][0]["id"]
+        file_id = self.client.get(files_url, {"type": file_type, "ref": object_id}).json()["results"][0]["id"]
         locked = Event()
         release = Event()
 
-        def hold_workflow_like_a_save() -> None:
+        def hold_the_row_like_a_save() -> None:
             close_old_connections()
             try:
-                with transaction.atomic():
-                    HogFlow.objects.select_for_update().get(pk=workflow_id)
+                with transaction.atomic(), connection.cursor() as cursor:
+                    cursor.execute(lock_row, [object_id])
                     locked.set()
                     release.wait(timeout=10)
             finally:
                 close_old_connections()
 
         with ThreadPoolExecutor(max_workers=1) as executor:
-            holder = executor.submit(hold_workflow_like_a_save)
+            holder = executor.submit(hold_the_row_like_a_save)
             self.assertTrue(locked.wait(timeout=5))
             try:
                 refused = self.client.delete(f"{files_url}{file_id}/")
@@ -502,9 +653,49 @@ class TestWorkflowTreeDeleteDuringSave(NonAtomicBaseTest):
             holder.result(timeout=15)
 
         self.assertEqual(refused.status_code, 409, refused.content)
-        self.assertEqual(refused.json()["detail"], "This workflow is being saved. Try again in a moment.")
+        self.assertEqual(refused.json()["detail"], busy_detail)
         self.assertEqual(self.client.get(f"{files_url}{file_id}/").status_code, 200)
 
         deleted = self.client.delete(f"{files_url}{file_id}/")
         self.assertEqual(deleted.status_code, 200, deleted.content)
-        self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow_id}/").status_code, 404)
+        self.assertEqual(self.client.get(object_url).status_code, 404)
+
+    def test_template_tree_delete_keeps_a_save_that_commits_after_the_delete_read_the_template(self) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/", {"name": "Welcome", "type": "email"}, format="json"
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        template_id = created.json()["id"]
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        file_id = self.client.get(files_url, {"type": "message_template", "ref": template_id}).json()["results"][0][
+            "id"
+        ]
+        saves: list[str] = []
+
+        def save_from_another_connection() -> None:
+            close_old_connections()
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE posthog_messagetemplate SET name = %s WHERE id = %s", ["Welcome v2", template_id]
+                    )
+            finally:
+                close_old_connections()
+
+        def commit_a_save_after_the_first_template_read(
+            execute: Any, sql: str, params: Any, many: bool, context: Any
+        ) -> Any:
+            result = execute(sql, params, many, context)
+            if not saves and sql.startswith('SELECT "posthog_messagetemplate"."id"') and "FOR UPDATE" not in sql:
+                saves.append(sql)
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    executor.submit(save_from_another_connection).result(timeout=10)
+            return result
+
+        with connection.execute_wrapper(commit_a_save_after_the_first_template_read):
+            deleted = self.client.delete(f"{files_url}{file_id}/")
+
+        self.assertEqual(deleted.status_code, 200, deleted.content)
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT name, deleted FROM posthog_messagetemplate WHERE id = %s", [template_id])
+            self.assertEqual(cursor.fetchone(), ("Welcome v2", True))

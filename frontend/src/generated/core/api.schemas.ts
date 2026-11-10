@@ -5475,6 +5475,16 @@ export const PropertyTypeEnumApi = {
     Duration: 'Duration',
 } as const
 
+export type PropertyDefinitionTypeNameEnumApi =
+    (typeof PropertyDefinitionTypeNameEnumApi)[keyof typeof PropertyDefinitionTypeNameEnumApi]
+
+export const PropertyDefinitionTypeNameEnumApi = {
+    Event: 'event',
+    Person: 'person',
+    Group: 'group',
+    Session: 'session',
+} as const
+
 /**
  * Serializer mixin that handles tags for objects.
  */
@@ -5498,6 +5508,13 @@ export interface EnterprisePropertyDefinitionApi {
     hidden?: boolean | null
     /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
     readonly warehouse_origin: unknown
+    /** Kind of property: an event, person, group or session property. */
+    readonly type: PropertyDefinitionTypeNameEnumApi
+    /**
+     * Group type index of a group property, null for every other type.
+     * @nullable
+     */
+    readonly group_type_index: number | null
 }
 
 export interface PaginatedEnterprisePropertyDefinitionListApi {
@@ -5532,6 +5549,13 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     hidden?: boolean | null
     /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
     readonly warehouse_origin?: unknown
+    /** Kind of property: an event, person, group or session property. */
+    readonly type?: PropertyDefinitionTypeNameEnumApi
+    /**
+     * Group type index of a group property, null for every other type.
+     * @nullable
+     */
+    readonly group_type_index?: number | null
 }
 
 /**
@@ -5580,6 +5604,57 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export interface PropertyUsageEntryApi {
+    /** Property definition type the name belongs to.
+     *
+     * * `event` - Event
+     * * `person` - Person
+     * * `group` - Group
+     * * `session` - Session */
+    type?: PropertyDefinitionTypeNameEnumApi
+    /**
+     * Property name, for example `$current_url`.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Group type index of a group property. Required when `type` is `group`, otherwise omit it.
+     * @minimum 0
+     * @maximum 4
+     * @nullable
+     */
+    group_type_index?: number | null
+}
+
+export interface PropertyUsageMetricsRequestApi {
+    /** Properties to fetch 30-day query usage for, at most 100 per request. */
+    properties: PropertyUsageEntryApi[]
+}
+
+export interface PropertyUsageMetricsItemApi {
+    /** Property definition type the name belongs to.
+     *
+     * * `event` - Event
+     * * `person` - Person
+     * * `group` - Group
+     * * `session` - Session */
+    type: PropertyDefinitionTypeNameEnumApi
+    /** Property name. */
+    name: string
+    /**
+     * Group type index of a group property, null for other types.
+     * @nullable
+     */
+    group_type_index: number | null
+    /** Number of query executions in the last 30 days that referenced this property, including cached insight views. */
+    query_usage_30_day: number
+}
+
+export interface PropertyUsageMetricsResponseApi {
+    /** One entry per requested property, in request order. */
+    results: PropertyUsageMetricsItemApi[]
 }
 
 export interface SearchIntentRequestApi {
