@@ -10,6 +10,7 @@ import {
     CyclotronJobInvocationResult,
     CyclotronJobQueueKind,
     CyclotronJobQueueSource,
+    IntegrationType,
 } from '../../types'
 import { EncryptedFields } from '../../utils/encryption-utils'
 import {
@@ -78,7 +79,7 @@ export function sanitizeInvocationForPersistence(
     }
 
     const signRef = integrationRefSigner
-        ? (inputKey: string, id: string | number) =>
+        ? (inputKey: string, id: IntegrationType['id']) =>
               signIntegrationRef(integrationRefSigner, invocation.teamId, inputKey, id)
         : undefined
 
@@ -111,7 +112,10 @@ export function sanitizeInvocationForPersistence(
 
 function sanitizeGlobals(
     globals: Record<string, any>,
-    { stripPerson, signRef }: { stripPerson?: boolean; signRef?: (inputKey: string, id: string | number) => string }
+    {
+        stripPerson,
+        signRef,
+    }: { stripPerson?: boolean; signRef?: (inputKey: string, id: IntegrationType['id']) => string }
 ): Record<string, any> {
     const hasGroups = globals.groups && Object.keys(globals.groups).length > 0
     const hasPerson = stripPerson && globals.person

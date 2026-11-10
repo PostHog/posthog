@@ -18,6 +18,7 @@ import {
     IntegrationInputRef,
     isIntegrationRef,
     isSignedIntegrationRef,
+    markServerResolvedIntegration,
 } from '../utils/integration-input-refs'
 import { LiquidRenderBudget, LiquidRenderer } from '../utils/liquid'
 import { NATIVE_PUSH_TEMPLATE_ID, getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
@@ -241,7 +242,7 @@ export class HogInputsService {
         if (isWarehouseSourceIntegration(integration)) {
             return null
         }
-        return {
+        return markServerResolvedIntegration({
             $integration_id: integration.id,
             ...integration.config,
             ...integration.sensitive_config,
@@ -251,7 +252,7 @@ export class HogInputsService {
                       access_token_raw: integration.sensitive_config.access_token ?? integration.config?.access_token,
                   }
                 : {}),
-        }
+        })
     }
 
     /**

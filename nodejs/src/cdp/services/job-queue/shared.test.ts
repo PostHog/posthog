@@ -2,7 +2,7 @@ import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'
 import { EncryptedFields } from '../../utils/encryption-utils'
-import { signIntegrationRef } from '../../utils/integration-input-refs'
+import { markServerResolvedIntegration, signIntegrationRef } from '../../utils/integration-input-refs'
 import { createInvocation } from '../../utils/invocation-utils'
 import { serializeInvocation } from './job-queue-kafka'
 import { invocationToV2JobInit } from './job-queue-postgres-v2'
@@ -309,16 +309,24 @@ describe('integration input references', () => {
     // The shape `HogInputsService.loadIntegrationInputs` gives a function: config, sensitive_config and the raw token.
     const resolvedInputs = (): Record<string, any> => ({
         url: 'https://example.com',
-        twilio: {
+        twilio: markServerResolvedIntegration({
             $integration_id: 11,
             account_sid: 'AC-fake',
             auth_token: 'fake-auth-token-value',
             access_token: '$$_access_token_placeholder_11_abc',
             access_token_raw: 'fake-access-token-value',
-        },
+        }),
         channels: [
-            { $integration_id: 12, project_id: 'fake-project', access_token_raw: 'fake-access-token-value' },
-            { $integration_id: 13, bundle_id: 'com.example.app', signing_key: 'fake-signing-key-value' },
+            markServerResolvedIntegration({
+                $integration_id: 12,
+                project_id: 'fake-project',
+                access_token_raw: 'fake-access-token-value',
+            }),
+            markServerResolvedIntegration({
+                $integration_id: 13,
+                bundle_id: 'com.example.app',
+                signing_key: 'fake-signing-key-value',
+            }),
         ],
     })
 
@@ -419,6 +427,10 @@ describe('integration input references', () => {
     it.each([
         ['no integration input', { url: 'https://example.com', body: { a: 1 } }],
         ['an integration input that did not resolve', { url: 'https://example.com', twilio: null, channels: [] }],
+        [
+            'event data shaped like a resolved integration',
+            { url: 'https://example.com', twilio: { $integration_id: 11 }, channels: [{ $integration_id: 12 }] },
+        ],
     ])('returns the original invocation when there is %s', (_name, inputs) => {
         const invocation = createInvocation({ ...createHogExecutionGlobals(), inputs }, hogFunction)
         delete invocation.state.globals.groups
