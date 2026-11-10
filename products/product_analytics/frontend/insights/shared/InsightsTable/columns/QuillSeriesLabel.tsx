@@ -1,3 +1,5 @@
+import { ReactNode } from 'react'
+
 import { Badge, Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
@@ -18,6 +20,8 @@ interface QuillSeriesLabelProps {
     emphasize: boolean
     onRename?: () => void
     nameTooltip?: string
+    /** Shown right after the name, before the tags. */
+    swatch?: ReactNode
 }
 
 export function QuillSeriesLabel({
@@ -28,6 +32,7 @@ export function QuillSeriesLabel({
     emphasize,
     onRename,
     nameTooltip,
+    swatch,
 }: QuillSeriesLabelProps): JSX.Element {
     const entity = series.node
     const math = series.math
@@ -50,7 +55,7 @@ export function QuillSeriesLabel({
                     size="sm"
                     tooltip={nameTooltip ?? 'Rename series'}
                     onClick={onRename}
-                    className="-ml-1.5 min-w-0"
+                    className="-mx-2 min-w-0"
                 >
                     {name}
                 </Button>
@@ -62,6 +67,7 @@ export function QuillSeriesLabel({
             ) : (
                 <span className="min-w-0">{name}</span>
             )}
+            {swatch}
             {((math?.math && math.math !== 'total') || showCountedByTag) && <QuillMathBadge math={math} />}
             {compareValue && <Badge>{compareValue}</Badge>}
         </span>

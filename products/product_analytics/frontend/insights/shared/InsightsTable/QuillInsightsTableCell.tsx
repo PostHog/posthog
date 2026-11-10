@@ -60,6 +60,8 @@ export function QuillInsightsTableCell({
     const compareValue =
         (item.compare || item.compare_label) && !model.isCompareTable ? formatCompareLabel(item) : undefined
 
+    const swatch = context.showSwatch ? <QuillSeriesColorButton item={item} /> : null
+
     let content: ReactNode = null
     switch (column.kind) {
         case 'label':
@@ -74,12 +76,12 @@ export function QuillInsightsTableCell({
                             className="mr-2"
                         />
                     )}
-                    {context.showSwatch && <QuillSeriesColorButton item={item} />}
                     {model.isSingleSeriesWithBreakdown ? (
                         <QuillBreakdownValue
                             label={model.formatItemBreakdownLabel!(item)}
                             breakdownFilter={breakdownFilter}
                             compareValue={compareValue}
+                            swatch={swatch}
                         />
                     ) : (
                         <QuillSeriesLabel
@@ -92,6 +94,7 @@ export function QuillInsightsTableCell({
                                 context.canEditSeriesNameInline ? () => model.handleSeriesEditClick(item) : undefined
                             }
                             nameTooltip={context.seriesNameTooltip}
+                            swatch={swatch}
                         />
                     )}
                 </span>

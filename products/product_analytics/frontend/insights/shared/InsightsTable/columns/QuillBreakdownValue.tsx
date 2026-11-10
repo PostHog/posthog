@@ -1,3 +1,5 @@
+import { ReactNode } from 'react'
+
 import { IconExternal } from '@posthog/icons'
 import { Badge, Button } from '@posthog/quill'
 
@@ -13,9 +15,16 @@ interface QuillBreakdownValueProps {
     breakdownFilter?: BreakdownFilter | null
     /** "Current" or "Previous", shown when the breakdown value stands in for the series name. */
     compareValue?: string
+    /** Shown right after the value, when the value stands in for the series name. */
+    swatch?: ReactNode
 }
 
-export function QuillBreakdownValue({ label, breakdownFilter, compareValue }: QuillBreakdownValueProps): JSX.Element {
+export function QuillBreakdownValue({
+    label,
+    breakdownFilter,
+    compareValue,
+    swatch,
+}: QuillBreakdownValueProps): JSX.Element {
     // Not for links: a link stays on one line, and Chrome still breaks a no-wrap line at a <wbr>.
     const formattedLabel = breakdownFilter?.breakdown_path_cleaning
         ? parseAliasToReadable(label)
@@ -33,7 +42,8 @@ export function QuillBreakdownValue({ label, breakdownFilter, compareValue }: Qu
                         nativeButton={false}
                         render={<LinkPrimitive to={label} target="_blank" />}
                         title={label}
-                        className="min-w-0 max-w-full"
+                        // Lines the link text up with plain values, the column header and the swatch after it.
+                        className="-mx-2 min-w-0 max-w-full"
                     >
                         <span className="truncate">{label}</span>
                         <IconExternal />
@@ -43,6 +53,7 @@ export function QuillBreakdownValue({ label, breakdownFilter, compareValue }: Qu
                         {formattedLabel}
                     </span>
                 ))}
+            {swatch}
             {compareValue && <Badge>{compareValue}</Badge>}
         </span>
     )
