@@ -5,7 +5,7 @@ from datetime import timedelta
 from temporalio.common import RetryPolicy
 
 # Agent configuration
-EVAL_REPORT_AGENT_MODEL = "gpt-5.2"
+EVAL_REPORT_AGENT_MODEL = "gpt-6.1-terra"
 EVAL_REPORT_AGENT_RECURSION_LIMIT = 100
 EVAL_REPORT_AGENT_TIMEOUT = 600.0  # 10 minutes
 

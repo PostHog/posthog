@@ -145,6 +145,7 @@ def build_langchain_chat_client(
     distinct_id: str | None = None,
     service_tier: Literal["flex"] | None = None,
     max_retries: int = 2,
+    use_responses_api: bool = False,
 ) -> ChatOpenAI:
     """Return a ChatOpenAI client for the labeling/report agents. Cloud/DEBUG only.
 
@@ -153,6 +154,10 @@ def build_langchain_chat_client(
     call. In gateway mode the bearer selects the capture project, while ``distinct_id`` attributes
     the generation to the customer user or team. The other observability arguments correlate every
     model call in one agent invocation.
+
+    ``use_responses_api`` sends calls to /v1/responses, which the gpt-6 models need for function tools
+    with reasoning on. Those calls never store the response: /v1/responses keeps one for 30 days by
+    default, and agent prompts carry customer traces.
     """
     if not settings.DEBUG and not is_cloud():
         raise ApplicationError(
@@ -180,13 +185,21 @@ def build_langchain_chat_client(
             http_client=httpx.Client(trust_env=False),
             http_async_client=httpx.AsyncClient(trust_env=False),
             service_tier=service_tier,
+            use_responses_api=use_responses_api or None,
+            store=False if use_responses_api else None,
         )
 
     direct_key = os.environ.get("OPENAI_API_KEY")
     if not direct_key:
         raise Exception("OPENAI_API_KEY is not configured")
     return FlexFirstChatOpenAI(
-        model=model, api_key=direct_key, timeout=timeout, max_retries=max_retries, service_tier=service_tier
+        model=model,
+        api_key=direct_key,
+        timeout=timeout,
+        max_retries=max_retries,
+        service_tier=service_tier,
+        use_responses_api=use_responses_api or None,
+        store=False if use_responses_api else None,
     )
 
 
@@ -208,6 +221,7 @@ def build_flex_first_chat_client(
     properties: Mapping[str, str],
     distinct_id: str,
     flex: bool = True,
+    use_responses_api: bool = False,
 ) -> ChatOpenAI:
     """Return a ChatOpenAI client that prefers the flex service tier.
 
@@ -230,6 +244,7 @@ def build_flex_first_chat_client(
         distinct_id=distinct_id,
         service_tier="flex" if use_flex else None,
         max_retries=0 if use_flex else 1,
+        use_responses_api=use_responses_api,
     )
 
 

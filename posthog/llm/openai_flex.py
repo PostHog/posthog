@@ -4,10 +4,11 @@ from openai import APIConnectionError, APIError, APIStatusError, InternalServerE
 
 # OpenAI decides flex eligibility per model, and the pro tiers are excluded, so callers must
 # check membership here rather than infer it from a model family prefix. This mirrors the flex
-# table on https://developers.openai.com/api/docs/pricing?latest-pricing=flex (September 2026);
-# a new model joins only after someone checks that page.
+# table on https://developers.openai.com/api/docs/pricing?latest-pricing=flex (September 2026;
+# gpt-6.1-terra checked November 2026); a new model joins only after someone checks that page.
 FLEX_CAPABLE_MODELS: frozenset[str] = frozenset(
     {
+        "gpt-6.1-terra",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
         "gpt-5.6-luna",

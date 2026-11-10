@@ -497,6 +497,7 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
             session_id="report-session-1",
             properties={"team_id": "1", "evaluation_id": "eval-1", "report_id": "report-1"},
             distinct_id="team-1",
+            use_responses_api=True,
         )
         # the agent is built with the gateway-helper client, not a directly-constructed one
         self.assertIs(mock_create_agent.call_args.kwargs["model"], mock_build_llm.return_value)
