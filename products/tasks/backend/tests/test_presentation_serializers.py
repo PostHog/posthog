@@ -9,6 +9,7 @@ from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 from rest_framework import authentication
+from rest_framework.exceptions import ValidationError
 from rest_framework.serializers import Serializer
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
@@ -79,9 +80,72 @@ class TestSandboxEnvironmentWriteSerializer(SimpleTestCase):
 
 class TestRepositoryValidationWithoutTaskData(SimpleTestCase):
     @parameterized.expand([(ChannelUpdateSerializer,), (WarmTaskRequestSerializer,)])
-    def test_normalizes_repositories(self, serializer_class: type[Serializer]) -> None:
+    def test_normalizes_repositories(
+        self, serializer_class: type[ChannelUpdateSerializer] | type[WarmTaskRequestSerializer]
+    ) -> None:
         serializer = serializer_class()
         assert serializer.validate_repositories(["PostHog/PostHog"]) == ["posthog/posthog"]
+
+
+class TestTaskWriteSerializerProviderUpdates(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("gitlab_to_github", 1, None, {"github_integration": SimpleNamespace(id=2)}),
+            ("github_to_gitlab", None, 2, {"repository_integration": SimpleNamespace(id=1)}),
+        ]
+    )
+    def test_rejects_mixed_providers(self, _name, gitlab_id, github_id, changes) -> None:
+        current = SimpleNamespace(
+            repository="example/repo",
+            repositories=["example/repo"],
+            repository_integration=gitlab_id,
+            github_integration=github_id,
+            github_user_integration=None,
+        )
+        serializer = TaskWriteSerializer(instance=current, data={}, partial=True)
+        with self.assertRaisesRegex(ValidationError, "either a GitHub integration"):
+            serializer.validate(changes)
+
+    def test_gitlab_repository_update_checks_access(self) -> None:
+        current = SimpleNamespace(
+            repository="example/repo",
+            repositories=["example/repo"],
+            repository_integration=1,
+            github_integration=None,
+            github_user_integration=None,
+        )
+        serializer = TaskWriteSerializer(
+            instance=current,
+            data={},
+            partial=True,
+            context={"team": SimpleNamespace(id=1), "request": SimpleNamespace(user=object())},
+        )
+        with (
+            patch.object(
+                serializer.fields["repository_integration"], "run_validation", return_value=SimpleNamespace(id=1)
+            ),
+            patch("products.tasks.backend.facade.api.gitlab_tasks_enabled", return_value=True),
+            patch("products.tasks.backend.facade.api.gitlab_repository_error", return_value="Access denied"),
+        ):
+            with self.assertRaisesRegex(ValidationError, "Access denied"):
+                serializer.validate({"repository": "example/other"})
+
+    def test_github_integration_update_checks_existing_repository_access(self) -> None:
+        current = SimpleNamespace(
+            repository="example/repo",
+            repositories=["example/repo"],
+            repository_integration=None,
+            github_integration=2,
+            github_user_integration=None,
+        )
+        serializer = TaskWriteSerializer(
+            instance=current, data={}, partial=True, context={"team": SimpleNamespace(id=1)}
+        )
+        with patch(
+            "products.tasks.backend.facade.api.inaccessible_repositories_via_integration", return_value=["example/repo"]
+        ):
+            with self.assertRaisesRegex(ValidationError, "Not accessible"):
+                serializer.validate({"github_integration": SimpleNamespace(id=3)})
 
 
 class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
@@ -357,7 +421,12 @@ class TestArtifactContentWhitespace(SimpleTestCase):
         ]
     )
     def test_content_keeps_leading_and_trailing_whitespace(
-        self, _name: str, serializer_class: type[Serializer], data: dict, field: str, expected: str | bytes
+        self,
+        _name: str,
+        serializer_class: type[Serializer],
+        data: dict,
+        field: str,
+        expected: str | bytes,
     ) -> None:
         serializer = serializer_class(data=data)
 
