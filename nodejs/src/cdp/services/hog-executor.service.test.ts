@@ -450,7 +450,7 @@ describe('Hog Executor', () => {
             overrides: Partial<HogFunctionType> = {}
         ): Promise<HogFunctionType> => {
             const integration = await insertIntegration(hub.postgres, teamId, {
-                kind: 'twilio',
+                kind: 'twilio' as any,
                 config: { account_sid: 'AC-fake' },
                 sensitive_config: { auth_token: hub.encryptedFields.encrypt(INTEGRATION_SECRET) },
             })
@@ -568,6 +568,10 @@ describe('Hog Executor', () => {
                 ['the mappings were reordered', [SIGNUP, PURCHASE]],
                 ['a mapping was added before them', [REFUND, PURCHASE, SIGNUP]],
                 ['a mapping input value was edited', [PURCHASE, mapping('Sign up', 'new-signup-action')]],
+                [
+                    'the mapping filters were recompiled',
+                    [PURCHASE, { ...SIGNUP, filters: { ...SIGNUP.filters, bytecode_contract: 'recompiled-contract' } }],
+                ],
             ])('builds each invocation from its own mapping when %s', async (_name, mappingsAtRunTime) => {
                 const team = (await createTestTeamFixture(hub.postgres)).team
                 const hogFunction = await createSecretFunction(team.id, { mappings: [PURCHASE, SIGNUP] })

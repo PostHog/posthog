@@ -13,7 +13,7 @@ export type RebuildableInputsSource = {
 }
 
 // The compiled filter fields change when the compiler changes, not when the user edits the mapping.
-const COMPILED_FILTER_KEYS = new Set(['bytecode', 'transpiled', 'bytecode_error'])
+const COMPILED_FILTER_KEYS = new Set(['bytecode', 'transpiled', 'bytecode_error', 'bytecode_contract'])
 
 const stableJson = (value: unknown): string => {
     if (Array.isArray(value)) {

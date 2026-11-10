@@ -358,7 +358,7 @@ describe('CdpCyclotronWorker', () => {
             })
 
             // The function manager does not load a deleted row, so a deleted function is one it cannot find.
-            it.each([
+            it.each<[string, { id?: string; enabled?: boolean }, string]>([
                 ['deleted', { id: new UUIDT().toString() }, 'function_not_found'],
                 ['disabled', { enabled: false }, 'function_disabled'],
             ])('skips it as before when the function was %s after it was queued', async (_name, change, errorKind) => {
