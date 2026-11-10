@@ -21,7 +21,7 @@ from products.ai_observability.backend.logic.message_normalizer.errors import (
 from products.ai_observability.backend.logic.message_normalizer.normalizer import RecipeNormalizer
 from products.ai_observability.backend.logic.message_normalizer.run_limits import time_limit
 from products.ai_observability.backend.logic.message_normalizer.values import CompatMessage
-from products.ai_observability.backend.logic.traces.step_messages import UnrenderableToolValueError, to_messages
+from products.ai_observability.backend.logic.traces.step_messages import UnrenderableValueError, to_messages
 
 TEAM_ID = 7
 
@@ -406,10 +406,19 @@ def nested_lists(depth: int) -> Any:
             "lone_surrogate",
             [{"role": "assistant", "content": "", "tool_calls": [{"function": {"arguments": {"text": "\ud800"}}}]}],
         ),
+        ("lone_surrogate_in_text", [{"role": "user", "content": [{"type": "text", "text": "\ud800"}]}]),
+        (
+            "lone_surrogate_in_a_tool_name",
+            [{"role": "assistant", "content": "", "tool_calls": [{"function": {"name": "\ud800", "arguments": {}}}]}],
+        ),
+        (
+            "lone_surrogate_in_an_attachment_name",
+            [{"role": "user", "content": [{"type": "file", "file": {"filename": "\ud800.pdf"}}]}],
+        ),
     ]
 )
-def test_an_already_parsed_tool_value_the_response_cannot_hold_fails_the_side(_name, compat):
-    with pytest.raises(UnrenderableToolValueError):
+def test_an_already_parsed_value_the_response_cannot_hold_fails_the_side(_name, compat):
+    with pytest.raises(UnrenderableValueError):
         to_messages(compat, id_prefix="out", source_node_id=None, team_id=TEAM_ID)
 
 
@@ -440,7 +449,7 @@ WIDE_UNRENDERABLE_ARGUMENTS: list[CompatMessage] = [
 def test_validating_a_wide_tool_value_holds_memory_to_its_depth():
     tracemalloc.start()
     try:
-        with pytest.raises(UnrenderableToolValueError):
+        with pytest.raises(UnrenderableValueError):
             to_messages(WIDE_UNRENDERABLE_ARGUMENTS, id_prefix="out", source_node_id=None, team_id=TEAM_ID)
         _, peak = tracemalloc.get_traced_memory()
     finally:

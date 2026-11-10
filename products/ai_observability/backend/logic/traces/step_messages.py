@@ -22,7 +22,7 @@ _SURROGATE = re.compile("[\ud800-\udfff]")
 type _CallKey = tuple[int, int]
 
 
-class UnrenderableToolValueError(RecipeRuntimeError):
+class UnrenderableValueError(RecipeRuntimeError):
     pass
 
 
@@ -50,9 +50,9 @@ def _messages(
         parts: list[contracts.TraceMessagePart] = []
         if text:
             if message.get("role") == THINKING_ROLE:
-                parts.append(contracts.TraceThinkingPart(kind="thinking", text=text))
+                parts.append(contracts.TraceThinkingPart(kind="thinking", text=_renderable_text(text)))
             else:
-                parts.append(contracts.TraceTextPart(kind="text", text=text))
+                parts.append(contracts.TraceTextPart(kind="text", text=_renderable_text(text)))
         parts.extend(attachments)
         for position, raw_call in enumerate(_list_of_mappings(message.get("tool_calls"))):
             function = raw_call.get("function")
@@ -61,7 +61,7 @@ def _messages(
             parts.append(
                 contracts.TraceToolCallPart(
                     kind="toolCall",
-                    name=name if isinstance(name, str) else "",
+                    name=_renderable_text(name) if isinstance(name, str) else "",
                     args=_tool_value(function.get("arguments")),
                     result=results.get((index, position)),
                 )
@@ -143,10 +143,23 @@ def _tool_value(value: JsonValue) -> JsonValue:
         return parsed
     # Text the response cannot hold stays text, but a value the engine already parsed has no text to fall back to.
     if not _renders(value):
-        raise UnrenderableToolValueError(
+        raise UnrenderableValueError(
             f"A tool call value nests deeper than {_MAX_TOOL_VALUE_DEPTH} levels or holds a value the response cannot encode"
         )
     return value
+
+
+def _renderable_text(text: str) -> str:
+    if _SURROGATE.search(text):
+        raise UnrenderableValueError("A message holds text the response cannot encode")
+    return text
+
+
+def _renderable_attachment(part: contracts.TraceAttachmentPart) -> contracts.TraceAttachmentPart:
+    for text in (part.name, part.mime_type, part.url):
+        if text is not None:
+            _renderable_text(text)
+    return part
 
 
 def _renders(value: JsonValue) -> bool:
@@ -246,10 +259,10 @@ def _content_parts(message: CompatMessage, team_id: int) -> tuple[str, list[cont
     content = message.get("content")
     media_item = _parse_media_item(content) if isinstance(content, str) else None
     if media_item:
-        return "", [to_attachment(media_item, team_id)]
+        return "", [_renderable_attachment(to_attachment(media_item, team_id))]
     items = content if isinstance(content, list) else []
     attachments = [
-        to_attachment(item, team_id)
+        _renderable_attachment(to_attachment(item, team_id))
         for raw in items
         if (item := _content_item(raw)) and item["type"] not in _TEXT_ITEM_TYPES
     ]
