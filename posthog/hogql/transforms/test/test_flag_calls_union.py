@@ -1159,10 +1159,11 @@ class TestReadFlagCallsWithUnion(BaseTest):
             ("restricted_on_mode_2", ONLY, None, False, True),
             ("boolean_on_native_json_on_mode_1", READ, "Boolean", True, True),
             ("numeric_on_native_json_on_mode_1", READ, "Numeric", True, True),
+            ("boolean_on_native_json_on_mode_0", EVENTS, "Boolean", True, True),
             ("boolean_on_native_json_on_mode_2", ONLY, "Boolean", True, True),
         ]
     )
-    def test_flag_key_that_events_cannot_read_raw_keeps_mode_1_on_events(
+    def test_flag_key_that_events_cannot_read_raw_keeps_legacy_mode_1_on_events(
         self, _name: str, mode: FlagEvaluationsMode, flag_key_type: str | None, new_events_schema: bool, expected: bool
     ):
         if flag_key_type is None:

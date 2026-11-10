@@ -2,6 +2,8 @@ from posthog.test.base import BaseTest
 
 from parameterized import param, parameterized
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
 
@@ -109,6 +111,22 @@ class TestFlagCallReadersFollowTheEventsTable(BaseTest):
                 reads_forced_to_events=True,
             ),
             param(
+                "native_query_on_a_legacy_instance",
+                FlagEvaluationsMode.EVENTS,
+                reads=True,
+                only=False,
+                query_reads_native=True,
+            ),
+            param(
+                "legacy_query_on_a_native_instance_forced_to_events",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                reads=False,
+                only=True,
+                native=True,
+                query_reads_native=False,
+                reads_forced_to_events=True,
+            ),
+            param(
                 "native_events_without_the_table",
                 FlagEvaluationsMode.EVENTS,
                 reads=False,
@@ -126,9 +144,11 @@ class TestFlagCallReadersFollowTheEventsTable(BaseTest):
         reads: bool,
         only: bool,
         native: bool = False,
+        query_reads_native: bool | None = None,
         cloud: bool = True,
         reads_forced_to_events: bool = False,
     ) -> None:
+        modifiers = HogQLQueryModifiers(useNewEventsSchema=query_reads_native)
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(flag_evaluations_mode=mode)
 
         with (
@@ -136,5 +156,5 @@ class TestFlagCallReadersFollowTheEventsTable(BaseTest):
             self.is_cloud(cloud),
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
         ):
-            self.assertEqual(reads_flag_calls_from_flag_evaluations(self.team), reads)
+            self.assertEqual(reads_flag_calls_from_flag_evaluations(self.team, modifiers), reads)
             self.assertEqual(flag_calls_only_in_flag_evaluations(self.team), only)

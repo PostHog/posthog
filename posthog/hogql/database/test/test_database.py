@@ -553,7 +553,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 team=self.team, include_flag_evaluations_table=include_flag_evaluations_table
             )
 
-        assert database.read_flag_calls_from_flag_evaluations is expected
+        assert database.organization_reads_flag_calls_from_flag_evaluations is expected
         assert database.has_table(["posthog", "flag_evaluations"]) is table_in_catalog
         # The build reads the union flag only when the table gate is on, and the override skips that gate.
         union_expected = table_in_catalog and union_flag_enabled and include_flag_evaluations_table is None

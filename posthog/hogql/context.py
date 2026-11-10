@@ -220,7 +220,8 @@ class HogQLContext:
         """
         database = self.database
         return database is not None and (
-            database.read_flag_calls_from_flag_evaluations or self._reads_native_events_with_flag_evaluations()
+            database.organization_reads_flag_calls_from_flag_evaluations
+            or self._reads_native_events_with_flag_evaluations()
         )
 
     def flag_calls_only_in_flag_evaluations(self) -> bool:
@@ -228,7 +229,8 @@ class HogQLContext:
         that the query reads holds no new flag calls then, so a read that flag_evaluations cannot answer fails."""
         database = self.database
         return database is not None and (
-            database.flag_calls_only_in_flag_evaluations or self._reads_native_events_with_flag_evaluations()
+            database.organization_flag_calls_only_in_flag_evaluations
+            or self._reads_native_events_with_flag_evaluations()
         )
 
     def reads_flag_calls_with_union(self) -> bool:

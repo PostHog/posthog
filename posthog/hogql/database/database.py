@@ -1339,13 +1339,13 @@ class Database(BaseModel):
         return self._connection_id is not None
 
     @property
-    def read_flag_calls_from_flag_evaluations(self) -> bool:
+    def organization_reads_flag_calls_from_flag_evaluations(self) -> bool:
         # create_for(include_flag_evaluations_table=False) removes the table after _fetch_sources chose to read from it.
         return self._read_flag_calls_from_flag_evaluations and self.has_table(["posthog", "flag_evaluations"])
 
     @property
-    def flag_calls_only_in_flag_evaluations(self) -> bool:
-        return self._flag_calls_only_in_flag_evaluations and self.read_flag_calls_from_flag_evaluations
+    def organization_flag_calls_only_in_flag_evaluations(self) -> bool:
+        return self._flag_calls_only_in_flag_evaluations and self.organization_reads_flag_calls_from_flag_evaluations
 
     @property
     def flag_calls_union_enabled(self) -> bool:
