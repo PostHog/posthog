@@ -12,6 +12,7 @@ import { MCPToolCallApi } from '../generated/api.schemas'
 import { DateFilter, mcpToolReportUrl } from '../mcpAnalyticsToolQualityLogic'
 import { CreateFixTaskButton } from '../tool-quality/CreateFixTaskButton'
 import { MCPErrorContext, formatCapturedJson, formatErrorContext } from '../tool-quality/errorContext'
+import { MCPToolCallRowShell } from './MCPToolCallRowShell'
 import { formatDuration, formatRelativeOffset } from './utils'
 
 function errorContext(toolCall: MCPToolCallApi, sessionId: string): MCPErrorContext {
@@ -178,11 +179,7 @@ export function MCPToolCallRow({
 }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     return (
-        <li
-            className={`relative flex flex-col gap-1 rounded border bg-surface-primary px-2 py-1.5 ${
-                toolCall.is_error ? 'border-danger border-l-2' : 'border-primary border-l-2 border-l-accent/60'
-            }`}
-        >
+        <MCPToolCallRowShell isError={toolCall.is_error}>
             <div className="flex items-center justify-between gap-2 text-xs">
                 <MCPToolCallTitle toolCall={toolCall} dateFilter={dateFilter} />
                 <div className="flex items-center gap-2 text-secondary whitespace-nowrap font-mono text-[11px]">
@@ -210,6 +207,6 @@ export function MCPToolCallRow({
             {toolCall.is_error ? <FailureDetails toolCall={toolCall} /> : null}
 
             {expanded ? <MCPToolCallDetails toolCall={toolCall} sessionId={sessionId} /> : null}
-        </li>
+        </MCPToolCallRowShell>
     )
 }
