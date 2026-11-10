@@ -59,9 +59,20 @@ describe('SandboxEmailActionHandler', () => {
             sandboxEmail,
         })
 
-    const fakeSend = (decision: SandboxEmailSendDecision): jest.Mocked<SandboxEmailStep> => ({
-        send: jest.fn().mockResolvedValue(decision),
-    })
+    class FakeSendStep implements SandboxEmailStep {
+        readonly outbox: string[] = []
+
+        constructor(private readonly decide: () => Promise<SandboxEmailSendDecision>) {}
+
+        async send({ invocation, action }: Parameters<SandboxEmailStep['send']>[0]): Promise<SandboxEmailSendDecision> {
+            const decision = await this.decide()
+            this.outbox.push(`${invocation.id}/${action.id}`)
+            return decision
+        }
+    }
+
+    const fakeSend = (decision: SandboxEmailSendDecision): FakeSendStep =>
+        new FakeSendStep(() => Promise.resolve(decision))
 
     const jobOnEmailStep = (
         queue: CyclotronJobInvocationHogFlow['queue'],
@@ -86,14 +97,15 @@ describe('SandboxEmailActionHandler', () => {
         const send = fakeSend({ outcome: 'accepted', messageId: 'message-1' })
         const executor = buildExecutor({ enabled: true, send })
 
-        const routed = await executor.execute(jobOnEmailStep('hogflow'))
-        expect(send.send).not.toHaveBeenCalled()
+        const job = jobOnEmailStep('hogflow')
+        const routed = await executor.execute(job)
+        expect(send.outbox).toEqual([])
         expect(routed.invocation.queue).toBe('emailsandbox')
         expect(routed.invocation.queueScheduledAt?.toMillis()).toBe(now.toMillis())
         expect(routed.invocation.state.currentAction).toMatchObject({ id: 'email', routingOnlyReschedule: true })
 
         const handedBack = await executor.execute(nextDequeue(routed.invocation))
-        expect(send.send).toHaveBeenCalledTimes(1)
+        expect(send.outbox).toEqual([`${job.id}/email`])
         expect(handedBack.finished).toBe(false)
         expect(handedBack.invocation.queue).toBe('hogflow')
         expect(handedBack.invocation.queueScheduledAt?.toMillis()).toBe(now.toMillis())
@@ -104,7 +116,7 @@ describe('SandboxEmailActionHandler', () => {
         expect(handedBack.invocation.state.flowVersion).toBe(3)
 
         const finished = await executor.execute(nextDequeue(handedBack.invocation))
-        expect(send.send).toHaveBeenCalledTimes(1)
+        expect(send.outbox).toEqual([`${job.id}/email`])
         expect(finished.invocation.state.currentAction?.id).toBe('wait')
         expect(finished.invocation.state.variables?.email_result).toEqual({
             status: 'accepted',
@@ -151,7 +163,7 @@ describe('SandboxEmailActionHandler', () => {
             jobOnEmailStep('emailsandbox')
         )
 
-        expect(send.send).not.toHaveBeenCalled()
+        expect(send.outbox).toEqual([])
         expect(result.invocation.queue).toBe('hogflow')
         expect(result.invocation.state.currentAction).toMatchObject({ id: 'email', sandboxEmail: { outcome, reason } })
     })
@@ -189,7 +201,7 @@ describe('SandboxEmailActionHandler', () => {
         'fails the job only by on_error %s when the send step throws on the sandbox queue',
         async (onError, expectedFinished, expectedActionId, expectedError) => {
             hogFlow.actions.find((action) => action.id === 'email')!.on_error = onError
-            const send = { send: jest.fn().mockRejectedValue(new Error('smtp down')) }
+            const send = new FakeSendStep(() => Promise.reject(new Error('smtp down')))
 
             const result = await buildExecutor({ enabled: true, send }).execute(jobOnEmailStep('emailsandbox'))
 
@@ -229,7 +241,7 @@ describe('SandboxEmailActionHandler', () => {
             { hogExecutorOptions }
         )
 
-        expect(send.send).not.toHaveBeenCalled()
+        expect(send.outbox).toEqual([])
         expect(result.invocation.queue).toBe('hogflow')
         expect(result.execResult).toEqual(execResult)
         expect(result.error).toEqual(error)
