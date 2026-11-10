@@ -4,8 +4,6 @@ import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 import { inspect } from 'util'
 
-import { HogConfigurationError } from '~/cdp/utils/hog-error-classification'
-import { replaceIntegrationInputsWithRefs, signIntegrationRef } from '~/cdp/utils/integration-input-refs'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
@@ -13,10 +11,15 @@ import { Hub, Team } from '~/types'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { classifyHogError } from '../utils/hog-error-classification'
+import { HogConfigurationError, classifyHogError } from '../utils/hog-error-classification'
+import { replaceIntegrationInputsWithRefs, signIntegrationRef } from '../utils/integration-input-refs'
+import { buildHogFunctionInvocations } from '../utils/invocation-utils'
 import { LiquidRenderBudget } from '../utils/liquid'
 import { NATIVE_PUSH_TEMPLATE_ID } from '../utils/push-subscription-utils'
 import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
+import { serializeInvocation } from './job-queue/job-queue-kafka'
+import { invocationToV2JobInit } from './job-queue/job-queue-postgres-v2'
+import { sanitizeInvocationForPersistence } from './job-queue/shared'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 describe('getAppIdentifierForPush', () => {
@@ -659,6 +662,28 @@ describe('Hog Inputs', () => {
 
             expect(resolved).toEqual(built)
             expect(resolved.oauth.access_token_raw).toBe('token')
+        })
+
+        it('keeps the secrets out of the persisted job when built through the real enqueue path', async () => {
+            const { invocations } = await buildHogFunctionInvocations(
+                hogInputsService,
+                [hogFunction],
+                createHogExecutionGlobals()
+            )
+            expect(invocations).toHaveLength(1)
+            expect(invocations[0].state.globals.inputs.oauth.access_token_raw).toBe('token')
+
+            const sanitized = sanitizeInvocationForPersistence(invocations[0], {
+                integrationRefSigner: hub.encryptedFields,
+            })
+
+            for (const serialized of [
+                invocationToV2JobInit(sanitized).state!.toString('utf-8'),
+                JSON.stringify(serializeInvocation(sanitized)),
+            ]) {
+                expect(serialized).toContain('$integration_ref_sig')
+                expect(serialized).not.toContain('token')
+            }
         })
 
         it('passes the resolved values of a job queued before references through unchanged', async () => {

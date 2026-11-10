@@ -18,8 +18,9 @@ export type IntegrationInputRef = { [INTEGRATION_REF_KEY]: IntegrationType['id']
 export type IntegrationRefSigner = Pick<EncryptedFields, 'sign' | 'signatures'>
 
 // The signature binds the team and the input key, so a reference is valid only where the server wrote it.
+// JSON encoding keeps the base unambiguous when an input key holds ':'.
 const integrationRefSigningBase = (teamId: number, inputKey: string, id: IntegrationType['id']): string =>
-    `${teamId}:${inputKey}:${id}`
+    JSON.stringify([teamId, inputKey, String(id)])
 
 export const signIntegrationRef = (
     signer: IntegrationRefSigner,
