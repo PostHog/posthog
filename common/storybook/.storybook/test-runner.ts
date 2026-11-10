@@ -418,11 +418,10 @@ async function expectStoryToMatchSnapshot(
 
     if (waitForLoadersToDisappear) {
         // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
-        // Use 'hidden' instead of 'detached' because some elements (like toasts) may remain in DOM but be invisible
         // Timeout is 5000ms by default, but increased to 10000ms for stories with async data loading (Dashboards, Max)
         // to account for slower CI environments while still catching stuck elements
         const timeout = context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout })
+        await waitForEveryLoaderHidden(page, timeout)
     }
 
     if (typeof waitForSelector === 'string') {
@@ -439,6 +438,35 @@ async function expectStoryToMatchSnapshot(
     }
     if (!skipDarkMode) {
         await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
+    }
+}
+
+/**
+ * Wait until no loader on the page is visible.
+ *
+ * `page.waitForSelector(..., { state: 'hidden' })` checks only the first element that matches, so a
+ * page with two loaders was captured while the second one still showed. Here the locator keeps only
+ * visible matches, so its first match is hidden only when no loader is visible. "Visible" follows
+ * Playwright's definition: a non-empty box and no `visibility: hidden`, because some loaders (like
+ * toasts) stay in the DOM after they hide. A locator also reaches into open shadow roots, where the
+ * toolbar stories render their loaders.
+ */
+async function waitForEveryLoaderHidden(page: Page, timeout: number): Promise<void> {
+    const visibleLoaders = page.locator(LOADER_SELECTORS.join(',')).filter({ visible: true })
+    try {
+        await visibleLoaders.first().waitFor({ state: 'hidden', timeout })
+    } catch (error) {
+        const stillVisible = await visibleLoaders
+            .evaluateAll((elements) => elements.map((element) => element.outerHTML.slice(0, 120)))
+            .catch(() => [])
+        if (stillVisible.length === 0) {
+            throw error
+        }
+        throw new Error(
+            `A loader was still visible after ${timeout}ms. Mock the request it waits for, or set ` +
+                `testOptions.waitForLoadersToDisappear: false if the story shows it on purpose:\n` +
+                stillVisible.join('\n')
+        )
     }
 }
 
