@@ -58,16 +58,20 @@ export function toRecordJson(row: IntegrationRow): IntegrationRecordJson {
 const MAX_DATE_MS = 8.64e15
 
 // Keys that stay in the service: it uses them to refresh tokens, and a caller never needs them.
-const NEVER_EXPOSED: ReadonlySet<string> = new Set(['refresh_token', 'client_secret'])
+const NEVER_EXPOSED: ReadonlySet<string> = new Set(['refresh_token'])
+// An OAuth row's client secret is the app secret for the refresh. A `credentials` row (Databricks
+// service principals, say) needs its client secret to authenticate, so it is returned.
+const NEVER_EXPOSED_OAUTH: ReadonlySet<string> = new Set([...NEVER_EXPOSED, 'client_secret'])
 
 /**
  * The part of a decrypted secret blob that `resolve` returns. The provider registry can narrow
  * this per kind. It never widens it past `NEVER_EXPOSED`.
  */
-export function exposedCredentials(_kind: string, blob: JsonObject): JsonObject {
+export function exposedCredentials(authType: string, blob: JsonObject): JsonObject {
+    const hidden = authType === 'oauth' ? NEVER_EXPOSED_OAUTH : NEVER_EXPOSED
     const exposed: JsonObject = {}
     for (const [key, value] of Object.entries(blob)) {
-        if (!NEVER_EXPOSED.has(key)) {
+        if (!hidden.has(key)) {
             exposed[key] = value
         }
     }
