@@ -62,7 +62,20 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
         if not super().can_use_preaggregated_tables():
             return False
 
+        # The bounces table holds one row per session and has no pathname column, so it cannot
+        # select the sessions that viewed a page. The Page breakdown joins on the path instead.
+        if self._joins_breakdown_bounce_rate() and any(
+            getattr(prop, "key", None) == "$pathname" for prop in self.runner.query.properties
+        ):
+            return False
+
         return self.runner._effective_breakdown() in WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS
+
+    def _joins_breakdown_bounce_rate(self) -> bool:
+        return bool(self.runner.query.includeBounceRate) and self.runner.query.breakdownBy not in (
+            WebStatsBreakdown.PAGE,
+            WebStatsBreakdown.INITIAL_PAGE,
+        )
 
     def _get_channel_type_expr(self) -> ast.Expr:
         """Create a channel type expression using the available fields in pre-aggregated tables."""
@@ -97,9 +110,19 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             timings=self.runner.timings,
         )
 
-    def _bounce_rate_query(self) -> ast.SelectQuery:
+    def _bounce_rate_query(self, breakdown_value: ast.Expr | None = None) -> ast.SelectQuery:
         # Like in the original stats_table, we will need this method to build the "Paths" tile so it is a special breakdown
         period_filters = self.get_date_ranges()
+        if breakdown_value is None:
+            breakdown_value = ast.Call(
+                name="nullIf",
+                args=[
+                    self._prepend_host(self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])))
+                    if self.runner.query.includeHost
+                    else self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])),
+                    ast.Constant(value=""),
+                ],
+            )
 
         query = cast(
             ast.SelectQuery,
@@ -116,15 +139,7 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             """,
                 placeholders={
                     "bounce_table": ast.Field(chain=[self.bounces_table]),
-                    "breakdown_value": ast.Call(
-                        name="nullIf",
-                        args=[
-                            self._prepend_host(self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])))
-                            if self.runner.query.includeHost
-                            else self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])),
-                            ast.Constant(value=""),
-                        ],
-                    ),
+                    "breakdown_value": breakdown_value,
                     "visitors_tuple": self._period_comparison_tuple(
                         "persons_uniq_state",
                         "uniqMergeIf",
@@ -218,10 +233,21 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             # For conversion goals, we need to join events table with pre-aggregated table
             return self._default_breakdown_query_with_conversions(period_filters=period_filters)
 
-        query = cast(
-            ast.SelectQuery,
-            parse_select(
-                """
+        if self._joins_breakdown_bounce_rate():
+            template = """
+            SELECT
+                {breakdown_field} as `context.columns.breakdown_value`,
+                {visitors_tuple} AS `context.columns.visitors`,
+                {views_tuple} as `context.columns.views`,
+                any(bounces.`context.columns.bounce_rate`) as `context.columns.bounce_rate`
+            FROM {stats_table}
+            LEFT JOIN ({bounce_subquery}) bounces
+                ON {breakdown_field} = bounces.`context.columns.breakdown_value`
+            WHERE {filters}
+            GROUP BY `context.columns.breakdown_value`
+            """
+        else:
+            template = """
             SELECT
                 {breakdown_field} as `context.columns.breakdown_value`,
                 {visitors_tuple} AS `context.columns.visitors`,
@@ -229,10 +255,18 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             FROM {stats_table}
             WHERE {filters}
             GROUP BY `context.columns.breakdown_value`
-            """,
+            """
+
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                template,
                 placeholders={
                     "stats_table": ast.Field(chain=[self.stats_table]),
                     "breakdown_field": self._get_breakdown_field(),
+                    "bounce_subquery": self._bounce_rate_query(breakdown_value=self._get_breakdown_field())
+                    if self._joins_breakdown_bounce_rate()
+                    else ast.Constant(value=None),
                     "visitors_tuple": self._period_comparison_tuple(
                         "persons_uniq_state",
                         "uniqMergeIf",
@@ -589,10 +623,10 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 column = "context.columns.visitors"
             elif field == WebAnalyticsOrderByFields.VIEWS:
                 column = "context.columns.views"
-            elif field == WebAnalyticsOrderByFields.BOUNCE_RATE and self.runner.query.breakdownBy in [
-                WebStatsBreakdown.INITIAL_PAGE,
-                WebStatsBreakdown.PAGE,
-            ]:
+            elif field == WebAnalyticsOrderByFields.BOUNCE_RATE and (
+                self.runner.query.breakdownBy in [WebStatsBreakdown.INITIAL_PAGE, WebStatsBreakdown.PAGE]
+                or self._joins_breakdown_bounce_rate()
+            ):
                 column = "context.columns.bounce_rate"
             elif field == WebAnalyticsOrderByFields.TOTAL_CONVERSIONS and self.runner.query.conversionGoal:
                 column = "context.columns.total_conversions"

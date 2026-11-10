@@ -174,6 +174,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         modifiers: HogQLQueryModifiers | None,
         web_query_modifiers: WebAnalyticsQueryModifiers | None,
         properties=None,
+        include_bounce_rate: bool = False,
     ) -> tuple[str, list, WebStatsTableQueryResponse]:
         runner = WebStatsTableQueryRunner(
             query=WebStatsTableQuery(
@@ -182,6 +183,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 breakdownBy=breakdown,
                 limit=100,
                 webQueryModifiers=web_query_modifiers,
+                includeBounceRate=include_bounce_rate,
             ),
             team=self.team,
             modifiers=modifiers,
@@ -190,13 +192,14 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert runner.used_preaggregated_tables, "expected the pre-aggregated path, not a live fallback"
         return runner.query_strategy(), self._sort_results(response.results), response
 
-    def _run_live(self, breakdown: WebStatsBreakdown, properties=None) -> list:
+    def _run_live(self, breakdown: WebStatsBreakdown, properties=None, include_bounce_rate: bool = False) -> list:
         runner = WebStatsTableQueryRunner(
             query=WebStatsTableQuery(
                 dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
                 properties=properties or [],
                 breakdownBy=breakdown,
                 limit=100,
+                includeBounceRate=include_bounce_rate,
             ),
             team=self.team,
         )
@@ -210,6 +213,10 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         # case can't pass on equality alone.
         return {row[0]: (row[1][0], row[2][0]) for row in results}
 
+    @staticmethod
+    def _bounce_rates(results: list) -> dict:
+        return {row[0]: row[3][0] for row in results}
+
     @parameterized.expand(
         [
             # No filter — Desktop: user_a (2 views) + user_c (1 view) = 2 visitors / 3 views; Mobile: user_b = 1 / 1.
@@ -221,13 +228,23 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 [EventPropertyFilter(key="$host", value="app.example.com", operator=PropertyOperator.EXACT)],
                 {"Desktop": (1.0, 2.0), "Mobile": (1.0, 1.0)},
             ),
+            # Desktop: user_a's session has two views and user_c's one, so one of two sessions bounced.
+            (
+                "device_breakdown_with_bounce_rate",
+                None,
+                {"Desktop": (2.0, 3.0), "Mobile": (1.0, 1.0)},
+                {"Desktop": 0.5, "Mobile": 1.0},
+            ),
         ]
     )
-    def test_dimensional_matches_v2(self, _name, properties, expected_counts):
-        v2_strategy, v2, v2_response = self._run(WebStatsBreakdown.DEVICE_TYPE, LEGACY, None, properties=properties)
+    def test_dimensional_matches_v2(self, _name, properties, expected_counts, expected_bounce_rates=None):
+        include_bounce_rate = expected_bounce_rates is not None
+        v2_strategy, v2, v2_response = self._run(
+            WebStatsBreakdown.DEVICE_TYPE, LEGACY, None, properties=properties, include_bounce_rate=include_bounce_rate
+        )
         # Only the request opt-in: the legacy modifier must not be needed to reach this path.
         dimensional_strategy, dimensional, dimensional_response = self._run(
-            WebStatsBreakdown.DEVICE_TYPE, None, OPT_IN, properties=properties
+            WebStatsBreakdown.DEVICE_TYPE, None, OPT_IN, properties=properties, include_bounce_rate=include_bounce_rate
         )
 
         assert v2_strategy == "stats_table_preaggregated"
@@ -238,7 +255,33 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert dimensional_response.preComputeStale is None
         assert dimensional == v2, f"{_name} mismatch\nv2={v2}\ndimensional={dimensional}"
         assert self._counts(dimensional) == expected_counts
-        assert self._counts(self._run_live(WebStatsBreakdown.DEVICE_TYPE, properties)) == expected_counts
+        live = self._run_live(WebStatsBreakdown.DEVICE_TYPE, properties, include_bounce_rate=include_bounce_rate)
+        assert self._counts(live) == expected_counts
+        if include_bounce_rate:
+            assert "context.columns.bounce_rate" in (dimensional_response.columns or [])
+            assert self._bounce_rates(dimensional) == expected_bounce_rates
+            assert self._bounce_rates(live) == expected_bounce_rates
+
+    def test_pathname_filter_with_bounce_rate_reads_live(self):
+        properties = [EventPropertyFilter(key="$pathname", value="/", operator=PropertyOperator.EXACT)]
+        runner = WebStatsTableQueryRunner(
+            team=self.team,
+            query=WebStatsTableQuery(
+                dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                properties=properties,
+                breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
+                includeBounceRate=True,
+                limit=100,
+                webQueryModifiers=OPT_IN,
+            ),
+            modifiers=LEGACY,
+        )
+        opted_in = self._sort_results(runner.calculate().results)
+
+        assert not runner.used_preaggregated_tables
+        assert opted_in == self._run_live(WebStatsBreakdown.DEVICE_TYPE, properties, include_bounce_rate=True)
+        # user_c's /blog session drops out. user_a's session viewed "/" but did not bounce.
+        assert self._bounce_rates(opted_in) == {"Desktop": 0.0, "Mobile": 1.0}
 
     @parameterized.expand(
         [
