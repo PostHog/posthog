@@ -139,6 +139,20 @@ describe('workflowsListV2Logic', () => {
         }
     )
 
+    it('reuses the facets of a scope for every value in it, so saved view counts build them once', async () => {
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const { facetsFor } = logic.values
+        const active = { filters: [{ facet: 'status', value: 'active', negated: false }], text: '' }
+        const renewal = { filters: [], text: 'renewal' }
+        const inFolder = { filters: [{ facet: 'in', value: 'Z', negated: false }], text: '' }
+
+        expect(facetsFor(active)).toBe(facetsFor(renewal))
+        expect(facetsFor(inFolder)).not.toBe(facetsFor(active))
+        expect(facetsFor(inFolder)).toBe(facetsFor({ filters: [], text: '' }))
+    })
+
     it('does not treat a shortcut-only folder as the workflow folder', async () => {
         logic = workflowsListV2Logic()
         logic.mount()

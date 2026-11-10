@@ -622,15 +622,21 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 rows: WorkflowListRow[],
                 filesByRef: Record<string, FileSystemEntry>,
                 user: UserType | null
-            ): ((value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[]) =>
-                (value) =>
-                    buildWorkflowListFacets(rows, {
-                        viewer: user,
-                        filesByRef,
-                        includeDescendants:
-                            !!value.text.trim() ||
-                            value.filters.some((filter) => filter.facet !== 'in' || filter.negated),
-                    }),
+            ): ((value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[]) => {
+                // Building the facets walks every row, and the saved view counts ask once per view. Only two
+                // scopes exist, so each is built once for these rows.
+                const byScope = new Map<boolean, FacetDefinition<WorkflowListRow>[]>()
+                return (value) => {
+                    const includeDescendants =
+                        !!value.text.trim() || value.filters.some((filter) => filter.facet !== 'in' || filter.negated)
+                    let facets = byScope.get(includeDescendants)
+                    if (!facets) {
+                        facets = buildWorkflowListFacets(rows, { viewer: user, filesByRef, includeDescendants })
+                        byScope.set(includeDescendants, facets)
+                    }
+                    return facets
+                }
+            },
         ],
         facets: [
             (s) => [s.facetsFor, s.value],
