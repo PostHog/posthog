@@ -2335,15 +2335,21 @@ describe('Cyclotron V2', () => {
                     return holder
                 }
 
-                const sentOrWaitingOnLock = async (sent: Promise<unknown>): Promise<'sent' | 'waiting on a lock'> => {
+                const sentOrWaitingOn = async (
+                    holder: PoolClient,
+                    sent: Promise<unknown>
+                ): Promise<'sent' | 'waiting on the held row'> => {
+                    const holderPid = (await holder.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0]
+                        .pid
                     let settled = false
                     const done = sent.then(() => 'sent' as const).finally(() => (settled = true))
                     while (!settled) {
                         const waiting = await assertPool.query(
-                            `SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`
+                            'SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))',
+                            [holderPid]
                         )
                         if (waiting.rowCount) {
-                            return 'waiting on a lock'
+                            return 'waiting on the held row'
                         }
                         await new Promise((resolve) => setTimeout(resolve, 10))
                     }
@@ -2385,7 +2391,7 @@ describe('Cyclotron V2', () => {
                         let sent: Promise<unknown> = Promise.resolve()
                         try {
                             sent = sendFast()
-                            expect(await sentOrWaitingOnLock(sent)).toBe('sent')
+                            expect(await sentOrWaitingOn(holder, sent)).toBe('sent')
 
                             const [claimed] = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
                             expect(claimed).toMatchObject({ teamId, priority: FAST })
@@ -2399,15 +2405,17 @@ describe('Cyclotron V2', () => {
 
                 it('keeps fast email of a team outside the switch on the bulk counter row', async () => {
                     const holder = await holdBulkCounterRow()
-                    let sent: Promise<unknown> = Promise.resolve()
+                    const sent = manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, priority: FAST }])
                     try {
-                        sent = manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, priority: FAST }])
-                        expect(await sentOrWaitingOnLock(sent)).toBe('waiting on a lock')
+                        expect(await sentOrWaitingOn(holder, sent)).toBe('waiting on the held row')
                     } finally {
                         await holder.query('ROLLBACK')
                         holder.release()
-                        await sent
                     }
+                    await sent
+
+                    const [claimed] = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
+                    expect(claimed).toMatchObject({ teamId, priority: FAST })
                 })
 
                 const otherTeamId = 78

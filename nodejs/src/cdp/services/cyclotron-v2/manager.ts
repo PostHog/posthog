@@ -50,17 +50,12 @@ const HIGHEST_EMAIL_COUNTER = `GREATEST(
  * `NULL dequeue_seq` and bypass the per-team interleave (`NULLS FIRST` would
  * drain them ahead of any fair-ordered rows).
  *
- * A team's *first ever* email starts at `MAX(counter) + 1` across both
- * counter tables (Hatchet's `p_max_assigned` pattern), so a brand-new tenant
- * can't enqueue a burst that gets free priority over established tenants'
- * in-flight emails. Continuing tenants just increment their own counter as
- * before. `COALESCE` handles the empty-table cold-start (`MAX = NULL` →
- * starting point of 0).
- *
- * Teams on `fastEmailCounterTeams` count fast email in
- * `cyclotron_email_team_seq_fast`. Each table's allocation starts above the
- * team's row in the other table, read without a lock, so a team's emails stay
- * in send order while producers on and off the switch both write them.
+ * A team's *first ever* email starts at `MAX(counter) + 1` across both tables
+ * (Hatchet's `p_max_assigned` pattern), so a brand-new tenant can't enqueue a
+ * burst that gets free priority over established tenants' in-flight emails.
+ * Continuing tenants just increment their own counter as before. `COALESCE`
+ * handles the empty-table cold-start (`MAX = NULL` → starting point of 0).
+
  *
  * The plain UPDATE runs first because Postgres evaluates the `MAX` subquery in
  * the INSERT's VALUES before it checks for a conflict, which means a full scan
@@ -392,8 +387,6 @@ export class CyclotronV2Manager {
         }
 
         // Fair-dequeue sort key for email-queue jobs. NULL for everything else.
-        // Atomically bumps the per-team counter (one UPSERT for the whole batch
-        // regardless of size) and then derives a unique dequeue_seq per job.
         const dequeueSeqs = await this.computeEmailDequeueSeqs(jobs)
 
         const upsertClause = overwriteExisting
@@ -485,11 +478,9 @@ export class CyclotronV2Manager {
      *
      * Non-email jobs get NULL (leaves the existing FIFO ordering untouched).
      *
-     * The counter queries don't grow with job count: one UPSERT for the
-     * shared counter, and one UPDATE for the fast counter of teams on
-     * `fastEmailCounterTeams` (three when a team's fast row needs seeding).
-     * Per-team counters bump by the count of email jobs from that team in
-     * this batch, and we derive each job's individual counter value in memory.
+     * A fixed number of counter queries per batch regardless of job count — per-team
+     * counters bump by the count of email jobs from that team in this batch,
+     * and we derive each job's individual counter value in memory.
      *
      * A team's first-ever email starts at `MAX(counter) + 1` across the table
      * (Hatchet's `p_max_assigned` pattern), so a new tenant joining the
@@ -540,7 +531,7 @@ export class CyclotronV2Manager {
         //
         // Hatchet `p_max_assigned`: a team with no counter in either table
         // starts at the highest counter of both, so it slots in next to
-        // established teams. The read of the team's fast row takes no lock.
+        // established teams.
         const upsertResult = await this.pool.query<{ team_id: number; counter: string }>(
             `WITH batch AS (
                  SELECT t.team_id, t.increment, fast.counter AS fast_counter
