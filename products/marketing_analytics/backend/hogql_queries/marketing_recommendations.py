@@ -79,6 +79,7 @@ SEARCH_CONSOLE_PERFORMANCE_URL = "https://search.google.com/search-console/perfo
 SEARCH_CONSOLE_URL = "https://search.google.com/search-console"
 REVIEW_TERMS_SHOWN = 3
 # A non-brand campaign is up for review when its cost per conversion reaches this multiple of its CPA benchmark.
+# Without conversions, spend alone must reach that multiple: even one conversion would leave its CPA at or above it.
 REVIEW_CPA_MULTIPLE = 3
 # A brand search is worth a pause test once it takes this share of the account's search term spend. A share, unlike
 # a CPA, also works for an account that only bids on its brand.
@@ -410,17 +411,17 @@ class _Recommender:
             benchmark = self._campaign_benchmark(campaign)
             if benchmark is None:
                 continue
-            conversions = self._compared_spend(campaign, benchmark).conversions
+            compared = self._compared_spend(campaign, benchmark)
             cpa = self._compared_cpa(campaign, benchmark)
             lost = (campaign.lost_to_budget or 0) + (campaign.lost_to_rank or 0)
-            if cpa and conversions >= 5 and cpa <= benchmark.cpa and lost >= 0.4:
+            if cpa and compared.conversions >= 5 and cpa <= benchmark.cpa and lost >= 0.4:
                 recommendations.append(self._scale(campaign, cpa, benchmark, lost))
             elif (
                 search_cost
                 and campaign.cost >= 0.05 * search_cost
-                and (cpa is None or cpa >= REVIEW_CPA_MULTIPLE * benchmark.cpa)
+                and (cpa if cpa is not None else compared.cost) >= REVIEW_CPA_MULTIPLE * benchmark.cpa
             ):
-                recommendations.append(self._review(campaign, cpa, benchmark))
+                recommendations.append(self._review(campaign, cpa, compared.cost, benchmark))
         return recommendations
 
     def _budget_constrained(self, campaign: CampaignStats) -> MarketingAnalyticsRecommendation | None:
@@ -543,10 +544,11 @@ class _Recommender:
         )
 
     def _review(
-        self, campaign: CampaignStats, cpa: float | None, benchmark: _Benchmark
+        self, campaign: CampaignStats, cpa: float | None, compared_cost: float, benchmark: _Benchmark
     ) -> MarketingAnalyticsRecommendation:
         reason = (
-            f"Spent {self._money(campaign.cost)} with no {benchmark.compared_conversions}."
+            f"Spent {self._money(compared_cost)} ({compared_cost / benchmark.cpa:.1f}x {benchmark.label} "
+            f"of {self._money(benchmark.cpa)}) with no {benchmark.compared_conversions}."
             if cpa is None
             else f"Its {benchmark.compared} is {self._money(cpa)}, {cpa / benchmark.cpa:.1f}x {benchmark.label} "
             f"of {self._money(benchmark.cpa)}."
@@ -560,11 +562,11 @@ class _Recommender:
             campaign.cost * self.per_month,
             "save",
             "measured",
-            steps=self._review_steps(campaign, benchmark),
+            steps=self._review_steps(campaign, cpa, benchmark),
             cpa=self._cpa(cpa, benchmark),
         )
 
-    def _review_steps(self, campaign: CampaignStats, benchmark: _Benchmark) -> tuple[Step, ...]:
+    def _review_steps(self, campaign: CampaignStats, cpa: float | None, benchmark: _Benchmark) -> tuple[Step, ...]:
         spend: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
         # ADDED means the search is already a keyword and EXCLUDED means it is already a negative.
         targeted_or_excluded: set[str] = set()
@@ -623,7 +625,10 @@ class _Recommender:
         steps.append(
             Step(
                 text=f"If its {benchmark.compared} is still more than {REVIEW_CPA_MULTIPLE}x {benchmark.label} "
-                "after two weeks, pause it in Campaigns.",
+                "after two weeks, pause it in Campaigns."
+                if cpa is not None
+                else f"If after two weeks it still has no {benchmark.compared_conversions}, or its {benchmark.compared} "
+                f"is more than {REVIEW_CPA_MULTIPLE}x {benchmark.label}, pause it in Campaigns.",
                 url=ADS_CAMPAIGNS_URL,
                 linkText="Campaigns",
             )
