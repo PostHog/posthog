@@ -31,6 +31,8 @@ import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievem
 
 const celebrationKey = (trackKey: string, stage: number): string => `${trackKey}:${stage}`
 
+const DATA_INTERACTION_DEBOUNCE_MS = 1000
+
 function sortByCloseness(
     tracks: AchievementDefinitionApi[],
     progressByTrack: Record<string, AchievementProgressApi>
@@ -103,6 +105,9 @@ export interface webAnalyticsAchievementsLogicActions {
     openModal: () => {
         value: true
     }
+    recordDataInteraction: () => {
+        value: true
+    }
     recordInteraction: (kind: InteractionKindEnumApi) => {
         kind: InteractionKindEnumApi
     }
@@ -167,6 +172,7 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
         closeModal: true,
         acknowledgeCelebration: (trackKey: string, stage: number) => ({ trackKey, stage }),
         recordInteraction: (kind: InteractionKindEnumApi) => ({ kind }),
+        recordDataInteraction: true,
         markCelebrated: (key: string) => ({ key }),
         toggleTrackExpanded: (trackKey: string) => ({ trackKey }),
     }),
@@ -354,22 +360,26 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                 // best-effort gamification signal: never surface recording failures
             }
         },
+        recordDataInteraction: async (_, breakpoint) => {
+            await breakpoint(DATA_INTERACTION_DEBOUNCE_MS)
+            actions.recordInteraction(InteractionKindEnumApi.Data)
+        },
         // Dashboard interactions count toward achievements. These reports fire only from web
         // analytics UI, where this logic is mounted via the scene menu bar.
         [eventUsageLogic.actionTypes.reportWebAnalyticsFilterApplied]: () => {
-            actions.recordInteraction(InteractionKindEnumApi.Data)
+            actions.recordDataInteraction()
         },
         [eventUsageLogic.actionTypes.reportWebAnalyticsFilterRemoved]: () => {
-            actions.recordInteraction(InteractionKindEnumApi.Data)
+            actions.recordDataInteraction()
         },
         [webAnalyticsLogic.actionTypes.reportWebAnalyticsDateRangeChanged]: () => {
-            actions.recordInteraction(InteractionKindEnumApi.Data)
+            actions.recordDataInteraction()
         },
         [eventUsageLogic.actionTypes.reportWebAnalyticsCompareToggled]: () => {
-            actions.recordInteraction(InteractionKindEnumApi.Data)
+            actions.recordDataInteraction()
         },
         [eventUsageLogic.actionTypes.reportWebAnalyticsPathCleaningToggled]: () => {
-            actions.recordInteraction(InteractionKindEnumApi.Data)
+            actions.recordDataInteraction()
         },
     })),
     urlToAction(({ actions, values }) => {

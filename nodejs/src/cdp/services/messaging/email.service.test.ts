@@ -1585,6 +1585,43 @@ describe('EmailService', () => {
                 )
             })
 
+            it.each([
+                { isTest: false, priorAttempts: undefined, attempt: 1, minDelayMs: 30_000, maxDelayMs: 60_000 },
+                { isTest: false, priorAttempts: 3, attempt: 4, minDelayMs: 240_000, maxDelayMs: 480_000 },
+                { isTest: false, priorAttempts: 20, attempt: 21, minDelayMs: 3_600_000, maxDelayMs: 3_600_000 },
+                { isTest: true, priorAttempts: undefined, attempt: undefined, minDelayMs: 0, maxDelayMs: 0 },
+            ])(
+                'holds or fails the email when the suppression list cannot be read (isTest: $isTest, prior attempts: $priorAttempts)',
+                async ({ isTest, priorAttempts, attempt, minDelayMs, maxDelayMs }) => {
+                    const query = hub.postgres.query.bind(hub.postgres)
+                    jest.spyOn(hub.postgres, 'query').mockImplementation((target, sql, values, tag) =>
+                        tag === 'loadSuppressed'
+                            ? Promise.reject(new Error('column "hard_bounced_at" does not exist'))
+                            : query(target, sql, values, tag)
+                    )
+                    sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                    const held = { ...invocation, queueMetadata: { suppressionLookupAttempts: priorAttempts } }
+
+                    const before = Date.now()
+                    const result = await service.executeSendEmail(held, isTest)
+                    const after = Date.now()
+
+                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                    expect(result.metrics).toEqual([])
+                    if (isTest) {
+                        expect(result.finished).toBe(true)
+                        expect(result.error).toBe('Could not check the suppression list')
+                        return
+                    }
+                    expect(result.error).toBeUndefined()
+                    expect(result.finished).toBe(false)
+                    expect(result.invocation.queueMetadata?.suppressionLookupAttempts).toBe(attempt)
+                    expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThanOrEqual(before + minDelayMs)
+                    expect(result.invocation.queueScheduledAt!.toMillis()).toBeLessThanOrEqual(after + maxDelayMs)
+                    expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                }
+            )
+
             it('calls SES when the recipient is not suppressed', async () => {
                 jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(false)
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
