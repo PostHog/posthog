@@ -21,6 +21,48 @@ export const ENGINE_LABELS: Record<string, string> = {
 
 export const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
 
+export interface PromptSearches {
+    /** The search to show for the prompt: the one most engines ran, else the first one. */
+    primary: string | null
+    byEngine: { engine: string; queries: string[] }[]
+    distinct: number
+}
+
+/** Matches the backend's search grouping: case and runs of whitespace are ignored. */
+const searchKey = (query: string): string => query.trim().toLowerCase().split(/\s+/).join(' ')
+
+/** The web searches each engine ran on its latest check of a prompt. */
+export const promptSearches = (prompt: Pick<AEOPromptApi, 'latest_checks'>): PromptSearches => {
+    const byEngine = sortEngines(prompt.latest_checks.map((check) => check.engine))
+        .map((engine) => {
+            const queries = prompt.latest_checks.find((check) => check.engine === engine)?.search_queries ?? []
+            const unique = new Map<string, string>()
+            for (const query of queries) {
+                const key = searchKey(query)
+                if (key && !unique.has(key)) {
+                    unique.set(key, query.trim())
+                }
+            }
+            return { engine, queries: [...unique.values()] }
+        })
+        .filter(({ queries }) => queries.length > 0)
+    const engineCounts = new Map<string, { query: string; engines: number }>()
+    for (const { queries } of byEngine) {
+        for (const query of queries) {
+            const key = searchKey(query)
+            const entry = engineCounts.get(key)
+            engineCounts.set(key, { query: entry?.query ?? query, engines: (entry?.engines ?? 0) + 1 })
+        }
+    }
+    let primary: { query: string; engines: number } | null = null
+    for (const entry of engineCounts.values()) {
+        if (!primary || entry.engines > primary.engines) {
+            primary = entry
+        }
+    }
+    return { primary: primary?.query ?? null, byEngine, distinct: engineCounts.size }
+}
+
 /** Known engines first, in a fixed order, so table columns don't move between pages. */
 export const sortEngines = (engines: Iterable<string>): string[] => {
     const known = Object.keys(ENGINE_LABELS)

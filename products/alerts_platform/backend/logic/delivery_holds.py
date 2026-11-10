@@ -12,6 +12,7 @@ from typing import Final
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q
 
 from posthog.dataclasses import frozen
 
@@ -186,8 +187,8 @@ def blocks_delivery(team_id: int, configuration_id: str, evaluation_key: str) ->
     )
 
 
-def source_suppressed_holds_by_legacy_id(
-    team_id: int, legacy_configuration_id: UUID, evaluation_keys: Collection[str]
+def source_suppressed_holds_by_public_id(
+    team_id: int, public_id: UUID, evaluation_keys: Collection[str]
 ) -> frozenset[str]:
     """The named evaluations of an alert the platform owns whose hold its source released with a suppress.
 
@@ -198,7 +199,8 @@ def source_suppressed_holds_by_legacy_id(
     return frozenset(
         PlatformAlertDeliveryHold.objects.for_team(team_id)
         .filter(
-            configuration__legacy_configuration_id=legacy_configuration_id,
+            Q(configuration__legacy_configuration_id=public_id)
+            | Q(configuration__legacy_configuration_id__isnull=True, configuration_id=public_id),
             configuration__owner=PlatformAlertOwner.PLATFORM,
             evaluation_key__in=evaluation_keys,
             release_action=HoldRelease.SUPPRESS,
