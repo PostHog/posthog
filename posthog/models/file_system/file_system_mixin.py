@@ -79,8 +79,6 @@ class FileSystemSyncMixin(Model):
             capture_exception(e, additional_properties=dataclasses.asdict(fs_data))
 
     def files_new_rows(self) -> bool:
-        """Whether a save may create this object's project file. A model that launches behind a flag
-        returns False while the flag is off, so its saves then only update or remove an existing row."""
         return True
 
     @staticmethod

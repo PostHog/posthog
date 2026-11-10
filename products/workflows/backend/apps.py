@@ -33,11 +33,13 @@ class WorkflowsConfig(AppConfig):
         # Compiled filters embed each action's matcher, so they must be rebuilt when an action is saved.
         on_action_saved(action_saved_for_hog_flows, dispatch_uid="workflows.hog_flows.action_saved")
 
-        def log_deletion(context: "DeletionContext", instance: "HogFlow") -> None:
+        def refuse_unarchived_then_log_deletion(context: "DeletionContext", instance: "HogFlow") -> None:
             from products.workflows.backend.services.hog_flow_activity import (  # noqa: PLC0415 — keeps activity dependencies off startup
                 log_file_system_workflow_deletion,
+                require_archived_before_delete,
             )
 
+            require_archived_before_delete(instance)
             log_file_system_workflow_deletion(context, instance)
 
         def report_deletion(context: "DeletionContext", instance: "HogFlow") -> None:
@@ -50,7 +52,7 @@ class WorkflowsConfig(AppConfig):
         register_mixin_model("hog_flow", HogFlow)
 
         register_file_system_type("hog_flow", "workflows", "HogFlow", soft_delete_field=None)
-        register_pre_delete_hook("hog_flow", log_deletion)
+        register_pre_delete_hook("hog_flow", refuse_unarchived_then_log_deletion)
         register_post_delete_hook("hog_flow", report_deletion)
 
         def require_linked_workflow_editor(
@@ -62,6 +64,5 @@ class WorkflowsConfig(AppConfig):
 
             require_linked_workflow_editor(context, template)
 
-        # A transactional email template sends through a workflow, so this product guards its project file.
         register_pre_delete_hook("message_template", require_linked_workflow_editor)
         register_pre_restore_hook("message_template", require_linked_workflow_editor)
