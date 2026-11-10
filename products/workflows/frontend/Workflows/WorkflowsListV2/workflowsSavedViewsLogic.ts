@@ -70,6 +70,7 @@ import { MIN_SERVER_SEARCH_LENGTH, workflowsListV2Logic, type ServerSearchResult
 export interface workflowsSavedViewsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
+    savedItems: FileSystemEntry[] // projectTreeDataLogic
     user: UserType | null // userLogic
     currentTeamId: number | null // workflowsListV2Logic
     facets: FacetDefinition<WorkflowListRow>[] // workflowsListV2Logic
@@ -82,7 +83,6 @@ export interface workflowsSavedViewsLogicValues {
     serverSearch: ServerSearchResult | null // workflowsListV2Logic
     shownColumns: OptionalColumn[] // workflowsListV2Logic
     value: FacetSearchValue // workflowsListV2Logic
-    savedItems: FileSystemEntry[] // projectTreeDataLogic
     activeView: WorkflowSavedView
     activeViewChanges: string[]
     activeViewConflicted: boolean
@@ -267,9 +267,9 @@ export interface workflowsSavedViewsLogicMeta {
         viewCounts: (
             views: WorkflowSavedView[],
             rows: WorkflowListRow[],
-            savedItems: FileSystemEntry[], // projectTreeDataLogic
-            filesByRef: Record<string, FileSystemEntry>, // workflowsListV2Logic
-            currentTeamId: number | null, // workflowsListV2Logic
+            savedItems: FileSystemEntry[],
+            filesByRef: Record<string, FileSystemEntry>,
+            currentTeamId: number | null,
             facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[], // workflowsListV2Logic
             matchesText: MatchesText<WorkflowListRow>,
             serverSearch: ServerSearchResult | null,
