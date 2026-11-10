@@ -303,6 +303,9 @@ def insights_to_keep_fresh(team: Team, *, settings: WarmingSettings, shared_only
         else {}
     )
 
+    # A team's chain stops when its lifetime ends, so the most recently viewed insights go first.
+    candidates.sort(key=lambda candidate: candidate[2] or datetime.min.replace(tzinfo=UTC), reverse=True)
+
     for insight_id, dashboard_id, last_seen in candidates:
         reason = _skip_reason(
             on_dashboard=dashboard_id is not None,

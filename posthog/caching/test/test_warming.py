@@ -227,6 +227,28 @@ class TestWarming(APIBaseTest):
         self.assertEqual(selection.insights, [(insight.pk, dashboard_id)] if expected_kept else [])
         self.assertEqual(selection.skipped, expected_skipped)
 
+    def test_insights_to_keep_fresh_puts_the_most_recently_viewed_first(self) -> None:
+        now = datetime.now(UTC)
+        old_tile, recent_tile, standalone = (Insight.objects.create(team=self.team) for _ in range(3))
+        old_dashboard = Dashboard.objects.create(team=self.team, last_accessed_at=now - timedelta(days=3))
+        recent_dashboard = Dashboard.objects.create(team=self.team, last_accessed_at=now - timedelta(hours=1))
+        DashboardTile.objects.create(insight=old_tile, dashboard=old_dashboard)
+        DashboardTile.objects.create(insight=recent_tile, dashboard=recent_dashboard)
+        record_insight_views(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            last_viewed_at_by_insight_id={standalone.id: now - timedelta(days=1)},
+        )
+
+        stale = [f"{old_tile.pk}:{old_dashboard.pk}", f"{standalone.pk}:", f"{recent_tile.pk}:{recent_dashboard.pk}"]
+        with patch("posthog.caching.warming.get_stale_insights", return_value=stale):
+            selection = insights_to_keep_fresh(self.team, settings=load_warming_settings())
+
+        self.assertEqual(
+            selection.insights,
+            [(recent_tile.pk, recent_dashboard.pk), (standalone.pk, None), (old_tile.pk, old_dashboard.pk)],
+        )
+
     @parameterized.expand(
         [
             ("opened_in_the_app", DashboardAccessMethod.HUMAN, False, True, True),
