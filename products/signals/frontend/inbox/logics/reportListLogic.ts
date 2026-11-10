@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { derivePrState } from 'lib/signals/prState'
@@ -52,8 +53,13 @@ import type { InboxCreatedWindow, InboxFilterState, InboxSortDirection, InboxSor
 import { prCiStatusLogic } from './prCiStatusLogic'
 
 const PAGE_SIZE = 50
+const REPORT_LIST_RETRY_DELAY_MS = 300
 // The refresh endpoint's own id cap per call.
 const METRIC_REFRESH_PAGE_SIZE = 20
+
+function isRetryableReportListError(error: unknown): boolean {
+    return error instanceof ApiError && (error.status === undefined || error.status === 408 || error.status >= 500)
+}
 
 /** The row fields the list leaves empty (`include_source_metadata=false`) and `source_metadata` fills in. */
 export type ReportSourceMeta = Pick<SignalReport, 'source_products' | 'scout_name'>
@@ -705,15 +711,26 @@ export const reportListLogic = kea<reportListLogicType>([
                     const requestContext = requestContextFromValues(values)
                     cache.firstPageRequestId = (cache.firstPageRequestId ?? 0) + 1
                     const rowsBefore = values.reportsResponse?.results
-                    // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
-                    const response = await api.signalReports.list({
-                        ...listRequestParams(params),
-                        offset: 0,
-                        limit: PAGE_SIZE,
-                        ranking_id: isMergeKeySortField(requestContext.sortField)
-                            ? loadedPersonalRankingId(requestContext.sortField, params.teammate_uuid)
-                            : undefined,
-                    })
+                    const request = (): Promise<CountedPaginatedResponse<SignalReport>> =>
+                        // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
+                        api.signalReports.list({
+                            ...listRequestParams(params),
+                            offset: 0,
+                            limit: PAGE_SIZE,
+                            ranking_id: isMergeKeySortField(requestContext.sortField)
+                                ? loadedPersonalRankingId(requestContext.sortField, params.teammate_uuid)
+                                : undefined,
+                        })
+                    let response: CountedPaginatedResponse<SignalReport>
+                    try {
+                        response = await request()
+                    } catch (error) {
+                        if (!isRetryableReportListError(error)) {
+                            throw error
+                        }
+                        await breakpoint(REPORT_LIST_RETRY_DELAY_MS)
+                        response = await request()
+                    }
                     // A newer first-page request for a changed query supersedes this one.
                     breakpoint()
                     return {
