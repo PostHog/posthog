@@ -83,11 +83,38 @@ export const hogFlowForApiSend = (hogFlow: HogFlow, category: SendCategory | und
     actions: hogFlow.actions.map((action) => emailStepForApiSend(action, category)),
 })
 
+const isMarketingEmailStep = (action: HogFlowAction): action is EmailStep =>
+    action.type === 'function_email' && action.config.message_category_type !== 'transactional'
+
 export const marketingEmailStep = (hogFlow: HogFlow): EmailStep | undefined =>
-    hogFlow.actions.find(
-        (action): action is EmailStep =>
-            action.type === 'function_email' && action.config.message_category_type !== 'transactional'
-    )
+    hogFlow.actions.find(isMarketingEmailStep)
+
+const UNSUBSCRIBE_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/
+
+const hasAddresses = (value: unknown): boolean =>
+    Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.trim() !== ''
+
+export type MarketingSendRefusal = 'unsubscribe_link_required' | 'copies_not_allowed'
+
+// The preferences link and List-Unsubscribe are signed for `to`, so a copy would hand its reader control of
+// `to`'s preferences.
+export const marketingSendRefusal = (
+    action: HogFlowAction,
+    send: AcceptedSend | undefined
+): MarketingSendRefusal | undefined => {
+    if (!isMarketingEmailStep(action)) {
+        return undefined
+    }
+    const email = action.config.inputs.email?.value ?? {}
+    const content = send?.content ?? email
+    if (!UNSUBSCRIBE_PLACEHOLDER.test(content.html || content.text || '')) {
+        return 'unsubscribe_link_required'
+    }
+    if (hasAddresses(send?.cc ?? email.cc) || hasAddresses(send?.bcc ?? email.bcc)) {
+        return 'copies_not_allowed'
+    }
+    return undefined
+}
 
 export const acceptedSendEmailFields = (
     send: QueuedSend | undefined
@@ -153,7 +180,7 @@ export type TransactionalEmailOutcome =
     | 'sending_paused'
     | 'recipient_suppressed'
     | 'recipient_opted_out'
-    | 'copies_not_allowed'
+    | MarketingSendRefusal
     | 'recipient_unreachable'
     | 'error'
 

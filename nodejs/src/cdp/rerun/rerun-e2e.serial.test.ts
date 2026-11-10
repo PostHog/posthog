@@ -653,7 +653,7 @@ describe('CDP hog invocation rerun e2e', () => {
                 from: { integrationId: senderId, email: 'sender@posthog.com' },
                 subject: 'News',
                 text: 'News',
-                html: '<p>News</p>',
+                html: '<p>News</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
             })
             .build()
         await insertHogFlow(hub.postgres, flow)

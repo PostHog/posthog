@@ -7,6 +7,7 @@ import { logger } from '~/common/utils/logger'
 import { EMAIL_STATUS_OUTPUT, EmailStatusOutput } from '../../outputs/outputs'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../../types'
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
+import type { MarketingSendRefusal } from '../hogflows/transactional-email'
 import { classifyError } from '../monitoring/hog-invocation-results.service'
 
 const counterEmailStatusRowsProduced = new Counter({
@@ -56,6 +57,7 @@ export type EmailSkipReason =
     | 'missing_recipient'
     | 'recipient_opted_out'
     | 'frequency_capped'
+    | MarketingSendRefusal
 
 // The rank is the high part of `version`, so a message's status only moves forward in the
 // ReplacingMergeTree, whatever order the rows arrive in. `failed` ranks below `sent` so that a

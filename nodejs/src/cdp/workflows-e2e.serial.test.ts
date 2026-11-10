@@ -3308,17 +3308,22 @@ describe('Workflows E2E (email queue)', () => {
         let app: express.Application
         let server: ReturnType<express.Application['listen']>
 
-        const sendFlow = (kind: 'template' | 'code', stepCategory: 'transactional' | 'marketing'): HogFlow =>
+        const sendFlow = (
+            kind: 'template' | 'code',
+            stepCategory: 'transactional' | 'marketing',
+            stepEmail: Record<string, unknown> = {}
+        ): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
-                .withApiEmailWorkflow(
-                    stepCategory,
-                    kind === 'template'
+                .withApiEmailWorkflow(stepCategory, {
+                    ...(kind === 'template'
                         ? {
+                              cc: '',
+                              bcc: '',
                               from: { integrationId: 1, email: 'sender@posthog.com' },
                               subject: 'News',
-                              text: 'News',
-                              html: '<p>News</p>',
+                              text: 'News. Unsubscribe: {{ unsubscribe_url }}',
+                              html: '<p>News</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
                           }
                         : {
                               cc: '',
@@ -3328,8 +3333,9 @@ describe('Workflows E2E (email queue)', () => {
                               subject: '',
                               text: '',
                               html: '',
-                          }
-                )
+                          }),
+                    ...stepEmail,
+                })
                 .build()
 
         const codeSend = (messageCategory?: { id: string; type: 'marketing' | 'transactional' }) => ({
@@ -3594,6 +3600,99 @@ describe('Workflows E2E (email queue)', () => {
 
             expect(await emailsTo(bcc)).toHaveLength(1)
         })
+
+        it.each([
+            {
+                name: 'refuses a code send in a marketing category whose html has no unsubscribe link',
+                kind: 'code',
+                stepEmail: {},
+                send: {
+                    ...codeSend(newsletter),
+                    content: { subject: 'Our news', html: '<p>News</p>', text: 'Unsubscribe: {{ unsubscribe_url }}' },
+                },
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
+                name: 'sends a code send in a marketing category with the link in its text and no html',
+                kind: 'code',
+                stepEmail: {},
+                send: { ...codeSend(newsletter), content: { subject: 'Our news', text: 'Bye: {{unsubscribe_url}}' } },
+                status: 202,
+            },
+            {
+                name: 'refuses a code send in a marketing category whose email step has a bcc',
+                kind: 'code',
+                stepEmail: { bcc: 'audit@example.com' },
+                send: codeSend(newsletter),
+                status: 400,
+                error: 'copies_not_allowed',
+            },
+            {
+                name: 'refuses a template send in a marketing category whose email step has no unsubscribe link',
+                kind: 'template',
+                stepEmail: { html: '<p>News</p>', text: 'News' },
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
+                name: 'refuses a template send in a marketing category whose email step has a cc',
+                kind: 'template',
+                stepEmail: { cc: 'manager@example.com' },
+                status: 400,
+                error: 'copies_not_allowed',
+            },
+        ] as const)('$name', async (row) => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow(row.kind, 'transactional', row.stepEmail))
+            const to = `reader-${new UUIDT().toString()}@example.com`
+
+            const res = await post(row.kind, flow, {
+                to,
+                distinct_id: 'reader',
+                ...('send' in row ? { send: row.send } : { message_category: newsletter }),
+            })
+
+            expect(res.status).toEqual(row.status)
+            if ('error' in row) {
+                expect(res.body).toEqual({ error: row.error })
+                expect(await queryCyclotronJobs()).toEqual([])
+                return
+            }
+            await deliver()
+            const [email] = await emailsTo(to)
+            expect(email.text).toMatch(/^Bye: \S*\/messaging-preferences\/[^/]+\/$/m)
+        })
+
+        it.each([
+            { name: 'a cc on its email step', stepEmail: (copy: string) => ({ cc: copy }), sent: false },
+            {
+                name: 'no unsubscribe link in its email step',
+                stepEmail: () => ({ html: '<p>News</p>', text: 'News' }),
+                sent: false,
+            },
+            { name: 'a new subject on its email step', stepEmail: () => ({ subject: 'Newer news' }), sent: true },
+        ])(
+            'a marketing template send whose email worker loads the workflow with $name sends: $sent',
+            async ({ stepEmail, sent }) => {
+                const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional'))
+                const to = `reader-${new UUIDT().toString()}@example.com`
+                const copy = `manager-${new UUIDT().toString()}@example.com`
+
+                const res = await post('template', flow, { to, distinct_id: 'reader', message_category: newsletter })
+                expect(res.status).toEqual(202)
+                // A worker with its own workflow cache can hold a copy that differs from the one the API checked.
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_hogflow SET actions = $1 WHERE id = $2`,
+                    [JSON.stringify(sendFlow('template', 'transactional', stepEmail(copy)).actions), flow.id],
+                    'test-change-hog-flow'
+                )
+                await deliver(createCdpConsumerDeps(hub, kafkaProducer))
+
+                expect(await emailsTo(to)).toHaveLength(sent ? 1 : 0)
+                expect(await emailsTo(copy)).toEqual([])
+            }
+        )
 
         it('refuses a retry of a template send that reuses its idempotency key in another category', async () => {
             const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional'))

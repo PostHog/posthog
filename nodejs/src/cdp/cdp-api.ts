@@ -65,6 +65,7 @@ import {
     hogFlowForApiSend,
     isRecipientFormatIssue,
     marketingEmailStep,
+    marketingSendRefusal,
     sendCategory,
     transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
@@ -1373,10 +1374,9 @@ export class CdpApi {
                 // Straight to the email queue: the flow's only step is the email, so a hop through the
                 // workflow queue would only add latency to a password reset or a verification code.
                 const marketingStep = marketingEmailStep(hogFlow)
-                // The preferences link and List-Unsubscribe are signed for `to`, so a copy would hand its reader
-                // control of `to`'s preferences.
-                if (marketingStep && (send?.cc?.length || send?.bcc?.length)) {
-                    return reply('copies_not_allowed', 400, { error: 'copies_not_allowed' })
+                const marketingRefusal = marketingStep && marketingSendRefusal(marketingStep, send)
+                if (marketingRefusal) {
+                    return reply(marketingRefusal, 400, { error: marketingRefusal })
                 }
                 const priorityClass: EmailQueuePriorityClass = marketingStep ? 'bulk' : 'fast'
                 invocation.queue = 'email'

@@ -2254,7 +2254,9 @@ describe('CDP API', () => {
                             type: 'function_email',
                             config: {
                                 template_id: 'template-email',
-                                inputs: {},
+                                inputs: {
+                                    email: { value: { html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>' } },
+                                },
                                 message_category_type: category,
                                 ...(categoryId && { message_category_id: categoryId }),
                             },
@@ -2306,7 +2308,11 @@ describe('CDP API', () => {
         ) => supertest(app).post(`/api/projects/${team.id}/hog_flows/${flowId}/${route}`).set(headers).send(payload)
 
         const codeSend = {
-            content: { subject: 'Reset your password', html: '<p>Hi {{ variables.name }}</p>', text: 'Hi' },
+            content: {
+                subject: 'Reset your password',
+                html: '<p>Hi {{ variables.name }}</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+                text: 'Hi',
+            },
             from: { integrationId: 12, email: 'security@example.com', name: 'Example' },
             replyTo: ['help@example.com'],
             tracking: { captureEngagement: true },
