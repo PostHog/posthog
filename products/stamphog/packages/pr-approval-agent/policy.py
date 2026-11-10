@@ -489,11 +489,11 @@ def _parse_bot_authors(raw: Any) -> tuple[BotAuthor, ...]:
 
 
 def _parse_string_list(raw: object, context: str, *, non_empty: bool = False) -> tuple[str, ...]:
-    _require(isinstance(raw, list), f"{context}: must be a list")
+    if not isinstance(raw, list):
+        raise PolicyError(f"{context}: must be a list")
     _require(not non_empty or bool(raw), f"{context}: must be a non-empty list")
-    values = list(raw)  # type: ignore[call-overload]
-    _require(all(isinstance(v, str) and bool(v) for v in values), f"{context}: entries must be non-empty strings")
-    return tuple(values)
+    _require(all(isinstance(v, str) and bool(v) for v in raw), f"{context}: entries must be non-empty strings")
+    return tuple(raw)
 
 
 def _parse_deny_exception_prefixes(raw: object, context: str) -> tuple[str, ...]:
