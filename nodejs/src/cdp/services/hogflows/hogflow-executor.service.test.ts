@@ -76,8 +76,6 @@ const cleanLogs = (logs: string[]): string[] => {
 
 type DeliveredEmail = { to: string[]; subject: string; attachments: { filename: string; bytes: Buffer }[] }
 
-// Speaks the SES v2 SendEmail wire protocol, so the real SDK client serializes, signs and parses against it,
-// and keeps what each accepted request would have delivered.
 class SesV2Fake {
     readonly delivered: DeliveredEmail[] = []
     endpoint = ''
@@ -129,8 +127,6 @@ class SesV2Fake {
     }
 }
 
-// Keeps files per team like the bucket does, and stops answering loads after a set number of them, as the bucket
-// does when it goes down between two sends.
 class AttachmentStoreFake implements AttachmentStore {
     loadsBeforeOutage = Infinity
     private readonly files = new Map<string, Buffer>()
@@ -3823,10 +3819,12 @@ if (not res.success) { throw Error(res.error) }`,
                 invocation.state.send = send
                 const routed = await runner.execute(invocation)
                 expect(routed.invocation.queue).toBe('email')
-                // As if the email queue had held email_1 once and now runs it, due five seconds ago.
-                routed.invocation.queueMetadata = { ...routed.invocation.queueMetadata, ...delayedWith }
-                routed.invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
-                return await runUntilHeld(runner, routed.invocation)
+                const firstEmailHeldOnceAndNowFiveSecondsLate: CyclotronJobInvocationHogFlow = {
+                    ...routed.invocation,
+                    queueMetadata: { ...routed.invocation.queueMetadata, ...delayedWith },
+                    queueDueAt: DateTime.utc().minus({ seconds: 5 }),
+                }
+                return await runUntilHeld(runner, firstEmailHeldOnceAndNowFiveSecondsLate)
             }
 
             const sendsLeftInTheTeamBudget = async (runner: HogFlowExecutorService): Promise<number> => {
