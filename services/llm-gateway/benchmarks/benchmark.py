@@ -108,7 +108,9 @@ async def bench_openai_stream(
                 ttft = (time.perf_counter() - start) * 1000
             chunk_count += 1
         if chunk.usage and chunk.usage.completion_tokens:
-            token_count = chunk.usage.completion_tokens
+            details = chunk.usage.completion_tokens_details
+            reasoning_tokens = (details.reasoning_tokens or 0) if details else 0
+            token_count = chunk.usage.completion_tokens - reasoning_tokens
 
     if token_count == 0:
         token_count = chunk_count
