@@ -1,9 +1,11 @@
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use futures::future::join_all;
 use personhog_property_store::reader::PropertyReader;
-use personhog_property_store::{PropertyStoreConfig, PropertyStoreError, StoredProperties};
+use personhog_property_store::{PropertyStoreError, StoredProperties};
+use tokio::sync::Semaphore;
 use tonic::Status;
 
 use crate::storage::types::Person;
@@ -13,19 +15,15 @@ const READ_MS: &str = "personhog_replica_slatedb_property_read_ms";
 
 pub(crate) struct SlatedbProperties {
     pub(crate) reader: Arc<PropertyReader>,
-    /// A row created within this long may be a revival the reader has not caught up with.
-    pub(crate) young_row: Duration,
+    /// Bounds the SlateDB reads in flight across requests; a batch starts one read per person.
+    permits: Semaphore,
 }
 
 impl SlatedbProperties {
-    pub(crate) fn new(reader: Arc<PropertyReader>, config: &PropertyStoreConfig) -> Self {
-        let mut staleness = config.reader_poll_interval();
-        if config.reader_skip_wal {
-            staleness += config.memtable_flush_interval().unwrap_or_default();
-        }
+    pub(crate) fn new(reader: Arc<PropertyReader>, read_concurrency: usize) -> Self {
         Self {
             reader,
-            young_row: staleness * 2,
+            permits: Semaphore::new(read_concurrency.max(1)),
         }
     }
 }
@@ -38,14 +36,14 @@ pub(crate) enum Resolved {
     Unavailable,
 }
 
-/// Eventual reads serve SlateDB's record whatever its version. A person who should
-/// have a record but has none fails closed, so a gap never reads as empty properties.
-/// A record behind a young row is not served either: a revive resets the row's
-/// `created_at`, and the record may be the deleted person's.
+/// Eventual reads serve SlateDB's record whatever its version. A person who should have a
+/// record but has none fails closed, so a gap never reads as empty properties. A record behind
+/// the row that predates the row's `created_at` belongs to a previous incarnation: a revival
+/// resets `created_at` and starts the person empty, and its delete marker may not have arrived.
 pub(crate) fn resolve(
     read: Result<Option<StoredProperties>, PropertyStoreError>,
     row_version: i64,
-    young_row: bool,
+    row_created_at: i64,
 ) -> (Resolved, &'static str) {
     match read {
         // A delete marker below the live version is an identity revival, which has empty properties.
@@ -53,8 +51,8 @@ pub(crate) fn resolve(
             (Resolved::Served("{}".to_string()), "revived")
         }
         Ok(Some(stored)) if stored.deleted => (Resolved::Gone, "deleted"),
-        Ok(Some(stored)) if stored.version < row_version && young_row => {
-            (Resolved::Unavailable, "behind_new_row")
+        Ok(Some(stored)) if stored.version < row_version && stored.created_at < row_created_at => {
+            (Resolved::Served("{}".to_string()), "previous_incarnation")
         }
         Ok(Some(stored)) => {
             let outcome = if stored.version < row_version {
@@ -88,11 +86,16 @@ pub(crate) async fn with_properties(
     mut person: Person,
 ) -> Result<Option<Person>, Status> {
     let started = Instant::now();
-    let read = slatedb.reader.get(person.team_id, person.id).await;
+    let read = {
+        let _permit = slatedb.permits.acquire().await;
+        slatedb.reader.get(person.team_id, person.id).await
+    };
     common_metrics::histogram(READ_MS, &[], started.elapsed().as_secs_f64() * 1000.0);
-    let age = chrono::Utc::now().signed_duration_since(person.created_at);
-    let young_row = age < chrono::Duration::from_std(slatedb.young_row).unwrap_or_default();
-    let (resolved, outcome) = resolve(read, person.version.unwrap_or(0), young_row);
+    let (resolved, outcome) = resolve(
+        read,
+        person.version.unwrap_or(0),
+        person.created_at.timestamp_millis(),
+    );
     common_metrics::inc(
         READS_TOTAL,
         &[("outcome".to_string(), outcome.to_string())],
@@ -128,19 +131,45 @@ pub(crate) async fn all_with_properties(
         .collect())
 }
 
+/// One read per person, however many keys resolve to it.
 pub(crate) async fn keyed_with_properties<K>(
     slatedb: &SlatedbProperties,
     rows: Vec<(K, Option<Person>)>,
 ) -> Result<Vec<(K, Option<Person>)>, Status> {
-    let read = join_all(rows.into_iter().map(|(key, person)| async move {
-        let person = match person {
-            Some(person) => with_properties(slatedb, person).await?,
-            None => None,
-        };
-        Ok::<_, Status>((key, person))
-    }))
+    let (persons, slots) = dedupe(rows, |person| (person.team_id, person.id));
+    let read = join_all(
+        persons
+            .into_iter()
+            .map(|person| with_properties(slatedb, person)),
+    )
     .await;
-    read.into_iter().collect()
+    let read: Vec<Option<Person>> = read.into_iter().collect::<Result<_, _>>()?;
+    Ok(slots
+        .into_iter()
+        .map(|(key, slot)| (key, slot.and_then(|index| read[index].clone())))
+        .collect())
+}
+
+/// The distinct persons of a keyed batch, and each row's index into them.
+fn dedupe<K, P>(
+    rows: Vec<(K, Option<P>)>,
+    person_key: impl Fn(&P) -> (i64, i64),
+) -> (Vec<P>, Vec<(K, Option<usize>)>) {
+    let mut persons: Vec<P> = Vec::new();
+    let mut index: HashMap<(i64, i64), usize> = HashMap::new();
+    let slots = rows
+        .into_iter()
+        .map(|(key, person)| {
+            let slot = person.map(|person| {
+                *index.entry(person_key(&person)).or_insert_with(|| {
+                    persons.push(person);
+                    persons.len() - 1
+                })
+            });
+            (key, slot)
+        })
+        .collect();
+    (persons, slots)
 }
 
 #[cfg(test)]
@@ -150,41 +179,54 @@ mod tests {
 
     use super::*;
 
-    fn stored(version: i64, deleted: bool) -> StoredProperties {
+    fn stored(version: i64, deleted: bool, created_at: i64) -> StoredProperties {
         StoredProperties {
             version,
             deleted,
+            created_at,
             properties: Bytes::from_static(br#"{"plan":"paid"}"#),
         }
     }
 
     #[rstest]
-    #[case::at_the_row_version(Some(stored(4, false)), 4, false, Resolved::Served(r#"{"plan":"paid"}"#.into()), "served")]
-    #[case::behind_the_row(Some(stored(3, false)), 4, false, Resolved::Served(r#"{"plan":"paid"}"#.into()), "behind")]
-    #[case::behind_a_new_row(
-        Some(stored(3, false)),
+    #[case::at_the_row_version(Some(stored(4, false, 1000)), 4, 1000, Resolved::Served(r#"{"plan":"paid"}"#.into()), "served")]
+    #[case::behind_the_row(Some(stored(3, false, 1000)), 4, 1000, Resolved::Served(r#"{"plan":"paid"}"#.into()), "behind")]
+    #[case::behind_after_a_merge_lowered_created_at(Some(stored(3, false, 2000)), 4, 1000, Resolved::Served(r#"{"plan":"paid"}"#.into()), "behind")]
+    #[case::behind_from_a_previous_incarnation(
+        Some(stored(3, false, 1000)),
         5,
-        true,
-        Resolved::Unavailable,
-        "behind_new_row"
+        2000,
+        Resolved::Served("{}".into()),
+        "previous_incarnation"
     )]
-    #[case::at_the_version_of_a_new_row(Some(stored(5, false)), 5, true, Resolved::Served(r#"{"plan":"paid"}"#.into()), "served")]
-    #[case::ahead_of_the_row(Some(stored(5, false)), 4, false, Resolved::Served(r#"{"plan":"paid"}"#.into()), "served")]
-    #[case::deleted_at_the_row_version(Some(stored(4, true)), 4, false, Resolved::Gone, "deleted")]
-    #[case::deleted_ahead_of_the_row(Some(stored(5, true)), 4, false, Resolved::Gone, "deleted")]
-    #[case::revived_over_a_delete(Some(stored(3, true)), 4, false, Resolved::Served("{}".into()), "revived")]
-    #[case::revived_over_a_delete_on_a_new_row(Some(stored(3, true)), 4, true, Resolved::Served("{}".into()), "revived")]
-    #[case::untouched_stub(None, 0, true, Resolved::Served("{}".into()), "stub")]
-    #[case::missing_record(None, 4, false, Resolved::Unavailable, "missing")]
+    #[case::at_the_version_of_a_new_incarnation(Some(stored(5, false, 2000)), 5, 2000, Resolved::Served(r#"{"plan":"paid"}"#.into()), "served")]
+    #[case::ahead_of_the_row(Some(stored(5, false, 1000)), 4, 1000, Resolved::Served(r#"{"plan":"paid"}"#.into()), "served")]
+    #[case::deleted_at_the_row_version(
+        Some(stored(4, true, 1000)),
+        4,
+        1000,
+        Resolved::Gone,
+        "deleted"
+    )]
+    #[case::deleted_ahead_of_the_row(
+        Some(stored(5, true, 1000)),
+        4,
+        1000,
+        Resolved::Gone,
+        "deleted"
+    )]
+    #[case::revived_over_a_delete(Some(stored(3, true, 1000)), 4, 2000, Resolved::Served("{}".into()), "revived")]
+    #[case::untouched_stub(None, 0, 1000, Resolved::Served("{}".into()), "stub")]
+    #[case::missing_record(None, 4, 1000, Resolved::Unavailable, "missing")]
     fn serves_what_slatedb_holds(
         #[case] read: Option<StoredProperties>,
         #[case] row_version: i64,
-        #[case] young_row: bool,
+        #[case] row_created_at: i64,
         #[case] expected: Resolved,
         #[case] outcome: &str,
     ) {
         assert_eq!(
-            resolve(Ok(read), row_version, young_row),
+            resolve(Ok(read), row_version, row_created_at),
             (expected, outcome)
         );
     }
@@ -198,8 +240,26 @@ mod tests {
         #[case] outcome: &str,
     ) {
         assert_eq!(
-            resolve(Err(error), 4, false),
+            resolve(Err(error), 4, 1000),
             (Resolved::Unavailable, outcome)
+        );
+    }
+
+    #[test]
+    fn keys_that_resolve_to_one_person_share_one_read() {
+        let rows = vec![
+            ("a", Some((7, 1))),
+            ("b", Some((7, 2))),
+            ("c", None),
+            ("d", Some((7, 1))),
+        ];
+
+        let (persons, slots) = dedupe(rows, |person| *person);
+
+        assert_eq!(persons, vec![(7, 1), (7, 2)]);
+        assert_eq!(
+            slots,
+            vec![("a", Some(0)), ("b", Some(1)), ("c", None), ("d", Some(0))]
         );
     }
 }

@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use personhog_common::persons::COOKIELESS_SENTINEL_VALUE;
-use personhog_property_store::{PropertyReader, PropertyStoreConfig};
+use personhog_property_store::PropertyReader;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     AckPersonTombstonesRequest, AckPersonTombstonesResponse, CheckCohortMembershipRequest,
@@ -106,9 +106,12 @@ impl PersonHogReplicaService {
     pub fn with_slatedb_properties(
         mut self,
         reader: Arc<PropertyReader>,
-        config: &PropertyStoreConfig,
+        read_concurrency: usize,
     ) -> Self {
-        self.slatedb = Some(slatedb_properties::SlatedbProperties::new(reader, config));
+        self.slatedb = Some(slatedb_properties::SlatedbProperties::new(
+            reader,
+            read_concurrency,
+        ));
         self
     }
 

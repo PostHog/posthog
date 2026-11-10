@@ -166,6 +166,7 @@ mod tests {
                         person_id: 1,
                         version,
                         deleted,
+                        created_at: 0,
                         properties: Bytes::from_static(br#"{"plan":"paid"}"#),
                     }],
                 )
@@ -260,6 +261,7 @@ mod tests {
                 person_id,
                 version,
                 deleted,
+                created_at: 0,
                 properties: Bytes::from_static(br#"{"plan":"paid"}"#),
             };
             let mut first = vec![record(2, 1, false)];

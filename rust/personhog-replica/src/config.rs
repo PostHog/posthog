@@ -37,6 +37,10 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub property_store: personhog_property_store::PropertyStoreConfig,
 
+    /// In slatedb mode, how many SlateDB reads run at once across requests.
+    #[envconfig(default = "64")]
+    pub property_read_concurrency: usize,
+
     /// Read only in slatedb mode, to check this pod's shard layout against the writer's.
     #[envconfig(default = "http://localhost:2379")]
     pub etcd_endpoints: String,

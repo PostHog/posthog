@@ -151,6 +151,8 @@ struct RawProxyInner {
     retry_config: RetryConfig,
     max_recv_message_size: usize,
     response_size_warn_bytes: usize,
+    /// Bounds a read's attempt on its pinned pod, connection wait included.
+    pinned_attempt_timeout: Duration,
 }
 
 impl RawProxyService {
@@ -170,8 +172,16 @@ impl RawProxyService {
                 retry_config,
                 max_recv_message_size,
                 response_size_warn_bytes,
+                pinned_attempt_timeout: Duration::from_secs(1),
             }),
         }
+    }
+
+    pub fn with_pinned_attempt_timeout(mut self, timeout: Duration) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("set before the service is shared")
+            .pinned_attempt_timeout = timeout;
+        self
     }
 }
 
@@ -488,15 +498,33 @@ impl RawProxyInner {
         let client = current_client_name();
 
         for attempt in 0..=self.retry_config.max_retries {
+            let last = attempt >= self.retry_config.max_retries;
             // A retry leaves the pinned pod, which may be the one failing.
-            let mut channel = if attempt == 0 {
-                backend.channel_for(affinity_key)
+            let pinned = if attempt == 0 {
+                affinity_key.and_then(|key| backend.pinned_channel(key))
             } else {
-                backend.channel()
+                None
             };
+            // The pinned attempt is bounded as a whole, connection wait included, so an
+            // unreachable pod costs at most this before the balanced channel takes the request.
+            let deadline = pinned
+                .is_some()
+                .then(|| Instant::now() + self.pinned_attempt_timeout);
+            let mut channel = pinned.unwrap_or_else(|| backend.channel());
 
             let ready_start = Instant::now();
-            let ready_channel = match channel.ready().await {
+            let Some(ready) = bounded(deadline, channel.ready()).await else {
+                counter!("personhog_router_pinned_attempts_expired_total", "method" => method.clone(), "stage" => "ready").increment(1);
+                if last {
+                    return (
+                        grpc_error_response(Code::Unavailable, "pinned replica attempt timed out"),
+                        None,
+                    );
+                }
+                retry_backoff(&mut delay_ms, &self.retry_config, &method, &client).await;
+                continue;
+            };
+            let ready_channel = match ready {
                 Ok(c) => c,
                 Err(e) => {
                     histogram!(
@@ -539,10 +567,26 @@ impl RawProxyInner {
             *req.headers_mut() = parts.headers.clone();
 
             let call_start = Instant::now();
-            match ready_channel.call(req).await {
+            let Some(called) = bounded(deadline, ready_channel.call(req)).await else {
+                counter!("personhog_router_pinned_attempts_expired_total", "method" => method.clone(), "stage" => "call").increment(1);
+                if last {
+                    return (
+                        grpc_error_response(Code::Unavailable, "pinned replica attempt timed out"),
+                        None,
+                    );
+                }
+                retry_backoff(&mut delay_ms, &self.retry_config, &method, &client).await;
+                continue;
+            };
+            match called {
                 Ok(response) => {
                     let channel_call_ms = call_start.elapsed().as_secs_f64() * 1000.0;
                     let unapplied = unapplied_refusal_reason(&response).map(str::to_owned);
+                    // A pinned pod can fail a read from its own property reader while another
+                    // pod can answer it, and a read loses nothing by asking again elsewhere.
+                    let pinned_unavailable = deadline.is_some()
+                        && is_replica_read(&method)
+                        && grpc_status(&response) == Some(Code::Unavailable as i32);
                     histogram!(
                         "personhog_router_channel_call_ms",
                         "method" => method.clone(),
@@ -550,9 +594,7 @@ impl RawProxyInner {
                         "outcome" => if unapplied.is_some() { "refused" } else { "ok" },
                     )
                     .record(channel_call_ms);
-                    if let (Some(reason), true) =
-                        (unapplied, attempt < self.retry_config.max_retries)
-                    {
+                    if let (Some(reason), false) = (unapplied, last) {
                         counter!(
                             "personhog_router_unapplied_retries_total",
                             "method" => method.clone(),
@@ -561,6 +603,16 @@ impl RawProxyInner {
                         )
                         .increment(1);
                         // The balancer re-picks an endpoint per request.
+                        retry_backoff(&mut delay_ms, &self.retry_config, &method, &client).await;
+                        continue;
+                    }
+                    if pinned_unavailable && !last {
+                        counter!(
+                            "personhog_router_pinned_fallbacks_total",
+                            "method" => method.clone(),
+                            "client" => client.clone(),
+                        )
+                        .increment(1);
                         retry_backoff(&mut delay_ms, &self.retry_config, &method, &client).await;
                         continue;
                     }
@@ -744,6 +796,36 @@ const PERSON_ID_HEADER: &str = "x-person-id";
 const DISTINCT_ID_HEADER: &str = "x-distinct-id-bin";
 
 /// A replica read stamped with `x-team-id` and `x-distinct-id-bin` keeps landing on one pod.
+async fn bounded<F: std::future::Future>(
+    deadline: Option<Instant>,
+    future: F,
+) -> Option<F::Output> {
+    match deadline {
+        Some(deadline) => tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), future)
+            .await
+            .ok(),
+        None => Some(future.await),
+    }
+}
+
+/// An error answer arrives as a trailers-only response, so its status is in the headers.
+fn grpc_status(response: &http::Response<BoxBody>) -> Option<i32> {
+    response
+        .headers()
+        .get("grpc-status")?
+        .to_str()
+        .ok()?
+        .parse()
+        .ok()
+}
+
+/// The replica RPCs a router may repeat elsewhere after a pinned pod answered UNAVAILABLE.
+fn is_replica_read(method: &str) -> bool {
+    ["Get", "List", "Count", "Check"]
+        .iter()
+        .any(|prefix| method.starts_with(prefix))
+}
+
 fn replica_affinity_key(headers: &http::HeaderMap) -> Option<Vec<u8>> {
     let team_id = headers.get(TEAM_ID_HEADER)?;
     let distinct_id = headers.get(DISTINCT_ID_HEADER)?;

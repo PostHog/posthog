@@ -45,8 +45,8 @@ impl SlatedbReplica {
         let writer = PropertyWriter::new(&config(), Arc::clone(&store));
         writer.assign(&partition(), 1, 1, || true).await.unwrap();
         let reader = Arc::new(PropertyReader::new(&config(), store));
-        let service = PersonHogReplicaService::new(ctx.storage.clone())
-            .with_slatedb_properties(reader, &config());
+        let service =
+            PersonHogReplicaService::new(ctx.storage.clone()).with_slatedb_properties(reader, 64);
         Self {
             ctx,
             service,
@@ -83,6 +83,7 @@ impl SlatedbReplica {
                     person_id: person.id,
                     version,
                     deleted,
+                    created_at: 0,
                     properties: Bytes::from_static(SLATEDB_PROPERTIES),
                 }],
             )

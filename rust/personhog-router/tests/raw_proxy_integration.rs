@@ -1237,3 +1237,86 @@ async fn raw_proxy_identity_without_backend_returns_unimplemented() {
         status.message()
     );
 }
+
+#[tokio::test]
+async fn raw_proxy_reads_fall_back_when_the_pinned_replica_is_unavailable() {
+    let first = TestReplicaService::with_person(create_test_person()).unavailable(usize::MAX);
+    let second = TestReplicaService::with_person(create_test_person());
+    let first_calls = first.calls.clone();
+    let first_addr = start_test_replica(first).await;
+    let second_addr = start_test_replica(second).await;
+    let router_addr =
+        start_test_router_raw_with_replica_pods(second_addr, &[first_addr, second_addr]).await;
+    let mut client = create_client(router_addr).await;
+
+    for n in 0..20 {
+        let mut request = Request::new(GetPersonRequest {
+            team_id: 1,
+            person_id: 42,
+            read_options: None,
+        });
+        request
+            .metadata_mut()
+            .insert("x-team-id", "1".parse().unwrap());
+        request.metadata_mut().insert_bin(
+            "x-distinct-id-bin",
+            tonic::metadata::MetadataValue::from_bytes(format!("user-{n}").as_bytes()),
+        );
+        client
+            .get_person(request)
+            .await
+            .unwrap_or_else(|e| panic!("user-{n}: {e}"));
+    }
+
+    assert!(
+        first_calls.load(Ordering::SeqCst) > 0,
+        "no read was pinned to the failing pod, so nothing was proven"
+    );
+}
+
+#[tokio::test]
+async fn raw_proxy_bounds_a_read_pinned_to_a_pod_that_never_answers() {
+    let live_addr = start_test_replica(TestReplicaService::with_person(create_test_person())).await;
+    // Accepts connections and never speaks, as a wedged pod would.
+    let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let silent_addr = silent.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        loop {
+            let (stream, _) = silent.accept().await.unwrap();
+            held.push(stream);
+        }
+    });
+    let router_addr = common::start_test_router_raw_with_replica_pods_bounded(
+        live_addr,
+        &[silent_addr, live_addr],
+        Duration::from_millis(200),
+    )
+    .await;
+    let mut client = create_client(router_addr).await;
+
+    for n in 0..20 {
+        let started = std::time::Instant::now();
+        let mut request = Request::new(GetPersonRequest {
+            team_id: 1,
+            person_id: 42,
+            read_options: None,
+        });
+        request
+            .metadata_mut()
+            .insert("x-team-id", "1".parse().unwrap());
+        request.metadata_mut().insert_bin(
+            "x-distinct-id-bin",
+            tonic::metadata::MetadataValue::from_bytes(format!("user-{n}").as_bytes()),
+        );
+        tokio::time::timeout(Duration::from_secs(5), client.get_person(request))
+            .await
+            .expect("the pinned attempt was never bounded")
+            .unwrap_or_else(|e| panic!("user-{n}: {e}"));
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "user-{n} took {:?}",
+            started.elapsed()
+        );
+    }
+}

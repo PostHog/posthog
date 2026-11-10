@@ -110,21 +110,22 @@ impl ChannelBackend {
     }
 
     /// Best effort: without a key or a known pod, the balanced channel serves the request.
-    pub fn channel_for(&self, affinity_key: Option<&[u8]>) -> Channel {
-        let Some(key) = affinity_key else {
-            return self.channel();
-        };
-        let (outcome, channel) = match self.pods.as_ref().and_then(|pods| pods.pick(key)) {
-            Some(channel) => ("pinned", channel),
-            None => ("unpinned", self.channel()),
-        };
+    /// The channel pinned to the key's pod, or none when the backend has no pod for it.
+    pub fn pinned_channel(&self, affinity_key: &[u8]) -> Option<Channel> {
+        let channel = self.pods.as_ref().and_then(|pods| pods.pick(affinity_key));
         metrics::counter!(
             "personhog_router_affinity_picks_total",
             "role" => self.role,
-            "outcome" => outcome,
+            "outcome" => if channel.is_some() { "pinned" } else { "unpinned" },
         )
         .increment(1);
         channel
+    }
+
+    pub fn channel_for(&self, affinity_key: Option<&[u8]>) -> Channel {
+        affinity_key
+            .and_then(|key| self.pinned_channel(key))
+            .unwrap_or_else(|| self.channel())
     }
 
     pub fn retry_config(&self) -> &RetryConfig {

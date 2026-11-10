@@ -341,7 +341,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             object_store,
         ));
         reader.spawn_idle_reaper();
-        service = service.with_slatedb_properties(reader, &config.property_store);
+        service = service.with_slatedb_properties(reader, config.property_read_concurrency);
     }
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();

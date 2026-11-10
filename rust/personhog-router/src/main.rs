@@ -455,7 +455,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             retry_config,
             max_recv,
             config.response_size_warn_bytes,
-        );
+        )
+        .with_pinned_attempt_timeout(Duration::from_millis(config.affinity_attempt_timeout_ms));
         let mut server = http2_windows.apply_to_server(
             Server::builder()
                 .http2_keepalive_interval(keepalive_interval)
