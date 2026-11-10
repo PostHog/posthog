@@ -424,7 +424,9 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         if (
             isinstance(request.successful_authenticator, SessionAuthentication)
             and isinstance(request.user, User)
-            and blocks_session_action(self.action, request.data if self.action == "partial_update" else None)
+            and blocks_session_action(
+                self.action, request.data if self.action in ("partial_update", "build_action") else None
+            )
             and in_canvas_experiment(request.user, self.team)
         ):
             raise PermissionDenied("In the canvas experiment, create and edit canvases through the PostHog MCP server.")

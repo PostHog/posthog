@@ -24,6 +24,7 @@ EXPERIMENT_SESSION_BLOCKED_ACTIONS = frozenset(
         "draft",
         "promote",
         "revert",
+        "publish_current_version",
         "publish_layout",
         "patch_layout",
         "request_fix",
@@ -32,6 +33,9 @@ EXPERIMENT_SESSION_BLOCKED_ACTIONS = frozenset(
 )
 # Linking a generation task is how the web app starts a hosted generation or a hosted edit run.
 EXPERIMENT_SESSION_BLOCKED_UPDATE_FIELDS = frozenset({"generation_task_id"})
+# A retry queues a build whose completion can publish content the web app could not publish itself.
+# The other build actions (pin, unpin, cancel) do not publish anything.
+EXPERIMENT_SESSION_BLOCKED_BUILD_ACTIONS = frozenset({"retry"})
 
 
 def in_canvas_experiment(user: User, team: Team) -> bool:
@@ -45,6 +49,8 @@ def blocks_session_action(action: str | None, data: Any) -> bool:
         return True
     if action == "partial_update" and isinstance(data, dict):
         return not EXPERIMENT_SESSION_BLOCKED_UPDATE_FIELDS.isdisjoint(data)
+    if action == "build_action" and isinstance(data, dict):
+        return data.get("action") in EXPERIMENT_SESSION_BLOCKED_BUILD_ACTIONS
     return False
 
 
