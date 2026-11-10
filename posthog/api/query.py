@@ -1,6 +1,6 @@
 import re
 from time import perf_counter
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 
 from django.core.cache import cache
 from django.http import HttpRequest, JsonResponse
@@ -71,13 +71,16 @@ from posthog.event_usage import (
     get_request_analytics_properties,
     report_user_or_team_action,
 )
+from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_failure_handling import captured_elsewhere
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
+from posthog.hogql_queries.warehouse_suggestion_notes import credential_access
 from posthog.models.user import User
 from posthog.models.utils import uuid7
+from posthog.permissions import get_authenticator_scopes, scopes_caller_lacks
 from posthog.query_scan import slot as query_scan_slot
 from posthog.query_scan.flag import QueryScanMode, get_query_scan_flag
 from posthog.query_scan.serve import analysis_with_prompt
@@ -93,12 +96,15 @@ from posthog.rate_limit import (
     HogQLQueryThrottle,
 )
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.customer_analytics.backend.facade.api import validate_account_users_access
 from products.customer_analytics.backend.facade.constants import ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import validate_managed_trino_raw_access
+from products.metrics.backend.facade.api import derived_metric_resources
+from products.metrics.backend.facade.contracts import DERIVED_SOURCE_QUERY_STATUS_LABEL_PREFIX
 from products.warehouse_sources.backend.facade.models import is_managed_warehouse_connection_ready
 
 from common.hogvm.python.utils import HogVMException
@@ -225,6 +231,7 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "MetricsHistogramQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
+    "MCPDashboardQuery": ["query:read", "mcp_analytics:read"],
     "MCPHarnessBreakdownQuery": ["query:read", "mcp_analytics:read"],
     "MCPMissingCapabilitiesQuery": ["query:read", "mcp_analytics:read"],
     "MCPModelBreakdownQuery": ["query:read", "mcp_analytics:read"],
@@ -245,10 +252,21 @@ def required_scopes_for_query_payload(query: object) -> list[str] | None:
         # experiment:read on top of query:read — keyed on query content, not kind alone.
         if kind == "RecordingsQuery" and current_query.get("experiment_exposure"):
             return ["query:read", "experiment:read"]
+        if kind == "MetricsQuery":
+            return [*_QUERY_KIND_SCOPES[kind], *_derived_metric_source_scopes(current_query)]
         if isinstance(kind, str) and kind in _QUERY_KIND_SCOPES:
             return _QUERY_KIND_SCOPES[kind]
         current_query = current_query.get("source")
     return None
+
+
+def _derived_metric_source_scopes(query: dict) -> list[str]:
+    # A derived metric reads spans or logs, so the token also needs read access to that source.
+    clauses = query.get("clauses")
+    if not isinstance(clauses, list):
+        return []
+    names = [clause.get("metricName") for clause in clauses if isinstance(clause, dict)]
+    return [f"{resource}:read" for resource in derived_metric_resources(n for n in names if isinstance(n, str))]
 
 
 def add_query_response_identity_headers(response: Response) -> Response:
@@ -348,6 +366,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 _mark_explicit_date_boundaries(query)
 
             self._tag_client_query_id(client_query_id)
+            tag_queries(
+                warehouse_suggestion_access=credential_access(
+                    get_authenticator_scopes(request.successful_authenticator)
+                )
+            )
             analytics_props = get_query_request_analytics_properties(request)
             query_dict = query.model_dump()
 
@@ -515,6 +538,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 )
             except UserAccessControlError as error:
                 raise PermissionDenied(str(error)) from error
+        self._enforce_derived_metric_source_access(request, query_status.labels or [])
         if managed_warehouse_query_labels.MANAGED_TRINO_RAW_QUERY_STATUS_LABEL in (query_status.labels or []):
             try:
                 validate_managed_trino_raw_access(self.team, request.user if isinstance(request.user, User) else None)
@@ -557,6 +581,28 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         if query_status.bytes_read is not None:
             _add_query_cost_headers(response, query_status.bytes_read, query_status.budget_remaining_bytes)
         return response
+
+    def _enforce_derived_metric_source_access(self, request: Request, labels: list[str]) -> None:
+        # A derived result holds span or log attributes, so retrieval needs the source access that creation checked.
+        resources = [
+            label.removeprefix(DERIVED_SOURCE_QUERY_STATUS_LABEL_PREFIX)
+            for label in labels
+            if label.startswith(DERIVED_SOURCE_QUERY_STATUS_LABEL_PREFIX)
+        ]
+        if not resources:
+            return
+        missing = scopes_caller_lacks(request, [f"{resource}:read" for resource in resources])
+        if missing:
+            raise InsufficientScope(
+                missing, detail=f"Derived metrics read spans or logs, so they also need: {', '.join(missing)}."
+            )
+        # A shared-link viewer has no user, and the share itself authorizes the result.
+        if isinstance(request.user, User):
+            for resource in resources:
+                if not self.user_access_control.check_access_level_for_resource(
+                    cast(APIScopeObject, resource), "viewer"
+                ):
+                    raise PermissionDenied(f"You do not have access to {resource}.")
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @action(methods=["POST"], detail=False)
