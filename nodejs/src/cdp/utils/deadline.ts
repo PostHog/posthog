@@ -19,6 +19,11 @@ export function deadlineError(signal: AbortSignal | undefined): unknown {
         : undefined
 }
 
+export function deadlineRemainingMs(signal: AbortSignal | undefined): number | undefined {
+    const at = signal && expiresAt.get(signal)
+    return at === undefined ? undefined : Math.max(0, at - performance.now())
+}
+
 export function throwIfDeadlinePassed(signal: AbortSignal | undefined): void {
     const error = deadlineError(signal)
     if (error !== undefined) {

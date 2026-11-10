@@ -340,54 +340,76 @@ describe('Hog Inputs', () => {
             }
         )
 
-        it.each([
-            [
-                'the next input',
-                (busy: unknown): HogFunctionType['inputs'] => ({
-                    busy: { value: 'busy', templating: 'hog', bytecode: busy, order: 0 },
-                    quick: { value: '{{ event.event }}', templating: 'liquid', order: 1 },
-                }),
-            ],
-            [
-                'the next leaf of the same input',
-                (busy: unknown, quick: unknown): HogFunctionType['inputs'] => ({
-                    only: { value: 'x', templating: 'hog', bytecode: { busy, quick } },
-                }),
-            ],
-        ])(
-            'starts no render of %s once the clock passes the deadline, before its timer fires',
-            async (_where, inputsFor) => {
-                const deadlineMs = 50
-                const busy = await compileHog(
-                    `while (toUnixTimestampMilli(now()) < event.properties.busy_until) { } return 'done'`
-                )
-                const quick = await compileHog(`return 'quick'`)
-                const busyThenQuick = createHogFunction({
+        it('renders no input after one whose render carries the clock past the deadline', async () => {
+            const deadlineMs = 50
+            let now = performance.now()
+            const clock = jest.spyOn(performance, 'now').mockImplementation(() => now)
+            try {
+                const deadline = deadlineAfter(deadlineMs)
+                const slowThenNext = createHogFunction({
                     ...hogFunction,
-                    inputs: inputsFor(busy, quick),
+                    inputs: {
+                        slow: { value: '{{ event.properties.slow }}', templating: 'liquid', order: 0 },
+                        next: { value: '{{ event.event }}', templating: 'liquid', order: 1 },
+                    },
                     inputs_schema: [],
                 })
-                const mockedNow = jest.mocked(Date.now)
-                const fixedNow = mockedNow()
-                mockedNow.mockImplementation(() => performance.timeOrigin + performance.now())
-                try {
-                    const deadline = deadlineAfter(deadlineMs)
-                    const busyPastIt = {
-                        ...globals,
-                        event: {
-                            ...globals.event,
-                            properties: { ...globals.event.properties, busy_until: Date.now() + 3 * deadlineMs },
-                        },
-                    }
+                const properties = { ...globals.event.properties }
+                Object.defineProperty(properties, 'slow', {
+                    enumerable: true,
+                    get: () => {
+                        now += 2 * deadlineMs
+                        return 'slow'
+                    },
+                })
 
-                    await expect(
-                        hogInputsService.buildInputs(busyThenQuick, busyPastIt, undefined, undefined, deadline)
-                    ).rejects.toMatchObject({ name: 'TimeoutError' })
-                } finally {
-                    mockedNow.mockReturnValue(fixedNow)
-                }
+                await expect(
+                    hogInputsService.buildInputs(
+                        slowThenNext,
+                        { ...globals, event: { ...globals.event, properties } },
+                        undefined,
+                        undefined,
+                        deadline
+                    )
+                ).rejects.toMatchObject({ name: 'TimeoutError' })
+            } finally {
+                clock.mockRestore()
             }
-        )
+        })
+
+        it('stops a hog render at the deadline rather than at its own longer timeout', async () => {
+            const deadlineMs = 50
+            const busyFor = 3000
+            const busy = await compileHog(
+                `while (toUnixTimestampMilli(now()) < event.properties.busy_until) { } return 'done'`
+            )
+            const onlyBusy = createHogFunction({
+                ...hogFunction,
+                inputs: { busy: { value: 'busy', templating: 'hog', bytecode: busy } },
+                inputs_schema: [],
+            })
+            const mockedNow = jest.mocked(Date.now)
+            const fixedNow = mockedNow()
+            mockedNow.mockImplementation(() => performance.timeOrigin + performance.now())
+            try {
+                const deadline = deadlineAfter(deadlineMs)
+                const startedAt = Date.now()
+                const busyLong = {
+                    ...globals,
+                    event: {
+                        ...globals.event,
+                        properties: { ...globals.event.properties, busy_until: startedAt + busyFor },
+                    },
+                }
+
+                await expect(
+                    hogInputsService.buildInputs(onlyBusy, busyLong, undefined, undefined, deadline)
+                ).rejects.toMatchObject({ name: 'TimeoutError' })
+                expect(Date.now() - startedAt).toBeLessThan(busyFor / 2)
+            } finally {
+                mockedNow.mockReturnValue(fixedNow)
+            }
+        })
 
         it('should template out liquid inputs', async () => {
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)

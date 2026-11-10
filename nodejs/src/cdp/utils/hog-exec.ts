@@ -6,7 +6,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { yieldEventLoopIfNeeded } from '~/common/utils/event-loop-yield'
 import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 
-import { deadlineError } from './deadline'
+import { deadlineError, deadlineRemainingMs } from './deadline'
 import { Semaphore } from './sempahore'
 
 const semaphore = new Semaphore(1)
@@ -23,11 +23,20 @@ export async function execHog(
     return await semaphore.run(async () => {
         return await instrumentFn(`hog-exec`, async () => {
             return await yieldEventLoopIfNeeded('hog-exec', () => {
+                const result = execHogImmediate(bytecode, withinDeadline(options, signal))
                 const passed = deadlineError(signal)
-                return passed !== undefined ? { error: passed, durationMs: 0 } : execHogImmediate(bytecode, options)
+                return passed !== undefined ? { error: passed, durationMs: result.durationMs } : result
             })
         })
     })
+}
+
+function withinDeadline(options: ExecOptions | undefined, signal: AbortSignal | undefined): ExecOptions | undefined {
+    const remainingMs = deadlineRemainingMs(signal)
+    if (remainingMs === undefined) {
+        return options
+    }
+    return { ...options, timeout: Math.min(options?.timeout ?? DEFAULT_TIMEOUT_MS, Math.max(1, remainingMs)) }
 }
 
 export function execHogImmediate(
