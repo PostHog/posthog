@@ -130,12 +130,13 @@ def normalize_date_filter(value: str) -> str:
     value = value.strip()
     # A bare integer is ambiguous: "-30" reads as days, but "2024" or "202401" is meant as a date and as
     # days would reach back thousands of days. The query also parses it as an int and fails validation.
-    if re.fullmatch(r"-?\d+", value):
+    if re.fullmatch(r"-?[0-9]+", value):
         raise ValueError(f"{value!r} has no unit")
     # Only the units posthog.utils.get_delta_mapping_for handles; it is case-sensitive ("m" is months, "M" minutes)
     # and returns no delta for any other unit, or for a unit without a number, which would move the cutoff to now.
     # Without a number only a Start or End of h, d, w, m, q or y moves the date, such as "mStart" for this month.
-    if re.fullmatch(r"-?\d+[hdwmMsqy](Start|End)?|[hdwmqy](Start|End)", value):
+    # [0-9], not \d: the query reads only ASCII digits, so a number in other digits would move the cutoff to now.
+    if re.fullmatch(r"-?[0-9]+[hdwmMsqy](Start|End)?|[hdwmqy](Start|End)", value):
         return value
     try:
         isoparser.isoparse(value)

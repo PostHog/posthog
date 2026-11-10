@@ -1136,6 +1136,14 @@ class TestAdminConsoleViews(BaseTest):
                 None,
             ),
             (
+                "filters_with_non_ascii_digits_in_a_date",
+                "delete-by-filters",
+                {"date_to": "-\uff13\uff10d", "dry_run": "on"},
+                None,
+                None,
+                None,
+            ),
+            (
                 "filters_with_an_unsupported_date_unit",
                 "delete-by-filters",
                 {"date_to": "-30D", "dry_run": "on"},
@@ -1166,7 +1174,7 @@ class TestAdminConsoleViews(BaseTest):
                 {"person_uuid": " 6B1E2C3D-4F5A-4B6C-8D7E-9F0A1B2C3D4E ", "dry_run": "on"},
                 None,
                 "delete-recordings-with-query",
-                {"query": {"person_uuid": "6b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e"}},
+                {"query": {"date_from": "-3d", "person_uuid": "6b1e2c3d-4f5a-4b6c-8d7e-9f0a1b2c3d4e"}},
             ),
             ("filters_with_null_as_the_person", "delete-by-filters", {"person_uuid": "null"}, None, None, None),
             ("filters_with_quotes_as_the_person", "delete-by-filters", {"person_uuid": '""'}, None, None, None),
