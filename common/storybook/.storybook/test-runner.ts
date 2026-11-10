@@ -21,6 +21,10 @@ const VIEWPORT_WIDTHS = {
 } as const satisfies Record<ViewportWidthName, { width: number; height: number }>
 
 const RETRY_TIMES = 2
+// A snapshot is kept when two captures in a row match. The cap ends the loop on a page that never stops
+// changing, which then keeps its last capture.
+const MAX_SNAPSHOT_CAPTURES = 4
+const RECAPTURE_SETTLE_MS = 100
 const FRAME_SELECTOR_SEPARATOR = ' >>> '
 const LOADER_SELECTORS = [
     '.Spinner',
@@ -780,7 +784,7 @@ async function expectLocatorToMatchStorySnapshot(
     theme: SnapshotTheme,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await takeSnapshotImage(locator, context, options)
+    const image = await takeSettledSnapshotImage(locator, context, theme, options)
     let customSnapshotIdentifier = `${context.id}--${theme}`
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
@@ -796,6 +800,36 @@ async function expectLocatorToMatchStorySnapshot(
         failureThreshold: 0.01,
         failureThresholdType: 'percent',
     })
+}
+
+/**
+ * Captures until two screenshots in a row match, the way Playwright's `toHaveScreenshot` does.
+ * Between captures the chart paint and animation finish run again, so a page that changed after the
+ * waits is captured again once it settles.
+ */
+async function takeSettledSnapshotImage(
+    locator: Locator | Page,
+    context: TestContext,
+    theme: SnapshotTheme,
+    options?: LocatorScreenshotOptions
+): Promise<Buffer> {
+    const page = 'page' in locator ? locator.page() : locator
+    let previous = await takeSnapshotImage(locator, context, options)
+    for (let capture = 2; capture <= MAX_SNAPSHOT_CAPTURES; capture++) {
+        await page.waitForTimeout(RECAPTURE_SETTLE_MS)
+        await waitForChartCanvasesPainted(page)
+        await finishAnimations(page)
+        const image = await takeSnapshotImage(locator, context, options)
+        if (image.equals(previous)) {
+            return image
+        }
+        previous = image
+    }
+    // eslint-disable-next-line no-console
+    console.warn(
+        `[test-runner] ${context.id} (${theme}): still changed after ${MAX_SNAPSHOT_CAPTURES} captures. Look for an animation, a timer or late content.`
+    )
+    return previous
 }
 
 /**
