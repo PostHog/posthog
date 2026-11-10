@@ -8,7 +8,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 AVRO_SCHEMA_RS = REPO_ROOT / "rust/capture-logs/src/metrics_avro_schema.rs"
-KAFKA_TABLE_HCL = REPO_ROOT / "posthog/clickhouse/hcl/roles/coshared/metrics4_ingest/metrics4.hcl"
+KAFKA_TABLE_HCL = REPO_ROOT / "posthog/clickhouse/hcl/roles/apm/shared/metrics4.hcl"
 KAFKA_TABLE = "kafka_metrics_avro4"
 
 # The ClickHouse column types that read each Avro type correctly.
