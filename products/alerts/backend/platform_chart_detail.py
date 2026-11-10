@@ -10,7 +10,10 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
-from products.alerts_platform.backend.facade.contracts import SourceBatchEvaluation
+from products.alerts_platform.backend.facade.contracts import AlertDeliveryRequest, SourceBatchEvaluation
+
+# Started by name, because the module that defines it imports the evaluation workflow's render.
+LATE_CHART_WORKFLOW = "insight-alert-platform-late-chart"
 
 # Never recorded: the workflow replaces it with the chart's ids, or drops it when the render fails.
 CHART_PENDING_KEY = "insight_chart_pending_alert_id"
@@ -24,6 +27,20 @@ CHART_RENDER_USER_ID_KEY = "insight_chart_render_user_id"
 class RenderedChart:
     asset_id: int
     render_user_id: int
+
+
+@frozen
+class LateChartInputs:
+    """A firing that went out without its chart, and the deliveries that sent it."""
+
+    team_id: int
+    alert_id: str
+    deliveries: tuple[AlertDeliveryRequest, ...]
+
+
+def chart_detail(chart: RenderedChart) -> dict[str, Any]:
+    """The chart's ids, under the keys a firing's `source_detail` carries them."""
+    return {CHART_ASSET_ID_KEY: chart.asset_id, CHART_RENDER_USER_ID_KEY: chart.render_user_id}
 
 
 def pending_chart_alert_id(evaluation: SourceBatchEvaluation) -> str | None:
@@ -62,7 +79,4 @@ def with_chart(evaluation: SourceBatchEvaluation, chart: RenderedChart | None) -
 
 def _resolved(source_detail: dict[str, Any], chart: RenderedChart | None) -> dict[str, Any]:
     detail = {key: value for key, value in source_detail.items() if key != CHART_PENDING_KEY}
-    if chart is not None:
-        detail[CHART_ASSET_ID_KEY] = chart.asset_id
-        detail[CHART_RENDER_USER_ID_KEY] = chart.render_user_id
-    return detail
+    return {**detail, **chart_detail(chart)} if chart is not None else detail

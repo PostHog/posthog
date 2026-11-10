@@ -30,7 +30,10 @@
                 {% for fact in rendered.facts %}
                     <dt class="text-muted-foreground">{{ fact.label }}</dt>
                     <dd class="m-0 min-w-0 break-words">
-                        {% if fact.tone %}
+                        {% if fact.href %}
+                            <a class="text-foreground underline decoration-border underline-offset-2 hover:decoration-current{% if fact.mono %} font-mono text-xs{% endif %}"
+                               href="{{ fact.href }}">{{ fact.value }}</a>
+                        {% elif fact.tone %}
                             {% include "admin_console/_badge.html" with label=fact.value tone=fact.tone mono=fact.mono %}
                         {% elif fact.mono %}
                             <span class="font-mono text-xs">{{ fact.value }}</span>
@@ -42,31 +45,9 @@
             </dl>
         {% endif %}
         {% if rendered.operations %}
-            <ul class="m-0 p-0 list-none grid grid-cols-[max-content_1fr] items-center gap-x-3 gap-y-2 pt-3 border-t border-border">
-                {% for operation in rendered.operations %}
-                    <li class="grid grid-cols-subgrid col-span-2 items-center">
-                        {% if operation.form_class %}
-                            <a href="{% url 'admin_console_team_operation' team_id=team.pk panel_key=rendered.panel.key operation_key=operation.key %}"
-                               class="quill-button {% if operation.danger %}quill-button--variant-destructive-outline{% else %}quill-button--variant-outline{% endif %} quill-button--size-sm group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">{{ operation.label }}</a>
-                        {% else %}
-                            <form method="post"
-                                  action="{% url 'admin_console_team_operation' team_id=team.pk panel_key=rendered.panel.key operation_key=operation.key %}">
-                                {% csrf_token %}
-                                <button type="submit"
-                                        class="quill-button quill-button--variant-outline quill-button--size-sm group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
-                                    {{ operation.label }}
-                                </button>
-                            </form>
-                        {% endif %}
-                        <span class="text-xs text-muted-foreground">
-                            {% if operation.danger %}
-                                {% include "admin_console/_badge.html" with label="Risky" tone="destructive" %}
-                            {% endif %}
-                            {{ operation.description }}
-                        </span>
-                    </li>
-                {% endfor %}
-            </ul>
+            <div class="pt-3 border-t border-border">
+                {% include "admin_console/_operations.html" with operations=rendered.operations %}
+            </div>
         {% endif %}
     </div>
 </section>

@@ -18,7 +18,7 @@ import { ContentAutopilotPromptKpiCard } from './ContentAutopilotPromptKpiCard'
 import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTile'
 import { ContentAutopilotPromptSentiment } from './ContentAutopilotPromptSentiment'
 import { ContentAutopilotPromptVersions } from './ContentAutopilotPromptVersions'
-import { rateKpiCard } from './promptReport'
+import { POSITION_DESCRIPTION, positionKpiCard, rateKpiCard } from './promptReport'
 import { promptCitationsContext, promptSearchesContext, promptSourcesContext } from './promptReportColumns'
 import { draftableOpportunity } from './utils'
 
@@ -172,7 +172,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                 title="Last 30 days, all engines"
                                 description={`${pluralize(reportKpis.answers, 'answer')} across ${pluralize(reportKpis.days, 'day')}.`}
                             >
-                                <div className="grid grid-cols-1 @2xl/prompt-report:grid-cols-2 gap-3">
+                                <div className="grid grid-cols-1 @2xl/prompt-report:grid-cols-3 gap-3">
                                     <ContentAutopilotPromptKpiCard
                                         label="Mentioned in answers"
                                         description="Share of answers that name your brand, with or without a link. An answer that cites your site always counts as a mention."
@@ -184,6 +184,12 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                                         description="Share of answers that link to a page on your site as a source, so people can click through to it."
                                         {...rateKpiCard(reportKpis.citation)}
                                         data-attr="content-autopilot-prompt-kpi-cited"
+                                    />
+                                    <ContentAutopilotPromptKpiCard
+                                        label="Average position"
+                                        description={POSITION_DESCRIPTION}
+                                        {...positionKpiCard(reportKpis.position)}
+                                        data-attr="content-autopilot-prompt-kpi-position"
                                     />
                                 </div>
                             </Section>

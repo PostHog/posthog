@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use common_kafka::kafka_producer::{
     send_iter_to_kafka, send_keyed_iter_to_kafka, KafkaProduceError,
 };
+use rdkafka::error::RDKafkaErrorCode;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 use uuid::Uuid;
@@ -18,9 +19,9 @@ use crate::{
     app_context::AppContext,
     error::UnhandledError,
     metric_consts::{
-        ISSUE_CREATED_EVENT_PROPERTIES_BYTES, ISSUE_CREATED_EVENT_PROPERTIES_STORED,
-        ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED, ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED,
-        ISSUE_REOPENED,
+        INGESTION_NOTIFICATION_SKIPPED, ISSUE_CREATED_EVENT_PROPERTIES_BYTES,
+        ISSUE_CREATED_EVENT_PROPERTIES_STORED, ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED,
+        ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED, ISSUE_REOPENED,
     },
 };
 
@@ -401,6 +402,22 @@ mod tests {
 
         assert_eq!(payload["issue_severity"], "high");
     }
+
+    #[test]
+    fn only_an_oversized_produce_is_skipped() {
+        let produce_error = |code| KafkaProduceError::KafkaProduceError {
+            error: rdkafka::error::KafkaError::MessageProduction(code),
+        };
+        assert!(is_message_too_large(&produce_error(
+            RDKafkaErrorCode::MessageSizeTooLarge
+        )));
+        assert!(!is_message_too_large(&produce_error(
+            RDKafkaErrorCode::QueueFull
+        )));
+        assert!(!is_message_too_large(
+            &KafkaProduceError::KafkaProduceCanceled
+        ));
+    }
 }
 
 impl IssueFingerprintOverride {
@@ -689,17 +706,37 @@ async fn publish_ingestion_notification(
     context: &AppContext,
     notification: IngestionNotification,
 ) -> Result<(), UnhandledError> {
-    send_keyed_iter_to_kafka(
+    let partition_key = notification.partition_key();
+    let results = send_keyed_iter_to_kafka(
         &context.immediate_producer,
         &context.config.ingestion_notifications_topic,
         |notification| Some(notification.partition_key()),
         std::iter::once(notification),
     )
-    .await
-    .into_iter()
-    .collect::<Result<Vec<_>, KafkaProduceError>>()
-    .map_err(UnhandledError::KafkaProduceError)?;
+    .await;
+    for result in results {
+        match result {
+            Ok(()) => {}
+            Err(error) if is_message_too_large(&error) => {
+                metrics::counter!(INGESTION_NOTIFICATION_SKIPPED, "reason" => "message_too_large")
+                    .increment(1);
+                warn!(partition_key = %partition_key, error = %error, "skipped an ingestion notification too large to produce");
+            }
+            Err(error) => return Err(UnhandledError::KafkaProduceError(error)),
+        }
+    }
     Ok(())
+}
+
+/// The notification embeds the event's processed properties, which have no size bound. A
+/// message too large to produce fails on every retry, so failing the request on it stalls
+/// ingestion for the whole partition.
+fn is_message_too_large(error: &KafkaProduceError) -> bool {
+    matches!(
+        error,
+        KafkaProduceError::KafkaProduceError { error }
+            if error.rdkafka_error_code() == Some(RDKafkaErrorCode::MessageSizeTooLarge)
+    )
 }
 
 fn assignment_to_string(assignment: Option<Assignment>) -> Result<Option<String>, UnhandledError> {

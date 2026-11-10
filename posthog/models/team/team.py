@@ -953,9 +953,14 @@ class Team(UUIDTClassicModel):
 
     def _persist_api_token_change(self, *, old_token: str, user: "User", is_impersonated_session: bool) -> None:
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+        from posthog.storage.team_metadata_signal_handlers import enqueue_retired_token_metadata_clear_on_commit
         from posthog.tasks.remote_config import update_team_remote_config
+        from posthog.tasks.team_access_cache_tasks import invalidate_team_tokens_sync
 
         self.save()
+        # The auth entries go first, because the metadata clear removes the entry they still point to.
+        transaction.on_commit(lambda: invalidate_team_tokens_sync(self.id))
+        enqueue_retired_token_metadata_clear_on_commit(self.id, old_token)
         # The post_save receiver also dispatches the plain remote config sync for this save.
         # A worker that predates the old_token argument rejects this task. That worker still
         # runs the plain sync, which writes the new token's Redis entry.

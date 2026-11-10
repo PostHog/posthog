@@ -1,4 +1,5 @@
 import re
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -657,15 +658,14 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 False,
                 mode=ONLY,
             ),
-            # Each scan exports one created_at, so the two fields never share a column.
+            # Each scan exports its own property columns, so paths that join to one name in separate scans never share a column.
             param(
-                "fields_of_one_name_in_separate_scans",
-                f"SELECT created_at FROM events WHERE {MIXED} UNION ALL "
-                f"SELECT person.created_at FROM events WHERE {MIXED}",
+                "property_paths_of_one_name_in_separate_scans",
+                f"SELECT properties.a.b FROM events WHERE {MIXED} UNION ALL "
+                f"SELECT properties.a___b FROM events WHERE {MIXED}",
                 True,
                 True,
                 mode=ONLY,
-                persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
             ),
             param(
                 "alias_of_event_in_a_mixed_filter_on_mode_2",
@@ -707,6 +707,16 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 True,
                 mode=ONLY,
                 column_type="Nullable(Float64)",
+                new_events_schema=True,
+            ),
+            # Each branch serializes the key in the SELECT and in the copied filter with functions HogQL can print.
+            param(
+                "serialized_property_on_the_native_events_schema_on_mode_2",
+                f"SELECT toJSONString(properties.probe) FROM events WHERE {MIXED} "
+                "AND toJSONString(properties.probe) = '123'",
+                True,
+                True,
+                mode=ONLY,
                 new_events_schema=True,
             ),
             param(
@@ -779,19 +789,9 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 warehouse_join=True,
             ),
             (
-                "field_and_virtual_field_of_one_name",
-                f"SELECT created_at, person.created_at FROM events WHERE {MIXED}",
-                "created_at and poe.created_at",
-            ),
-            (
                 "properties_whose_paths_join_to_one_name",
                 f"SELECT properties.a.b, properties.a___b FROM events WHERE {MIXED}",
                 "properties.a.b and properties.a___b",
-            ),
-            (
-                "properties_and_virtual_properties",
-                f"SELECT properties, person.properties FROM events WHERE {MIXED}",
-                "properties and poe.properties",
             ),
             param(
                 "property_in_a_typed_materialized_column",
@@ -1341,6 +1341,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         query: str | ast.SelectQuery,
         mode: FlagEvaluationsMode,
         persons_on_events: PersonsOnEventsMode | None = None,
+        new_events_schema: bool | None = None,
         **modifiers: Any,
     ):
         _set_mode(self.organization, mode)
@@ -1350,7 +1351,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 modifiers=HogQLQueryModifiers(
                     personsOnEventsMode=persons_on_events,
-                    useNewEventsSchema=_events_schema_for(mode, None),
+                    useNewEventsSchema=_events_schema_for(mode, new_events_schema),
                     **modifiers,
                 ),
             )
@@ -1578,6 +1579,31 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
 
         assert response.results == [("$feature_flag_called", "flag_evaluations", 12.5), ("$pageview", None, 20.0)]
 
+    @parameterized.expand(
+        [
+            ("mode_1", FlagEvaluationsMode.READ_FLAG_EVALUATIONS),
+            ("mode_2", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
+        ]
+    )
+    def test_fields_of_one_name_on_events_and_person_return_their_own_values(
+        self, _name: str, mode: FlagEvaluationsMode
+    ):
+        response = self._run(
+            f"SELECT event, properties.source, person.properties.email, properties, person.properties, created_at, "
+            f"person.created_at FROM events WHERE {MIXED} AND distinct_id = 'recent' "
+            "AND timestamp >= now() - INTERVAL 5 DAY ORDER BY event",
+            mode,
+            PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+        )
+
+        flag_call, pageview = response.results
+        assert flag_call[:3] == ("$feature_flag_called", "flag_evaluations", "r@x.com")
+        assert json.loads(flag_call[3])["source"] == "flag_evaluations"
+        assert json.loads(flag_call[4]) == {"email": "r@x.com"}
+        assert pageview[:3] == ("$pageview", None, "r@x.com")
+        assert json.loads(pageview[4]) == {"email": "r@x.com"}
+        assert all(row[6] is not None and row[5] != row[6] for row in response.results)
+
     @parameterized.expand([("read_flag_evaluations", READ), ("flag_evaluations_only", ONLY)])
     def test_json_extract_string_reads_the_raw_json_value(self, _name: str, mode: FlagEvaluationsMode):
         for name, kind in (
@@ -1713,6 +1739,162 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
 
         assert self._run(query, FlagEvaluationsMode.READ_FLAG_EVALUATIONS).results == [(0,)]
 
+    @parameterized.expand(
+        [
+            (
+                "scan",
+                "SELECT event, toJSONString(properties.probe), properties.probe = 'text' FROM events "
+                f"WHERE {MIXED} AND distinct_id = 'json' ORDER BY timestamp, event",
+            ),
+            (
+                "alias",
+                "SELECT e.event, toJSONString(e.properties.probe), e.properties.probe = 'text' FROM events AS e "
+                f"WHERE {E_MIXED} AND e.distinct_id = 'json' ORDER BY e.timestamp, e.event",
+            ),
+            (
+                "joined_scan",
+                _global_join(
+                    "SELECT e.event, toJSONString(e.properties.probe), e.properties.probe = 'text' FROM events AS e "
+                    "INNER JOIN (SELECT 'json' AS distinct_id) AS j ON e.distinct_id = j.distinct_id "
+                    f"WHERE {E_MIXED} ORDER BY e.timestamp, e.event"
+                ),
+            ),
+            (
+                "subquery",
+                "SELECT event, json, is_text FROM (SELECT event, timestamp, toJSONString(properties.probe) AS json, "
+                f"properties.probe = 'text' AS is_text FROM events WHERE {MIXED} AND distinct_id = 'json') "
+                "ORDER BY timestamp, event",
+            ),
+            # The person join reads its key from a second scan of the union, which the serialized read passes through.
+            param(
+                "person_join",
+                "SELECT event, toJSONString(properties.probe), properties.probe = 'text' FROM events "
+                f"WHERE {MIXED} AND distinct_id = 'json' ORDER BY timestamp, event, person.id",
+                persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            ),
+            # Each branch copies the filter, so the flag_evaluations branch has to serialize the key as events does.
+            param(
+                "filter",
+                "SELECT event, toJSONString(properties.probe), properties.probe = 'text' FROM events "
+                f"WHERE {MIXED} AND distinct_id = 'json' AND toJSONString(properties.probe) = '123' "
+                "ORDER BY timestamp, event",
+                kept=[123],
+            ),
+            # The read of `probe.json` takes the name that the JSON text of `probe` would otherwise get.
+            (
+                "export_name_collision",
+                "SELECT event, toJSONString(properties.probe), properties.probe = 'text' AND properties.probe.json IS NULL "
+                f"FROM events WHERE {MIXED} AND distinct_id = 'json' ORDER BY timestamp, event",
+            ),
+            (
+                "integer_key",
+                "SELECT event, toJSONString(properties[1]), properties[1] = 'text' FROM events "
+                f"WHERE {MIXED} AND distinct_id = 'json' ORDER BY timestamp, event",
+            ),
+            # Events reads a temporary key from its own column, which the masked document does not cover.
+            param(
+                "restricted_temporary_key",
+                "SELECT event, toJSONString(properties.$sdk_debug_probe), properties.$sdk_debug_probe = 'text' "
+                f"FROM events WHERE {MIXED} AND distinct_id = 'json' ORDER BY timestamp, event",
+                restriction="$sdk_debug_probe.hidden",
+                json_null_read="null",
+            ),
+        ]
+    )
+    def test_serialized_property_keeps_its_json_type_on_the_native_events_table(
+        self,
+        _name: str,
+        query: str | ast.SelectQuery,
+        persons_on_events: PersonsOnEventsMode | None = None,
+        kept: list | None = None,
+        restriction: str | None = None,
+        json_null_read: str | None = None,
+    ):
+        if restriction is not None:
+            _restrict(self.organization, self.team, restriction)
+        missing = object()
+        stored_and_read = [
+            (123, 123),
+            ({"a": 1}, {"a": 1}),
+            ([1, 2], [1, 2]),
+            ("text", "text"),
+            ({}, None),
+            (None, json_null_read),
+            (missing, None),
+        ]
+        # The first key makes a read by position differ from a read of the key "1".
+        self._create_json_rows(
+            [
+                {} if stored is missing else {"first": "x", "probe": stored, "1": stored, "$sdk_debug_probe": stored}
+                for stored, _ in stored_and_read
+            ]
+        )
+
+        rows = self._run(query, ONLY, persons_on_events, new_events_schema=True).results
+
+        # The two tables format an object's JSON text differently, so the test compares parsed values.
+        parsed = [
+            (event, text if text in (None, "null") else json.loads(text), is_text) for event, text, is_text in rows
+        ]
+        assert parsed == [
+            (event, read, read == "text")
+            for stored, read in stored_and_read
+            if kept is None or stored in kept
+            for event in ("$feature_flag_called", "$pageview")
+        ]
+
+    @parameterized.expand(
+        [
+            # Events reads a key that a restriction overlaps from the masked document.
+            param("restricted_child", "properties.probe", 123, '"123"', restriction="probe.hidden"),
+            # Events rebuilds a flag property from `$feature_flags`, which holds text.
+            ("flag_property", "properties.`$feature/probe`", 123, '"123"'),
+            ("nested_key", "properties.probe.a", {"a": 123}, '"123"'),
+            param("legacy_events", "properties.probe", 123, '"123"', new_events_schema=False),
+            # Events reads a declared path as its declared type, which is String for `$browser`.
+            ("declared_path", "properties.$browser", 123, '"123"'),
+            # `toJSONString` of a SELECT alias serializes the text the alias holds, so both rows pass the filter.
+            param(
+                "select_alias_filter",
+                "properties.probe AS p",
+                123,
+                '"123"',
+                where="AND toJSONString(p) = '\"123\"'",
+            ),
+        ]
+    )
+    def test_serialized_property_keeps_the_text_events_returns(
+        self,
+        _name: str,
+        read: str,
+        stored,
+        expected: str,
+        restriction: str | None = None,
+        new_events_schema: bool = True,
+        where: str = "",
+    ):
+        if restriction is not None:
+            _restrict(self.organization, self.team, restriction)
+        self._create_json_rows([{"probe": stored, "$feature/probe": stored, "$browser": stored}])
+
+        query = f"SELECT event, toJSONString({read}) FROM events WHERE {MIXED} AND distinct_id = 'json' {where}"
+        rows = self._run(query, ONLY, new_events_schema=new_events_schema).results
+
+        assert sorted(rows) == [("$feature_flag_called", expected), ("$pageview", expected)]
+
+    def _create_json_rows(self, rows: list[dict]) -> None:
+        start = datetime.now(UTC) - timedelta(hours=len(rows))
+        with self.settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True):
+            for index, properties in enumerate(rows):
+                timestamp = start + timedelta(hours=index)
+                _create_event(
+                    event="$pageview", distinct_id="json", team=self.team, timestamp=timestamp, properties=properties
+                )
+                _create_flag_evaluations(
+                    self.team.pk, "json-flag", timestamp=timestamp, distinct_id="json", properties=properties
+                )
+            flush_persons_and_events()
+
     def test_restricted_property_is_hidden_in_every_branch(self):
         _restrict(self.organization, self.team, "source")
         query = f"SELECT properties.source FROM events WHERE {MIXED}"
@@ -1722,6 +1904,8 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             self._run(f"{query} AND properties.source = 'events'", FlagEvaluationsMode.READ_FLAG_EVALUATIONS).results
             == []
         )
+        serialized = f"SELECT toJSONString(properties.source) FROM events WHERE {MIXED}"
+        assert {row[0] for row in self._run(serialized, ONLY, new_events_schema=True).results} == {None}
 
     @parameterized.expand(
         [
@@ -1782,16 +1966,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         } <= set(accepted)
         types: dict[bool, dict[str, str]] = {False: {}, True: {}}
         # One query per few fields keeps each union within the memory of a local ClickHouse.
-        # Two fields of one name, such as goe_0.key and goe_1.key, would return one column, so they go in different queries.
-        batches: list[list[str]] = []
-        for name in accepted:
-            batch = next(
-                (b for b in batches if len(b) < 8 and all(n.rsplit(".", 1)[-1] != name.rsplit(".", 1)[-1] for n in b)),
-                None,
-            )
-            if batch is None:
-                batches.append(batch := [])
-            batch.append(name)
+        batches = [accepted[i : i + 8] for i in range(0, len(accepted), 8)]
         for names in batches:
             types_query = f"SELECT {', '.join(f'toTypeName(any({name}))' for name in names)} FROM events WHERE {MIXED}"
             for union in (False, True):

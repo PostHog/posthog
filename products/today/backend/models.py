@@ -33,6 +33,7 @@ class TodayPulsePins(ProductTeamModel):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     user_id = models.BigIntegerField()
     pins = models.JSONField(default=list)
+    hidden = models.JSONField(default=list, db_default=[])
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta(ProductTeamModel.Meta):
