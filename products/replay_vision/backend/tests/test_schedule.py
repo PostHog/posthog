@@ -22,7 +22,7 @@ from products.replay_vision.backend.temporal.constants import (
 )
 from products.replay_vision.backend.temporal.schedule import (
     _build_schedule,
-    _load_fingerprint,
+    _load_schedule_state,
     a_delete_scanner_schedule,
     a_upsert_scanner_schedule,
     compute_schedule_fingerprint,
@@ -124,7 +124,8 @@ def test_fingerprint(_name: str, snapshot_a: Any, snapshot_b: Any, should_equal:
 
 def test_build_schedule_carries_scanner_inputs_and_offset() -> None:
     scanner_id = uuid.uuid4()
-    schedule = _build_schedule(scanner_id, team_id=99)
+    interval = dt.timedelta(minutes=60)
+    schedule = _build_schedule(scanner_id, team_id=99, interval=interval)
     action = schedule.action
     assert isinstance(action, ScheduleActionStartWorkflow)
     assert action.workflow == "replay-vision-sweep-scanner"
@@ -132,8 +133,8 @@ def test_build_schedule_carries_scanner_inputs_and_offset() -> None:
     assert isinstance(inputs, SweepScannerInputs)
     assert inputs.scanner_id == scanner_id
     assert inputs.team_id == 99
-    assert schedule.spec.intervals[0].every == SCANNER_SCHEDULE_INTERVAL
-    assert schedule.spec.intervals[0].offset == compute_schedule_offset(scanner_id, SCANNER_SCHEDULE_INTERVAL)
+    assert schedule.spec.intervals[0].every == interval
+    assert schedule.spec.intervals[0].offset == compute_schedule_offset(scanner_id, interval)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -170,11 +171,15 @@ async def test_upsert_deletes_when_scanner_missing() -> None:
     delete.assert_awaited_once()
 
 
+@pytest.mark.parametrize(
+    "overrides",
+    [{"enabled": False}, {"sweep_paused_until": dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)}],
+)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_upsert_deletes_when_scanner_disabled(org_team) -> None:
+async def test_upsert_deletes_when_scanner_should_not_sweep(org_team, overrides: dict[str, Any]) -> None:
     _, team = org_team
-    scanner = await sync_to_async(_make_scanner)(team, enabled=False)
+    scanner = await sync_to_async(_make_scanner)(team, **overrides)
     with _patched_temporal(exists=True) as (_exists, create, _update, delete):
         await a_upsert_scanner_schedule(scanner.id, scanner.team_id)
     create.assert_not_awaited()
@@ -209,16 +214,18 @@ async def test_upsert_propagates_non_already_exists_rpc_error(org_team) -> None:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_upsert_stamps_fingerprint_attribute(org_team) -> None:
+async def test_upsert_stamps_fingerprint_and_interval(org_team) -> None:
     _, team = org_team
     scanner = await sync_to_async(_make_scanner)(team)
-    expected = await sync_to_async(_load_fingerprint)(scanner.id)
+    expected = await sync_to_async(_load_schedule_state)(scanner.id)
+    assert expected is not None
     with _patched_temporal(exists=False) as (_exists, create, _update, _delete):
         await a_upsert_scanner_schedule(scanner.id, scanner.team_id)
     pairs = {pair.key.name: pair.value for pair in create.call_args.kwargs["search_attributes"]}
     assert pairs["PostHogTeamId"] == scanner.team_id
     assert pairs["PostHogScheduleType"] == SCANNER_SCHEDULE_TYPE
-    assert pairs["PostHogScheduleFingerprint"] == expected
+    assert pairs["PostHogScheduleFingerprint"] == expected.fingerprint
+    assert create.call_args.args[2].spec.intervals[0].every == expected.interval
 
 
 @parameterized.expand(

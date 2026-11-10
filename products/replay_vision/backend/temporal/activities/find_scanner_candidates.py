@@ -22,10 +22,12 @@ from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerDisabledReason,
     ScannerType,
+    SweepPauseReason,
     initial_watermark,
 )
 from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.filter_errors import (
+    FILTER_ERROR_RECHECK,
     clear_filter_error,
     filter_error_message,
     filter_error_pending,
@@ -66,6 +68,8 @@ from products.replay_vision.backend.temporal.read_meter_types import (
     deep_spend_bytes_per_day,
     deep_sweep_throttle_factor,
 )
+from products.replay_vision.backend.temporal.sweep_cadence import SWEEP_PAUSE_RECHECK, SWEEP_PAUSE_RECHECK_SOON
+from products.replay_vision.backend.temporal.sweep_pause import pause_sweep, resume_after_pause
 from products.replay_vision.backend.temporal.sweep_types import (
     CandidateSessionPayload,
     FindScannerCandidatesInputs,
@@ -190,6 +194,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     if reason := unrunnable_reason(scanner):
         return _turn_off_unrunnable_scanner(scanner, reason)
 
+    resume_after_pause(scanner)
+
     lifecycle_block = _experiment_lifecycle_block(scanner)
     sweep_until: dt.datetime | None = None
     if lifecycle_block is not None and lifecycle_block.kind == "deleted":
@@ -208,6 +214,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
                 # customer's bill.
                 stop_variant_analysis(scanner)
             record_sweep_outcome("experiment_over")
+            recheck = SWEEP_PAUSE_RECHECK_SOON if lifecycle_block.kind == "paused" else SWEEP_PAUSE_RECHECK
+            pause_sweep(scanner, SweepPauseReason.EXPERIMENT_NOT_RUNNING, timezone.now() + recheck)
             horizon = initial_watermark()
             return FindScannerCandidatesOutput(
                 candidates=[], saturated=False, swept_through=horizon, deep_swept_through=horizon
@@ -221,12 +229,15 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         # variant lookup does. Skip before any read instead of building a query that can only be
         # refused. The watermark holds, like any other skipped tick.
         record_sweep_outcome("no_principal")
+        pause_sweep(scanner, SweepPauseReason.NO_PRINCIPAL, timezone.now() + SWEEP_PAUSE_RECHECK)
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     if filter_error_pending(scanner):
         # The filter failed recently and fails the same way until someone edits it, so skip the
         # query. The watermark holds, like any other skipped tick.
         record_sweep_outcome("filter_error")
+        assert scanner.filter_error_at is not None
+        pause_sweep(scanner, SweepPauseReason.FILTER_ERROR, scanner.filter_error_at + FILTER_ERROR_RECHECK)
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     try:
@@ -364,8 +375,11 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
 
     if deep_candidates:
         record_deep_candidates(len(deep_candidates))
+    found = bool(candidates or deep_candidates or priming_candidates)
+    if found:
+        ReplayScanner.objects.filter(pk=scanner.pk).update(last_found_candidates_at=timezone.now())
     record_sweep_outcome(
-        "candidates_found" if candidates or deep_candidates or priming_candidates else "no_candidates",
+        "candidates_found" if found else "no_candidates",
         candidates=len(candidates) + len(deep_candidates) + len(priming_candidates),
     )
     return FindScannerCandidatesOutput(

@@ -77349,6 +77349,11 @@ export namespace Schemas {
       /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
       readonly sweep_throttle_factor: number;
       /**
+         * How often, in minutes, the scheduled sweep checks this scanner for new recordings. Null when the scanner is off or its sweep is paused because it cannot scan. Scanners that rarely find recordings, or read a lot of data, are checked less often. Scanners created or edited in the last day, or with an enabled alert, are checked as often as their read budget allows.
+         * @nullable
+         */
+      readonly sweep_interval_minutes: number | null;
+      /**
          * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
          * @nullable
          */
@@ -91501,6 +91506,11 @@ export namespace Schemas {
       readonly limit_reached?: boolean;
       /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
       readonly sweep_throttle_factor?: number;
+      /**
+         * How often, in minutes, the scheduled sweep checks this scanner for new recordings. Null when the scanner is off or its sweep is paused because it cannot scan. Scanners that rarely find recordings, or read a lot of data, are checked less often. Scanners created or edited in the last day, or with an enabled alert, are checked as often as their read budget allows.
+         * @nullable
+         */
+      readonly sweep_interval_minutes?: number | null;
       /**
          * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
          * @nullable

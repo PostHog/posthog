@@ -1,10 +1,12 @@
 """Per-scanner Temporal schedule lifecycle helpers."""
 
 import datetime as dt
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.conf import settings
+from django.db.models import Exists, OuterRef
+from django.utils import timezone
 
 import structlog
 from pydantic import BaseModel
@@ -21,6 +23,7 @@ from temporalio.client import (
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.dataclasses import frozen
 from posthog.scheduling.jitter import deterministic_offset
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
@@ -41,25 +44,30 @@ from posthog.temporal.common.search_attributes import (
 
 from products.replay_vision.backend.fingerprint import SCHEDULE_FINGERPRINT_LENGTH, config_fingerprint
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.vision_alert import VisionAlertConfiguration
 from products.replay_vision.backend.temporal.backfill_types import BackfillTickInputs
 from products.replay_vision.backend.temporal.constants import (
     BACKFILL_SCANNER_WORKFLOW_NAME,
     BACKFILL_SCHEDULE_TYPE,
     BACKFILL_TICK_EXECUTION_TIMEOUT,
     BACKFILL_TICK_INTERVAL,
-    SCANNER_SCHEDULE_INTERVAL,
     SCANNER_SCHEDULE_TYPE,
     SWEEP_SCANNER_WORKFLOW_NAME,
     SWEEP_WORKFLOW_EXECUTION_TIMEOUT,
     backfill_schedule_id,
     scanner_schedule_id,
 )
+from products.replay_vision.backend.temporal.read_meter_types import sweep_throttle_factor
+from products.replay_vision.backend.temporal.sweep_cadence import SweepCadenceInputs, sweep_interval
 from products.replay_vision.backend.temporal.sweep_types import SweepScannerInputs
+
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
 
 logger = structlog.get_logger(__name__)
 
 # Scanner row fields whose change should retrigger the schedule via fingerprint drift.
-# `enabled` is *not* in this list: `_load_fingerprint` filters `enabled=True`, so a
+# `enabled` is *not* in this list: `_schedule_states` only sees `enabled=True` rows, so a
 # `True → False` transition is handled by the `None`-return-and-delete path, not by drift.
 _FINGERPRINT_FIELDS = (
     "scanner_version",
@@ -70,6 +78,23 @@ _FINGERPRINT_FIELDS = (
     "query",
     "scanner_config",
 )
+
+
+_CADENCE_FIELDS = (
+    "created_at",
+    "updated_at",
+    "last_found_candidates_at",
+    "sweep_paused_until",
+    "sweep_throttle_factor",
+    "sweep_throttle_factor_override",
+)
+
+
+@frozen
+class ScannerScheduleState:
+    team_id: int
+    fingerprint: str
+    interval: dt.timedelta
 
 
 def compute_schedule_fingerprint(snapshot: dict[str, Any] | None) -> str:
@@ -86,7 +111,7 @@ def compute_schedule_offset(entity_id: UUID, interval: dt.timedelta) -> dt.timed
     return deterministic_offset(str(entity_id), interval)
 
 
-def _build_schedule(scanner_id: UUID, team_id: int) -> Schedule:
+def _build_schedule(scanner_id: UUID, team_id: int, interval: dt.timedelta) -> Schedule:
     return Schedule(
         action=ScheduleActionStartWorkflow(
             SWEEP_SCANNER_WORKFLOW_NAME,
@@ -99,28 +124,59 @@ def _build_schedule(scanner_id: UUID, team_id: int) -> Schedule:
         spec=ScheduleSpec(
             intervals=[
                 ScheduleIntervalSpec(
-                    every=SCANNER_SCHEDULE_INTERVAL,
-                    offset=compute_schedule_offset(scanner_id, SCANNER_SCHEDULE_INTERVAL),
+                    every=interval,
+                    offset=compute_schedule_offset(scanner_id, interval),
                 )
             ]
         ),
-        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=SCANNER_SCHEDULE_INTERVAL),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=interval),
     )
 
 
-def _load_fingerprint(scanner_id: UUID) -> str | None:
-    """Return the fingerprint for an enabled scanner, or `None` if it is missing or disabled."""
-    row = ReplayScanner.objects.filter(pk=scanner_id, enabled=True).values(*_FINGERPRINT_FIELDS).first()
-    return compute_schedule_fingerprint(dict(row)) if row else None
+def _schedule_states(scanners: "QuerySet[ReplayScanner]") -> dict[UUID, ScannerScheduleState]:
+    """`{scanner_id: state}` for the given enabled scanners that should have a schedule right now."""
+    # Unscoped because the reconciler lists every team's scanners at once; the subquery stays pinned to each row.
+    has_enabled_alert = Exists(
+        VisionAlertConfiguration.objects.unscoped().filter(scanner_id=OuterRef("pk"), enabled=True)
+    )
+    rows = scanners.annotate(has_enabled_alert=has_enabled_alert).values(
+        "id", "team_id", "has_enabled_alert", *_FINGERPRINT_FIELDS, *_CADENCE_FIELDS
+    )
+    now = timezone.now()
+    states: dict[UUID, ScannerScheduleState] = {}
+    for row in rows:
+        override = row["sweep_throttle_factor_override"]
+        interval = sweep_interval(
+            SweepCadenceInputs(
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+                last_found_candidates_at=row["last_found_candidates_at"],
+                sweep_paused_until=row["sweep_paused_until"],
+                throttle_factor=sweep_throttle_factor(0, override)
+                if override is not None
+                else row["sweep_throttle_factor"],
+                has_enabled_alert=row["has_enabled_alert"],
+            ),
+            now,
+        )
+        if interval is None:
+            continue
+        # The interval is part of the fingerprint, so a cadence change re-upserts the schedule like a config edit.
+        snapshot = {k: row[k] for k in _FINGERPRINT_FIELDS} | {"sweep_interval_seconds": interval.total_seconds()}
+        states[row["id"]] = ScannerScheduleState(
+            team_id=row["team_id"], fingerprint=compute_schedule_fingerprint(snapshot), interval=interval
+        )
+    return states
 
 
-def load_enabled_scanner_fingerprints() -> dict[UUID, tuple[int, str]]:
-    """Bulk variant for the reconciler: returns `{scanner_id: (team_id, fingerprint)}`."""
-    rows = ReplayScanner.objects.filter(enabled=True).values("id", "team_id", *_FINGERPRINT_FIELDS)
-    return {
-        row["id"]: (row["team_id"], compute_schedule_fingerprint({k: row[k] for k in _FINGERPRINT_FIELDS}))
-        for row in rows
-    }
+def _load_schedule_state(scanner_id: UUID) -> ScannerScheduleState | None:
+    """None when the scanner is missing, disabled, or paused."""
+    return _schedule_states(ReplayScanner.objects.filter(pk=scanner_id, enabled=True)).get(scanner_id)
+
+
+def load_enabled_scanner_schedule_states() -> dict[UUID, ScannerScheduleState]:
+    """Bulk variant for the reconciler. Paused scanners are left out, so the reconciler removes their schedules."""
+    return _schedule_states(ReplayScanner.objects.filter(enabled=True))
 
 
 async def upsert_interval_schedule(
@@ -164,22 +220,22 @@ async def upsert_interval_schedule(
 
 
 async def a_upsert_scanner_schedule(scanner_id: UUID, team_id: int) -> None:
-    """Reflect current scanner state in Temporal: upsert when enabled, delete otherwise."""
-    fingerprint = await database_sync_to_async(_load_fingerprint)(scanner_id)
-    if fingerprint is None:
-        # Row is missing or disabled — drop any stale schedule rather than leave it firing.
+    """Reflect current scanner state in Temporal: upsert when it should sweep, delete otherwise."""
+    state = await database_sync_to_async(_load_schedule_state)(scanner_id)
+    if state is None:
+        # Row is missing, disabled or paused, so drop any stale schedule rather than leave it firing.
         logger.info("replay_vision.upsert_schedule.removing_stale", scanner_id=str(scanner_id))
         await a_delete_scanner_schedule(scanner_id)
         return
 
     client = await async_connect()
     schedule_id = scanner_schedule_id(scanner_id)
-    schedule = _build_schedule(scanner_id, team_id)
+    schedule = _build_schedule(scanner_id, team_id, state.interval)
     search_attributes = TypedSearchAttributes(
         search_attributes=[
             SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team_id),
             SearchAttributePair(key=POSTHOG_SCHEDULE_TYPE_KEY, value=SCANNER_SCHEDULE_TYPE),
-            SearchAttributePair(key=POSTHOG_SCHEDULE_FINGERPRINT_KEY, value=fingerprint),
+            SearchAttributePair(key=POSTHOG_SCHEDULE_FINGERPRINT_KEY, value=state.fingerprint),
         ]
     )
 

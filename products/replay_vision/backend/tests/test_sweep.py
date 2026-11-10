@@ -37,6 +37,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerDisabledReason,
     ScannerModel,
     ScannerType,
+    SweepPauseReason,
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
 from products.replay_vision.backend.queries import excluded_sessions
@@ -69,6 +70,7 @@ from products.replay_vision.backend.temporal.constants import (
     SWEEP_READ_BUDGET_BYTES_24H,
 )
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
+from products.replay_vision.backend.temporal.sweep_cadence import SWEEP_PAUSE_RECHECK, SWEEP_PAUSE_RECHECK_SOON
 from products.replay_vision.backend.temporal.sweep_types import (
     AdvanceScannerWatermarkInputs,
     CandidateSessionPayload,
@@ -242,6 +244,10 @@ class TestFindScannerCandidatesActivity:
             assert result.swept_through is not None and result.deep_swept_through is not None
             assert abs(result.swept_through - settled_now) < dt.timedelta(minutes=1)
             assert result.deep_swept_through == result.swept_through
+            recheck = SWEEP_PAUSE_RECHECK_SOON if state == "paused" else SWEEP_PAUSE_RECHECK
+            assert scanner.sweep_pause_reason == SweepPauseReason.EXPERIMENT_NOT_RUNNING
+            assert scanner.sweep_paused_until is not None
+            assert abs(scanner.sweep_paused_until - (timezone.now() + recheck)) < dt.timedelta(minutes=1)
 
     @parameterized.expand([("deleted_experiment",), ("no_ai_consent",)])
     def test_an_experiment_scanner_stays_on_until_its_scout_is_paused(self, cause: str) -> None:
@@ -1009,6 +1015,10 @@ class TestFindScannerCandidatesActivity:
             fast_query.reset_mock()
             find_scanner_candidates_activity(inputs)
             assert not fast_query.return_value.run_batch.called
+            scanner.refresh_from_db()
+            assert scanner.sweep_pause_reason == SweepPauseReason.FILTER_ERROR
+            assert scanner.filter_error_at is not None
+            assert scanner.sweep_paused_until == scanner.filter_error_at + FILTER_ERROR_RECHECK
 
             ReplayScanner.objects.filter(pk=scanner.pk).update(
                 filter_error_at=timezone.now() - FILTER_ERROR_RECHECK - dt.timedelta(minutes=1)
@@ -1293,6 +1303,7 @@ def test_check_scanner_budget_activity_caps_and_advances_the_watermark(
 
     scanner.refresh_from_db()
     assert output.capped is expect_capped
+    assert (scanner.sweep_pause_reason == SweepPauseReason.CREDIT_LIMIT) is expect_capped
     if expect_capped:
         # Skip the capped window rather than backfilling (and billing) it when the limit frees up.
         assert scanner.last_swept_at > stale
@@ -1632,6 +1643,39 @@ def test_raising_the_limit_rearms_the_notification_for_the_same_period() -> None
 
     assert output.capped is True
     mock_notify.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "reason, pause_over, expect_skipped_window",
+    [
+        (SweepPauseReason.CREDIT_LIMIT, True, True),
+        (SweepPauseReason.EXPERIMENT_NOT_RUNNING, True, True),
+        (SweepPauseReason.FILTER_ERROR, True, False),
+        (SweepPauseReason.NO_PRINCIPAL, True, False),
+        (SweepPauseReason.CREDIT_LIMIT, False, False),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+def test_first_sweep_after_a_pause_skips_the_window_only_where_blocked_ticks_used_to(
+    reason: SweepPauseReason, pause_over: bool, expect_skipped_window: bool
+) -> None:
+    scanner = _make_scanner()
+    stale = timezone.now() - dt.timedelta(hours=5)
+    paused_until = timezone.now() + (dt.timedelta(minutes=-1) if pause_over else dt.timedelta(hours=1))
+    ReplayScanner.objects.filter(pk=scanner.pk).update(
+        last_swept_at=stale, deep_swept_through=stale, sweep_pause_reason=reason, sweep_paused_until=paused_until
+    )
+
+    with _patched_queries() as (MockQuery, _):
+        find_scanner_candidates_activity(FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id))
+
+    swept_from = MockQuery.call_args.kwargs["last_swept_at"]
+    if expect_skipped_window:
+        assert swept_from > timezone.now() - SETTLE_INTERVAL - dt.timedelta(minutes=1)
+    else:
+        assert swept_from == stale
+    scanner.refresh_from_db()
+    assert scanner.sweep_pause_reason == ("" if pause_over else reason)
 
 
 # SweepScannerWorkflow (mocked-Temporal)

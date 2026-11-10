@@ -7,6 +7,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerDisabledReason,
     ScannerType,
+    SweepPauseReason,
     initial_watermark,
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import (
@@ -21,6 +22,8 @@ from products.replay_vision.backend.temporal.constants import CHECK_SCANNER_BUDG
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
 from products.replay_vision.backend.temporal.query_budget import bounded_queries
+from products.replay_vision.backend.temporal.sweep_cadence import SWEEP_PAUSE_RECHECK
+from products.replay_vision.backend.temporal.sweep_pause import pause_sweep
 from products.replay_vision.backend.temporal.sweep_types import CheckScannerBudgetInputs, CheckScannerBudgetOutput
 
 
@@ -218,6 +221,9 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
             "credits_used": budget.credits_used,
         },
     )
+    # The period end is the known resume point. The recheck covers what saves no scanner, such as the org
+    # buying credits. A raised scanner limit is a save, which resumes the sweep at once.
+    pause_sweep(scanner, SweepPauseReason.CREDIT_LIMIT, min(period.end, timezone.now() + SWEEP_PAUSE_RECHECK))
     # Sent only after the stamp commits: a push can't be un-sent, so it must never precede its record.
     if stamped and not _notify_limit_reached(scanner):
         # Hand the claim back so a transient outage delays the notification instead of consuming it.
