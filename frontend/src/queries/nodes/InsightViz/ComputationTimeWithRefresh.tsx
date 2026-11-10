@@ -14,7 +14,13 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 
-export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?: boolean }): JSX.Element | null {
+export function ComputationTimeWithRefresh({
+    disableRefresh,
+    onRefresh,
+}: {
+    disableRefresh?: boolean
+    onRefresh?: () => void
+}): JSX.Element | null {
     const { lastRefresh, response, query } = useValues(dataNodeLogic)
 
     const { insightProps } = useValues(insightLogic)
@@ -58,7 +64,10 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
                             }
                         >
                             <Link
-                                onClick={() => loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')}
+                                onClick={() => {
+                                    onRefresh?.()
+                                    loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
+                                }}
                                 className={disabledReason ? 'opacity-50' : ''}
                                 disabledReason={canBypassRefreshDisabled ? '' : disabledReason}
                             >
