@@ -19,12 +19,10 @@ from datetime import UTC, datetime
 from typing import Any, Final
 from uuid import UUID
 
-from django.conf import settings as django_settings
-
 import structlog
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser, get_pool
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 
@@ -137,10 +135,24 @@ def _deduplication_token(team_id: int, rows: Sequence[PlatformAlertEventRow]) ->
     return digest.hexdigest()
 
 
-def _execute(query: str, args: Any, *, team_id: int, settings: dict[str, Any] | None = None) -> Any:
+def _execute(
+    query: str,
+    args: Any,
+    *,
+    team_id: int,
+    settings: dict[str, Any] | None = None,
+    send_receive_timeout: int | None = None,
+) -> Any:
     """`sync_execute` as the platform's own user, so this bookkeeping never takes from `default`'s
     per-user concurrency budget. A pod without that user wired falls back to its own default user."""
-    return sync_execute(query, args, team_id=team_id, settings=settings, ch_user=ClickHouseUser.ALERTS_PLATFORM)
+    return sync_execute(
+        query,
+        args,
+        team_id=team_id,
+        settings=settings,
+        ch_user=ClickHouseUser.ALERTS_PLATFORM,
+        send_receive_timeout=send_receive_timeout,
+    )
 
 
 def insert_events(
@@ -160,21 +172,13 @@ def insert_events(
         # the table serves every source and the write is the platform's own bookkeeping.
         tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
         insert_settings = {"insert_deduplication_token": _deduplication_token(team_id, rows)}
-        # The bounded pool is native, so a team on HTTP keeps its own transport, as `get_client_from_pool` picks it.
-        uses_http = django_settings.CLICKHOUSE_USE_HTTP or team_id in django_settings.CLICKHOUSE_USE_HTTP_PER_TEAM
-        if send_receive_timeout is None or uses_http:
-            _execute(_INSERT_SQL, [row.as_row() for row in rows], settings=insert_settings, team_id=team_id)
-        else:
-            pool = get_pool(ch_user=ClickHouseUser.ALERTS_PLATFORM, send_receive_timeout=send_receive_timeout)
-            with pool.get_client() as client:
-                sync_execute(
-                    _INSERT_SQL,
-                    [row.as_row() for row in rows],
-                    settings=insert_settings,
-                    team_id=team_id,
-                    ch_user=ClickHouseUser.ALERTS_PLATFORM,
-                    sync_client=client,
-                )
+        _execute(
+            _INSERT_SQL,
+            [row.as_row() for row in rows],
+            settings=insert_settings,
+            team_id=team_id,
+            send_receive_timeout=send_receive_timeout,
+        )
     except Exception as error:
         logger.exception(
             "Failed to record platform alert check history",

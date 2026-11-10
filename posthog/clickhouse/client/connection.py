@@ -587,18 +587,28 @@ def get_client_from_pool(
     team_id=None,
     readonly=False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    send_receive_timeout: int | None = None,
 ):
     """
     Returns the client for a given workload.
 
-    The connection pool for HTTP is managed by a library.
+    The connection pool for HTTP is managed by a library. send_receive_timeout bounds each socket read
+    and write on either transport; None keeps each transport's default.
     """
 
     if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
         kwargs = get_http_kwargs(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+        if send_receive_timeout is not None:
+            kwargs["send_receive_timeout"] = send_receive_timeout
         return get_http_client(**kwargs)
 
-    return get_pool(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user).get_client()
+    return get_pool(
+        workload=workload,
+        team_id=team_id,
+        readonly=readonly,
+        ch_user=ch_user,
+        send_receive_timeout=send_receive_timeout,
+    ).get_client()
 
 
 def get_pool(
