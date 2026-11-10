@@ -1055,7 +1055,10 @@ def _populate_static_cohort(
         # a population that died on a ClickHouse limit is indistinguishable from a cohort that
         # matched nobody.
         history = CohortCalculationHistory.objects.create(
-            team=team, cohort=cohort, filters=cohort.properties.to_dict() if cohort.properties.values else {}
+            team=team,
+            cohort=cohort,
+            filters=cohort.properties.to_dict() if cohort.properties.values else {},
+            mode=claimed_mode,
         )
 
         # The CH insert is idempotent: it excludes person_ids already in the cohort.
