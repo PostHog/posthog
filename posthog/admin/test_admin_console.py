@@ -407,6 +407,22 @@ class TestAdminConsoleMovedUrls(SimpleTestCase):
         assert response["Location"] == f"{record_page}{page}?from=ticket" + (f"#{anchor}" if anchor else "")
         _assert_target_is_registered(moved)
 
+    @parameterized.expand(
+        [
+            (moved.old_path, moved)
+            for moved in console.moved()
+            if isinstance(moved, MovedAction) and moved.resolver is not None
+        ]
+    )
+    def test_an_old_action_url_with_a_resolver_routes_to_its_registered_panel(
+        self, _name: str, moved: MovedAction
+    ) -> None:
+        old_path, _ = _sample_path(moved.old_path)
+
+        # A resolver looks its record up in the database, so its product tests cover where the redirect lands.
+        assert resolve(old_path).route == moved.old_path
+        _assert_target_is_registered(moved)
+
     @parameterized.expand([(moved.old_path, moved) for moved in console.moved() if isinstance(moved, MovedPage)])
     def test_an_old_page_url_lands_on_its_registered_tool(self, _name: str, moved: MovedPage) -> None:
         old_path, values = _sample_path(moved.old_path)

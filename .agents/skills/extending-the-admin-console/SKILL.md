@@ -59,7 +59,7 @@ Invoke `/writing-user-facing-copy`. In the console that means:
 
 ## 6. Before you call it done
 
-- Test your operations in `products/<product>/backend/tests/test_console.py`: a parameterized case for each new operation's success and refusal. The shell tests in `posthog/admin/test_admin_console.py` already check from the registry that every panel renders and every moved URL redirects, so do not add cases there.
+- Test your operations in `products/<product>/backend/tests/test_console.py`: a parameterized case for each new operation's success and refusal. The shell tests in `posthog/admin/test_admin_console.py` already check from the registry that every panel renders and every moved URL reaches a registered panel or tool, so do not add cases there. A move with a `resolver` needs a product test that its lookup lands on the right record.
 - Run `pnpm --filter=@posthog/frontend build:admin-console` when you add an owner crest. Commit the output.
 - Open the record page (`/admin/console/teams/<id>/` or `/admin/console/organizations/<uuid>/`) on the local stack (log in as `test@posthog.com`) and look at the page at a narrow and a wide window. A panel that reads wrong in the browser is not done, whatever the tests say.
 - Put a screenshot of the panel in the PR description.

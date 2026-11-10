@@ -42,7 +42,7 @@ Old URLs never break, because staff keep bookmarks to them, query parameters inc
 ## Shell modules and tests
 
 - `discover()` imports every shell module whose name ends in `_panels`, `_tool` or `_tools`. A core panel sets `order` below the default 100, so core panels lead each page.
-- Product console tests live in `products/<product>/backend/tests/test_console.py`. `posthog/admin/test_admin_console.py` holds only shell tests, and it checks every registered panel and moved URL from the registry, so a new contribution adds no case there.
+- Product console tests live in `products/<product>/backend/tests/test_console.py`. `posthog/admin/test_admin_console.py` holds only shell tests, and it checks every registered panel and moved URL from the registry, so a new contribution adds no case there. A move with a `resolver` looks its record up in the database, so the product tests where its redirect lands.
 
 ## Read when needed
 
