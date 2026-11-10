@@ -46,6 +46,7 @@ from products.experiments.backend.health.condition_changes import (
 from products.experiments.backend.health.context import (
     FlagHistory,
     FlagHistoryNotChecked,
+    FlagState,
     HealthContext,
     ReachableCondition,
 )
@@ -60,7 +61,7 @@ from products.experiments.backend.health.pinned_share import (
 )
 from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
 from products.experiments.backend.health.split_changes import format_change_time
-from products.feature_flags.backend.facade.edits import ConditionsChange
+from products.feature_flags.backend.facade.edits import ConditionsChange, ReleaseCondition
 
 _TITLE = "The release conditions changed after launch"
 _OVERRIDE_TITLE = "A variant override was removed after launch"
@@ -124,7 +125,7 @@ def release_conditions_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
         # A flag with every rollout at 0% is the flag-state check's to report, and it says what to do.
         if ctx.flag is not None and has_zero_rollout(ctx.flag):
             return None
-        return _rollout_reduced(history, effect, early_exit=ctx.flag is not None and ctx.flag.early_exit)
+        return _rollout_reduced(history, effect, ctx.flag)
     # Only an override changed. The forced-variant check reports one that is still in place, and the removed ones
     # were graded above.
     if effect.shape != ConditionsChangeShape.REVERTED or removed:
@@ -159,22 +160,36 @@ def _edited_overrides(effect: ConditionsNetEffect) -> list[str]:
     ]
 
 
-def _rollout_reduced(history: FlagHistory, effect: ConditionsNetEffect, *, early_exit: bool) -> ExperimentHealthFinding:
+def _rollout_reduced(
+    history: FlagHistory, effect: ConditionsNetEffect, flag: FlagState | None
+) -> ExperimentHealthFinding:
     lowered = effect.lowered_rollouts
-    falls_through = [rollout for rollout in lowered if rollout.later_condition and not early_exit]
-    lose_override = [rollout for rollout in falls_through if rollout.variant is not None]
-    get_override = any(rollout.later_override for rollout in falls_through if rollout.variant is None)
+    catching = {rollout: _catching(history, flag, rollout) for rollout in lowered}
+    falls_through = [rollout for rollout in lowered if catching[rollout]]
+    lose_override = [
+        rollout
+        for rollout in falls_through
+        if rollout.variant is not None and any(later.variant != rollout.variant for later in catching[rollout])
+    ]
+    own = history.release_conditions
+    # A later condition serves another variant through its override, or through a draw on another identifier when it
+    # matches another group type.
+    get_other_variant = any(
+        later.variant is not None or later.aggregation != own[rollout.condition_number - 1].aggregation
+        for rollout in falls_through
+        if rollout.variant is None
+        for later in catching[rollout]
+    )
     dropped = [rollout for rollout in lowered if rollout not in lose_override]
-    switched = bool(lose_override) or get_override
+    switched = bool(lose_override) or get_other_variant
     sentences = [_lowered(lowered, history.team_timezone)]
     if dropped:
         subject, serve = ("it", "serves") if len(lowered) == 1 else ("these conditions", "serve")
         unless = ", unless a later condition matches them" if any(r in falls_through for r in dropped) else ""
         sentences.append(f"Users {subject} no longer {serve} now get no variant{unless}.")
-        if get_override:
+        if get_other_variant:
             sentences.append(
-                "A later condition has a variant override, so some of them now get its variant and may have switched "
-                "variants."
+                "A later condition can serve some of them another variant, so they may have switched variants."
             )
     if lose_override:
         sentences.append(_override_lost(lose_override, single=len(lowered) == 1))
@@ -200,6 +215,22 @@ def _rollout_reduced(history: FlagHistory, effect: ConditionsNetEffect, *, early
     )
 
 
+def _catching(history: FlagHistory, flag: FlagState | None, rollout: LoweredRollout) -> list[ReleaseCondition]:
+    """The later conditions that can serve users this condition no longer serves, as the flag is now."""
+    # With early exit, a user who matches a condition but is outside its rollout gets no variant, and the flag service
+    # reads no later condition (`get_match` in rust/feature-flags/src/flags/flag_matching.rs).
+    if flag is None or flag.early_exit:
+        return []
+    reachable = {condition.number for condition in flag.reachable_conditions}
+    # The flag service draws one rollout hash per user for every condition, so only a later condition with a higher
+    # rollout can serve users outside this condition's new rollout.
+    return [
+        condition
+        for number, condition in enumerate(history.release_conditions, start=1)
+        if number > rollout.condition_number and number in reachable and condition.rollout > rollout.after
+    ]
+
+
 def _lowered(lowered: tuple[LoweredRollout, ...], team_timezone: str) -> str:
     if len(lowered) == 1:
         rollout = lowered[0]
@@ -223,11 +254,11 @@ def _override_lost(lost: list[LoweredRollout], *, single: bool) -> str:
         subject = "it" if single else f"Set {rollout.condition_number}"
         return (
             f'Set {rollout.condition_number} has the variant override "{rollout.variant}", so users {subject} no '
-            f'longer serves now get a random variant or none instead of "{rollout.variant}". Those exposed before the '
+            f'longer serves now get another variant or none instead of "{rollout.variant}". Those exposed before the '
             "change may have switched variants."
         )
     return (
-        "These conditions have variant overrides, so users they no longer serve now get a random variant or none "
+        "These conditions have variant overrides, so users they no longer serve now get another variant or none "
         "instead of the override's variant. Those exposed before the change may have switched variants."
     )
 

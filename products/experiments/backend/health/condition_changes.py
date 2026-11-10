@@ -91,10 +91,6 @@ class LoweredRollout:
     before: float
     after: float
     lowered_at: datetime
-    # Whether a later condition can serve some of the users that this condition no longer serves. Early exit, which
-    # stops the evaluation at this condition for them, is the caller's to apply.
-    later_condition: bool
-    later_override: bool
 
 
 @frozen
@@ -143,7 +139,8 @@ def conditions_change_from_activity(
         flag_aggregation=after_aggregation,
         variant_keys=split_variant_keys(parse_variants(after_variants)),
     )
-    if conditions_shape(before, after) is None and not _lowered_rollouts(before, after):
+    pairs = pair_conditions(before, after)
+    if _shape(before, after, pairs) is None and not _lowered_rollouts(before, after, pairs):
         return None
     return ConditionsChange(changed_at=changed_at, before=before, after=after)
 
@@ -231,20 +228,15 @@ def _net_lowered_rollouts(
     lowered_at: Mapping[int, datetime],
 ) -> tuple[LoweredRollout, ...]:
     lowered = []
-    for index, (condition_id, condition) in enumerate(zip(now_ids, now)):
+    for condition_id, condition in zip(now_ids, now):
         old = start.get(condition_id)
         if (
             old is None
             or condition_id not in lowered_at
-            or condition.criteria != old.criteria
             or condition.variant != old.variant
-            or condition.rollout >= old.rollout
+            or not _lowers_rollout(old, condition)
         ):
             continue
-        # The flag service draws one rollout hash per user and compares it with each condition's rollout, so a later
-        # condition with a higher rollout serves some of the users this one no longer serves, when they match its
-        # criteria (`check_rollout` in rust/feature-flags/src/flags/flag_matching.rs).
-        catching = [later for later in now[index + 1 :] if later.rollout > condition.rollout]
         lowered.append(
             LoweredRollout(
                 condition_number=numbers[condition_id],
@@ -252,21 +244,17 @@ def _net_lowered_rollouts(
                 before=old.rollout,
                 after=condition.rollout,
                 lowered_at=lowered_at[condition_id],
-                later_condition=bool(catching),
-                later_override=any(later.variant is not None for later in catching),
             )
         )
     return tuple(lowered)
 
 
-def _lowered_rollouts(before: ReleaseConditions, after: ReleaseConditions) -> list[int]:
-    """The indexes in `after` of the conditions that kept their criteria and got a lower rollout."""
-    return [
-        after_index
-        for after_index, before_index in pair_conditions(before, after).items()
-        if after[after_index].criteria == before[before_index].criteria
-        and after[after_index].rollout < before[before_index].rollout
-    ]
+def _lowered_rollouts(before: ReleaseConditions, after: ReleaseConditions, pairs: Mapping[int, int]) -> bool:
+    return any(_lowers_rollout(before[before_index], after[after_index]) for after_index, before_index in pairs.items())
+
+
+def _lowers_rollout(old: ReleaseCondition, new: ReleaseCondition) -> bool:
+    return new.criteria == old.criteria and new.rollout < old.rollout
 
 
 @frozen
@@ -312,8 +300,13 @@ def _follow(changes: Sequence[ConditionsChange]) -> _Followed:
                         before_audience=_audience(old) if old is not None else None,
                     )
                 )
-        for after_index in _lowered_rollouts(change.before, change.after):
-            lowered_at[after_ids[after_index]] = change.changed_at
+        lowered_at.update(
+            {
+                condition_id: change.changed_at
+                for condition_id, new in after.items()
+                if (old := before.get(condition_id)) is not None and _lowers_rollout(old, new)
+            }
+        )
         conditions, ids = change.after, after_ids
     return _Followed(start_ids=start_ids, end_ids=ids, variant_changes=tuple(variant_changes), lowered_at=lowered_at)
 

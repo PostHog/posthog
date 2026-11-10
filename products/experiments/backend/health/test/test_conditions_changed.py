@@ -372,8 +372,16 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 ("rollout_reduced", INFO, ROLLOUT_TITLE, "A7"),
                 f"The rollouts of 2 release conditions were lowered on {FIRST_CHANGE}: Set 1 from 100% to 20%, Set 2 "
                 "from 100% to 50%. Users these conditions no longer serve now get no variant, unless a later condition "
-                "matches them. A later condition has a variant override, so some of them now get its variant and may "
-                f"have switched variants. {DILUTED} Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+                "matches them. A later condition can serve some of them another variant, so they may have switched "
+                f"variants. {DILUTED} Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+            ),
+            (
+                "rollout_lowered_in_front_of_a_full_condition_that_hides_an_override",
+                _context([PRO, EVERYONE, EU_CONTROL], [{**PRO, "rollout_percentage": 20}, EVERYONE, EU_CONTROL]),
+                ("rollout_reduced", INFO, ROLLOUT_TITLE, "A6"),
+                f"The rollout of Set 1 went from 100% to 20% on {FIRST_CHANGE}. Users it no longer serves now get no "
+                f"variant, unless a later condition matches them. {DILUTED} To count only users who still get a "
+                f"variant, move the start date to {FIRST_CHANGE}.",
             ),
             (
                 "rollout_lowered_in_front_of_an_override_with_early_exit",
@@ -388,7 +396,7 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 _context([PRO_PINNED, EVERYONE], [{**PRO_PINNED, "rollout_percentage": 0}, EVERYONE]),
                 ("rollout_reduced", INFO, ROLLOUT_TITLE, "A7"),
                 f"The rollout of Set 1 went from 100% to 0% on {FIRST_CHANGE}. Set 1 has the variant override "
-                '"test", so users it no longer serves now get a random variant or none instead of "test". Those '
+                '"test", so users it no longer serves now get another variant or none instead of "test". Those '
                 "exposed before the change may have switched variants. Their exposures stay in the results. Reset "
                 f"the experiment, or move its start date to {FIRST_CHANGE}.",
             ),
