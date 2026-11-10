@@ -25746,12 +25746,14 @@ export namespace Schemas {
 
     /**
      * * `time_series` - Time series
+     * * `funnel_steps` - Funnel steps
      */
     export type ChartExplanationShapeEnum = typeof ChartExplanationShapeEnum[keyof typeof ChartExplanationShapeEnum];
 
 
     export const ChartExplanationShapeEnum = {
       TimeSeries: 'time_series',
+      FunnelSteps: 'funnel_steps',
     } as const;
 
     export interface StorySeriesResult {
@@ -25770,6 +25772,19 @@ export namespace Schemas {
          * @maxItems 5000
          */
       days?: string[];
+    }
+
+    export interface StoryFunnelStep {
+      /**
+         * The step's name.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * How many reached the step.
+         * @minimum 0
+         */
+      count: number;
     }
 
     /**
@@ -25938,21 +25953,30 @@ export namespace Schemas {
     }
 
     /**
-     * The insight query the explanation follows.
+     * The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.
      */
     export type ExplainChartDataQuery = {[key: string]: unknown};
 
     export interface ExplainChartData {
       /** What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.
        *
-       * * `time_series` - Time series */
+       * * `time_series` - Time series
+       * * `funnel_steps` - Funnel steps */
       shape?: ChartExplanationShapeEnum;
-      /** The insight query the explanation follows. */
+      /** The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps. */
       query: ExplainChartDataQuery;
-      /** Every series on the chart when it was explained. */
-      results: StorySeriesResult[];
+      /** Every series on the chart when it was explained. Time series only. */
+      results?: StorySeriesResult[];
+      /** The followed breakdown value's steps when it was explained. Funnel steps only. */
+      steps?: StoryFunnelStep[];
       /**
-         * The index in `results` the explanation follows.
+         * Every breakdown value's label, empty when the funnel has no breakdown. Funnel steps only.
+         * @maxItems 1000
+         * @items.maxLength 400
+         */
+      breakdowns?: string[];
+      /**
+         * The index in `results` the explanation follows, or the index in `breakdowns` on a funnel.
          * @minimum 0
          */
       seriesIndex: number;
@@ -25962,8 +25986,8 @@ export namespace Schemas {
          * @nullable
          */
       insightName: string | null;
-      /** Whether the last point's period had not ended yet. */
-      lastPointInProgress: boolean;
+      /** Whether the last point's period had not ended yet. Time series only. */
+      lastPointInProgress?: boolean;
       /**
          * One sentence a person could read in place of the whole explanation.
          * @maxLength 300
@@ -31751,6 +31775,30 @@ export namespace Schemas {
       /** When deleting, also delete insights that are only on this dashboard. */
       delete_insights?: boolean;
       _create_in_folder?: string;
+    }
+
+    export interface DashboardActivitySummary {
+      /**
+         * When the dashboard was last changed, from its activity log. Null if never logged.
+         * @nullable
+         */
+      last_edited_at: string | null;
+      /** Who made the last logged change. */
+      last_edited_by: UserBasic | null;
+      /**
+         * Client that made the last logged change, e.g. 'mcp'. Null for the web app.
+         * @nullable
+         */
+      last_edited_client: string | null;
+      /**
+         * When someone other than the requesting user last opened the dashboard in the app. Programmatic reads (API, MCP, subscriptions) do not count.
+         * @nullable
+         */
+      last_viewed_by_others_at: string | null;
+      /** Who that last viewer was. */
+      last_viewed_by_others_user: UserBasic | null;
+      /** Number of people, including the requesting user, who opened the dashboard in the app in the last 30 days. */
+      recent_viewer_count: number;
     }
 
     /**
@@ -49499,6 +49547,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly connection_warning: string | null;
+    }
+
+    export interface ExternalDataSourceSyncState {
+      /** Opaque digest of the sync state the sources list shows: each source's status and last completed run, and each table's status, sync toggle, error, last sync and row count. It changes when that state changes. Compare it with an earlier value; do not parse it. */
+      fingerprint: string;
     }
 
     export type ExternalQueryErrorCode = typeof ExternalQueryErrorCode[keyof typeof ExternalQueryErrorCode];
@@ -76022,7 +76075,7 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalRef {
       readonly id: string;
-      readonly integration: SessionRecordingExternalReferenceIntegration;
+      readonly integration: SessionRecordingExternalReferenceIntegration | null;
       integration_id: number;
       config: unknown;
       session_recording_id: string;
@@ -89912,7 +89965,7 @@ export namespace Schemas {
      */
     export interface PatchedSessionRecordingExternalRef {
       readonly id?: string;
-      readonly integration?: SessionRecordingExternalReferenceIntegration;
+      readonly integration?: SessionRecordingExternalReferenceIntegration | null;
       integration_id?: number;
       config?: unknown;
       session_recording_id?: string;
@@ -91842,7 +91895,7 @@ export namespace Schemas {
          * @nullable
          */
       snoozed_until?: string | null;
-      /** Tag names to set on the ticket. */
+      /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
       tags?: string[];
     }
 
@@ -116799,7 +116852,7 @@ export namespace Schemas {
          * @nullable
          */
       snoozed_until?: string | null;
-      /** Tag names to set on the ticket. */
+      /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
       tags?: string[];
     }
 
@@ -116960,6 +117013,28 @@ export namespace Schemas {
       git: TraceGit | null;
     }
 
+    export type TraceAttachmentMediaType = typeof TraceAttachmentMediaType[keyof typeof TraceAttachmentMediaType];
+
+
+    export const TraceAttachmentMediaType = {
+      Image: 'image',
+      Audio: 'audio',
+      Video: 'video',
+      File: 'file',
+    } as const;
+
+    export interface TraceAttachmentPart {
+      kind: 'attachment';
+      /** The kind of media, which decides how it is shown. */
+      mediaType: TraceAttachmentMediaType;
+      /** The file name, or the content item's type for an item that is not known media. Null otherwise. */
+      name: string | null;
+      /** The MIME type, such as `image/png`, or null when it is not known. */
+      mimeType: string | null;
+      /** A URL that loads the media: a link or data URI from the event, a project blob URL for offloaded media, or a data URI built from base64 data. Null when the media cannot be shown or was redacted. */
+      url: string | null;
+    }
+
     export interface TraceAvailability {
       /** Requested trace IDs readable from AI events or the shared events table. */
       available_trace_ids: string[];
@@ -117086,14 +117161,6 @@ export namespace Schemas {
       detail: string;
     }
 
-    export interface TraceNodeMetadata {
-      provider: string | null;
-      temperature: number | null;
-      sessionId: string | null;
-      promptName: string | null;
-      promptVersion: number | null;
-    }
-
     export interface TraceNodeIOKeys {
       input: string | null;
       output: string | null;
@@ -117115,11 +117182,11 @@ export namespace Schemas {
       ioKeys: TraceNodeIOKeys;
     }
 
-    export interface TraceNodeDetail {
+    export interface TraceNodeRaw {
+      /** The node id: the event's uuid, or the trace id for the root node. */
       id: string;
       kind: TraceNodeKindEnum;
-      error: string | null;
-      metadata: TraceNodeMetadata;
+      /** The node's event as ingested, or null for a root node whose trace has no `$ai_trace` event. */
       event: TraceNodeEvent | null;
     }
 
@@ -117128,8 +117195,8 @@ export namespace Schemas {
       trace: Trace;
       /** True when the trace has more events than an export reads. The file then holds the earliest events only, and leaves out the later steps. */
       truncated: boolean;
-      /** Every node with its event properties as ingested, inputs and outputs included: the root first, then the tree in pre-order. */
-      nodes: TraceNodeDetail[];
+      /** Every node with its event as ingested: the root first, then the tree in pre-order. */
+      nodes: TraceNodeRaw[];
     }
 
     export interface TraceFeedbackScore {
@@ -117248,6 +117315,93 @@ export namespace Schemas {
       comment: string | null;
       /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
       scores: TraceHumanReviewScore[];
+    }
+
+    export interface TraceJsonSide {
+      kind: 'json';
+      /** The side's value as captured, for a side that is not a conversation or that could not be normalized. */
+      value: unknown;
+    }
+
+    export type TraceMessageRoleEnum = typeof TraceMessageRoleEnum[keyof typeof TraceMessageRoleEnum];
+
+
+    export const TraceMessageRoleEnum = {
+      System: 'system',
+      User: 'user',
+      Assistant: 'assistant',
+      Tool: 'tool',
+    } as const;
+
+    export interface TraceTextPart {
+      kind: 'text';
+      /** The text of the message, as captured. */
+      text: string;
+    }
+
+    export interface TraceThinkingPart {
+      kind: 'thinking';
+      /** The model's reasoning text. */
+      text: string;
+    }
+
+    export interface TraceToolCallPart {
+      kind: 'toolCall';
+      /** The name of the called tool, or an empty string when the event has none. */
+      name: string;
+      /** The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured. */
+      args: unknown;
+      /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser. Null when no tool message answers the call. */
+      result: unknown;
+    }
+
+    export interface TraceMessage {
+      /** An id that is unique within the node, made of the node id, the side and a position. */
+      id: string;
+      role: TraceMessageRoleEnum;
+      /** The message's text, reasoning, tool calls and attachments, in order. */
+      parts: (TraceTextPart | TraceThinkingPart | TraceToolCallPart | TraceAttachmentPart)[];
+      /** Whether the message is a tool message, or holds only reasoning and tool calls. */
+      isInternal: boolean;
+      /** The id of the node whose input or output holds this message, or null when it is not known. */
+      sourceNodeId: string | null;
+    }
+
+    export interface TraceMessagesSide {
+      kind: 'messages';
+      /** The conversation, normalized from the provider's format by the built-in parsers and the project's custom parsers. */
+      messages: TraceMessage[];
+    }
+
+    export interface TraceNodeContent {
+      /** The node's input, as messages or as JSON. */
+      input: TraceMessagesSide | TraceJsonSide;
+      /** The node's output, as messages or as JSON. */
+      output: TraceMessagesSide | TraceJsonSide;
+    }
+
+    export interface TraceNodeMetadata {
+      provider: string | null;
+      temperature: number | null;
+      sessionId: string | null;
+      promptName: string | null;
+      promptVersion: number | null;
+    }
+
+    export interface TraceNodeDetailEvent {
+      name: string;
+      uuid: string;
+      timestamp: string;
+    }
+
+    export interface TraceNodeDetail {
+      id: string;
+      kind: TraceNodeKindEnum;
+      error: string | null;
+      metadata: TraceNodeMetadata;
+      event: TraceNodeDetailEvent | null;
+      /** The node's input and output, ready to render. */
+      content: TraceNodeContent;
     }
 
     export interface TracePullRequest {
@@ -126476,6 +126630,13 @@ export namespace Schemas {
     timestamp_hint?: string;
     };
 
+    export type AiObservabilityTracesNodesRawRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
     export type AiObservabilityTracesPullRequestRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
@@ -128271,6 +128432,18 @@ export namespace Schemas {
 
 
     export const DashboardsDestroyFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsActivitySummaryRetrieveParams = {
+    format?: DashboardsActivitySummaryRetrieveFormat;
+    };
+
+    export type DashboardsActivitySummaryRetrieveFormat = typeof DashboardsActivitySummaryRetrieveFormat[keyof typeof DashboardsActivitySummaryRetrieveFormat];
+
+
+    export const DashboardsActivitySummaryRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;

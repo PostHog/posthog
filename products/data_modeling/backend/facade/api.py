@@ -38,7 +38,7 @@ _LAZY = {
     "SavedQueryNotOnV2ScheduleError": "logic.node_materialization",
     "is_saved_query_on_v2_schedule": "logic.node_materialization",
     "materialize_saved_query": "logic.node_materialization",
-    "raise_if_ran_recently": "logic.node_materialization",
+    "raise_if_manual_run_is_refused": "logic.node_materialization",
     "run_related_node_materializations": "logic.node_materialization",
     "run_trino_node_materializations": "logic.node_materialization",
     "run_saved_query_materialization": "logic.node_materialization",
@@ -147,6 +147,8 @@ _LAZY = {
     "check_incremental_eligibility": "logic.incremental_eligibility",
     "propose_incremental_config": "logic.incremental_eligibility",
     "definition_database": "logic.incremental_eligibility",
+    "duplicate_output_columns": "logic.output_columns",
+    "duplicate_output_columns_message": "logic.output_columns",
 }
 
 __all__ = sorted(_LAZY)

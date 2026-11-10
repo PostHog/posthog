@@ -625,7 +625,7 @@ class TestSavedQuery(APIBaseTest):
         saved_query_id = response.data["id"]
         assert saved_query_id is not None
 
-        with patch.object(DataWarehouseSavedQuery, "schedule_materialization"):
+        with patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule_materialization:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
             )
@@ -635,7 +635,7 @@ class TestSavedQuery(APIBaseTest):
             saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
 
             assert saved_query.is_materialized is True
-            assert saved_query.sync_frequency_interval == timedelta(hours=24)
+            assert schedule_materialization.call_args.kwargs["frequency_target"] == timedelta(hours=24)
 
     def test_materialize_action_idempotent(self):
         """Test that the materialize action is idempotent and can be called multiple times"""
@@ -654,7 +654,7 @@ class TestSavedQuery(APIBaseTest):
         saved_query_id = response.data["id"]
         assert saved_query_id is not None
 
-        with patch.object(DataWarehouseSavedQuery, "schedule_materialization"):
+        with patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule_materialization:
             for _ in range(2):
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
@@ -664,7 +664,7 @@ class TestSavedQuery(APIBaseTest):
 
         saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
         assert saved_query.is_materialized is True
-        assert saved_query.sync_frequency_interval == timedelta(hours=24)
+        assert schedule_materialization.call_args.kwargs["frequency_target"] == timedelta(hours=24)
 
     def test_materialize_leaves_nothing_persisted_when_the_frequency_is_rejected(self):
         response = self.client.post(
@@ -696,7 +696,6 @@ class TestSavedQuery(APIBaseTest):
 
         saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
         assert saved_query.is_materialized is False
-        assert saved_query.sync_frequency_interval is None
 
     def test_materialize_honors_a_requested_sync_frequency(self):
         response = self.client.post(
@@ -712,15 +711,14 @@ class TestSavedQuery(APIBaseTest):
         assert response.status_code == 201
         saved_query_id = response.data["id"]
 
-        with patch.object(DataWarehouseSavedQuery, "schedule_materialization"):
+        with patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule_materialization:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/materialize",
                 {"sync_frequency": "1hour"},
             )
 
         assert response.status_code == 200
-        saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
-        assert saved_query.sync_frequency_interval == timedelta(hours=1)
+        assert schedule_materialization.call_args.kwargs["frequency_target"] == timedelta(hours=1)
 
     def test_materialize_rejects_an_unusable_sync_frequency(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -1335,9 +1333,6 @@ class TestSavedQuery(APIBaseTest):
         # the write response must echo the cadence it just stored: an agent that reads back null
         # concludes the update failed and retries it
         self.assertEqual(response.json()["sync_frequency"], expected_frequency)
-        # the node target is the only store of frequency intent; the interval stays NULL
-        updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
-        self.assertIsNone(updated.sync_frequency_interval)
         node.refresh_from_db()
         self.assertEqual(get_declared_target(node), expected_target)
         reconcile.assert_called_once()
@@ -1351,9 +1346,9 @@ class TestSavedQuery(APIBaseTest):
     def test_sync_frequency_change_on_tiered_v2_is_recorded_in_the_activity_log(
         self, sync_frequency: str, expected_before: str, expected_after: str | None
     ):
-        # a tiered team stores the cadence on the DAG node and keeps the interval column NULL, so a
-        # frequency edit changes no model field — changes_between() returns nothing and log_activity
-        # drops an "updated" entry with no changes, leaving the edit with no audit trail at all
+        # the cadence lives on the DAG node, so a frequency edit changes no saved-query field:
+        # changes_between() returns nothing and log_activity drops an "updated" entry with no
+        # changes, leaving the edit with no audit trail at all
         from products.data_modeling.backend.facade.api import set_declared_target
         from products.data_modeling.backend.facade.models import Node
 
@@ -1395,11 +1390,9 @@ class TestSavedQuery(APIBaseTest):
 
         self.assertEqual(response.status_code, 400, response.json())
         self.assertIn("not wired into the data modeling DAG", str(response.json()))
-        updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
-        self.assertIsNone(updated.sync_frequency_interval)
 
     def test_update_sync_frequency_rolls_back_invalid_target(self):
-        from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError
+        from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, get_declared_target
 
         saved_query = self._create_saved_query_for_frequency_tests()
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
@@ -1416,9 +1409,7 @@ class TestSavedQuery(APIBaseTest):
             )
 
         self.assertEqual(response.status_code, 400)
-        # validation happens inside the transaction: the interval write rolls back with it
-        updated = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
-        self.assertIsNone(updated.sync_frequency_interval)
+        self.assertIsNone(get_declared_target(Node.objects.get(saved_query_id=saved_query["id"])))
 
     def _read_sync_frequency(self, saved_query_id: str, action: str) -> str | None:
         if action == "retrieve":
@@ -1437,13 +1428,13 @@ class TestSavedQuery(APIBaseTest):
         [
             ("retrieve_tiered", "retrieve", timedelta(hours=6), None, "6hour"),
             ("list_tiered", "list", timedelta(hours=6), None, "6hour"),
-            ("retrieve_legacy", "retrieve", None, timedelta(hours=24), "24hour"),
-            ("list_legacy", "list", None, timedelta(hours=24), "24hour"),
+            ("retrieve_ignores_interval_column", "retrieve", None, timedelta(hours=24), None),
+            ("list_ignores_interval_column", "list", None, timedelta(hours=24), None),
             ("retrieve_unscheduled", "retrieve", None, None, None),
             ("list_unscheduled", "list", None, None, None),
         ]
     )
-    def test_sync_frequency_read_prefers_the_node_target(
+    def test_sync_frequency_read_comes_from_the_node_target(
         self,
         _name: str,
         action: str,
@@ -1451,8 +1442,6 @@ class TestSavedQuery(APIBaseTest):
         interval: timedelta | None,
         expected: str | None,
     ):
-        # Reconcile NULLs sync_frequency_interval on tiered teams and stores the cadence on the
-        # node, so deriving the read from the column alone reports "never" for every tiered view.
         # The list and retrieve actions use different serializer classes: cover both.
         from products.data_modeling.backend.facade.api import set_declared_target
 
@@ -2457,7 +2446,6 @@ class TestSavedQuery(APIBaseTest):
         saved_query_id = saved_query["id"]
 
         db_saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
-        db_saved_query.sync_frequency_interval = "24hours"
         db_saved_query.last_run_at = "2025-05-01T00:00:00Z"
         db_saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
         db_saved_query.is_materialized = True
@@ -2492,7 +2480,6 @@ class TestSavedQuery(APIBaseTest):
         )
 
         db_saved_query.refresh_from_db()
-        self.assertIsNone(db_saved_query.sync_frequency_interval)
         self.assertIsNone(db_saved_query.last_run_at)
         self.assertIsNone(db_saved_query.latest_error)
         self.assertIsNone(db_saved_query.status)
@@ -3414,9 +3401,12 @@ class TestSavedQueryRun(APIBaseTest):
         ]
     )
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    def test_run_is_refused_soon_after_the_last_run(
+    def test_run_with_an_api_key_is_refused_soon_after_the_last_run(
         self, _name, runs, query_edited_minutes_ago, expected_status, mock_sync_connect
     ):
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(['warehouse_view:write'])}"
+        )
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
         now = timezone.now()
@@ -3445,6 +3435,52 @@ class TestSavedQueryRun(APIBaseTest):
             mock_client.start_workflow.assert_not_called()
         else:
             mock_client.start_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("single_view_completed", {}, [DataModelingJob.Status.COMPLETED], 200),
+            ("with_direction_completed", {"direction": "upstream"}, [DataModelingJob.Status.COMPLETED], 200),
+            ("single_view_running", {}, [DataModelingJob.Status.RUNNING], 409),
+            ("full_refresh_running", {"full_refresh": True}, [DataModelingJob.Status.RUNNING], 409),
+            ("with_direction_running", {"direction": "upstream"}, [DataModelingJob.Status.RUNNING], 409),
+            (
+                "with_direction_running_then_skipped",
+                {"direction": "upstream"},
+                [DataModelingJob.Status.RUNNING, DataModelingJob.Status.SKIPPED],
+                409,
+            ),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_from_a_browser_session_is_refused_only_while_a_run_is_in_progress(
+        self, _name, body, job_statuses, expected_status, mock_sync_connect
+    ):
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+        saved_query, _dag, node = self._make_saved_query_with_node("floored_view")
+        saved_query.incremental_state = {"watermark": "2026-01-01T00:00:00+00:00"}
+        saved_query.save(update_fields=["incremental_state"])
+        node.type = NodeType.MAT_VIEW
+        node.save(update_fields=["type"])
+        for minutes_ago, job_status in zip((5, 3), job_statuses):
+            job = DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=job_status,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+            )
+            DataModelingJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+            body,
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertEqual(mock_client.start_workflow.call_count, 1 if expected_status == 200 else 0)
+        if expected_status == 409:
+            saved_query.refresh_from_db()
+            self.assertEqual(saved_query.incremental_state, {"watermark": "2026-01-01T00:00:00+00:00"})
 
     @parameterized.expand(
         [
@@ -3483,7 +3519,7 @@ class TestSavedQueryRun(APIBaseTest):
         ]
     )
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
-    def test_run_with_direction_is_refused_only_when_every_built_view_ran_recently(
+    def test_run_with_direction_and_an_api_key_is_refused_only_when_every_built_view_ran_recently(
         self,
         _name,
         related_started_minutes_ago,
@@ -3494,6 +3530,9 @@ class TestSavedQueryRun(APIBaseTest):
         expected_retry_after,
         mock_sync_connect,
     ):
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(['warehouse_view:write'])}"
+        )
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
         now = timezone.now()
