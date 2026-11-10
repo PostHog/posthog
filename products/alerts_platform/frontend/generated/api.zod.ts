@@ -859,6 +859,10 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
 
 export const platformAlertsUpdateBodyOneNameMax = 255
 
+export const platformAlertsUpdateBodyOneSourceConfigOneSkipWeekendDefault = false
+export const platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault = 0
+export const platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin = 0
+
 export const platformAlertsUpdateBodyOneGroupingOneMaxInstancesDefault = 100
 export const platformAlertsUpdateBodyOneGroupingOneMaxInstancesMax = 100
 
@@ -1014,6 +1018,23 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                                 ),
                         })
                         .describe("The bound the insight's value is checked against."),
+                    config: zod
+                        .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                        .optional()
+                        .describe(
+                            "Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API."
+                        ),
+                    skip_weekend: zod
+                        .boolean()
+                        .default(platformAlertsUpdateBodyOneSourceConfigOneSkipWeekendDefault)
+                        .describe("Whether checks skip Saturdays and Sundays. It can't change through this API."),
+                    evaluation_delay_intervals: zod
+                        .number()
+                        .min(platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin)
+                        .default(platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault)
+                        .describe(
+                            "How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API."
+                        ),
                 })
                 .describe('Settings for a insight alert. The bound the alert is evaluated against is under condition.'),
             grouping: zod
@@ -1798,6 +1819,10 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
 
 export const platformAlertsPartialUpdateBodyOneNameMax = 255
 
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneSkipWeekendDefault = false
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault = 0
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin = 0
+
 export const platformAlertsPartialUpdateBodyOneGroupingOneMaxInstancesDefault = 100
 export const platformAlertsPartialUpdateBodyOneGroupingOneMaxInstancesMax = 100
 
@@ -1957,6 +1982,23 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                                 ),
                         })
                         .describe("The bound the insight's value is checked against."),
+                    config: zod
+                        .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                        .optional()
+                        .describe(
+                            "Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API."
+                        ),
+                    skip_weekend: zod
+                        .boolean()
+                        .default(platformAlertsPartialUpdateBodyOneSourceConfigOneSkipWeekendDefault)
+                        .describe("Whether checks skip Saturdays and Sundays. It can't change through this API."),
+                    evaluation_delay_intervals: zod
+                        .number()
+                        .min(platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin)
+                        .default(platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault)
+                        .describe(
+                            "How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API."
+                        ),
                 })
                 .optional()
                 .describe('Settings for a insight alert. The bound the alert is evaluated against is under condition.'),
