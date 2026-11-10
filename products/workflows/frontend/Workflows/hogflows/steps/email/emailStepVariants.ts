@@ -13,6 +13,7 @@ type EmailValue = Record<string, any>
 type Templating = 'hog' | 'liquid'
 
 const CONTENT_KEYS = ['subject', 'preheader', 'text', 'html', 'design'] as const
+const SANDBOX_STEP_ID = /^[A-Za-z0-9_-]{1,128}$/
 
 export function isEmailStep(action: HogFlowAction | null | undefined): action is EmailStepAction {
     return action?.type === 'function_email' || action?.type === 'email_sandbox'
@@ -26,6 +27,7 @@ export function needsSandboxSender(
     return (
         canAdoptSandbox &&
         action.type === 'function_email' &&
+        sandboxTakesStepId(action) &&
         !action.config.inputs?.email?.value?.from?.integrationId &&
         ownOnlySettings(action).every(
             (setting) =>
@@ -34,6 +36,10 @@ export function needsSandboxSender(
                 matchesTeamUtmDefaults(action.config.utm_params ?? {}, teamUtmDefaults)
         )
     )
+}
+
+export function sandboxTakesStepId(action: Pick<HogFlowAction, 'id'>): boolean {
+    return SANDBOX_STEP_ID.test(action.id)
 }
 
 export function sandboxSenderAllowed(workflow: Pick<HogFlow, 'origin_product'>, editingTemplate: boolean): boolean {

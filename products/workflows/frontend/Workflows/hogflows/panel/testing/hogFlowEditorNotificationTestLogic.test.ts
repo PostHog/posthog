@@ -606,6 +606,21 @@ describe('hogFlowEditorNotificationTestLogic', () => {
             expect(logic.values.testRecipientDisabledReason).toEqual(reason)
         })
 
+        it('stops showing a sandbox test result once the tested step moves to an own sender', async () => {
+            await openSandboxTest('ana@example.com')
+            await expectLogic(logic, () => logic.actions.submitTestInvocation()).toDispatchActions([
+                'submitTestInvocationSuccess',
+            ])
+            expect(logic.values.testResult?.execResult).toEqual({ status: 'accepted' })
+
+            workflowLogicInstance.actions.setWorkflowAction('email', {
+                ...SANDBOX_STEP,
+                type: 'function_email',
+            } as HogFlowAction)
+
+            expect(logic.values.testResult).toBeNull()
+        })
+
         it('waits for the members before it judges who can receive a sandbox step test', async () => {
             await expectLogic(workflowLogicInstance).toDispatchActions(['loadWorkflowSuccess'])
             workflowLogicInstance.actions.setWorkflowValues({ actions: [SANDBOX_STEP] })

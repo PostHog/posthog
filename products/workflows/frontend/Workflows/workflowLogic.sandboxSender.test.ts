@@ -15,7 +15,11 @@ import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from './wo
 const EMAIL_ID = 'action_function_email_welcome'
 const TEMPLATE_ID = 'template-welcome'
 
-function templateWithEmail(value: Record<string, unknown> = {}, config: Record<string, unknown> = {}): HogFlow {
+function templateWithEmail(
+    value: Record<string, unknown> = {},
+    config: Record<string, unknown> = {},
+    emailId = EMAIL_ID
+): HogFlow {
     return {
         ...NEW_WORKFLOW,
         id: TEMPLATE_ID,
@@ -23,7 +27,7 @@ function templateWithEmail(value: Record<string, unknown> = {}, config: Record<s
         actions: [
             ...NEW_WORKFLOW.actions,
             {
-                id: EMAIL_ID,
+                id: emailId,
                 type: 'function_email',
                 name: 'Email',
                 description: '',
@@ -49,8 +53,8 @@ function templateWithEmail(value: Record<string, unknown> = {}, config: Record<s
             } as HogFlowAction,
         ],
         edges: [
-            { from: TRIGGER_NODE_ID, to: EMAIL_ID, type: 'continue' },
-            { from: EMAIL_ID, to: EXIT_NODE_ID, type: 'continue' },
+            { from: TRIGGER_NODE_ID, to: emailId, type: 'continue' },
+            { from: emailId, to: EXIT_NODE_ID, type: 'continue' },
         ],
     }
 }
@@ -111,7 +115,7 @@ describe('workflowLogic first-run email sender', () => {
         const logic = workflowLogic({ id: 'new', templateId: TEMPLATE_ID })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
-        const email = logic.values.workflow.actions.find((action) => action.id === EMAIL_ID)
+        const email = logic.values.workflow.actions.find((action) => action.name === 'Email')
         logic.unmount()
         return email
     }
@@ -196,10 +200,18 @@ describe('workflowLogic first-run email sender', () => {
             200,
             { replyTo: 'help@example.com' },
         ],
+        [
+            'the step id is one the sandbox sender rejects',
+            [],
+            sandboxStatus({ integration_id: null }),
+            200,
+            {},
+            'welcome.email',
+        ],
     ])(
         'keeps an own email step without a sender when %s',
-        async (_, integrations, status, provisionStatus, emailValue) => {
-            useSenderMocks(integrations, status, provisionStatus, templateWithEmail(emailValue))
+        async (_, integrations, status, provisionStatus, emailValue, emailId = EMAIL_ID) => {
+            useSenderMocks(integrations, status, provisionStatus, templateWithEmail(emailValue, {}, emailId))
 
             const email = await openTemplate()
 

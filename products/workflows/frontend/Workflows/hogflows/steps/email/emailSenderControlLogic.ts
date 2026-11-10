@@ -11,6 +11,7 @@ import {
     isEmailStep,
     ownOnlySettings,
     sandboxSenderAllowed,
+    sandboxTakesStepId,
     toOwnEmailAction,
     toSandboxAction,
 } from './emailStepVariants'
@@ -156,7 +157,10 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
                 workflow: HogFlow,
                 workflowLogicProps: WorkflowLogicProps
             ): boolean =>
-                (canAdoptSandbox && sandboxSenderAllowed(workflow, !!workflowLogicProps.editTemplateId)) ||
+                (canAdoptSandbox &&
+                    sandboxSenderAllowed(workflow, !!workflowLogicProps.editTemplateId) &&
+                    !!action &&
+                    sandboxTakesStepId(action)) ||
                 action?.type === 'email_sandbox',
         ],
     }),

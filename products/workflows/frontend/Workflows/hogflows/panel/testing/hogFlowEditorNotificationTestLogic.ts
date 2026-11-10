@@ -28,7 +28,7 @@ import { withSandboxRecipient } from '../../steps/email/emailStepVariants'
 import { reportSandboxTest } from '../../steps/email/sandboxTestResult'
 import { HogflowTestResult } from '../../steps/types'
 import { createExampleEvent } from '../../testEventFactory'
-import type { HogFlow } from '../../types'
+import type { HogFlow, HogFlowAction } from '../../types'
 import { createGlobalsFromResponse } from './hogFlowEditorTestLogic'
 import type { HogflowTestInvocation } from './hogFlowEditorTestLogic'
 
@@ -69,6 +69,10 @@ export interface hogFlowEditorNotificationTestLogicValues {
     emailAddressOverride: string | null
     isTestInvocationSubmitting: boolean
     isTestInvocationValid: boolean
+    latestTestResult: {
+        actionType: HogFlowAction['type'] | null
+        result: HogflowTestResult
+    } | null
     membersLoadFailed: boolean
     nextActionId: string | null
     personSearchResults: PersonType[]
@@ -220,7 +224,24 @@ export interface hogFlowEditorNotificationTestLogicActions {
     setTestInvocationValues: (values: DeepPartial<HogflowTestInvocation>) => {
         values: DeepPartial<HogflowTestInvocation>
     }
-    setTestResult: (testResult: HogflowTestResult | null) => {
+    setTestResult: (
+        testResult: HogflowTestResult | null,
+        actionType?: HogFlowAction['type'] | null
+    ) => {
+        actionType:
+            | 'conditional_branch'
+            | 'delay'
+            | 'email_sandbox'
+            | 'exit'
+            | 'function'
+            | 'function_email'
+            | 'function_push'
+            | 'function_sms'
+            | 'random_cohort_branch'
+            | 'trigger'
+            | 'wait_until_condition'
+            | 'wait_until_time_window'
+            | null
         testResult: HogflowTestResult | null
     }
     submitTestInvocation: () => {
@@ -248,6 +269,11 @@ export interface hogFlowEditorNotificationTestLogicActions {
 export interface hogFlowEditorNotificationTestLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        testResult: (
+            latestTestResult: any,
+            workflow: HogFlow,
+            selectedNodeId: string | null
+        ) => HogflowTestResult | null
         sandboxTestMembers: (
             workflow: HogFlow,
             selectedNodeId: string | null,
@@ -322,7 +348,10 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         sendTestTo: (recipient: string) => ({ recipient }),
         setSampleGlobals: (globals?: string | null) => ({ globals: globals ?? null }),
         setSampleGlobalsError: (error: string | null) => ({ error }),
-        setTestResult: (testResult: HogflowTestResult | null) => ({ testResult }),
+        setTestResult: (testResult: HogflowTestResult | null, actionType: HogFlowAction['type'] | null = null) => ({
+            testResult,
+            actionType,
+        }),
         setNextActionId: (nextActionId: string | null) => ({ nextActionId }),
         setSelectedPersonDistinctId: (distinctId: string | null) => ({ distinctId }),
     }),
@@ -355,10 +384,11 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                 setEmailAddressOverride: (_, { email }) => email,
             },
         ],
-        testResult: [
-            null as HogflowTestResult | null,
+        latestTestResult: [
+            null as { result: HogflowTestResult; actionType: HogFlowAction['type'] | null } | null,
             {
-                setTestResult: (_, { testResult }) => testResult,
+                setTestResult: (_, { testResult, actionType }) =>
+                    testResult ? { result: testResult, actionType } : null,
             },
         ],
         nextActionId: [
@@ -405,6 +435,14 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         ],
     }),
     selectors({
+        testResult: [
+            (s) => [s.latestTestResult, s.workflow, s.selectedNodeId],
+            (latestTestResult, workflow: HogFlow, selectedNodeId: string | null): HogflowTestResult | null =>
+                latestTestResult &&
+                workflow.actions?.find((action) => action.id === selectedNodeId)?.type === latestTestResult.actionType
+                    ? latestTestResult.result
+                    : null,
+        ],
         sandboxTestMembers: [
             (s) => [s.workflow, s.selectedNodeId, s.meFirstMembers],
             (
@@ -550,7 +588,10 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
 
                     reportSandboxTest(testedWorkflow, testedActionId, result)
                     if (values.selectedNodeId === testedActionId) {
-                        actions.setTestResult(result)
+                        actions.setTestResult(
+                            result,
+                            testedWorkflow.actions?.find((action) => action.id === testedActionId)?.type ?? null
+                        )
                         actions.setNextActionId(
                             result.nextActionId && result.nextActionId !== testedActionId ? result.nextActionId : null
                         )
