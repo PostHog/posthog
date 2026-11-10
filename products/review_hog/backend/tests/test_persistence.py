@@ -3,8 +3,10 @@ from dataclasses import replace
 from typing import TypeVar
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
@@ -1304,6 +1306,46 @@ class TestPRSnapshot(BaseTest):
         )
         assert pipeline is not None
         assert [f.filename for f in pipeline.pr_files] == ["src/a.py"]
+
+    @parameterized.expand([("owned_file", ["ci.yml"]), ("ownership_not_readable", [])])
+    def test_the_devex_lens_session_reviews_only_the_files_the_devex_team_owns(
+        self, _name: str, owned: list[str]
+    ) -> None:
+        # A session with an empty scope would review the whole PR, as the main session already does.
+        report_id = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha1")
+        )
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata(head_sha="sha1"),
+            pr_comments=[],
+            pr_files=[
+                PRFile(filename=name, status="modified", additions=5, deletions=0) for name in ("ci.yml", "app.py")
+            ],
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
+        )
+        lens_input = SandboxStageInput(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            report_id=report_id,
+            head_sha="sha1",
+            repository="o/r",
+            branch="feat",
+            run_index=1,
+            review_mode=REVIEW_MODE_FLASH,
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
+        )
+
+        with patch("products.review_hog.backend.temporal.activities._devex_lens_files", return_value=owned):
+            if not owned:
+                with self.assertRaises(ApplicationError):
+                    _prepare_single_agent_prompt(lens_input, 1, True, "lens", devex_lens=True)
+                return
+            prompt = _prepare_single_agent_prompt(lens_input, 1, True, "lens", devex_lens=True)
+
+        assert "Review the changes in these files: `ci.yml`." in prompt
 
     def test_a_delta_lens_session_without_its_baseline_reviews_the_whole_pr(self) -> None:
         report_id = upsert_review_report(

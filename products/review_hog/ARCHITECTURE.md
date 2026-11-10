@@ -312,7 +312,7 @@ sessions, all on the PR's arm set (below) and all returning `SingleAgentReview`:
   `_devex_lens_files` reads ownership from the default branch through `posthog/ownership`, so a repository without `owners.yaml` never runs the lens.
   The fetch activity records the answer on `ReviewMeta.devex_lens`.
   The session is one more lens unit of `lens_review_activity` under pass 2003: its diff holds only the owned files, and its findings go through the same dedup, ranking, and cap as the other lens findings.
-  Its prompt holds the review method only. The session reads the repository's rules from the checkout (the `AGENTS.md` files above the changed paths, and the CI guides for a CI file), so a rule lives in one place.
+  Its prompt holds the review method only. The session reads the repository's rules from the checkout (the `AGENTS.md` files above the changed paths, and the guides and skills those files route the change to), so a rule lives in one place and the prompt names no path of any repository.
   A coordinated turn and a delta turn run without it.
   Only a turn that runs it hashes `lens_devex.md` into its fingerprint, so every other turn keeps its cohort.
 

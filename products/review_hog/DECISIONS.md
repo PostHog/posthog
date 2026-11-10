@@ -208,7 +208,7 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
 - **Cohorts.** The lens is outside `FLASH_LENSES`, because that table feeds every single-agent fingerprint.
   A turn hashes `lens_devex.md` only when it runs the lens.
   This amends "No team slot" in the 2026-10-06 entry. There is one slot, it is DevEx-owned, and it is routed by ownership.
-- **Where the rules live.** The prompt holds the review method. The session reads the `AGENTS.md` files above the changed paths. For a CI file it also identifies the execution engine, reads the CI guides, and traces five areas.
+- **Where the rules live.** The prompt holds the review method. The session reads the `AGENTS.md` files above the changed paths, then the guides and skills those files route the change to. For a CI file it also identifies the execution engine and traces five areas.
   The rules stay in those guides, and the session reads them from the checkout.
   A guide that the PR edits is read at the merge base.
 - **Left out.** Coordinated turns (the coordinator has no sub-agent slot for it), delta turns (the session has no part of a delta), and the Deep pipeline.
