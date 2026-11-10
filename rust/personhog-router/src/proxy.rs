@@ -607,11 +607,9 @@ impl RawProxyInner {
         unreachable!()
     }
 
-    /// One attempt at the pod a read is pinned to, bounded as a whole, connection wait included,
-    /// so an unreachable pod costs at most `pinned_attempt_timeout`. A pod that does not answer
-    /// in time, fails, refuses the request or answers `UNAVAILABLE` yields nothing, and the
-    /// balanced channel takes the read with its usual retries: a read loses nothing by asking
-    /// again elsewhere.
+    /// One attempt at the pod a read is pinned to, bounded as a whole so an unreachable pod costs
+    /// at most `pinned_attempt_timeout`. A pod that does not answer in time, fails, refuses the
+    /// request or answers `UNAVAILABLE` yields nothing, and the balanced channel takes the read.
     async fn forward_pinned(
         &self,
         mut channel: Channel,
