@@ -633,7 +633,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
             : undefined
     const keyedSettings =
         keyedOptions.some((option) => option.value === radioValue) && (primaryKeySection || showsOutputTables) ? (
-            <div className="flex flex-col gap-4 pt-3 border-t">
+            <div className="flex flex-col gap-4">
                 {primaryKeySection && (
                     <div>
                         <p className="mb-1 font-semibold">Primary key</p>
