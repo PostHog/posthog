@@ -464,6 +464,7 @@ export interface warehouseSuggestionsLogicMeta {
             leavingSuggestionIds: string[]
         ) => StripState
         showWaitingNotice: (
+            suggestions: WarehouseSuggestionApi[] | null,
             surfaceSuggestions: WarehouseSuggestionApi[],
             status: WarehouseSuggestionStatusApi | null,
             featureForbidden: boolean
@@ -783,15 +784,20 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 },
             ],
             showWaitingNotice: [
-                (s) => [s.surfaceSuggestions, s.status, s.featureForbidden],
+                (s) => [s.suggestions, s.surfaceSuggestions, s.status, s.featureForbidden],
                 (
+                    suggestions: WarehouseSuggestionApi[] | null,
                     surfaceSuggestions: WarehouseSuggestionApi[],
                     status: WarehouseSuggestionStatusApi | null,
                     featureForbidden: boolean
-                ): boolean => !featureForbidden && surfaceSuggestions.length === 0 && !!status?.can_show_more,
+                ): boolean =>
+                    !featureForbidden &&
+                    suggestions !== null &&
+                    surfaceSuggestions.length === 0 &&
+                    !!status?.can_show_more,
             ],
         }),
-        listeners(({ actions, values, props, cache, selectors }) => {
+        listeners(({ actions, asyncActions, values, props, cache, selectors }) => {
             const reportViewedOnce = (): void => {
                 if (cache.viewReported || values.stripState !== 'active') {
                     return
@@ -801,6 +807,12 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     surface: props.surface,
                     suggestion_count: values.surfaceSuggestions.length,
                 })
+            }
+            const recheckWaitingOnceSettled = (): void => {
+                const decisionsSaving = Object.values(values.actionsInFlight).some(Boolean)
+                if (values.surfaceSuggestions.length === 0 && !decisionsSaving) {
+                    actions.loadStatus()
+                }
             }
             const reportWaitingNoticeOnce = (): void => {
                 if (cache.waitingNoticeReported || !values.showWaitingNotice) {
@@ -900,9 +912,10 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 restoreSuggestion: ({ id }) => {
                     cache.disposables.dispose(leaveDisposableKey(id))
                 },
-                finishHidingSuggestion: () => {
-                    if (values.surfaceSuggestions.length === 0) {
-                        actions.loadStatus()
+                finishHidingSuggestion: () => recheckWaitingOnceSettled(),
+                setActionInFlight: ({ inFlight }) => {
+                    if (!inFlight) {
+                        recheckWaitingOnceSettled()
                     }
                 },
                 showMore: async ({ placement }) => {
@@ -924,7 +937,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                         } else {
                             actions.openReview()
                         }
-                        actions.reload()
+                        await Promise.allSettled([asyncActions.loadSuggestions(), asyncActions.loadStatus()])
                     } catch (error) {
                         reportFailure(error, "Couldn't show more suggestions. Try again.")
                     } finally {

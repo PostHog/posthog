@@ -11,6 +11,7 @@ from posthog.dataclasses import frozen
 from posthog.models import User
 from posthog.scopes import APIScopeObject
 
+from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -23,7 +24,6 @@ from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, W
 from ..models import WarehouseSuggestion
 from .access import CATALOG_KINDS, can_take
 from .flags import is_warehouse_suggestions_enabled
-from .inventory import TeamInventory
 from .payloads import payload_from_json
 
 if TYPE_CHECKING:
@@ -46,10 +46,10 @@ Assignments = Mapping[User, Sequence[WarehouseSuggestion]]
 
 
 def assign_surfaced(
-    team: "Team", surfaced: Sequence[WarehouseSuggestion], inventory: TeamInventory
+    team: "Team", surfaced: Sequence[WarehouseSuggestion], saved_queries: Mapping[UUID, SavedQueryDefinition]
 ) -> dict[User, list[WarehouseSuggestion]]:
     """Assign each unassigned surfaced view suggestion to the view's creator, when they can accept it."""
-    creators = _view_creators(inventory, surfaced)
+    creators = _view_creators(saved_queries, surfaced)
     assigned: defaultdict[User, list[WarehouseSuggestion]] = defaultdict(list)
     for row in surfaced:
         assignee = _surfaced_assignee(team, row, creators.get(row.subject_id))
@@ -126,12 +126,14 @@ def notify_assigned(team: "Team", suggestion: WarehouseSuggestion, assignee: Use
     )
 
 
-def _view_creators(inventory: TeamInventory, rows: Sequence[WarehouseSuggestion]) -> dict[UUID, User]:
+def _view_creators(
+    saved_queries: Mapping[UUID, SavedQueryDefinition], rows: Sequence[WarehouseSuggestion]
+) -> dict[UUID, User]:
     creator_ids = {
         row.subject_id: definition.created_by_id
         for row in rows
         if row.subject_kind == WarehouseSuggestionSubjectKind.SAVED_QUERY
-        and (definition := inventory.saved_queries.get(row.subject_id)) is not None
+        and (definition := saved_queries.get(row.subject_id)) is not None
         and definition.created_by_id is not None
     }
     users = User.objects.in_bulk(set(creator_ids.values()))

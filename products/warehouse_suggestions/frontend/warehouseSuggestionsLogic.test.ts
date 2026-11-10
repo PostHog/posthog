@@ -621,6 +621,40 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.showWaitingNotice).toBe(expected)
     })
 
+    it('hides the waiting notice until the list has loaded, even when status answers first', async () => {
+        mockStatus.mockResolvedValue(MORE_WAITING_STATUS)
+        mockList.mockReturnValue(new Promise(() => {}))
+        logic = warehouseSuggestionsLogic({ surface: 'models' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadStatusSuccess'])
+
+        expect(logic.values.showWaitingNotice).toBe(false)
+    })
+
+    it('rechecks the waiting count only after a slow dismissal is saved', async () => {
+        jest.useFakeTimers()
+        try {
+            let finishDismiss: () => void = () => {}
+            mockDismiss.mockReturnValue(
+                new Promise((resolve) => (finishDismiss = () => resolve({ ...MATERIALIZE, status: 'dismissed' })))
+            )
+            await mountLogic()
+            const statusCallsAtMount = mockStatus.mock.calls.length
+            mockStatus.mockResolvedValue(MORE_WAITING_STATUS)
+
+            logic.actions.dismissSuggestion(MATERIALIZE.id, 'not_now')
+            jest.advanceTimersByTime(ROW_LEAVE_MS)
+            const statusCallsWhileSaving = mockStatus.mock.calls.length - statusCallsAtMount
+            finishDismiss()
+            await expectLogic(logic).toDispatchActions(['loadStatusSuccess'])
+
+            expect([statusCallsWhileSaving, logic.values.showWaitingNotice]).toEqual([0, true])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('rechecks the waiting count once the last row leaves, so the notice shows after the dialog closes', async () => {
         jest.useFakeTimers()
         try {
@@ -659,6 +693,28 @@ describe('warehouseSuggestionsLogic', () => {
             expectReviewOpen,
             false,
             expectedInfoToasts,
+        ])
+    })
+
+    it('keeps show more busy until the new batch has loaded, so a second click does nothing', async () => {
+        let finishList: () => void = () => {}
+        mockStatus.mockResolvedValue(MORE_WAITING_STATUS)
+        mockList.mockResolvedValue(page([]))
+        mockSurfaceMore.mockResolvedValue({ surfaced: 3 })
+        await mountLogic()
+        mockList.mockReturnValue(new Promise((resolve) => (finishList = () => resolve(page([MATERIALIZE])))))
+
+        logic.actions.showMore('dialog')
+        await expectLogic(logic).toDispatchActions(['showMore', 'setShowingMore', 'loadSuggestions'])
+        logic.actions.showMore('dialog')
+        const busyWhileLoading = logic.values.showingMore
+        finishList()
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess', 'setShowingMore'])
+
+        expect([busyWhileLoading, mockSurfaceMore.mock.calls.length, logic.values.showingMore]).toEqual([
+            true,
+            1,
+            false,
         ])
     })
 

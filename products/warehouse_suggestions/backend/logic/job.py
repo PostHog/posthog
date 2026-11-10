@@ -90,11 +90,10 @@ def surface_more(
     """Show the next batch of `waiting` suggestions on request, under the same lock and rule as the daily run."""
     now = now or timezone.now()
     get_or_create_team_extension(team, WarehouseSuggestionTeamConfig)
-    inventory = load_inventory(team)
     with transaction.atomic():
         if not shows_new_suggestions(_locked_config(team.pk)):
             return []
-        return surface_on_demand(team, rules.lifecycle, now, waiting, inventory)
+        return surface_on_demand(team, rules.lifecycle, now, waiting)
 
 
 def waiting_suggestions(
@@ -106,7 +105,7 @@ def waiting_suggestions(
     count = waiting_count(team_id, waiting)
     if count == 0:
         return NOTHING_WAITING
-    picked = pick_waiting(team_id, rules.lifecycle, now or timezone.now(), waiting=waiting, counts_today=False)
+    picked = pick_waiting(team_id, rules.lifecycle, now or timezone.now(), waiting=waiting, on_demand=True)
     return WaitingSuggestions(count=count, can_show_more=bool(picked))
 
 

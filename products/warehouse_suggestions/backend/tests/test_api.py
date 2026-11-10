@@ -422,10 +422,12 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("member_counts_and_shows_only_views_they_can_read", None, 1, True, 1),
+            ("member_counts_and_shows_only_views_they_can_read", None, "none", 1, True, 1),
+            ("member_counts_and_shows_only_views_they_can_edit", None, "viewer", 1, True, 1),
             (
                 "token_that_writes_only_tables_gets_no_view_rows",
                 ["warehouse_view:read", "warehouse_table:write"],
+                "none",
                 0,
                 False,
                 0,
@@ -436,6 +438,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         self,
         _name: str,
         token_scopes: list[str] | None,
+        denied_view_level: str,
         expected_waiting: int,
         expected_can_show_more: bool,
         expected_surfaced: int,
@@ -453,7 +456,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
                     ),
                 ),
             )
-        self._restrict("warehouse_view", denied_view.id, "none")
+        self._restrict("warehouse_view", denied_view.id, denied_view_level)
         if token_scopes:
             self.client.credentials(HTTP_AUTHORIZATION=self._bearer(token_scopes))
 

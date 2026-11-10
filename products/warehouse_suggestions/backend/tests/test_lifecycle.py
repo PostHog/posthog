@@ -606,7 +606,9 @@ class TestSurfaceMore(BaseTest):
             team=self.team, defaults={"enabled": True, "eligible": True, "paused_reason": None}
         )[0]
 
-    def _seed(self, counts: dict[WarehouseSuggestionKind, int]) -> None:
+    def _seed(
+        self, counts: dict[WarehouseSuggestionKind, int], *, surface: bool = True
+    ) -> tuple[CandidateContext, list[SuggestionDraft]]:
         views = [
             DataWarehouseSavedQuery.objects.create(
                 team=self.team,
@@ -623,7 +625,8 @@ class TestSurfaceMore(BaseTest):
             for kind, count in counts.items()
             for _ in range(count)
         ]
-        apply_run(ctx, self.team, drafts, NOW, surface=True)
+        apply_run(ctx, self.team, drafts, NOW, surface=surface)
+        return ctx, drafts
 
     def _close_surfaced(self) -> None:
         WarehouseSuggestion.objects.for_team(self.team.pk).filter(surfaced_at__isnull=False).update(
@@ -683,3 +686,14 @@ class TestSurfaceMore(BaseTest):
         )
 
         assert waiting == WaitingSuggestions(count=1, can_show_more=False)
+
+    def test_the_daily_run_still_shows_its_batch_after_show_more_earlier_that_day(self) -> None:
+        ctx, drafts = self._seed(
+            {WarehouseSuggestionKind.CERTIFY: 6, WarehouseSuggestionKind.MATERIALIZE: 6}, surface=False
+        )
+        surface_more(self.team, surface_q(WarehouseSuggestionSurface.MODELS), now=NOW)
+        self._close_surfaced()
+
+        daily = apply_run(ctx, self.team, drafts, NOW + timedelta(hours=1), surface=True)
+
+        assert daily.surfaced == ctx.rules.lifecycle.max_surfaced_per_day

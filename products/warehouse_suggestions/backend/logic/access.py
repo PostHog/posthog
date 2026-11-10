@@ -64,7 +64,7 @@ def actionable_waiting(
     surface: WarehouseSuggestionSurface,
     subject_kinds: SubjectKinds,
 ) -> Q:
-    """Waiting suggestions on `surface` whose subject the user can read and whose subject kind they can act on."""
+    """Waiting suggestions on `surface` the user could accept or dismiss once shown."""
     kinds = subject_kinds.readable & subject_kinds.actionable
     scoped = Q(subject_kind__in=kinds) & surface_q(surface)
     waiting = (
@@ -72,7 +72,7 @@ def actionable_waiting(
         .filter(status=WarehouseSuggestionStatus.PROPOSED, surfaced_at__isnull=True)
         .filter(scoped)
     )
-    return scoped & subject_access(team_id, user_access_control, waiting, actionable_kinds=kinds).readable_q()
+    return scoped & subject_access(team_id, user_access_control, waiting, actionable_kinds=kinds).editable_q()
 
 
 def can_take(team: "Team", user: "User", suggestion: WarehouseSuggestion) -> bool:
@@ -96,15 +96,22 @@ class SubjectAccess:
     editable: Mapping[WarehouseSuggestionSubjectKind, frozenset[UUID]]
 
     def readable_q(self) -> Q:
-        readable = Q(pk__in=[])
-        for subject_kind, subject_ids in self.readable.items():
-            readable |= Q(subject_kind=subject_kind, subject_id__in=subject_ids)
-        return readable
+        return _subjects_q(self.readable)
+
+    def editable_q(self) -> Q:
+        return _subjects_q(self.editable)
 
     def can_act_on(self, suggestion: WarehouseSuggestion) -> bool:
         return suggestion.subject_id in self.editable.get(
             WarehouseSuggestionSubjectKind(suggestion.subject_kind), frozenset()
         )
+
+
+def _subjects_q(subject_ids_by_kind: Mapping[WarehouseSuggestionSubjectKind, frozenset[UUID]]) -> Q:
+    subjects = Q(pk__in=[])
+    for subject_kind, subject_ids in subject_ids_by_kind.items():
+        subjects |= Q(subject_kind=subject_kind, subject_id__in=subject_ids)
+    return subjects
 
 
 def visible_suggestions(

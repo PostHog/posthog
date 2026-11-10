@@ -10,6 +10,9 @@ from django.db.models import F, Q, QuerySet
 
 from posthog.dataclasses import frozen
 
+from products.data_modeling.backend.facade.api import saved_query_definitions
+from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
+
 from ..facade.contracts import SuggestionAlreadyDecidedError, SuggestionDraft
 from ..facade.enums import (
     WarehouseSuggestionDismissalReason,
@@ -22,7 +25,6 @@ from .analytics import SuggestionOutcome, report_outcomes
 from .assignment import assign_surfaced, notify_surfaced
 from .candidates.base import CandidateContext
 from .candidates.registry import CANDIDATES
-from .inventory import TeamInventory
 from .reads import Subject
 from .rules import LifecycleRules, kind_position
 from .suggestions import ALLOWED_TRANSITIONS, Transitions, transition_to, upsert_suggestions
@@ -61,7 +63,7 @@ def apply_run(
     auto_resolved = _auto_resolve(context, fingerprints)
     expired = _expire(context, fingerprints, now)
     surfaced = _surface(context.team_id, context.rules.lifecycle, now) if surface else []
-    assigned = assign_surfaced(team, surfaced, context.inventory)
+    assigned = assign_surfaced(team, surfaced, context.inventory.saved_queries)
     assets_reconciled = _reconcile_assets(context)
     outcomes: OutcomeBatches = (
         (SuggestionOutcome.CREATED, created),
@@ -185,14 +187,19 @@ def _expire(
     return _move_all(stale, context.team_id, WarehouseSuggestionStatus.EXPIRED)
 
 
-def surface_on_demand(
-    team: "Team", rules: LifecycleRules, now: datetime, waiting: Q, inventory: TeamInventory
-) -> list[WarehouseSuggestion]:
+def surface_on_demand(team: "Team", rules: LifecycleRules, now: datetime, waiting: Q) -> list[WarehouseSuggestion]:
     """Show the next batch of `waiting` suggestions outside the daily limit, assigned but without notifications."""
-    surfaced = _surface(team.pk, rules, now, waiting=waiting, counts_today=False)
-    assign_surfaced(team, surfaced, inventory)
+    surfaced = _surface(team.pk, rules, now, waiting=waiting, on_demand=True)
+    assign_surfaced(team, surfaced, _surfaced_saved_queries(team.pk, surfaced))
     transaction.on_commit(partial(report_outcomes, SuggestionOutcome.SURFACED, surfaced, team=team))
     return surfaced
+
+
+def _surfaced_saved_queries(team_id: int, surfaced: Sequence[WarehouseSuggestion]) -> dict[UUID, SavedQueryDefinition]:
+    view_ids = [row.subject_id for row in surfaced if row.subject_kind == WarehouseSuggestionSubjectKind.SAVED_QUERY]
+    if not view_ids:
+        return {}
+    return {definition.id: definition for definition in saved_query_definitions(team_id, ids=view_ids)}
 
 
 def waiting_count(team_id: int, waiting: Q) -> int:
@@ -200,16 +207,16 @@ def waiting_count(team_id: int, waiting: Q) -> int:
 
 
 def _surface(
-    team_id: int, rules: LifecycleRules, now: datetime, *, waiting: Q = ALL_WAITING, counts_today: bool = True
+    team_id: int, rules: LifecycleRules, now: datetime, *, waiting: Q = ALL_WAITING, on_demand: bool = False
 ) -> list[WarehouseSuggestion]:
     """Show waiting suggestions within the daily, open and per-kind limits, and return the ones shown."""
-    chosen = pick_waiting(team_id, rules, now, waiting=waiting, counts_today=counts_today)
+    chosen = pick_waiting(team_id, rules, now, waiting=waiting, on_demand=on_demand)
     suggestions = WarehouseSuggestion.objects.for_team(team_id)
-    suggestions.filter(id__in=chosen).update(surfaced_at=now)
+    suggestions.filter(id__in=chosen).update(surfaced_at=now, surfaced_on_demand=on_demand)
     return list(suggestions.filter(id__in=chosen).select_related("assignee"))
 
 
-def pick_waiting(team_id: int, rules: LifecycleRules, now: datetime, *, waiting: Q, counts_today: bool) -> list[UUID]:
+def pick_waiting(team_id: int, rules: LifecycleRules, now: datetime, *, waiting: Q, on_demand: bool) -> list[UUID]:
     """The `waiting` suggestions the next surfacing would show, without showing them."""
     suggestions = WarehouseSuggestion.objects.for_team(team_id)
     start_of_day = datetime.combine(now.date(), time.min, tzinfo=now.tzinfo)
@@ -218,7 +225,9 @@ def pick_waiting(team_id: int, rules: LifecycleRules, now: datetime, *, waiting:
             "kind", flat=True
         )
     )
-    surfaced_today = suggestions.filter(surfaced_at__gte=start_of_day).count() if counts_today else 0
+    surfaced_today = (
+        0 if on_demand else suggestions.filter(surfaced_at__gte=start_of_day, surfaced_on_demand=False).count()
+    )
     slots = min(rules.max_surfaced_per_day - surfaced_today, rules.max_open - open_kinds.total())
     if slots <= 0:
         return []
