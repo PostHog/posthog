@@ -196,8 +196,9 @@ def console_home(request: HttpRequest) -> HttpResponse:
         found = _find_by_uuid(record_id)
         if found is not None:
             return found
-        # A UUID is never a name or a token, so an unknown one skips the name scan across every team.
-        teams: list[Team] = []
+        # A project API token can have the form of a UUID, and the token match uses a unique index.
+        # A UUID is never a name, so the name scan across every team stays skipped.
+        teams = list(Team.objects.select_related("organization").filter(api_token=query)[:1])
     else:
         teams = _search_teams(query)
     if len(teams) == 1:
