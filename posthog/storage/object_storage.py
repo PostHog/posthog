@@ -68,8 +68,8 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def list_object_summaries(self, bucket: str, prefix: str) -> list[StoredObjectSummary]:
-        """Every object under `prefix`: empty for an empty prefix, ObjectStorageError on failure."""
+    def list_object_summaries(self, bucket: str, prefix: str, *, limit: int | None = None) -> list[StoredObjectSummary]:
+        """Every object under `prefix`, or the first `limit`: empty for an empty prefix, ObjectStorageError on failure."""
         pass
 
     @abc.abstractmethod
@@ -158,7 +158,7 @@ class UnavailableStorage(ObjectStorageClient):
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
         pass
 
-    def list_object_summaries(self, bucket: str, prefix: str) -> list[StoredObjectSummary]:
+    def list_object_summaries(self, bucket: str, prefix: str, *, limit: int | None = None) -> list[StoredObjectSummary]:
         raise ObjectStorageError("object storage is unavailable")
 
     def iter_keys(self, bucket: str, prefix: str, *, page_size: int = 1000) -> Iterator[str]:
@@ -312,7 +312,7 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             return None
 
-    def list_object_summaries(self, bucket: str, prefix: str) -> list[StoredObjectSummary]:
+    def list_object_summaries(self, bucket: str, prefix: str, *, limit: int | None = None) -> list[StoredObjectSummary]:
         summaries: list[StoredObjectSummary] = []
         request: dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
         try:
@@ -322,6 +322,8 @@ class ObjectStorage(ObjectStorageClient):
                     StoredObjectSummary(key=obj["Key"], etag=obj.get("ETag"), size=int(obj.get("Size", 0)))
                     for obj in response.get("Contents") or []
                 )
+                if limit is not None and len(summaries) >= limit:
+                    return summaries[:limit]
                 token = response.get("NextContinuationToken")
                 if not response.get("IsTruncated") or not token:
                     return summaries
@@ -654,8 +656,12 @@ def list_objects(prefix: str, bucket: str | None = None) -> Optional[list[str]]:
     return object_storage_client().list_objects(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
 
 
-def list_object_summaries(prefix: str, bucket: str | None = None) -> list[StoredObjectSummary]:
-    return object_storage_client().list_object_summaries(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
+def list_object_summaries(
+    prefix: str, bucket: str | None = None, *, limit: int | None = None
+) -> list[StoredObjectSummary]:
+    return object_storage_client().list_object_summaries(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix, limit=limit
+    )
 
 
 def iter_keys(prefix: str, bucket: str | None = None, *, page_size: int = 1000) -> Iterator[str]:

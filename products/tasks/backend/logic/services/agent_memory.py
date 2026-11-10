@@ -49,6 +49,7 @@ MAX_FILE_BYTES = 256 * 1024
 MAX_SLUG_BYTES = 2 * 1024 * 1024
 MAX_FILES_PER_SLUG = 200
 MAX_SLUGS_PER_USER = 50
+MAX_STORED_KEYS = MAX_SLUGS_PER_USER * MAX_FILES_PER_SLUG
 MAX_BASELINE_BYTES = 4 * 1024 * 1024
 RESTORE_DEADLINE_SECONDS = 60.0
 
@@ -283,13 +284,23 @@ def _memory_file_entries(
     return files
 
 
-def _stored_summaries(team_id: int, user_id: int, slug: str) -> dict[str, StoredObjectSummary]:
-    stored: dict[str, StoredObjectSummary] = {}
-    for summary in object_storage.list_object_summaries(slug_memory_prefix(team_id, user_id, slug)):
+@frozen
+class _StoredMemory:
+    # slug -> filename -> summary, from a listing bounded at MAX_STORED_KEYS.
+    slugs: dict[str, dict[str, StoredObjectSummary]]
+    truncated: bool
+
+
+def _list_stored_memory(team_id: int, user_id: int, counts: MemorySyncCounts) -> _StoredMemory:
+    summaries = object_storage.list_object_summaries(user_memory_prefix(team_id, user_id), limit=MAX_STORED_KEYS + 1)
+    slugs: dict[str, dict[str, StoredObjectSummary]] = {}
+    for summary in summaries[:MAX_STORED_KEYS]:
         ref = parse_memory_object_key(team_id, user_id, summary.key)
-        if ref is not None and ref.slug == slug:
-            stored[ref.filename] = summary
-    return stored
+        if ref is None:
+            counts.skip("invalid_key")
+            continue
+        slugs.setdefault(ref.slug, {})[ref.filename] = summary
+    return _StoredMemory(slugs=slugs, truncated=len(summaries) > MAX_STORED_KEYS)
 
 
 def _matches_stored(content: bytes, summary: StoredObjectSummary | None) -> bool:
@@ -308,6 +319,7 @@ def _persist_slug(
     slug: str,
     entries: list[SandboxDirEntry],
     base: dict[str, BaselineFile],
+    stored: dict[str, StoredObjectSummary],
     counts: MemorySyncCounts,
 ) -> dict[str, BaselineFile] | None:
     """Upload what changed in one slug since the baseline. Returns the slug's new baseline."""
@@ -348,8 +360,11 @@ def _persist_slug(
     removed = sorted(name for name in base if name not in listed)
     if not changed and not removed:
         return new_base
+    # Counted against storage, because the agent can rewrite the baseline.
+    if len((stored.keys() - set(removed)) | new_base.keys()) > MAX_FILES_PER_SLUG:
+        counts.skip("slug_file_limit")
+        return None
 
-    stored = _stored_summaries(team_id, user_id, slug)
     for filename, content in changed.items():
         if _matches_stored(content, stored.get(filename)):
             continue
@@ -386,6 +401,9 @@ def persist_sandbox_memory(sandbox: SandboxBase, *, team_id: int, user_id: int) 
     counts = MemorySyncCounts()
     baseline = read_baseline(sandbox)
     sandbox_slugs = _list_sandbox_slugs(sandbox, counts)
+    stored = _list_stored_memory(team_id, user_id, counts)
+    # The agent can delete or rewrite the baseline, so storage decides how many slugs may be added.
+    new_slug_room = 0 if stored.truncated else MAX_SLUGS_PER_USER - len(stored.slugs)
     # Tracked slugs go first, so a removed slug frees its baseline slot before a new slug asks for one.
     for slug in sorted(sandbox_slugs.selected | baseline.keys(), key=lambda slug: (not baseline.get(slug), slug)):
         in_sandbox = slug in sandbox_slugs.selected
@@ -400,6 +418,11 @@ def persist_sandbox_memory(sandbox: SandboxBase, *, team_id: int, user_id: int) 
         entries = _memory_file_entries(sandbox, slug, in_sandbox=in_sandbox, counts=counts)
         if entries is None:
             continue
+        if entries and slug not in stored.slugs:
+            if new_slug_room <= 0:
+                counts.skip("slug_limit")
+                continue
+            new_slug_room -= 1
         counts.slugs += 1
         new_base = _persist_slug(
             sandbox,
@@ -408,6 +431,7 @@ def persist_sandbox_memory(sandbox: SandboxBase, *, team_id: int, user_id: int) 
             slug=slug,
             entries=entries,
             base=baseline.get(slug, {}),
+            stored=stored.slugs.get(slug, {}),
             counts=counts,
         )
         if new_base is not None and new_base != baseline.get(slug, {}):
@@ -536,7 +560,7 @@ def restore_sandbox_memory(
     if has_baseline(sandbox):
         return MemoryRestoreResult(counts=counts, complete=True, snapshot_baseline_kept=True)
 
-    summaries = object_storage.list_object_summaries(user_memory_prefix(team_id, user_id))
+    stored = _list_stored_memory(team_id, user_id, counts)
 
     if sandbox.list_dir(SANDBOX_HOME_CLAUDE_PROJECTS_DIR) and not sandbox.list_dir(SANDBOX_CLAUDE_PROJECTS_DIR):
         counts.skip("home_projects_unmigrated")
@@ -547,15 +571,11 @@ def restore_sandbox_memory(
         counts.errors += 1
         return MemoryRestoreResult(counts=counts, complete=False)
 
-    by_slug: dict[str, list[StoredObjectSummary]] = {}
-    for summary in summaries:
-        ref = parse_memory_object_key(team_id, user_id, summary.key)
-        if ref is None:
-            counts.skip("invalid_key")
-            continue
-        by_slug.setdefault(ref.slug, []).append(summary)
-    slugs = sorted(by_slug)
+    slugs = sorted(stored.slugs)
     complete = True
+    if stored.truncated:
+        counts.skip("listing_truncated")
+        complete = False
     if len(slugs) > MAX_SLUGS_PER_USER:
         counts.skip("slug_limit", len(slugs) - MAX_SLUGS_PER_USER)
         slugs = slugs[:MAX_SLUGS_PER_USER]
@@ -565,7 +585,7 @@ def restore_sandbox_memory(
     try:
         for slug in slugs:
             counts.slugs += 1
-            files = _read_stored_slug(team_id, user_id, by_slug[slug], counts, deadline)
+            files = _read_stored_slug(team_id, user_id, list(stored.slugs[slug].values()), counts, deadline)
             if files is None:
                 complete = False
                 continue

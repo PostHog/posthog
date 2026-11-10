@@ -330,6 +330,22 @@ class TestObjectStorageListObjectSummaries(SimpleTestCase):
         if len(responses) > 1:
             assert mock_client.list_objects_v2.call_args_list[1].kwargs["ContinuationToken"] == "page-2"
 
+    def test_stops_paginating_at_the_limit(self) -> None:
+        mock_client = MagicMock()
+        mock_client.list_objects_v2.side_effect = [
+            {
+                "Contents": [{"Key": f"p/{name}.md", "ETag": '"aa"', "Size": 1} for name in ("a", "b", "c")],
+                "IsTruncated": True,
+                "NextContinuationToken": "page-2",
+            },
+        ]
+        storage = ObjectStorage(mock_client)
+
+        summaries = storage.list_object_summaries("test-bucket", "p/", limit=2)
+
+        assert [summary.key for summary in summaries] == ["p/a.md", "p/b.md"]
+        assert mock_client.list_objects_v2.call_count == 1
+
     def test_raises_instead_of_reporting_an_empty_prefix_on_failure(self) -> None:
         mock_client = MagicMock()
         mock_client.list_objects_v2.side_effect = TimeoutError("object storage timed out")

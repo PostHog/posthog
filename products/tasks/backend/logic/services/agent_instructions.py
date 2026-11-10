@@ -14,6 +14,7 @@ from posthog.models.user import User
 from products.signals.backend.facade.agent_instructions import get_agent_instructions
 from products.tasks.backend.constants import AGENT_INSTRUCTIONS_STATE_KEY
 from products.tasks.backend.models import Task, TaskRun, TeamTasksConfig, UserTasksConfig
+from products.tasks.backend.visibility import team_controlled_origins
 
 logger = structlog.get_logger(__name__)
 
@@ -110,6 +111,11 @@ def receives_personal_state(task: Task) -> bool:
         and not task.internal
         and task.origin_product not in PERSONLESS_ORIGINS
     )
+
+
+def receives_agent_memory(task: Task) -> bool:
+    # Any project member can drive a team-controlled task, and memory belongs to its creator.
+    return receives_personal_state(task) and task.origin_product not in team_controlled_origins()
 
 
 class AgentInstructionsResolver:

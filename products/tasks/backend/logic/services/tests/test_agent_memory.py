@@ -13,6 +13,7 @@ from products.tasks.backend.logic.services import agent_memory
 from products.tasks.backend.logic.services.agent_memory import (
     MAX_FILE_BYTES,
     MAX_SLUGS_PER_USER,
+    MAX_STORED_KEYS,
     SANDBOX_BASELINE_PATH,
     SANDBOX_CLAUDE_PROJECTS_DIR,
     SANDBOX_HOME_CLAUDE_PROJECTS_DIR,
@@ -127,14 +128,16 @@ class FakeStorage:
         self.writes: list[str] = []
         self.clock = 0.0
 
-    def list_object_summaries(self, prefix: str, bucket: str | None = None) -> list[StoredObjectSummary]:
+    def list_object_summaries(
+        self, prefix: str, bucket: str | None = None, *, limit: int | None = None
+    ) -> list[StoredObjectSummary]:
         if self.list_fails:
             raise ObjectStorageError("list_objects failed")
         return [
             StoredObjectSummary(key=key, etag=f'"{_md5(content)}"', size=len(content))
             for key, content in sorted(self.objects.items())
             if key.startswith(prefix)
-        ]
+        ][:limit]
 
     def read_bytes(self, file_name: str, bucket: str | None = None, *, missing_ok: bool = False) -> bytes | None:
         self.clock += 10
@@ -299,19 +302,23 @@ def _fifty_restored_slugs(storage: FakeStorage) -> tuple[FakeSandbox, list[str]]
     return sandbox, slugs
 
 
-def test_a_new_slug_beyond_the_baseline_capacity_is_neither_uploaded_nor_treated_as_a_deletion(
-    storage: FakeStorage,
+@pytest.mark.parametrize("agent_cleared_the_sandbox", [False, True])
+def test_a_new_slug_beyond_the_slug_capacity_is_neither_uploaded_nor_treated_as_a_deletion(
+    storage: FakeStorage, agent_cleared_the_sandbox: bool
 ) -> None:
     sandbox, slugs = _fifty_restored_slugs(storage)
+    if agent_cleared_the_sandbox:
+        sandbox = FakeSandbox()
     sandbox.files[_memory_path("-a", "MEMORY.md")] = b"new checkout"
     sandbox.mtimes[_memory_path("-a", "MEMORY.md")] = 1.0
 
     counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
 
-    assert storage.objects[_key(slugs[-1], "MEMORY.md")] == b"index"
     assert storage.writes == []
+    assert set(storage.objects) == {_key(slug, "MEMORY.md") for slug in slugs}
     assert counts.skipped["slug_limit"] >= 1
-    assert set(parse_baseline(sandbox.files[SANDBOX_BASELINE_PATH])) == set(slugs)
+    expected_baseline = set() if agent_cleared_the_sandbox else set(slugs)
+    assert set(parse_baseline(sandbox.files.get(SANDBOX_BASELINE_PATH))) == expected_baseline
 
 
 def test_replacing_one_of_fifty_slugs_keeps_a_valid_baseline(storage: FakeStorage) -> None:
@@ -323,6 +330,12 @@ def test_replacing_one_of_fifty_slugs_keeps_a_valid_baseline(storage: FakeStorag
     persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
 
     assert _key(slugs[0], "MEMORY.md") not in storage.objects
+    assert _key("-a", "MEMORY.md") not in storage.objects
+
+    # The slot the deletion freed is counted from storage on the next persist.
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+
+    assert storage.objects[_key("-a", "MEMORY.md")] == b"new checkout"
     assert len(parse_baseline(sandbox.files[SANDBOX_BASELINE_PATH])) == MAX_SLUGS_PER_USER
 
     storage.writes.clear()
@@ -331,6 +344,16 @@ def test_replacing_one_of_fifty_slugs_keeps_a_valid_baseline(storage: FakeStorag
 
     assert storage.writes == []
     assert sandbox.reads == [SANDBOX_BASELINE_PATH]
+
+
+def test_a_slug_cannot_grow_past_the_file_cap_by_dropping_the_baseline(storage: FakeStorage) -> None:
+    storage.objects = {_key(REPO_SLUG, f"stored-{index}.md"): b"note" for index in range(150)}
+    sandbox = FakeSandbox({_memory_path(REPO_SLUG, f"new-{index}.md"): b"note" for index in range(100)})
+
+    counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+
+    assert storage.writes == []
+    assert counts.skipped["slug_file_limit"] == 1
 
 
 def test_a_refused_baseline_checkpoint_fails_the_persist(storage: FakeStorage) -> None:
@@ -417,6 +440,17 @@ def test_restore_is_complete_only_when_the_sandbox_mirrors_storage(
     result = restore_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
 
     assert result.complete is expected_complete
+    assert sandbox.memory() == {}
+
+
+def test_restore_lists_a_bounded_number_of_keys(storage: FakeStorage) -> None:
+    storage.objects = {_key(REPO_SLUG, f"topic-{index}.md"): b"note" for index in range(MAX_STORED_KEYS + 1)}
+    sandbox = FakeSandbox()
+
+    result = restore_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+
+    assert result.complete is False
+    assert result.counts.skipped["listing_truncated"] == 1
     assert sandbox.memory() == {}
 
 

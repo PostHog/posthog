@@ -107,13 +107,15 @@ def _capture_memory_event(
         logger.warning("agent_memory_event_capture_failed", event=event, run_id=run_id, exc_info=True)
 
 
-def _actor_changed(run_id: str, team_id: int, actor_user_id: int | None) -> bool:
+def _driven_by_another_member(run_id: str, team_id: int, actor_user_id: int | None) -> bool:
     row = TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("state", "task__created_by_id").first()
     state, created_by_id = row if row is not None else (None, None)
     state = state if isinstance(state, dict) else {}
     # Once someone other than the creator steers the run, the creator's memory must not be saved
     # from this sandbox. The workflow passes the latest follow-up's actor; run state carries the
-    # Slack actor recorded when the run started.
+    # Slack actor recorded when the run started and the lock stamped by any earlier such follow-up.
+    if state.get("agent_memory_locked") is True:
+        return True
     actor = state.get("slack_actor_user_id")
     return (isinstance(actor, int) and not isinstance(actor, bool) and actor != created_by_id) or (
         actor_user_id is not None and actor_user_id != created_by_id
@@ -186,7 +188,7 @@ def persist_agent_memory(input: PersistAgentMemoryInput) -> PersistAgentMemoryOu
         return _finish_persist(input, "sandbox_not_found", started_at, counts, f"Sandbox not found: {e}")
     if not sandbox.is_running():
         return _finish_persist(input, "sandbox_not_running", started_at, counts, "Sandbox not running")
-    if _actor_changed(input.run_id, input.team_id, input.actor_user_id):
+    if _driven_by_another_member(input.run_id, input.team_id, input.actor_user_id):
         return _finish_persist(input, "actor_changed", started_at, counts, None)
     try:
         counts = persist_sandbox_memory(sandbox, team_id=input.team_id, user_id=input.user_id)

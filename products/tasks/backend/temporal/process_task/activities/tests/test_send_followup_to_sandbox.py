@@ -10,6 +10,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
+from posthog.models.user import User
+
 from products.tasks.backend.exceptions import ActiveSessionCapError
 from products.tasks.backend.logic.services.sandbox_usage import SandboxCpuAttribution
 from products.tasks.backend.logic.services.warm import SandboxWarmer
@@ -271,3 +273,23 @@ class TestSendFollowupSandboxAttribution(BaseTest):
         assert error_context.exception.context["scope"] == "user"
         mock_send.assert_not_called()
         assert SandboxSession.objects.unscoped().get(task_run=run).user_attributed_at is None
+
+    @parameterized.expand([("teammate", True), ("creator", False)])
+    def test_a_followup_from_another_member_locks_agent_memory(
+        self, actor, locked, mock_send, _measure, _publish, _token, _mcp, _github
+    ) -> None:
+        mock_send.return_value = MagicMock(success=True, turn_in_flight=False, data={"result": {}})
+        run = self._run_with_session(attributed=True)
+        actor_user = (
+            User.objects.create_and_join(self.organization, "teammate@example.com", None)
+            if actor == "teammate"
+            else self.user
+        )
+
+        ActivityEnvironment().run(
+            send_followup_to_sandbox,
+            SendFollowupToSandboxInput(run_id=str(run.id), message="hi", actor_user_id=actor_user.id),
+        )
+
+        run.refresh_from_db()
+        assert run.state.get("agent_memory_locked", False) is locked

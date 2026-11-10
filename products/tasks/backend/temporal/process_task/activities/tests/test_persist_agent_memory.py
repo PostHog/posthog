@@ -54,6 +54,7 @@ def _input(run: TaskRun, sandbox_id: str = "sb-1", actor_user_id: int | None = N
         ("unsupported", "no_file_listing"),
         ("actor_changed", "other_slack_actor"),
         ("actor_changed", "other_followup_actor"),
+        ("actor_changed", "locked"),
         ("persisted", "creator_followup_actor"),
     ],
 )
@@ -64,8 +65,14 @@ def test_persist_outcome_for_each_run_condition(
     teammate = User.objects.create_and_join(team.organization, "teammate@example.com", None)
     if setup == "other_slack_actor":
         state = {"interaction_origin": "slack", "slack_actor_user_id": teammate.id}
+    elif setup == "locked":
+        state = {"agent_memory_locked": True}
     run = _run(team, state)
-    actor_user_id = {"other_followup_actor": teammate.id, "creator_followup_actor": run.task.created_by_id}.get(setup)
+    actor_user_id = (
+        run.task.created_by_id
+        if setup in ("creator_followup_actor", "locked")
+        else {"other_followup_actor": teammate.id}.get(setup)
+    )
     _patch_sandbox(mocker, running=setup != "not_running")
     persist = mocker.patch(f"{MODULE}.persist_sandbox_memory", return_value=MemorySyncCounts(files_written=2))
     if setup == "no_file_listing":

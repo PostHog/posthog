@@ -605,6 +605,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         steer_declined = followup.steer and outcome == STEER_DECLINED_OUTCOME
         if followup.actor_user_id is not None and not steer_declined:
             self._agent_memory_last_actor_user_id = followup.actor_user_id
+            # Files written during another member's turn stay in the sandbox, so it never persists again.
+            if followup.actor_user_id != self.context.task_created_by_id:
+                self._agent_memory_persist_enabled = False
         if followup.steer and outcome == STEER_DECLINED_OUTCOME:
             self._insert_followup_in_arrival_order(
                 PendingFollowup(
@@ -3436,7 +3439,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _persist_agent_memory_after_turns(self) -> None:
         while (
-            not self._agent_memory_persist_closed
+            self._agent_memory_persist_enabled
+            and not self._agent_memory_persist_closed
             and self._agent_memory_sandbox_id is not None
             and self._turn_completion_signal_count > self._agent_memory_persisted_turns
         ):

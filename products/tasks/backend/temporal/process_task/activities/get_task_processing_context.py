@@ -53,7 +53,7 @@ from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_instructions import (
     agent_instructions_state_update,
-    receives_personal_state,
+    receives_agent_memory,
 )
 from products.tasks.backend.logic.services.agentsh import (
     _get_debug_only_domains,
@@ -1388,7 +1388,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         dev_stack_preview_enabled=dev_stack_preview_enabled,
         pi_acp_conversation_enabled=task.runtime == Task.Runtime.PI and _is_pi_acp_enabled(flags=flags),
         # Memory belongs to the task's creator, so a run another person drives must not read or write it.
-        persist_agent_memory_enabled=receives_personal_state(task)
+        persist_agent_memory_enabled=receives_agent_memory(task)
         and (actor_user is None or actor_user.id == task.created_by_id)
+        and not state.get("agent_memory_locked")
         and _flag_enabled(flags, PERSIST_AGENT_MEMORY_FEATURE_FLAG),
     )
