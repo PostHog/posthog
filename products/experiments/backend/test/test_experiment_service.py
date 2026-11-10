@@ -40,7 +40,6 @@ from products.actions.backend.facade.testing import create_action, update_action
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
-from products.early_access_features.backend.models import EarlyAccessFeature
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import (
     ExperimentService,
@@ -2833,14 +2832,12 @@ class TestExperimentService(APIBaseTest):
         service = self._service()
         experiment.deleted = True
         experiment.save()
-        EarlyAccessFeature.objects.create(
-            team=self.team, name="Adopted", stage="beta", feature_flag=experiment.feature_flag
-        )
+        Survey.objects.create(team=self.team, name="s", type="popover", targeting_flag=experiment.feature_flag)
 
         with self.assertRaises(ValidationError) as ctx:
             service.update_experiment(experiment, {"deleted": False})
 
-        assert "now belongs to an early access feature" in str(ctx.exception)
+        assert "now belongs to a survey" in str(ctx.exception)
 
     def test_update_experiment_updates_holdout_on_draft(self):
         holdout = ExperimentHoldout.objects.create(

@@ -4150,17 +4150,14 @@ class ExperimentService:
         feature_flag_config: dict | None = None,
     ) -> None:
         """Validate update payload before any database mutations occur."""
-        # Prevent restoring a deleted experiment if the linked feature flag is also deleted
-        if experiment.deleted and update_data.get("deleted") is False and feature_flag.deleted:
-            raise ValidationError(
-                "Cannot restore experiment: the linked feature flag has been deleted. "
-                "Restore the feature flag first, then restore the experiment."
-            )
-
-        # Deleting this experiment released its flag, so another product can have adopted the flag
-        # while the experiment was deleted. Restoring it then gives the flag two owners, which is
-        # what feature_flags' `ownership` module exists to prevent, so the restore is refused here.
         if experiment.deleted and update_data.get("deleted") is False:
+            if feature_flag.deleted:
+                raise ValidationError(
+                    "Cannot restore experiment: the linked feature flag has been deleted. "
+                    "Restore the feature flag first, then restore the experiment."
+                )
+            # A deleted experiment does not own its flag, so another product can adopt that flag
+            # while the experiment is deleted. The restore would then give the flag two owners.
             owner = flag_owner_kind(feature_flag)
             if owner is not None and owner != FLAG_OWNER_EXPERIMENT:
                 raise ValidationError(
