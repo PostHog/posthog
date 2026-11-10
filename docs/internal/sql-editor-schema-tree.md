@@ -36,6 +36,12 @@ Failed field requests can be retried by collapsing and expanding the table.
 Tables and nested joins expand on the first click, including after scrolling.
 The virtualized tree keeps each rendered row under a parent keyed by the item ID.
 Changing the visible range preserves the focused row so mouse-down and mouse-up reach the same element.
+Right-clicking a row opens the same actions as its `...` menu.
+Row tooltips show the table or column description from the HogQL schema when one is set.
+A collapsed table or view's tooltip also says that a click shows its columns.
+The System folder tooltip explains what system tables contain.
+System tables mark `team_id` hidden, so it is absent from the tree, `SELECT *`, and `system.information_schema.columns`.
+The team guard still filters on it.
 
 There is no timed background request for all fields.
 Consumers that need fields across the catalog must request them explicitly with `ensureAllTableFields`.
@@ -44,6 +50,7 @@ Warehouse series, warehouse property menus, and the data quality check editor ex
 After that request, catalog reloads also restore complete fields for consumers of the shared store.
 Schema mutations refresh previously hydrated or pending tables, as well as expanded nodes.
 Saved-query lists expose metadata only; refreshing them preserves the query and columns already fetched for an open editor tab.
+When the window regains focus, a loaded catalog refreshes, so views saved in another browser tab appear.
 
 In PostHog Warehouse, sidebar search accepts `status:failed`, `status:running`, and `status:completed` to filter materialized views by their latest run status.
 The Models tab accepts the same status tokens and combines them with its name and lineage search syntax.
