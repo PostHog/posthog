@@ -50,6 +50,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     let queues: CyclotronJobQueuePostgresV2[]
     let locks: Lock[]
     let proxies: StallableProxy[]
+    let schemas: string[]
 
     beforeAll(() => {
         db = new Pool({ connectionString: dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port) })
@@ -68,6 +69,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         queues = []
         locks = []
         proxies = []
+        schemas = []
     })
 
     afterEach(async () => {
@@ -83,7 +85,24 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         }
         await db.query('DELETE FROM cyclotron_jobs WHERE id = ANY($1)', [jobIds])
         await db.query('DELETE FROM cyclotron_email_team_seq WHERE team_id = $1', [teamId])
+        for (const schema of schemas) {
+            await db.query(`DROP SCHEMA ${schema} CASCADE`)
+        }
     })
+
+    // Other suites and runs share the literal email queue in this database, so a test that needs it gets the
+    // Cyclotron tables in a schema of its own.
+    async function cyclotronOfThisTestOnly(): Promise<{ url: string; schema: string }> {
+        const schema = `job_queue_test_${uuidv4().replace(/-/g, '')}`
+        schemas.push(schema)
+        await db.query(`CREATE SCHEMA ${schema}`)
+        for (const table of ['cyclotron_jobs', 'cyclotron_email_team_seq', 'conversion_watchers']) {
+            await db.query(`CREATE TABLE ${schema}.${table} (LIKE public.${table} INCLUDING ALL)`)
+        }
+        const url = new URL(dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port))
+        url.searchParams.set('options', `-c search_path=${schema},public`)
+        return { url: url.toString(), schema }
+    }
 
     async function startQueue(url = dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port)) {
         const queue = new CyclotronJobQueuePostgresV2(10, {
@@ -118,14 +137,8 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     ): Promise<{ claimed: (count?: number) => Promise<CyclotronJobInvocation[]> }> {
         const claims: CyclotronJobInvocation[] = []
         await queue.startAsConsumer(from as CyclotronJobQueueKind, (invocations) => {
-            const ours = invocations.filter((invocation) => jobIds.includes(invocation.id))
-            const others = invocations.filter((invocation) => !jobIds.includes(invocation.id))
-            claims.push(...ours)
-            // Other suites share the email queue: hand their jobs back as they were.
-            const handedBack = queue.queueInvocationResults(others.map((invocation) => createResult({ invocation })))
-            return Promise.resolve({
-                backgroundTask: Promise.all([handedBack, ours.length ? work(ours) : undefined]),
-            })
+            claims.push(...invocations)
+            return Promise.resolve({ backgroundTask: invocations.length ? work(invocations) : Promise.resolve() })
         })
         return {
             claimed: (count = 1) =>
@@ -148,8 +161,14 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             invocation: { ...invocation, queue: 'email', queueScheduledAt: DateTime.now().plus({ hours: 1 }) },
         })
 
-    async function jobRow(id: string): Promise<{ status: string; queue_name: string; priority: number }> {
-        const { rows } = await db.query('SELECT status, queue_name, priority FROM cyclotron_jobs WHERE id = $1', [id])
+    async function jobRow(
+        id: string,
+        schema = 'public'
+    ): Promise<{ status: string; queue_name: string; priority: number }> {
+        const { rows } = await db.query(
+            `SELECT status, queue_name, priority FROM ${schema}.cyclotron_jobs WHERE id = $1`,
+            [id]
+        )
         return rows[0]
     }
 
@@ -279,7 +298,8 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         async ({ from, to, persisted }) => {
             const on = (name: string): CyclotronJobQueueKind =>
                 (name === 'email' ? 'email' : queueName) as CyclotronJobQueueKind
-            const queue = await startQueue()
+            const cyclotron = await cyclotronOfThisTestOnly()
+            const queue = await startQueue(cyclotron.url)
             const id = await enqueue(queue, { queue: on(from), queuePriority: 1 })
             const [claimed] = await (await consume(queue, on(from))).claimed()
 
@@ -294,7 +314,10 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
                 }),
             ])
 
-            expect(await jobRow(id)).toMatchObject({ queue_name: on(to), priority: persisted ? 3 : 1 })
+            expect(await jobRow(id, cyclotron.schema)).toMatchObject({
+                queue_name: on(to),
+                priority: persisted ? 3 : 1,
+            })
         }
     )
 
