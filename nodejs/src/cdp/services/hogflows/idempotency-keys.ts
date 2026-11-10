@@ -123,11 +123,9 @@ export type IdempotencyReservation =
 
 export type SenderKind = 'email_sandbox'
 
-// A request whose fingerprint shape changed carries both shapes. Pods still on the previous version
-// compare only `fingerprint`, so it keeps the previous shape until no such pod or stored key is left.
-export type ChangedFingerprint = { current: string; previous: string }
+export type FingerprintWithPreviousShape = { current: string; previousShape: string }
 
-type Fingerprint = string | ChangedFingerprint
+type Fingerprint = string | FingerprintWithPreviousShape
 
 type StoredKey = {
     fingerprint: string
@@ -140,12 +138,12 @@ type StoredKey = {
 const storedFingerprint = (fingerprint: Fingerprint): Pick<StoredKey, 'fingerprint' | 'currentFingerprint'> =>
     typeof fingerprint === 'string'
         ? { fingerprint }
-        : { fingerprint: fingerprint.previous, currentFingerprint: fingerprint.current }
+        : { fingerprint: fingerprint.previousShape, currentFingerprint: fingerprint.current }
 
 const sameRequest = (stored: StoredKey, fingerprint: Fingerprint): boolean =>
     typeof fingerprint === 'string'
         ? stored.fingerprint === fingerprint
-        : stored.fingerprint === fingerprint.previous || stored.currentFingerprint === fingerprint.current
+        : stored.fingerprint === fingerprint.previousShape || stored.currentFingerprint === fingerprint.current
 
 type PendingCompletion = { redisKey: string; value: StoredKey; expiresAt: number }
 

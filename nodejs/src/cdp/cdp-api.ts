@@ -51,7 +51,7 @@ import { HogFlowManagerService } from './services/hogflows/hogflow-manager.servi
 import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './services/hogflows/hogflow-sensitivity'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
-import { ChangedFingerprint, IdempotencyKeys, SenderKind } from './services/hogflows/idempotency-keys'
+import { FingerprintWithPreviousShape, IdempotencyKeys, SenderKind } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
     AcceptedSend,
@@ -186,7 +186,7 @@ const transactionalEmailFingerprint = (
     hogFlowId: string,
     { to, distinct_id, variables }: TransactionalEmailRequest,
     send: AcceptedSend | undefined
-): string | ChangedFingerprint => {
+): string | FingerprintWithPreviousShape => {
     const templateRequest = [hogFlowId, to, distinct_id, variables]
     if (!send) {
         return IdempotencyKeys.fingerprint(templateRequest)
@@ -194,7 +194,10 @@ const transactionalEmailFingerprint = (
     const { from, ...rest } = send
     const withSender = (sender: CallerChosenSender | undefined): string =>
         IdempotencyKeys.fingerprint([...templateRequest, ACCEPTED_SEND_FINGERPRINT_MARKER, { ...rest, from: sender }])
-    return { current: withSender(senderTheCallerChose(from)), previous: withSender(senderBeforeSandboxSends(from)) }
+    return {
+        current: withSender(senderTheCallerChose(from)),
+        previousShape: withSender(senderBeforeSandboxSends(from)),
+    }
 }
 
 type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>

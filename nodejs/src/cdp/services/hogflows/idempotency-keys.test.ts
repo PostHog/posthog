@@ -52,24 +52,26 @@ describe('IdempotencyKeys', () => {
         [
             'an old pod queued, a new pod retries',
             'request-a-before',
-            { current: 'request-a', previous: 'request-a-before' },
+            { current: 'request-a', previousShape: 'request-a-before' },
         ],
         [
             'a new pod queued, an old pod retries',
-            { current: 'request-a', previous: 'request-a-before' },
+            { current: 'request-a', previousShape: 'request-a-before' },
             'request-a-before',
         ],
         [
             'a new pod queued, a new pod retries a request whose previous shape changed',
-            { current: 'request-a', previous: 'request-a-before' },
-            { current: 'request-a', previous: 'request-a-before-other-sender' },
+            { current: 'request-a', previousShape: 'request-a-before' },
+            { current: 'request-a', previousShape: 'request-a-before-other-sender' },
         ],
     ] as const)('replays a run across a fingerprint shape change when %s', async (_desc, first, retry) => {
         await keys.reserve(1, key, first, 'run-1')
         await keys.markQueued(1, key, first, 'run-1')
 
         expect(await keys.reserve(1, key, retry, 'run-2')).toEqual({ status: 'replayed', invocationId: 'run-1' })
-        expect(await keys.reserve(1, key, { current: 'request-b', previous: 'request-b-before' }, 'run-3')).toEqual({
+        expect(
+            await keys.reserve(1, key, { current: 'request-b', previousShape: 'request-b-before' }, 'run-3')
+        ).toEqual({
             status: 'conflict',
         })
     })
