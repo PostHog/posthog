@@ -458,7 +458,6 @@ def get_survey_conditions_with_actions(
         else:
             conditions = dict(conditions)
         if action_serializer_class is None:
-            # ActionSerializer serializes the actions product's contract, which its facade builds.
             details = get_action_details(team_id=survey.team_id, action_ids=[action.id for action in actions])
             conditions["actions"] = {"values": ActionSerializer(details, many=True).data}
         else:

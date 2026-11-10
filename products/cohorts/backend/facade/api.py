@@ -81,8 +81,7 @@ class CohortActionReference:
     created_by_id: int | None
 
 
-# The jsonb_path_exists patterns that find a reference to one action in a cohort's filters. The `id` and
-# `id_str` variables both carry the action id, because a stored filter can hold it as a number or as a string.
+# A stored filter can hold the action id as a number or a string, so the patterns match `id` and `id_str`.
 _BEHAVIORAL_ACTION_JSONPATH = '$.** ? (@.event_type == "actions" && (@.key == $id || @.key == $id_str))'
 _SEQUENCE_ACTION_JSONPATH = '$.** ? (@.seq_event_type == "actions" && (@.seq_event == $id || @.seq_event == $id_str))'
 

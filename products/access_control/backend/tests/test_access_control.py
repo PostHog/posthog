@@ -299,8 +299,7 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
         assert res.status_code == status.HTTP_403_FORBIDDEN, f"Expected 403, got {res.status_code}: {res.json()}"
 
 
-# The actions viewset serves facade contracts, so these endpoints reach the action through the ObjectAccessRef
-# the view builds rather than through a model instance.
+# The actions viewset serves contracts, so these endpoints reach the action through its ObjectAccessRef.
 class TestObjectAccessControlsOnAContractBackedView(BaseAccessControlTest):
     def setUp(self):
         super().setUp()

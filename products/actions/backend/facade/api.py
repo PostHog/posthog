@@ -342,9 +342,6 @@ def search_actions(
     return results, total_count
 
 
-# The actions API
-
-
 def list_action_details(
     *,
     team_id: int,

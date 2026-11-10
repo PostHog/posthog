@@ -135,8 +135,7 @@ def _selector_str(obj) -> str | None:
 
 
 def _action_access_ref(action: contracts.Action | contracts.ActionDetail, team_id: int) -> ObjectAccessRef:
-    # The ref names the team the request reads the action from, so a project's environment checks the
-    # action against its own access rules.
+    # The request's team, so a project's environment checks the action against its own access rules.
     return ObjectAccessRef(resource="action", id=str(action.id), team_id=team_id, created_by_id=action.created_by_id)
 
 
@@ -215,8 +214,7 @@ class ActionStepJSONSerializer(serializers.Serializer):
         return _compile_selector(selector_str).warning if selector_str else None
 
 
-# drf-spectacular publishes the class docstring as the description of the Action schema, and the generated
-# frontend types repeat it, so changing the docstring changes the published API.
+# drf-spectacular publishes this docstring in the Action schema, so changing it changes the published API.
 class ActionSerializer(UserAccessControlSerializerMixin, serializers.Serializer):
     """Serializer mixin that handles tags for objects."""
 
@@ -272,8 +270,7 @@ class ActionSerializer(UserAccessControlSerializerMixin, serializers.Serializer)
         help_text="The effective access level the user has for this object",
     )
 
-    # A plain serializer does not read Meta. `get_fields` orders the fields by it, and surveys reads it
-    # to project a stored copy of an action down to what this serializer shows.
+    # A plain serializer ignores Meta; `get_fields` orders by it and surveys projects stored actions with it.
     class Meta:
         fields = [
             "id",
@@ -298,8 +295,7 @@ class ActionSerializer(UserAccessControlSerializerMixin, serializers.Serializer)
         ]
 
     def get_fields(self) -> dict[str, serializers.Field]:
-        # DRF puts a field a base class declares, such as `user_access_level`, before the fields
-        # declared here. The API schema and the generated types list the fields in this order.
+        # DRF puts base-class fields such as `user_access_level` first; the published schema uses Meta's order.
         fields = super().get_fields()
         return {name: fields[name] for name in self.Meta.fields}
 
@@ -662,6 +658,5 @@ class ActionViewSet(
             {"updated": [{"id": change.id, "tags": list(change.tags)} for change in changes], "skipped": skipped}
         )
 
-    # drf-spectacular publishes the docstring as the endpoint description. Sharing it keeps this endpoint
-    # documented like the bulk tag endpoint of every resource that uses TaggedItemViewSetMixin.
+    # Shared so this endpoint is documented like every TaggedItemViewSetMixin bulk tag endpoint.
     bulk_update_tags.__doc__ = TaggedItemViewSetMixin.bulk_update_tags.__doc__

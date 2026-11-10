@@ -74,7 +74,6 @@ class ActionCreator:
     last_name: str
     email: str
     is_email_verified: Optional[bool]
-    # The stored value. `UserBasicSerializer` shapes it when it renders.
     hedgehog_config: Optional[dict[str, Any]]
     role_at_organization: Optional[str]
 
@@ -87,7 +86,6 @@ class ActionDetail:
     team_id: int
     name: Optional[str]
     description: str
-    # In the order the tags were read or written, which is the order the API returns them in.
     tags: tuple[str, ...]
     post_to_slack: bool
     slack_message_format: str

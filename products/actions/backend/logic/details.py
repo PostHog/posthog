@@ -56,7 +56,6 @@ def _order_by(ordering: ActionOrdering | None) -> tuple[str, ...]:
     else:
         fields = [f"{prefix}{ordering.field}"]
     if ordering.field != "name":
-        # A stable tiebreak between actions that share the sorted value.
         fields.append("name")
     return tuple(fields)
 
@@ -122,7 +121,6 @@ def _set_tags(action: Action, tags: Sequence[str]) -> None:
         replace_tags_on_object,
     )
 
-    # The response reads the tags in the order the write leaves them, so they are kept on the instance.
     action.prefetched_tags = replace_tags_on_object(list(tags), action)  # type: ignore[attr-defined]
 
 
@@ -154,7 +152,6 @@ def update(*, action: Action, write: ActionWrite) -> Action:
         if write.pinned_at is None:
             action.pinned_at = None
         elif action.pinned_at is None:
-            # A client asks to pin, and the server decides when.
             action.pinned_at = datetime.now(UTC)
     if ActionWriteField.CREATE_IN_FOLDER in write.fields_set:
         action._create_in_folder = write.create_in_folder
