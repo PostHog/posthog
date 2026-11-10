@@ -302,7 +302,6 @@ export type PageToolbarMessage =
     | { type: 'tokens'; tokens: PageToolbarTokens }
     | { type: 'token-expired' }
     | { type: 'screenshot-preview'; dataUrl: string }
-    /** The comparison's captures are data URLs, so they go in their own message rather than in every flags patch. */
     | { type: 'flag-comparison'; comparison: FlagComparison | null }
 
 function isObject(message: unknown): message is Record<string, unknown> {

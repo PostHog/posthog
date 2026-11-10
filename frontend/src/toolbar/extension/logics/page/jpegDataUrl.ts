@@ -1,5 +1,5 @@
 /** Draws an image into a JPEG data URL, which can cross the extension port, unlike the page's object URLs. */
-export async function jpegDataUrl(imageUrl: string, maxWidth: number = Infinity): Promise<string> {
+export async function jpegDataUrl(imageUrl: string, maxWidth: number): Promise<string> {
     const image = new Image()
     image.src = imageUrl
     await image.decode()
