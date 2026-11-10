@@ -8,7 +8,7 @@ import { FrequencyCapCheck } from '../recipient-preferences.service'
 import { readerBeforeDeadline } from './sandbox-authorization'
 
 export const RECIPIENT_READ_TIMEOUT_MS = 2_000
-export const MAX_PENDING_FREQUENCY_CAP_CHECKS = 8
+export const MAX_LATE_FREQUENCY_CAP_CHECKS = 8
 
 type FrequencyCapRunner = (check: () => Promise<FrequencyCapCheck>) => Promise<FrequencyCapCheck>
 
@@ -32,21 +32,29 @@ export function sandboxRecipientReads(
 }
 
 function frequencyCapRunner(timeoutMs: number): FrequencyCapRunner {
-    let pending = 0
+    let late = 0
     return async (check) => {
-        if (pending >= MAX_PENDING_FREQUENCY_CAP_CHECKS) {
-            logger.warn('Skipped the sandbox frequency cap check', { reason: `${pending} checks are still waiting` })
+        if (late >= MAX_LATE_FREQUENCY_CAP_CHECKS) {
+            logger.warn('Skipped the sandbox frequency cap check', { reason: `${late} late checks are still running` })
             return { capped: false }
         }
-        pending += 1
+        let settled = false
+        let countedLate = false
         const running = Promise.resolve()
             .then(check)
             .finally(() => {
-                pending -= 1
+                settled = true
+                if (countedLate) {
+                    late -= 1
+                }
             })
         let timer: NodeJS.Timeout | undefined
         const deadline = new Promise<FrequencyCapCheck>((resolve) => {
             timer = setTimeout(() => {
+                if (!settled) {
+                    countedLate = true
+                    late += 1
+                }
                 logger.warn('Skipped the sandbox frequency cap check', { reason: `no answer in ${timeoutMs} ms` })
                 resolve({ capped: false })
             }, timeoutMs)

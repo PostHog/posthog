@@ -18,7 +18,7 @@ import { EmailSuppressionService } from '../email-suppression.service'
 import { createFrequencyCapValkeyPool } from '../frequency-cap-valkey-pool'
 import { FrequencyCapCheck, RecipientPreferencesService } from '../recipient-preferences.service'
 import {
-    MAX_PENDING_FREQUENCY_CAP_CHECKS,
+    MAX_LATE_FREQUENCY_CAP_CHECKS,
     SandboxRecipientCheckDependencies,
     SandboxRecipientCheckRequest,
     checkSandboxRecipient,
@@ -208,16 +208,23 @@ describe('checkSandboxRecipient', () => {
         }
     )
 
-    it('lets sends through when the cap check throws, and still caps after more failures than the pending limit', async () => {
+    it('lets sends through when the cap check throws, and still caps after more failures than the late-check limit', async () => {
         const throwing = (): Promise<FrequencyCapCheck> => {
             throw new Error('frequency cap store is down')
         }
-        for (let attempt = 0; attempt <= MAX_PENDING_FREQUENCY_CAP_CHECKS; attempt++) {
+        for (let attempt = 0; attempt <= MAX_LATE_FREQUENCY_CAP_CHECKS; attempt++) {
             expect(await check({ frequencyCap: throwing })).toEqual({ ok: true })
         }
 
         await capThePerson()
         expect(await check()).toEqual({ ok: false, reason: 'frequency_capped' })
+    })
+
+    it('caps every concurrent send to a capped person, however many run at once', async () => {
+        await capThePerson()
+        const sends = Array.from({ length: MAX_LATE_FREQUENCY_CAP_CHECKS + 2 }, () => check())
+
+        expect(await Promise.all(sends)).toEqual(sends.map(() => ({ ok: false, reason: 'frequency_capped' })))
     })
 
     it.each<[string, () => unknown, Partial<SandboxRecipientCheckRequest>]>([
@@ -263,7 +270,7 @@ describe('checkSandboxRecipient', () => {
         })
 
         it('skips the cap check while earlier checks past their deadline still wait, and checks again once they finish', async () => {
-            const stalled = Array.from({ length: MAX_PENDING_FREQUENCY_CAP_CHECKS }, () =>
+            const stalled = Array.from({ length: MAX_LATE_FREQUENCY_CAP_CHECKS }, () =>
                 check({ frequencyCap: realFrequencyCap() })
             )
             expect(await Promise.all(stalled)).toEqual(stalled.map(() => ({ ok: true })))
