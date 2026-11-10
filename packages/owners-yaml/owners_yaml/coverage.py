@@ -58,7 +58,7 @@ def newly_unowned(
             files = frozenset(_git(repo_root, "ls-files", "-z", index=index).split("\0")) - {""}
 
     path_at_base: dict[str, str | None] = {}
-    reowned_directories: set[str] = set()
+    reowned: set[str] = set()
     ownership_filenames = head.ownership_filenames()
     fields = iter(diff.split("\0"))
     for status in fields:
@@ -69,24 +69,20 @@ def newly_unowned(
         if status.startswith(("A", "R")):
             path_at_base[new] = old if old != new else None
         for path in (old, new):
-            directory, _, name = path.rpartition(SEP)
+            directory, sep, name = path.rpartition(SEP)
             if name in ownership_filenames:
-                reowned_directories.add(directory)
+                reowned.add(directory + sep)
 
     def lacks_owner(resolution: Resolution) -> bool:
         return owning_team(resolution) == UNOWNED_TEAM if teams_only else resolution.is_unowned
 
     # An ownership file decides only the paths below its directory, so a file outside the changed
     # directories keeps the owners it had.
-    candidates = [
+    candidates = sorted(
         path
-        for path in sorted(files)
-        if (include is None or include(path))
-        and (
-            path in path_at_base
-            or any(not directory or path.startswith(directory + SEP) for directory in reowned_directories)
-        )
-    ]
+        for path in files
+        if (path in path_at_base or path.startswith(tuple(reowned))) and (include is None or include(path))
+    )
     unowned = [path for path in candidates if lacks_owner(head.resolve(path))]
     if not unowned:
         return []

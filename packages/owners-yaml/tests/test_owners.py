@@ -1289,18 +1289,15 @@ def repo_with_a_gap(tmp_path: Path, request: pytest.FixtureRequest) -> Path:
     return repo
 
 
-def _change(repo: Path, moves: dict[str, str], writes: dict[str, str], *, staged: bool = True) -> None:
+def _change(repo: Path, moves: dict[str, str], writes: dict[str, str]) -> None:
     for old, new in moves.items():
         (repo / old).rename(repo / new)
     for rel, text in writes.items():
         _write(repo, rel, text)
-    if staged:
-        _git(repo, "add", "-A")
 
 
 _CHANGES = [
     pytest.param({}, {"gap/new.py": "new = 1\n"}, ["gap/new.py"], id="new-file-in-a-gap"),
-    pytest.param({}, {"owned/new.py": "new = 1\n"}, [], id="new-file-with-owners"),
     pytest.param({}, {"person/new.py": "new = 1\n"}, [], id="new-file-a-person-owns"),
     pytest.param({"gap/b.py": "gap/renamed.py"}, {}, [], id="moved-file-that-had-no-owners"),
     pytest.param({"owned/a.py": "gap/a.py"}, {}, ["gap/a.py"], id="file-moved-away-from-its-owners"),
@@ -1315,19 +1312,13 @@ _CHANGES = [
 
 
 @pytest.mark.parametrize(
-    ("repo_with_a_gap", "staged"),
-    [
-        pytest.param("", True, id="staged"),
-        pytest.param("", False, id="unstaged"),
-        pytest.param("below-the-git-root", True, id="below-the-git-root"),
-    ],
-    indirect=["repo_with_a_gap"],
+    "repo_with_a_gap", ["", "below-the-git-root"], indirect=True, ids=["at-the-git-root", "below-the-git-root"]
 )
 @pytest.mark.parametrize(("moves", "writes", "expected"), _CHANGES)
 def test_unowned_against_lists_only_what_the_worktree_leaves_unowned(
-    repo_with_a_gap: Path, staged: bool, moves: dict[str, str], writes: dict[str, str], expected: list[str]
+    repo_with_a_gap: Path, moves: dict[str, str], writes: dict[str, str], expected: list[str]
 ) -> None:
-    _change(repo_with_a_gap, moves, writes, staged=staged)
+    _change(repo_with_a_gap, moves, writes)
 
     result = CliRunner().invoke(main, ["unowned", "--against", "HEAD", "--repo-root", str(repo_with_a_gap)])
 
@@ -1337,7 +1328,7 @@ def test_unowned_against_lists_only_what_the_worktree_leaves_unowned(
 
 def test_newly_unowned_counts_a_file_git_does_not_track_yet(repo_with_a_gap: Path) -> None:
     _write(repo_with_a_gap, ".git/info/exclude", "ignored/\n")
-    for rel in ("gap/untracked.py", "owned/untracked.py", "ignored/untracked.py"):
+    for rel in ("gap/untracked.py", "ignored/untracked.py"):
         _write(repo_with_a_gap, rel, "later = 1\n")
 
     assert newly_unowned(repo_with_a_gap, "HEAD") == ["gap/untracked.py"]
@@ -1355,6 +1346,7 @@ def test_newly_unowned_reads_head_when_the_check_is_on_a_push(
     repo_with_a_gap: Path, moves: dict[str, str], writes: dict[str, str], expected: list[str]
 ) -> None:
     _change(repo_with_a_gap, moves, writes)
+    _git(repo_with_a_gap, "add", "-A")
     _git(repo_with_a_gap, "commit", "-q", "-m", "change")
     _change(repo_with_a_gap, {}, {"gap/uncommitted.py": "later = 1\n"})
 

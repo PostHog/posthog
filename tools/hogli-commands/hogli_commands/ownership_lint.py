@@ -43,9 +43,8 @@ def cmd_lint_test_owners(against: str, committed: bool) -> None:
     if not tests:
         return
     # The pull request author controls each path, and CI reads a line that starts with `::` as a
-    # workflow command. The fixed prefix keeps the path off the start of the line, and the escapes
-    # stop a newline in the path from starting another line.
+    # workflow command. The prefix and the quoting keep a path, and a newline in it, off a line start.
     for path in tests:
-        click.echo("no team owner: " + path.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"))
+        click.echo(f"no team owner: {path!r}")
     click.echo(HINT)
     raise SystemExit(1)
