@@ -221,7 +221,7 @@ class _RecipeCompiler:
             name = "null" if candidate is None else candidate
             if not isinstance(name, str) or name not in TYPE_NAMES:
                 raise RecipeCompileError(
-                    f"'is:' must be a type or array of types, got {to_json_text(self._literal(value))}"
+                    f"'is:' must be a type or array of types, got {to_json_text(self._literal(candidate))}"
                 )
             names.append(cast(TypeName, name))
         return tuple(names)

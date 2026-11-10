@@ -377,6 +377,11 @@ class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):
                 "json",
             ),
             ("tool call arguments with a lone surrogate", _tool_call_answer('{"text": "\\ud800"}'), "json"),
+            (
+                "message text with a lone surrogate",
+                [{"role": "assistant", "content": '[{"type": "text", "text": "\\ud800"}]'}],
+                "json",
+            ),
         ]
     )
     def test_returns_render_ready_content_beside_the_event(
