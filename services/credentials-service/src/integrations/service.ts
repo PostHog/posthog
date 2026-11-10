@@ -24,6 +24,7 @@ import {
     type IntegrationChanges,
     type IntegrationOwner,
     type IntegrationRow,
+    type Queryable,
     getIntegration,
     insertIntegration,
     softDeleteIntegration,
@@ -430,13 +431,19 @@ export class IntegrationsService {
 
     async resolve(caller: Caller, refs: readonly string[]): Promise<ResolveResult> {
         const teamOwner = owner(caller)
-        const { found, missing } = await this.rowsByRef(caller, refs)
-        const rows = uniqueRows(found)
-        const secrets = await getSecrets(
-            this.deps.pool,
-            teamOwner,
-            rows.map((row) => row.id)
-        )
+        // One snapshot for both reads, so a write that commits between them cannot pair new
+        // secrets with an old row, or a deleted row with no secret.
+        const { found, missing, rows, secrets } = await withTransaction(this.deps.pool, async (tx) => {
+            await tx.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
+            const byRef = await this.rowsByRef(caller, refs, tx)
+            const unique = uniqueRows(byRef.found)
+            const stored = await getSecrets(
+                tx,
+                teamOwner,
+                unique.map((row) => row.id)
+            )
+            return { ...byRef, rows: unique, secrets: stored }
+        })
 
         type Outcome = { credentials: JsonObject } | { error: IntegrationApiError }
         const outcomes = new Map<string, Outcome>()
@@ -448,7 +455,7 @@ export class IntegrationsService {
             }
             try {
                 const blob = stored ? await this.open(row, stored) : {}
-                outcomes.set(row.id, { credentials: exposedCredentials(row.kind, blob) })
+                outcomes.set(row.id, { credentials: exposedCredentials(row.authType, blob) })
             } catch (err) {
                 // A KMS outage fails the whole request below. A bad row fails only its own ref.
                 if (err instanceof IntegrationApiError && err.code === 'unreadable_secret') {
@@ -524,10 +531,11 @@ export class IntegrationsService {
     /** The owner's rows for each ref, and the refs with no live row. Fails on a kind the token does not allow. */
     private async rowsByRef(
         caller: Caller,
-        refs: readonly string[]
+        refs: readonly string[],
+        db: Queryable = this.deps.pool
     ): Promise<{ found: Map<string, IntegrationRow>; missing: string[] }> {
         const unique = [...new Set(refs)]
-        const rows = await getIntegrationsByRefs(this.deps.pool, owner(caller), unique.map(parseRef))
+        const rows = await getIntegrationsByRefs(db, owner(caller), unique.map(parseRef))
         const byRef = new Map<string, IntegrationRow>()
         for (const row of rows) {
             byRef.set(row.id, row)

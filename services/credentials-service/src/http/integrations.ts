@@ -40,7 +40,7 @@ type Env = {
     }
 }
 
-function caller(c: Context<Env>): Caller {
+function caller<E extends Env>(c: Context<E>): Caller {
     const auth = c.get('integrationAuth')
     return {
         auth,
@@ -54,7 +54,7 @@ function caller(c: Context<Env>): Caller {
     }
 }
 
-function body(c: Context<Env>): unknown {
+function body<E extends Env>(c: Context<E>): unknown {
     const value = c.get('body')
     if (value === NOT_JSON) {
         throw new IntegrationApiError('validation', 'the body must be JSON')

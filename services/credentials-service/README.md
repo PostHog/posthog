@@ -327,7 +327,7 @@ Every query binds the owner from the token.
 | `POST /v1/integrations/list-across-teams` | `list_across_teams` | Rows of every team that match a `CrossTeamFilter`-shaped body                |
 
 - A record mirrors the Python `IntegrationRecord`, plus `reference`, `version`, `legacy_id` and `is_source_row`. No read returns a secret.
-- `resolve` returns the decrypted secret blob without `refresh_token` and `client_secret`. `expires_at` is `refreshed_at + expires_in` from the config, or null.
+- `resolve` returns the decrypted secret blob without `refresh_token`, and without `client_secret` for an `oauth` row. `expires_at` is `refreshed_at + expires_in` from the config, or null.
   A ref with no live row is in `missing`. A ref whose secret cannot be read (a legacy unreadable key, or a ciphertext that fails to decrypt) is in `errors` with `unreadable_secret`.
 - A write that changes secrets decrypts the blob, applies the change, and seals it again with a fresh data key, in the transaction of the row update.
 - `GET /v1/integrations` takes `kind` and `auth_type` (both repeat), `external_id`, `where.<config key>=<JSON value>`, `source_rows` (`exclude`, `only` or `include`, default `exclude`), `limit` (1 to 1000, default 100), `newest_first` and `after`.
