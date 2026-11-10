@@ -34,7 +34,7 @@ function visibilityHint(
         return 'Only you can see this canvas.'
     }
     if (visibility === 'shared') {
-        return `This canvas is in ${spaceName ? `the older space ${spaceName}` : 'an older space'}. Only its members can see it.`
+        return `This canvas is in ${spaceName ? `the private space ${spaceName}` : 'a private space'}. Only its members can see it.`
     }
     return owner
         ? `${owner} made this canvas public. Everyone in ${project} can see it.`
