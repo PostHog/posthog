@@ -1,5 +1,5 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
-import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Server, createServer } from 'http'
@@ -7,6 +7,7 @@ import { AddressInfo } from 'net'
 import { createSign, generateKeyPairSync } from 'node:crypto'
 import { gunzipSync } from 'node:zlib'
 import { register } from 'prom-client'
+import { uncompressSync } from 'snappy'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -129,14 +130,51 @@ const delivery = () => ({
     delivery: { timestamp: secondsFromNow(1), recipients: [RECIPIENT] },
 })
 
-const fetchResponse = (status: number): FetchResponse =>
+const fetchResponse = (status: number, body = ''): FetchResponse =>
     ({
         status,
         headers: {},
         json: () => Promise.resolve({}),
-        text: () => Promise.resolve(''),
+        text: () => Promise.resolve(body),
         dump: () => Promise.resolve(),
     }) as FetchResponse
+
+const fakeAws = {
+    certificateDownloads: 0,
+    certificateFaults: [] as (() => Promise<FetchResponse>)[],
+    confirmedSubscriptionTokens: [] as string[],
+    requestsToOtherHosts: [] as string[],
+}
+
+const fakeInternet = (url: string): Promise<FetchResponse> => {
+    const { protocol, hostname, pathname, searchParams } = new URL(url)
+    if (protocol === 'https:' && hostname === 'sns.us-east-1.amazonaws.com') {
+        if (searchParams.get('Action') === 'ConfirmSubscription') {
+            fakeAws.confirmedSubscriptionTokens.push(searchParams.get('Token') ?? '')
+            return Promise.resolve(fetchResponse(200))
+        }
+        if (pathname.endsWith('.pem')) {
+            const fault = fakeAws.certificateFaults.shift()
+            if (fault) {
+                return fault()
+            }
+            fakeAws.certificateDownloads += 1
+            return Promise.resolve(fetchResponse(200, publicKeyPem))
+        }
+    }
+    fakeAws.requestsToOtherHosts.push(url)
+    return Promise.resolve(fetchResponse(404))
+}
+
+const kafkaBroker = { received: [] as { topic: string; value: Buffer }[] }
+
+const decodeKafkaValue = (value: Buffer): Record<string, any> => {
+    try {
+        return parseJSON(uncompressSync(value).toString())
+    } catch {
+        return parseJSON(value.toString())
+    }
+}
 
 const counterValue = async (name: string, labels: Record<string, string>): Promise<number> => {
     const metric = await register.getSingleMetric(name)?.get()
@@ -221,9 +259,9 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
         ).rows.map((row) => row.email)
 
     const sandboxMetrics = (): Record<string, any>[] =>
-        mockProducerObserver
-            .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
-            .map((message) => message.value as Record<string, any>)
+        kafkaBroker.received
+            .filter((message) => message.topic === KAFKA_APP_METRICS_2)
+            .map((message) => decodeKafkaValue(message.value))
             .filter((value) => String(value.metric_name).startsWith('email_sandbox_'))
 
     const capturedEvents = (): Record<string, any>[] => {
@@ -253,16 +291,19 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             [RECIPIENT],
             'test-reset-sandbox-global-bounces'
         )
-        mockProducerObserver.resetKafkaProducer()
+        kafkaBroker.received = []
+        jest.mocked((mockProducer as any).producer.produce).mockImplementation((...args: any[]) => {
+            kafkaBroker.received.push({ topic: args[0], value: args[2] })
+            args[args.length - 1]?.(null, 0)
+        })
+        Object.assign(fakeAws, {
+            certificateDownloads: 0,
+            certificateFaults: [],
+            confirmedSubscriptionTokens: [],
+            requestsToOtherHosts: [],
+        })
         mockFetch.mockReset()
-        mockFetch.mockImplementation((url) =>
-            Promise.resolve({
-                status: 200,
-                headers: {},
-                json: () => Promise.resolve({}),
-                text: () => Promise.resolve(url.endsWith('.pem') ? publicKeyPem : ''),
-            } as FetchResponse)
-        )
+        mockFetch.mockImplementation(fakeInternet)
         startApi()
     })
 
@@ -335,20 +376,23 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
                 status: 403,
                 body: { message: 'Invalid SNS signature' },
             })
-            expect(mockFetch).not.toHaveBeenCalled()
+            expect({ downloads: fakeAws.certificateDownloads, elsewhere: fakeAws.requestsToOtherHosts }).toEqual({
+                downloads: 0,
+                elsewhere: [],
+            })
             expect(await suppressionRows()).toEqual([])
         })
 
         it.each([
-            ['a server error', () => mockFetch.mockResolvedValueOnce(fetchResponse(503)), 503],
-            ['a network error', () => mockFetch.mockRejectedValueOnce(new Error('socket hang up')), 503],
-            ['throttling', () => mockFetch.mockResolvedValueOnce(fetchResponse(429)), 503],
-            ['a request timeout', () => mockFetch.mockResolvedValueOnce(fetchResponse(408)), 503],
-            ['a missing certificate', () => mockFetch.mockResolvedValueOnce(fetchResponse(404)), 403],
+            ['a server error', () => Promise.resolve(fetchResponse(503)), 503],
+            ['a network error', () => Promise.reject(new Error('socket hang up')), 503],
+            ['throttling', () => Promise.resolve(fetchResponse(429)), 503],
+            ['a request timeout', () => Promise.resolve(fetchResponse(408)), 503],
+            ['a missing certificate', () => Promise.resolve(fetchResponse(404)), 403],
         ])(
-            'answers %s from the certificate download with %s, then verifies once it recovers',
-            async (_label, fail, status) => {
-                fail()
+            'answers %s from the certificate download, then verifies once it recovers',
+            async (_label, fault, status) => {
+                fakeAws.certificateFaults.push(fault)
                 const body = notification(sesRecord(team.id, complaint()))
 
                 expect((await post(body)).status).toBe(status)
@@ -380,7 +424,12 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             const res = await post(body)
 
             expect(res.status).toBe(status)
-            expect(mockFetch.mock.calls.filter(([url]) => url === subscribeUrl)).toHaveLength(confirmations)
+            expect({ confirmed: fakeAws.confirmedSubscriptionTokens, elsewhere: fakeAws.requestsToOtherHosts }).toEqual(
+                {
+                    confirmed: confirmations ? ['t'] : [],
+                    elsewhere: [],
+                }
+            )
         })
     })
 

@@ -174,7 +174,6 @@ export class SnsEnvelopeVerifier {
         try {
             cert = await this.fetchCert(envelope.SigningCertURL)
         } catch (error) {
-            // A 4xx is AWS's final answer about this URL, except a timeout or throttling.
             if (error instanceof SnsFetchError && error.status < 500 && !TRANSIENT_FETCH_STATUSES.has(error.status)) {
                 return false
             }
@@ -250,7 +249,9 @@ export class SnsEnvelopeVerifier {
             }
         }
 
-        // A valid signature proves the message came from AWS, not that it came from one of our topics.
+        // Restrict accepted SNS envelopes (Notification, SubscriptionConfirmation, UnsubscribeConfirmation)
+        // to the configured TopicArn allowlist. SNS signature verification proves the message came from
+        // AWS, but not from a specific topic — this narrows accepted sources to the workflow SES topic.
         if ('envelope' in parsed && !this.isTopicAllowed(parsed.envelope.TopicArn)) {
             logger.warn('[SnsEnvelopeVerifier] Rejecting event from disallowed TopicArn', {
                 topicArn: parsed.envelope.TopicArn,
