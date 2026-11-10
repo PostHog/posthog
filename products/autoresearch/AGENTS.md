@@ -52,9 +52,13 @@ Live means `bootstrapping`, `running` or `converged`; `draft`, `paused` and `arc
 A draft with an open training run counts too, because its promotion makes it live with no check.
 The facade refuses a pipeline going live at the limit with `LivePipelineCapReached` (a 400): starting a draft's first run, opening an external run on a draft, and resuming a paused pipeline.
 Pipelines already over the limit keep running and training.
-All three limits resolve from the `autoresearch` flag payload: the project's `team_configs["<team_id>"]` entry, then `default_team_config`, then the code constants.
+All three limits resolve from the `autoresearch-limits` flag payload: the project's `team_configs["<team_id>"]` entry, then `default_team_config`, then the code constants.
 Edit the payload to change a limit without a deploy.
-The pipeline viewset's `limits` action reports each limit with the project's current usage, for the Setup tab.
+`autoresearch-limits` holds only the payload and must stay 100% on.
+The read uses a synthetic distinct id, so a flag with release conditions on people serves no payload and every project silently gets the code constants.
+Until the payload moves, a read that gets no payload from `autoresearch-limits` falls back to the `autoresearch` payload.
+When neither flag serves a payload on PostHog Cloud, `limits.py` logs `autoresearch_limits_payload_missing`.
+The pipeline viewset's `limits` action reports each limit with the project's current usage, for the Setup tab, and the layer each limit came from (`project`, `default` or `code`).
 Each run also records the runtime adapter, model and reasoning effort it was dispatched with (see `backend/training/AGENTS.md`).
 `iteration_budget` and `iteration_budget_remaining` are deprecated: nothing scheduled reads them.
 

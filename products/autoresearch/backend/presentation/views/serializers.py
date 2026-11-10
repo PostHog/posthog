@@ -46,6 +46,7 @@ MODEL_ROLE_CHOICES = api.MODEL_ROLE_CHOICES
 RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
 RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
 BASE_RATE_SOURCE_CHOICES = api.BASE_RATE_SOURCE_CHOICES
+LIMIT_SOURCE_CHOICES = api.LIMIT_SOURCE_CHOICES
 TRAINING_RUN_STATUS_CHOICES = api.TRAINING_RUN_STATUS_CHOICES
 KICKOFF_REASON_CHOICES = api.KICKOFF_REASON_CHOICES
 RESEARCH_INTERVAL_DAYS_CHOICES = api.RESEARCH_INTERVAL_DAYS_CHOICES
@@ -2050,6 +2051,12 @@ class TrainingRunCapReachedSerializer(serializers.Serializer):
     )
 
 
+_LIMIT_SOURCE_HELP = (
+    "project: an override for this project. default: the fleet-wide default. "
+    "code: the built-in default, because no override is set or no override was readable."
+)
+
+
 class ProjectLimitsSerializer(DataclassSerializer):
     max_training_runs_per_day = serializers.IntegerField(
         help_text="Sandbox training runs the project may start in any 24 hours, across all its pipelines. 0 means training is turned off."
@@ -2077,6 +2084,15 @@ class ProjectLimitsSerializer(DataclassSerializer):
     live_pipelines = serializers.IntegerField(
         help_text=("Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered.")
     )
+    max_training_runs_per_day_source = serializers.ChoiceField(
+        choices=LIMIT_SOURCE_CHOICES, help_text=f"Where max_training_runs_per_day comes from. {_LIMIT_SOURCE_HELP}"
+    )
+    max_iterations_per_run_source = serializers.ChoiceField(
+        choices=LIMIT_SOURCE_CHOICES, help_text=f"Where max_iterations_per_run comes from. {_LIMIT_SOURCE_HELP}"
+    )
+    max_live_pipelines_source = serializers.ChoiceField(
+        choices=LIMIT_SOURCE_CHOICES, help_text=f"Where max_live_pipelines comes from. {_LIMIT_SOURCE_HELP}"
+    )
 
     class Meta:
         dataclass = ProjectLimits
@@ -2087,6 +2103,9 @@ class ProjectLimitsSerializer(DataclassSerializer):
             "max_iterations_per_run",
             "max_live_pipelines",
             "live_pipelines",
+            "max_training_runs_per_day_source",
+            "max_iterations_per_run_source",
+            "max_live_pipelines_source",
         ]
 
 

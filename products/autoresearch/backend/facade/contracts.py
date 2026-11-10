@@ -391,6 +391,10 @@ class ProjectLimits:
     max_iterations_per_run: int
     max_live_pipelines: int
     live_pipelines: int
+    # Where each limit came from: project, default or code.
+    max_training_runs_per_day_source: str
+    max_iterations_per_run_source: str
+    max_live_pipelines_source: str
 
 
 # ── Write contracts ────────────────────────────────────────────────────────

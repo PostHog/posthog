@@ -64065,6 +64065,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `project` - Project
+     * * `default` - Default
+     * * `code` - Code
+     */
+    export type LimitSourceEnum = typeof LimitSourceEnum[keyof typeof LimitSourceEnum];
+
+
+    export const LimitSourceEnum = {
+      Project: 'project',
+      Default: 'default',
+      Code: 'code',
+    } as const;
+
+    /**
      * * `burst` - burst
      * * `sustained` - sustained
      */
@@ -96522,6 +96536,24 @@ export namespace Schemas {
       max_live_pipelines: number;
       /** Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered. */
       live_pipelines: number;
+      /** Where max_training_runs_per_day comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+       *
+       * * `project` - Project
+       * * `default` - Default
+       * * `code` - Code */
+      max_training_runs_per_day_source: LimitSourceEnum;
+      /** Where max_iterations_per_run comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+       *
+       * * `project` - Project
+       * * `default` - Default
+       * * `code` - Code */
+      max_iterations_per_run_source: LimitSourceEnum;
+      /** Where max_live_pipelines comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+       *
+       * * `project` - Project
+       * * `default` - Default
+       * * `code` - Code */
+      max_live_pipelines_source: LimitSourceEnum;
     }
 
     /**
