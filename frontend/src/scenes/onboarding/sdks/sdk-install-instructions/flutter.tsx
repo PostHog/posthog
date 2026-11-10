@@ -198,7 +198,9 @@ function FlutterIOSSetupSnippet({ requiresManualInstall }: FlutterSetupProps): J
             <strong>15.0</strong>, or macOS <strong>11.0</strong> for a macOS app, in Xcode (
             <strong>Runner &gt; General &gt; Minimum Deployments</strong>). PostHog installs through Swift Package
             Manager, which is on by default from Flutter 3.44. On Flutter 3.41 to 3.43, or if you turned it off, run{' '}
-            <code>flutter config --enable-swift-package-manager</code>.
+            <code>flutter config --enable-swift-package-manager</code>. If you keep a <strong>Podfile</strong> for other
+            plugins, set <code>platform :ios, '15.0'</code> there too, then run{' '}
+            <code>flutter build ios --config-only</code>.
         </p>
     )
 
