@@ -1,5 +1,5 @@
 import itertools
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
@@ -314,18 +314,24 @@ class TestPersistSeedTargets(BaseTest):
 
 @pytest.mark.django_db
 class TestSavedQuerySchedules(BaseTest):
-    def _materialized_node(self, dag: DAG, target: timedelta | None) -> Node:
-        node = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
-        DataWarehouseSavedQuery.objects.filter(id=node.saved_query_id).update(is_materialized=True)
-        node.saved_query.refresh_from_db()
-        if target is not None:
-            set_declared_target(node, target)
-        return node
+    def _saved_query(self, name: str = "mv", *, is_materialized: bool = True) -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            name=name,
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            is_materialized=is_materialized,
+        )
 
-    def _complete_run(self, node: Node, finished_at) -> None:
+    def _materialized_query(self, dag: DAG, target: timedelta) -> DataWarehouseSavedQuery:
+        saved_query = self._saved_query()
+        node = Node.objects.create(team=self.team, dag=dag, saved_query=saved_query, type=NodeType.MAT_VIEW)
+        set_declared_target(node, target)
+        return saved_query
+
+    def _complete_run(self, saved_query: DataWarehouseSavedQuery, finished_at: datetime) -> None:
         DataModelingJob.objects.create(
             team=self.team,
-            saved_query=node.saved_query,
+            saved_query=saved_query,
             status=DataModelingJobStatus.COMPLETED,
             engine=DataModelingJobEngine.CLICKHOUSE,
             last_run_at=finished_at,
@@ -333,30 +339,30 @@ class TestSavedQuerySchedules(BaseTest):
 
     def test_next_run_is_the_last_materialization_plus_the_scheduled_cadence(self):
         dag = DAG.objects.create(team=self.team, name="schedules")
-        node = self._materialized_node(dag, H6)
+        saved_query = self._materialized_query(dag, H6)
         finished_at = timezone.now() - H1
-        self._complete_run(node, finished_at)
+        self._complete_run(saved_query, finished_at)
 
-        schedule = saved_query_schedules(self.team.id, [node.saved_query])[str(node.saved_query_id)]
+        schedule = saved_query_schedules(self.team.id, [saved_query])[str(saved_query.id)]
 
         self.assertEqual(schedule.interval, H6)
         self.assertEqual(schedule.next_run_at, finished_at + H6)
 
     def test_next_run_is_unknown_before_the_first_materialization(self):
         dag = DAG.objects.create(team=self.team, name="schedules")
-        node = self._materialized_node(dag, H6)
+        saved_query = self._materialized_query(dag, H6)
 
-        schedule = saved_query_schedules(self.team.id, [node.saved_query])[str(node.saved_query_id)]
+        schedule = saved_query_schedules(self.team.id, [saved_query])[str(saved_query.id)]
 
         self.assertEqual(schedule.interval, H6)
         self.assertIsNone(schedule.next_run_at)
 
     def test_unmaterialized_and_nodeless_queries_have_no_schedule(self):
         dag = DAG.objects.create(team=self.team, name="schedules")
-        unmaterialized = _saved_query_node(self.team, dag, "draft", NodeType.VIEW)
-        set_declared_target(unmaterialized, H6)
-        nodeless = DataWarehouseSavedQuery.objects.create(
-            name="nodeless", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}, is_materialized=True
+        unmaterialized = self._saved_query("draft", is_materialized=False)
+        set_declared_target(
+            Node.objects.create(team=self.team, dag=dag, saved_query=unmaterialized, type=NodeType.VIEW), H6
         )
+        nodeless = self._saved_query("nodeless")
 
-        self.assertEqual(saved_query_schedules(self.team.id, [unmaterialized.saved_query, nodeless]), {})
+        self.assertEqual(saved_query_schedules(self.team.id, [unmaterialized, nodeless]), {})
