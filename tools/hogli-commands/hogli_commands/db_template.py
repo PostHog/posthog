@@ -254,8 +254,8 @@ class TemplateStore:
         if artifact is None:
             raise TemplateUnavailable("no recent master schema dump is an ancestor of this checkout")
         dump_sha = mirrored_dump_sha(artifact, token=token, session=session)
-        if dump_sha is None:
-            raise TemplateUnavailable(f"schema artifact {artifact.id} does not name the commit it was dumped from")
+        if dump_sha is None or not self.checkout.contains(dump_sha):
+            raise TemplateUnavailable(f"schema artifact {artifact.id} holds no dump from this checkout's history")
         name = self.name_for(dump_sha)
         if not self.server.database_exists(name):
             with tempfile.TemporaryDirectory(prefix="test-db-template-") as scratch:
@@ -293,7 +293,10 @@ def prime_test_database(server: PostgresServer, target_db: str, store: TemplateS
         missing = migrations_missing_from_checkout(recorded)
         if recorded and not missing:
             return PrimeResult(outcome=PrimeOutcome.KEPT, detail=f"{target_db} fits this checkout")
-    template = store.usable_template()
+    try:
+        template = store.usable_template()
+    except TemplateUnavailable as exc:
+        return PrimeResult(outcome=PrimeOutcome.SKIPPED, detail=str(exc))
     if template is None:
         return PrimeResult(outcome=PrimeOutcome.SKIPPED, detail="no template database is available")
     if exists:

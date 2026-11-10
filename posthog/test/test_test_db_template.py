@@ -208,8 +208,17 @@ def test_prime_django_test_database_primes_the_test_database_of_the_django_setti
     assert result == (None if mode == "off" else kept)
 
 
-def test_usable_template_names_and_routes_the_template_by_the_commit_the_mirror_dumped(
-    scratch: Scratch, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "marker, outcome, ledger",
+    [("dumped", PrimeOutcome.CLONED, set()), ("not-in-history", PrimeOutcome.SKIPPED, None)],
+)
+def test_prime_test_database_routes_a_downloaded_template_by_the_commit_the_mirror_dumped(
+    scratch: Scratch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    marker: str,
+    outcome: PrimeOutcome,
+    ledger: set[str] | None,
 ) -> None:
     history = tmp_path / "history"
     dumped, mirrored_at = git_history(
@@ -228,7 +237,7 @@ def test_usable_template_names_and_routes_the_template_by_the_commit_the_mirror_
         scratch.server, Checkout(history), prefix=scratch.store.prefix, failure_marker=tmp_path / "download-failed"
     )
 
-    with responses.RequestsMock() as github:
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as github:
         github.get(
             f"{repo}/artifacts",
             json={
@@ -253,13 +262,17 @@ def test_usable_template_names_and_routes_the_template_by_the_commit_the_mirror_
         )
         github.get(
             f"{repo}/runs/7/artifacts",
-            json={"artifacts": [{"name": "migrated-schema"}, {"name": f"migrated-schema-mirrored-{dumped}"}]},
+            json={
+                "artifacts": [
+                    {"name": "migrated-schema"},
+                    {"name": f"migrated-schema-mirrored-{dumped if marker == 'dumped' else 'f' * 40}"},
+                ]
+            },
         )
         github.get(f"{repo}/artifacts/1/zip", body=archive.getvalue())
-        template = store.usable_template()
+        result = prime_test_database(scratch.server, scratch.target, store)
 
-    assert template is not None
-    assert (template, scratch.server.recorded_migrations(template)) == (store.name_for(dumped), set())
+    assert (result.outcome, scratch.ledger()) == (outcome, ledger)
 
 
 def test_usable_template_retries_a_failed_download_only_after_the_retry_window(
