@@ -475,6 +475,21 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
+        // Listed before the rows go, so the property store writer erases the team while the delete runs.
+        sqlx::query(
+            "INSERT INTO personhog_deleted_teams (team_id) VALUES ($1) \
+             ON CONFLICT (team_id) DO UPDATE SET deleted_at = now()",
+        )
+        .bind(team_id as i32)
+        .execute(&self.bulk_primary_pool)
+        .await?;
+        let keep_since = chrono::Utc::now()
+            - chrono::Duration::from_std(self.deleted_teams_retention).unwrap_or_default();
+        sqlx::query("DELETE FROM personhog_deleted_teams WHERE deleted_at < $1")
+            .bind(keep_since)
+            .execute(&self.bulk_primary_pool)
+            .await?;
+
         sqlx::query!(
             "DELETE FROM person_tombstone_publish_queue WHERE team_id = $1",
             team_id as i32

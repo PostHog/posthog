@@ -11,7 +11,7 @@ use slatedb::object_store::ObjectStore;
 use slatedb::{CloseReason, CompactorBuilder, Db, ErrorKind, FilterPolicy, WriteBatch};
 use tokio::sync::{Mutex, Notify};
 
-use crate::encoding::{encode_key, encode_value, StoredProperties};
+use crate::encoding::{encode_key, encode_value, person_id_of, StoredProperties};
 use crate::engine::{self, ExclusiveSubmissions, KeepNewest, ShardMetrics};
 use crate::{shard_for, shard_path, PropertyStoreConfig, PropertyStoreError};
 
@@ -23,6 +23,7 @@ const OPEN_WAIT: Duration = Duration::from_secs(30);
 const REOPEN_BACKOFF: Duration = Duration::from_secs(1);
 /// Bounds one shard's maintenance step, so a hung shard cannot stall the rest.
 const MAINTENANCE_STEP_TIMEOUT: Duration = Duration::from_secs(30);
+const ERASE_BATCH_KEYS: usize = 10_000;
 
 #[derive(Debug, Clone)]
 pub struct PropertyRecord {
@@ -451,6 +452,65 @@ impl PropertyWriter {
         }))
         .await;
         held.into_iter().flatten().flatten().collect()
+    }
+
+    /// Deletes every key of a team from the owned shards and returns how many there were.
+    pub async fn erase_team(&self, team_id: i64) -> Result<usize, PropertyStoreError> {
+        self.erase_team_in_batches(team_id, ERASE_BATCH_KEYS).await
+    }
+
+    /// Each batch is scanned, deleted and made durable before the next, so memory stays at one
+    /// batch whatever the team's size, and a restart resumes past the keys already gone.
+    pub async fn erase_team_in_batches(
+        &self,
+        team_id: i64,
+        batch_keys: usize,
+    ) -> Result<usize, PropertyStoreError> {
+        let batch_keys = batch_keys.max(1);
+        let end = Bytes::copy_from_slice(&encode_key(team_id, i64::MAX));
+        let mut erased = 0;
+        for (shard, db) in self.open_dbs().await {
+            let mut from = 0;
+            let mut in_shard = 0;
+            loop {
+                let start = Bytes::copy_from_slice(&encode_key(team_id, from));
+                let mut keys = Vec::with_capacity(batch_keys);
+                let mut found = db.scan(start..=end.clone()).await?;
+                while keys.len() < batch_keys {
+                    match found.next().await? {
+                        Some(kv) => keys.push(kv.key),
+                        None => break,
+                    }
+                }
+                drop(found);
+                let Some(last) = keys.last().and_then(|key| person_id_of(key)) else {
+                    break;
+                };
+                let mut batch = WriteBatch::new();
+                for key in &keys {
+                    batch.delete(key.clone());
+                }
+                let written = db.write(batch).await?;
+                db.flush().await?;
+                written.await_durable().await?;
+                in_shard += keys.len();
+                if last == i64::MAX {
+                    break;
+                }
+                from = last + 1;
+            }
+            if in_shard > 0 {
+                counter!("personhog_property_store_erased_keys_total").increment(in_shard as u64);
+                tracing::info!(
+                    team_id,
+                    shard,
+                    keys = in_shard,
+                    "erased a deleted team's keys"
+                );
+            }
+            erased += in_shard;
+        }
+        Ok(erased)
     }
 
     pub async fn close(&self) {

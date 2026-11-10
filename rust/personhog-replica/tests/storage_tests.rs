@@ -1046,6 +1046,14 @@ async fn test_delete_persons_batch_for_team_removes_tombstoned_rows() {
         .unwrap();
     let (is_deleted, _, _, _) = tombstone_state(&ctx.pool, ctx.team_id, tombstoned.id).await;
     assert!(is_deleted);
+    let stale_team = ctx.team_id + 1_000_000;
+    sqlx::query(
+        "INSERT INTO personhog_deleted_teams (team_id, deleted_at) VALUES ($1, now() - interval '31 days')",
+    )
+    .bind(stale_team as i32)
+    .execute(&ctx.pool)
+    .await
+    .unwrap();
 
     // Team teardown removes every row, tombstoned or not, and terminates.
     let mut counts = Vec::new();
@@ -1058,6 +1066,24 @@ async fn test_delete_persons_batch_for_team_removes_tombstoned_rows() {
         );
     }
     assert_eq!(counts, vec![2, 0]);
+    let listed: Vec<i32> = sqlx::query_scalar(
+        "SELECT team_id FROM personhog_deleted_teams WHERE team_id IN ($1, $2) ORDER BY team_id",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(stale_team as i32)
+    .fetch_all(&ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        listed,
+        vec![ctx.team_id as i32],
+        "the team is listed for the property store writer, and a stale entry is pruned"
+    );
+    sqlx::query("DELETE FROM personhog_deleted_teams WHERE team_id = $1")
+        .bind(ctx.team_id as i32)
+        .execute(&ctx.pool)
+        .await
+        .unwrap();
     let queued: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM person_tombstone_publish_queue WHERE team_id = $1",
     )

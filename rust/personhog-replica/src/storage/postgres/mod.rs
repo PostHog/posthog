@@ -7,6 +7,8 @@ mod repair;
 
 use std::time::Instant;
 
+use std::time::Duration;
+
 use sqlx::pool::PoolConnection;
 use sqlx::postgres::PgPool;
 use sqlx::Postgres;
@@ -41,6 +43,7 @@ pub struct PostgresStorage {
     /// Bulk pool for the replica database (large batch reads)
     pub bulk_replica_pool: PgPool,
     pub(crate) bulk_chunk_size: usize,
+    pub(crate) deleted_teams_retention: Duration,
     pub(crate) bulk_max_concurrent_chunks: usize,
     pub(crate) tombstoned_delete_max_rows: usize,
     pub(crate) hash_key_override_statement_timeout_ms: u64,
@@ -68,7 +71,13 @@ impl PostgresStorage {
             bulk_max_concurrent_chunks,
             tombstoned_delete_max_rows,
             hash_key_override_statement_timeout_ms,
+            deleted_teams_retention: Duration::from_secs(30 * 86_400),
         }
+    }
+
+    pub fn with_deleted_teams_retention(mut self, retention: Duration) -> Self {
+        self.deleted_teams_retention = retention;
+        self
     }
 
     /// Get the appropriate pool based on consistency level.

@@ -4,6 +4,7 @@ pub mod buffer;
 pub mod catch_up;
 pub mod config;
 pub mod consumer;
+pub mod deleted_teams;
 pub mod error;
 pub mod kafka;
 pub mod pg;
