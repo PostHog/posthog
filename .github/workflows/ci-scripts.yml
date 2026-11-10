@@ -8,6 +8,9 @@ on:
         paths:
             - .github/scripts/**
             - .github/auto-assign-labels.json
+            # The dependency_proof tests read both files as the prover does.
+            - .github/renovate.json5
+            - pnpm-workspace.yaml
             - bin/find-affected-stories
             - bin/find-affected-stories.test.mjs
             - .github/workflows/ci-scripts.yml

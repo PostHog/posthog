@@ -9,7 +9,8 @@ on:
         types: [opened, synchronize, reopened]
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # A branch name is not unique across forks, so the pull request number keys the group.
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
     cancel-in-progress: true
 
 permissions: {}
