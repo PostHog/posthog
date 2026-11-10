@@ -28,7 +28,6 @@ describe('messageTemplatesLogic', () => {
                         template('c', 'Plain', []),
                     ],
                 },
-                '/api/projects/:team_id/tags': ['billing', 'growth', 'onboarding'],
             },
         })
         initKeaTests()

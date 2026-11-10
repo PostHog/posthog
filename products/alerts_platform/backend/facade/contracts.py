@@ -983,6 +983,21 @@ class PlatformAlertSnapshot:
 
 
 @frozen
+class NativeConfigurationMatch:
+    """One alert of a kind with no source row, as a source's list filters, sorts and pages it beside
+    its own rows before it reads the page with `list_configurations`."""
+
+    id: UUID
+    created_at: datetime
+    created_by_id: int | None
+    source_config: dict[str, Any]
+    # Set when the list was searched: whether the name contains the term, and the trigram rank
+    # that orders matches, on the same scale a source's own searched rows have.
+    is_exact: bool | None = None
+    search_score: float | None = None
+
+
+@frozen
 class PlatformAlertConfigurationView:
     """One configuration and its instances, as a reader outside this product sees them.
 

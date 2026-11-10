@@ -1392,6 +1392,68 @@ class TestHogFlowAPI(APIBaseTest):
             "type": "validation_error",
         }
 
+    def _make_time_window_flow(self, day, status: Optional[str] = "active") -> dict:
+        flow = self._make_delay_flow({}, status=status)
+        flow["actions"][1] = {
+            "id": "w1",
+            "name": "w1",
+            "type": "wait_until_time_window",
+            "config": {"timezone": "UTC", "day": day, "time": ["09:00", "17:00"]},
+        }
+        return flow
+
+    @parameterized.expand(
+        [
+            ("empty_list", []),
+            ("unknown_keyword", "all"),
+            ("unknown_weekday", ["monday", "funday"]),
+            ("unhashable_entry", [{}]),
+        ]
+    )
+    def test_hog_flow_time_window_rejects_days_that_never_match(self, _name, day):
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_time_window_flow(day))
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__config",
+            "code": "invalid_input",
+            "detail": "day must be 'any', 'weekday', 'weekend', or a list of at least one weekday name.",
+            "type": "validation_error",
+        }
+
+        draft = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", self._make_time_window_flow(day, status=None)
+        )
+        assert draft.status_code == 201, draft.json()
+
+    @parameterized.expand(
+        [
+            ("unchanged_days_on_an_active_flow", "active", [], {}, 200),
+            ("changed_days_on_an_active_flow", "active", "all", {}, 400),
+            ("re_enabling_a_disabled_flow", "draft", [], {"status": "active"}, 400),
+        ]
+    )
+    def test_hog_flow_time_window_grandfathers_stored_days_only_on_an_active_flow(
+        self, _name, status, submitted_day, extra_payload, expected_status
+    ):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", self._make_time_window_flow(["monday"], status=status)
+        )
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        flow = HogFlow.objects.get(id=flow_id)
+        actions = flow.actions
+        actions[1]["config"]["day"] = []
+        flow.actions = actions
+        flow.save()
+
+        submitted = [actions[0], {**actions[1], "config": {**actions[1]["config"], "day": submitted_day}}]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed", "actions": submitted, **extra_payload},
+        )
+        assert response.status_code == expected_status, response.json()
+
     @parameterized.expand(
         [
             ("seconds", "30s"),

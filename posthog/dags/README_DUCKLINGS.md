@@ -25,6 +25,12 @@ Duckling RDS Catalog (PostgreSQL)
 ### Registration through Trino
 
 Organizations with the `managed-warehouse-trino-import-registration` flag register the events, persons, and groups backfills through the organization's Trino catalog instead of duckgres.
+An organization that duckgres does not have also registers through Trino.
+hogtower creates new warehouses without a duckgres organization, and duckgres refuses their connection with `this server requires connecting via <org-id>.<managed suffix>`.
+The run does not retry a refused connection. It registers through Trino instead.
+duckgres sends the same message when the run connects to a host that is not a managed warehouse hostname. That run fails without a retry and does not fall back to Trino.
+An export-only or dry run opens no duckgres connection, so it follows only the flag.
+For an organization that duckgres does not have, such a run needs `register_through_trino: true` to write files that `add_files` can register later.
 The ClickHouse export is the same, except that it casts each column to the Parquet type that DuckLake writes for its Trino column, because `add_files` refuses any type conversion.
 An export-only run (`skip_ducklake_registration: true`) writes the same types, so `add_files` can register its files later.
 ClickHouse lists the files it exported, because nothing else on the path can list the duckling bucket.
@@ -32,7 +38,7 @@ Each export writes under a new file prefix, so a retry never overwrites a file t
 A Trino backfill connects through the normal Trino hostname.
 Set `use_trino_canary: true` in the run config to connect through the canary hostname instead, which needs `MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN` to be set. Without it, the run fails.
 The flag `managed-warehouse-trino-canary` does not apply to backfills.
-A run with `register_through_trino: true` registers through Trino even when the organization is not on the flag, and scheduled runs keep following the flag.
+A run with `register_through_trino: true` registers through Trino even when the organization is not on the flag, and scheduled runs keep following the flag and the duckgres refusal.
 Before each statement that removes rows from the base `events`, `persons` or `groups` table, Trino checks that no other team has rows in the range it removes, and the run refuses otherwise.
 A team without a control-plane row cannot fall back to a base table that another team of the organization writes, so its backfill fails instead.
 
@@ -151,6 +157,13 @@ Example: `12345_2024-01-15` for team 12345's data on January 15, 2024.
 - Query ClickHouse for earliest event/person date per team
 - Create up to 100 partitions per evaluation
 - Progress through historical data day by day
+
+### Persons retry backoff
+
+The persons daily and full sensors wait before they retry a failed run.
+The first retry waits one sensor interval after the failed run ended: one hour for the daily sensor, 10 minutes for the full sensor.
+Each further consecutive failure doubles the wait, up to 32 intervals.
+The daily sensor only looks at yesterday's partition, so its last tick of the day retries a failed run without waiting for the backoff.
 
 ## Managing Backfills
 

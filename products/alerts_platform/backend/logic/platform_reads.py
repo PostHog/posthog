@@ -12,9 +12,12 @@ from uuid import UUID
 from django.db.models import Case, Exists, Max, OuterRef, Prefetch, QuerySet, Subquery, Value, When
 from django.db.models.functions import Coalesce
 
+from posthog.helpers.trigram_search import NAME_FIELD, apply_trigram_search
+
 from products.alerts_platform.backend.facade.contracts import (
     Grouping,
     InstanceCheckState,
+    NativeConfigurationMatch,
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
     PlatformAlertHistory,
@@ -141,6 +144,39 @@ def native_configuration_keys(
     if created_by_uuid is not None:
         rows = rows.filter(created_by__uuid=created_by_uuid)
     return tuple(rows.order_by("-created_at", "-id").values_list("created_at", "id"))
+
+
+def native_configuration_matches(
+    *, team_id: int, source_kind: str, search: str | None = None
+) -> tuple[NativeConfigurationMatch, ...]:
+    """Every configuration of a kind with no source row, or with `search` only the ones whose name
+    matches it, both tiers included. A source decides the tiers across its own rows and these."""
+    rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        source_kind=source_kind, legacy_configuration_id__isnull=True
+    )
+    if not search:
+        return tuple(
+            NativeConfigurationMatch(
+                id=row_id, created_at=created_at, created_by_id=created_by_id, source_config=source_config
+            )
+            for row_id, created_at, created_by_id, source_config in rows.values_list(
+                "id", "created_at", "created_by_id", "source_config"
+            )
+        )
+    searched = apply_trigram_search(rows, search, span_prefix="platform_alert.search", fields=(NAME_FIELD,))
+    return tuple(
+        NativeConfigurationMatch(
+            id=row_id,
+            created_at=created_at,
+            created_by_id=created_by_id,
+            source_config=source_config,
+            is_exact=bool(is_exact),
+            search_score=score,
+        )
+        for row_id, created_at, created_by_id, source_config, is_exact, score in searched.values_list(
+            "id", "created_at", "created_by_id", "source_config", "_is_exact", "_search_score"
+        )
+    )
 
 
 def native_configuration_ids(
