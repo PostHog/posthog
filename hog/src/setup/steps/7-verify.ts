@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { HogError } from '@/core/errors'
 import { runHogQL } from '@/posthog/query'
 
 import type { EventsContext } from '../result'
@@ -19,8 +20,8 @@ export function eventsContext(startedAt: number, count: number | null): EventsCo
     return { since, count, query }
 }
 
-export async function countEvents(run: SetupRun, events: EventsContext): Promise<number> {
-    const response = await runHogQL(await run.api(), events.query)
+export async function countEvents(run: SetupRun, events: EventsContext, timeoutMs?: number): Promise<number> {
+    const response = await runHogQL(await run.api(), events.query, { timeoutMs })
     return CountSchema.catch(0).parse(response.results[0]?.[0])
 }
 
@@ -28,17 +29,42 @@ export async function countEvents(run: SetupRun, events: EventsContext): Promise
 // can finish its turn. Setup goes on without events, and `hog setup` keeps counting them.
 const WAIT_MS = 30_000
 const POLL_MS = 5_000
+const MIN_QUERY_MS = 1_000
 
+// A query that times out at the deadline, or can't reach PostHog, counts as no events, so setup
+// still finishes.
 async function waitForEvents(run: SetupRun, events: EventsContext): Promise<number> {
-    const deadline = run.ctx.runtime.now() + WAIT_MS
-    let count = await countEvents(run, events)
+    const { runtime } = run.ctx
+    const deadline = runtime.now() + WAIT_MS
+    let failure: string | undefined
 
-    while (count === 0 && run.ctx.runtime.now() < deadline) {
-        await run.ctx.runtime.sleep(POLL_MS)
-        count = await countEvents(run, events)
+    for (;;) {
+        const timeoutMs = Math.max(deadline - runtime.now(), MIN_QUERY_MS)
+        const count = await countEvents(run, events, timeoutMs).then(
+            (found) => {
+                failure = undefined
+                return found
+            },
+            (error: unknown) => {
+                if (!(error instanceof HogError) || error.code !== 'network_error') {
+                    throw error
+                }
+
+                failure = error.message
+                return 0
+            }
+        )
+
+        if (count > 0 || runtime.now() >= deadline) {
+            if (failure) {
+                run.context.warnings.push(`hog couldn't check for events: ${failure}`)
+            }
+
+            return count
+        }
+
+        await runtime.sleep(Math.min(POLL_MS, deadline - runtime.now()))
     }
-
-    return count
 }
 
 export const verify: Step = {
