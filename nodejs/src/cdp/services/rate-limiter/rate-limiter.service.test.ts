@@ -262,15 +262,16 @@ describe('RateLimiterService', () => {
         })
 
         it('grants again once every exhausted bucket refills', async () => {
-            const reqs = [
-                { key: `${KEY}/across/refill-first`, requested: 1, capacity: 1, refillPerSecond: 50 },
-                { key: `${KEY}/across/refill-second`, requested: 1, capacity: 1, refillPerSecond: 50 },
+            const drained = [
+                { key: `${KEY}/across/refill-first`, requested: 1, capacity: 1, refillPerSecond: 0 },
+                { key: `${KEY}/across/refill-second`, requested: 1, capacity: 1, refillPerSecond: 0 },
             ]
-            expect(await limiter.claimAllOrNothingAcross(reqs)).toBe('granted')
-            expect(await limiter.claimAllOrNothingAcross(reqs)).toBe('denied')
+            expect(await limiter.claimAllOrNothingAcross(drained)).toBe('granted')
+            expect(await limiter.claimAllOrNothingAcross(drained)).toBe('denied')
 
+            const refilling = drained.map((req) => ({ ...req, refillPerSecond: 50 }))
             await waitForExpect(
-                async () => expect(await limiter.claimAllOrNothingAcross(reqs)).toBe('granted'),
+                async () => expect(await limiter.claimAllOrNothingAcross(refilling)).toBe('granted'),
                 2_000,
                 10
             )
