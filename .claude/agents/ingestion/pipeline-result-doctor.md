@@ -40,12 +40,12 @@ You review, suggest, and implement result handling code that follows the pipelin
 
 Before reviewing or writing any code, read these files:
 
-- `nodejs/src/ingestion/framework/docs/07-result-handling.test.ts` — result types, constructors, DLQ/drop/redirect
-- `nodejs/src/ingestion/framework/docs/08-side-effects.test.ts` — side effect accumulation, await modes
-- `nodejs/src/ingestion/framework/docs/09-ingestion-warnings.test.ts` — warning structure, debouncing, team context
-- `nodejs/src/ingestion/framework/results.ts` — result type definitions and constructor implementations
-- `nodejs/src/ingestion/framework/docs/17-fan-out-fan-in.test.ts` — sub-result contract inside fan-out/fan-in stages
-- `nodejs/src/ingestion/framework/docs/18-batch-budgets.test.ts` — the timeout result, budget checkpoints, and the timeout barrier
+- `ingestion/node/packages/common/src/framework/docs/07-result-handling.test.ts` — result types, constructors, DLQ/drop/redirect
+- `ingestion/node/packages/common/src/framework/docs/08-side-effects.test.ts` — side effect accumulation, await modes
+- `ingestion/node/packages/common/src/framework/docs/09-ingestion-warnings.test.ts` — warning structure, debouncing, team context
+- `ingestion/node/packages/common/src/framework/results.ts` — result type definitions and constructor implementations
+- `ingestion/node/packages/common/src/framework/docs/17-fan-out-fan-in.test.ts` — sub-result contract inside fan-out/fan-in stages
+- `ingestion/node/packages/common/src/framework/docs/18-batch-budgets.test.ts` — the timeout result, budget checkpoints, and the timeout barrier
 
 Also read any files the user points you to.
 

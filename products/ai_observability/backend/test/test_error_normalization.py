@@ -4,7 +4,7 @@ These tests verify that the errors query correctly aggregates events
 by the pre-normalized $ai_error_normalized property.
 
 Note: Error normalization logic is tested in Node.js:
-See nodejs/src/ingestion/ai/errors/normalize-error.test.ts
+See ingestion/node/packages/ingestion/src/ingestion/pipelines/ai/errors/normalize-error.test.ts
 """
 
 import uuid

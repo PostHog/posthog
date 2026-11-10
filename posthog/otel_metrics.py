@@ -1,4 +1,4 @@
-"""OTLP metrics push into the PostHog Metrics product (Python twin of nodejs/src/common/metrics/otel-metrics.ts).
+"""OTLP metrics push into the PostHog Metrics product (Python twin of nodejs/packages/replay-storage/src/otel-metrics.ts).
 
 Pushes metrics through the same OTel-SDK path customers use, pointed at our own ingest
 (the `capture-logs` service, path `/i/v1/metrics`), authenticated with a project token.

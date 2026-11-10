@@ -437,7 +437,7 @@ fn edge_expo_with_minimal_fields_only() {
     assert_eq!(eh.data_points.len(), 1);
 }
 
-/// Contract test for the nodejs OtlpJsonMetricExporter (nodejs/src/common/metrics/
+/// Contract test for the nodejs OtlpJsonMetricExporter (nodejs/packages/common/src/metrics/
 /// otlp-json-exporter.ts): its exact wire shape — camelCase fields, hex trace/span
 /// ids, string unix nanos, exemplars on sum and histogram data points — must parse
 /// and flatten into rows carrying the exemplar's trace context. If either side

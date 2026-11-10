@@ -1854,13 +1854,13 @@ function addAppImageLanes(targets, context) {
 // it holds. That is the same treatment a file inside the crate would get.
 //
 // The nodejs half takes the node domain rather than the javascript one because
-// the stubs land only in nodejs/src/common/generated; no frontend or services
+// the stubs land only in nodejs/packages/common/src/generated; no frontend or services
 // package imports them. The python half cannot narrow below every python lane:
 // posthog/personhog_client imports the stubs, that is py:core, and py:core
 // covers every product lane by construction.
 // stubDir names the checked-in stub directory when it differs from the tree
 // name; the consistency test reads it. ingestion's node stubs land in
-// nodejs/src/common/generated/ingestion-worker, not .../ingestion.
+// ingestion/node/packages/common/src/generated/ingestion-worker, not .../ingestion.
 const PROTO_TREES = new Map([
     ['cymbal', { crates: ['cymbal-proto'], domains: [] }],
     ['prometheus', { crates: ['prometheus-rw-proto'], domains: [] }],

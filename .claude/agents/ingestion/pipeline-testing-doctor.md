@@ -42,25 +42,25 @@ You review, suggest, and implement test code that follows the pipeline testing c
 
 Before reviewing or writing any code, read:
 
-- `nodejs/src/ingestion/framework/docs/helpers.ts` — test helper functions
-- `nodejs/src/ingestion/framework/docs/13-conventions.test.ts` — convention examples as tests
+- `ingestion/node/packages/common/src/framework/helpers.ts` — test helper functions
+- `ingestion/node/packages/common/src/framework/docs/13-conventions.test.ts` — convention examples as tests
 - The specific doc-test chapter(s) relevant to the code under test
 
 The full chapter list (all are sources of truth for testing patterns):
 
-- `nodejs/src/ingestion/framework/docs/01-introduction.test.ts`
-- `nodejs/src/ingestion/framework/docs/02-chunk-pipelines.test.ts`
-- `nodejs/src/ingestion/framework/docs/03-concurrent-processing.test.ts`
-- `nodejs/src/ingestion/framework/docs/04-sequential-processing.test.ts`
-- `nodejs/src/ingestion/framework/docs/05-grouping.test.ts`
-- `nodejs/src/ingestion/framework/docs/06-gathering.test.ts`
-- `nodejs/src/ingestion/framework/docs/07-result-handling.test.ts`
-- `nodejs/src/ingestion/framework/docs/08-side-effects.test.ts`
-- `nodejs/src/ingestion/framework/docs/09-ingestion-warnings.test.ts`
-- `nodejs/src/ingestion/framework/docs/10-branching.test.ts`
-- `nodejs/src/ingestion/framework/docs/11-retries.test.ts`
-- `nodejs/src/ingestion/framework/docs/12-filter-map.test.ts`
-- `nodejs/src/ingestion/framework/docs/13-conventions.test.ts`
+- `ingestion/node/packages/common/src/framework/docs/01-introduction.test.ts`
+- `ingestion/node/packages/common/src/framework/docs/02-chunk-pipelines.test.ts`
+- `ingestion/node/packages/common/src/framework/docs/03-concurrent-processing.test.ts`
+- `ingestion/node/packages/common/src/framework/docs/04-sequential-processing.test.ts`
+- `ingestion/node/packages/common/src/framework/docs/05-grouping.test.ts`
+- `ingestion/node/packages/common/src/framework/docs/06-gathering.test.ts`
+- `ingestion/node/packages/common/src/framework/docs/07-result-handling.test.ts`
+- `ingestion/node/packages/common/src/framework/docs/08-side-effects.test.ts`
+- `ingestion/node/packages/common/src/framework/docs/09-ingestion-warnings.test.ts`
+- `ingestion/node/packages/common/src/framework/docs/10-branching.test.ts`
+- `ingestion/node/packages/common/src/framework/docs/11-retries.test.ts`
+- `ingestion/node/packages/common/src/framework/docs/12-filter-map.test.ts`
+- `ingestion/node/packages/common/src/framework/docs/13-conventions.test.ts`
 
 Also read any files the user points you to.
 

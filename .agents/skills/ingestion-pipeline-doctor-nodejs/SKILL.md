@@ -30,18 +30,18 @@ Kafka message
   → build()
 ```
 
-See `nodejs/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` for the real implementation.
+See `ingestion/node/packages/ingestion/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` for the real implementation.
 
 ## Key file locations
 
-| What              | Where                                                                   |
-| ----------------- | ----------------------------------------------------------------------- |
-| Step type         | `nodejs/src/ingestion/framework/steps.ts`                               |
-| Result types      | `nodejs/src/ingestion/framework/results.ts`                             |
-| Doc-test chapters | `nodejs/src/ingestion/framework/docs/*.test.ts`                         |
-| Joined pipeline   | `nodejs/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` |
-| Doctor agents     | `.claude/agents/ingestion/`                                             |
-| Test helpers      | `nodejs/src/ingestion/framework/docs/helpers.ts`                        |
+| What              | Where                                                                                              |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| Step type         | `ingestion/node/packages/common/src/framework/steps.ts`                                            |
+| Result types      | `ingestion/node/packages/common/src/framework/results.ts`                                          |
+| Doc-test chapters | `ingestion/node/packages/common/src/framework/*.test.ts`                                           |
+| Joined pipeline   | `ingestion/node/packages/ingestion/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` |
+| Doctor agents     | `.claude/agents/ingestion/`                                                                        |
+| Test helpers      | `ingestion/node/packages/common/src/framework/helpers.ts`                                          |
 
 ## Which agent to use
 
@@ -58,13 +58,13 @@ See `nodejs/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` for 
 
 **Results**: Use `ok()`, `dlq()`, `drop()`, `redirect()` constructors. Side effects as promises in `ok(value, [effects])`. Warnings as third parameter. Steps never return `timeout()`: only the budget checkpoints produce it.
 
-**Batch time budgets** (`feed(elements, batchContext, BatchBudget.softDeadline(softAt))`): the framework stops starting steps once a batch's budget runs out, and the cut-off elements complete as `timeout()`, which is not acked and is redelivered. `.timeoutBarrier()` marks the last checkpoint: an element past it with time left always finishes. Place it before the first step whose writes make finishing cheaper than redelivering, and before any side effect that is unsafe to repeat, because a cut element is redelivered and its chain runs again from the top. A group that runs one element at a time completes a prefix of its feed order, but `concurrently` and fan-out/fan-in do not keep that prefix. Details: `nodejs/src/ingestion/framework/docs/18-batch-budgets.test.ts`.
+**Batch time budgets** (`feed(elements, batchContext, BatchBudget.softDeadline(softAt))`): the framework stops starting steps once a batch's budget runs out, and the cut-off elements complete as `timeout()`, which is not acked and is redelivered. `.timeoutBarrier()` marks the last checkpoint: an element past it with time left always finishes. Place it before the first step whose writes make finishing cheaper than redelivering, and before any side effect that is unsafe to repeat, because a cut element is redelivered and its chain runs again from the top. A group that runs one element at a time completes a prefix of its feed order, but `concurrently` and fan-out/fan-in do not keep that prefix. Details: `ingestion/node/packages/common/src/framework/docs/18-batch-budgets.test.ts`.
 
 **Composition**: `messageAware` wraps the pipeline. `handleResults` inside `messageAware`. `handleSideEffects` after. `concurrentlyPerGroup` for per-entity work. `gather` before chunk steps.
 
-**Batching lifecycle hooks** (`BatchingPipeline` beforeBatch/afterBatch): enrich-only. Hooks may enrich elements and batch context but must return exactly the elements they received — a count change is a broken invariant and `feed()` throws. Filtering belongs in sub-pipeline steps that return `drop()`. An empty `feed()` is a no-op (no hooks, no capacity). Details: `nodejs/src/ingestion/framework/docs/14-batching.test.ts`.
+**Batching lifecycle hooks** (`BatchingPipeline` beforeBatch/afterBatch): enrich-only. Hooks may enrich elements and batch context but must return exactly the elements they received — a count change is a broken invariant and `feed()` throws. Filtering belongs in sub-pipeline steps that return `drop()`. An empty `feed()` is a no-op (no hooks, no capacity). Details: `ingestion/node/packages/common/src/framework/docs/14-batching.test.ts`.
 
-**Fan-out/fan-in** (`fanOut(fn).via((sub) => …).fanIn(fn)`): per-element sub-work with cardinality restored — one element fans out to N sub-elements (e.g. per-blob uploads), a regular sub-pipeline processes them (`maxConcurrency` on the sub `concurrently` block, `retry` on the per-sub step), and fan-in folds the OK results back into the parent. Reach for it over `concurrently`/`concurrentlyPerGroup` when the unit of concurrency is smaller than the element; hand-rolled `p-limit`/`Promise.all` inside a step is the tell. Sequencing is compile-time enforced (an unclosed stage cannot build). Sub-result contract: OK collected; DROP excludes the sub silently; DLQ fails the parent with aggregated reasons; REDIRECT is excluded with a warning — sub redirects never escape the stage; TIMEOUT times the parent out and wins over DLQ. Sub-pipelines are context-agnostic: team/message data goes in the sub-element value, and context-gated surface (`teamAware`, `handleIngestionWarnings`, …) is uncallable. Fan-out/fan-in functions are cheap, synchronous, and named. Parents emit unordered as they complete. Details: `nodejs/src/ingestion/framework/docs/17-fan-out-fan-in.test.ts`.
+**Fan-out/fan-in** (`fanOut(fn).via((sub) => …).fanIn(fn)`): per-element sub-work with cardinality restored — one element fans out to N sub-elements (e.g. per-blob uploads), a regular sub-pipeline processes them (`maxConcurrency` on the sub `concurrently` block, `retry` on the per-sub step), and fan-in folds the OK results back into the parent. Reach for it over `concurrently`/`concurrentlyPerGroup` when the unit of concurrency is smaller than the element; hand-rolled `p-limit`/`Promise.all` inside a step is the tell. Sequencing is compile-time enforced (an unclosed stage cannot build). Sub-result contract: OK collected; DROP excludes the sub silently; DLQ fails the parent with aggregated reasons; REDIRECT is excluded with a warning — sub redirects never escape the stage; TIMEOUT times the parent out and wins over DLQ. Sub-pipelines are context-agnostic: team/message data goes in the sub-element value, and context-gated surface (`teamAware`, `handleIngestionWarnings`, …) is uncallable. Fan-out/fan-in functions are cheap, synchronous, and named. Parents emit unordered as they complete. Details: `ingestion/node/packages/common/src/framework/docs/17-fan-out-fan-in.test.ts`.
 
 **Testing**: Step tests call factory directly. Use `consumeAll()`/`collectChunks()` helpers. Fake timers for async. Type guards for result assertions. No `any`.
 

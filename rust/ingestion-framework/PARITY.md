@@ -1,11 +1,11 @@
 # Parity with the Node ingestion framework
 
-This crate is a port of `nodejs/src/ingestion/framework`.
+This crate is a port of `ingestion/node/packages/common/src/framework`.
 The two implementations are kept in step: a change to one lands with the same change to the other, and the mirrored tests below change together.
 
 ## File map
 
-| Node (`nodejs/src/ingestion/framework/`)      | Rust (`rust/ingestion-framework/src/`)                                                     |
+| Node (`ingestion/node/packages/common/src/`)      | Rust (`rust/ingestion-framework/src/`)                                                     |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `results.ts`                                  | `results.rs`                                                                               |
 | `pipeline.interface.ts`                       | `context.rs` (types), `pipeline.rs` (`Pipeline` trait)                                     |
@@ -96,7 +96,7 @@ These are deliberate. Each one follows from a language difference. Items 1 to 15
 
 ## Benchmarks
 
-`benches/framework.rs` (criterion) and `nodejs/src/ingestion/framework/benchmarks/framework-bench.ts` run the same six workloads at sizes 1, 100 and 10 000, with trivial steps, so the numbers are framework overhead per element. The Rust benchmark installs a Prometheus recorder, so both sides pay for their metrics.
+`benches/framework.rs` (criterion) and `ingestion/node/packages/common/src/framework/benchmarks/framework-bench.ts` run the same six workloads at sizes 1, 100 and 10 000, with trivial steps, so the numbers are framework overhead per element. The Rust benchmark installs a Prometheus recorder, so both sides pay for their metrics.
 
 ```bash
 cd rust && cargo bench -p ingestion-framework --bench framework

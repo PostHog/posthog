@@ -32,8 +32,8 @@ EXCLUDED_PATTERNS: tuple[str, ...] = (
     "**/*.snap",
     "**/*.ambr",
     # Regenerated wholesale by `pnpm update-ai-costs` from the OpenRouter API.
-    "nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts",
-    "nodejs/src/ingestion/pipelines/ai/costs/providers/llm-costs.json",
+    "ingestion/node/packages/ingestion/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts",
+    "ingestion/node/packages/ingestion/src/ingestion/pipelines/ai/costs/providers/llm-costs.json",
 )
 
 # An edit to an ownership file changes future routing, so it reaches a reviewer even inside a generated tree.

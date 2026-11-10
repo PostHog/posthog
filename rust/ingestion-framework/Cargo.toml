@@ -2,7 +2,7 @@
 name = "ingestion-framework"
 version = "0.1.0"
 edition = "2021"
-description = "Rust port of the Node ingestion pipeline framework (nodejs/src/ingestion/framework)"
+description = "Rust port of the Node ingestion pipeline framework (ingestion/node/packages/common/src/framework)"
 
 [lib]
 path = "src/lib.rs"

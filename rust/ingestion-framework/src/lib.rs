@@ -1,4 +1,4 @@
-//! Kept in step with `nodejs/src/ingestion/framework`. `PARITY.md` lists every known difference.
+//! Kept in step with `ingestion/node/packages/common/src/framework`. `PARITY.md` lists every known difference.
 
 pub mod batching;
 pub mod branching;

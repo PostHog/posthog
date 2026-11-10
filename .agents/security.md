@@ -242,8 +242,8 @@ and several retry on it.
 `TeamAndOrgViewSetMixin` binds `team_id` into the log context of every team-scoped view, so a line
 from a guard reached through the API names the project that drove it.
 
-In Node, `validateHostnameIPLiteral` (`nodejs/src/common/utils/request.ts`) and `EmailValidationService.getSkipReason` emit `security.oob_domain_seen` too, under the guard `node_request` or `node_email_validation`.
-Both read the hand-written mirror in `nodejs/src/common/utils/oob-domains.ts`, which a parity test holds against the JSON.
+In Node, `validateHostnameIPLiteral` (`nodejs/packages/common/src/utils/request.ts`) and `EmailValidationService.getSkipReason` emit `security.oob_domain_seen` too, under the guard `node_request` or `node_email_validation`.
+Both read the hand-written mirror in `nodejs/packages/common/src/utils/oob-domains.ts`, which a parity test holds against the JSON.
 Both log `team_id`, the field the Python guards bind.
 The email guard always has a team.
 The request guard has one only when the fetch runs under `fetchAttribution`, as a CDP destination fetch and a recording export's stylesheet fetch do, and logs `team_id: null` for any other caller.

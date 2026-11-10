@@ -134,7 +134,7 @@ def multivariate_flag_response_expr() -> ast.Expr:
 
     Ingestion has no flag definitions, so it infers multivariate from the response shape: a
     non-empty string that is neither "true" nor "false" (`isMultivariateFeatureFlagCalledEvent` in
-    `nodejs/src/ingestion/common/steps/event-processing/create-event-step.ts`). A read of
+    `ingestion/node/packages/ingestion/src/ingestion/common/steps/event-processing/create-event-step.ts`). A read of
     `$feature_flag_called` that stands in for `$experiment_exposure` has to apply the same rule, or
     the two events describe different populations.
     """

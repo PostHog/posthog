@@ -68,7 +68,7 @@ OTLP_LOGS_INGEST_TOKEN = os.getenv("OTLP_LOGS_INGEST_TOKEN", "")
 
 # Internal OTLP/HTTP endpoint for first-party metric emission into the Metrics product (the
 # `capture-logs` service, path `/i/v1/metrics`), with a project token as the OTLP Bearer.
-# Names match the Node twins (nodejs/src/common/metrics/otel-metrics.ts) so one env pair
+# Names match the Node twins (nodejs/packages/replay-storage/src/otel-metrics.ts) so one env pair
 # configures both runtimes. Defaults to empty = emission disabled (posthog/otel_metrics.py
 # records into a no-op meter).
 OTEL_METRICS_EXPORT_URL = os.getenv("OTEL_METRICS_EXPORT_URL", "")

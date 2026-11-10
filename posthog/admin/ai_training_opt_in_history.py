@@ -169,7 +169,7 @@ def _build_headline(current: Optional[bool], was_opted_in: bool) -> str:
 
 def _baa_conflict_warning(organization: Organization) -> Optional[str]:
     # The replay ML mirror reads is_ai_training_opted_in alone. That gate is in
-    # nodejs/src/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step.ts. No code in that
+    # ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ai-training-optin-filter-step.ts. No code in that
     # pipeline reads the BAA. Change this warning if that gate starts to read it.
     if organization.is_ai_training_opted_in is not True or not has_signed_baa(organization.id):
         return None

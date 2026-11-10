@@ -26,7 +26,7 @@ from .scorers import judge_selection, selector_expected
 
 EXPERIMENT = "repo-selection-selector"
 REPO_ROOT = Path(__file__).resolve().parents[4]
-LLM_COSTS = REPO_ROOT / "nodejs/src/ingestion/pipelines/ai/costs/providers/llm-costs.json"
+LLM_COSTS = REPO_ROOT / "ingestion/node/packages/ingestion/src/ingestion/pipelines/ai/costs/providers/llm-costs.json"
 
 # The provider row of `llm-costs.json` each arm's gateway route bills at.
 LIST_PRICE_ROWS: dict[str, tuple[str, str]] = {

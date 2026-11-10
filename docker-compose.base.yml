@@ -936,7 +936,7 @@ services:
 
     dynamodb:
         # Session recording encryption keys live in DynamoDB on Cloud (see getKeyStore in
-        # nodejs/src/ingestion/pipelines/sessionreplay/shared/keystore), so the keystore
+        # nodejs/packages/replay-storage/src/keystore), so the keystore
         # integration test needs a real DynamoDB API to exercise its composite key and
         # conditional writes. -inMemory holds the tables in the JVM rather than in a file inside
         # the container, so a restart cannot resurrect a table from an interrupted run. -sharedDb

@@ -13,7 +13,7 @@ The external Node.js error-tracking consumer contract stays unchanged.
 
 ## Node-side chunking
 
-`nodejs/src/ingestion/error-tracking/cymbal/client.ts` chunks HTTP requests by estimated original event body size before they reach cymbal.
+`ingestion/node/packages/common/src/personhog/client.ts` chunks HTTP requests by estimated original event body size before they reach cymbal.
 That remains valid because cymbal preserves the HTTP boundary and performs private exception-level gRPC work after it receives an HTTP chunk.
 
 No generated type changes are needed:

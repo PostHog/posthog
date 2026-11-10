@@ -24,7 +24,7 @@ cd nodejs && pnpm run generate:personhog-proto
 
 Then update:
 
-- `nodejs/src/common/personhog/client.test.ts` — add a default stub to the `SERVICE_DEFAULTS` object for any new RPC
+- `ingestion/node/packages/common/src/personhog/client.test.ts` — add a default stub to the `SERVICE_DEFAULTS` object for any new RPC
 
 ### 3. Rust
 
