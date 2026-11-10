@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-10 10:04:52 UTC
+// Generated at: 2026-11-10 20:02:41 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -31,6 +31,7 @@ export type CanonicalProvider =
     | 'azure-global'
     | 'azure-swedencentral'
     | 'azure-us'
+    | 'baidu'
     | 'baidu-fast'
     | 'baidu-fp4'
     | 'baidu-fp8'
@@ -116,7 +117,6 @@ export type CanonicalProvider =
     | 'inceptron-fp8'
     | 'inceptron-int4'
     | 'inference-net-bf16'
-    | 'inference-net-fast'
     | 'inference-net-fp4'
     | 'inference-net-fp4-us'
     | 'inference-net-fp8'
@@ -128,6 +128,7 @@ export type CanonicalProvider =
     | 'io-net-bf16'
     | 'io-net-fp16'
     | 'io-net-fp4'
+    | 'io-net-fp8'
     | 'io-net-nvfp4'
     | 'ionstream'
     | 'ionstream-flex'
@@ -137,6 +138,7 @@ export type CanonicalProvider =
     | 'liquid-fp8'
     | 'makora'
     | 'makora-bf16'
+    | 'makora-fp16'
     | 'makora-fp4'
     | 'makora-fp8'
     | 'mancer-fp4'
@@ -219,13 +221,13 @@ export type CanonicalProvider =
     | 'relace-fp4'
     | 'relace-fp8'
     | 'respan'
+    | 'river'
     | 'sail-research-fp4'
     | 'sail-research-fp4-us'
     | 'sail-research-fp8'
     | 'sail-research-us'
     | 'sakana'
     | 'sambanova'
-    | 'sambanova-fp8'
     | 'sambanova-turbo'
     | 'scaledown'
     | 'seed-fp8'
