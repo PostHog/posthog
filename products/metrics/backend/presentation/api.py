@@ -693,6 +693,11 @@ class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
         max_length=255,
         help_text="Substring filter (case-insensitive) applied to attribute keys.",
     )
+    search_values = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true and `search` has 4 or more characters, also return keys whose values match `search`. They follow the keys whose names match. Each result says whether it matched on key or value.",
+    )
     dateFrom = serializers.DateTimeField(
         required=False,
         allow_null=True,
@@ -758,7 +763,17 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
     name = serializers.CharField(
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
     )
-    value_count = serializers.IntegerField(help_text="Number of distinct values for this attribute in recent data.")
+    value_count = serializers.IntegerField(
+        help_text="Number of distinct values for this attribute in recent data. For a value match, only the matching values are counted."
+    )
+    matchedOn = serializers.ChoiceField(
+        choices=["key", "value"],
+        help_text='How the search matched this key: "key" if the key name matched, "value" if one of its values matched.',
+    )
+    matchedValue = serializers.CharField(
+        required=False,
+        help_text='The most frequent matching value. Only set when matchedOn is "value".',
+    )
 
 
 class _MetricAttributeKeysResponseSerializer(serializers.Serializer):
@@ -1191,6 +1206,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
                 limit=params.validated_data["limit"],
+                search_values=params.validated_data["search_values"],
             )
         except ValueError as exc:
             raise ParseError(str(exc))

@@ -1957,6 +1957,7 @@ describe('TaxonomicFilter', () => {
         await waitFor(() => expect(requests.length).toBeGreaterThan(0))
         expect(requests[0].get('metricName')).toBe('http_requests')
         expect(requests[0].get('dateFrom')).toBe('2026-01-01T00:00:00Z')
+        expect(requests[0].get('search_values')).toBe('true')
     })
 
     it.each([
