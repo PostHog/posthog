@@ -9,10 +9,13 @@ import { promisify } from 'util'
 import { getDefaultCdpConfig } from '~/cdp/config'
 import { internalFetch } from '~/common/utils/request'
 
+import { ConsumerGroup, Role, RoleSpec } from './roles'
+
 const PROBE_TIMEOUT_MS = 2000
 
 export const STACK = {
     postgresUrl: 'postgres://posthog:posthog@localhost:5432/posthog',
+    cyclotronNodeUrl: 'postgres://posthog:posthog@localhost:5432/cyclotron_node',
     kafkaHosts: 'kafka:9092',
     redis: { host: '127.0.0.1', port: 6379 },
     sesRateLimiterValkey: { host: '127.0.0.1', port: 6390 },
@@ -55,8 +58,11 @@ export async function startStack(repoRoot: string, stateDir: string, env: NodeJS
     await hogli(repoRoot, ['wait'], logFile, hogliEnv)
 }
 
-export async function withPostgres<T>(run: (client: Client) => Promise<T>): Promise<T> {
-    const client = new Client({ connectionString: STACK.postgresUrl, connectionTimeoutMillis: PROBE_TIMEOUT_MS })
+export async function withPostgres<T>(
+    run: (client: Client) => Promise<T>,
+    connectionString = STACK.postgresUrl
+): Promise<T> {
+    const client = new Client({ connectionString, connectionTimeoutMillis: PROBE_TIMEOUT_MS })
     try {
         await client.connect()
         return await run(client)
@@ -84,17 +90,72 @@ export function membersOf(rpkDescribe: string): number | null {
     return /GROUP_ID_NOT_FOUND/.test(rpkDescribe) ? 0 : null
 }
 
-export async function eventsGroupMembers(): Promise<number> {
-    const { stdout } = await promisify(execFile)(
-        'docker',
-        ['exec', STACK.kafkaContainer, 'rpk', 'group', 'describe', STACK.eventsConsumerGroup],
-        { timeout: 10_000 }
-    )
-    const members = membersOf(stdout)
+async function rpk(args: string[]): Promise<string> {
+    try {
+        const { stdout } = await promisify(execFile)('docker', ['exec', STACK.kafkaContainer, 'rpk', ...args], {
+            timeout: 10_000,
+        })
+        return stdout
+    } catch (error) {
+        const { stdout = '', stderr = '' } = error as { stdout?: string; stderr?: string }
+        return `${stdout}${stderr}` || String(error)
+    }
+}
+
+export async function groupMembers(group: string): Promise<number> {
+    const output = await rpk(['group', 'describe', group])
+    const members = membersOf(output)
     if (members === null) {
-        throw new Error(`Could not read the members of ${STACK.eventsConsumerGroup} from rpk:\n${stdout}`)
+        throw new Error(`Could not read the members of ${group} from rpk:\n${output}`)
     }
     return members
+}
+
+export function seekFailures(rpkSeek: string): string[] {
+    const lines = rpkSeek.split('\n').filter((line) => line.trim() !== '')
+    const header = lines[0] ?? ''
+    if (!/^TOPIC\s+PARTITION\s/.test(header)) {
+        return [rpkSeek.trim() || 'rpk printed nothing']
+    }
+    const errorAt = header.indexOf('ERROR')
+    if (errorAt < 0) {
+        return []
+    }
+    return lines.slice(1).flatMap((row) => {
+        const error = row.slice(errorAt).trim()
+        const [topic, partition] = row.trim().split(/\s+/)
+        return error ? [`${topic}/${partition}: ${error}`] : []
+    })
+}
+
+export async function seekToEnd({ group, topics }: ConsumerGroup): Promise<void> {
+    const failures = seekFailures(
+        await rpk(['group', 'seek', group, '--to', 'end', '--topics', topics.join(','), '--allow-new-topics'])
+    )
+    if (failures.length > 0) {
+        throw new Error(`Could not move ${group} to the end of ${topics.join(', ')}:\n${failures.join('\n')}`)
+    }
+}
+
+export const cyclotronUrlOf = (spec: RoleSpec): string => spec.env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl
+
+export async function deleteUnfinishedJobs(cyclotronUrl: string): Promise<void> {
+    await withPostgres(
+        (client) => client.query("DELETE FROM cyclotron_jobs WHERE status IN ('available', 'running')"),
+        cyclotronUrl
+    )
+}
+
+export async function rolesNotReady(specs: RoleSpec[]): Promise<Role[]> {
+    const results = await Promise.all(
+        specs.map(({ role, port }) =>
+            expectOk(`http://127.0.0.1:${port}/_health`).then(
+                () => null,
+                () => role
+            )
+        )
+    )
+    return results.filter((role): role is Role => role !== null)
 }
 
 async function pingRedis({ host, port }: { host: string; port: number }): Promise<void> {

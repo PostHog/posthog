@@ -3,11 +3,15 @@ import { once } from 'events'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
+import { setTimeout as nextTimers } from 'timers/promises'
+
+import { getDefaultCdpConfig } from '~/cdp/config'
 
 import { CdpRole } from '../cards'
 import { ProcEntry, planCleanup, readProcs, strangerConflict, terminate } from './processes'
-import { roleSpecs, secretsOf } from './roles'
-import { membersOf, startStack } from './stack'
+import { consumerGroupsOf, roleSpecs, secretsOf } from './roles'
+import { membersOf, seekFailures, startStack } from './stack'
+import { createSupervisor } from './supervisor'
 
 const SELF = 100
 const MARKED_ENV = ['PATH=/usr/bin', 'SCENARIO_RUNNER=1']
@@ -21,6 +25,11 @@ const proc = (pid: number, pgid: number, cmdline: string, environ: string[] | nu
 })
 
 const runner = proc(SELF, SELF, 'node scenarios run smoke', PLAIN_ENV)
+
+const stateOf = (pid: number): string => {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    return stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3)
+}
 
 describe('scenario environment', () => {
     describe('planCleanup', () => {
@@ -124,6 +133,27 @@ describe('scenario environment', () => {
             })
         })
 
+        it('lets profile settings override the role environment but not how the runner finds a role', () => {
+            const settings = {
+                SES_REGION: 'eu-west-1',
+                CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
+                PLUGIN_SERVER_MODE: 'ingestion-v2',
+                HTTP_SERVER_PORT: '1',
+                PGAPPNAME: 'other',
+                SCENARIO_RUNNER: '0',
+            }
+            const [spec] = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}), settings)
+
+            expect(spec.env).toMatchObject({
+                SES_REGION: 'eu-west-1',
+                CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
+                PLUGIN_SERVER_MODE: spec.role,
+                HTTP_SERVER_PORT: String(spec.port),
+                PGAPPNAME: `scenario-${spec.role}`,
+                SCENARIO_RUNNER: '1',
+            })
+        })
+
         it("shares the runner's secrets with the roles", () => {
             const [spec] = roleSpecs(
                 {},
@@ -153,6 +183,53 @@ describe('scenario environment', () => {
         ['output it cannot read', 'unable to dial: dial tcp 127.0.0.1:9092: connect: connection refused\n', null],
     ])('reads the members of %s from rpk', (_name, output, members) => {
         expect(membersOf(output)).toBe(members)
+    })
+
+    it.each<[string, Record<string, string>, { group: string; topics: string[] }[]]>([
+        [
+            'the events consumer on its configured topic',
+            {},
+            [
+                {
+                    group: 'cdp-processed-events-consumer',
+                    topics: [getDefaultCdpConfig().CDP_EVENTS_CONSUMER_TOPIC],
+                },
+            ],
+        ],
+        [
+            'the group and topic a profile sets',
+            { CDP_EVENTS_CONSUMER_GROUP_ID: 'scenario-events', CDP_EVENTS_CONSUMER_TOPIC: 'scenario_events_json' },
+            [{ group: 'scenario-events', topics: ['scenario_events_json'] }],
+        ],
+    ])('moves %s', (_name, settings, groups) => {
+        expect(consumerGroupsOf(roleSpecs({}, 'http://edge', secretsOf({}), settings))).toEqual(groups)
+    })
+
+    it.each<[string, string, string[]]>([
+        [
+            'a clean seek of a group that never committed',
+            'TOPIC                   PARTITION  PRIOR-OFFSET  CURRENT-OFFSET\nclickhouse_events_json  0          -1            0\n',
+            [],
+        ],
+        [
+            'a partition the broker refused while the group has a member',
+            'TOPIC                   PARTITION  PRIOR-OFFSET  CURRENT-OFFSET  ERROR\nclickhouse_events_json  0          -1            -1              INVALID_OPERATION: seeking a non-empty group is not allowed.\n',
+            ['clickhouse_events_json/0: INVALID_OPERATION: seeking a non-empty group is not allowed.'],
+        ],
+        [
+            'one refused partition among moved ones',
+            'TOPIC         PARTITION  PRIOR-OFFSET  CURRENT-OFFSET  ERROR\nscenario_one  0          4             9\nscenario_one  1          2             2               NOT_COORDINATOR: not the coordinator\n',
+            ['scenario_one/1: NOT_COORDINATOR: not the coordinator'],
+        ],
+        [
+            'a seek rpk could not run',
+            'unable to list all offsets successfully: UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.\n',
+            [
+                'unable to list all offsets successfully: UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.',
+            ],
+        ],
+    ])('reads the partition errors of %s from rpk', (_name, output, failures) => {
+        expect(seekFailures(output)).toEqual(failures)
     })
 
     it('starts the stack from its own config, without the combined Node process or the orphan sweep', async () => {
@@ -222,5 +299,45 @@ describe('scenario environment', () => {
             expect(unmarked.exitCode).toBeNull()
             expect(() => process.kill(-unmarked.pid!, 0)).not.toThrow()
         }, 10_000)
+
+        it('resumes a frozen group so it stops on SIGTERM instead of waiting for SIGKILL', async () => {
+            const frozen = await launch(process.env)
+            process.kill(-frozen.pid!, 'SIGSTOP')
+            while (stateOf(frozen.pid!) !== 'T') {
+                await new Promise(setImmediate)
+            }
+            const exited = once(frozen, 'exit')
+
+            await terminate({ groups: [frozen.pid!], pids: [] }, 5000)
+
+            expect(await exited).toEqual([null, 'SIGTERM'])
+        }, 15_000)
+    })
+
+    describe('role supervisor on real processes', () => {
+        const tag = `stop-${process.pid}`
+        const tagged = (): ProcEntry[] =>
+            readProcs().filter((entry) => entry.environ?.includes(`SCENARIO_TEST_TAG=${tag}`))
+        const supervisor = createSupervisor({
+            command: process.execPath,
+            args: ['-e', 'setInterval(() => {}, 1000)'],
+            cwd: os.tmpdir(),
+            logDir: mkdtempSync(path.join(os.tmpdir(), 'scenario-logs-')),
+            graceMs: 5000,
+            restartBackoffMs: 0,
+        })
+
+        afterEach(() => supervisor.stop())
+
+        it('stops a running role without recording its exit or starting it again', async () => {
+            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}))
+            await supervisor.start([{ ...spec, env: { ...spec.env, SCENARIO_TEST_TAG: tag } }])
+            expect(tagged()).toHaveLength(1)
+
+            await supervisor.stop()
+            await nextTimers(0)
+
+            expect({ exits: supervisor.exits(), running: tagged() }).toEqual({ exits: [], running: [] })
+        }, 15_000)
     })
 })

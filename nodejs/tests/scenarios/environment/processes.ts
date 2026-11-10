@@ -86,7 +86,7 @@ function signal(target: number, sig: NodeJS.Signals | 0): boolean {
 const targetsOf = ({ groups, pids }: Targets): number[] => [...groups.map((pgid) => -pgid), ...pids]
 
 export async function terminate(targets: Targets, graceMs: number): Promise<void> {
-    let alive = targetsOf(targets).filter((target) => signal(target, 'SIGTERM'))
+    let alive = targetsOf(targets).filter((target) => signal(target, 'SIGCONT') && signal(target, 'SIGTERM'))
     const deadline = Date.now() + graceMs
     while (alive.length > 0 && Date.now() < deadline) {
         await sleep(100)

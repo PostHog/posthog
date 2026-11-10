@@ -1,6 +1,8 @@
 import { z } from 'zod'
 
-import { CdpRole } from '../cards'
+import { getDefaultCdpConfig } from '~/cdp/config'
+
+import { CdpRole, Profile } from '../cards'
 import { MARKER } from './processes'
 
 export type Role = z.infer<typeof CdpRole>
@@ -19,6 +21,18 @@ export type Secrets = { encryptionSaltKeys: string; transactionalEmailJwtSecret:
 
 export type RoleSpec = { role: Role; port: number; env: NodeJS.ProcessEnv }
 
+export type ConsumerGroup = { group: string; topics: string[] }
+
+const ROLE_CONSUMERS: Partial<Record<Role, (env: NodeJS.ProcessEnv) => ConsumerGroup>> = {
+    'cdp-processed-events': (env) => {
+        const defaults = getDefaultCdpConfig()
+        return {
+            group: env.CDP_EVENTS_CONSUMER_GROUP_ID || defaults.CDP_EVENTS_CONSUMER_GROUP_ID,
+            topics: [env.CDP_EVENTS_CONSUMER_TOPIC || defaults.CDP_EVENTS_CONSUMER_TOPIC],
+        }
+    },
+}
+
 export function secretsOf(env: NodeJS.ProcessEnv): Secrets {
     return {
         encryptionSaltKeys: env.ENCRYPTION_SALT_KEYS || '00beef0000beef0000beef0000beef00',
@@ -27,7 +41,12 @@ export function secretsOf(env: NodeJS.ProcessEnv): Secrets {
     }
 }
 
-export function roleSpecs(base: NodeJS.ProcessEnv, edgeUrl: string, secrets: Secrets): RoleSpec[] {
+export function roleSpecs(
+    base: NodeJS.ProcessEnv,
+    edgeUrl: string,
+    secrets: Secrets,
+    settings: Profile['settings'] = {}
+): RoleSpec[] {
     const { AWS_PROFILE: _profile, ...inherited } = base
     const [markerKey, markerValue] = MARKER.split('=')
     return CdpRole.options.map((role) => ({
@@ -36,9 +55,6 @@ export function roleSpecs(base: NodeJS.ProcessEnv, edgeUrl: string, secrets: Sec
         env: {
             ...inherited,
             NODE_ENV: 'dev',
-            PLUGIN_SERVER_MODE: role,
-            HTTP_SERVER_PORT: String(ROLE_PORTS[role]),
-            PGAPPNAME: `scenario-${role}`,
             SES_ENDPOINT: edgeUrl,
             SES_REGION: 'us-east-1',
             AWS_ACCESS_KEY_ID: 'scenario',
@@ -47,7 +63,15 @@ export function roleSpecs(base: NodeJS.ProcessEnv, edgeUrl: string, secrets: Sec
             PERSONHOG_ADDR,
             ENCRYPTION_SALT_KEYS: secrets.encryptionSaltKeys,
             WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: secrets.transactionalEmailJwtSecret,
+            ...settings,
+            PLUGIN_SERVER_MODE: role,
+            HTTP_SERVER_PORT: String(ROLE_PORTS[role]),
+            PGAPPNAME: `scenario-${role}`,
             [markerKey]: markerValue,
         },
     }))
+}
+
+export function consumerGroupsOf(specs: RoleSpec[]): ConsumerGroup[] {
+    return specs.flatMap((spec) => ROLE_CONSUMERS[spec.role]?.(spec.env) ?? [])
 }
