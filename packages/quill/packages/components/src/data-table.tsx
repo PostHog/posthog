@@ -20,6 +20,7 @@ import * as React from 'react'
 
 import {
     Button,
+    Checkbox,
     cn,
     Empty,
     EmptyHeader,
@@ -156,6 +157,20 @@ export interface DataTableProps<TData, TValue> {
      * "No results" Empty; pass a richer node (custom copy, actions) to override.
      */
     empty?: React.ReactNode
+    /**
+     * Adds a leading checkbox column so the user can select rows. A function decides per row, and a row it rejects
+     * shows a disabled checkbox. Shift-click a checkbox to set every row between it and the last one clicked. The
+     * header checkbox selects or clears every selectable row on the page.
+     */
+    selectable?: boolean | ((row: TData) => boolean)
+    /** Controls the selection, as `true` by row id. Pass `getRowId` so that a selection survives a change of `data`. */
+    rowSelection?: RowSelectionState
+    /** Called with the next selection when the user checks or clears a row. */
+    onRowSelectionChange?: (rowSelection: RowSelectionState) => void
+    /** The id of a row, for `rowSelection`. Defaults to the row's index in `data`. */
+    getRowId?: (row: TData, index: number) => string
+    /** The accessible name of a row's checkbox. Defaults to "Select row". */
+    rowSelectionLabel?: (row: TData) => string
     /**
      * Enables client-side pagination at this page size and renders a pager below
      * the table. Omit for a single, un-paginated list.
@@ -434,6 +449,83 @@ function DataTableBodyInner<TData, TValue>({
 
 const DataTableBody = React.memo(DataTableBodyInner) as typeof DataTableBodyInner
 
+const SELECTION_COLUMN_ID = '__select'
+
+function isShiftClick(event: Event | undefined): boolean {
+    return !!event && 'shiftKey' in event && (event as MouseEvent).shiftKey
+}
+
+// Shift-click would otherwise select the page's text between the two checkboxes.
+function preventShiftTextSelection(event: React.MouseEvent): void {
+    if (event.shiftKey) {
+        event.preventDefault()
+    }
+}
+
+function useSelectionColumn<TData>(
+    selectable: boolean,
+    rowSelectionLabel: ((row: TData) => string) | undefined
+): ColumnDef<TData, unknown> | null {
+    const anchorRowId = React.useRef<string | null>(null)
+    return React.useMemo(() => {
+        if (!selectable) {
+            return null
+        }
+        return {
+            id: SELECTION_COLUMN_ID,
+            enableSorting: false,
+            enableResizing: false,
+            header: ({ table }) => (
+                <Checkbox
+                    aria-label="Select all rows"
+                    checked={table.getIsAllPageRowsSelected()}
+                    indeterminate={table.getIsSomePageRowsSelected()}
+                    disabled={!table.getRowModel().rows.some((row) => row.getCanSelect())}
+                    onCheckedChange={(checked) => {
+                        anchorRowId.current = null
+                        table.toggleAllPageRowsSelected(checked)
+                    }}
+                />
+            ),
+            cell: ({ row, table }) => (
+                <Checkbox
+                    aria-label={rowSelectionLabel?.(row.original) ?? 'Select row'}
+                    checked={row.getIsSelected()}
+                    disabled={!row.getCanSelect()}
+                    onMouseDown={preventShiftTextSelection}
+                    onCheckedChange={(checked, details) => {
+                        const rows = table.getRowModel().rows
+                        const anchorIndex = anchorRowId.current
+                            ? rows.findIndex((candidate) => candidate.id === anchorRowId.current)
+                            : -1
+                        anchorRowId.current = row.id
+                        if (!isShiftClick(details.event) || anchorIndex === -1) {
+                            row.toggleSelected(checked)
+                            return
+                        }
+                        const index = rows.findIndex((candidate) => candidate.id === row.id)
+                        const range = rows.slice(Math.min(anchorIndex, index), Math.max(anchorIndex, index) + 1)
+                        table.setRowSelection((current) => {
+                            const next = { ...current }
+                            for (const rangeRow of range) {
+                                if (!rangeRow.getCanSelect()) {
+                                    continue
+                                }
+                                if (checked) {
+                                    next[rangeRow.id] = true
+                                } else {
+                                    delete next[rangeRow.id]
+                                }
+                            }
+                            return next
+                        })
+                    }}
+                />
+            ),
+        }
+    }, [selectable, rowSelectionLabel])
+}
+
 /**
  * Headless TanStack Table wired onto the quill Table primitive — client-side
  * sorting out of the box (sortable columns render a sort button + indicator and
@@ -441,7 +533,7 @@ const DataTableBody = React.memo(DataTableBodyInner) as typeof DataTableBodyInne
  * pagination, and an empty state. Pass `enableSorting: false` on a column to opt
  * it out, `meta: { align }` to align a column's header and cells,
  * `fullWidth` + `meta: { expand: true }` to stretch one column to fill, or
- * `resizableColumns` to let the user drag a column's edge.
+ * `resizableColumns` to let the user drag a column's edge, or `selectable` to add a checkbox column for selecting rows.
  */
 function DataTable<TData, TValue>({
     columns,
@@ -463,8 +555,23 @@ function DataTable<TData, TValue>({
     pageSize,
     pageSizeOptions,
     onPageChange,
+    selectable = false,
+    rowSelection: controlledRowSelection,
+    onRowSelectionChange,
+    getRowId,
+    rowSelectionLabel,
 }: DataTableProps<TData, TValue>): React.ReactElement {
     const paginated = pageSize != null
+    const [rowSelection, setRowSelection] = useControllable<RowSelectionState>(
+        controlledRowSelection,
+        onRowSelectionChange,
+        {}
+    )
+    const selectionColumn = useSelectionColumn<TData>(selectable !== false, rowSelectionLabel)
+    const tableColumns = React.useMemo(
+        () => (selectionColumn ? [selectionColumn as ColumnDef<TData, TValue>, ...columns] : columns),
+        [selectionColumn, columns]
+    )
     const [sorting, setSorting] = useControllable<SortingState>(controlledSorting, onSortingChange, [])
     const [columnSizing, setColumnSizing] = useControllable<ColumnSizingState>(
         controlledColumnSizing,
@@ -481,10 +588,16 @@ function DataTable<TData, TValue>({
     }, [pageSize])
     const table = useReactTable({
         data,
-        columns,
+        columns: tableColumns,
+        getRowId,
+        // Left unset without `selectable`, so a caller's own selection column keeps working.
+        ...(typeof selectable === 'function'
+            ? { enableRowSelection: (row: Row<TData>) => selectable(row.original) }
+            : {}),
+        onRowSelectionChange: setRowSelection,
         enableColumnResizing: resizableColumns,
         defaultColumn: { minSize: MIN_TABLE_COLUMN_WIDTH, maxSize: Infinity },
-        state: { sorting, columnSizing, ...(paginated ? { pagination } : {}) },
+        state: { sorting, columnSizing, rowSelection, ...(paginated ? { pagination } : {}) },
         onColumnSizingChange: setColumnSizing,
         manualSorting: controlledSorting !== undefined,
         // A list sorted on the server always has an order, so its headers have no "off" state.
@@ -533,7 +646,7 @@ function DataTable<TData, TValue>({
             <DataTableBody
                 rows={table.getRowModel().rows}
                 rowSelection={table.getState().rowSelection}
-                columns={columns}
+                columns={tableColumns}
                 filler={hasFiller}
                 onRowClick={onRowClick}
                 rowClassName={rowClassName}

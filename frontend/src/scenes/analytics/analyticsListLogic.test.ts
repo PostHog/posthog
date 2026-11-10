@@ -209,6 +209,25 @@ describe('analyticsListLogic', () => {
         expect(logic.values.feedQuery.types).toEqual(['canvas', 'notebook'])
     })
 
+    it.each([
+        [
+            'a filter change',
+            (logic: ReturnType<typeof analyticsListLogic>) => logic.actions.setFilters({ tags: ['x'] }),
+        ],
+        ['a scope switch', (logic: ReturnType<typeof analyticsListLogic>) => logic.actions.setScope('mine')],
+        ['clearing the filters', (logic: ReturnType<typeof analyticsListLogic>) => logic.actions.clearFilters()],
+    ])('clears the checked rows on %s, so a bulk action never reaches hidden rows', async (_, change) => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        logic.actions.setRowSelection({ 'insight:i1': true, 'notebook:n1': true })
+        expect(logic.values.selectedCount).toBe(2)
+
+        change(logic)
+
+        expect(logic.values.rowSelection).toEqual({})
+        expect(logic.values.selectedCount).toBe(0)
+    })
+
     it('drops only insights from the picked types when insights get hidden', async () => {
         const logic = analyticsListLogic()
         logic.mount()

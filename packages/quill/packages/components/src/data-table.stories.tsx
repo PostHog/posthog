@@ -1,5 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { type ColumnDef, type ColumnSizingState, type SortingState } from '@tanstack/react-table'
+import {
+    type ColumnDef,
+    type ColumnSizingState,
+    type RowSelectionState,
+    type SortingState,
+} from '@tanstack/react-table'
 import * as React from 'react'
 
 import { Badge, Checkbox, Field, Label } from '@posthog/quill-primitives'
@@ -261,3 +266,27 @@ export const FullWidthPaginated: Story = {
         />
     ),
 }
+
+// `selectable` adds a checkbox column. Shift-click a second checkbox to set every row between the two. Invited users
+// can't be selected here, so their checkboxes are disabled and a shift-click range skips them.
+export const SelectableRows: Story = {
+    render: function Render() {
+        const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({ 'USR-2': true, 'USR-3': true })
+        const selected = Object.keys(rowSelection).length
+        return (
+            <div className="flex max-w-3xl flex-col gap-2">
+                <p className="text-sm text-muted-foreground">{`${selected} selected`}</p>
+                <DataTable
+                    columns={columns}
+                    data={people}
+                    selectable={(person) => person.status === 'Active'}
+                    getRowId={(person) => person.id}
+                    rowSelectionLabel={(person) => `Select ${person.name}`}
+                    rowSelection={rowSelection}
+                    onRowSelectionChange={setRowSelection}
+                    className="rounded-md border border-[var(--border)]"
+                />
+            </div>
+        )
+    },
+} satisfies Story

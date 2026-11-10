@@ -53,6 +53,14 @@ export type AnalyticsListRow = { kind: 'folder'; folder: FolderRow } | { kind: '
 
 export type AnalyticsListColumns = ColumnDef<AnalyticsListRow>[]
 
+export function analyticsListRowId(row: AnalyticsListRow): string {
+    return row.kind === 'folder' ? `folder:${row.folder.path}` : `${row.item.type}:${row.item.id}`
+}
+
+export function analyticsListRowName(row: AnalyticsListRow): string {
+    return row.kind === 'folder' ? row.folder.name : row.item.name
+}
+
 function EmptyCell(): JSX.Element {
     return (
         <Text size="xs" variant="muted">

@@ -3,6 +3,11 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { DataTable } from './data-table'
 
+// Base UI's Checkbox constructs PointerEvents, which jsdom doesn't implement.
+if (typeof window.PointerEvent === 'undefined') {
+    window.PointerEvent = class extends MouseEvent {} as typeof window.PointerEvent
+}
+
 interface TestRow {
     name: string
 }
@@ -10,6 +15,8 @@ interface TestRow {
 const data: TestRow[] = [{ name: 'Ada' }]
 
 describe('DataTable', () => {
+    afterEach(cleanup)
+
     it.each([
         ['label', <label key="label">Toggle</label>],
         ['contenteditable element', <span key="editable" contentEditable />],
@@ -57,6 +64,32 @@ describe('DataTable', () => {
 
         expect(container.querySelector('tbody tr')!.getAttribute('data-state')).toBe('selected')
         expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true)
+    })
+
+    it.each([
+        ['selects', [], ['Ada', 'Grace', 'Linus', 'Margaret']],
+        ['clears', ['Ada', 'Grace', 'Linus', 'Margaret', 'Ken'], ['Ken']],
+    ])('shift-click %s the selectable rows between two checkboxes', (_name, initial, expected) => {
+        const people: TestRow[] = ['Ada', 'Grace', 'Barbara', 'Linus', 'Margaret', 'Ken'].map((name) => ({ name }))
+        const onRowSelectionChange = jest.fn()
+        render(
+            <DataTable
+                columns={[{ accessorKey: 'name', header: 'Name' }]}
+                data={people}
+                selectable={(row) => row.name !== 'Barbara'}
+                getRowId={(row) => row.name}
+                rowSelectionLabel={(row) => `Select ${row.name}`}
+                rowSelection={Object.fromEntries(initial.map((name) => [name, true]))}
+                onRowSelectionChange={onRowSelectionChange}
+            />
+        )
+
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select Ada' }))
+        onRowSelectionChange.mockClear()
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Select Margaret' }), { shiftKey: true })
+
+        const next = onRowSelectionChange.mock.calls[0][0]
+        expect(Object.keys(next).sort()).toEqual([...expected].sort())
     })
 
     it('applies a row class name per row', () => {
