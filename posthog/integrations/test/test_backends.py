@@ -395,12 +395,13 @@ class TestBackendsBehaveTheSame(BaseTest):
     def test_update_where_patches_the_matching_rows_of_the_team(
         self, _name: str, where: dict[str, Any], matched: list[str], changed: list[str]
     ) -> None:
-        for name, config in [
+        seeds: list[tuple[str, dict[str, Any]]] = [
             ("mixed_a", {"domain": "a.com", "verified": False}),
             ("verified_a", {"domain": "a.com", "verified": True}),
             ("other_domain", {"domain": "b.com"}),
             ("token_a", {"domain": "a.com", "auth_type": "token"}),
-        ]:
+        ]
+        for name, config in seeds:
             self.ids[name] = self._seed(name, "github", config)
         other_team_row = self._seed("other_team_a", "github", {"domain": "a.com"}, team=self.other_team)
 

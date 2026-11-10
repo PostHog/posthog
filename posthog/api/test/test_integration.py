@@ -80,6 +80,7 @@ from posthog.models.integration import (
 )
 from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE
 from posthog.models.integration.github_audit import GitHubAudit, GitHubAuditPayload
+from posthog.models.integration.model import integration_model
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
@@ -676,7 +677,7 @@ class TestEmailIntegration:
             "provider": "ses",
         }
         assert integration.sensitive_config == {}
-        assert integration.created_by == self.user
+        assert integration.created_by_id == self.user.id
 
         mock_create_email_domain.assert_called_once_with(
             "posthog.com",
@@ -725,11 +726,13 @@ class TestEmailIntegration:
         }
         mock_verify_email_domain.return_value = expected_result
 
-        integration = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"},
-            team_id=self.team.id,
-            organization_id=self.organization.id,
-            created_by=self.user,
+        integration = integration_model(
+            EmailIntegration.create_native_integration(
+                {**self.valid_config, "provider": "ses"},
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                created_by=self.user,
+            )
         )
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
@@ -762,11 +765,13 @@ class TestEmailIntegration:
         }
         mock_verify_email_domain.return_value = expected_result
 
-        integration = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"},
-            team_id=self.team.id,
-            organization_id=self.organization.id,
-            created_by=self.user,
+        integration = integration_model(
+            EmailIntegration.create_native_integration(
+                {**self.valid_config, "provider": "ses"},
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                created_by=self.user,
+            )
         )
         email_integration = EmailIntegration(integration)
         verification_result = email_integration.verify()
@@ -804,28 +809,34 @@ class TestEmailIntegration:
         }
         mock_verify_email_domain.return_value = expected_result
 
-        integration1 = EmailIntegration.create_native_integration(
-            {**self.valid_config, "provider": "ses"},
-            team_id=self.team.id,
-            organization_id=self.organization.id,
-            created_by=self.user,
+        integration1 = integration_model(
+            EmailIntegration.create_native_integration(
+                {**self.valid_config, "provider": "ses"},
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                created_by=self.user,
+            )
         )
-        integration2 = EmailIntegration.create_native_integration(
-            {**self.valid_config, "email": "second@posthog.com", "provider": "ses"},
-            team_id=self.team.id,
-            organization_id=self.organization.id,
-            created_by=self.user,
+        integration2 = integration_model(
+            EmailIntegration.create_native_integration(
+                {**self.valid_config, "email": "second@posthog.com", "provider": "ses"},
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                created_by=self.user,
+            )
         )
-        integrationOtherDomain = EmailIntegration.create_native_integration(
-            {
-                "email": "me@otherdomain.com",
-                "name": "Me",
-                "mail_from_subdomain": "feedback",
-                "provider": "ses",
-            },
-            team_id=self.team.id,
-            organization_id=self.organization.id,
-            created_by=self.user,
+        integrationOtherDomain = integration_model(
+            EmailIntegration.create_native_integration(
+                {
+                    "email": "me@otherdomain.com",
+                    "name": "Me",
+                    "mail_from_subdomain": "feedback",
+                    "provider": "ses",
+                },
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                created_by=self.user,
+            )
         )
 
         assert not integration1.config["verified"]
@@ -8239,7 +8250,7 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         uninstall.return_value = outcome
         with self.captureOnCommitCallbacks(execute=True):
             integration = GitHubIntegration.integration_from_installation_id("9005", self.team.id, self.user)
-        integration_id = integration.pk
+        integration_id = integration.id
         target = Team.objects.create(organization=self.organization, name="Synthetic target")
         discovered = self.client.get(f"/api/projects/{target.id}/integrations/github/available_installations/")
         assert [item["installation_id"] for item in discovered.json()["installations"]] == ["9005"]

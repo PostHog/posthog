@@ -217,7 +217,7 @@ class DjangoBackend:
             .values("integration_id")
             .annotate(count=Count("id"))
         )
-        return {row["integration_id"]: row["count"] for row in grouped}
+        return {str(row["integration_id"]): row["count"] for row in grouped}
 
     def get_by_external_id(self, scope: RowScope, *, external_id: str, id: int) -> IntegrationRecord:
         try:

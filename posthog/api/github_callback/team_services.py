@@ -159,7 +159,7 @@ def create_team_github_integration_from_oauth_code(
         user,
         GitHubInstallationAccess(
             installation_id=installation_id,
-            installation_info=instance.config,
+            installation_info=dict(instance.config),
             access_token=instance.sensitive_config.get("access_token", ""),
             token_expires_at=token_expires_at,
             repository_selection=instance.config.get("repository_selection", "selected"),

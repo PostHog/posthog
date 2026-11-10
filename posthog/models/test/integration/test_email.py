@@ -26,7 +26,7 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         integration = EmailIntegration.create_native_integration(
             config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
         )
-        assert integration.team == self.team
+        assert integration.team_id == self.team.id
         assert integration.config["email"] == "user@successdomain.com"
         assert integration.config["provider"] == "ses"
         assert integration.config["domain"] == "successdomain.com"

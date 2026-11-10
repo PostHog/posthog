@@ -414,8 +414,8 @@ class Integration(models.Model):
         )
 
     @classmethod
-    def from_db(cls, db: str | None, field_names: Any, values: Any) -> "Integration":
-        instance = super().from_db(db, field_names, values)
+    def from_db(cls, db: str | None, field_names: Any, values: Any, *args: Any, **kwargs: Any) -> "Integration":
+        instance = super().from_db(db, field_names, values, *args, **kwargs)
         if "sensitive_config" not in instance.get_deferred_fields():
             # Every load path (the SDK, a foreign key, `refresh_from_db()`) gets clean secrets.
             from posthog.integrations.backend.django_backend import (  # noqa: PLC0415 — the backend imports this module

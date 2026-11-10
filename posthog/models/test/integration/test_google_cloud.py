@@ -66,8 +66,8 @@ class TestGoogleCloudIntegrationModel(BaseTest):
                 self.user,
             )
 
-        assert integration.team == self.team
-        assert integration.created_by == self.user
+        assert integration.team_id == self.team.id
+        assert integration.created_by_id == self.user.id
 
         assert integration.config == {
             "refreshed_at": 1704110400,
