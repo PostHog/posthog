@@ -809,7 +809,7 @@ class TestTeamExperimentsSettings(BaseTest):
         )
 
         with patch(
-            "products.tasks.backend.facade.repo_selection.resolve_team_github_integration",
+            "products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration",
             _github_with_repositories("PostHog/posthog"),
         ):
             updated = api.update_team_experiments_settings(
@@ -885,7 +885,7 @@ class TestTeamExperimentsSettings(BaseTest):
 
         with (
             patch(
-                "products.tasks.backend.facade.repo_selection.resolve_team_github_integration",
+                "products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration",
                 _github_with_repositories("PostHog/posthog"),
             ),
             pytest.raises(ExperimentValidationError) as raised,

@@ -6,7 +6,8 @@ from products.warehouse_sources.sources.sdk import (
     ExternalDataSourceType,
     FieldType,
     ReleaseStatus,
-    SimpleSource,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -20,13 +21,14 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.shortio._config import ShortioSourceConfig
 from products.warehouse_sources.sources.shortio.settings import ENDPOINTS, INCREMENTAL_FIELDS, SHORTIO_ENDPOINTS
 from products.warehouse_sources.sources.shortio.shortio import (
+    ShortioResumeConfig,
     shortio_source,
     validate_credentials as _validate_credentials,
 )
 
 
 @SourceRegistry.register
-class ShortioSource(SimpleSource[ShortioSourceConfig]):
+class ShortioSource(ResumableSource[ShortioSourceConfig, ShortioResumeConfig]):
     codebase_detection = detect(env=("^SHORTIO_", "^SHORT_IO_API_KEY$"), npm=("@short.io/client-node",))
 
     api_docs_url = "https://developers.short.io"
@@ -44,11 +46,11 @@ class ShortioSource(SimpleSource[ShortioSourceConfig]):
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Shortio",
             releaseStatus=ReleaseStatus.GA,
-            caption="""Enter your Short.io API key to pull your branded-link domains into the PostHog Data warehouse.
+            caption="""Enter your Short.io API key to sync domains, links, and click statistics to the PostHog Data warehouse.
 
 Create an API key under **Integrations & API** in your [Short.io dashboard](https://app.short.io/settings/integrations/api-key). Paste the secret key value.
 
-This version syncs your top-level list of **domains** only. Per-domain links and click statistics are not synced yet.
+All tables use full refresh. Click statistics include all history available to your Short.io account.
 """,
             iconPath="/static/services/shortio.png",
             docsUrl="https://posthog.com/docs/cdp/sources/shortio",
@@ -78,6 +80,8 @@ This version syncs your top-level list of **domains** only. Per-domain links and
         return {
             "401 Client Error: Unauthorized for url: https://api.short.io": "Your Short.io API key is invalid or has been revoked. Generate a new key under Integrations & API, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.short.io": "Your Short.io API key does not have access to this data. Check the key's permissions, then reconnect.",
+            "401 Client Error: Unauthorized for url: https://statistics.short.io": "Your Short.io API key is invalid or revoked. Create a new key, then reconnect.",
+            "403 Client Error: Forbidden for url: https://statistics.short.io": "Your Short.io API key cannot access click statistics. Check your key permissions and account plan.",
         }
 
     def get_schemas(
@@ -89,8 +93,6 @@ This version syncs your top-level list of **domains** only. Per-domain links and
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Full refresh only — the domain list exposes no reliably ordered server-side timestamp
-        # filter, so there is no incremental cursor to advance.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
@@ -103,7 +105,15 @@ This version syncs your top-level list of **domains** only. Per-domain links and
         # The API key is account-wide, so a single probe validates access to the domain list.
         return _validate_credentials(config.api_key)
 
-    def source_for_pipeline(self, config: ShortioSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ShortioResumeConfig]:
+        return ResumableSourceManager(inputs, ShortioResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: ShortioSourceConfig,
+        resumable_source_manager: ResumableSourceManager[ShortioResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         if inputs.schema_name not in SHORTIO_ENDPOINTS:
             raise ValueError(f"Unknown Short.io schema '{inputs.schema_name}'")
 
@@ -112,4 +122,5 @@ This version syncs your top-level list of **domains** only. Per-domain links and
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
         )

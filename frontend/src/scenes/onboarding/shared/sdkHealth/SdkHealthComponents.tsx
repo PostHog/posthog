@@ -142,6 +142,7 @@ export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                 <div>
                     <h3 className="mb-0">{sdkName}</h3>
                     <Tooltip
+                        openOnClick
                         title={
                             <>
                                 Version number refreshed hourly.

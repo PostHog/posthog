@@ -35,7 +35,8 @@ from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_e
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_validation_rules import (
     RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget,
 )
@@ -238,7 +239,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
 
             label = "{} - {}".format("", status)
             if isinstance(series, ActionsNode):
-                action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+                action = get_action(action_id=int(series.id), project_id=self.team.project_id)
                 label = "{} - {}".format(action.name, status)
             elif isinstance(series, EventsNode):
                 event = series.event
@@ -361,8 +362,8 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             for series in self.query.series or []:
                 if isinstance(series, ActionsNode):
                     try:
-                        action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
-                    except Action.DoesNotExist:
+                        action = get_action(action_id=int(series.id), project_id=self.team.project_id)
+                    except ActionNotFound:
                         raise ValidationError(f"Action ID {series.id} does not exist!")
                     event_filters.append(action_to_expr(action))
                 elif isinstance(series, EventsNode):

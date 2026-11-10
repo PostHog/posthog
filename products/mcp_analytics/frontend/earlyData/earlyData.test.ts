@@ -1,5 +1,8 @@
 import { DESTINATION_OPTIONS } from 'scenes/hog-functions/list/newNotificationDialogLogic'
 
+import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
+import type { ResolvedWeeklyReportOffer } from '../notifications/weeklyReportOffer'
 import { buildActivitySummary } from './activitySummary'
 import { EarlyStats, buildNextSteps } from './nextSteps'
 
@@ -13,6 +16,17 @@ const stats = (overrides: Partial<EarlyStats>): EarlyStats => ({
     missingCapabilityReports: 0,
     ...overrides,
 })
+
+const HIDDEN: ResolvedWeeklyReportOffer = { state: 'hidden', reason: 'has-report' }
+const READY: ResolvedWeeklyReportOffer = { state: 'ready', email: 'me@example.com' }
+const CREATED: ResolvedWeeklyReportOffer = {
+    state: 'created',
+    report: {
+        id: 3,
+        target_value: 'me@example.com',
+        next_delivery_date: '2026-10-13T09:00:00Z',
+    } as SubscriptionApi,
+}
 
 describe('early data derivations', () => {
     it.each([
@@ -95,14 +109,87 @@ describe('early data derivations', () => {
         [stats({ totalCalls: 40, callsWithIntent: 35, distinctSessions: 8, errorCalls: 3 }), null, []],
         [stats({ totalCalls: 40, callsWithIntent: 35, distinctSessions: 8, errorCalls: 3 }), false, ['notification']],
     ])('picks next steps for %j with notification=%s', (input, hasFailureNotification, expectedKeys) => {
-        expect(buildNextSteps(input, hasFailureNotification).map((step) => step.key)).toEqual(expectedKeys)
+        expect(
+            buildNextSteps({ stats: input, hasFailureNotification, weeklyReport: HIDDEN }).map((step) => step.key)
+        ).toEqual(expectedKeys)
+    })
+
+    it.each([
+        ['leads from the first call', stats({ totalCalls: 1 }), false, READY, ['weekly-report']],
+        [
+            'leads ahead of instrumentation and pushes the last step out',
+            stats({ totalCalls: 40, callsWithIntent: 2, distinctSessions: 40, errorCalls: 3 }),
+            false,
+            READY,
+            ['weekly-report', 'intent', 'notification'],
+        ],
+        [
+            'stays for a consent prompt',
+            stats({ totalCalls: 1 }),
+            false,
+            { state: 'needs-ai-consent', email: 'me@example.com' },
+            ['weekly-report'],
+        ],
+        ['stays once created', stats({ totalCalls: 1 }), false, CREATED, ['weekly-report']],
+    ] as const)('the weekly report %s', (_name, input, alert, offer, keys) => {
+        expect(
+            buildNextSteps({ stats: input, hasFailureNotification: alert, weeklyReport: offer }).map((step) => step.key)
+        ).toEqual(keys)
+    })
+
+    it.each([
+        [
+            READY,
+            'Get a weekly report in your inbox',
+            'Volume, error rate and latency per tool, with the failures worth acting on. First one tomorrow morning to me@example.com, then every week.',
+            undefined,
+        ],
+        [
+            { state: 'failed', email: 'me@example.com', message: 'Your plan is limited to 5 subscriptions.' },
+            'Get a weekly report in your inbox',
+            'Volume, error rate and latency per tool, with the failures worth acting on. First one tomorrow morning to me@example.com, then every week.',
+            'Your plan is limited to 5 subscriptions.',
+        ],
+        [
+            { state: 'needs-ai-consent', email: 'me@example.com' },
+            'Get a weekly report in your inbox',
+            'Volume, error rate and latency per tool, with the failures worth acting on. First one tomorrow morning to me@example.com, then every week.',
+            undefined,
+        ],
+        [
+            CREATED,
+            'Your weekly report is set up',
+            'The first one goes to me@example.com on Tuesday at 9:00 AM.',
+            undefined,
+        ],
+        [
+            { state: 'created', report: { id: 3, target_value: 'me@example.com', next_delivery_date: null } },
+            'Your weekly report is set up',
+            'It goes to me@example.com every week.',
+            undefined,
+        ],
+    ] as const)('writes the weekly report step for %j', (offer, title, detail, error) => {
+        const [step] = buildNextSteps({
+            stats: stats({ totalCalls: 1 }),
+            hasFailureNotification: false,
+            weeklyReport: offer as ResolvedWeeklyReportOffer,
+        })
+
+        expect(step).toMatchObject({
+            key: 'weekly-report',
+            title,
+            detail,
+            error,
+            action: { kind: 'weekly-report', offer },
+        })
     })
 
     it('hands instrumentation steps to an agent and product steps to a link', () => {
-        const steps = buildNextSteps(
-            stats({ totalCalls: 40, callsWithIntent: 0, distinctSessions: 8, errorCalls: 1 }),
-            false
-        )
+        const steps = buildNextSteps({
+            stats: stats({ totalCalls: 40, callsWithIntent: 0, distinctSessions: 8, errorCalls: 1 }),
+            hasFailureNotification: false,
+            weeklyReport: HIDDEN,
+        })
 
         expect(steps.map((step) => [step.key, step.action.kind])).toEqual([
             ['intent', 'agent-prompt'],
@@ -116,10 +203,11 @@ describe('early data derivations', () => {
     })
 
     describe('alert step copy', () => {
-        const alertStep = buildNextSteps(
-            stats({ totalCalls: 40, callsWithIntent: 35, distinctSessions: 8, errorCalls: 3 }),
-            false
-        )[0]
+        const alertStep = buildNextSteps({
+            stats: stats({ totalCalls: 40, callsWithIntent: 35, distinctSessions: 8, errorCalls: 3 }),
+            hasFailureNotification: false,
+            weeklyReport: HIDDEN,
+        })[0]
 
         // Hog function alerts can only go to the destinations the new-alert dialog lists.
         it.each(DESTINATION_OPTIONS.map(({ label }) => label))('offers %s', (label) => {

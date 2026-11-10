@@ -28,7 +28,8 @@ def changed_files(against: str | None = None, *, include_worktree: bool = True) 
     what CI diffs against and what the staleness check compares to) and degrades to
     working-tree-only detection when neither exists (single-branch clones, bare
     sandboxes). ``-z`` output keeps paths with spaces/non-ASCII unquoted, and
-    ``--untracked-files=all`` lists files inside brand-new directories.
+    ``--untracked-files=all`` lists files inside brand-new directories. ``--no-renames``
+    lists both paths of a rename, so a check triggered by the old name still runs.
 
     ``include_worktree=False`` restricts the result to the committed branch diff,
     dropping uncommitted and untracked work — the correct scope for a pre-push gate,
@@ -37,7 +38,7 @@ def changed_files(against: str | None = None, *, include_worktree: bool = True) 
     """
     files: set[str] = set()
     for base in [against] if against is not None else ["origin/master", "master"]:
-        diff = _git("diff", "--name-only", "-z", f"{base}...HEAD")
+        diff = _git("diff", "--name-only", "-z", "--no-renames", f"{base}...HEAD")
         if diff.returncode == 0:
             files.update(path for path in diff.stdout.split("\0") if path)
             break

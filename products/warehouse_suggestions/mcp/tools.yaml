@@ -42,6 +42,8 @@ tools:
             Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and
             why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply.
             Requires human typed confirmation.
+        exclude_params:
+            - surface
         confirmed_action:
             message: >
                 About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table.
@@ -77,6 +79,8 @@ tools:
         description: >
             Dismiss a proposed warehouse suggestion with a reason: not_useful, not_now or other, plus an optional note.
             Nothing changes on the view or table. warehouse-suggestions-resume brings it back.
+        exclude_params:
+            - surface
     warehouse-suggestions-get:
         operation: warehouse_suggestions_retrieve
         enabled: true

@@ -795,6 +795,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "resolved_symbol_sets_count": 0,
                     "decide_requests_count_in_period": 0,
                     "local_evaluation_requests_count_in_period": 0,
+                    "local_evaluation_not_modified_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
                     "survey_count": 0,
                     "survey_responses_count_in_period": 1,
@@ -901,6 +902,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "resolved_symbol_sets_count": 0,
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
+                            "local_evaluation_not_modified_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
                             "survey_count": 0,
                             "survey_responses_count_in_period": 1,
@@ -1001,6 +1003,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "resolved_symbol_sets_count": 0,
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
+                            "local_evaluation_not_modified_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
                             "survey_count": 0,
                             "survey_responses_count_in_period": 0,
@@ -1124,6 +1127,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "resolved_symbol_sets_count": 0,
                     "decide_requests_count_in_period": 0,
                     "local_evaluation_requests_count_in_period": 0,
+                    "local_evaluation_not_modified_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
                     "survey_count": 0,
                     "survey_responses_count_in_period": 0,
@@ -1230,6 +1234,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "resolved_symbol_sets_count": 0,
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
+                            "local_evaluation_not_modified_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
                             "survey_count": 0,
                             "survey_responses_count_in_period": 0,
@@ -2147,6 +2152,14 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
                 team=self.analytics_team,
             )
 
+        _create_event(
+            distinct_id="3",
+            event="local evaluation not modified usage",
+            properties={"count": 5, "token": "correct"},
+            timestamp=now(),
+            team=self.analytics_team,
+        )
+
         for i in range(5):
             _create_event(
                 distinct_id="4",
@@ -2198,11 +2211,13 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["local_evaluation_requests_count_in_period"] == 11
+        assert org_1_report["local_evaluation_not_modified_requests_count_in_period"] == 5
         assert org_1_report["decide_requests_count_in_period"] == 0
-        assert org_1_report["billable_feature_flag_requests_count_in_period"] == 110
+        assert org_1_report["billable_feature_flag_requests_count_in_period"] == 115
         assert org_1_report["teams"]["3"]["local_evaluation_requests_count_in_period"] == 10
+        assert org_1_report["teams"]["3"]["local_evaluation_not_modified_requests_count_in_period"] == 5
         assert org_1_report["teams"]["4"]["local_evaluation_requests_count_in_period"] == 1
-        assert org_1_report["teams"]["3"]["billable_feature_flag_requests_count_in_period"] == 100
+        assert org_1_report["teams"]["3"]["billable_feature_flag_requests_count_in_period"] == 105
         assert org_1_report["teams"]["4"]["billable_feature_flag_requests_count_in_period"] == 10
 
         # because of wrong token, Org 2 has no decide counts.
@@ -2526,6 +2541,7 @@ class TestHasNonZeroUsage(SimpleTestCase):
             ("empty", None),
             ("events", "event_count_in_period"),
             ("mcp_events", "mcp_event_count_in_period"),
+            ("local_evaluation_not_modified", "local_evaluation_not_modified_requests_count_in_period"),
             ("business_knowledge_chunks", "business_knowledge_chunks_in_period"),
             ("business_knowledge_queries", "business_knowledge_queries_in_period"),
             ("logs_bytes", "logs_bytes_in_period"),
@@ -5194,10 +5210,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         """Signals credits are a flat charge per report whose implementation shipped a PR (Postgres path)."""
         from django.apps import apps
 
-        from posthog.tasks.usage_report import get_teams_with_signals_credits_used_in_period
+        from posthog.tasks.usage_report import (
+            get_teams_with_signals_credits_used_in_period,
+            get_teams_with_signals_spend_credits_used_in_period,
+        )
 
         from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
-        from products.signals.backend.models import SignalReport, SignalReportTask
+        from products.signals.backend.models import SignalReport, SignalReportTask, SignalSpend
 
         # `products.tasks` is isolated; reach its models via the app registry, not a cross-boundary import.
         Task = apps.get_model("tasks", "Task")
@@ -5230,6 +5249,22 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         result = get_teams_with_signals_credits_used_in_period(period.start, period.end)
 
         self.assertEqual(result, [(team.id, 1500)])
+
+        SignalSpend.objects.for_team(team.id).create(
+            team=team,
+            kind=SignalSpend.Kind.AD_HOC,
+            signal_id=uuid4(),
+            finalized_at=period.start,
+            spend=15,
+            usage_billing=True,
+        )
+        SignalReport.objects.filter(id=report.id).update(created_at=period.start - relativedelta(days=1))
+        # Changing the plan does not reclassify existing work.
+        organization = team.organization
+        organization.usage = {"signals_spend_credits": {"billing_start_date": period.start.date().isoformat()}}
+        organization.save(update_fields=["usage"])
+        self.assertEqual(get_teams_with_signals_credits_used_in_period(period.start, period.end), [(team.id, 1500)])
+        self.assertEqual(get_teams_with_signals_spend_credits_used_in_period(period.start, period.end), [(team.id, 15)])
 
     def test_self_driving_credits_for_orgs_sum_each_orgs_teams(self) -> None:
         org_a = Organization.objects.create(name="Org A")

@@ -402,12 +402,20 @@ phw remove haacked/old-feature
 git worktree prune
 ```
 
-To clear old `phw`, Claude Code, Codex, and PostHog Code worktrees in bulk, run `hogli worktrees:clean --before 7d --mode deps --dry-run` to preview, then drop `--dry-run`, or use `--mode full` to remove whole worktrees.
-Both modes skip a worktree where `cargo` or `rustc` is running.
-`--mode deps` keeps a Cargo `target` that a build used after the cutoff, and, without `--source` or `--repo`, offers to delete the old shared `~/.cargo/target` when `CARGO_TARGET_DIR` is not set and no build used it after the cutoff.
+To clear old `phw`, Claude Code (including agent scratchpads), Codex, and PostHog Code worktrees in bulk, run `hogli worktrees:clean --before 7d --mode deps,build --dry-run` to preview, then drop `--dry-run`, or use `--mode full` to remove whole worktrees.
+`--mode deps` removes installed dependencies such as `node_modules`, Python venvs, and Cargo `target` dirs.
+`--mode build` removes build output and tool caches such as Cargo `target`, `dist`, `.next`, and `__pycache__`, but only where git ignores every file inside.
+Neither removes a folder that holds a tracked file.
+Every mode skips a worktree where `cargo` or `rustc` is running.
+`--mode deps` and `--mode build` keep a Cargo `target` that a build used after the cutoff.
+Without `--source` or `--repo`, they also offer to delete the old shared `~/.cargo/target` when `CARGO_TARGET_DIR` is not set and no build used it after the cutoff.
+For a Cargo target that several projects share, run `hogli doctor:disk --area cargo-units`. It removes only the build units that no build in the last 7 days needed, directly or through its dependencies.
+Every mode also removes folders of removed worktrees that hold only flox caches.
+`--mode deps` and `--mode build` also act on worktrees that `git worktree list` registers outside these folders, such as ones made by hand. `--mode full` and the daily background run act on those only with `--source other`.
 
-Flox activation also runs this once a day in the background: `--mode deps` on worktrees idle for 7 days and `--mode full` on worktrees idle for 14 days.
+Flox activation also runs this once a day in the background: `--mode deps,build` on worktrees idle for 7 days and `--mode full` on worktrees idle for 14 days.
 It skips worktrees with uncommitted or unpushed work and keeps every branch.
+Commits that landed through a squash merge do not count as unpushed: hogli matches the branch's diff against the squash commit, and asks the GitHub CLI for the merged pull request when that fails.
 Set `POSTHOG_WORKTREES_AUTOCLEAN=0` to turn it off.
 The output goes to `.flox/cache/worktrees-clean.log` in the checkout that ran it.
 

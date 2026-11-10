@@ -69,7 +69,6 @@ _QUEUED_RECALC_CEILING = timedelta(hours=1)
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
 RECALCULATION_RATE_LIMIT_FEATURE_FLAG = "experiment-metric-recalculation-rate-limit"
 RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG = "experiment-recalculation-activity-queue"
-RECALCULATION_CLICKHOUSE_USER_FEATURE_FLAG = "experiment-recalculation-clickhouse-user"
 _RATE_LIMITED_TRIGGERS = frozenset(
     {
         ExperimentMetricsRecalculation.Trigger.MANUAL,
@@ -288,9 +287,9 @@ def cancel_recalculation_workflow(recalculation_id: str) -> None:
 def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int, organization_id: str) -> None:
     """Dispatch the recalculation Temporal workflow for a row that request_recalculation just created.
 
-    Start every recalculation workflow through this function, so the workflow name and id, the task queue,
-    the org-scoped fairness key and the rollback stay in one place. If the start fails, the row is marked
-    FAILED when it is safe to do so, and the exception propagates to the caller.
+    Start every recalculation workflow through this function, so the workflow name and id, the task queues
+    and the rollback stay in one place. If the start fails, the row is marked FAILED when it is safe to do so,
+    and the exception propagates to the caller.
     """
     try:
         temporal = sync_connect()
@@ -299,7 +298,6 @@ def start_metrics_recalculation_workflow(recalculation_id: str, *, team_id: int,
                 METRICS_RECALCULATION_WORKFLOW_NAME,
                 ExperimentMetricsRecalculationWorkflowInputs(
                     recalculation_id=recalculation_id,
-                    fairness_key=organization_id,
                     activity_task_queue=_activity_task_queue(organization_id),
                 ),
                 id=metrics_recalculation_workflow_id(recalculation_id),
@@ -407,14 +405,13 @@ def _activity_task_queue(organization_id: str) -> str | None:
     return settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE if enabled else None
 
 
-def recalculation_clickhouse_user(organization_id: str) -> ClickHouseUser | None:
-    # None keeps today's routing, also on a flag error, because that routing always works.
-    try:
-        enabled = _organization_flag_enabled(RECALCULATION_CLICKHOUSE_USER_FEATURE_FLAG, organization_id)
-    except Exception as e:
-        capture_exception(e)
-        return None
-    return ClickHouseUser.EXPERIMENTS if enabled else None
+def recalculation_clickhouse_user(task_queue: str) -> ClickHouseUser | None:
+    # Only the slot-capped queues run as the experiments user; a queue that collapses into the main queue keeps the default.
+    capped_task_queues = {
+        settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+        settings.EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE,
+    } - {settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE}
+    return ClickHouseUser.EXPERIMENTS if task_queue in capped_task_queues else None
 
 
 def _refresh_window_enforced(experiment: Experiment) -> bool:

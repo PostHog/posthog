@@ -71,8 +71,10 @@ from posthog.hogql.resolver_utils import (
     lookup_table_by_nested_name,
     suggest_field_names,
     suggested_field_fix,
+    zero_argument_function_call,
 )
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import swap_flag_calls, swaps_flag_calls
+from posthog.hogql.transforms.grouped_clauses import raise_on_whole_document_grouping
 from posthog.hogql.transforms.trino.persons import (
     lower_trino_table,
     resolve_internal_trino_logical_table,
@@ -1199,6 +1201,7 @@ class Resolver(CloningVisitor):
         if node.group_by:
             new_node.group_by = [self.visit(expr) for expr in node.group_by]
         new_node.group_by_mode = node.group_by_mode
+        raise_on_whole_document_grouping(new_node, self.context)
         if node.order_by:
             new_node.order_by = [self.visit(expr) for expr in node.order_by]
         if node.interpolate is not None:
@@ -2693,6 +2696,9 @@ class Resolver(CloningVisitor):
                 return ast.Constant(value=value, type=global_type)
 
             suggestions = suggest_field_names(scope, name, self.context)
+            function_call = zero_argument_function_call(name) if len(node.chain) == 1 else None
+            if function_call is not None:
+                suggestions = [function_call, *suggestions]
             suggestion_suffix = (
                 f". Did you mean: {', '.join(suggestions)}?"
                 if suggestions
@@ -2700,7 +2706,10 @@ class Resolver(CloningVisitor):
             )
             # The message lists every close match, but a quick fix can only substitute one, so it
             # offers the best of them. `get_close_matches` returns them in descending similarity.
-            fix = suggested_field_fix(node, suggestions[0]) if suggestions else None
+            if function_call is not None:
+                fix = function_call if node.start is not None and node.end is not None else None
+            else:
+                fix = suggested_field_fix(node, suggestions[0]) if suggestions else None
             if self.dialect == "clickhouse":
                 # To debug, add a breakpoint() here and print self.context.database
                 #

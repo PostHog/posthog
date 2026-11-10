@@ -14,14 +14,15 @@ class RealtimeCohortLevel(models.TextChoices):
 class RealtimeCohortAccessPurpose(models.TextChoices):
     PILOT = "pilot", "Pilot"
     LOAD_TEST = "load_test", "Load test"
+    BETA = "beta", "Beta"
 
 
 class RealtimeCohortTeamAccess(models.Model):
     """A team's access to the realtime cohort pipeline, granted on top of `REALTIME_COHORT_TEAM_ALLOWLIST`.
 
-    Staff write it only through the `realtime_cohort_team_access` command. Django and the shufflers read
-    it. The processor and the seeder do not, so their env lists must change with it. A missing row means
-    `off`. Never read it through `get_or_create_team_extension`, because that creates the row.
+    Staff write it only through the `realtime_cohort_team_access` command. Django, the shufflers, the
+    processor and the seeder read it. A missing row means `off`. Never read it through
+    `get_or_create_team_extension`, because that creates the row.
 
     Rows are never deleted: a revoke sets `off`, and a team deletion leaves the row (`DO_NOTHING`).
     So when a team's row appears on one read and is missing on a later one, the later read failed.

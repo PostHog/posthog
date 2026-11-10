@@ -9,9 +9,10 @@ from parameterized import parameterized
 from posthog.schema import HogQLNotice, HogQLQuery
 
 from posthog.event_usage import EventSource
-from posthog.models import EventDefinition, Organization, Team, User
+from posthog.models import Organization, Team, User
 from posthog.sync import database_sync_to_async
 
+from products.event_definitions.backend.models import EventDefinition
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 from ee.hogai.context.insight.context import InsightContext

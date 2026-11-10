@@ -1,6 +1,7 @@
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_EVENTS_DLQ,
+    KAFKA_CDP_SES_WEBHOOKS,
     KAFKA_EMAIL_STATUS,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
@@ -56,6 +57,9 @@ export type CdpConfig = ClickhouseConfig & {
 
     CDP_EVENTS_CONSUMER_TOPIC: string
     CDP_EVENTS_CONSUMER_GROUP_ID: string
+    // Off until every produced event carries the event name header and
+    // cdp_events_unmatched_event_name_invoked stays at zero.
+    CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: boolean
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
 
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
@@ -158,6 +162,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_DLQ_BATCH_FAIL_RATIO: number
     CDP_EVENTS_DLQ_TOPIC: string
     CDP_EVENTS_DLQ_PRODUCER: CdpProducerName
+    CDP_SES_WEBHOOKS_TOPIC: string
+    CDP_SES_WEBHOOKS_PRODUCER: CdpProducerName
+    // On, the webhook only queues, so it stays off until the topic and the cdp-ses-webhooks consumer exist.
+    CDP_SES_WEBHOOKS_QUEUE_ENABLED: boolean
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string
 
@@ -174,7 +182,6 @@ export type CdpConfig = ClickhouseConfig & {
     // Configuration set with ESP-level open/click tracking enabled, used for sends with engagement tracking on.
     SES_TRACKED_CONFIGURATION_SET: string
     // Configuration set without open/click tracking (same delivery/bounce/complaint event destination).
-    // Empty means not provisioned: tracking-off sends fall back to the tracked set with a warning.
     SES_UNTRACKED_CONFIGURATION_SET: string
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string
     // means no restriction (dev/test); production should set this to the workflow SES topic ARN(s).
@@ -199,6 +206,10 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated team ids, or "*", whose UTM link tagging runs the scanner in helpers/utm.ts.
     // Every other team runs the previous scanner in helpers/utm-legacy.ts.
     CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: string
+    // Comma-separated team ids, or "*", whose tracked sends add ph_workflow_run=<invocation id> to links
+    // on the sender's own domain, so a landing page visit can be joined to the email that led to it.
+    CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
+    CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: string
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -319,6 +330,7 @@ export function getDefaultCdpConfig(): CdpConfig {
 
         CDP_EVENTS_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
         CDP_EVENTS_CONSUMER_GROUP_ID: 'cdp-processed-events-consumer',
+        CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: false,
         CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: '',
 
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
@@ -410,6 +422,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Same cyclotron Warpstream cluster as every other CDP topic — the replay worker
         // consumes from there, and no ClickHouse table reads these topics.
         CDP_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        CDP_SES_WEBHOOKS_TOPIC: KAFKA_CDP_SES_WEBHOOKS,
+        CDP_SES_WEBHOOKS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        CDP_SES_WEBHOOKS_QUEUE_ENABLED: false,
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
@@ -428,7 +443,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
         SES_TRACKED_CONFIGURATION_SET: 'posthog-messaging',
-        SES_UNTRACKED_CONFIGURATION_SET: '',
+        SES_UNTRACKED_CONFIGURATION_SET: 'posthog-messaging-untracked',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
         EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE: false,
@@ -438,6 +453,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         EMAIL_TEAM_SENDING_CAP_MODE: 'off',
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
         CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
+        CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: '',
+        CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: '',
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

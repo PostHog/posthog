@@ -5,6 +5,10 @@ common_alloc::used!();
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // Both aws-lc-rs and ring are in the dependency graph, so rustls cannot pick a provider and panics on the first TLS connection.
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("failed to install the rustls CryptoProvider");
     tracing_subscriber::fmt()
         .json()
         .with_env_filter(

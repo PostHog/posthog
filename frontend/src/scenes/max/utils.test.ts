@@ -10,11 +10,13 @@ import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general
 import { DashboardType, InsightShortId, InsightModel } from '~/types'
 
 import { EnhancedToolCall } from './max-constants'
+import { MaxContextItem, MaxContextType, MaxUIContext } from './maxTypes'
 import {
     activeSceneLogicHasMaxContext,
     dashboardToMaxContext,
     insightToMaxContext,
     findPendingClientToolCall,
+    getContextSourceProperties,
     isMultiQuestionFormMessage,
     threadEndsWithMultiQuestionForm,
 } from './utils'
@@ -359,6 +361,34 @@ describe('max/utils', () => {
                 selectors: hasMaxContext ? { maxContext: () => [] } : {},
             } as unknown as BuiltLogic
             expect(activeSceneLogicHasMaxContext(logic)).toBe(expected)
+        })
+    })
+
+    describe('getContextSourceProperties()', () => {
+        const sceneContext = [
+            { type: MaxContextType.DASHBOARD, id: 1 },
+            { type: MaxContextType.EVENT, id: 'pageview' },
+        ] as MaxContextItem[]
+
+        it.each([
+            ['no context', undefined, { context_source: 'none', page_context_count: 0, added_context_count: 0 }],
+            [
+                'only items from the page',
+                { dashboards: [{ id: 1 }], events: [{ id: 'pageview' }] },
+                { context_source: 'page', page_context_count: 2, added_context_count: 0 },
+            ],
+            [
+                'only items the user added',
+                { insights: [{ id: 'abc' }], events: [{ id: 'signup' }] },
+                { context_source: 'added', page_context_count: 0, added_context_count: 2 },
+            ],
+            [
+                'page and added items, with an id shared across types',
+                { dashboards: [{ id: 1 }], actions: [{ id: 1 }] },
+                { context_source: 'mixed', page_context_count: 1, added_context_count: 1 },
+            ],
+        ])('classifies %s', (_, uiContext, expected) => {
+            expect(getContextSourceProperties(uiContext as MaxUIContext | undefined, sceneContext)).toEqual(expected)
         })
     })
 })

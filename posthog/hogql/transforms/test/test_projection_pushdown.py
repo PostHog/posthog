@@ -144,15 +144,15 @@ class TestProjectionPushdown(BaseTest):
             ("intersect", "SELECT event FROM (SELECT * FROM events INTERSECT SELECT * FROM events) AS sub"),
             (
                 "group_by_all",
-                "SELECT count() FROM (SELECT * FROM (SELECT distinct_id, properties FROM events) GROUP BY ALL) AS sub",
+                "SELECT count() FROM (SELECT * FROM (SELECT distinct_id, event FROM events) GROUP BY ALL) AS sub",
             ),
             (
                 "positional_group_by",
-                "SELECT count() FROM (SELECT * FROM (SELECT distinct_id, properties FROM events) GROUP BY 1, 2) AS sub",
+                "SELECT count() FROM (SELECT * FROM (SELECT distinct_id, event FROM events) GROUP BY 1, 2) AS sub",
             ),
             (
                 "grouping_sets_ordinals",
-                "SELECT count() FROM (SELECT * FROM (SELECT distinct_id, properties FROM events) GROUP BY GROUPING SETS ((1, 2))) AS sub",
+                "SELECT count() FROM (SELECT * FROM (SELECT distinct_id, event FROM events) GROUP BY GROUPING SETS ((1, 2))) AS sub",
             ),
         ]
     )

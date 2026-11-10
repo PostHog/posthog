@@ -12,12 +12,11 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import PropertyDefinition
-
 from products.data_modeling.backend.logic import view_column_refresh
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_modeling.backend.logic.view_column_refresh import refresh_view_columns
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestViewColumnRefresh(ClickhouseTestMixin, BaseTest):

@@ -33,6 +33,13 @@ _LICENSE_COLUMNS = {
     "user": "The user that performed the download.",
 }
 
+_COLLECTION_ITEM_COLUMNS = {
+    "collection_id": "ID of the collection that contains this item.",
+    "id": "ID of the media item in the collection.",
+    "added_time": "Date when the item was added to the collection.",
+    "media_type": "Type of media in the collection.",
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "image_categories": {
         "description": "Categories that Shutterstock images can belong to.",
@@ -64,6 +71,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://api-reference.shutterstock.com/#videos-list-video-collections",
         "columns": _COLLECTION_COLUMNS,
     },
+    "image_collection_items": {
+        "description": "Image membership in the account's collections, with one row per collection and image.",
+        "docs_url": "https://api-reference.shutterstock.com/#images-get-the-contents-of-image-collections",
+        "columns": _COLLECTION_ITEM_COLUMNS,
+    },
+    "video_collection_items": {
+        "description": "Video membership in the account's collections, with one row per collection and video.",
+        "docs_url": "https://api-reference.shutterstock.com/#videos-get-the-contents-of-video-collections",
+        "columns": _COLLECTION_ITEM_COLUMNS,
+    },
     "image_licenses": {
         "description": "The account's image license history: one row per image download event.",
         "docs_url": "https://api-reference.shutterstock.com/#images-list-image-licenses",
@@ -73,6 +90,26 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "The account's video license history: one row per video download event.",
         "docs_url": "https://api-reference.shutterstock.com/#videos-list-video-licenses",
         "columns": {**_LICENSE_COLUMNS, "video": "Details of the licensed video."},
+    },
+    "audio_licenses": {
+        "description": "The account's audio license history, with one row per download event.",
+        "docs_url": "https://api-reference.shutterstock.com/#audio-list-audio-licenses",
+        "columns": {**_LICENSE_COLUMNS, "audio": "Details of the licensed audio track."},
+    },
+    "audio_genres": {
+        "description": "Genres for Shutterstock audio tracks.",
+        "docs_url": "https://api-reference.shutterstock.com/#audio-list-audio-genres",
+        "columns": {"name": "Name of the audio genre."},
+    },
+    "audio_instruments": {
+        "description": "Instruments for Shutterstock audio tracks.",
+        "docs_url": "https://api-reference.shutterstock.com/#audio-list-audio-instruments",
+        "columns": {"name": "Name of the instrument."},
+    },
+    "audio_moods": {
+        "description": "Moods for Shutterstock audio tracks.",
+        "docs_url": "https://api-reference.shutterstock.com/#audio-list-audio-moods",
+        "columns": {"name": "Name of the audio mood."},
     },
     "subscriptions": {
         "description": "The account's Shutterstock subscriptions and their download allotments.",
