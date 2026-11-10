@@ -10,9 +10,9 @@ import { observationsDockLogic } from 'products/replay_vision/frontend/logics/ob
 import { momentCount } from 'products/replay_vision/frontend/utils/recordingTimeline'
 import { recordingScanBlock } from 'products/replay_vision/frontend/utils/scanEligibility'
 
-import { WatchPanelTabs } from './WatchPanelTabs'
+import { WatchPanelSections } from './WatchPanelSections'
 
-export function WatchPanelTabsWithObservations({
+export function WatchPanelSectionsWithObservations({
     sessionId,
     debug,
 }: {
@@ -36,7 +36,7 @@ export function WatchPanelTabsWithObservations({
     )
 
     return (
-        <WatchPanelTabs
+        <WatchPanelSections
             debug={debug}
             observations={{ count: momentCount(timeline), hasObservations: observations.length > 0, content }}
         />

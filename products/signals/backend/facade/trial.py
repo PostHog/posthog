@@ -34,7 +34,9 @@ class TaskTrialAdmission:
         self, *, origin: str, stage: str, report_id: UUID | None, task_runtime: str, model_access: str
     ) -> dict[str, str | int]:
         funding = self.admission.bind(report_id=report_id if stage == "research" else None)
-        if funding.funding == "trial" and (task_runtime == "pi" or model_access == "own-subscription"):
+        if funding.funding == "trial" and (
+            (task_runtime == "pi" and origin != "signals_scout") or model_access == "own-subscription"
+        ):
             raise TrialExecutionRefused()
         return {**funding.as_dict(), "stage": "scout" if origin == "signals_scout" else stage}
 
