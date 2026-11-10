@@ -64,10 +64,8 @@ export function WizardRailButtonView({
                                     <span
                                         aria-hidden
                                         className={cn(
-                                            'WizardRailButton__badge absolute -end-1 -bottom-1 flex size-4 items-center justify-center rounded-full ring-2 ring-[var(--chrome)]',
-                                            state === 'completed'
-                                                ? 'bg-[var(--success-foreground)]'
-                                                : 'bg-[var(--destructive-foreground)]'
+                                            'WizardRailButton__badge absolute -end-1 -bottom-1 flex size-4 items-center justify-center rounded-full',
+                                            `WizardRailButton__badge--${state}`
                                         )}
                                     >
                                         {state === 'completed' ? <IconCheck /> : <IconX />}

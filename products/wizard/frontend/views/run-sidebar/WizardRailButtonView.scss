@@ -24,6 +24,18 @@
         linear-gradient(#000 0 0);
 }
 
+.WizardRailButton__badge {
+    box-shadow: 0 0 0 2px var(--chrome, var(--color-bg-surface-primary));
+}
+
+.WizardRailButton__badge--completed {
+    background: var(--success-foreground, var(--success));
+}
+
+.WizardRailButton__badge--failed {
+    background: var(--destructive-foreground, var(--danger));
+}
+
 .WizardRailButton__badge svg {
     color: white;
     transform: scale(0.5);
