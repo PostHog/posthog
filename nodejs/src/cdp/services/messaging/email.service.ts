@@ -344,8 +344,7 @@ export interface EmailServiceConfig {
     sesEndpoint: string
     // Configuration set with ESP-level open/click tracking enabled.
     sesTrackedConfigurationSet: string
-    // Configuration set without open/click tracking. Empty means not provisioned: tracking-off
-    // sends fall back to the tracked set (with a warning) rather than failing.
+    // Configuration set without open/click tracking. Required whenever sesRegion is set.
     sesUntrackedConfigurationSet: string
     // Trust-tiered per-team sending caps. Optional and defaulting to off, so every send path that
     // builds an EmailService without them keeps its pre-cap behavior.
@@ -430,7 +429,6 @@ export class EmailService {
     sesV2Client: SESv2Client | null
 
     private recipientTokensService: RecipientTokensService
-    private untrackedConfigSetWarningLogged = false
     private workflowRunLinkTagTeams: ValueMatcher<number>
 
     constructor(
@@ -450,6 +448,11 @@ export class EmailService {
         private workflowEmailRateLimiter: RateLimiterService | null = null,
         private teamEmailRateLimiter: RateLimiterService | null = null
     ) {
+        if (this.sesConfig.sesRegion && !this.sesConfig.sesUntrackedConfigurationSet) {
+            throw new Error(
+                'SES_UNTRACKED_CONFIGURATION_SET is empty while SES_REGION is set. Name the untracked SES configuration set, or tracking-off emails would go out with open and click tracking.'
+            )
+        }
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
                   region: this.sesConfig.sesRegion,
@@ -1117,25 +1120,8 @@ export class EmailService {
     // The tracked and untracked configuration sets share the same delivery/bounce/complaint event
     // destination (suppression and the Metrics tab depend on those events); they differ only in
     // ESP-level open/click tracking.
-    private resolveConfigurationSetName(
-        trackingEnabled: boolean,
-        invocation: CyclotronJobInvocationHogFunction
-    ): string {
-        if (trackingEnabled) {
-            return this.sesConfig.sesTrackedConfigurationSet
-        }
-        if (this.sesConfig.sesUntrackedConfigurationSet) {
-            return this.sesConfig.sesUntrackedConfigurationSet
-        }
-        // The missing set is static per process - one warning is signal, one per send is noise.
-        if (!this.untrackedConfigSetWarningLogged) {
-            this.untrackedConfigSetWarningLogged = true
-            logger.warn(
-                'Email tracking disabled for send but no untracked SES configuration set is configured - falling back to the tracked set, ESP-level open/click tracking may still apply',
-                { teamId: invocation.teamId, functionId: invocation.functionId }
-            )
-        }
-        return this.sesConfig.sesTrackedConfigurationSet
+    private resolveConfigurationSetName(trackingEnabled: boolean): string {
+        return trackingEnabled ? this.sesConfig.sesTrackedConfigurationSet : this.sesConfig.sesUntrackedConfigurationSet
     }
 
     private resolveFromSender(
@@ -1316,7 +1302,7 @@ export class EmailService {
                     },
                 },
             },
-            ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
+            ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled),
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [

@@ -256,6 +256,10 @@ describe('EmailService', () => {
         })
     })
 
+    it('refuses to start with SES configured but no untracked configuration set', () => {
+        expect(() => createService({ sesUntrackedConfigurationSet: '' })).toThrow('SES_UNTRACKED_CONFIGURATION_SET')
+    })
+
     describe('executeSendEmail', () => {
         let invocation: CyclotronJobInvocationHogFunction
         let sendEmailSpy: jest.SpyInstance
@@ -2214,7 +2218,6 @@ describe('EmailService', () => {
             })
 
             it('skips pixel and link rewriting and uses the untracked configuration set when tracking is off', async () => {
-                service['sesConfig'].sesUntrackedConfigurationSet = 'posthog-messaging-untracked'
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
                 const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
@@ -2362,14 +2365,6 @@ describe('EmailService', () => {
                     )
                 }
             )
-
-            it('falls back to the tracked configuration set when no untracked set is configured, still untracked HTML', async () => {
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toBeUndefined()
-                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.ConfigurationSetName).toEqual('posthog-messaging')
-                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(trackableHtml)
-            })
 
             it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
                 invocation.state.renderedWorkflowVersion = 3
