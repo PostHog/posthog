@@ -98,6 +98,13 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["pipeline", "-created_at"],
                 name="idx_extdatajob_pipe_created",
             ),
+            # Serves the repartition measurement chain (repartition_controller): equality on
+            # schema ordered by created_at DESC with LIMIT. The pipeline index walks every job
+            # of a many-schema source and reads the heap to filter on schema.
+            models.Index(
+                fields=["schema", "-created_at"],
+                name="idx_extdatajob_schema_created",
+            ),
         ]
 
     @classmethod
