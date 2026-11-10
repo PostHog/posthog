@@ -1,5 +1,6 @@
 import hashlib
 import datetime
+import dataclasses
 from functools import cached_property
 from zoneinfo import ZoneInfo
 
@@ -41,6 +42,7 @@ from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     load_recent_issue_states,
 )
 from products.error_tracking.backend.logic.issue_tags.gate import enabled_issue_tag_definitions
+from products.error_tracking.backend.logic.issue_tags.reader import tags_by_issue
 from products.error_tracking.backend.models import ErrorTrackingIssueTag
 
 logger = structlog.get_logger(__name__)
@@ -218,12 +220,23 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
 
         return ErrorTrackingQueryResponse(
             columns=columns,
-            results=builder.process_results(columns, results),
+            results=self._attach_tags(builder.process_results(columns, results)),
             timings=query_result.timings,
             hogql=query_result.hogql,
             modifiers=self.modifiers,
             **self.paginator.response_params(),
         )
+
+    def _attach_tags(self, results: list[dict]) -> list[dict]:
+        if not results:
+            return results
+        with self.timings.measure("error_tracking_query_tags"):
+            issue_tags = tags_by_issue(self.team.pk, [result["id"] for result in results])
+        if issue_tags is None:
+            return results
+        for result in results:
+            result["tags"] = [dataclasses.asdict(tag) for tag in issue_tags.get(result["id"], [])]
+        return results
 
     # Aggregation queries return only event uuids for first/last event (reading the
     # properties blob inside argMin/argMax decompresses every matching event's blob);

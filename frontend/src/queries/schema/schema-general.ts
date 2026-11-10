@@ -4799,6 +4799,19 @@ export type ErrorTrackingIssueStatus = 'archived' | 'active' | 'resolved' | 'pen
 /** @title ErrorTrackingQueryStatus */
 export type ErrorTrackingQueryStatus = ErrorTrackingIssueStatus | 'all'
 
+export interface ErrorTrackingIssueTag {
+    /** Key of the tag definition. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** The answer: true for yes, false for no, null when the tagger was unsure. */
+    value: boolean | null
+    /** The tagger that wrote the answer: `jev` for AI, `manual` for a person. */
+    source: string
+}
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
@@ -4810,6 +4823,8 @@ export interface ErrorTrackingRelationalIssue {
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]
     cohort?: ErrorTrackingIssueCohort
+    /** The issue's answers to its enabled tags. Absent when the project has no enabled tag. */
+    tags?: ErrorTrackingIssueTag[]
 }
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {

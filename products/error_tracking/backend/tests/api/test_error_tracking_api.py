@@ -38,13 +38,20 @@ from posthog.settings import (
 )
 
 from products.access_control.backend.facade.testing import add_role_member, create_role
-from products.error_tracking.backend.logic import symbol_sets as symbol_sets_logic
+from products.error_tracking.backend.logic import (
+    symbol_sets as symbol_sets_logic,
+    team_flags,
+)
+from products.error_tracking.backend.logic.issue_tags import registry
+from products.error_tracking.backend.logic.issue_tags.gate import ISSUE_TAGS_FLAG
+from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertThread,
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueTag,
     ErrorTrackingRelease,
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
@@ -62,6 +69,23 @@ from products.error_tracking.backend.tests.api.issue_summary_states import (
 )
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
+
+BLOCKS_CHECKOUT = IssueTagDefinition(
+    key="blocks_checkout",
+    label="Blocks checkout",
+    description="The error stops a user from paying.",
+    question_version=1,
+    enabled_flag="error-tracking-issue-tag-blocks-checkout",
+    taggers=(),
+)
+NEEDS_LOGIN = IssueTagDefinition(
+    key="needs_login",
+    label="Needs login",
+    description="The error happens only for users who are logged in.",
+    question_version=1,
+    enabled_flag="error-tracking-issue-tag-needs-login",
+    taggers=(),
+)
 
 
 class OversizedReportingUploadHandler(MemoryFileUploadHandler):
@@ -184,14 +208,27 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == 200
         assert response.json().get("id") == str(issue.id)
 
+    @parameterized.expand(
+        [("issue_tags_off", set()), ("issue_tags_on", {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag})]
+    )
     @time_machine.travel("2025-01-01", tick=False)
-    def test_issue_fetch(self):
+    def test_issue_fetch(self, _name: str, enabled_flags: set[str]):
         issue = self.create_issue(["fingerprint"])
+        for key, value in ((BLOCKS_CHECKOUT.key, True), (NEEDS_LOGIN.key, False)):
+            ErrorTrackingIssueTag.objects.for_team(self.team.id).create(
+                team=self.team, issue=issue, key=key, value=value, source="jev", question_version=1
+            )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}")
+        with (
+            patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, NEEDS_LOGIN)),
+            patch.object(
+                team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
+            ),
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}")
 
         assert response.status_code == 200
-        assert response.json() == {
+        expected: dict[str, object] = {
             "id": str(issue.id),
             "name": None,
             "cohort": None,
@@ -201,6 +238,42 @@ class TestErrorTracking(APIBaseTest):
             "assignee": None,
             "first_seen": "2025-01-01T00:00:00Z",
             "external_issues": [],
+        }
+        if enabled_flags:
+            expected["tags"] = [
+                {
+                    "key": BLOCKS_CHECKOUT.key,
+                    "label": BLOCKS_CHECKOUT.label,
+                    "description": BLOCKS_CHECKOUT.description,
+                    "value": True,
+                    "source": "jev",
+                }
+            ]
+        assert response.json() == expected
+
+    @parameterized.expand(
+        [
+            ("issue_tags_off", {BLOCKS_CHECKOUT.enabled_flag}, []),
+            ("issue_tags_on", {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag}, [BLOCKS_CHECKOUT]),
+        ]
+    )
+    def test_issue_tag_definitions_lists_the_enabled_tags(
+        self, _name: str, enabled_flags: set[str], expected: list[IssueTagDefinition]
+    ) -> None:
+        with (
+            patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, NEEDS_LOGIN)),
+            patch.object(
+                team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
+            ),
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issues/tag_definitions")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "results": [
+                {"key": definition.key, "label": definition.label, "description": definition.description}
+                for definition in expected
+            ]
         }
 
     def test_issue_list_paginates_without_aggregating_all_fingerprints(self) -> None:

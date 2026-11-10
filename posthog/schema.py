@@ -1643,6 +1643,23 @@ class ErrorTrackingIssueImpactToolOutput(BaseModel):
     events: list[str]
 
 
+class ErrorTrackingIssueTag(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str = Field(..., description="What the tag means, for a tooltip.")
+    key: str = Field(..., description="Key of the tag definition.")
+    label: str = Field(..., description="Short name of the tag.")
+    source: str = Field(
+        ...,
+        description=("The tagger that wrote the answer: `jev` for AI, `manual` for a person."),
+    )
+    value: bool | None = Field(
+        ...,
+        description=("The answer: true for yes, false for no, null when the tagger was unsure."),
+    )
+
+
 class Person(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -19019,6 +19036,10 @@ class ErrorTrackingIssue(BaseModel):
     severity: ErrorTrackingQueryIssueSeverity | None = None
     source: str | None = None
     status: ErrorTrackingIssueStatus
+    tags: list[ErrorTrackingIssueTag] | None = Field(
+        default=None,
+        description=("The issue's answers to its enabled tags. Absent when the project has no enabled tag."),
+    )
 
 
 class ErrorTrackingIssueEventsQueryResponse(BaseModel):
@@ -19136,6 +19157,10 @@ class ErrorTrackingRelationalIssue(BaseModel):
     name: str | None = None
     severity: ErrorTrackingQueryIssueSeverity | None = None
     status: ErrorTrackingIssueStatus
+    tags: list[ErrorTrackingIssueTag] | None = Field(
+        default=None,
+        description=("The issue's answers to its enabled tags. Absent when the project has no enabled tag."),
+    )
 
 
 class ErrorTrackingReleasesQueryResponse(BaseModel):
@@ -29387,6 +29412,10 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
     population: Population
     severity: ErrorTrackingQueryIssueSeverity | None = None
     status: ErrorTrackingIssueStatus
+    tags: list[ErrorTrackingIssueTag] | None = Field(
+        default=None,
+        description=("The issue's answers to its enabled tags. Absent when the project has no enabled tag."),
+    )
 
 
 class ErrorTrackingFingerprintProjectionQuery(BaseModel):

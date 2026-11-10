@@ -955,6 +955,22 @@ export interface ErrorTrackingIssueCohortReadApi {
     name: string
 }
 
+export interface ErrorTrackingIssueTagReadApi {
+    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /**
+     * The answer: true for yes, false for no, null when the tagger was unsure.
+     * @nullable
+     */
+    value: boolean | null
+    /** The tagger that wrote the answer: `jev` for AI, `manual` for a person. */
+    source: string
+}
+
 /**
  * Read-only serializer for issue contract types returned by the facade.
  */
@@ -972,6 +988,8 @@ export interface ErrorTrackingIssueReadApi {
     assignee: ErrorTrackingIssueAssigneeReadApi | null
     external_issues: ErrorTrackingExternalReferenceResultApi[]
     cohort: ErrorTrackingIssueCohortReadApi | null
+    /** The issue's answers to its enabled tags. Only issue detail returns it, and only while the project has an enabled tag. */
+    tags?: ErrorTrackingIssueTagReadApi[]
 }
 
 export interface PaginatedErrorTrackingIssueReadListApi {
@@ -1201,6 +1219,20 @@ export interface ErrorTrackingIssueBulkRequestApi {
 export interface ErrorTrackingIssueExistsResponseApi {
     /** Whether the project has recorded any issue at all. */
     exists: boolean
+}
+
+export interface ErrorTrackingIssueTagDefinitionApi {
+    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+}
+
+export interface ErrorTrackingIssueTagDefinitionsResponseApi {
+    /** The tags enabled for the project. Empty while issue tags are off for the project. */
+    results: ErrorTrackingIssueTagDefinitionApi[]
 }
 
 export interface ErrorTrackingIssueValueApi {

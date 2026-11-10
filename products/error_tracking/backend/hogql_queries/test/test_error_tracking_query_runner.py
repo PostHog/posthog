@@ -15,7 +15,8 @@ from posthog.test.base import (
 )
 from unittest import TestCase, mock
 
-from django.db import OperationalError
+from django.db import OperationalError, connection
+from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -93,12 +94,18 @@ from products.event_definitions.backend.property_type import PropertyType
 BLOCKS_CHECKOUT = IssueTagDefinition(
     key="blocks_checkout",
     label="Blocks checkout",
+    description="The error stops a user from paying.",
     question_version=1,
     enabled_flag="error-tracking-issue-tag-blocks-checkout",
     taggers=(),
 )
 OTHER_TAG = IssueTagDefinition(
-    key="other_tag", label="Other tag", question_version=1, enabled_flag=BLOCKS_CHECKOUT.enabled_flag, taggers=()
+    key="other_tag",
+    label="Other tag",
+    description="Another question about the issue.",
+    question_version=1,
+    enabled_flag=BLOCKS_CHECKOUT.enabled_flag,
+    taggers=(),
 )
 
 
@@ -1342,6 +1349,49 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             "other_tag no": set(),
         }
         self.assertEqual(by_filter, expected if filter_applies else dict.fromkeys(expected, every_issue))
+
+    @parameterized.expand([("issue_tags_on", True), ("issue_tags_off", False)])
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_results_carry_the_enabled_tags_of_each_issue(self, _name: str, issue_tags_on: bool):
+        for issue_id, key, value in (
+            (self.issue_id_one, BLOCKS_CHECKOUT.key, True),
+            (self.issue_id_one, OTHER_TAG.key, None),
+            (self.issue_id_one, "retired_tag", True),
+            (self.issue_id_two, BLOCKS_CHECKOUT.key, False),
+        ):
+            ErrorTrackingIssueTag.objects.for_team(self.team.pk).create(
+                team=self.team, issue_id=issue_id, key=key, value=value, source="jev", question_version=1
+            )
+
+        with (
+            mock.patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, OTHER_TAG)),
+            mock.patch.object(team_flags, "feature_enabled_or_false", return_value=issue_tags_on),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            results = self._calculate()["results"]
+
+        def tag(definition: IssueTagDefinition, value: bool | None) -> dict[str, object]:
+            return {
+                "key": definition.key,
+                "label": definition.label,
+                "description": definition.description,
+                "value": value,
+                "source": "jev",
+            }
+
+        expected = {
+            self.issue_id_one: [tag(BLOCKS_CHECKOUT, True), tag(OTHER_TAG, None)],
+            self.issue_id_two: [tag(BLOCKS_CHECKOUT, False)],
+            self.issue_id_three: [],
+        }
+        self.assertEqual(
+            {result["id"]: result["tags"] for result in results},
+            expected if issue_tags_on else dict.fromkeys(expected),
+        )
+        tag_reads = [
+            query for query in queries.captured_queries if ErrorTrackingIssueTag._meta.db_table in query["sql"]
+        ]
+        self.assertEqual(len(tag_reads), 1 if issue_tags_on else 0)
 
     @parameterized.expand(
         [

@@ -167,6 +167,22 @@ class ErrorTrackingIssuePreview:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingIssueTagDefinition:
+    key: str
+    label: str
+    description: str
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueTag:
+    key: str
+    label: str
+    description: str
+    value: bool | None
+    source: str
+
+
+@dataclass(frozen=True)
 class ErrorTrackingIssue:
     id: UUID
     status: str
@@ -177,6 +193,8 @@ class ErrorTrackingIssue:
     assignee: ErrorTrackingIssueAssignee | None
     external_issues: list[ErrorTrackingExternalReference] = field(default_factory=list)
     cohort: ErrorTrackingIssueCohort | None = None
+    # None while issue tags are off for the team, so a response leaves the field out.
+    tags: list[ErrorTrackingIssueTag] | None = None
 
 
 @dataclass(frozen=True)

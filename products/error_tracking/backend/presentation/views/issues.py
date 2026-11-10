@@ -68,6 +68,27 @@ class ErrorTrackingIssueCohortReadSerializer(serializers.Serializer):
     name = serializers.CharField()
 
 
+class ErrorTrackingIssueTagDefinitionSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Key of the tag. Pass it as `issueTag.key` to filter the issue list.")
+    label = serializers.CharField(help_text="Short name of the tag.")  # type: ignore[assignment]  # shadows DRF Field.label
+    description = serializers.CharField(help_text="What the tag means, for a tooltip.")
+
+
+class ErrorTrackingIssueTagReadSerializer(ErrorTrackingIssueTagDefinitionSerializer):
+    value = serializers.BooleanField(
+        allow_null=True, help_text="The answer: true for yes, false for no, null when the tagger was unsure."
+    )
+    source = serializers.CharField(  # type: ignore[assignment]  # shadows DRF Field.source
+        help_text="The tagger that wrote the answer: `jev` for AI, `manual` for a person."
+    )
+
+
+class ErrorTrackingIssueTagDefinitionsResponseSerializer(serializers.Serializer):
+    results = ErrorTrackingIssueTagDefinitionSerializer(
+        many=True, help_text="The tags enabled for the project. Empty while issue tags are off for the project."
+    )
+
+
 class ErrorTrackingIssueReadSerializer(serializers.Serializer):
     """Read-only serializer for issue contract types returned by the facade."""
 
@@ -84,6 +105,20 @@ class ErrorTrackingIssueReadSerializer(serializers.Serializer):
     assignee = ErrorTrackingIssueAssigneeReadSerializer(allow_null=True)
     external_issues = ErrorTrackingExternalReferenceResultSerializer(many=True)
     cohort = ErrorTrackingIssueCohortReadSerializer(allow_null=True)
+    tags = ErrorTrackingIssueTagReadSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "The issue's answers to its enabled tags. Only issue detail returns it, "
+            "and only while the project has an enabled tag."
+        ),
+    )
+
+    def to_representation(self, instance: contracts.ErrorTrackingIssue) -> dict[str, object]:
+        data = super().to_representation(instance)
+        if instance.tags is None:
+            data.pop("tags")
+        return data
 
 
 @extend_schema_field(
@@ -304,7 +339,7 @@ def issue_summary_response(team_id: int, issue_id: UUID, *, user: User) -> dict[
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     # These override the base defaults, so keep the standard DRF actions too.
-    scope_object_read_actions = ["list", "retrieve", "values", "exists", "summary"]
+    scope_object_read_actions = ["list", "retrieve", "values", "exists", "summary", "tag_definitions"]
     scope_object_write_actions = [
         "update",
         "partial_update",
@@ -361,7 +396,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 return JsonResponse({"issue_id": resolved_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
 
         try:
-            issue = facade_api.get_issue(issue_id=issue_id, team_id=self.team.id)
+            issue = facade_api.get_issue(issue_id=issue_id, team_id=self.team.id, with_tags=True)
         except IssueNotFoundError:
             raise NotFound("Issue not found")
 
@@ -408,6 +443,12 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     @action(methods=["GET"], detail=False)
     def exists(self, request: request.Request, **kwargs: object) -> Response:
         return Response({"exists": facade_api.issue_exists(self.team.id)})
+
+    @extend_schema(responses={200: ErrorTrackingIssueTagDefinitionsResponseSerializer})
+    @action(methods=["GET"], detail=False)
+    def tag_definitions(self, request: request.Request, **kwargs: object) -> Response:
+        definitions = facade_api.list_issue_tag_definitions(self.team.id)
+        return Response(ErrorTrackingIssueTagDefinitionsResponseSerializer({"results": definitions}).data)
 
     @validated_request(
         request_serializer=ErrorTrackingIssueMergeRequestSerializer,

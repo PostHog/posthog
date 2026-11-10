@@ -5782,6 +5782,19 @@ export const ErrorTrackingIssueStatusApi = {
     Suppressed: 'suppressed',
 } as const
 
+export interface ErrorTrackingIssueTagApi {
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** Key of the tag definition. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** The tagger that wrote the answer: `jev` for AI, `manual` for a person. */
+    source: string
+    /** The answer: true for yes, false for no, null when the tagger was unsure. */
+    value: boolean | null
+}
+
 export interface ErrorTrackingIssueApi {
     aggregations?: ErrorTrackingIssueAggregationsApi | null
     assignee?: ErrorTrackingIssueAssigneeApi | null
@@ -5799,6 +5812,8 @@ export interface ErrorTrackingIssueApi {
     severity?: ErrorTrackingQueryIssueSeverityApi | null
     source?: string | null
     status: ErrorTrackingIssueStatusApi
+    /** The issue's answers to its enabled tags. Absent when the project has no enabled tag. */
+    tags?: ErrorTrackingIssueTagApi[] | null
 }
 
 export interface Response14Api {
@@ -5849,6 +5864,8 @@ export interface ErrorTrackingCorrelatedIssueApi {
     population: PopulationApi
     severity?: ErrorTrackingQueryIssueSeverityApi | null
     status: ErrorTrackingIssueStatusApi
+    /** The issue's answers to its enabled tags. Absent when the project has no enabled tag. */
+    tags?: ErrorTrackingIssueTagApi[] | null
 }
 
 export interface Response15Api {
@@ -8435,6 +8452,22 @@ export interface MarketingAnalyticsAggregatedQueryApi {
     webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
+export type ErrorTrackingIssueTagFilterValueApi =
+    (typeof ErrorTrackingIssueTagFilterValueApi)[keyof typeof ErrorTrackingIssueTagFilterValueApi]
+
+export const ErrorTrackingIssueTagFilterValueApi = {
+    Yes: 'yes',
+    No: 'no',
+    Unknown: 'unknown',
+} as const
+
+export interface ErrorTrackingIssueTagFilterApi {
+    /** Key of the tag definition. */
+    key: string
+    /** The answer to match. `unknown` matches issues where the tagger was unsure or never answered. */
+    value: ErrorTrackingIssueTagFilterValueApi
+}
+
 export type OrderDirection2Api = (typeof OrderDirection2Api)[keyof typeof OrderDirection2Api]
 
 export const OrderDirection2Api = {
@@ -8495,6 +8528,8 @@ export interface ErrorTrackingQueryApi {
     groupTypeIndex?: number | null
     /** Filter to a specific error tracking issue by ID. */
     issueId?: string | null
+    /** Filter by the answer to one issue tag. Ignored when issue tags or this tag are off for the project. */
+    issueTag?: ErrorTrackingIssueTagFilterApi | null
     kind?: 'ErrorTrackingQuery'
     limit?: number | null
     /** Modifiers used when performing the query */

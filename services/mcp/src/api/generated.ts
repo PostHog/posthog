@@ -9628,6 +9628,19 @@ export namespace Schemas {
       Suppressed: 'suppressed',
     } as const;
 
+    export interface ErrorTrackingIssueTag {
+      /** What the tag means, for a tooltip. */
+      description: string;
+      /** Key of the tag definition. */
+      key: string;
+      /** Short name of the tag. */
+      label: string;
+      /** The tagger that wrote the answer: `jev` for AI, `manual` for a person. */
+      source: string;
+      /** The answer: true for yes, false for no, null when the tagger was unsure. */
+      value: boolean | null;
+    }
+
     export interface ErrorTrackingIssue {
       aggregations?: ErrorTrackingIssueAggregations | null;
       assignee?: ErrorTrackingIssueAssignee | null;
@@ -9645,6 +9658,8 @@ export namespace Schemas {
       severity?: ErrorTrackingQueryIssueSeverity | null;
       source?: string | null;
       status: ErrorTrackingIssueStatus;
+      /** The issue's answers to its enabled tags. Absent when the project has no enabled tag. */
+      tags?: ErrorTrackingIssueTag[] | null;
     }
 
     export interface Response14 {
@@ -9695,6 +9710,8 @@ export namespace Schemas {
       population: Population;
       severity?: ErrorTrackingQueryIssueSeverity | null;
       status: ErrorTrackingIssueStatus;
+      /** The issue's answers to its enabled tags. Absent when the project has no enabled tag. */
+      tags?: ErrorTrackingIssueTag[] | null;
     }
 
     export interface Response15 {
@@ -10872,6 +10889,22 @@ export namespace Schemas {
       webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
+    export type ErrorTrackingIssueTagFilterValue = typeof ErrorTrackingIssueTagFilterValue[keyof typeof ErrorTrackingIssueTagFilterValue];
+
+
+    export const ErrorTrackingIssueTagFilterValue = {
+      Yes: 'yes',
+      No: 'no',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface ErrorTrackingIssueTagFilter {
+      /** Key of the tag definition. */
+      key: string;
+      /** The answer to match. `unknown` matches issues where the tagger was unsure or never answered. */
+      value: ErrorTrackingIssueTagFilterValue;
+    }
+
     export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
 
 
@@ -10945,6 +10978,8 @@ export namespace Schemas {
       groupTypeIndex?: number | null;
       /** Filter to a specific error tracking issue by ID. */
       issueId?: string | null;
+      /** Filter by the answer to one issue tag. Ignored when issue tags or this tag are off for the project. */
+      issueTag?: ErrorTrackingIssueTagFilter | null;
       kind?: 'ErrorTrackingQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -40602,6 +40637,22 @@ export namespace Schemas {
       includeBreakdown?: boolean;
     }
 
+    export interface ErrorTrackingIssueTagRead {
+      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      key: string;
+      /** Short name of the tag. */
+      label: string;
+      /** What the tag means, for a tooltip. */
+      description: string;
+      /**
+         * The answer: true for yes, false for no, null when the tagger was unsure.
+         * @nullable
+         */
+      value: boolean | null;
+      /** The tagger that wrote the answer: `jev` for AI, `manual` for a person. */
+      source: string;
+    }
+
     /**
      * Read-only serializer for issue contract types returned by the facade.
      */
@@ -40619,6 +40670,8 @@ export namespace Schemas {
       assignee: ErrorTrackingIssueAssigneeRead | null;
       external_issues: ErrorTrackingExternalReferenceResult[];
       cohort: ErrorTrackingIssueCohortRead | null;
+      /** The issue's answers to its enabled tags. Only issue detail returns it, and only while the project has an enabled tag. */
+      tags?: ErrorTrackingIssueTagRead[];
     }
 
     export interface ErrorTrackingIssueRedirectResponse {
@@ -40731,6 +40784,20 @@ export namespace Schemas {
        * * `disabled` - Disabled
        * * `ai_not_approved` - Ai Not Approved */
       reason: IssueSummaryUnavailableReasonEnum | null;
+    }
+
+    export interface ErrorTrackingIssueTagDefinition {
+      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      key: string;
+      /** Short name of the tag. */
+      label: string;
+      /** What the tag means, for a tooltip. */
+      description: string;
+    }
+
+    export interface ErrorTrackingIssueTagDefinitionsResponse {
+      /** The tags enabled for the project. Empty while issue tags are off for the project. */
+      results: ErrorTrackingIssueTagDefinition[];
     }
 
     export interface ErrorTrackingIssueValue {

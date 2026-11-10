@@ -38,6 +38,7 @@ class _NewTaggerConfig:
 BLOCKS_CHECKOUT = IssueTagDefinition(
     key="blocks_checkout",
     label="Blocks checkout",
+    description="The error stops a user from paying.",
     question_version=1,
     enabled_flag="error-tracking-issue-tags",
     taggers=(

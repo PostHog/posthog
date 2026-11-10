@@ -27,6 +27,8 @@ class JevTaggerConfig:
 class IssueTagDefinition:
     key: str
     label: str
+    # The tooltip a person sees. The Jev instructions are a separate text, written for a model.
+    description: str
     question_version: int
     enabled_flag: str
     # The taggers that may answer this tag, highest rank first. Manual is not listed because it always ranks first.

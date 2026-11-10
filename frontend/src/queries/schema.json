@@ -24257,6 +24257,13 @@
                 },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
+                },
+                "tags": {
+                    "description": "The issue's answers to its enabled tags. Absent when the project has no enabled tag.",
+                    "items": {
+                        "$ref": "#/definitions/ErrorTrackingIssueTag"
+                    },
+                    "type": "array"
                 }
             },
             "required": [
@@ -24534,6 +24541,13 @@
                 },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
+                },
+                "tags": {
+                    "description": "The issue's answers to its enabled tags. Absent when the project has no enabled tag.",
+                    "items": {
+                        "$ref": "#/definitions/ErrorTrackingIssueTag"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["assignee", "description", "first_seen", "id", "last_seen", "library", "name", "status"],
@@ -24966,6 +24980,33 @@
             "title": "ErrorTrackingIssueStatus",
             "type": "string"
         },
+        "ErrorTrackingIssueTag": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "description": "What the tag means, for a tooltip.",
+                    "type": "string"
+                },
+                "key": {
+                    "description": "Key of the tag definition.",
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Short name of the tag.",
+                    "type": "string"
+                },
+                "source": {
+                    "description": "The tagger that wrote the answer: `jev` for AI, `manual` for a person.",
+                    "type": "string"
+                },
+                "value": {
+                    "description": "The answer: true for yes, false for no, null when the tagger was unsure.",
+                    "type": ["boolean", "null"]
+                }
+            },
+            "required": ["key", "label", "description", "value", "source"],
+            "type": "object"
+        },
         "ErrorTrackingIssueTagFilter": {
             "additionalProperties": false,
             "properties": {
@@ -25338,6 +25379,13 @@
                 },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
+                },
+                "tags": {
+                    "description": "The issue's answers to its enabled tags. Absent when the project has no enabled tag.",
+                    "items": {
+                        "$ref": "#/definitions/ErrorTrackingIssueTag"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
