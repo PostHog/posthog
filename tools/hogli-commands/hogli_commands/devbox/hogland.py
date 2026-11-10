@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import click
+
 from .coder import _LABEL_RE, _fail
 
 REMOTE_REPO_PATH = "/home/hog/posthog"
@@ -115,6 +117,55 @@ def up(name: str, branch: str | None) -> HoglandEndpoint:
     if branch:
         args += ["--branch", branch]
     return parse_endpoint(_run_json(args, timeout=_UP_TIMEOUT_SECONDS))
+
+
+def source_name(clone_from: str) -> str:
+    if clone_from == "default" or clone_from.startswith(NAME_PREFIX):
+        return clone_from
+    return name_for_label(clone_from)
+
+
+def clone(source: str, target: str) -> None:
+    args = ["devbox", "clone", source, target]
+    try:
+        result = subprocess.run(["hogland", *args], capture_output=True, text=True, timeout=_UP_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        _fail(f"`hogland {shlex.join(args)}` did not finish within {_UP_TIMEOUT_SECONDS}s.", cause="hogland_timeout")
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        payload = None
+    if result.returncode != 0 and "unknown command" not in result.stderr:
+        _fail(
+            f"`hogland {shlex.join(args)}` failed: {result.stderr.strip() or result.stdout.strip()}",
+            cause="hogland_command_failed",
+        )
+    if not isinstance(payload, dict) or payload.get("action") != "cloned":
+        _fail(
+            "Your `hogland` CLI can't clone devboxes. Update it with `brew upgrade posthog/tap/hogland`.",
+            cause="hogland_cli_outdated",
+        )
+
+
+def start_app(name: str, enable: bool | None) -> bool:
+    marker = "~/.config/hogli/start-app"
+    steps = []
+    if enable is True:
+        steps.append(f"mkdir -p ~/.config/hogli && touch {marker}")
+    elif enable is False:
+        steps.append(f"rm -f {marker}")
+    steps.append(f"if [ -f {marker} ]; then cd {REMOTE_REPO_PATH} && ./bin/hogli up -d -y && echo started; fi")
+    try:
+        result = run_in_devbox(name, ["bash", "-lc", " && ".join(steps)], timeout=_UP_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        click.echo(f"hogli: starting the app on '{name}' did not finish within {_UP_TIMEOUT_SECONDS}s.", err=True)
+        return False
+    if result.returncode != 0:
+        click.echo(
+            f"hogli: couldn't start the app on '{name}': {result.stderr.strip() or result.stdout.strip()}", err=True
+        )
+        return False
+    return result.stdout.strip().endswith("started")
 
 
 def hibernate(name: str) -> None:
