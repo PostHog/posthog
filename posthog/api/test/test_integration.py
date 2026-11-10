@@ -695,7 +695,10 @@ class TestEmailIntegration:
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
-    def test_email_verify_returns_ses_result(self, mock_create_email_domain, mock_verify_email_domain):
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+    def test_email_verify_returns_ses_result(
+        self, _mock_get_mail_from, mock_create_email_domain, mock_verify_email_domain
+    ):
 
         # Mock the verify_email_domain method to return a test result
         expected_result = {
@@ -754,7 +757,10 @@ class TestEmailIntegration:
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
-    def test_email_verify_updates_integration(self, mock_create_email_domain, mock_verify_email_domain):
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+    def test_email_verify_updates_integration(
+        self, _mock_get_mail_from, mock_create_email_domain, mock_verify_email_domain
+    ):
 
         # Mock the verify_email_domain method to return a test result
         expected_result: EmailDomainVerification = {

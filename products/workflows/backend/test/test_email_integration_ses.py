@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -163,9 +165,7 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
         integration_b.refresh_from_db()
         assert integration_b.config.get("verified") is False
 
-    @patch("posthog.models.integration.email.reload_integrations_on_workers")
-    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
-    def test_verifying_another_sender_keeps_a_changed_mail_from_subdomain(self, _mock_resolver_cls, _mock_reload):
+    def _build_ses_provider_that_keeps_mail_from_domains(self) -> tuple[SESProvider, dict[str, str]]:
         provider = self._build_ses_provider()
         mail_from_domains: dict[str, str] = {}
 
@@ -182,28 +182,57 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
                 }
             }
 
-        provider.ses_client.set_identity_mail_from_domain.side_effect = _set_mail_from
-        provider.ses_client.get_identity_mail_from_domain_attributes.side_effect = _get_mail_from
+        ses_client = cast(MagicMock, provider.ses_client)
+        ses_client.set_identity_mail_from_domain.side_effect = _set_mail_from
+        ses_client.get_identity_mail_from_domain_attributes.side_effect = _get_mail_from
+        return provider, mail_from_domains
+
+    def _create_senders_in_two_teams(self) -> tuple[Integration, Integration]:
         other_team = Team.objects.create(organization=self.organization, name="other team")
+        sender_a = EmailIntegration.create_native_integration(
+            {"email": "a@partner.com", "name": "A"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+        sender_b = EmailIntegration.create_native_integration(
+            {"email": "b@partner.com", "name": "B"},
+            team_id=other_team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+        return sender_a, sender_b
+
+    @patch("posthog.models.integration.email.reload_integrations_on_workers")
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    def test_changing_the_mail_from_subdomain_moves_every_sender_on_the_domain(self, _mock_resolver_cls, _mock_reload):
+        provider, mail_from_domains = self._build_ses_provider_that_keeps_mail_from_domains()
 
         with patch("products.workflows.backend.providers.SESProvider", return_value=provider):
-            sender_a = EmailIntegration.create_native_integration(
-                {"email": "a@partner.com", "name": "A"},
-                team_id=self.team.id,
-                organization_id=str(self.organization.id),
-                created_by=self.user,
-            )
-            sender_b = EmailIntegration.create_native_integration(
-                {"email": "b@partner.com", "name": "B"},
-                team_id=other_team.id,
-                organization_id=str(self.organization.id),
-                created_by=self.user,
-            )
+            sender_a, sender_b = self._create_senders_in_two_teams()
+            Integration.objects.filter(pk=sender_b.pk).update(config={**sender_b.config, "domain": "Partner.com"})
             EmailIntegration(sender_a).update_native_integration({"mail_from_subdomain": "bounces"}, self.team.id)
-            sender_b.refresh_from_db()
-            EmailIntegration(sender_b).verify()
 
         assert mail_from_domains["partner.com"] == "bounces.partner.com"
+        sender_b.refresh_from_db()
+        assert sender_b.config["mail_from_subdomain"] == "bounces"
+
+    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
+    def test_verifying_a_sender_with_a_stale_mail_from_subdomain_keeps_the_one_ses_uses(self, _mock_resolver_cls):
+        provider, mail_from_domains = self._build_ses_provider_that_keeps_mail_from_domains()
+
+        with patch("products.workflows.backend.providers.SESProvider", return_value=provider):
+            sender_a, sender_b = self._create_senders_in_two_teams()
+            Integration.objects.filter(pk=sender_a.pk).update(
+                config={**sender_a.config, "mail_from_subdomain": "bounces"}
+            )
+            mail_from_domains["partner.com"] = "bounces.partner.com"
+            result = EmailIntegration(sender_b).verify()
+
+        assert mail_from_domains["partner.com"] == "bounces.partner.com"
+        assert {record["recordHostname"] for record in result["dnsRecords"] if record["type"] == "mail_from"} == {
+            "bounces.partner.com"
+        }
         sender_b.refresh_from_db()
         assert sender_b.config["mail_from_subdomain"] == "bounces"
 

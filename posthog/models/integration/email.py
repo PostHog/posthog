@@ -175,11 +175,23 @@ class EmailIntegration:
     def _move_domain_senders_to_mail_from_subdomain(self, mail_from_subdomain: str) -> None:
         accessor = row_writes.row_accessor(self.integration)
         domain_senders = accessor.list_across_teams(
-            CrossTeamFilter(where={"domain": self.integration.config["domain"]})
+            CrossTeamFilter(where_iexact={"domain": self.integration.config["domain"]})
         )
         for sender in domain_senders:
             if sender.config.get("mail_from_subdomain") != mail_from_subdomain:
                 accessor.update(sender.team_id, sender.id, config_patch={"mail_from_subdomain": mail_from_subdomain})
+
+    def _adopt_mail_from_subdomain_ses_uses(self, stored_mail_from_subdomain: str) -> str:
+        from products.workflows.backend.facade.api import (
+            get_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+        )
+
+        ses_mail_from_subdomain = get_ses_mail_from_subdomain(self.integration.config["domain"])
+        if not ses_mail_from_subdomain or ses_mail_from_subdomain == stored_mail_from_subdomain:
+            return stored_mail_from_subdomain
+        self._move_domain_senders_to_mail_from_subdomain(ses_mail_from_subdomain)
+        self.integration = model.integration_model(row_writes.reread_row(self.integration))
+        return ses_mail_from_subdomain
 
     def verify(self, *, on_domain_verified: Callable[[], None] | None = None) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")
@@ -193,6 +205,7 @@ class EmailIntegration:
                 verify_ses_email_domain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
             )
 
+            mail_from_subdomain = self._adopt_mail_from_subdomain_ses_uses(mail_from_subdomain)
             verification_result = verify_ses_email_domain(
                 domain, mail_from_subdomain=mail_from_subdomain, team_id=self.integration.team_id
             )
