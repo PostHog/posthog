@@ -44,13 +44,10 @@ export type WidgetCardHeaderProps = {
     /** Live (self-updating) widget type — shows a pulsing "Live" marker where the date range would go. */
     isLive?: boolean
     showEditingControls?: boolean
-    /** When true, title is plain text so drag on the header does not compete with navigation. */
-    isDashboardEditMode?: boolean
     shouldHideMoreButton?: boolean
     moreButtonOverlay?: MoreProps['overlay']
     /** Refresh control revealed on tile hover (dashboard_tile layout only); forwarded to CardMeta. */
     refreshControl?: JSX.Element | null
-    onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
 }
 
 type WidgetCardHeaderTitleProps = {
@@ -58,7 +55,6 @@ type WidgetCardHeaderTitleProps = {
     defaultTitle?: string
     titleHref?: string
     loading?: boolean
-    isDashboardEditMode?: boolean
     headingLevel?: 'h3' | 'h4'
     className?: string
 }
@@ -68,13 +64,12 @@ function WidgetCardHeaderTitle({
     defaultTitle,
     titleHref,
     loading,
-    isDashboardEditMode,
     headingLevel = 'h4',
     className,
 }: WidgetCardHeaderTitleProps): JSX.Element {
     const displayTitle = title || defaultTitle || 'Untitled'
     const Heading = headingLevel
-    const linkTitle = !!titleHref && !isDashboardEditMode
+    const linkTitle = !!titleHref
 
     const titleContent = (
         <>
@@ -179,11 +174,9 @@ export function WidgetCardHeader({
     loading,
     isLive,
     showEditingControls,
-    isDashboardEditMode,
     shouldHideMoreButton,
     moreButtonOverlay,
     refreshControl,
-    onDragHandleMouseDown,
 }: WidgetCardHeaderProps): JSX.Element {
     const showWidgetType = headerMeta?.showWidgetType ?? true
     const showDateRange = headerMeta?.showDateRange ?? false
@@ -224,7 +217,6 @@ export function WidgetCardHeader({
             defaultTitle={defaultTitle}
             titleHref={titleHref}
             loading={loading}
-            isDashboardEditMode={isDashboardEditMode}
             headingLevel="h4"
         />
     )
@@ -253,7 +245,6 @@ export function WidgetCardHeader({
                 className="WidgetCard__header rounded-b-none"
                 showEditingControls={!shouldHideMoreButton && !!moreButtonOverlay}
                 topHeading={(resolvedTopHeading as JSX.Element | null) ?? null}
-                onMouseDown={showEditingControls ? onDragHandleMouseDown : undefined}
                 moreButtons={moreButtonOverlay as JSX.Element | undefined}
                 refreshControl={refreshControl}
                 content={
@@ -273,16 +264,12 @@ export function WidgetCardHeader({
             className="WidgetCard__header flex flex-col p-4 pb-2 min-w-0 overflow-hidden"
         >
             <div className="flex flex-row items-center gap-2">
-                <div
-                    className={clsx('drag-handle cursor-move flex-1 min-w-0', !showEditingControls && 'hidden')}
-                    onMouseDown={onDragHandleMouseDown}
-                >
+                <div className={clsx('drag-handle cursor-move flex-1 min-w-0', !showEditingControls && 'hidden')}>
                     <WidgetCardHeaderTitle
                         title={title}
                         defaultTitle={defaultTitle}
                         titleHref={titleHref}
                         loading={loading}
-                        isDashboardEditMode={isDashboardEditMode}
                         headingLevel="h3"
                     />
                 </div>
@@ -292,7 +279,6 @@ export function WidgetCardHeader({
                         defaultTitle={defaultTitle}
                         titleHref={titleHref}
                         loading={loading}
-                        isDashboardEditMode={isDashboardEditMode}
                         headingLevel="h3"
                         className="flex-1"
                     />
