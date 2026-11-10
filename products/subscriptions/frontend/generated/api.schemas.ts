@@ -11,6 +11,7 @@
  * * `insight` - Insight
  * * `dashboard` - Dashboard
  * * `ai_prompt` - AI prompt
+ * * `ai_visibility_report` - AI visibility report
  */
 export type SubscriptionResourceTypeEnumApi =
     (typeof SubscriptionResourceTypeEnumApi)[keyof typeof SubscriptionResourceTypeEnumApi]
@@ -19,6 +20,7 @@ export const SubscriptionResourceTypeEnumApi = {
     Insight: 'insight',
     Dashboard: 'dashboard',
     AiPrompt: 'ai_prompt',
+    AiVisibilityReport: 'ai_visibility_report',
 } as const
 
 /**
@@ -220,12 +222,13 @@ export interface DeliveryConfigApi {
  */
 export interface SubscriptionApi {
     readonly id: number
-    /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
+    /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), 'ai_prompt' (LLM-generated report), or 'ai_visibility_report' (the weekly AI visibility report: brand visibility and citations in AI answers, with the pages to watch and suggested actions; email or slack only). Send 'ai_visibility_report' on create to subscribe to that report, without insight, dashboard or prompt. The other types are derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt), and a value sent for them is ignored. A subscription's type can't change.
      *
      * * `insight` - Insight
      * * `dashboard` - Dashboard
-     * * `ai_prompt` - AI prompt */
-    readonly resource_type: SubscriptionResourceTypeEnumApi
+     * * `ai_prompt` - AI prompt
+     * * `ai_visibility_report` - AI visibility report */
+    resource_type?: SubscriptionResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
      * @nullable
@@ -385,12 +388,13 @@ export const SubscriptionWriteApiByweekdayItem = {
  */
 export interface SubscriptionWriteApi {
     readonly id: number
-    /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
+    /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), 'ai_prompt' (LLM-generated report), or 'ai_visibility_report' (the weekly AI visibility report: brand visibility and citations in AI answers, with the pages to watch and suggested actions; email or slack only). Send 'ai_visibility_report' on create to subscribe to that report, without insight, dashboard or prompt. The other types are derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt), and a value sent for them is ignored. A subscription's type can't change.
      *
      * * `insight` - Insight
      * * `dashboard` - Dashboard
-     * * `ai_prompt` - AI prompt */
-    readonly resource_type: SubscriptionResourceTypeEnumApi
+     * * `ai_prompt` - AI prompt
+     * * `ai_visibility_report` - AI visibility report */
+    resource_type?: SubscriptionResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
      * @nullable
@@ -544,12 +548,13 @@ export const PatchedSubscriptionWriteApiByweekdayItem = {
  */
 export interface PatchedSubscriptionWriteApi {
     readonly id?: number
-    /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
+    /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), 'ai_prompt' (LLM-generated report), or 'ai_visibility_report' (the weekly AI visibility report: brand visibility and citations in AI answers, with the pages to watch and suggested actions; email or slack only). Send 'ai_visibility_report' on create to subscribe to that report, without insight, dashboard or prompt. The other types are derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt), and a value sent for them is ignored. A subscription's type can't change.
      *
      * * `insight` - Insight
      * * `dashboard` - Dashboard
-     * * `ai_prompt` - AI prompt */
-    readonly resource_type?: SubscriptionResourceTypeEnumApi
+     * * `ai_prompt` - AI prompt
+     * * `ai_visibility_report` - AI visibility report */
+    resource_type?: SubscriptionResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
      * @nullable
@@ -871,7 +876,7 @@ export type SubscriptionsListParams = {
      */
     ordering?: string
     /**
-     * Filter by subscription resource: insight, dashboard export, or AI report.
+     * Filter by subscription resource: insight, dashboard export, AI report, or the weekly AI visibility report.
      */
     resource_type?: SubscriptionsListResourceType
     /**
@@ -889,6 +894,7 @@ export type SubscriptionsListResourceType =
 
 export const SubscriptionsListResourceType = {
     AiPrompt: 'ai_prompt',
+    AiVisibilityReport: 'ai_visibility_report',
     Dashboard: 'dashboard',
     Insight: 'insight',
 } as const

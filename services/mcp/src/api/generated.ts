@@ -790,6 +790,164 @@ export namespace Schemas {
       is_current: boolean;
     }
 
+    export interface AEOWeeklyReportScorecard {
+      /** Answered non-branded checks in the report week: the sample size of every rate. */
+      answers: number;
+      /** Answered non-branded checks in the week before. */
+      previous_answers: number;
+      /**
+         * Share (0-1) of the week's answers that named the brand or cited the site. Null without answers.
+         * @nullable
+         */
+      visibility: number | null;
+      /**
+         * The same share for the week before. Null without answers.
+         * @nullable
+         */
+      previous_visibility: number | null;
+      /**
+         * visibility minus previous_visibility, as a share (0.05 is 5 percentage points). Null when either is null.
+         * @nullable
+         */
+      visibility_change: number | null;
+      /**
+         * Share (0-1) of the week's answers that cited a page on the site. Null without answers.
+         * @nullable
+         */
+      citation_rate: number | null;
+      /**
+         * The same share for the week before. Null without answers.
+         * @nullable
+         */
+      previous_citation_rate: number | null;
+      /**
+         * citation_rate minus previous_citation_rate, as a share. Null when either is null.
+         * @nullable
+         */
+      citation_rate_change: number | null;
+    }
+
+    export interface AEOWeeklyReportTopic {
+      /** The topic the prompts ran with. Empty for prompts without a topic. */
+      topic: string;
+      /** Answered non-branded checks in the topic in the report week. */
+      answers: number;
+      /** The same count for the week before. */
+      previous_answers: number;
+      /**
+         * Share (0-1) of the topic's answers that named the brand or cited the site.
+         * @nullable
+         */
+      visibility: number | null;
+      /**
+         * The same share for the week before. Null without answers.
+         * @nullable
+         */
+      previous_visibility: number | null;
+      /**
+         * visibility minus previous_visibility, as a share. Null when the topic had no answers the week before.
+         * @nullable
+         */
+      visibility_change: number | null;
+    }
+
+    /**
+     * * `owned_gained` - Your page that gained most
+     * * `owned_lost` - Your page that lost most
+     * * `competitor_gained` - Competitor page that gained most
+     */
+    export type WeeklyReportPageRoleEnum = typeof WeeklyReportPageRoleEnum[keyof typeof WeeklyReportPageRoleEnum];
+
+
+    export const WeeklyReportPageRoleEnum = {
+      OwnedGained: 'owned_gained',
+      OwnedLost: 'owned_lost',
+      CompetitorGained: 'competitor_gained',
+    } as const;
+
+    export interface AEOWeeklyReportPage {
+      /** Why the page is listed: 'owned_gained' (the site's page whose citation rate rose most), 'owned_lost' (the site's page that fell most) or 'competitor_gained' (a competitor's page that rose most). Ownership comes from the brand catalog's own and competitor kinds.
+       *
+       * * `owned_gained` - Your page that gained most
+       * * `owned_lost` - Your page that lost most
+       * * `competitor_gained` - Competitor page that gained most */
+      role: WeeklyReportPageRoleEnum;
+      /** The cited URL, as the engine returned it. */
+      url: string;
+      /** Registrable domain of the URL. */
+      domain: string;
+      /** The topic the rates are measured in. Empty for prompts without a topic. */
+      topic: string;
+      /** Share (0-1) of the topic's answers in the report week that cited the page. */
+      citation_rate: number;
+      /** The same share for the week before. */
+      previous_citation_rate: number;
+      /** citation_rate minus previous_citation_rate, as a share. */
+      change: number;
+    }
+
+    /**
+     * * `update_owned_page` - Update an owned page
+     * * `review_competitor_page` - Review a competitor page
+     * * `check_topic` - Check a topic
+     */
+    export type WeeklyReportActionKindEnum = typeof WeeklyReportActionKindEnum[keyof typeof WeeklyReportActionKindEnum];
+
+
+    export const WeeklyReportActionKindEnum = {
+      UpdateOwnedPage: 'update_owned_page',
+      ReviewCompetitorPage: 'review_competitor_page',
+      CheckTopic: 'check_topic',
+    } as const;
+
+    export interface AEOWeeklyReportAction {
+      /** The rule that produced the action: 'update_owned_page', 'review_competitor_page' or 'check_topic'.
+       *
+       * * `update_owned_page` - Update an owned page
+       * * `review_competitor_page` - Review a competitor page
+       * * `check_topic` - Check a topic */
+      kind: WeeklyReportActionKindEnum;
+      /** The action as one sentence, ready to show. */
+      text: string;
+      /** Link to the AI visibility page in PostHog. */
+      url: string;
+      /** The topic the action is about. Empty for prompts without a topic. */
+      topic: string;
+      /**
+         * The page the action is about. Null for a topic action.
+         * @nullable
+         */
+      page_url: string | null;
+      /**
+         * For a competitor page, the site's page in the same topic whose URL path is closest to it. Null otherwise.
+         * @nullable
+         */
+      compare_url: string | null;
+    }
+
+    export interface AEOWeeklyReport {
+      /** Brand visibility and citation rate for the week. */
+      scorecard: AEOWeeklyReportScorecard;
+      /** Every topic with answers in the report week, biggest visibility change first, topics without a previous week last. */
+      topics: AEOWeeklyReportTopic[];
+      /** Up to three pages to watch, one per role. A role is left out when no page moved that way. */
+      pages: AEOWeeklyReportPage[];
+      /** Up to 3 actions derived by fixed rules from the pages and topics, without a language model: the site's page that lost most, the competitor page that gained most, then the topics that fell most. Moves under 5 points are left out. */
+      actions: AEOWeeklyReportAction[];
+      /** First day of the report week, in the project's timezone. */
+      window_from: string;
+      /** Last day of the report week, in the project's timezone. */
+      window_to: string;
+      /** First day of the week before. */
+      previous_from: string;
+      /** Last day of the week before. */
+      previous_to: string;
+      /** The words an answer must contain to count as naming the brand. */
+      brand_names: string[];
+      /** Link to the AI visibility page in PostHog. */
+      app_url: string;
+    }
+
     export interface AIContextAccountProperty {
       /** Customer analytics account property definition id. */
       id: string;
@@ -77902,6 +78060,7 @@ export namespace Schemas {
      * * `insight` - Insight
      * * `dashboard` - Dashboard
      * * `ai_prompt` - AI prompt
+     * * `ai_visibility_report` - AI visibility report
      */
     export type SubscriptionResourceTypeEnum = typeof SubscriptionResourceTypeEnum[keyof typeof SubscriptionResourceTypeEnum];
 
@@ -77910,6 +78069,7 @@ export namespace Schemas {
       Insight: 'insight',
       Dashboard: 'dashboard',
       AiPrompt: 'ai_prompt',
+      AiVisibilityReport: 'ai_visibility_report',
     } as const;
 
     export interface SubscriptionDashboardContext {
@@ -77971,12 +78131,13 @@ export namespace Schemas {
      */
     export interface Subscription {
       readonly id: number;
-      /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
+      /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), 'ai_prompt' (LLM-generated report), or 'ai_visibility_report' (the weekly AI visibility report: brand visibility and citations in AI answers, with the pages to watch and suggested actions; email or slack only). Send 'ai_visibility_report' on create to subscribe to that report, without insight, dashboard or prompt. The other types are derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt), and a value sent for them is ignored. A subscription's type can't change.
        *
        * * `insight` - Insight
        * * `dashboard` - Dashboard
-       * * `ai_prompt` - AI prompt */
-      readonly resource_type: SubscriptionResourceTypeEnum;
+       * * `ai_prompt` - AI prompt
+       * * `ai_visibility_report` - AI visibility report */
+      resource_type?: SubscriptionResourceTypeEnum;
       /**
          * Dashboard ID to subscribe to (mutually exclusive with insight on create).
          * @nullable
@@ -90294,12 +90455,13 @@ export namespace Schemas {
      */
     export interface PatchedSubscriptionWrite {
       readonly id?: number;
-      /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
+      /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), 'ai_prompt' (LLM-generated report), or 'ai_visibility_report' (the weekly AI visibility report: brand visibility and citations in AI answers, with the pages to watch and suggested actions; email or slack only). Send 'ai_visibility_report' on create to subscribe to that report, without insight, dashboard or prompt. The other types are derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt), and a value sent for them is ignored. A subscription's type can't change.
        *
        * * `insight` - Insight
        * * `dashboard` - Dashboard
-       * * `ai_prompt` - AI prompt */
-      readonly resource_type?: SubscriptionResourceTypeEnum;
+       * * `ai_prompt` - AI prompt
+       * * `ai_visibility_report` - AI visibility report */
+      resource_type?: SubscriptionResourceTypeEnum;
       /**
          * Dashboard ID to subscribe to (mutually exclusive with insight on create).
          * @nullable
@@ -112532,12 +112694,13 @@ export namespace Schemas {
      */
     export interface SubscriptionWrite {
       readonly id: number;
-      /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).
+      /** What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), 'ai_prompt' (LLM-generated report), or 'ai_visibility_report' (the weekly AI visibility report: brand visibility and citations in AI answers, with the pages to watch and suggested actions; email or slack only). Send 'ai_visibility_report' on create to subscribe to that report, without insight, dashboard or prompt. The other types are derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt), and a value sent for them is ignored. A subscription's type can't change.
        *
        * * `insight` - Insight
        * * `dashboard` - Dashboard
-       * * `ai_prompt` - AI prompt */
-      readonly resource_type: SubscriptionResourceTypeEnum;
+       * * `ai_prompt` - AI prompt
+       * * `ai_visibility_report` - AI visibility report */
+      resource_type?: SubscriptionResourceTypeEnum;
       /**
          * Dashboard ID to subscribe to (mutually exclusive with insight on create).
          * @nullable
@@ -126088,6 +126251,14 @@ export namespace Schemas {
       NonBranded: 'non_branded',
     } as const;
 
+    export type AeoPromptsWeeklyReportParams = {
+    /**
+     * Last day of the report week (YYYY-MM-DD) in the project's timezone. Defaults to yesterday, the last complete day.
+     * @nullable
+     */
+    end_date?: string | null;
+    };
+
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
     /**
      * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
@@ -138407,7 +138578,7 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
-     * Filter by subscription resource: insight, dashboard export, or AI report.
+     * Filter by subscription resource: insight, dashboard export, AI report, or the weekly AI visibility report.
      */
     resource_type?: SubscriptionsListResourceType;
     /**
@@ -138425,6 +138596,7 @@ export namespace Schemas {
 
     export const SubscriptionsListResourceType = {
       AiPrompt: 'ai_prompt',
+      AiVisibilityReport: 'ai_visibility_report',
       Dashboard: 'dashboard',
       Insight: 'insight',
     } as const;

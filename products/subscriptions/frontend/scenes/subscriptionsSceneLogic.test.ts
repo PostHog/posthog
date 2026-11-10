@@ -252,11 +252,13 @@ describe('subscriptionsSceneLogic', () => {
         })
 
         it.each([
-            ['available', true, { kind: 'ai' }],
-            ['unavailable', false, null],
+            ['ai_prompt', 'available', true, { kind: 'ai' }],
+            ['ai_prompt', 'unavailable', false, null],
+            // The AI visibility report runs no prompt, so it needs no AI prompt access.
+            ['ai_visibility_report', 'unavailable', false, { kind: 'ai_visibility_report' }],
         ])(
-            'picks the AI report target from ?resource_type=ai_prompt when AI subscriptions are %s',
-            async (_, aiAvailable, expectedTarget) => {
+            'picks the target from ?resource_type=%s when AI subscriptions are %s',
+            async (resourceType, _, aiAvailable, expectedTarget) => {
                 await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
                 organizationLogic.actions.loadCurrentOrganizationSuccess({
                     ...MOCK_DEFAULT_ORGANIZATION,
@@ -267,7 +269,7 @@ describe('subscriptionsSceneLogic', () => {
                 targetLogic.mount()
 
                 await expectLogic(logic, () => {
-                    router.actions.push(`${urls.subscriptionNew()}?resource_type=ai_prompt&prompt=What+changed`)
+                    router.actions.push(`${urls.subscriptionNew()}?resource_type=${resourceType}&prompt=What+changed`)
                 }).toMatchValues({ subscriptionModalId: 'new' })
 
                 expect(targetLogic.values.target).toEqual(expectedTarget)

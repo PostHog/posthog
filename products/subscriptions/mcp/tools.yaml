@@ -18,8 +18,8 @@ tools:
             idempotent: false
         title: Create subscription
         description: >
-            Create a recurring subscription. The kind is inferred from which field you populate and returned as the
-            read-only `resource_type`:
+            Create a recurring subscription. The kind is inferred from which field you populate and returned as
+            `resource_type`:
 
             (1) set `insight` — schedule periodic snapshots of one insight (`resource_type: "insight"`).
 
@@ -31,6 +31,13 @@ tools:
             organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create
             is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report
             runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.
+
+            (4) set `resource_type: "ai_visibility_report"` (with no insight, dashboard or prompt) — send the weekly AI
+            visibility report: brand visibility and citation rate in AI answers to non-branded prompts, every topic's
+            change, the pages to watch and up to three suggested actions, computed without a language model. Use
+            `frequency: "weekly"`, and `target_type` `email` or `slack` only. Available when AI visibility is enabled
+            for the user. A week without answers is skipped and recorded in the delivery history. Read the same report
+            with `aeo-prompts-weekly-report-get`.
 
             Delivery is set by `target_type` — `email`, `slack`, or `teams` (a Microsoft Teams webhook URL in
             `target_value`). A Teams webhook URL is only ever read back as its host. Creating a Teams subscription
@@ -201,6 +208,7 @@ tools:
             - insight_short_id
             - invite_message
             - send_test_now
+            - resource_type
     subscriptions-retrieve:
         operation: subscriptions_retrieve
         enabled: true
@@ -211,9 +219,8 @@ tools:
             destructive: false
             idempotent: true
         title: Get subscription
-        description:
-            'Fetch a single subscription by numeric ID. Returns its kind (`resource_type`: insight, dashboard, or
-            ai_prompt), target (`target_type`/`target_value`, host-only for a Teams webhook), schedule, enabled state,
+        description: 'Fetch a single subscription by numeric ID. Returns its kind (`resource_type`: insight, dashboard,
+            ai_prompt or ai_visibility_report), target (`target_type`/`target_value`, host-only for a Teams webhook), schedule, enabled state,
             and AI-summary settings. Metadata only — for the send history and delivered reports, use
             `subscriptions-deliveries-list` / `subscriptions-deliveries-retrieve`.'
         response:

@@ -418,6 +418,8 @@ depends_on = [
     "posthog",
     "ee",
     "products.access_control",
+    # Facade-only: the weekly AI visibility report subscription reads its report from the AEO facade.
+    "products.aeo",
     "products.ai_observability",
     "products.annotations",
     "products.dashboards",

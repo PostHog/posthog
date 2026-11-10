@@ -208,6 +208,8 @@ def list_subscriptions(
         queryset = queryset.filter(dashboard_id__isnull=False)
     elif query.resource_type == "ai_prompt":
         queryset = queryset.filter(prompt__isnull=False).exclude(prompt="")
+    elif query.resource_type in Subscription.REPORT_TYPES:
+        queryset = queryset.filter(report_type=query.resource_type)
 
     if query.target_type:
         queryset = queryset.filter(target_type=query.target_type)

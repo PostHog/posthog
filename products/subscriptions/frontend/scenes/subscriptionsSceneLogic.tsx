@@ -249,6 +249,9 @@ export interface subscriptionsSceneLogicActions {
     chooseAiPrompt: () => {
         value: true
     } // newSubscriptionTargetLogic
+    chooseAiVisibilityReport: () => {
+        value: true
+    } // newSubscriptionTargetLogic
     resetNewSubscriptionTarget: () => {
         value: true
     } // newSubscriptionTargetLogic
@@ -377,7 +380,10 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
             newSubscriptionTargetLogic,
             ['target as newSubscriptionTarget'],
         ],
-        actions: [newSubscriptionTargetLogic, ['chooseAiPrompt', 'reset as resetNewSubscriptionTarget']],
+        actions: [
+            newSubscriptionTargetLogic,
+            ['chooseAiPrompt', 'chooseAiVisibilityReport', 'reset as resetNewSubscriptionTarget'],
+        ],
     })),
     actions({
         loadSubscriptions: true,
@@ -587,6 +593,16 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
         // Only AI reports can be chosen from the URL alone: an insight or dashboard target needs
         // its own fetch, which the picker handles.
         applyDeepLinkTarget: () => {
+            // The AI visibility report needs no target and no AI prompt access, so its link applies at once.
+            if (
+                values.subscriptionModalId === 'new' &&
+                values.deepLinkResourceType === SubscriptionResourceTypeEnumApi.AiVisibilityReport
+            ) {
+                if (values.newSubscriptionTarget === null) {
+                    actions.chooseAiVisibilityReport()
+                }
+                return
+            }
             if (
                 values.subscriptionModalId !== 'new' ||
                 values.deepLinkResourceType !== SubscriptionResourceTypeEnumApi.AiPrompt

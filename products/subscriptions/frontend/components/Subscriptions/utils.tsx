@@ -206,6 +206,15 @@ export const targetTypeOptions: LemonSelectOptionLeaf<SubscriptionApi['target_ty
     },
 ]
 
+/** The weekly AI visibility report goes to email or Slack only. */
+export function targetTypeOptionsFor(
+    resourceType: SubscriptionType['resource_type'] | undefined
+): LemonSelectOptionLeaf<SubscriptionApi['target_type']>[] {
+    return resourceType === SubscriptionResourceTypes.AiVisibilityReport
+        ? targetTypeOptions.filter((option) => option.value !== SubscriptionTargetEnumApi.Teams)
+        : targetTypeOptions
+}
+
 export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) => ({ value: x, label: x.toString() }))
 
 export type FrequencyOptionValue = 'daily' | 'weekly' | 'monthly'

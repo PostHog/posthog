@@ -33,6 +33,15 @@ export const subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessag
 
 export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     .object({
+        resource_type: zod
+            .enum(['insight', 'dashboard', 'ai_prompt', 'ai_visibility_report'])
+            .describe(
+                '\* `insight` - Insight\n\* `dashboard` - Dashboard\n\* `ai_prompt` - AI prompt\n\* `ai_visibility_report` - AI visibility report'
+            )
+            .optional()
+            .describe(
+                "What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), 'ai_prompt' (LLM-generated report), or 'ai_visibility_report' (the weekly AI visibility report: brand visibility and citations in AI answers, with the pages to watch and suggested actions; email or slack only). Send 'ai_visibility_report' on create to subscribe to that report, without insight, dashboard or prompt. The other types are derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt), and a value sent for them is ignored. A subscription's type can't change.\n\n\* `insight` - Insight\n\* `dashboard` - Dashboard\n\* `ai_prompt` - AI prompt\n\* `ai_visibility_report` - AI visibility report"
+            ),
         dashboard: zod
             .number()
             .nullish()
@@ -269,6 +278,15 @@ export const subscriptionsUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessag
 
 export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
     .object({
+        resource_type: zod
+            .enum(['insight', 'dashboard', 'ai_prompt', 'ai_visibility_report'])
+            .describe(
+                '\* `insight` - Insight\n\* `dashboard` - Dashboard\n\* `ai_prompt` - AI prompt\n\* `ai_visibility_report` - AI visibility report'
+            )
+            .optional()
+            .describe(
+                "What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), 'ai_prompt' (LLM-generated report), or 'ai_visibility_report' (the weekly AI visibility report: brand visibility and citations in AI answers, with the pages to watch and suggested actions; email or slack only). Send 'ai_visibility_report' on create to subscribe to that report, without insight, dashboard or prompt. The other types are derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt), and a value sent for them is ignored. A subscription's type can't change.\n\n\* `insight` - Insight\n\* `dashboard` - Dashboard\n\* `ai_prompt` - AI prompt\n\* `ai_visibility_report` - AI visibility report"
+            ),
         dashboard: zod
             .number()
             .nullish()
@@ -505,6 +523,15 @@ export const subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMai
 
 export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
+        resource_type: zod
+            .enum(['insight', 'dashboard', 'ai_prompt', 'ai_visibility_report'])
+            .describe(
+                '\* `insight` - Insight\n\* `dashboard` - Dashboard\n\* `ai_prompt` - AI prompt\n\* `ai_visibility_report` - AI visibility report'
+            )
+            .optional()
+            .describe(
+                "What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), 'ai_prompt' (LLM-generated report), or 'ai_visibility_report' (the weekly AI visibility report: brand visibility and citations in AI answers, with the pages to watch and suggested actions; email or slack only). Send 'ai_visibility_report' on create to subscribe to that report, without insight, dashboard or prompt. The other types are derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt), and a value sent for them is ignored. A subscription's type can't change.\n\n\* `insight` - Insight\n\* `dashboard` - Dashboard\n\* `ai_prompt` - AI prompt\n\* `ai_visibility_report` - AI visibility report"
+            ),
         dashboard: zod
             .number()
             .nullish()

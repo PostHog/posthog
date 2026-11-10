@@ -61,6 +61,7 @@ from products.subscriptions.backend.facade.api import (
     FREQUENCY_CHOICES,
     MAX_AI_SUBSCRIPTION_CONTEXTS,
     MAX_INSIGHTS,
+    REPORT_RESOURCE_TYPES,
     RESOURCE_TYPE_CHOICES,
     TARGET_TYPE_CHOICES,
     TARGET_TYPE_TEAMS,
@@ -349,12 +350,15 @@ class SubscriptionWriteSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
     resource_type = serializers.ChoiceField(
         choices=RESOURCE_TYPE_CHOICES,
-        read_only=True,
+        required=False,
         help_text=(
             "What the subscription delivers: 'insight' (snapshot of one insight), "
-            "'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). "
-            "Read-only — derived from the populated target (insight → insight, "
-            "dashboard → dashboard, prompt → ai_prompt)."
+            "'dashboard' (snapshot of one dashboard), 'ai_prompt' (LLM-generated report), or "
+            "'ai_visibility_report' (the weekly AI visibility report: brand visibility and citations in AI "
+            "answers, with the pages to watch and suggested actions; email or slack only). Send "
+            "'ai_visibility_report' on create to subscribe to that report, without insight, dashboard or prompt. "
+            "The other types are derived from the populated target (insight → insight, dashboard → dashboard, "
+            "prompt → ai_prompt), and a value sent for them is ignored. A subscription's type can't change."
         ),
     )
     dashboard = _RelatedIdField(
@@ -561,6 +565,10 @@ class SubscriptionWriteSerializer(serializers.Serializer):
 
     def to_write(self) -> contracts.SubscriptionWrite:
         values = dict(self.validated_data)
+        # Only a product report is stored as its type. The others are derived from their target.
+        resource_type = values.pop("resource_type", None)
+        if resource_type in REPORT_RESOURCE_TYPES:
+            values["report_type"] = resource_type
         if "contexts" in values:
             values["contexts"] = tuple(
                 contracts.SubscriptionContextTarget(kind="dashboard", id=context["dashboard_id"])
@@ -708,10 +716,10 @@ _SUBSCRIPTION_ID_PARAMETER = OpenApiParameter(
             OpenApiParameter(
                 name="resource_type",
                 type=str,
-                enum=["insight", "dashboard", "ai_prompt"],
+                enum=["insight", "dashboard", "ai_prompt", "ai_visibility_report"],
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by subscription resource: insight, dashboard export, or AI report.",
+                description="Filter by subscription resource: insight, dashboard export, AI report, or the weekly AI visibility report.",
             ),
             OpenApiParameter(
                 name="target_type",

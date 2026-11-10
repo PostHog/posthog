@@ -40,6 +40,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.utils import human_list
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.aeo.backend.facade.api import is_ai_visibility_enabled
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
@@ -230,6 +231,28 @@ class _SubscriptionWrite:
             if gate_reason is not None:
                 raise SubscriptionRequestInvalidError(gate_reason)
 
+    def _validate_ai_visibility_report_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
+        if attrs.get("insight") or attrs.get("dashboard") or attrs.get("prompt"):
+            raise SubscriptionRequestInvalidError(
+                {"resource_type": ["AI visibility report subscriptions cannot also set insight, dashboard, or prompt."]}
+            )
+        target_type = attrs.get("target_type") or (existing.target_type if existing else None)
+        if target_type and target_type not in (
+            Subscription.SubscriptionTarget.EMAIL,
+            Subscription.SubscriptionTarget.SLACK,
+        ):
+            raise SubscriptionRequestInvalidError(
+                {"target_type": ["AI visibility reports only support email or slack delivery."]}
+            )
+        if attrs.get("summary_enabled"):
+            raise SubscriptionRequestInvalidError(
+                {"summary_enabled": ["AI summaries only apply to insight and dashboard subscriptions."]}
+            )
+        if existing is None and not is_ai_visibility_enabled(
+            distinct_id=self._caller_distinct_id(), organization_id=self.organization.id
+        ):
+            raise SubscriptionRequestInvalidError("AI visibility reports are not enabled for your account.")
+
     def _validate_contexts(
         self, contexts: tuple[SubscriptionContextTarget, ...]
     ) -> list[dict[str, Insight | Dashboard]]:
@@ -310,9 +333,16 @@ class _SubscriptionWrite:
                 require_viewer_access(self.viewer, target, field)
 
         if existing is None:
-            # Create: a subscription must export an insight, a dashboard, or an AI prompt.
-            if not attrs.get("dashboard") and not attrs.get("insight") and not attrs.get("prompt"):
+            # Create: a subscription must export an insight, a dashboard, an AI prompt, or a product report.
+            if (
+                not attrs.get("dashboard")
+                and not attrs.get("insight")
+                and not attrs.get("prompt")
+                and not attrs.get("report_type")
+            ):
                 raise SubscriptionRequestInvalidError("A subscription must have an insight, a dashboard, or a prompt.")
+        elif "report_type" in attrs and attrs["report_type"] != existing.report_type:
+            raise SubscriptionRequestInvalidError({"resource_type": ["A subscription's resource type can't change."]})
 
         try:
             if existing is not None:
@@ -322,7 +352,10 @@ class _SubscriptionWrite:
             else:
                 insight, dashboard = attrs.get("insight"), attrs.get("dashboard")
                 resource_type = Subscription.derive_resource_type(
-                    insight.id if insight else None, dashboard.id if dashboard else None, attrs.get("prompt")
+                    insight.id if insight else None,
+                    dashboard.id if dashboard else None,
+                    attrs.get("prompt"),
+                    attrs.get("report_type"),
                 )
         except ValueError as exc:
             raise SubscriptionRequestInvalidError(str(exc))
@@ -342,6 +375,7 @@ class _SubscriptionWrite:
             Subscription.ResourceType.INSIGHT: self._validate_insight_content,
             Subscription.ResourceType.DASHBOARD: self._validate_dashboard_content,
             Subscription.ResourceType.AI_PROMPT: self._validate_ai_content,
+            Subscription.ResourceType.AI_VISIBILITY_REPORT: self._validate_ai_visibility_report_content,
         }
         validate_for_resource_type = content_validators.get(resource_type)
         # Fail soft on an unexpected resource_type (e.g. a stale DB row) — a 400 is
@@ -548,7 +582,8 @@ class _SubscriptionWrite:
         return attrs
 
     def _check_query_access(self, attrs: dict, resource_type: str) -> None:
-        if resource_type == Subscription.ResourceType.AI_PROMPT:
+        # A prompt report checks access as it runs, and a product report runs no insight query.
+        if resource_type == Subscription.ResourceType.AI_PROMPT or resource_type in Subscription.REPORT_TYPES:
             return
         subscription_id = self.instance.id if self.instance else None
         if not should_check_table_access(team_id=self.team_id, subscription_id=subscription_id, attrs=attrs):

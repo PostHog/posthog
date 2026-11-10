@@ -40,6 +40,7 @@ from products.subscriptions.backend.logic.teams_subscriptions import build_teams
 from products.subscriptions.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.subscriptions.backend.models.subscription_context import SubscriptionContext
 from products.subscriptions.backend.temporal.ai_subscription.activities import _deliver_ai_subscription
+from products.subscriptions.backend.temporal.ai_visibility_report import deliver_ai_visibility_report
 from products.subscriptions.backend.temporal.delivery_common import (
     auto_disable_and_return,
     deliver_email,
@@ -207,17 +208,29 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 if sub["created_by__distinct_id"]
                 else str(sub["team_id"]),
                 next_delivery_date=sub["next_delivery_date"].isoformat() if sub["next_delivery_date"] else None,
-                resource_type=Subscription.derive_resource_type(sub["insight_id"], sub["dashboard_id"], sub["prompt"]),
+                resource_type=Subscription.derive_resource_type(
+                    sub["insight_id"], sub["dashboard_id"], sub["prompt"], sub["report_type"]
+                ),
             )
             for sub in Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False, enabled=True)
             .exclude(dashboard__deleted=True)
             .exclude(insight__deleted=True)
             # Skip relationless subs — derive_resource_type raises on them, and one bad row would fail the whole batch.
             .exclude(
-                Q(insight_id__isnull=True) & Q(dashboard_id__isnull=True) & (Q(prompt__isnull=True) | Q(prompt=""))
+                Q(insight_id__isnull=True)
+                & Q(dashboard_id__isnull=True)
+                & (Q(prompt__isnull=True) | Q(prompt=""))
+                & ~Q(report_type__in=Subscription.REPORT_TYPES)
             )
             .values(
-                "id", "team_id", "created_by__distinct_id", "next_delivery_date", "insight_id", "dashboard_id", "prompt"
+                "id",
+                "team_id",
+                "created_by__distinct_id",
+                "next_delivery_date",
+                "insight_id",
+                "dashboard_id",
+                "prompt",
+                "report_type",
             )
         ]
 
@@ -476,6 +489,8 @@ async def _deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSub
 
     if subscription.resource_type == Subscription.ResourceType.AI_PROMPT:
         return await _deliver_ai_subscription(subscription, inputs, recipient_results)
+    if subscription.resource_type == Subscription.ResourceType.AI_VISIBILITY_REPORT:
+        return await deliver_ai_visibility_report(subscription, inputs, recipient_results)
 
     return await _deliver_insight_dashboard_subscription(
         subscription, inputs, recipient_results, send_only_to_new_recipients

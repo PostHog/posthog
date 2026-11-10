@@ -63,6 +63,7 @@ TARGET_TYPE_CHOICES = Subscription.SubscriptionTarget.choices
 FREQUENCY_CHOICES = Subscription.SubscriptionFrequency.choices
 WEEKDAY_CHOICES = Subscription.SubscriptionByWeekDay.choices
 RESOURCE_TYPE_CHOICES = Subscription.ResourceType.choices
+REPORT_RESOURCE_TYPES: frozenset[str] = Subscription.REPORT_TYPES
 AI_WINDOW_MODE_CHOICES = Subscription.AIWindowMode.choices
 AI_QUERY_PLAN_STATUS_CHOICES = AIQueryPlanStatus.choices
 DELIVERY_STATUS_CHOICES = SubscriptionDelivery.Status.choices
@@ -88,6 +89,7 @@ __all__ = [
     "FREQUENCY_CHOICES",
     "MAX_AI_SUBSCRIPTION_CONTEXTS",
     "MAX_INSIGHTS",
+    "REPORT_RESOURCE_TYPES",
     "RESOURCE_TYPE_CHOICES",
     "TARGET_TYPE_CHOICES",
     "TARGET_TYPE_TEAMS",

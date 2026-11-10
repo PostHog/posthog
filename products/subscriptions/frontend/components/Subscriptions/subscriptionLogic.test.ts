@@ -420,6 +420,22 @@ describe('subscriptionLogic', () => {
         })
     })
 
+    it('prefills the weekly AI visibility report from the AI visibility page link', async () => {
+        const reportLogic = subscriptionLogic({ id: 'new' })
+        reportLogic.mount()
+
+        router.actions.push(
+            '/subscriptions/new?resource_type=ai_visibility_report&title=Weekly%20AI%20visibility%20report&frequency=weekly'
+        )
+        await expectLogic(reportLogic).toFinishListeners()
+
+        expect(reportLogic.values.subscription).toMatchObject({
+            resource_type: 'ai_visibility_report',
+            title: 'Weekly AI visibility report',
+            frequency: 'weekly',
+        })
+    })
+
     // The subscriptions scene can pick an insight to send, and reaches the same URL. Forcing
     // the AI type there would turn every snapshot subscription started from that scene into a
     // report from a prompt.

@@ -18,6 +18,9 @@ const subscriptionsCreate = (): ToolBase<ReturnType<typeof SubscriptionsCreateSc
     handler: async (context: Context, params: z.infer<ReturnType<typeof SubscriptionsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.resource_type !== undefined) {
+            body['resource_type'] = params.resource_type
+        }
         if (params.dashboard !== undefined) {
             body['dashboard'] = params.dashboard
         }
