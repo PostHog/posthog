@@ -48,7 +48,18 @@ export function PlayerFrameAmbient(): JSX.Element | null {
         }
         const sampler = samplerRef.current
         const blend = blendRef.current
-        const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+        const motionQuery = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+        let reducedMotion = motionQuery?.matches ?? false
+        const onMotionChange = (event: MediaQueryListEvent): void => {
+            reducedMotion = event.matches
+            if (reducedMotion && animationFrame) {
+                cancelAnimationFrame(animationFrame)
+                animationFrame = 0
+                blend.snap()
+                paint()
+            }
+        }
+        motionQuery?.addEventListener('change', onMotionChange)
         let dirty = true
         // The rebuild event, not the body's content, marks a sampleable page, because a real page can have an empty body.
         let rebuilt = !!replayer.iframe?.contentDocument?.body?.hasChildNodes()
@@ -186,6 +197,7 @@ export function PlayerFrameAmbient(): JSX.Element | null {
             replayer.off('event-cast', markDirtyOnStyleChange as Handler)
             replayer.off('fullsnapshot-rebuilded', sampleAfterRebuild as Handler)
             sampler.onBackgroundImageLoad = null
+            motionQuery?.removeEventListener('change', onMotionChange)
             observer.disconnect()
             observedDocument?.removeEventListener('scroll', markDirty, true)
             observedDocument?.removeEventListener('load', markDirty, true)
