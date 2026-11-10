@@ -174,13 +174,26 @@ describe('checkSandboxRecipient', () => {
     })
 
     it.each([
-        ['the suppression lookup', 'posthog_messagesuppression'],
-        ['the opt-out lookup', 'posthog_messagerecipientpreference'],
+        [
+            'the suppression lookup',
+            'posthog_messagesuppression',
+            (onePool: SandboxRecipientCheckDependencies) =>
+                onePool.recipients.get({ teamId, identifier: address }).then(() => 'answered'),
+        ],
+        [
+            'the opt-out lookup',
+            'posthog_messagerecipientpreference',
+            (onePool: SandboxRecipientCheckDependencies) =>
+                onePool.suppression.isSuppressed(teamId, address, { transactional: false }).then(() => 'answered'),
+        ],
     ])(
-        'blocks for a retry when %s waits behind a lock past the deadline, and gives its connection back',
-        async (_case, table) => {
-            const applicationName = `sandbox-recipient-reads-${teamId}`
-            const reader = new PostgresRouter(defaultConfig, applicationName)
+        'blocks for a retry when %s waits behind a lock past the deadline, and frees its pooled connection',
+        async (_case, table, readTheOtherTable) => {
+            const reader = new PostgresRouter({
+                ...defaultConfig,
+                DATABASE_READONLY_URL: '',
+                POSTGRES_CONNECTION_POOL_SIZE: 1,
+            })
             const lockHolder = new Client({ connectionString: defaultConfig.DATABASE_URL })
             lockHolder.on('error', () => undefined)
             await lockHolder.connect()
@@ -191,16 +204,9 @@ describe('checkSandboxRecipient', () => {
                 reads = sandboxRecipientReads(reader, suppressionConfig, 200)
 
                 expect(await check()).toEqual({ ok: false, reason: 'authorization_unavailable' })
-                await waitForExpect(async () => {
-                    const { rows } = await postgres.query(
-                        PostgresUse.COMMON_READ,
-                        `SELECT count(*)::int AS waiting FROM pg_stat_activity
-                         WHERE application_name = $1 AND wait_event_type = 'Lock'`,
-                        [applicationName],
-                        'test:sandbox-reads-waiting-on-lock'
-                    )
-                    expect(rows).toEqual([{ waiting: 0 }])
-                }, 3_000)
+                expect(await readTheOtherTable(sandboxRecipientReads(reader, suppressionConfig, 1_000))).toBe(
+                    'answered'
+                )
             } finally {
                 await lockHolder.end()
                 await reader.end()
