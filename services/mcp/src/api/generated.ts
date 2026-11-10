@@ -80616,6 +80616,22 @@ export namespace Schemas {
       PullRequest: 'pull_request',
     } as const;
 
+    /**
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed
+     */
+    export type WizardPullRequestStateEnum = typeof WizardPullRequestStateEnum[keyof typeof WizardPullRequestStateEnum];
+
+
+    export const WizardPullRequestStateEnum = {
+      Open: 'open',
+      Draft: 'draft',
+      Merged: 'merged',
+      Closed: 'closed',
+    } as const;
+
     export interface WizardRunPullRequestArtifact {
       /** Unique ID of the run artifact. */
       readonly id: string;
@@ -80639,6 +80655,23 @@ export namespace Schemas {
       readonly base_branch: string;
       /** Time when the artifact was stored. */
       readonly created_at: string;
+      /** Last known state of the pull request on GitHub. Null when no state has been recorded.
+       *
+       * * `open` - open
+       * * `draft` - draft
+       * * `merged` - merged
+       * * `closed` - closed */
+      readonly state: WizardPullRequestStateEnum | null;
+      /**
+         * Time when the pull request was merged, if it was.
+         * @nullable
+         */
+      readonly merged_at: string | null;
+      /**
+         * Time when the pull request was closed or merged. Null while it is open.
+         * @nullable
+         */
+      readonly closed_at: string | null;
     }
 
     export type WizardRunArtifact = WizardRunGitDiffArtifact | WizardRunPullRequestArtifact;

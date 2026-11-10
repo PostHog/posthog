@@ -1,14 +1,21 @@
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
+from django.utils.dateparse import parse_datetime
 
 import structlog
 
 from posthog.event_usage import groups
 from posthog.github.installations import SCOPE_DB_ALIAS, installation_id, installation_team_ids
 from posthog.github.metrics import GitHubWebhookAnalyticsEvent, observe_github_webhook_pr_event_dropped
-from posthog.github.pull_request_events import PullRequestAttribution, capture_pr_event, pr_state_for_action
+from posthog.github.pull_request_events import (
+    TASK_ATTRIBUTION_KEYS,
+    PullRequestAttribution,
+    capture_pr_event,
+    pr_state_for_action,
+)
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
@@ -29,6 +36,9 @@ from products.tasks.backend.pr_urls import (
     read_pr_urls,
 )
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
+
+if TYPE_CHECKING:
+    from products.wizard.backend.facade.contracts import WizardPullRequestMatch
 
 logger = structlog.get_logger(__name__)
 
@@ -192,7 +202,12 @@ def find_task_run(
     return None
 
 
-def _capture_task_pr_event(payload: dict, task_run: TaskRun | None, event: GitHubWebhookAnalyticsEvent) -> None:
+def _capture_task_pr_event(
+    payload: dict,
+    task_run: TaskRun | None,
+    event: GitHubWebhookAnalyticsEvent,
+    wizard_match: "WizardPullRequestMatch | None" = None,
+) -> None:
     try:
         attribution = None
         if task_run is not None:
@@ -208,6 +223,22 @@ def _capture_task_pr_event(payload: dict, task_run: TaskRun | None, event: GitHu
                 properties=task_run.analytics_properties(),
                 include_content=True,
                 send_feature_flags=True,
+            )
+        elif wizard_match is not None:
+            team = Team.objects.get(id=wizard_match.team_id)
+            attribution = PullRequestAttribution(
+                source="wizard_worker",
+                team_id=team.id,
+                distinct_id=wizard_match.created_by_distinct_id or str(team.uuid),
+                groups=groups(team=team),
+                properties={
+                    **dict.fromkeys(TASK_ATTRIBUTION_KEYS, None),
+                    "environment": "cloud",
+                    "wizard_run_id": str(wizard_match.run_id),
+                    "wizard_artifact_id": str(wizard_match.artifact_id) if wizard_match.artifact_id else None,
+                    "program_id": wizard_match.program_id,
+                    "wizard_version": wizard_match.wizard_version,
+                },
             )
     except Exception as error:
         observe_github_webhook_pr_event_dropped(analytics_event=event, reason="capture_exception")
@@ -270,15 +301,19 @@ def handle_pull_request_event(payload: dict) -> None:
     claimed_pr_urls = (
         read_pr_urls(task_run.output if isinstance(task_run.output, dict) else {}) if task_run is not None else []
     )
+    wizard_match = (
+        _match_wizard_pull_request(payload, scoped_team_ids, opened=action == "opened") if task_run is None else None
+    )
 
     logger.info(
         "github_pr_webhook_processed",
         action=action,
         event_action=event_action,
         pr_url=pr_url,
-        pr_source="task" if task_run else "external",
+        pr_source="task" if task_run else "wizard_worker" if wizard_match else "external",
         task_id=str(task_run.task_id) if task_run else None,
         run_id=str(task_run.id) if task_run else None,
+        wizard_run_id=str(wizard_match.run_id) if wizard_match else None,
     )
 
     # Backstop the agent-side PR detector: when we matched the run (by branch+repo)
@@ -309,12 +344,15 @@ def handle_pull_request_event(payload: dict) -> None:
     ):
         _record_run_pr_state(task_run, pr_state)
 
+    if wizard_match is not None and pr_state is not None:
+        _record_wizard_pr_state(wizard_match, pull_request, pr_state)
+
     update_pull_request_assignments(payload, pr_state)
     if refresh_review_decision:
         refresh_pull_request_review_decisions(payload)
 
     if analytics_event is not None:
-        _capture_task_pr_event(payload, task_run, analytics_event)
+        _capture_task_pr_event(payload, task_run, analytics_event, wizard_match)
 
     if action == "closed" and merged:
         # Only trust the merge for the run that actually claims this PR URL. The pr_url backstop
@@ -392,6 +430,70 @@ def handle_pull_request_review_event(payload: dict) -> None:
         pr_source="task" if task_run else "external",
         run_id=str(task_run.id) if task_run else None,
     )
+
+
+def _match_wizard_pull_request(payload: dict, team_ids: list[int], *, opened: bool) -> "WizardPullRequestMatch | None":
+    """The Wizard cloud run that opened this PR. Wizard runs have no TaskRun, so find_task_run never sees them."""
+    pull_request = payload.get("pull_request") or {}
+    head = pull_request.get("head") or {}
+    head_branch = head.get("ref")
+    repository = (payload.get("repository") or {}).get("full_name")
+    if not team_ids or not isinstance(head_branch, str) or not isinstance(repository, str):
+        return None
+
+    from products.wizard.backend.facade.config import WIZARD_PULL_REQUEST_BRANCH_PREFIX  # noqa: PLC0415
+
+    if not head_branch.startswith(WIZARD_PULL_REQUEST_BRANCH_PREFIX):
+        return None
+
+    from products.wizard.backend.facade.api import (  # noqa: PLC0415 — keep the wizard facade off the webhook import path
+        match_pull_request,
+    )
+    from products.wizard.backend.facade.contracts import MatchWizardPullRequestInput  # noqa: PLC0415
+
+    try:
+        return match_pull_request(
+            MatchWizardPullRequestInput(
+                team_ids=tuple(team_ids),
+                url=pull_request["html_url"],
+                repository=repository,
+                head_branch=head_branch,
+                head_repository=(head.get("repo") or {}).get("full_name"),
+                opened=opened,
+            )
+        )
+    except Exception:
+        logger.warning("github_pr_webhook_wizard_match_failed", pr_url=pull_request.get("html_url"), exc_info=True)
+        return None
+
+
+def _record_wizard_pr_state(wizard_match: "WizardPullRequestMatch", pull_request: dict, pr_state: str) -> None:
+    """Persist the PR state on the Wizard run's pull request artifact. Tolerant, like the TaskRun recorders."""
+    updated_at = parse_datetime(pull_request.get("updated_at") or "")
+    if wizard_match.artifact_id is None or updated_at is None:
+        return
+
+    from products.wizard.backend.facade.api import (
+        record_pull_request_state,  # noqa: PLC0415 — see _match_wizard_pull_request
+    )
+    from products.wizard.backend.facade.contracts import RecordWizardPullRequestStateInput  # noqa: PLC0415
+    from products.wizard.backend.facade.enums import WizardPullRequestState  # noqa: PLC0415
+
+    try:
+        record_pull_request_state(
+            RecordWizardPullRequestStateInput(
+                team_id=wizard_match.team_id,
+                artifact_id=wizard_match.artifact_id,
+                state=WizardPullRequestState(pr_state),
+                updated_at=updated_at,
+                merged_at=parse_datetime(pull_request.get("merged_at") or ""),
+                closed_at=parse_datetime(pull_request.get("closed_at") or ""),
+            )
+        )
+    except Exception:
+        logger.warning(
+            "github_pr_webhook_record_wizard_pr_state_failed", wizard_run_id=str(wizard_match.run_id), exc_info=True
+        )
 
 
 def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:

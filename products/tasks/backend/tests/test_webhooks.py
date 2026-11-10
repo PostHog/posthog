@@ -1,6 +1,8 @@
 import hmac
 import json
+import uuid
 import hashlib
+from datetime import UTC, datetime
 from typing import ClassVar
 
 from unittest.mock import MagicMock, patch
@@ -34,6 +36,8 @@ from products.signals.backend.models import (
 from products.tasks.backend.facade.api import find_signal_implementation_run
 from products.tasks.backend.models import Task, TaskRun, TaskThreadMessage
 from products.tasks.backend.webhooks import _task_run_scope_team_ids, find_task_run
+from products.wizard.backend.facade.contracts import WizardPullRequestMatch
+from products.wizard.backend.facade.enums import WizardPullRequestState
 
 
 class TestAccountType(SimpleTestCase):
@@ -1790,6 +1794,67 @@ class TestExternalPRWebhook(TestCase):
         # An external PR's own words are customer business context, so the keys stay null.
         for key in ("pr_title", "pr_body", "pr_labels", "pr_requested_reviewers", "pr_is_draft"):
             self.assertIsNone(props[key])
+
+    def _wizard_payload(self, action: str, merged: bool) -> dict:
+        payload = self._external_payload(action, merged)
+        payload["pull_request"].update(
+            {
+                "head": {"ref": "posthog/wizard-019a6f2b3c4d", "repo": {"full_name": "acme/widgets"}},
+                "updated_at": "2026-11-10T12:00:00Z",
+                "merged_at": "2026-11-10T12:00:00Z" if merged else None,
+                "closed_at": "2026-11-10T12:00:00Z" if action == "closed" else None,
+            }
+        )
+        return payload
+
+    @patch("products.wizard.backend.facade.api.record_pull_request_state")
+    @patch("products.wizard.backend.facade.api.match_pull_request")
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
+    @patch("posthog.github.pull_request_events.posthoganalytics.capture")
+    def test_wizard_pr_event_is_attributed_to_the_wizard_run(
+        self, mock_capture, mock_get_secret, mock_match, mock_record_state
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+        run_id = uuid.uuid4()
+        artifact_id = uuid.uuid4()
+        mock_match.return_value = WizardPullRequestMatch(
+            team_id=self.team.id,
+            run_id=run_id,
+            artifact_id=artifact_id,
+            created_by_distinct_id="wizard-user",
+            program_id="posthog-integration",
+            wizard_version="2.86.0",
+        )
+
+        response = self._post(self._wizard_payload("closed", merged=True))
+
+        self.assertEqual(response.status_code, 202)
+        mock_match.assert_called_once()
+        self.assertEqual(mock_match.call_args.args[0].team_ids, (self.team.id,))
+        mock_capture.assert_called_once()
+        call_kwargs = mock_capture.call_args.kwargs
+        self.assertEqual(call_kwargs["event"], "pr_merged")
+        self.assertEqual(call_kwargs["distinct_id"], "wizard-user")
+        props = call_kwargs["properties"]
+        self.assertEqual(props["pr_source"], "wizard_worker")
+        self.assertEqual(props["wizard_run_id"], str(run_id))
+        self.assertEqual(props["wizard_artifact_id"], str(artifact_id))
+        self.assertIsNone(props["task_id"])
+        recorded = mock_record_state.call_args.args[0]
+        self.assertEqual(recorded.artifact_id, artifact_id)
+        self.assertEqual(recorded.state, WizardPullRequestState.MERGED)
+        self.assertEqual(recorded.merged_at, datetime(2026, 11, 10, 12, 0, tzinfo=UTC))
+
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
+    @patch("posthog.github.pull_request_events.posthoganalytics.capture")
+    def test_wizard_branch_without_a_wizard_run_stays_external(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+
+        response = self._post(self._wizard_payload("opened", merged=False))
+
+        self.assertEqual(response.status_code, 202)
+        mock_capture.assert_called_once()
+        self.assertEqual(mock_capture.call_args.kwargs["properties"]["pr_source"], "external")
 
     @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")

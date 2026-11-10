@@ -1,3 +1,4 @@
+import re
 from hashlib import sha256
 from uuid import UUID
 
@@ -6,11 +7,15 @@ from django.conf import settings
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.models import User
 from posthog.storage import object_storage
 
-from products.wizard.backend.facade.config import WIZARD_GIT_DIFF_CONTENT_TYPE
+from products.wizard.backend.facade.config import WIZARD_GIT_DIFF_CONTENT_TYPE, WIZARD_PULL_REQUEST_BRANCH_PREFIX
 from products.wizard.backend.facade.contracts import (
     CreatePullRequestArtifactInput,
+    MatchWizardPullRequestInput,
+    RecordWizardPullRequestStateInput,
+    WizardPullRequestMatch,
     WizardRunArtifactDTO,
     WizardRunGitDiffArtifactDTO,
     WizardRunPullRequestArtifactDTO,
@@ -22,6 +27,9 @@ from products.wizard.backend.logic.runs import store as run_store
 from products.wizard.backend.observability.service import wizard_observability as run_observability
 
 logger = structlog.get_logger(__name__)
+
+# Run ids are uuid7, so the 12 hex characters in a branch name are the run's creation millisecond.
+_BRANCH_RUN_ID_PREFIX = re.compile(r"[0-9a-f]{12}")
 
 
 @frozen
@@ -80,6 +88,63 @@ def create_pull_request_artifact(params: CreatePullRequestArtifactInput) -> Wiza
 
     run_observability.pull_request_created(run, artifact)
     return artifact
+
+
+def match_pull_request(params: MatchWizardPullRequestInput) -> WizardPullRequestMatch | None:
+    if not params.team_ids or not params.head_branch.startswith(WIZARD_PULL_REQUEST_BRANCH_PREFIX):
+        return None
+
+    owner = store.find_pull_request_owner(params.team_ids, params.url)
+    if owner is None and params.opened:
+        owner = _find_run_by_branch(params)
+    if owner is None:
+        return None
+
+    run = run_store.get_run(owner.team_id, owner.run_id)
+    created_by_distinct_id = (
+        User.objects.filter(id=run.created_by_id).values_list("distinct_id", flat=True).first()
+        if run.created_by_id is not None
+        else None
+    )
+    return WizardPullRequestMatch(
+        team_id=owner.team_id,
+        run_id=owner.run_id,
+        artifact_id=owner.artifact_id,
+        created_by_distinct_id=created_by_distinct_id,
+        program_id=run.program.id,
+        wizard_version=run.program.wizard_version,
+    )
+
+
+def record_pull_request_state(params: RecordWizardPullRequestStateInput) -> None:
+    store.update_pull_request_state(
+        team_id=params.team_id,
+        artifact_id=params.artifact_id,
+        state=params.state,
+        updated_at=params.updated_at,
+        merged_at=params.merged_at,
+        closed_at=params.closed_at,
+    )
+
+
+def _find_run_by_branch(params: MatchWizardPullRequestInput) -> store.PullRequestOwner | None:
+    # A fork chooses its own branch names, so only a branch in the repository itself can name a run.
+    if params.head_repository is None or params.head_repository.casefold() != params.repository.casefold():
+        return None
+
+    run_id_prefix = params.head_branch.removeprefix(WIZARD_PULL_REQUEST_BRANCH_PREFIX)
+    if not _BRANCH_RUN_ID_PREFIX.fullmatch(run_id_prefix):
+        return None
+
+    owners = store.find_cloud_run_owners(
+        team_ids=params.team_ids,
+        id_from=UUID(run_id_prefix + "0" * 20),
+        id_to=UUID(run_id_prefix + "f" * 20),
+        repository=params.repository,
+        limit=2,
+    )
+    # Runs created in the same millisecond share a branch name, so none of them can claim the PR.
+    return owners[0] if len(owners) == 1 else None
 
 
 def list_run_artifacts(team_id: int, run_id: UUID) -> list[WizardRunArtifactDTO]:

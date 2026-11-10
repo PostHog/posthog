@@ -13,6 +13,7 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from .enums import (
+    WizardPullRequestState,
     WizardRunArtifactType,
     WizardRunEnvironment,
     WizardRunStage,
@@ -282,9 +283,45 @@ class WizardRunPullRequestArtifactDTO:
     head_branch: str
     base_branch: str
     created_at: datetime
+    # None for artifacts stored before the pull request state was tracked.
+    state: WizardPullRequestState | None = None
+    merged_at: datetime | None = None
+    closed_at: datetime | None = None
 
 
 type WizardRunArtifactDTO = WizardRunGitDiffArtifactDTO | WizardRunPullRequestArtifactDTO
+
+
+@frozen
+class MatchWizardPullRequestInput:
+    team_ids: tuple[int, ...]
+    url: str
+    repository: str
+    head_branch: str
+    head_repository: str | None
+    # Only an `opened` delivery may match by run, because it can arrive before the artifact is stored.
+    opened: bool
+
+
+@frozen
+class WizardPullRequestMatch:
+    team_id: int
+    run_id: UUID
+    # None when an `opened` delivery matched the run before its artifact was stored.
+    artifact_id: UUID | None
+    created_by_distinct_id: str | None
+    program_id: str
+    wizard_version: str
+
+
+@frozen
+class RecordWizardPullRequestStateInput:
+    team_id: int
+    artifact_id: UUID
+    state: WizardPullRequestState
+    updated_at: datetime
+    merged_at: datetime | None
+    closed_at: datetime | None
 
 
 @frozen
