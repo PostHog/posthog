@@ -17,7 +17,6 @@ export function fewestScopes(scopes: readonly string[]): string[] {
 // `--host` or posthog.json can pick a login that isn't the default. Only URL characters keep the command safe.
 const SHELL_SAFE_HOST = /^https?:\/\/[\w.:-]+(\/[\w./-]*)?$/
 
-// ` --host <host>`, or nothing for a host that isn't safe to paste into a shell.
 export function hostFlag(host: string | undefined): string {
     return host !== undefined && SHELL_SAFE_HOST.test(host) ? ` --host ${host}` : ''
 }

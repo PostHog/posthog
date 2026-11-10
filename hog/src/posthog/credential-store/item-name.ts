@@ -11,7 +11,6 @@ export interface LoginTarget<Project extends ProjectId | null = ProjectId> {
     projectId: Project
 }
 
-// The name a credential store files a secret under. Only `itemName` makes one.
 export type ItemName = string & z.$brand<'ItemName'>
 
 // The project follows a "#", which a host can't contain, so a login's name never reads as a host.
