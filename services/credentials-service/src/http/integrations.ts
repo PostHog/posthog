@@ -15,14 +15,9 @@ import {
     crossTeamBody,
     newIntegrationBody,
     parse,
-    parseChangesQuery,
-    parseExternalIdListQuery,
-    parseExternalIdTarget,
-    parseExternalIdWriteQuery,
     parseIdempotencyKey,
     parseIfMatch,
     parseListQuery,
-    parseOwnerQuery,
     patchBody,
     refsBody,
 } from '../integrations/validation'
@@ -45,9 +40,8 @@ type Env = {
     }
 }
 
-function caller(c: Context): Caller {
-    const auth: Env['Variables']['integrationAuth'] = c.get('integrationAuth')
-    const requestId: string = c.get('requestId')
+function caller<E extends Env>(c: Context<E>): Caller {
+    const auth = c.get('integrationAuth')
     return {
         auth,
         actor: {
@@ -55,13 +49,13 @@ function caller(c: Context): Caller {
             caller: auth.caller,
             userId: auth.userId,
             jti: auth.jti,
-            requestId,
+            requestId: c.get('requestId'),
         },
     }
 }
 
-function body(c: Context): unknown {
-    const value: unknown = c.get('body')
+function body<E extends Env>(c: Context<E>): unknown {
+    const value = c.get('body')
     if (value === NOT_JSON) {
         throw new IntegrationApiError('validation', 'the body must be JSON')
     }
@@ -187,39 +181,6 @@ export function createIntegrationRoutes(opts: IntegrationRoutesOptions): Hono<En
         const { row, created } = await service.upsert(caller(c), input)
         c.header('ETag', etag(row.version))
         return c.json({ record: toRecordJson(row), created }, created ? 201 : 200)
-    })
-
-    app.get('/changes', requireIntegrationAuth('changes', { kind: (c) => c.req.queries('kind') }), async (c) => {
-        const query = parseChangesQuery(c.req.queries())
-        // The body holds secrets, so no proxy or browser may keep it.
-        c.header('Cache-Control', 'no-store')
-        return c.json(await service.changes(caller(c), query))
-    })
-
-    const byExternalId = '/by-external-id/:kind/:external_id'
-    const externalIdScope = { kind: (c: Context) => c.req.param('kind') }
-
-    app.get(byExternalId, requireIntegrationAuth('read_by_external_id', externalIdScope), async (c) => {
-        const target = parseExternalIdTarget(c.req.param('kind'), c.req.param('external_id'))
-        return c.json(await service.listByExternalId(caller(c), target, parseExternalIdListQuery(c.req.queries())))
-    })
-
-    app.patch(byExternalId, requireIntegrationAuth('write_by_external_id', externalIdScope), readBody, async (c) => {
-        const target = parseExternalIdTarget(c.req.param('kind'), c.req.param('external_id'))
-        const { sourceRows } = parseExternalIdWriteQuery(c.req.queries())
-        const patch = parse(patchBody, body(c))
-        return c.json(await service.patchByExternalId(caller(c), target, patch, sourceRows))
-    })
-
-    app.delete(byExternalId, requireIntegrationAuth('delete_by_external_id', externalIdScope), async (c) => {
-        const target = parseExternalIdTarget(c.req.param('kind'), c.req.param('external_id'))
-        const { sourceRows } = parseExternalIdWriteQuery(c.req.queries())
-        return c.json(await service.deleteByExternalId(caller(c), target, sourceRows))
-    })
-
-    app.delete('/', requireIntegrationAuth('delete_owner'), async (c) => {
-        const { ownerId } = parseOwnerQuery(c.req.queries())
-        return c.json(await service.deleteOwner(caller(c), ownerId))
     })
 
     app.get('/:ref', requireIntegrationAuth('read', { ref: (c) => c.req.param('ref') }), async (c) => {
