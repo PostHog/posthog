@@ -1,7 +1,14 @@
 import { useValues } from 'kea'
 import { useContext, useId } from 'react'
 
-import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
+import {
+    IconMarkdown,
+    IconThumbsDown,
+    IconThumbsDownFilled,
+    IconThumbsUp,
+    IconThumbsUpFilled,
+    IconX,
+} from '@posthog/icons'
 import { Button, ChatMessageFooter, Input, Text } from '@posthog/quill-primitives'
 
 import { stripMarkdown } from 'lib/utils/markdown'
@@ -39,11 +46,19 @@ export function QuillTurnFeedbackActions({
             >
                 {timestamp !== undefined && <QuillFooterTimestamp time={timestamp} />}
                 {turnText && (
-                    <QuillCopyButton
-                        value={stripMarkdown(turnText)}
-                        label="Copy answer"
-                        dataAttr="posthog-ai-turn-copy"
-                    />
+                    <>
+                        <QuillCopyButton
+                            value={stripMarkdown(turnText)}
+                            label="Copy answer"
+                            dataAttr="posthog-ai-turn-copy"
+                        />
+                        <QuillCopyButton
+                            value={turnText}
+                            label="Copy answer as Markdown"
+                            dataAttr="posthog-ai-turn-copy-markdown"
+                            icon={<IconMarkdown />}
+                        />
+                    </>
                 )}
                 {rating !== 'bad' && (
                     <QuillFooterButton
