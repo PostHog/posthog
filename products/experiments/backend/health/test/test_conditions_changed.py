@@ -56,6 +56,7 @@ def _context(
     exposed_during_overrides: dict[ChangeWindow, bool | None] | None = None,
     variants: list[dict[str, Any]] = EVEN,
     exposed_units: int | None = None,
+    early_exit: bool = False,
 ) -> HealthContext:
     variant_keys = [variant["key"] for variant in variants]
     changes = [
@@ -68,7 +69,9 @@ def _context(
     ]
     return replace(
         RUNNING_CONTEXT,
-        flag=parse_flag_state(active=True, deleted=False, groups=now or conditions[-1], variants=variants),
+        flag=parse_flag_state(
+            active=True, deleted=False, groups=now or conditions[-1], variants=variants, early_exit=early_exit
+        ),
         flag_history=flag_history(
             changes,
             start_date=LAUNCHED_AT,
@@ -370,6 +373,24 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 "exposures after it.",
             ),
             (
+                "rollout_lowered_in_front_of_an_override_and_a_condition_that_serves_everyone",
+                _context([PRO, EU_CONTROL, EVERYONE], [{**PRO, "rollout_percentage": 20}, EU_CONTROL, EVERYONE]),
+                ("rollout_reduced", INFO, ROLLOUT_TITLE, "A6"),
+                None,
+            ),
+            (
+                "pinned_rollout_lowered_in_front_of_a_condition_that_serves_everyone",
+                _context([PRO_PINNED, EVERYONE], [{**PRO_PINNED, "rollout_percentage": 20}, EVERYONE]),
+                ("rollout_reduced", INFO, ROLLOUT_TITLE, "A6"),
+                None,
+            ),
+            (
+                "rollout_lowered_in_front_of_a_condition_that_serves_everyone_with_early_exit",
+                _context([PRO, EVERYONE], [{**PRO, "rollout_percentage": 20}, EVERYONE], early_exit=True),
+                ("rollout_reduced", INFO, ROLLOUT_TITLE, "A6"),
+                None,
+            ),
+            (
                 "set_back_with_exposures_in_between",
                 _context([PRO], [EVERYONE], [PRO], exposed_between=True),
                 ("reverted", INFO, "The release conditions changed and were set back", "A6"),
@@ -417,6 +438,12 @@ class TestReleaseConditionsChangedMidRun(TestCase):
             (
                 "rollout_lowered_to_zero",
                 _context([PRO_PINNED, EVERYONE], [{**PRO_PINNED, "rollout_percentage": 0}, EVERYONE]),
+                None,
+            ),
+            # Every user it no longer serves gets the same variant from the next condition.
+            (
+                "rollout_lowered_in_front_of_a_condition_that_serves_everyone",
+                _context([PRO, EVERYONE], [{**PRO, "rollout_percentage": 20}, EVERYONE]),
                 None,
             ),
             (

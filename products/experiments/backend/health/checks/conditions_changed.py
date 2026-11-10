@@ -62,7 +62,7 @@ from products.experiments.backend.health.pinned_share import (
 )
 from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
 from products.experiments.backend.health.split_changes import format_change_time
-from products.feature_flags.backend.facade.edits import ConditionsChange
+from products.feature_flags.backend.facade.edits import ConditionsChange, ReleaseCondition
 
 _TITLE = "The release conditions changed after launch"
 _OVERRIDE_TITLE = "A variant override was removed after launch"
@@ -122,7 +122,7 @@ def release_conditions_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
                 f"Review {change} in the flag history.",
             ],
         )
-    lowered = _still_reached(ctx.flag, effect.lowered_rollouts)
+    lowered = _users_lost(ctx.flag, history.release_conditions, effect.lowered_rollouts)
     if lowered:
         return _rollout_reduced(history, effect, lowered)
     # Only an override changed. The forced-variant check reports one that is still in place, and the removed ones
@@ -159,11 +159,41 @@ def _edited_overrides(effect: ConditionsNetEffect) -> list[str]:
     ]
 
 
-def _still_reached(flag: FlagState | None, lowered: tuple[LoweredRollout, ...]) -> tuple[LoweredRollout, ...]:
+def _users_lost(
+    flag: FlagState | None, conditions: tuple[ReleaseCondition, ...], lowered: tuple[LoweredRollout, ...]
+) -> tuple[LoweredRollout, ...]:
+    """The lowered rollouts that cost users their variant, as far as the flag shows. A missed finding beats a wrong
+    one."""
+    if flag is None:
+        return ()
     # A condition the flag service doesn't reach now, at 0% or behind one that serves everyone, may never have served
-    # anyone. That isn't known here, so it is left out: a missed finding over a wrong one.
-    reached = {condition.number for condition in flag.reachable_conditions} if flag is not None else set()
-    return tuple(rollout for rollout in lowered if rollout.condition_number in reached)
+    # anyone.
+    reached = {condition.number for condition in flag.reachable_conditions}
+    return tuple(
+        rollout
+        for rollout in lowered
+        if rollout.condition_number in reached and not _kept_by_a_later_condition(flag, conditions, reached, rollout)
+    )
+
+
+def _kept_by_a_later_condition(
+    flag: FlagState, conditions: tuple[ReleaseCondition, ...], reached: set[int], rollout: LoweredRollout
+) -> bool:
+    """Whether every user this condition no longer serves gets the same variant from a later condition."""
+    own = conditions[rollout.condition_number - 1]
+    # With early exit, a user outside a matching condition's rollout gets no variant and reaches no later condition.
+    if flag.early_exit or own.variant is not None:
+        return False
+    for number, later in enumerate(conditions, start=1):
+        if number <= rollout.condition_number or number not in reached:
+            continue
+        # Without an override, a condition on the same identifier draws the same variant from the same hash.
+        if later.variant is not None or later.aggregation != own.aggregation:
+            return False
+        # Each user has one rollout hash, so a condition without filters at the old rollout or higher serves them all.
+        if not later.property_keys and later.rollout >= rollout.before:
+            return True
+    return False
 
 
 def _rollout_reduced(
@@ -199,7 +229,8 @@ def _lowered(lowered: tuple[LoweredRollout, ...], team_timezone: str) -> str:
         f"Set {rollout.condition_number} is at {rollout.after:g}% now, down from {rollout.before:g}%"
         for rollout in lowered
     ]
-    return f"The rollouts of {len(lowered)} release conditions were lowered {when}: {', '.join(sets[:-1])}, and {sets[-1]}."
+    listed = f"{', '.join(sets[:-1])}, and {sets[-1]}"
+    return f"The rollouts of {len(lowered)} release conditions were lowered {when}: {listed}."
 
 
 def removed_overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
