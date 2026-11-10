@@ -231,7 +231,11 @@ from products.signals.backend.report_merge import (
     was_merged_away,
 )
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
-from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
+from products.signals.backend.report_metric_refresh import (
+    CURRENT_REPORT_STATUSES,
+    REFRESHABLE_REPORT_STATUSES,
+    refresh_report_metric_snapshots,
+)
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.signals.backend.report_monitoring_summary import ReportMonitoringSummary, monitoring_summaries
 from products.signals.backend.report_plan import report_plan
@@ -4298,9 +4302,9 @@ class SignalReportViewSet(
 
     # `list` names the viewset's own action inside the class body, so the annotations use `Sequence`.
     def _refreshable_reports_in_request_order(self, requested_ids: Sequence[str]) -> Sequence[SignalReport]:
+        statuses = REFRESHABLE_REPORT_STATUSES if self._report_monitoring_enabled else CURRENT_REPORT_STATUSES
         by_id = {
-            str(report.id): report
-            for report in self.get_queryset().filter(id__in=requested_ids, status__in=CURRENT_REPORT_STATUSES)
+            str(report.id): report for report in self.get_queryset().filter(id__in=requested_ids, status__in=statuses)
         }
         return [by_id[report_id] for report_id in dict.fromkeys(requested_ids) if report_id in by_id]
 
@@ -4317,8 +4321,8 @@ class SignalReportViewSet(
             "15 minutes is served as is. Each call runs at most 40 source series inside a 20-second "
             "budget, row metrics first; the rest keep their previous snapshot until the next open. "
             "Returns snapshot-only metrics for every requested report the caller can read whose status "
-            "is ready or pending_input. A report in any other status is left out of the response, and "
-            "its saved snapshots stay as they are."
+            "is ready or pending_input, or monitoring when Monitoring is enabled. A report in any other "
+            "status is left out of the response, and its saved snapshots stay as they are."
         ),
         operation_id="signals_reports_refresh_metrics_create",
     )

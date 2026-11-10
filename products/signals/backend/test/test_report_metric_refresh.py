@@ -231,14 +231,25 @@ class TestReportMetricRefreshApi(APIBaseTest):
         [row] = response.json()["reports"]
         assert row["metrics"][0]["value"] == 5.0
 
-    def test_reports_that_are_not_current_are_left_out(self) -> None:
+    @parameterized.expand([("monitoring_enabled", True), ("monitoring_disabled", False)])
+    def test_reports_that_are_not_current_are_left_out(self, _name: str, monitoring_enabled: bool) -> None:
         archived = self._report(status=SignalReport.Status.SUPPRESSED)
         current = self._report()
+        # A Monitoring row draws its trend across the fix, so its snapshots keep refreshing.
+        monitoring = self._report(status=SignalReport.Status.MONITORING, monitoring_started_at=timezone.now())
 
-        with patch(_MEASURE, return_value=_measurement(3)):
-            response = self._refresh(archived, current)
+        with (
+            patch(
+                "products.signals.backend.report_content_gates.feature_enabled_or_false",
+                return_value=monitoring_enabled,
+            ),
+            patch(_MEASURE, return_value=_measurement(3)),
+        ):
+            response = self._refresh(archived, current, monitoring)
 
-        assert [row["id"] for row in response.json()["reports"]] == [str(current.id)]
+        refreshed = [str(current.id), str(monitoring.id)] if monitoring_enabled else [str(current.id)]
+        assert [row["id"] for row in response.json()["reports"]] == refreshed
+        assert (SignalReport.objects.get(id=monitoring.id).metrics[0]["value"] == 3) is monitoring_enabled
 
     def test_a_metric_refreshed_earlier_in_the_call_does_not_block_the_next_one(self) -> None:
         report = self._report(

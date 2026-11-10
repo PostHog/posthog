@@ -55,6 +55,9 @@ REPORT_METRIC_REFRESH_TIME_BUDGET_SECONDS = 20.0
 REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS = 20
 
 CURRENT_REPORT_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
+# A Monitoring row draws its metric's trend across the fix, so its snapshots keep refreshing while the
+# outcome is checked. The request decides whether Monitoring is enabled for the caller.
+REFRESHABLE_REPORT_STATUSES = (*CURRENT_REPORT_STATUSES, SignalReport.Status.MONITORING)
 
 
 class MetricQueryBudgetExhausted(TimeoutError):
@@ -300,7 +303,7 @@ def _persist_metric_snapshot(
     with transaction.atomic():
         report = (
             SignalReport.objects.select_for_update()
-            .filter(team_id=team_id, id=report_id, status__in=CURRENT_REPORT_STATUSES)
+            .filter(team_id=team_id, id=report_id, status__in=REFRESHABLE_REPORT_STATUSES)
             .first()
         )
         if report is None or report.metrics != expected_metrics:
