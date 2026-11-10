@@ -28,6 +28,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.alerts.backend import platform_subscribers
 from products.alerts.backend.activity_logging import AlertConfigurationContext
 from products.alerts.backend.facade import contracts
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
@@ -66,6 +67,12 @@ SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "i
 # Mirrors the in-app SnoozeButton's DateFilter max — Slack's datetimepicker has no bounds of
 # its own, so the cap has to live here.
 SLACK_SNOOZE_MAX_DAYS = 31
+
+
+def remove_member_subscriptions(*, user_id: int, organization_id: uuid.UUID) -> int:
+    """Unsubscribes a user who left an organization from its insight alerts, on the platform's copies
+    too, and returns how many subscriptions they had."""
+    return platform_subscribers.remove_member_subscriptions(user_id=user_id, organization_id=organization_id)
 
 
 def get_alert_team_id(alert_id: uuid.UUID) -> int | None:

@@ -134,6 +134,78 @@ def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
     )
 
 
+def set_subscriber_destinations(
+    *,
+    team_id: int,
+    public_id: UUID,
+    user_ids: Collection[int],
+    event_kinds: Collection[AlertEventKind],
+    in_app_resource_type: str,
+    in_app_resource_id: str,
+) -> bool:
+    """Replaces the alert's subscribers: one email and one in-app destination naming the same users,
+    or none when nobody subscribes. False when the platform has no alert under this public id."""
+    with transaction.atomic():
+        configuration = (
+            PlatformAlertConfiguration.objects.for_team(team_id)
+            .select_for_update()
+            .filter(PlatformAlertConfiguration.with_destination_alert_ids([public_id]))
+            .first()
+        )
+        if configuration is None:
+            return False
+        stale = [row.id for row in _subscriber_rows(team_id, [configuration.id])]
+        AlertDestination.objects.for_team(team_id).filter(id__in=stale).delete()
+        users = sorted(set(user_ids))
+        if users:
+            kinds = [kind.value for kind in event_kinds]
+            subscribers: list[AlertDestinationData] = [
+                {"type": DestinationType.EMAIL, "email_user_ids": users},
+                {
+                    "type": DestinationType.IN_APP,
+                    "in_app_user_ids": users,
+                    "in_app_resource_type": in_app_resource_type,
+                    "in_app_resource_id": in_app_resource_id,
+                },
+            ]
+            AlertDestination.objects.for_team(team_id).bulk_create(
+                AlertDestination(
+                    team_id=team_id,
+                    configuration=configuration,
+                    type=data["type"],
+                    config=dict(data),
+                    event_kinds=kinds,
+                )
+                for data in subscribers
+            )
+    return True
+
+
+def subscriber_user_ids_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[UUID, tuple[int, ...]]:
+    """The users each alert's subscriber destinations name. An alert with none is left out."""
+    configurations = dict(
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(PlatformAlertConfiguration.with_destination_alert_ids(public_ids))
+        .values_list("id", "legacy_configuration_id")
+    )
+    return {
+        configurations[row.configuration_id] or row.configuration_id: tuple(row.config["email_user_ids"])
+        for row in _subscriber_rows(team_id, configurations)
+        if row.type == DestinationType.EMAIL
+    }
+
+
+def _subscriber_rows(team_id: int, configuration_ids: Collection[UUID]) -> list[AlertDestination]:
+    """Destinations that name users who subscribed, rather than a channel or addresses a person typed.
+
+    Told apart in Python, because the config is encrypted and the database cannot read its keys.
+    """
+    rows = AlertDestination.objects.for_team(team_id).filter(
+        configuration_id__in=list(configuration_ids), type__in=[DestinationType.EMAIL, DestinationType.IN_APP]
+    )
+    return [row for row in rows if row.type == DestinationType.IN_APP or "email_user_ids" in row.config]
+
+
 def _refuse_duplicates(team_id: int, configuration_id: UUID, destinations: Sequence[NewAlertDestination]) -> None:
     """A second destination with the same address would send every message twice."""
     seen = [
