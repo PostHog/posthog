@@ -1161,6 +1161,9 @@ class NativeAlertLifecycle:
     # Removes the source's HogFunction destinations of a deleted alert. None for a kind whose
     # destinations are `AlertDestination` rows from the start, which go with the configuration.
     remove_destinations: NativeAlertRemoveDestinations | None = None
+    # False for a kind whose alerts without a source row the platform deletes but does not create
+    # yet. The API then neither publishes nor accepts a create of the kind.
+    creates: bool = True
 
     @property
     def platform_destinations(self) -> bool:
@@ -1205,16 +1208,21 @@ class SourceConfigSpec:
     # The source product can then release its alerts on its own flag, while `platform-alerts` keeps
     # the other kinds and the platform's own pages closed.
     access_flag: str | None = None
+    # `source_config` keys an edit keeps the stored value of when it leaves them out. A stored config
+    # without one predates it, so an edit that fills it in does not end the alert's firings.
+    kept_source_config_keys: frozenset[str] = frozenset()
 
     @property
     def creatable(self) -> bool:
-        return self.native is not None or self.create is not None
+        return (self.native is not None and self.native.creates) or self.create is not None
 
     def creates_natively(self, team_id: int) -> bool:
         """Whether a create for the team makes only the configuration, with no source row."""
         if self.native is None:
             return False
-        return self.create is None or (self.native_create is not None and self.native_create(team_id))
+        if self.native_create is not None:
+            return self.native_create(team_id)
+        return self.create is None
 
 
 SourceConfigLoader = Callable[[], SourceConfigSpec]
@@ -1329,6 +1337,17 @@ DESTINATION_EVENT_KINDS: Final = frozenset(
     {AlertEventKind.FIRING, AlertEventKind.RESOLVED, AlertEventKind.ERRORED, AlertEventKind.BROKEN}
 )
 
+# Turns on team-wide receivers and routes for a team, in delivery and in the API that edits them.
+ROUTING_FLAG: Final = "platform-alerts-routing"
+# The types routed delivery sends to. It skips incident managers, and email and in-app need
+# recipients that belong to one alert.
+ROUTABLE_DESTINATION_TYPES: Final = (
+    DestinationType.SLACK,
+    DestinationType.WEBHOOK,
+    DestinationType.TEAMS,
+    DestinationType.DISCORD,
+)
+
 
 @frozen
 class NewAlertDestination:
@@ -1361,6 +1380,55 @@ class AlertDestinationValidationError(Exception):
         self.message = message
         self.field = field
         super().__init__(message)
+
+
+@frozen
+class AlertReceiverEdit:
+    """A team-wide destination that routes send to. Fields left as None keep what is stored."""
+
+    name: str | None = None
+    data: AlertDestinationData | None = None
+    enabled: bool | None = None
+
+
+@frozen
+class StoredAlertReceiver:
+    id: UUID
+    name: str
+    data: AlertDestinationData
+    enabled: bool
+    route_count: int
+
+
+@frozen
+class RouteMatcher:
+    """One condition a route checks on an alert's labels. Only equality is supported."""
+
+    label: str
+    value: str
+
+
+@frozen
+class AlertRouteEdit:
+    """Which alerts a receiver hears, by their labels. Fields left as None keep what is stored."""
+
+    receiver_id: UUID | None = None
+    matchers: tuple[RouteMatcher, ...] | None = None
+    event_kinds: tuple[AlertEventKind, ...] | None = None
+    enabled: bool | None = None
+
+
+@frozen
+class StoredAlertRoute:
+    id: UUID
+    receiver_id: UUID
+    matchers: tuple[RouteMatcher, ...]
+    event_kinds: tuple[AlertEventKind, ...]
+    enabled: bool
+
+
+class UnknownAlertRouting(Exception):
+    """No receiver or route with this id on the team."""
 
 
 @frozen

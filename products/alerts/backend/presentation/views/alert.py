@@ -921,7 +921,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             insight.refresh_from_db()
             _reject_deleted_insight(insight)
             validated_data = self.validate(validated_data)
-        current_count = AlertConfiguration.objects.filter(team_id=team.id).count()
+        current_count = AlertConfiguration.team_alert_count(team.id)
         check_count_limit(
             team=team,
             key=LimitKey.MAX_ALERTS_PER_TEAM,
@@ -939,6 +939,16 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 calculation_interval=validated_data.get("calculation_interval", AlertCalculationInterval.DAILY),
                 instance=None,
             )
+            # Again under the lock, because `validate` checked before this transaction began. After the
+            # insight lock and the AI detector's admission, so the lock order matches `update`'s and
+            # the admission's flag reads never run while this team-wide lock is held.
+            if refusal := AlertConfiguration.create_limit_error(
+                team_id=team.id,
+                organization=team.organization,
+                calculation_interval=validated_data.get("calculation_interval", AlertCalculationInterval.DAILY),
+                enabled=validated_data.get("enabled", True) is True,
+            ):
+                raise ValidationError({refusal.field: [refusal.message]})
             if threshold_data:
                 threshold_instance = self.add_threshold(threshold_data, validated_data)
                 validated_data["threshold"] = threshold_instance
@@ -992,6 +1002,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             enabled=resulting_enabled,
             calculation_interval=validated_data.get("calculation_interval", instance.calculation_interval),
             instance=instance,
+        )
+        # The state before this update, which decides whether the update adds an active real-time alert.
+        previous = AlertConfiguration(
+            id=instance.id, calculation_interval=instance.calculation_interval, enabled=instance.enabled
         )
         enable_now = enabled_changed and validated_data["enabled"]
         if enable_now:
@@ -1097,6 +1111,17 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 raise ValidationError(str(error)) from error
             except InvalidPlatformAlertEdit as error:
                 raise ValidationError({error.field_name: str(error)}) from error
+        # Again under the lock, because `validate` counted without it and another update can race. After
+        # `write_moved_alert_edit`, because the platform locks a copy before this lock, and an update
+        # that took them the other way round could deadlock with it.
+        if msg := AlertConfiguration.update_limit_error(
+            team_id=instance.team_id,
+            organization=self.context["get_organization"](),
+            calculation_interval=instance.calculation_interval,
+            enabled=instance.enabled,
+            existing=previous,
+        ):
+            raise ValidationError({"calculation_interval": [msg]})
 
         instance.report_updated(
             self.context["request"].user,

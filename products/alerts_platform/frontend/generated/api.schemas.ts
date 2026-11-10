@@ -8,6 +8,161 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `slack` - Slack
+ * * `webhook` - Webhook
+ * * `teams` - Microsoft Teams
+ * * `discord` - Discord
+ */
+export type AlertReceiverTypeEnumApi = (typeof AlertReceiverTypeEnumApi)[keyof typeof AlertReceiverTypeEnumApi]
+
+export const AlertReceiverTypeEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+    Teams: 'teams',
+    Discord: 'discord',
+} as const
+
+export interface AlertReceiverApi {
+    /** ID of the receiver. Routes name it in receiver_id. */
+    id: string
+    /** Name of the receiver, unique in the project. */
+    name: string
+    /** Notification destination type.
+     *
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord */
+    type: AlertReceiverTypeEnumApi
+    /** Whether routes send to this receiver. A disabled receiver gets nothing. */
+    enabled: boolean
+    /** How many routes send to this receiver. Deleting the receiver deletes them. */
+    route_count: number
+    /** Integration ID of the Slack workspace. Set when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Set when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable Slack channel name. Set when type=slack. */
+    slack_channel_name?: string
+    /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+    webhook_url?: string
+}
+
+export interface AlertReceiverWriteApi {
+    /**
+     * Name of the receiver, unique in the project.
+     * @maxLength 255
+     */
+    name: string
+    /** Whether routes send to this receiver. Defaults to true. */
+    enabled?: boolean
+    /** Notification destination type.
+     *
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord */
+    type: AlertReceiverTypeEnumApi
+    /** Integration ID for the Slack workspace. Required when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Required when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable channel name for display. */
+    slack_channel_name?: string
+    /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
+    webhook_url?: string
+}
+
+export interface PatchedAlertReceiverWriteApi {
+    /**
+     * Name of the receiver, unique in the project.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether routes send to this receiver. Defaults to true. */
+    enabled?: boolean
+    /** Notification destination type.
+     *
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord */
+    type?: AlertReceiverTypeEnumApi
+    /** Integration ID for the Slack workspace. Required when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Required when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable channel name for display. */
+    slack_channel_name?: string
+    /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
+    webhook_url?: string
+}
+
+export interface AlertRouteMatcherApi {
+    /** Name of an alert label, such as team. */
+    label: string
+    /** The value the label must equal, such as checkout. */
+    value: string
+}
+
+/**
+ * * `firing` - firing
+ * * `resolved` - resolved
+ * * `errored` - errored
+ * * `broken` - broken
+ */
+export type PlatformAlertDestinationEventKindEnumApi =
+    (typeof PlatformAlertDestinationEventKindEnumApi)[keyof typeof PlatformAlertDestinationEventKindEnumApi]
+
+export const PlatformAlertDestinationEventKindEnumApi = {
+    Firing: 'firing',
+    Resolved: 'resolved',
+    Errored: 'errored',
+    Broken: 'broken',
+} as const
+
+export interface AlertRouteApi {
+    /** ID of the route. */
+    id: string
+    /** ID of the receiver this route sends to. */
+    receiver_id: string
+    /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
+    matchers: AlertRouteMatcherApi[]
+    /** The alert transitions the receiver hears about through this route. */
+    event_kinds: PlatformAlertDestinationEventKindEnumApi[]
+    /** Whether this route sends. */
+    enabled: boolean
+}
+
+export interface AlertRouteWriteApi {
+    /** ID of the receiver this route sends to. */
+    receiver_id: string
+    /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
+    matchers?: AlertRouteMatcherApi[]
+    /**
+     * The alert transitions the receiver hears about through this route. Defaults to every kind.
+     * @minItems 1
+     */
+    event_kinds?: PlatformAlertDestinationEventKindEnumApi[]
+    /** Whether this route sends. Defaults to true. */
+    enabled?: boolean
+}
+
+export interface PatchedAlertRouteWriteApi {
+    /** ID of the receiver this route sends to. */
+    receiver_id?: string
+    /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
+    matchers?: AlertRouteMatcherApi[]
+    /**
+     * The alert transitions the receiver hears about through this route. Defaults to every kind.
+     * @minItems 1
+     */
+    event_kinds?: PlatformAlertDestinationEventKindEnumApi[]
+    /** Whether this route sends. Defaults to true. */
+    enabled?: boolean
+}
+
+/**
  * * `logs` - Logs
  * * `insight` - Insight
  * * `warehouse_source` - Warehouse source
@@ -1226,11 +1381,25 @@ export interface InsightPlatformAlertConditionApi {
     detector?: InsightPlatformAlertConditionApiDetector
 }
 
+/**
+ * Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API.
+ */
+export type InsightPlatformAlertSourceConfigApiConfig = { [key: string]: unknown } | null
+
 export interface InsightPlatformAlertSourceConfigApi {
     /** The insight the alert checks. It cannot change through this API. */
     insight_id: number
     /** The bound the insight's value is checked against. */
     condition: InsightPlatformAlertConditionApi
+    /** Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API. */
+    config?: InsightPlatformAlertSourceConfigApiConfig
+    /** Whether checks skip Saturdays and Sundays. It can't change through this API. */
+    skip_weekend?: boolean
+    /**
+     * How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API.
+     * @minimum 0
+     */
+    evaluation_delay_intervals?: number
 }
 
 /**
@@ -2011,22 +2180,6 @@ export const PlatformAlertDestinationTypeEnumApi = {
     Teams: 'teams',
     Discord: 'discord',
     Pagerduty: 'pagerduty',
-} as const
-
-/**
- * * `firing` - firing
- * * `resolved` - resolved
- * * `errored` - errored
- * * `broken` - broken
- */
-export type PlatformAlertDestinationEventKindEnumApi =
-    (typeof PlatformAlertDestinationEventKindEnumApi)[keyof typeof PlatformAlertDestinationEventKindEnumApi]
-
-export const PlatformAlertDestinationEventKindEnumApi = {
-    Firing: 'firing',
-    Resolved: 'resolved',
-    Errored: 'errored',
-    Broken: 'broken',
 } as const
 
 /**
