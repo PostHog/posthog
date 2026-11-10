@@ -21,6 +21,10 @@ const LOOKBACK_ELIGIBLE_TYPES = new Set(['datetime', 'date', 'timestamp'])
 export const isLookbackEligibleType = (fieldType: string | null | undefined): boolean =>
     !!fieldType && LOOKBACK_ELIGIBLE_TYPES.has(fieldType)
 
+// A history version starts at the cursor value. A date stays equal for every change made that day, so only a
+// cursor with a time can keep history. Mirrors HISTORY_CURSOR_TYPES on the backend.
+const HISTORY_CURSOR_TYPES = new Set(['datetime', 'timestamp'])
+
 export const secondsToLookbackParts = (
     seconds: number | null | undefined
 ): { amount: number | null; unit: LookbackUnit } => {
@@ -325,6 +329,16 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                 )}
             </>
         ) : null
+    const historyFieldType = schema.incremental_fields.find((n) => n.field === incrementalFieldValue)?.field_type
+    const historyAvailable =
+        !!schema.incremental_history_available && !!historyFieldType && HISTORY_CURSOR_TYPES.has(historyFieldType)
+    // A saved history mode stays shown while its field is unchanged, also when the source stopped reporting the
+    // field as a date and time, so an unrelated save doesn't turn history off.
+    const keepsSavedHistory =
+        schema.sync_type === 'incremental' &&
+        incrementalFieldValue === schema.incremental_field &&
+        (schema.cdc_table_mode ?? 'consolidated') !== 'consolidated'
+    const incrementalTableMode = historyAvailable || keepsSavedHistory ? cdcTableMode : 'consolidated'
 
     const radioOptions: {
         value: 'webhook' | 'incremental' | 'append' | 'full_refresh' | 'cdc' | 'xmin'
@@ -557,6 +571,71 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                             )}
                                         </div>
                                     )}
+                                {radioValue === 'incremental' && schema.incremental_history_available && (
+                                    <div className="mt-4">
+                                        <p className="mb-2 font-semibold">Output tables</p>
+                                        <LemonRadio
+                                            radioPosition="top"
+                                            value={incrementalTableMode}
+                                            onChange={(newValue) =>
+                                                setCdcTableMode(newValue as 'consolidated' | 'cdc_only' | 'both')
+                                            }
+                                            options={[
+                                                {
+                                                    value: 'consolidated',
+                                                    label: (
+                                                        <div className="font-normal mb-2">
+                                                            <div className="font-semibold">Consolidated table only</div>
+                                                            <p className="m-0 text-secondary text-sm">
+                                                                Stores the latest version of each row.
+                                                            </p>
+                                                        </div>
+                                                    ),
+                                                },
+                                                {
+                                                    value: 'cdc_only',
+                                                    disabledReason: historyAvailable
+                                                        ? undefined
+                                                        : 'Choose an incremental field that holds a date and time',
+                                                    label: (
+                                                        <div className="font-normal mb-2">
+                                                            <div className="font-semibold">History table only</div>
+                                                            <p className="m-0 text-secondary text-sm">
+                                                                Stores every version of each row, with the time each
+                                                                version was valid.
+                                                            </p>
+                                                        </div>
+                                                    ),
+                                                },
+                                                {
+                                                    value: 'both',
+                                                    disabledReason: historyAvailable
+                                                        ? undefined
+                                                        : 'Choose an incremental field that holds a date and time',
+                                                    label: (
+                                                        <div className="font-normal mb-2">
+                                                            <div className="font-semibold">Both</div>
+                                                            <p className="m-0 text-secondary text-sm">
+                                                                Stores the consolidated table and a history table.
+                                                            </p>
+                                                        </div>
+                                                    ),
+                                                },
+                                            ]}
+                                        />
+                                        {incrementalTableMode !== 'consolidated' && (
+                                            <LemonBanner type="info" className="mt-2">
+                                                <p className="m-0">
+                                                    A sync saves a new version when it sees a new value of{' '}
+                                                    <code>{incrementalFieldValue}</code>. Changes between two syncs
+                                                    become one version.
+                                                </p>
+                                                <p className="m-0">Deleted rows are not recorded.</p>
+                                                <p className="m-0">The history table grows with every change.</p>
+                                            </LemonBanner>
+                                        )}
+                                    </div>
+                                )}
                                 {radioValue === 'incremental' && primaryKeyPicker}
                             </>
                         )}
@@ -671,6 +750,12 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
             if (lookbackSeconds !== (schema.incremental_field_lookback_seconds ?? null)) {
                 return true
             }
+            if (
+                schema.incremental_history_available &&
+                incrementalTableMode !== (schema.cdc_table_mode ?? 'consolidated')
+            ) {
+                return true
+            }
         }
         if (radioValue === 'append' && appendFieldValue !== (schema.incremental_field ?? null)) {
             return true
@@ -715,7 +800,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                 incrementalFieldValue,
                 fieldSelected.field_type,
                 primaryKeyColumns.length > 0 ? primaryKeyColumns : null,
-                undefined,
+                schema.incremental_history_available ? incrementalTableMode : undefined,
                 isLookbackEligibleType(fieldSelected.field_type) ? lookbackSeconds : null
             )
         } else if (radioValue === 'append') {
