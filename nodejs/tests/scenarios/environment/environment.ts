@@ -9,7 +9,15 @@ import { ROLE_RESTART_BACKOFF_MS } from '../cards'
 import { ProviderEdge, startProviderEdge } from '../provider-edge'
 import { StackConflictError, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ROLE_PORTS, Role, RoleSpec, roleSpecs, secretsOf } from './roles'
-import { downServices, eventsConsumerGroup, groupMembers, missingTemplates, startStack } from './stack'
+import {
+    downServices,
+    eventsConsumerGroup,
+    expectOk,
+    groupMembers,
+    missingTemplates,
+    startStack,
+    syncTemplates,
+} from './stack'
 
 export interface Environment {
     up(): Promise<void>
@@ -105,12 +113,18 @@ export function createEnvironment(): Environment {
             edge = await startProviderEdge({ port: EDGE_PORT, trackingKeys: secrets.encryptionSaltKeys })
             specs.filter((spec) => spec.role === 'cdp-api').forEach(start)
             await waitForExpect(
+                () => expectOk(`http://127.0.0.1:${ROLE_PORTS['cdp-api']}/_health`),
+                TEMPLATES_WITHIN_MS,
+                PROBE_INTERVAL_MS
+            )
+            if ((await missingTemplates()).length > 0) {
+                await syncTemplates(REPO_ROOT, stateDir, env)
+            }
+            await waitForExpect(
                 async () => {
                     const missing = await missingTemplates()
                     if (missing.length > 0) {
-                        throw new Error(
-                            `Django has not synced the templates ${missing.join(', ')}; run \`hogli dev:sync-hog-templates\`.`
-                        )
+                        throw new Error(`Django has not synced the templates ${missing.join(', ')}.`)
                     }
                 },
                 TEMPLATES_WITHIN_MS,
