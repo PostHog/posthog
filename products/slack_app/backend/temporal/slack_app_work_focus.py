@@ -57,7 +57,7 @@ class SlackAppWorkFocusWorkflow(PostHogWorkflow):
 
 @workflow.defn(name="slack-app-daily-focus-sweep")
 class SlackAppDailyFocusSweepWorkflow(PostHogWorkflow):
-    """Runs every few minutes and starts a daily work focus for each person whose time has come."""
+    """Runs every 30 minutes and starts a daily work focus for each person whose time has come."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> None:

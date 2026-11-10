@@ -1,5 +1,6 @@
 """The daily work focus: the onboarding work focus again, every workday at a time the person picks, in their Slack
-timezone. A sweep every few minutes starts a run for each person whose time has come."""
+timezone. A sweep every 30 minutes starts a run for each person whose time has come, so a run starts up to 30
+minutes after the picked time."""
 
 import json
 from datetime import UTC, datetime, time, timedelta
@@ -27,8 +28,8 @@ DEFAULT_DAILY_FOCUS_TIME = time(9, 0)
 # pinned: Slack action id on DMs that people already have
 DAILY_FOCUS_OFF_ACTION_ID = "slack_onboarding:daily_focus_off"
 DAILY_FOCUS_FOOTER_BLOCK_ID = "daily_focus_footer"
-# A sweep that finds more people than this leaves the rest for the next sweep, a few minutes later.
-SWEEP_BATCH_SIZE = 500
+# A sweep that finds more people than this leaves the rest for the next sweep, 30 minutes later.
+SWEEP_BATCH_SIZE = 1000
 # pinned: analytics event names, renaming breaks dashboards
 TURNED_ON_EVENT = "slack app daily work focus turned on"
 TURNED_OFF_EVENT = "slack app daily work focus turned off"
