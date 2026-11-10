@@ -146,7 +146,7 @@ def create_team_github_integration_from_oauth_code(
         audit.record("link_rejected", path="oauth", rejection_reason="installation_access_denied")
         raise ValidationError("You do not have access to this GitHub installation", code="installation_access_denied")
 
-    instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, user)
+    instance: IntegrationRecord = GitHubIntegration.integration_from_installation_id(installation_id, team_id, user)
     instance = IntegrationManager.github.oauth.update(
         team_id, instance.id, config_patch={"connecting_user_github_login": authorization.gh_login}
     )
@@ -157,7 +157,7 @@ def create_team_github_integration_from_oauth_code(
         user,
         GitHubInstallationAccess(
             installation_id=installation_id,
-            installation_info=instance.config,
+            installation_info=dict(instance.config),
             access_token=instance.sensitive_config.get("access_token", ""),
             token_expires_at=token_expires_at,
             repository_selection=instance.config.get("repository_selection", "selected"),
@@ -252,7 +252,7 @@ def adopt_orphan_installation(
     if not has_access:
         raise ValidationError("You do not have access to this GitHub installation", code="installation_access_denied")
 
-    instance = GitHubIntegration.integration_from_installation_id(installation_id, team.id, user)
+    instance: IntegrationRecord = GitHubIntegration.integration_from_installation_id(installation_id, team.id, user)
 
     login = UserGitHubIntegration(
         credential.integration, source="github_callback", priority=Priority.NORMAL
