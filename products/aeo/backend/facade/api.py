@@ -21,6 +21,7 @@ from django.db.models import Aggregate, Avg, Count, Exists, Max, Min, OuterRef, 
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 
@@ -521,6 +522,16 @@ def get_prompt_set_overview(team_id: int, *, timezone_name: str, days: int) -> P
     )
 
 
+@frozen
+class _EngineModeCounts:
+    answers: int
+    mentioned: int
+    prompts: int
+
+
+_NO_MODE_COUNTS = _EngineModeCounts(answers=0, mentioned=0, prompts=0)
+
+
 def _memory_vs_search(
     team_id: int, *, since: dt.datetime, target_domains: list[str]
 ) -> tuple[PromptSetModeComparison, ...]:
@@ -530,7 +541,7 @@ def _memory_vs_search(
     answered = AEOCitationCheck.objects.for_team(team_id).filter(created_at__gte=since, check_failed=False)
     no_search = answered.filter(mode=CheckMode.NO_SEARCH)
 
-    def per_engine(checks: QuerySet[AEOCitationCheck]) -> dict[str, tuple[int, int, int]]:
+    def per_engine(checks: QuerySet[AEOCitationCheck]) -> dict[str, _EngineModeCounts]:
         rows = (
             checks.values("engine")
             .annotate(
@@ -540,7 +551,10 @@ def _memory_vs_search(
             )
             .order_by("engine")
         )
-        return {row["engine"]: (row["answers"], row["mentioned"], row["prompts"]) for row in rows}
+        return {
+            row["engine"]: _EngineModeCounts(answers=row["answers"], mentioned=row["mentioned"], prompts=row["prompts"])
+            for row in rows
+        }
 
     memory = per_engine(no_search)
     if not memory:
@@ -550,13 +564,13 @@ def _memory_vs_search(
     return tuple(
         PromptSetModeComparison(
             engine=engine,
-            prompts=prompts,
-            no_search_answers=answers,
-            no_search_mentioned=mentioned,
-            web_search_answers=search.get(engine, (0, 0, 0))[0],
-            web_search_mentioned=search.get(engine, (0, 0, 0))[1],
+            prompts=no_search_counts.prompts,
+            no_search_answers=no_search_counts.answers,
+            no_search_mentioned=no_search_counts.mentioned,
+            web_search_answers=search.get(engine, _NO_MODE_COUNTS).answers,
+            web_search_mentioned=search.get(engine, _NO_MODE_COUNTS).mentioned,
         )
-        for engine, (answers, mentioned, prompts) in memory.items()
+        for engine, no_search_counts in memory.items()
     )
 
 
