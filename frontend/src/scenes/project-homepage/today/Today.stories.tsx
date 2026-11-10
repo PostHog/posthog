@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
@@ -8,6 +10,8 @@ import { Card } from '@posthog/quill'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { App } from 'scenes/App'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { todayListAppearanceLogic } from '~/layout/today/todayListAppearanceLogic'
@@ -19,12 +23,14 @@ import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
 
-import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
+import { makeReport, mockSignals, mockSourceConfigs } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { reportMetricQueryHandler } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportPriority, SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { HighlightsApi } from 'products/today/frontend/generated/api.schemas'
+
+import { readyPulseSlots, withReadySlots } from './todayTestFixtures'
 
 const ADA = {
     id: 1,
@@ -561,7 +567,7 @@ const KEY_METRIC_URL = (event: string): string =>
         })
     )}`
 
-const HIGHLIGHTS: HighlightsApi = {
+const HIGHLIGHTS: HighlightsApi = withReadySlots({
     status: 'ready',
     generated_at: '2026-09-28T18:00:00Z',
     day: '2026-09-28',
@@ -723,7 +729,7 @@ const HIGHLIGHTS: HighlightsApi = {
             product: 'error_tracking',
         },
     ],
-}
+})
 
 const SAVED_INSIGHTS = [
     { id: 1, short_id: 'chk01', name: 'Checkout conversion' },
@@ -782,7 +788,7 @@ function storyHighlights(): HighlightsApi {
         storyComputingCalls -= 1
         return storyLastReady
             ? { ...storyLastReady, status: 'computing' }
-            : { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], items: [] }
+            : { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], pulse_slots: [], items: [] }
     }
     const offered = [...HIGHLIGHTS.pulse, CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC].filter(
         (metric) => !storyHidden.some((hidden) => hidden.key === metric.key)
@@ -793,7 +799,7 @@ function storyHighlights(): HighlightsApi {
         key: pin.key,
         status: chosen.some((metric) => metric.key === pin.key) ? ('ready' as const) : ('unavailable' as const),
     }))
-    storyLastReady = { ...HIGHLIGHTS, pulse: [...chosen, ...suggested], pins }
+    storyLastReady = withReadySlots({ ...HIGHLIGHTS, pulse: [...chosen, ...suggested], pins })
     return storyLastReady
 }
 
@@ -1087,6 +1093,29 @@ export const HomeWithoutAiAndNothingNew: Story = {
                 '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [] },
             },
         }),
+    ],
+}
+
+export const HomeOnNewProject: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
+    },
+    decorators: [
+        keepNumbers([]),
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/': { ...MOCK_DEFAULT_TEAM, ingested_event: false },
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
+                '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [], pulse: [], pulse_slots: [] },
+                '/api/environments/:team_id/file_system/': { results: [], count: 0 },
+                '/api/projects/:team_id/file_system/frequent/': [],
+            },
+        }),
+        (Story) => {
+            teamLogic.mount()
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false })
+            return <Story />
+        },
     ],
 }
 
@@ -1410,6 +1439,7 @@ export const HomePulseLoading: Story = {
                     status: 'computing',
                     generated_at: null,
                     pulse: [],
+                    pulse_slots: [],
                     items: [],
                 },
             },
@@ -1426,6 +1456,7 @@ export const HomePulsePartial: Story = {
                     ...HIGHLIGHTS,
                     status: 'computing',
                     pulse: HIGHLIGHTS.pulse.slice(0, 1),
+                    pulse_slots: readyPulseSlots(HIGHLIGHTS.pulse.slice(0, 1)),
                     items: [],
                 },
             },
@@ -1511,4 +1542,40 @@ export const HomeWithComposer: Story = {
             FEATURE_FLAGS.PHAI_SANDBOX_MODE,
         ],
     },
+}
+
+export const HomeWithAiOff: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
+                '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [] },
+                '/api/organizations/:id/': { ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: false },
+            },
+        }),
+        (Story) => {
+            organizationLogic.mount()
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
+            return <Story />
+        },
+    ],
+}
+
+export const HomeWhileSelfDrivingReviews: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.PRODUCT_AUTONOMY],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
+                '/api/projects/:team_id/today/highlights/': { ...HIGHLIGHTS, items: [] },
+                '/api/projects/:team_id/signals/source_configs/': mockSourceConfigs,
+                '/api/projects/:team_id/signals/scout/configs/': [],
+            },
+        }),
+    ],
 }

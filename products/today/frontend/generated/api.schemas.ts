@@ -352,7 +352,7 @@ export interface HighlightsApi {
     /** Key metrics of the project from its settings. */
     pulse: HighlightMetricApi[]
     /**
-     * Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null for clients using complete results.
+     * Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null only in results stored before every computation listed its numbers.
      * @nullable
      */
     pulse_slots?: PulseSlotApi[] | null
