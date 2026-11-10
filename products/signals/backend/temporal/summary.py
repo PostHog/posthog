@@ -787,7 +787,7 @@ class SignalReportSummaryWorkflow:
                 # No loop, human input is required
                 return False
             # 6. Mark ready and check if new signals arrived during the run
-            has_new_signals: bool = await workflow.execute_activity(
+            has_new_signals: bool | None = await workflow.execute_activity(
                 mark_report_ready_activity,
                 MarkReportReadyInput(
                     team_id=inputs.team_id,
@@ -814,6 +814,8 @@ class SignalReportSummaryWorkflow:
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            if has_new_signals is None:
+                return False
             # 7. If new signals arrived during the run - loop back to the start
             if has_new_signals:
                 log.info("Report has new signals since run started, looping")
@@ -1330,12 +1332,12 @@ def _write_stack_layers(report: SignalReport, input: MarkReportReadyInput) -> No
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
-async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
+async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool | None:
     """Mark a report as ready. Returns True if new signals arrived during the run."""
     try:
 
         @transaction.atomic
-        def do_update() -> _ReportTransition:
+        def do_update() -> _ReportTransition | None:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.READY:
                 return _ReportTransition(run_count=report.run_count, chart_count=0, was_duplicate=True)
@@ -1344,6 +1346,13 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 return _ReportTransition(
                     run_count=report.run_count, chart_count=0, was_duplicate=True, has_new_signals=True
                 )
+            if report.status != SignalReport.Status.IN_PROGRESS:
+                logger.info(
+                    "Report is no longer in progress, skipping ready transition",
+                    report_id=input.report_id,
+                    status=report.status,
+                )
+                return None
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
             # The pass is only now known to have covered anything, so this is where the count the
             # bucket schedule reads is written. A run that failed or paused earlier leaves the
@@ -1404,6 +1413,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             report_id=input.report_id,
         )
         raise
+
+    if transition is None:
+        return None
 
     if transition.was_duplicate:
         logger.info(
@@ -1576,10 +1588,17 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
     try:
 
         @transaction.atomic
-        def do_update() -> tuple[int, bool]:
+        def do_update() -> tuple[int, bool] | None:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.FAILED:
                 return report.run_count, True
+            if report.status not in (SignalReport.Status.IN_PROGRESS, SignalReport.Status.CANDIDATE):
+                logger.info(
+                    "Report is no longer in progress, skipping failed transition",
+                    report_id=input.report_id,
+                    status=report.status,
+                )
+                return None
             updated_fields = report.transition_to(
                 SignalReport.Status.FAILED,
                 error=startup_failure_message(input.startup_failure.failure) if input.startup_failure else input.error,
@@ -1598,7 +1617,7 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
                 )
             return report.run_count, False
 
-        run_count, was_already_failed = await database_sync_to_async(do_update, thread_sensitive=False)()
+        transition = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to mark report {input.report_id} as failed: {e}",
@@ -1606,6 +1625,10 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         )
         raise
 
+    if transition is None:
+        return
+
+    run_count, was_already_failed = transition
     if was_already_failed:
         logger.info(
             f"Report {input.report_id} already in failed status, skipping duplicate transition",
@@ -1682,10 +1705,17 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
     try:
 
         @transaction.atomic
-        def do_update() -> _ReportTransition:
+        def do_update() -> _ReportTransition | None:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.PENDING_INPUT:
                 return _ReportTransition(run_count=report.run_count, chart_count=0, was_duplicate=True)
+            if report.status != SignalReport.Status.IN_PROGRESS:
+                logger.info(
+                    "Report is no longer in progress, skipping pending_input transition",
+                    report_id=input.report_id,
+                    status=report.status,
+                )
+                return None
             title = report.title if input.keep_existing_content and report.title else input.title
             summary = report.summary if input.keep_existing_content and report.summary else input.summary
             updated_fields = report.transition_to(
@@ -1726,6 +1756,9 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             report_id=input.report_id,
         )
         raise
+
+    if transition is None:
+        return
 
     if transition.was_duplicate:
         logger.info(
@@ -1772,15 +1805,22 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
     try:
 
         @transaction.atomic
-        def do_update() -> tuple[int, bool]:
+        def do_update() -> tuple[int, bool] | None:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.POTENTIAL:
                 return report.run_count, True
+            if report.status != SignalReport.Status.IN_PROGRESS:
+                logger.info(
+                    "Report is no longer in progress, skipping potential transition",
+                    report_id=input.report_id,
+                    status=report.status,
+                )
+                return None
             updated_fields = report.transition_to(SignalReport.Status.POTENTIAL, reset_weight=True, error=input.reason)
             report.save(update_fields=updated_fields)
             return report.run_count, False
 
-        run_count, was_already_potential = await database_sync_to_async(do_update, thread_sensitive=False)()
+        transition = await database_sync_to_async(do_update, thread_sensitive=False)()
     except Exception as e:
         logger.exception(
             f"Failed to reset report {input.report_id} to potential: {e}",
@@ -1788,6 +1828,10 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
         )
         raise
 
+    if transition is None:
+        return
+
+    run_count, was_already_potential = transition
     if was_already_potential:
         logger.info(
             f"Report {input.report_id} already in potential status, skipping duplicate transition",

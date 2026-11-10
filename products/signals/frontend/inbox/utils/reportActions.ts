@@ -1,7 +1,7 @@
+import { canResolveReport } from '@posthog/agent-contracts/signal-report-state'
+
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../types'
-// Pure eligibility predicates for report actions, shared by the detail pane, the triage flow, and
-// the list row context menu, so the surfaces cannot drift apart. Mirrors desktop `reportActions.ts`.
-import { primaryReportPullRequest, hasActiveReportPullRequest } from './reportPullRequests'
+import { primaryReportPullRequest } from './reportPullRequests'
 
 /**
  * Can the signed-in user take themselves off this report's suggested reviewers? A list scoped to them
@@ -40,16 +40,6 @@ export function canCreateImplementationPr(report: SignalReport): boolean {
     return false
 }
 
-export function canResolveReport(report: SignalReport): boolean {
-    return (
-        report.status === SignalReportStatus.READY ||
-        report.status === SignalReportStatus.PENDING_INPUT ||
-        report.status === SignalReportStatus.FAILED ||
-        report.status === SignalReportStatus.CLOSED ||
-        report.status === SignalReportStatus.MONITORING
-    )
-}
-
 export function canMonitorReport(report: SignalReport, hasFollowUpChecks: boolean): boolean {
     return (
         hasFollowUpChecks &&
@@ -58,9 +48,4 @@ export function canMonitorReport(report: SignalReport, hasFollowUpChecks: boolea
         report.status !== SignalReportStatus.CLOSED &&
         report.status !== SignalReportStatus.MONITORING
     )
-}
-
-/** The backend closes an open implementation PR on resolve; surfaces use this to say so. */
-export function hasOpenImplementationPr(report: SignalReport): boolean {
-    return hasActiveReportPullRequest(report)
 }
