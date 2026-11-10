@@ -393,7 +393,7 @@ impl IngestionConsumer {
                 Ok(())
             }
             Step::Commit(commit) => {
-                self.commit(commit);
+                self.submit_commit(commit);
                 Ok(())
             }
             Step::Stop => Err(Stopped::Drained),
@@ -475,7 +475,7 @@ impl IngestionConsumer {
         timeout: Duration,
     ) -> anyhow::Result<()> {
         if let Some(commit) = poller.on_drain_finished(partitions) {
-            self.commit(commit);
+            self.submit_commit(commit);
         }
         // A commit still in flight at the timeout can land after the unassign.
         if !self.committer.flush(partitions, timeout).await {
@@ -611,7 +611,7 @@ impl IngestionConsumer {
 
     async fn commit_on_exit(&self) {
         if let Some(commit) = self.settlement.take_all() {
-            self.commit(commit);
+            self.submit_commit(commit);
         }
         // The client's close bumps the member epoch, so the broker rejects a
         // commit that arrives after it.
@@ -620,7 +620,7 @@ impl IngestionConsumer {
         }
     }
 
-    fn commit(&self, commit: Commit) {
+    fn submit_commit(&self, commit: Commit) {
         self.record_commit(&commit.offsets);
         self.committer.submit(&commit.offsets);
         for topic_partition in &commit.resume {
