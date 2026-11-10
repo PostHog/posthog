@@ -20,6 +20,7 @@ import { SuggestionsReviewModal } from './SuggestionsReviewModal'
 import { SuggestionsStatusNotice } from './SuggestionsStatusNotice'
 import { UnmaterializeSuggestionModal } from './UnmaterializeSuggestionModal'
 import { UnmaterializeSuggestionRow } from './UnmaterializeSuggestionRow'
+import { WaitingSuggestionsNotice } from './WaitingSuggestionsNotice'
 
 const SECTION_COPY: Record<string, { title: string; description: string; showsSaving?: boolean }> = {
     materialize: {
@@ -47,7 +48,7 @@ const ROW_FOR_KIND: Record<
 }
 
 export function SuggestedModelsStripContent(): JSX.Element | null {
-    const { stripState, suggestionGroups, savingsSummary, surfaceSuggestions, status } =
+    const { stripState, suggestionGroups, savingsSummary, surfaceSuggestions, status, showWaitingNotice } =
         useValues(warehouseSuggestionsLogic)
     const { reload } = useActions(warehouseSuggestionsLogic)
     const windowDays = status?.window_days ?? 0
@@ -64,6 +65,9 @@ export function SuggestedModelsStripContent(): JSX.Element | null {
                 }
             />
         )
+    }
+    if (showWaitingNotice && stripState !== 'active' && stripState !== 'all_done') {
+        return <WaitingSuggestionsNotice />
     }
     if (stripState === 'warming_up') {
         const daysWithData = status?.days_with_data ?? 0
@@ -100,6 +104,7 @@ export function SuggestedModelsStripContent(): JSX.Element | null {
     return (
         <>
             {stripState === 'active' && <SuggestionsBanner icon={iconForType('data_modeling')} message={summary} />}
+            {showWaitingNotice && <WaitingSuggestionsNotice />}
             <SuggestionsReviewModal title="Suggested models" summary={summary}>
                 {suggestionGroups.map(({ kind, suggestions }) => (
                     <SuggestedModelsSection key={kind} {...SECTION_COPY[kind]}>
