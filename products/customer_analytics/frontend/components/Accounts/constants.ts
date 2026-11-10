@@ -53,6 +53,7 @@ export const AccountsEvents = {
     CustomPropertyUpdated: 'customer analytics account custom property updated',
     AccountPropertyEditorOpened: 'customer analytics account property editor opened',
     PropertiesWidgetConfigured: 'customer analytics account properties widget configured',
+    SqlQueryTileConfigured: 'customer analytics account sql query tile configured',
     AccountPropertySaveFailed: 'customer analytics account property save failed',
     PinnedPropertiesSaved: 'customer analytics account pinned properties saved',
     NoteClicked: 'customer analytics account note clicked',

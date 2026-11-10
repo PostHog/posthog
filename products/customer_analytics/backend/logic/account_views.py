@@ -28,6 +28,7 @@ ACCOUNT_VIEW_COMPONENT_LABELS = {
     "Meetings": "Meetings",
     "SessionReplays": "Session replays",
     "DotMatrix": "Dot matrix",
+    "SqlQuery": "SQL query",
 }
 ACCOUNT_VIEW_ALLOWED_PROPS = {"config", "nodeId", "span", "title"}
 ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH = 400
@@ -56,6 +57,8 @@ ACCOUNT_VIEW_NATIVE_PROPERTY_KEYS = {
     "known_emails",
 }
 ACCOUNT_VIEW_MAX_PROPERTIES = 50
+# Matches the placeholder name the frontend passes in HogQLQuery.values.
+ACCOUNT_VIEW_SQL_QUERY_PLACEHOLDER = "{account_external_id}"
 
 
 class InvalidAccountViewContent(ValueError):
@@ -191,11 +194,21 @@ def validate_dot_matrix_widget_config(config: dict[str, object]) -> list[str]:
     return _dot_matrix_key_list_errors(config.get("selectedSeries", []), "series keys") or _dot_matrix_key_list_errors(
         config.get("metricIds", []), "metric IDs"
     )
+def validate_sql_query_widget_config(config: dict[str, Any]) -> list[str]:
+    if set(config) != {"query"}:
+        return ["SQL query config must contain only a query."]
+    query = config["query"]
+    if not isinstance(query, str) or not query.strip():
+        return ["SQL query config needs a query."]
+    if ACCOUNT_VIEW_SQL_QUERY_PLACEHOLDER not in query:
+        return [f"SQL query must filter by {ACCOUNT_VIEW_SQL_QUERY_PLACEHOLDER}."]
+    return []
 
 
 ACCOUNT_VIEW_CONFIG_VALIDATORS: dict[str, Callable[[dict[str, Any]], list[str]]] = {
     "Properties": validate_properties_widget_config,
     "DotMatrix": validate_dot_matrix_widget_config,
+    "SqlQuery": validate_sql_query_widget_config,
 }
 
 

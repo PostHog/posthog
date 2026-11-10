@@ -24,13 +24,13 @@ Paths below are relative to `products/customer_analytics/`.
 Do not add a `kind ===` branch to shared code.
 Shared code is `AccountViewComponent`, `AccountViewTile`, `AccountViewTileEditorModal`, `AccountViewRenderer`, `accountViewsLogic`, and `validate_account_view_content`.
 When a widget needs something the others do not, add an optional field to `AccountViewComponentBase` and let shared code read it.
-`ConfigEditor`, `onConfigSaved`, and `tileInsetClassName` are the precedent.
+`ConfigEditor`, `getConfigError`, `onConfigSaved`, and `tileInsetClassName` are the precedent.
 
 ## Decide first
 
 - **Tile only, or also a tab?** A tile-only widget has no `systemTabId`. A tab also appears in the account detail tabs.
 - **Does it save settings?** If the widget has a filter, search, or sort worth keeping, it reads and writes tile config.
-- **Does it need a settings editor?** Only when the tile's own controls cannot set the config. Properties is the one precedent.
+- **Does it need a settings editor?** Only when the tile's own controls cannot set the config. Properties and SQL query are the precedents.
 - **Is it flag-gated?** Ask the user. Do not invent a flag.
 
 ## Steps
@@ -52,6 +52,7 @@ When a widget needs something the others do not, add an optional field to `Accou
 ## Settings editor
 
 Add `ConfigEditor` to the entry. It takes `AccountViewTileConfigEditorProps` and does not save. `AccountViewTileEditorModal` renders it under the tile name, and `accountViewsLogic.saveTileEditor` saves the name and the config in one queued write.
+To block a save on bad config, add `getConfigError` to the entry. It returns the reason, and the modal shows that reason on the save button.
 To track a save, add `onConfigSaved` to the entry. Do not capture the event in `accountViewsLogic`.
 
 ## Tabs

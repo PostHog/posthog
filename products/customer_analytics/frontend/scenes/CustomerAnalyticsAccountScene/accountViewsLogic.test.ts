@@ -371,6 +371,33 @@ describe('accountViewsLogic tracking', () => {
         expect(logic.values.config?.pinned_properties).toEqual([])
     })
 
+    it('saves an SQL query tile config and reports only its length', async () => {
+        let sqlView: AccountViewApi = {
+            ...view,
+            content: createAccountViewContent([{ nodeId: 'sql', kind: 'sql_query', span: 12 }, ...components]),
+        }
+        jest.mocked(accountViewsList).mockResolvedValue([sqlView])
+        mockUpdate.mockImplementation(async (_, __, patch) => {
+            sqlView = { ...sqlView, content: patch.content ?? sqlView.content, version: 2 }
+            return sqlView
+        })
+        await expectLogic(logic, () => logic.actions.loadViews()).toFinishAllListeners()
+        const query = 'select * from invented_table where org_id = {account_external_id}'
+        logic.actions.openTileEditor(view.id, 'sql', 'Engagements', {
+            kind: 'sql_query',
+            config: {},
+            accountId: 'account-one',
+        })
+        logic.actions.setTileEditorConfig({ query })
+        await expectLogic(logic, () => logic.actions.saveTileEditor()).toFinishAllListeners()
+        expect(parseAccountViewContent(logic.values.views[0].content).map(({ config }) => config)).toEqual([
+            { query },
+            ...components.map(({ config }) => config),
+        ])
+        expect(capture).toHaveBeenCalledWith(AccountsEvents.SqlQueryTileConfigured, { query_length: query.length })
+        expect(JSON.stringify(capture.mock.calls)).not.toContain('invented_table')
+    })
+
     it.each(['editor', 'tabs'])('reports a blocked %s save without a write or success', async (surface) => {
         if (surface === 'editor') {
             logic.actions.openCreateEditor()
