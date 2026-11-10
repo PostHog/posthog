@@ -168,13 +168,6 @@ class FileSystemFrequentQuerySerializer(serializers.Serializer):
 
 
 def _stored_spellings(team_id: int, file_type: str, refs: set[str]) -> dict[str, set[str]]:
-    """For each canonical ref, every stored ref of this type that reaches the same object.
-
-    Rows written before refs were canonicalized can spell a key in any form its lookup field accepts,
-    such as a UUID in upper case or in braces, or an integer with leading zeros. One query per type finds
-    the rows not in canonical spelling, so it covers a whole deletion batch, and the canonical check maps
-    each of them to its object.
-    """
     spellings = {ref: {ref} for ref in refs}
     canonical_pattern = file_system_ref_canonical_pattern(file_type)
     if not refs or canonical_pattern is None:
@@ -240,9 +233,6 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
         return meta
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # Deletion counts the rows that share a ref to decide whether the object goes too, so every
-        # row has to store one spelling of it. A UUID without hyphens otherwise reaches the same
-        # object as its canonical row but counts as a separate object.
         attrs = super().validate(attrs)
         entry_type = attrs.get("type") or (self.instance.type if self.instance else None)
         if attrs.get("ref") and entry_type:

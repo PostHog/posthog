@@ -286,7 +286,6 @@ export async function loadBroadcastConversionCandidates(
     }
 }
 
-/** Moves one workflow to broadcasts. The server removes its workflow file, so the loaded project tree drops it too. */
 export async function moveWorkflowToBroadcasts(projectId: string, workflowId: string): Promise<void> {
     await hogFlowsConvertToBroadcast(projectId, workflowId)
     deleteFromTree('hog_flow', workflowId)

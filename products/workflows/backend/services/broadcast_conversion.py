@@ -147,7 +147,6 @@ def convert_workflow_to_broadcast(*, team_id: int, hog_flow_id: UUID, actor: Wor
         HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id).update(
             origin_product=flow.origin_product, updated_at=flow.updated_at
         )
-        # The queryset update also skips the file system sync, and a broadcast has no workflow file.
         delete_file(team=flow.team, file_type="hog_flow", ref=str(hog_flow_id))
     log_workflow_activity(
         actor=actor,

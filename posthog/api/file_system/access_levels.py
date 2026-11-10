@@ -125,28 +125,17 @@ def _coerce_refs_for_lookup(model: Any, lookup_field: str, refs: list[str]) -> l
 
 
 def _canonical_ref(registration: ModelRegistration, ref: str) -> str:
-    """The ref spelled the way the database returns its lookup field.
-
-    The lookup field coerces other spellings of the same key, such as a UUID without hyphens, so
-    the delete and restore paths reach the same object through any of them. Translated rows and
-    AccessControl rows use the database spelling, so a ref has to be matched in that spelling.
-    Otherwise it misses its object's rules and resolves at the resource-level default.
-    """
     model = apps.get_model(registration.app_label, registration.model_name)
     coerced = _coerce_refs_for_lookup(model, registration.lookup_field, [ref])
     return str(coerced[0]) if coerced else ref
 
 
 def canonical_file_system_ref(entry_type: str, ref: str) -> str:
-    """`ref` in the spelling its object's lookup field stores, or unchanged for an unregistered type."""
     registration = get_file_system_registration(entry_type)
     return _canonical_ref(registration, ref) if registration else ref
 
 
 def file_system_ref_canonical_pattern(entry_type: str) -> Optional[str]:
-    """A regex that only the canonical spelling of this type's key matches, or None when the lookup field
-    accepts no other spelling. A UUID key also accepts upper case, no hyphens, braces or a `urn:uuid:`
-    prefix, and an integer key accepts a sign or leading zeros. A text key matches only itself."""
     registration = get_file_system_registration(entry_type)
     if registration is None:
         return None
@@ -333,8 +322,6 @@ def bulk_file_system_access_levels(
             # rows, making guessed refs indistinguishable from real-but-ungranted ones
             pk = row[0] if row else lookup_ref
             creator = provided_creator if provided_creator is not None else (row[1] if row else None)
-            # Several spellings of one object share its pk, so the same precedence as above applies
-            # and the result does not depend on the order of the rows
             if creator_by_pk.get(pk) is None or creator == user_id:
                 creator_by_pk[pk] = creator
             refs_by_pk.setdefault(pk, []).append(ref)
@@ -407,7 +394,6 @@ def filter_workflow_files_by_access_level(
         for row_id, entry_type, ref, team_id in rows
         if levels.get((entry_type, ref, team_id)) not in (None, "none")
     ]
-    # Keep only the workflow rows checked above, so a row filed or moved in after the check stays hidden.
     return queryset.exclude(Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) & ~Q(pk__in=allowed_ids))
 
 
