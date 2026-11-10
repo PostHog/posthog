@@ -15,6 +15,7 @@ export type TaxonomicPopoverFilterProps<ValueType extends TaxonomicFilterValue =
     | 'excludedProperties'
     | 'excludedOperators'
     | 'includeHiddenEvents'
+    | 'offerHiddenEventStandIns'
     | 'selectedProperties'
     | 'showNumericalPropsOnly'
     | 'dataWarehousePopoverFields'
