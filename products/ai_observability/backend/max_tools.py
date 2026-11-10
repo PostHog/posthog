@@ -122,7 +122,6 @@ class CreateParserRecipeTool(MaxTool):
             )
 
         try:
-            # A large recipe takes most of a second to compile, which would stall the event loop.
             await asyncio.to_thread(ai_observability_api.validate_parser_recipe_source, yaml_source)
         except ai_observability_api.RecipeCompileError as e:
             return (f"The recipe does not compile: {e}. Fix the recipe and call this tool again.", None)
