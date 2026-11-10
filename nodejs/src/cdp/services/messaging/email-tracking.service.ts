@@ -491,7 +491,7 @@ export class EmailTrackingService {
         }
 
         if (!deferFlush) {
-            await this.hogFunctionMonitoringService.flush()
+            await Promise.all([this.hogFunctionMonitoringService.flush(), this.capturedEventsService.flush()])
         }
 
         trackingEventsCounter.inc({ event_type: metricName, source })
@@ -544,7 +544,6 @@ export class EmailTrackingService {
                 ...properties,
             },
         })
-        await this.capturedEventsService.flush()
     }
 
     public async trackLogs(
@@ -608,7 +607,15 @@ export class EmailTrackingService {
         }
 
         this.hogFunctionMonitoringService.queueLogs(logEntries, 'hog_flow')
-        await this.hogFunctionMonitoringService.flush()
+    }
+
+    // One Kafka round trip for everything SES recording queued.
+    public async flush(): Promise<void> {
+        await Promise.all([
+            this.hogFunctionMonitoringService.flush(),
+            this.capturedEventsService.flush(),
+            this.emailStatusService?.flush(),
+        ])
     }
 
     public async handleSesWebhook(req: ModifiedRequest): Promise<{ status: number; message?: unknown }> {
@@ -626,6 +633,7 @@ export class EmailTrackingService {
             return await this.queueSesNotification(body, this.sesWebhooksOutputs)
         }
         const recording = await this.recordSesNotification({ body, verifySignature: true })
+        await this.flush()
         switch (recording.outcome) {
             case 'recorded':
                 return { status: 200, message: recording.body }
@@ -677,6 +685,7 @@ export class EmailTrackingService {
         return { status: 200, message: 'queued' }
     }
 
+    // Queues the Kafka writes; the caller flushes.
     private async recordSesNotification(opts: {
         body: unknown
         verifySignature: boolean
@@ -697,9 +706,6 @@ export class EmailTrackingService {
                 return { outcome: 'rejected', status, body }
             }
 
-            // A single SNS notification can yield several metrics (a Click emits its rollup plus a
-            // per-link row, a Bounce its rollup plus a per-type row). Flushing inside each call would
-            // make those serial Kafka round-trips, so defer and flush once for the batch.
             for (const metric of metrics || []) {
                 await this.trackMetric({
                     functionId: metric.functionId,
@@ -716,9 +722,6 @@ export class EmailTrackingService {
                     workflowVersion: metric.workflowVersion,
                     verifiedTeamId: metric.teamId,
                 })
-            }
-            if (metrics?.length) {
-                await this.hogFunctionMonitoringService.flush()
             }
 
             // Wrapped so a failure here doesn't skip the suppression writes below.
@@ -737,7 +740,7 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'ses' })
             }
 
-            // Best-effort like the writes around it: queue and flush never throw.
+            // Best-effort like the writes around it: queue never throws.
             if (this.emailStatusService && emailStatusUpdates?.length) {
                 for (const update of emailStatusUpdates) {
                     const teamId = parseInt(update.teamId, 10)
@@ -752,7 +755,6 @@ export class EmailTrackingService {
                         statusAt: new Date(update.timestamp),
                     })
                 }
-                await this.emailStatusService.flush()
             }
 
             // Feed bounces, complaints and successful deliveries into the suppression list. Wrapped
