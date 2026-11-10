@@ -261,9 +261,10 @@ def test_is_workspace_member(directory: str, member: bool) -> None:
     assert policy.is_workspace_member(directory, globs) is member
 
 
-def test_is_workspace_member_refuses_glob_syntax_it_cannot_read() -> None:
+@pytest.mark.parametrize("glob", ["!products/{desktop,mobile}", "products**", "products/***"])
+def test_is_workspace_member_refuses_glob_syntax_it_cannot_read(glob: str) -> None:
     with pytest.raises(Refused, match="syntax this proof does not read"):
-        policy.is_workspace_member("products/desktop", ["products/*", "!products/{desktop,mobile}"])
+        policy.is_workspace_member("products/desktop", ["products/*", glob])
 
 
 def test_lockfile_dir() -> None:

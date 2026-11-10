@@ -148,8 +148,12 @@ def is_workspace_member(directory: str, globs: list[str]) -> bool:
 
 
 def _glob(pattern: str) -> re.Pattern[str]:
-    """A workspace glob of path segments, `*` and `**`. pnpm reads more syntax, such as braces, which is refused."""
-    if not WORKSPACE_GLOB.fullmatch(pattern):
+    """A workspace glob of path segments with `*`, and `**` as a whole segment.
+
+    pnpm reads more syntax, such as braces, and reads a `**` inside a segment as `*`. Both are refused.
+    """
+    inside_a_segment = any("**" in segment and segment != "**" for segment in pattern.split("/"))
+    if not WORKSPACE_GLOB.fullmatch(pattern) or inside_a_segment:
         raise Refused(f"the workspace glob {pattern} uses syntax this proof does not read")
     regex = re.escape(pattern).replace(r"\*\*/", "(?:.*/)?").replace(r"\*\*", ".*").replace(r"\*", "[^/]*")
     return re.compile(f"^{regex}$")
