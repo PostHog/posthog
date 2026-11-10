@@ -40,7 +40,7 @@ Proposed. Agree and freeze them in this file, in a commit of its own, before the
 
 | Bar                                                | Needed                                                                                                    |
 | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Labelled issues found, mean of two runs            | Lens is at least 20 points above control, and the gap is larger than the gap between the two control runs |
+| Labeled issues found, mean of two runs             | Lens is at least 20 points above control, and the gap is larger than the gap between the two control runs |
 | Lens-only findings judged valid and minor or worse | At least 70%, by a blind judge that sees the code at the reviewed head and not the arm                    |
 | Posted findings on clean controls                  | At most 0.5 more for each PR than control                                                                 |
 | Control findings that the lens arm no longer posts | At most 1 in the set (dedup or the cap removed it)                                                        |

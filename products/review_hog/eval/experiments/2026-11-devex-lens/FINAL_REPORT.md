@@ -102,7 +102,7 @@ It reads the repository's guides, which the shipped lenses do not.
 
 | Bar                                                     | Result                                                                   |           |
 | ------------------------------------------------------- | ------------------------------------------------------------------------ | --------- |
-| Labelled issues found: at least 20 points above control | 14 points on the pilot set (64% against 50%), 4 points on the second set | **Fails** |
+| Labeled issues found: at least 20 points above control  | 14 points on the pilot set (64% against 50%), 4 points on the second set | **Fails** |
 | Lens findings valid and minor or worse: at least 70%    | 95% of all lens findings on the pilot set, 84% on the second set         | Passes    |
 | Clean controls: at most 0.5 more posted findings per PR | 0.17                                                                     | Passes    |
 | Control findings no longer posted: at most 1            | 0                                                                        | Passes    |
