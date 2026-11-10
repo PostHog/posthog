@@ -53,6 +53,72 @@ export const consumerLoopErrorsCounter = new Counter({
     labelNames: ['queue'] as const,
 })
 
+const PRIORITY_CLASSES_CTE = `priority_classes AS (
+    (SELECT priority FROM cyclotron_jobs
+     WHERE status = 'available' AND queue_name = $1
+     ORDER BY priority DESC, scheduled DESC
+     LIMIT 1)
+    UNION ALL
+    SELECT lower_class.priority
+    FROM priority_classes c
+    CROSS JOIN LATERAL (
+        SELECT j.priority FROM cyclotron_jobs j
+        WHERE j.status = 'available' AND j.queue_name = $1 AND j.priority < c.priority
+        ORDER BY j.priority DESC, j.scheduled DESC
+        LIMIT 1
+    ) lower_class
+)`
+
+export const COUNT_WORK_SQL = `WITH RECURSIVE ${PRIORITY_CLASSES_CTE}
+SELECT COUNT(*)::int AS n FROM (
+    SELECT 1 FROM priority_classes c
+    CROSS JOIN LATERAL (
+        SELECT 1 FROM cyclotron_jobs j
+        WHERE j.status = 'available' AND j.queue_name = $1 AND j.priority = c.priority AND j.scheduled <= NOW()
+        ORDER BY j.scheduled ASC
+        LIMIT $2
+    ) due
+    LIMIT $2
+) sub`
+
+export const DEQUEUE_JOBS_SQL = `WITH RECURSIVE ${PRIORITY_CLASSES_CTE},
+available AS (
+    SELECT due.id
+    FROM priority_classes c
+    CROSS JOIN LATERAL (
+        SELECT j.id, j.scheduled FROM cyclotron_jobs j
+        WHERE j.status = 'available' AND j.queue_name = $1 AND j.priority = c.priority AND j.scheduled <= NOW()
+        ORDER BY j.scheduled ASC
+        LIMIT $2
+        FOR UPDATE SKIP LOCKED
+    ) due
+    ORDER BY c.priority ASC, due.scheduled ASC
+    LIMIT $2
+)
+UPDATE cyclotron_jobs
+SET status = 'running',
+    lock_id = $3,
+    last_heartbeat = NOW(),
+    last_transition = NOW(),
+    transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})
+WHERE cyclotron_jobs.id = ANY(ARRAY(SELECT id FROM available))
+RETURNING
+    cyclotron_jobs.id,
+    cyclotron_jobs.team_id,
+    cyclotron_jobs.function_id,
+    cyclotron_jobs.queue_name,
+    cyclotron_jobs.priority,
+    cyclotron_jobs.scheduled,
+    cyclotron_jobs.created,
+    cyclotron_jobs.parent_run_id,
+    cyclotron_jobs.transition_count,
+    cyclotron_jobs.state,
+    cyclotron_jobs.distinct_id,
+    cyclotron_jobs.person_id,
+    cyclotron_jobs.action_id,
+    cyclotron_jobs.cancel_requested_at,
+    cyclotron_jobs.lock_id`
+
 export function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -302,58 +368,13 @@ export class CyclotronV2Worker {
      * concurrency × poll rate and rate-limiter refill absorbs the slack.
      */
     protected async countWork(limit: number): Promise<number> {
-        const result = await this.pool.query<{ n: number }>(
-            `SELECT COUNT(*)::int AS n FROM (
-                 SELECT 1 FROM cyclotron_jobs
-                 WHERE status = 'available'
-                   AND queue_name = $1
-                   AND scheduled <= NOW()
-                 LIMIT $2
-             ) sub`,
-            [this.config.queueName, limit]
-        )
+        const result = await this.pool.query<{ n: number }>(COUNT_WORK_SQL, [this.config.queueName, limit])
         return result.rows[0].n
     }
 
     protected async dequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
-        const result = await this.pool.query<RawJobRow>(
-            `WITH available AS (
-                SELECT id
-                FROM cyclotron_jobs
-                WHERE status = 'available'
-                  AND queue_name = $1
-                  AND scheduled <= NOW()
-                ORDER BY priority ASC, scheduled ASC
-                LIMIT $2
-                FOR UPDATE SKIP LOCKED
-            )
-            UPDATE cyclotron_jobs
-            SET status = 'running',
-                lock_id = $3,
-                last_heartbeat = NOW(),
-                last_transition = NOW(),
-                transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX})
-            FROM available
-            WHERE cyclotron_jobs.id = available.id
-            RETURNING
-                cyclotron_jobs.id,
-                cyclotron_jobs.team_id,
-                cyclotron_jobs.function_id,
-                cyclotron_jobs.queue_name,
-                cyclotron_jobs.priority,
-                cyclotron_jobs.scheduled,
-                cyclotron_jobs.created,
-                cyclotron_jobs.parent_run_id,
-                cyclotron_jobs.transition_count,
-                cyclotron_jobs.state,
-                cyclotron_jobs.distinct_id,
-                cyclotron_jobs.person_id,
-                cyclotron_jobs.action_id,
-                cyclotron_jobs.cancel_requested_at,
-                cyclotron_jobs.lock_id`,
-            [this.config.queueName, limit, lockId]
-        )
+        const result = await this.pool.query<RawJobRow>(DEQUEUE_JOBS_SQL, [this.config.queueName, limit, lockId])
         // UPDATE...RETURNING doesn't preserve the CTE's ORDER BY,
         // so re-sort to maintain priority ordering within the batch
         // TODO: Do we care about this in reality?

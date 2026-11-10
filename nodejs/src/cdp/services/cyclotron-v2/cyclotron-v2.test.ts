@@ -11,8 +11,8 @@ import {
     serializeResolverState,
 } from '../hogflows/batch-resolver.types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
-import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
-import { CyclotronV2Manager, assignEmailDequeueSeq } from './manager'
+import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND, QUEUE_DEPTHS_SQL } from './janitor'
+import { CyclotronV2Manager, QUEUE_DEPTH_SQL, assignEmailDequeueSeq } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -21,7 +21,7 @@ import {
     CyclotronV2DequeuedJob,
     CyclotronV2JobInit,
 } from './types'
-import { CyclotronV2Worker, sleep } from './worker'
+import { COUNT_WORK_SQL, CyclotronV2Worker, DEQUEUE_JOBS_SQL, sleep } from './worker'
 import { CyclotronV2RateLimitedWorker } from './worker-rate-limited'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
@@ -614,12 +614,17 @@ describe('Cyclotron V2', () => {
             })
         })
 
-        it('backpressure throws when queue depth exceeds limit', async () => {
+        it.each([
+            ['one queue', [QUEUE, 0], [QUEUE, 0]],
+            ['two queues and priority classes', [QUEUE, 1], ['other-queue', 2]],
+        ])('backpressure throws when queue depth exceeds limit across %s', async (_label, first, second) => {
             const smallManager = createManager({ depthLimit: 2, depthCheckIntervalMs: 0 })
             await smallManager.connect()
             try {
-                await smallManager.createJob({ teamId: 1, queueName: QUEUE })
-                await smallManager.createJob({ teamId: 1, queueName: QUEUE })
+                await smallManager.createJob({ teamId: 1, queueName: QUEUE, scheduled: new Date(Date.now() + 60_000) })
+                for (const [queueName, priority] of [first, second] as [string, number][]) {
+                    await smallManager.createJob({ teamId: 1, queueName, priority })
+                }
                 await expect(smallManager.createJob({ teamId: 1, queueName: QUEUE })).rejects.toThrow(/queue is full/i)
             } finally {
                 await smallManager.disconnect()
@@ -1239,16 +1244,27 @@ describe('Cyclotron V2', () => {
             expect(row.transition_count).toBe(CYCLOTRON_COUNTER_MAX)
         })
 
-        it('respects priority ordering (lower number = higher priority)', async () => {
-            await manager.createJob({ teamId: 1, queueName: QUEUE, priority: 2 })
-            await manager.createJob({ teamId: 1, queueName: QUEUE, priority: 0 })
-            await manager.createJob({ teamId: 1, queueName: QUEUE, priority: 1 })
+        it.each([
+            ['every due class fits in the batch', 100, [2, 0, 1], [0, 1, 2]],
+            ['the batch is smaller than the due rows', 3, [32000, 2, -5, 1, 0, 2], [-5, 0, 1]],
+        ])(
+            'respects priority ordering (lower number = higher priority) when %s',
+            async (_label, batchMaxSize, priorities, expected) => {
+                await manager.createJob({
+                    teamId: 1,
+                    queueName: QUEUE,
+                    priority: -10,
+                    scheduled: new Date(Date.now() + 60_000),
+                })
+                for (const priority of priorities) {
+                    await manager.createJob({ teamId: 1, queueName: QUEUE, priority })
+                }
 
-            const worker = createWorker()
-            const jobs = await dequeueOneBatch(worker)
+                const jobs = await dequeueOneBatch(createWorker(QUEUE, { batchMaxSize }))
 
-            expect(jobs.map((j) => j.priority)).toEqual([0, 1, 2])
-        })
+                expect(jobs.map((j) => j.priority)).toEqual(expected)
+            }
+        )
 
         it('skips future-scheduled jobs', async () => {
             const future = new Date(Date.now() + 60_000)
@@ -1608,11 +1624,17 @@ describe('Cyclotron V2', () => {
                 expect(hookCalls).toBe(0)
             })
 
-            it('passes the visible row count to the limiter hook', async () => {
+            it.each([
+                ['one priority class', [0, 0, 0]],
+                ['several priority classes', [2, 0, 1]],
+            ])('passes the visible row count to the limiter hook across %s', async (_label, priorities) => {
                 // Sparse-traffic regression guard. 3 ready rows + batchMaxSize=100
                 // → hook must be asked for 3 tokens, not 100. Without pre-sizing,
                 // a single trickle of jobs would drain the full bucket per send.
-                await manager.bulkCreateJobs(Array.from({ length: 3 }, () => ({ teamId: 1, queueName: QUEUE })))
+                await manager.bulkCreateJobs([
+                    ...priorities.map((priority) => ({ teamId: 1, queueName: QUEUE, priority })),
+                    { teamId: 1, queueName: QUEUE, priority: -1, scheduled: new Date(Date.now() + 60_000) },
+                ])
 
                 const requestedHistory: number[] = []
                 const worker = createRateLimitedWorker((requested) => {
@@ -1869,6 +1891,51 @@ describe('Cyclotron V2', () => {
             await dequeueOneBatch(createWorker())
 
             expect((await churnCountForQueue(QUEUE)) - before).toBe(expected)
+        })
+    })
+
+    describe('polling cost with a backlog scheduled for later', () => {
+        const BACKLOG_QUEUE = 'future-backlog'
+        const BACKLOG_ROWS = 20_000
+        const BUFFER_BUDGET = 50
+
+        const statements: [string, string, unknown[]][] = [
+            ['the worker dequeue', DEQUEUE_JOBS_SQL, [BACKLOG_QUEUE, 100, uuidv7()]],
+            ['the worker visible-row count', COUNT_WORK_SQL, [BACKLOG_QUEUE, 100]],
+            ['the manager depth check', QUEUE_DEPTH_SQL, []],
+            ['the janitor depth gauges', QUEUE_DEPTHS_SQL, []],
+        ]
+        const cases = statements.flatMap(([label, sql, params]) =>
+            (['custom', 'generic'] as const).map((mode) => [label, mode, sql, params] as const)
+        )
+
+        it.each(cases)('%s reads a bounded number of buffers under a %s plan', async (_label, mode, sql, params) => {
+            await assertPool.query(
+                `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition)
+                 SELECT gen_random_uuid(), 1, $1, 'available', (g % 3)::smallint,
+                        NOW() + interval '1 hour' + g * interval '1 minute', NOW(), NOW()
+                 FROM generate_series(1, $2) g`,
+                [BACKLOG_QUEUE, BACKLOG_ROWS]
+            )
+            await assertPool.query('VACUUM ANALYZE cyclotron_jobs')
+
+            const client = await assertPool.connect()
+            try {
+                await client.query('BEGIN')
+                await client.query(`SET LOCAL plan_cache_mode = force_${mode}_plan`)
+                await client.query(`PREPARE polling_statement AS ${sql}`)
+                const args = params.map((p) => client.escapeLiteral(String(p))).join(', ')
+                const execute = args ? `EXECUTE polling_statement(${args})` : 'EXECUTE polling_statement'
+                const explained = await client.query(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${execute}`)
+                const plan = explained.rows[0]['QUERY PLAN'][0].Plan
+                const buffers = plan['Shared Hit Blocks'] + plan['Shared Read Blocks']
+
+                expect(buffers).toBeLessThan(BUFFER_BUDGET)
+            } finally {
+                await client.query('ROLLBACK')
+                await client.query('DEALLOCATE ALL')
+                client.release()
+            }
         })
     })
 
@@ -2800,9 +2867,16 @@ describe('Cyclotron V2', () => {
         })
 
         it('measureQueueDepths returns correct counts per queue', async () => {
-            await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available' })
-            await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available' })
-            await insertRawJob({ id: uuidv7(), queue_name: 'queue-b', status: 'available' })
+            await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available', priority: 0 })
+            await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available', priority: 2 })
+            await insertRawJob({ id: uuidv7(), queue_name: 'queue-b', status: 'available', priority: 1 })
+            await insertRawJob({
+                id: uuidv7(),
+                queue_name: 'queue-b',
+                status: 'available',
+                priority: 0,
+                scheduled: new Date(Date.now() + 60_000),
+            })
             // Running jobs should not be counted
             await insertRawJob({
                 id: uuidv7(),

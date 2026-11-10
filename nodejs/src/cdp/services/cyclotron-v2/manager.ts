@@ -137,6 +137,30 @@ export class CyclotronJobConflictError extends Error {
     }
 }
 
+export const QUEUE_CLASSES_CTE = `queue_classes AS (
+    (SELECT queue_name, priority FROM cyclotron_jobs
+     WHERE status = 'available'
+     ORDER BY queue_name DESC, priority DESC, scheduled DESC
+     LIMIT 1)
+    UNION ALL
+    SELECT lower_class.queue_name, lower_class.priority
+    FROM queue_classes c
+    CROSS JOIN LATERAL (
+        SELECT j.queue_name, j.priority FROM cyclotron_jobs j
+        WHERE j.status = 'available' AND (j.queue_name, j.priority) < (c.queue_name, c.priority)
+        ORDER BY j.queue_name DESC, j.priority DESC, j.scheduled DESC
+        LIMIT 1
+    ) lower_class
+)`
+
+export const QUEUE_DEPTH_SQL = `WITH RECURSIVE ${QUEUE_CLASSES_CTE}
+SELECT COALESCE(SUM(due.count), 0) AS count
+FROM queue_classes c
+CROSS JOIN LATERAL (
+    SELECT COUNT(*) AS count FROM cyclotron_jobs j
+    WHERE j.status = 'available' AND j.queue_name = c.queue_name AND j.priority = c.priority AND j.scheduled <= NOW()
+) due`
+
 export class CyclotronV2Manager {
     private pool: Pool
     private readonly depthLimit: number
@@ -791,10 +815,7 @@ export class CyclotronV2Manager {
 
     private async queryDepth(): Promise<boolean> {
         try {
-            const result = await this.pool.query(
-                `SELECT COUNT(*) AS count FROM cyclotron_jobs
-                 WHERE status = 'available' AND scheduled <= NOW()`
-            )
+            const result = await this.pool.query(QUEUE_DEPTH_SQL)
             const count = parseInt(result.rows[0].count, 10)
             const full = count >= this.depthLimit
 
