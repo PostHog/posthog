@@ -158,8 +158,8 @@ def build_reviewer_invocation(
     this string only describes, and folding them together would put the carve-out back in play for
     a change to descriptive text. Empty for a local run, where there is no trigger to report.
     ``admitted_bot`` is the login of a bot author the repo policy admits (``logic/bot_admission.py``).
-    The engine checks it against the policy again and then holds the PR to every gate, plus one
-    more: an attestation must vouch for every file in it.
+    The engine checks it against the policy again, keeps every gate, and also requires an
+    attestation to vouch for every file in the PR.
     """
     context = {
         "repo": repo,

@@ -40,7 +40,7 @@ def admitted_bot_author(repo_config: StamphogRepoConfig, pr: dict[str, Any], act
 
     The author must be a GitHub App account whose login and numeric id both match one entry, because
     a login can be renamed and claimed by someone else while the id cannot. The head must live in
-    the repo itself, because a fork's branch is the fork owner's word. A transient policy fetch
+    the repo itself, because the fork's owner controls a fork's branch. A transient policy fetch
     failure raises, so the caller retries the delivery rather than refusing a bot the policy admits.
     """
     if action not in _ADMITTING_ACTIONS:
