@@ -132,10 +132,25 @@ export async function startFakeSes(configurationSets: ConfigurationSets): Promis
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     const { port } = server.address() as AddressInfo
 
-    // The SDK signs every request, so it needs credentials even though the fake accepts any.
-    const credentialVariables = ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'] as const
-    const previousCredentials = credentialVariables.map((name) => process.env[name])
-    credentialVariables.forEach((name) => (process.env[name] = 'fake-ses'))
+    // The SDK signs every request, so it needs credentials even though the fake accepts any. It ignores
+    // the key pair while AWS_PROFILE is set, so the profile is unset until the fake closes.
+    const credentialVariables = {
+        AWS_ACCESS_KEY_ID: 'fake-ses',
+        AWS_SECRET_ACCESS_KEY: 'fake-ses',
+        AWS_PROFILE: undefined,
+    }
+    const setVariables = (values: Record<string, string | undefined>): void =>
+        Object.entries(values).forEach(([name, value]) => {
+            if (value === undefined) {
+                delete process.env[name]
+            } else {
+                process.env[name] = value
+            }
+        })
+    const previousCredentials = Object.fromEntries(
+        Object.keys(credentialVariables).map((name) => [name, process.env[name]])
+    )
+    setVariables(credentialVariables)
 
     return {
         endpoint: `http://127.0.0.1:${port}`,
@@ -144,14 +159,7 @@ export async function startFakeSes(configurationSets: ConfigurationSets): Promis
             fault = next
         },
         close: async () => {
-            credentialVariables.forEach((name, index) => {
-                const previous = previousCredentials[index]
-                if (previous === undefined) {
-                    delete process.env[name]
-                } else {
-                    process.env[name] = previous
-                }
-            })
+            setVariables(previousCredentials)
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))
         },
