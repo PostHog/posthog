@@ -296,14 +296,15 @@ jobs:
 
     e2e:
         # Live-model e2e for the @posthog/agent adapters (claude + codex). Runs only
-        # after the unit + Electron jobs pass — a red tree never reaches the
-        # gateway — and only when a products/desktop/packages/ file changed. Each arm still
+        # when a products/desktop/packages/ file changed. It does not wait for the unit
+        # and Electron jobs: its `!cancelled()` condition ran it after their failures too,
+        # so the wait only made the suite slower. Each arm still
         # self-skips unless the POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY secret is
         # present (fork PRs never see it). Drives cheap models (claude-haiku-4-5 /
         # gpt-5-mini), so a run is a handful of short turns.
-        needs: [changes, unit-test, electron-test]
+        needs: [changes]
         # Always run on any products/desktop/packages/ change (or a change to this workflow),
-        # once unit-test + electron-test have passed. There is intentionally NO
+        # in parallel with unit-test and electron-test. There is intentionally NO
         # gate on the gateway config being present: if the POSTHOG_CODE_E2E_*
         # secret/vars are missing, the fail-loud guard
         # (packages/agent/packages/agent/e2e/guard.e2e.test.ts) REDS the run rather than

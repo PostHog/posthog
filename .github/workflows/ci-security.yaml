@@ -140,6 +140,8 @@ jobs:
                         - 'tools/**'
                         - '.semgrep/rules/devex/**'
                         - '.github/workflows/ci-security.yaml'
+                        # The desktop app does not follow the devex convention rules; semgrep-desktop covers it.
+                        - '!products/desktop/**'
                       # Rule tests only read fixtures under .semgrep/.
                       test-rules:
                         - '.semgrep/**'
@@ -588,6 +590,7 @@ jobs:
                       --config ".semgrep/rules/devex/" \
                       --severity=WARNING \
                       --baseline-commit "$(git rev-parse HEAD^1)" \
+                      --exclude "products/desktop" \
                       --error \
                       --metrics=off \
                       --verbose \

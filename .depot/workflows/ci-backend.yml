@@ -512,7 +512,7 @@ jobs:
                         # The out-of-band domain ratchet reads these trees, so a resolver added there must run it.
                         - 'nodejs/src/**'
                         - 'rust/**'
-                        - 'products/desktop/**'
+                        # products/desktop is left out: Desktop Quality runs the domain ratchet there.
                         - 'AGENTS.md'
                         - '.agents/*.md'
                         - '.semgrep/**'

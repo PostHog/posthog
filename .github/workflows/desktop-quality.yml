@@ -125,6 +125,17 @@ jobs:
             - name: Check host boundaries (apps/code must stay a thin Electron host)
               run: node scripts/check-host-boundaries.mjs
 
+            # The out-of-band domain ratchet scans products/desktop too. Backend CI's repo
+            # checks no longer run on desktop-only changes, so this runs the same check here.
+            - name: Check the out-of-band domain ratchet
+              working-directory: .
+              run: |
+                  python3 posthog/test/repo_invariants/test_oob_denylist_coverage.py
+                  if ! git diff --exit-code -- posthog/test/repo_invariants/oob_denylist_coverage_baseline.txt; then
+                    echo "::error::A file resolves a hostname without the out-of-band domain check. See posthog/test/repo_invariants/test_oob_denylist_coverage.py."
+                    exit 1
+                  fi
+
     # Collation job for the required status check; must be registered as the
     # required check instead of the individual jobs.
     desktop-quality-pass:
