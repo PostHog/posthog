@@ -2150,6 +2150,20 @@ if settings.TEST:
     ChPool.get_client = _counting_chpool_get_client  # ty: ignore[invalid-assignment]
 
 
+def _kafka_tables_for_tests() -> list[str]:
+    # A Kafka engine table polls Kafka until someone drops it, so the test database only gets them for
+    # AI evals, like create_clickhouse_tables in posthog/conftest.py. Without them, the materialized
+    # views that read from Kafka fail with UNKNOWN_TABLE, which run_clickhouse_statement_in_parallel skips.
+    if not settings.IN_EVAL_TESTING:
+        return []
+    return [
+        KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+        KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
+        KAFKA_PRECALCULATED_EVENTS_TABLE_SQL(),
+        KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL(),
+    ]
+
+
 def reset_clickhouse_database() -> None:
     # Dropping tables below removes their materialized columns behind the metadata cache's back,
     # so drop the cached entries with them (mutations via materialize()/drop_column() self-invalidate).
@@ -2270,7 +2284,6 @@ def reset_clickhouse_database() -> None:
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3(),
             DISTRIBUTED_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(),
             CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
             CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW(),
             CUSTOM_METRICS_TEST_VIEW(),
@@ -2278,14 +2291,12 @@ def reset_clickhouse_database() -> None:
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
             DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             WRITABLE_QUERY_LOG_ARCHIVE_V3_TABLE_SQL(),
+            *_kafka_tables_for_tests(),
             COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
-            KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_DISTRIBUTED_TABLE_SQL(),
             PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
-            KAFKA_PRECALCULATED_EVENTS_TABLE_SQL(),
             PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(),
             PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(),
-            KAFKA_PRECALCULATED_PERSON_PROPERTIES_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
