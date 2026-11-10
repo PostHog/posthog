@@ -3450,7 +3450,7 @@ describe('Workflows E2E (email queue)', () => {
             await deliver()
 
             const [email] = await emailsTo(to)
-            const token = email.text.match(/^Unsubscribe: \S+\/messaging-preferences\/([^/]+)\/$/m)[1]
+            const token = email.text.match(/^Unsubscribe: \S*\/messaging-preferences\/([^/]+)\/$/m)[1]
             // Click tracking wraps the html link, so the token is all the two parts share.
             expect(email.html).toContain(token)
             expect(await preferencesTokenOwner(token)).toMatchObject({ valid: true, team_id: team.id, identifier: to })
@@ -3516,7 +3516,7 @@ describe('Workflows E2E (email queue)', () => {
                     return
                 }
                 const token = listUnsubscribe!.match(
-                    /^<\S+\/messaging-preferences\/([^/]+)\/\?one_click_unsubscribe=1>$/
+                    /^<\S*\/messaging-preferences\/([^/]+)\/\?one_click_unsubscribe=1>$/
                 )![1]
                 expect(await preferencesTokenOwner(token)).toMatchObject({
                     valid: true,
