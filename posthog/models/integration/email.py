@@ -143,34 +143,40 @@ class EmailIntegration:
 
         mail_from_changed = mail_from_subdomain != self.integration.config.get("mail_from_subdomain", "feedback")
 
-        if provider == "ses":
-            if mail_from_changed:
-                from products.workflows.backend.facade.api import (
-                    update_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
-                )
+        with transaction.atomic():
+            if provider == "ses":
+                if mail_from_changed:
+                    from products.workflows.backend.facade.api import (
+                        update_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+                    )
 
-                update_ses_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
-        elif provider == "maildev" and settings.DEBUG:
-            pass
-        else:
-            raise ValueError(f"Invalid provider: must be 'ses'")
+                    self._lock_sender_domain()
+                    update_ses_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
+            elif provider == "maildev" and settings.DEBUG:
+                pass
+            else:
+                raise ValueError(f"Invalid provider: must be 'ses'")
 
-        changes: dict[str, str] = {
-            "name": name,
-            "mail_from_subdomain": mail_from_subdomain,
-            "reply_to": config.get("reply_to", self.integration.config.get("reply_to", "")),
-        }
-        if setup_method := config.get("setup_method"):
-            changes["setup_method"] = setup_method
-        # The SDK merges the patch under a row lock, so a concurrent verification write is kept.
-        self.integration = model.integration_model(
-            row_writes.update_row(self.integration, IntegrationPatch(config_patch=changes))
-        )
-        if provider == "ses" and mail_from_changed:
-            self._move_domain_senders_to_mail_from_subdomain(mail_from_subdomain)
+            changes: dict[str, str] = {
+                "name": name,
+                "mail_from_subdomain": mail_from_subdomain,
+                "reply_to": config.get("reply_to", self.integration.config.get("reply_to", "")),
+            }
+            if setup_method := config.get("setup_method"):
+                changes["setup_method"] = setup_method
+            # The SDK merges the patch under a row lock, so a concurrent verification write is kept.
+            self.integration = model.integration_model(
+                row_writes.update_row(self.integration, IntegrationPatch(config_patch=changes))
+            )
+            if provider == "ses" and mail_from_changed:
+                self._move_domain_senders_to_mail_from_subdomain(mail_from_subdomain)
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         return self.integration
+
+    def _lock_sender_domain(self) -> None:
+        with connection.cursor() as cursor:
+            lock_sender_domain(cursor, self.integration.config["domain"].lower())
 
     def _move_domain_senders_to_mail_from_subdomain(self, mail_from_subdomain: str) -> None:
         accessor = row_writes.row_accessor(self.integration)
@@ -205,10 +211,12 @@ class EmailIntegration:
                 verify_ses_email_domain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
             )
 
-            mail_from_subdomain = self._adopt_mail_from_subdomain_ses_uses(mail_from_subdomain)
-            verification_result = verify_ses_email_domain(
-                domain, mail_from_subdomain=mail_from_subdomain, team_id=self.integration.team_id
-            )
+            with transaction.atomic():
+                self._lock_sender_domain()
+                mail_from_subdomain = self._adopt_mail_from_subdomain_ses_uses(mail_from_subdomain)
+                verification_result = verify_ses_email_domain(
+                    domain, mail_from_subdomain=mail_from_subdomain, team_id=self.integration.team_id
+                )
         elif provider == "maildev":
             from products.workflows.backend.facade.api import (
                 get_maildev_mock_dns_records,  # noqa: PLC0415 — keeps the workflows facade off the model import path

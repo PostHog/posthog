@@ -115,6 +115,40 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             other.rollback()
             other.close()
 
+    @parameterized.expand(
+        [
+            (
+                "update",
+                lambda sender: EmailIntegration(sender).update_native_integration({"mail_from_subdomain": "x"}, 0),
+            ),
+            ("verify", lambda sender: EmailIntegration(sender).verify()),
+        ]
+    )
+    @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain")
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    def test_mail_from_writes_wait_for_another_write_on_the_same_domain(
+        self, _name, operation, mock_update_mail_from, mock_get_mail_from, mock_verify
+    ):
+        sender = Integration.objects.create(
+            team_id=self.team.id,
+            kind="email",
+            integration_id="first@locked.example.com",
+            config={"email": "first@locked.example.com", "domain": "locked.example.com", "provider": "ses"},
+        )
+        other = connection.get_new_connection(connection.get_connection_params())
+        try:
+            with other.cursor() as cursor:
+                lock_sender_domain(cursor, "locked.example.com")
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '200ms'")
+            with pytest.raises(OperationalError, match="lock timeout"):
+                operation(sender)
+            assert not (mock_update_mail_from.called or mock_get_mail_from.called or mock_verify.called)
+        finally:
+            other.rollback()
+            other.close()
+
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_sender_created_during_the_provider_call_is_refused_not_upserted(self, mock_create_email_domain):
         config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}

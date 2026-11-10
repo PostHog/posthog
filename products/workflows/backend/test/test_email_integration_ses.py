@@ -223,9 +223,6 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
 
         with patch("products.workflows.backend.providers.SESProvider", return_value=provider):
             sender_a, sender_b = self._create_senders_in_two_teams()
-            Integration.objects.filter(pk=sender_a.pk).update(
-                config={**sender_a.config, "mail_from_subdomain": "bounces"}
-            )
             mail_from_domains["partner.com"] = "bounces.partner.com"
             result = EmailIntegration(sender_b).verify()
 
@@ -233,8 +230,9 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
         assert {record["recordHostname"] for record in result["dnsRecords"] if record["type"] == "mail_from"} == {
             "bounces.partner.com"
         }
-        sender_b.refresh_from_db()
-        assert sender_b.config["mail_from_subdomain"] == "bounces"
+        for sender in (sender_a, sender_b):
+            sender.refresh_from_db()
+            assert sender.config["mail_from_subdomain"] == "bounces"
 
     def test_aws_account_id_is_looked_up_once_across_providers(self):
         cache.delete(AWS_ACCOUNT_ID_CACHE_KEY)
