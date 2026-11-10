@@ -4,11 +4,11 @@ import { IconBolt, IconPencil, IconPerson, IconPlusSmall, IconX } from '@posthog
 import { LemonButton, LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { TagsInputSelect } from 'lib/components/TagsInputSelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { tagsModel } from '~/models/tagsModel'
 import { PropertyDefinition, PropertyDefinitionType, PropertyType } from '~/types'
 
 import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -95,7 +95,6 @@ function isAccountTagChangedConfig(config: EventTriggerConfig): boolean {
 
 function StepTriggerConfigurationAccountTagChanged({ node }: { node: any }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
-    const { tags, tagsLoading } = useValues(tagsModel)
     const config = node.data.config as EventTriggerConfig
     const selectedTags = getSelectedTags(config)
     const changeType = getAccountTagChangeType(config)
@@ -106,13 +105,9 @@ function StepTriggerConfigurationAccountTagChanged({ node }: { node: any }): JSX
                 This trigger runs when a tag is added to or removed from an account. Leave empty to run for any tag.
             </p>
             <LemonField.Pure label="Tags">
-                <LemonInputSelect
-                    mode="multiple"
-                    allowCustomValues
+                <TagsInputSelect
                     value={selectedTags}
-                    loading={tagsLoading}
                     placeholder="Any tag"
-                    options={tags.map((tag: string) => ({ key: tag, label: tag }))}
                     onChange={(value) =>
                         setWorkflowActionConfig(node.data.id, {
                             type: 'event',
