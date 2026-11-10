@@ -101,35 +101,47 @@ class CampaignAdmin(admin.ModelAdmin):
             self.log_change(request, campaign, "Marked inactive")
 
     @admin.action(description="Re-sync selected campaigns")
-    # ruleid: no-new-admin-workflow-actions
     def resync(self, request, queryset):
         for campaign in queryset:
+            # ruleid: no-new-admin-workflow-actions
             resync_campaign.delay(campaign.pk)
 
     @admin.action
-    # ruleid: no-new-admin-workflow-actions
     def export(self, request, queryset):
+        # ruleid: no-new-admin-workflow-actions
         return HttpResponse(build_csv(queryset), content_type="text/csv")
 
     @action(description="Clone selected campaign")
-    # ruleid: no-new-admin-workflow-actions
     def clone(self, request, queryset):
         clone = queryset.first().clone()
+        # ruleid: no-new-admin-workflow-actions
         return HttpResponseRedirect(reverse("admin:growth_campaign_change", args=[clone.pk]))
 
     @admin.action(description="Revoke all sessions")
-    # ruleid: no-new-admin-workflow-actions
     def revoke_sessions(self, request, queryset):
         if request.POST.get("confirm"):
             return None
+        # ruleid: no-new-admin-workflow-actions
         return TemplateResponse(request, "admin/confirm.html", {})
 
     @admin.action(description="Backfill selected campaigns")
-    # ruleid: no-new-admin-workflow-actions
     def backfill(self, request, queryset):
+        # ruleid: no-new-admin-workflow-actions
         async_to_sync(client.start_workflow)("backfill", id="backfill", task_queue="general")
 
-    # ok: no-new-admin-workflow-actions
+    @admin.action(description="Revoke all sessions")
+    def revoke_in_console(self, request, queryset):
+        query = urlencode([("application", str(pk)) for pk in queryset.values_list("id", flat=True)])
+        # ok: no-new-admin-workflow-actions
+        return HttpResponseRedirect(f"{reverse('admin_console_tool_operation', args=['oauth-sessions', 'revoke'])}?{query}")
+
+    @admin.action(description="Rebuild in the console")
+    def rebuild_in_console(self, request, queryset):
+        # ok: no-new-admin-workflow-actions
+        return redirect(reverse("admin_console_tool", args=["rebuild"]))
+
     def send_report(self, request, queryset):
+        # ok: no-new-admin-workflow-actions
         send_report_task.delay()
+        # ok: no-new-admin-workflow-actions
         return redirect("admin:index")

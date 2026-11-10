@@ -132,41 +132,39 @@ rules:
       severity: WARNING
       patterns:
           - pattern-either:
-                - pattern: |
+                - pattern-inside: |
                       @admin.action
                       def $FUNC(...):
-                          $...BODY
-                - pattern: |
+                          ...
+                - pattern-inside: |
                       @admin.action(...)
                       def $FUNC(...):
-                          $...BODY
-                - pattern: |
+                          ...
+                - pattern-inside: |
                       @django.contrib.admin.action
                       def $FUNC(...):
-                          $...BODY
-                - pattern: |
+                          ...
+                - pattern-inside: |
                       @django.contrib.admin.action(...)
                       def $FUNC(...):
-                          $...BODY
-          - metavariable-pattern:
-                metavariable: $...BODY
-                pattern-either:
-                    - pattern: render(...)
-                    - pattern: TemplateResponse(...)
-                    - pattern: redirect(...)
-                    - pattern: FileResponse(...)
-                    - pattern: StreamingHttpResponse(...)
-                    - patterns:
-                          - pattern: $RESPONSE(...)
-                          - metavariable-regex:
-                                metavariable: $RESPONSE
-                                regex: ^HttpResponse
-                    - pattern: $X.delay(...)
-                    - pattern: $X.apply_async(...)
-                    - pattern: $X.start_workflow
-                    - pattern: $X.execute_workflow
-          # Report the name, not the whole function, so editing a grandfathered action keeps the same finding.
-          - focus-metavariable: $FUNC
+                          ...
+          - pattern-either:
+                - pattern: render(...)
+                - pattern: TemplateResponse(...)
+                - pattern: redirect(...)
+                - pattern: FileResponse(...)
+                - pattern: StreamingHttpResponse(...)
+                - patterns:
+                      - pattern: $RESPONSE(...)
+                      - metavariable-regex:
+                            metavariable: $RESPONSE
+                            regex: ^HttpResponse
+                - pattern: $X.delay(...)
+                - pattern: $X.apply_async(...)
+                - pattern: $X.start_workflow
+                - pattern: $X.execute_workflow
+          # Sending the selected rows to a console operation is how an action moves to the console.
+          - pattern-not: $CALL(<... reverse("=~/^admin_console_/", ...) ...>)
       paths:
           include:
               - '**/admin.py'
