@@ -4,10 +4,13 @@ import { useMemo } from 'react'
 
 import { type ChartScales, useChartLayout } from '@posthog/quill-charts'
 
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
+
 import { dataRetentionBannerLogic } from './dataRetentionBannerLogic'
 import { lastDeletedBucket } from './lastDeletedBucket'
 
-const LABEL_OFFSET = 4
+const TAG_INSET = 8
+const MIN_TAG_WIDTH = 120
 
 function deletionEdgeX(
     labels: string[],
@@ -27,8 +30,12 @@ function deletionEdgeX(
     return xScale(labels[last + 1] ?? labels[last]) ?? null
 }
 
+function centerBetween(center: number, min: number, max: number): string {
+    return `translateX(clamp(${min}px, calc(${center}px - 50%), calc(${max}px - 100%)))`
+}
+
 export function RetentionDeletionOverlay(): JSX.Element | null {
-    const { retention, nextDeletionLabel } = useValues(dataRetentionBannerLogic)
+    const { retention, deletionCutoffLabel } = useValues(dataRetentionBannerLogic)
     const { labels, scales, dimensions } = useChartLayout()
     const { x: xScale, extent: bandWidth } = scales
     const deletesBefore = retention?.next_deletion_before
@@ -38,20 +45,15 @@ export function RetentionDeletionOverlay(): JSX.Element | null {
         [labels, xScale, bandWidth, deletesBefore]
     )
 
-    const { plotLeft, plotTop, plotWidth, plotHeight, width } = dimensions
-    if (edgeX === null || !nextDeletionLabel) {
+    const { plotLeft, plotTop, plotWidth, plotHeight, width, height } = dimensions
+    if (edgeX === null || !deletionCutoffLabel) {
         return null
     }
-    const x = Math.min(edgeX, plotLeft + plotWidth)
+    const plotRight = plotLeft + plotWidth
+    const x = Math.min(edgeX, plotRight)
     if (x <= plotLeft) {
         return null
     }
-    const spaceLeft = x - plotLeft
-    const spaceRight = plotLeft + plotWidth - x
-    const labelPosition =
-        spaceLeft > spaceRight
-            ? { right: width - x + LABEL_OFFSET, top: plotTop + LABEL_OFFSET, maxWidth: spaceLeft - 2 * LABEL_OFFSET }
-            : { left: x + LABEL_OFFSET, top: plotTop + LABEL_OFFSET, maxWidth: spaceRight - 2 * LABEL_OFFSET }
 
     return (
         <>
@@ -65,11 +67,23 @@ export function RetentionDeletionOverlay(): JSX.Element | null {
                 style={{ left: x, top: plotTop, height: plotHeight }}
             />
             <div
-                className="absolute w-max rounded bg-surface-primary px-1 text-xs text-secondary"
-                style={labelPosition}
+                className="absolute left-0 w-max text-xs font-medium"
+                style={{ bottom: height - plotTop, transform: centerBetween(x, 0, width) }}
             >
-                {`Shaded events are deleted on ${nextDeletionLabel}`}
+                {`Retention cutoff · ${deletionCutoffLabel}`}
             </div>
+            <LemonTag
+                type="warning"
+                wrap
+                className="absolute left-0 w-max bg-fill-warning-secondary"
+                style={{
+                    top: plotTop + TAG_INSET,
+                    maxWidth: Math.max(x - plotLeft - 2 * TAG_INSET, MIN_TAG_WIDTH),
+                    transform: centerBetween((plotLeft + x) / 2, plotLeft + TAG_INSET, plotRight - TAG_INSET),
+                }}
+            >
+                Older than your retention period · may be deleted soon
+            </LemonTag>
         </>
     )
 }

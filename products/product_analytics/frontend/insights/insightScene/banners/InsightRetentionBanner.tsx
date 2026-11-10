@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Link } from 'lib/lemon-ui/Link'
 
 import { InsightLogicProps } from '~/types'
 
 import {
-    CHANGE_RETENTION_ACTION,
+    RETENTION_SETTINGS_URL,
     dataRetentionBannerLogic,
 } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
 
@@ -13,7 +14,7 @@ import { insightRetentionBannerLogic } from './insightRetentionBannerLogic'
 
 export function InsightRetentionBanner({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element | null {
     const { shouldShowBanner, shouldShowDeletionBanner } = useValues(insightRetentionBannerLogic(insightProps))
-    const { retentionPeriodLabel, retentionBannerAction, nextDeletionLabel, deletionCutoffLabel } =
+    const { retentionPeriodLabel, retentionBannerAction, nextDeletionLabel, projectPeriodLabel } =
         useValues(dataRetentionBannerLogic)
     const { snooze } = useActions(dataRetentionBannerLogic)
 
@@ -27,14 +28,14 @@ export function InsightRetentionBanner({ insightProps }: { insightProps: Insight
         )
     }
 
-    if (shouldShowDeletionBanner && deletionCutoffLabel && nextDeletionLabel) {
+    if (shouldShowDeletionBanner && projectPeriodLabel) {
         return (
-            <LemonBanner
-                type="warning"
-                onClose={snooze}
-                action={{ ...CHANGE_RETENTION_ACTION, 'data-attr': 'insight-retention-deletion-change-retention' }}
-            >
-                {`This insight's date range goes back before ${deletionCutoffLabel}. Events before that date will be deleted on ${nextDeletionLabel}.`}
+            <LemonBanner type="warning" onClose={snooze}>
+                <span>{`Events in this insight are older than your ${projectPeriodLabel} retention period and may be deleted soon. Adjust your retention period in `}</span>
+                <Link to={RETENTION_SETTINGS_URL} data-attr="insight-retention-deletion-settings">
+                    Settings
+                </Link>
+                <span>.</span>
             </LemonBanner>
         )
     }

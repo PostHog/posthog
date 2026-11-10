@@ -19,10 +19,7 @@ export interface RetentionBannerAction {
     to: string
 }
 
-export const CHANGE_RETENTION_ACTION: RetentionBannerAction = {
-    children: 'Change retention',
-    to: urls.settings('environment-product-analytics', 'project-events-retention'),
-}
+export const RETENTION_SETTINGS_URL = urls.settings('environment-product-analytics', 'project-events-retention')
 
 // The longest window any plan offers, so there's nothing to upgrade to past it.
 export const LONGEST_PLAN_RETENTION_MONTHS = 84
@@ -50,6 +47,7 @@ export interface dataRetentionBannerLogicValues {
     deletionCutoffLabel: string | null
     isSnoozed: boolean
     nextDeletionLabel: string | null
+    projectPeriodLabel: string | null
     retention: EventsRetentionApi | null
     retentionApplies: boolean
     retentionBannerAction: RetentionBannerAction | null
@@ -92,6 +90,7 @@ export interface dataRetentionBannerLogicMeta {
         retentionBannerAction: (retention: EventsRetentionApi | null) => RetentionBannerAction | null
         retentionEnforced: (retentionMonths: number | null) => boolean
         retentionPeriodLabel: (retentionMonths: number | null) => string | null
+        projectPeriodLabel: (retention: EventsRetentionApi | null) => string | null
         isSnoozed: (snoozedUntil: string | null) => boolean
         accountAgeEligible: (currentOrganization: OrganizationType | null, retentionMonths: number | null) => boolean
         retentionApplies: (retentionEnforced: boolean, accountAgeEligible: boolean) => boolean
@@ -160,7 +159,7 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
                     return null
                 }
                 if (retention.retention_months < retention.plan_retention_months) {
-                    return CHANGE_RETENTION_ACTION
+                    return { children: 'Change retention', to: RETENTION_SETTINGS_URL }
                 }
                 return retention.plan_retention_months < LONGEST_PLAN_RETENTION_MONTHS
                     ? { children: 'Upgrade plan', to: urls.organizationBilling() }
@@ -175,6 +174,17 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
             (s) => [s.retentionMonths],
             (retentionMonths: number | null): string | null =>
                 retentionMonths ? retentionMonthsLabel(retentionMonths) : null,
+        ],
+        projectPeriodLabel: [
+            (s) => [s.retention],
+            (retention: EventsRetentionApi | null): string | null =>
+                retention
+                    ? retentionMonthsLabel(
+                          retention.project_retention_months ??
+                              retention.organization_retention_months ??
+                              retention.default_retention_months
+                      )
+                    : null,
         ],
         isSnoozed: [
             (s) => [s.snoozedUntil],

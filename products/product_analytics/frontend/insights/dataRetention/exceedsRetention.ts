@@ -7,7 +7,7 @@ import {
     isInsightQueryWithSeries,
     isInsightVizNode,
 } from '~/queries/schema/node-guards'
-import { Node } from '~/queries/schema/schema-general'
+import { InsightVizNode, Node } from '~/queries/schema/schema-general'
 
 // Retention floors and deletes only the events table, so an insight reading warehouse tables alone loses nothing.
 export function readsOnlyWarehouseTables(source: Node | null | undefined): boolean {
@@ -17,6 +17,10 @@ export function readsOnlyWarehouseTables(source: Node | null | undefined): boole
         source.series.length > 0 &&
         source.series.every(isAnyDataWarehouseNode)
     )
+}
+
+function insightSource(query: Node | null | undefined): InsightVizNode['source'] | undefined {
+    return isInsightVizNode(query) ? query.source : undefined
 }
 
 interface InsightRange {
@@ -34,36 +38,31 @@ interface InsightRange {
  */
 export function rangeReachesBefore({
     query,
-    dateFromOverride,
     resolvedDateFrom,
     cutoff,
 }: InsightRange & { cutoff: Dayjs | null }): boolean {
-    if (!cutoff) {
+    if (!cutoff || readsOnlyWarehouseTables(insightSource(query))) {
         return false
     }
     // A SQL insight can scan arbitrary history and has no resolved range, so warn whenever retention applies.
     if (isHogQLQuery(query) || (isDataVisualizationNode(query) && isHogQLQuery(query.source))) {
         return true
     }
-    const source = isInsightVizNode(query) ? query.source : undefined
-    if (readsOnlyWarehouseTables(source)) {
-        return false
-    }
-    const dateFrom = dateFromOverride ?? source?.dateRange?.date_from
-    // "All time" resolves to the earliest event the floored query can still see, which is never older than the
-    // window, so the resolved range alone can't reveal that older events were cut off.
-    if (dateFrom === 'all') {
-        return true
-    }
-    if (!resolvedDateFrom) {
-        return false
-    }
-    return dayjs(resolvedDateFrom).isBefore(cutoff)
+    return !!resolvedDateFrom && dayjs(resolvedDateFrom).isBefore(cutoff)
 }
 
 export function exceedsRetention({
     retentionMonths,
     ...range
 }: InsightRange & { retentionMonths: number | null }): boolean {
-    return rangeReachesBefore({ ...range, cutoff: retentionMonths ? dayjs().subtract(retentionMonths, 'month') : null })
+    if (!retentionMonths) {
+        return false
+    }
+    const source = insightSource(range.query)
+    // "All time" resolves to the earliest event the floored query can still see, which is never older than the
+    // window, so the resolved range alone can't reveal that older events were cut off.
+    if ((range.dateFromOverride ?? source?.dateRange?.date_from) === 'all') {
+        return !readsOnlyWarehouseTables(source)
+    }
+    return rangeReachesBefore({ ...range, cutoff: dayjs().subtract(retentionMonths, 'month') })
 }
