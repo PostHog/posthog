@@ -312,7 +312,7 @@ const SdkTracing = ({ ctx }: { ctx: OnboardingComponentsContext }): JSX.Element 
 
             <CodeBlock
                 blocks={[
-                    { language: 'bash', file: 'Python', code: 'pip install "posthog[otel]<8"' },
+                    { language: 'bash', file: 'Python', code: 'pip install "posthog[otel]>=8,<9"' },
                     {
                         language: 'bash',
                         file: 'Node',

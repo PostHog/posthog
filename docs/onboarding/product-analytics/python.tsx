@@ -18,7 +18,7 @@ export const getPythonInstallSteps = (ctx: OnboardingComponentsContext): StepDef
                                 language: 'bash',
                                 file: 'Terminal',
                                 code: dedent`
-                                    pip install "posthog<8"
+                                    pip install "posthog>=8,<9"
                                 `,
                             },
                         ]}

@@ -21,7 +21,7 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install "posthog<8"
+                            pip install "posthog>=8,<9"
                         `}
                     />
                 </>

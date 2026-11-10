@@ -32,14 +32,14 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install "posthog<8" openai
+                                    pip install "posthog>=8,<9" openai
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @posthog/ai@8 posthog-node@5 openai
+                                    npm install @posthog/ai@8 posthog-node@6 openai
                                 `,
                             },
                             GO_OTEL_TAB,

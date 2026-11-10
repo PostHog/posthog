@@ -24,7 +24,7 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install boto3 opentelemetry-instrumentation-botocore opentelemetry-sdk "posthog[otel]<8"
+                                    pip install boto3 opentelemetry-instrumentation-botocore opentelemetry-sdk "posthog[otel]>=8,<9"
                                 `,
                             },
                             {
