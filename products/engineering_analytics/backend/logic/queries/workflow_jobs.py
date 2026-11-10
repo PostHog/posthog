@@ -36,8 +36,8 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 # Explicit high LIMIT: without it HogQL caps at DEFAULT_RETURNED_ROWS (100), and since the rows are ordered
 # by start, a run with >100 jobs (matrix builds, re-run attempts) would silently drop its latest-starting
 # jobs — the breakdown would then miss jobs and not add up to the run's cost.
-# Scope every raw GitHub jobs scan to the run, including duplicate and hand-off evidence.
-# Keep every attempt: a date floor could hide an earlier failure or make a re-listed job look billable.
+# The read is scoped to the run instead of to a date floor (see CuratedGitHubSource.scoped_to_run).
+# A date floor could hide an earlier attempt's failure or make a re-listed job look billable.
 _SELECT = """
     SELECT id, run_id, run_attempt, name, status, conclusion, labels, runner_name, started_at, completed_at, duration_seconds, provisioning_seconds, is_rerun_copy,
         ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id, steps
@@ -73,7 +73,7 @@ _LATEST_ATTEMPT_SELECT = """
 def query_workflow_jobs(
     *, curated: CuratedGitHubSource, run_id: int, run_attempt: int | None = None, ci_engine: CIEngine | None = None
 ) -> list[WorkflowJob]:
-    jobs_source = curated.jobs_source(include_steps=True, run_id_filter=True)
+    jobs_source = curated.jobs_source(include_steps=True, scoped=True)
     if jobs_source is None:
         # The optional job-level source isn't synced for this team yet.
         return []
@@ -84,7 +84,7 @@ def query_workflow_jobs(
         else None
     )
     response = curated.run(
-        _SELECT.replace("__JOBS_SOURCE__", jobs_source),
+        curated.scoped_to_run(_SELECT.replace("__JOBS_SOURCE__", jobs_source)),
         query_type="engineering_analytics.workflow_jobs",
         placeholders={
             "run_id": ast.Constant(value=run_id),
@@ -113,11 +113,11 @@ def query_workflow_job(
     *, curated: CuratedGitHubSource, run_id: int, job_id: int, ci_engine: CIEngine | None = None
 ) -> WorkflowJob | None:
     """One job of a run, whichever attempt it belongs to, or None when the source has no such job."""
-    jobs_source = curated.jobs_source(include_steps=True, run_id_filter=True)
+    jobs_source = curated.jobs_source(include_steps=True, scoped=True)
     if jobs_source is None:
         return None
     response = curated.run(
-        _SELECT.replace("__JOBS_SOURCE__", jobs_source),
+        curated.scoped_to_run(_SELECT.replace("__JOBS_SOURCE__", jobs_source)),
         query_type="engineering_analytics.workflow_job",
         placeholders={
             "run_id": ast.Constant(value=run_id),
@@ -175,7 +175,9 @@ def query_jobs_by_run(
 
 def _latest_run_attempt(*, curated: CuratedGitHubSource, run_id: int, ci_engine: CIEngine | None) -> int | None:
     response = curated.run(
-        _LATEST_ATTEMPT_SELECT.replace("__RUNS_SOURCE__", curated.run_source(live=True, run_id_filter=True)),
+        curated.scoped_to_run(
+            _LATEST_ATTEMPT_SELECT.replace("__RUNS_SOURCE__", curated.run_source(live=True, scoped=True))
+        ),
         query_type="engineering_analytics.workflow_jobs_latest_attempt",
         placeholders={"run_id": ast.Constant(value=run_id)},
     )

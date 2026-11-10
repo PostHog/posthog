@@ -161,16 +161,16 @@ def query_pr_push_activity(
     numbers so the scan tracks the page (same shape as ``query_pr_costs``). A PR with no CI has no entry."""
     if not pr_numbers:
         return {}
-    scope_ctes = curated.pr_history_scope_ctes()
     sql = (
-        _PUSH_ACTIVITY_SELECT.replace("__RUNS_SOURCE__", curated.run_source(run_ids_filter=bool(scope_ctes)))
+        _PUSH_ACTIVITY_SELECT.replace("__RUNS_SOURCE__", curated.run_source(scoped=True))
         .replace("__PUSH_HISTORY_LIMIT__", str(_PUSH_HISTORY_LIMIT))
         .replace("__DECISIVE_FAILURES__", DECISIVE_FAILURE_CONCLUSIONS_SQL)
     )
-    placeholders: dict[str, ast.Expr] = {"pr_numbers": ast.Constant(value=pr_numbers)}
-    if scope_ctes:
-        sql = f"WITH {', '.join(scope_ctes)} {sql}"
-    response = curated.run(sql, query_type="engineering_analytics.pr_push_history", placeholders=placeholders)
+    response = curated.run(
+        curated.scoped_to_pr_history(sql),
+        query_type="engineering_analytics.pr_push_history",
+        placeholders={"pr_numbers": ast.Constant(value=pr_numbers)},
+    )
     activity: dict[PullRequestKey, PushActivity] = {}
     for (
         repo_owner,
@@ -219,7 +219,8 @@ def _query_rows(
     scope_paging: bool = False,
 ) -> list[tuple]:
     """``scope_where`` is over unqualified curated PR columns and must keep every row ``rows_where``
-    keeps, because it prunes the CI rollup (see ``pr_rollup_query``)."""
+    keeps, because it prunes the CI rollup (see ``pr_rollup_query``). ``scope_paging`` pages the scope
+    too, so ``scope_where`` must then equal ``rows_where`` and ``order_by`` must read PR columns only."""
     select = (
         _SELECT.replace("__READY_TO_MERGE__", f"{ready.expr} AS ready_to_merge_seconds")
         .replace("__READY_JOIN__", ready.join)

@@ -28,17 +28,37 @@ from products.engineering_analytics.backend.tests._logic_helpers import (
 class TestWorkflowJobScope(_WarehouseMixin):
     @parameterized.expand(
         [
-            ("successful_shell", False, False),
-            ("recovered_after_old_failure", True, False),
-            ("queue_handoff", False, True),
+            ("successful_shell", False, False, True, 1),
+            ("recovered_after_old_failure", True, False, True, 1),
+            ("queue_handoff", False, True, True, 1),
+            ("queue_snapshot_pending", False, True, False, 1),
+            ("handoff_job_older_than_its_depot_workflow", False, False, True, 5),
         ]
     )
     def test_single_run_job_scope_preserves_handoff_failure_evidence(
-        self, _: str, had_old_failure: bool, is_queue: bool
+        self, _: str, had_old_failure: bool, is_queue: bool, gate_snapshot_synced: bool, handoff_job_age_days: int
     ) -> None:
         queue_branch = "trunk-merge/pr-62/invented-gate"
         source_pr = 900999 if is_queue else 62
         started, completed = _ago_with_duration(1, 120)
+        first_handoff_started, first_handoff_completed = _ago_with_duration(10, 120)
+        first_handoff = _depot_attempt_row(
+            repo="PostHog/posthog",
+            run_id="5555555555",
+            workflow_id="6666666666",
+            ref="refs/pull/77/merge",
+            head_sha="sha77",
+            workflow_status="finished",
+            workflow_created_at=first_handoff_started,
+            workflow_started_at=first_handoff_started,
+            workflow_finished_at=first_handoff_completed,
+            attempt_status="finished",
+            attempt_started_at=first_handoff_started,
+            attempt_finished_at=first_handoff_completed,
+            job_key="ci.yml:wait-for-handoff",
+            job_id="7777777777",
+            attempt_id="8888888888",
+        )
         self._create_depot_table(
             [
                 {
@@ -64,9 +84,10 @@ class TestWorkflowJobScope(_WarehouseMixin):
                     ("ci.yml:tests", "3333333333", "4444444444"),
                 )
             ]
+            + [first_handoff],
         )
         pr_rows = [_pr_row(62, "alice", "open", 0, _ago(21), head_sha="sha62")]
-        if is_queue:
+        if is_queue and gate_snapshot_synced:
             pr_rows.append(
                 _pr_row(source_pr, "trunk-io[bot]", "closed", 0, _ago(40), closed_at=_ago(40), head_ref=queue_branch)
             )
@@ -93,9 +114,11 @@ class TestWorkflowJobScope(_WarehouseMixin):
                 }
             ],
         )
+        handoff_started, handoff_completed = _ago_with_duration(handoff_job_age_days, 120)
+        handoff_times = {"started": handoff_started, "completed": handoff_completed}
         jobs = [
-            _job_row(92001, 9200, "Hand off backend tests to Depot CI", "success", run_attempt=2),
-            _job_row(92002, 9200, "Django Tests Pass", "success", run_attempt=2),
+            _job_row(92001, 9200, "Hand off backend tests to Depot CI", "success", run_attempt=2, **handoff_times),
+            _job_row(92002, 9200, "Django Tests Pass", "success", run_attempt=2, **handoff_times),
             _job_row(93001, 9300, "unrelated failure", "failure"),
         ]
         if had_old_failure:
@@ -115,7 +138,7 @@ class TestWorkflowJobScope(_WarehouseMixin):
         listed = api.list_pull_requests(team=self.team).items[0]
         lifetime_cost = api.get_pr_cost(team=self.team, pr_number=62, repo="PostHog/posthog")
         assert listed.estimated_cost_usd == lifetime_cost.estimated_cost_usd
-        assert listed.billable_minutes == lifetime_cost.billable_minutes
+        assert (listed.billable_minutes or 0) == lifetime_cost.billable_minutes
         assert listed.ci.runs > 0
         assert listed.pushes == (0 if is_queue else 1)
         assert [sample.head_sha for sample in listed.push_history] == ([] if is_queue else ["sha62"])
@@ -172,3 +195,34 @@ class TestWorkflowJobScope(_WarehouseMixin):
             assert item.billable_minutes == pytest.approx(4.0)
             assert item.pushes == 1
             assert [sample.head_sha for sample in item.push_history] == ["old-head"]
+
+    def test_scoped_sources_bound_every_raw_ci_scan(self) -> None:
+        self._create_depot_table([_depot_attempt_row()])
+        self._create_table("github_pull_requests", PULL_REQUESTS_COLUMNS, [_pr_row(62, "alice", "open", 0, _ago(1))])
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9200, "CI", "sha62", "completed", "success", _ago(1), _ago(1))],
+        )
+        self._create_table("github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [_job_row(92001, 9200, "build", "success")])
+        curated = CuratedGitHubSource.for_team(self.team)
+        depot = curated._depot_job_attempts()
+        assert depot is not None and curated._tables.workflow_jobs is not None
+        scoped_reads = {
+            curated._tables.workflow_runs: "(SELECT * FROM {table} WHERE ((id >= arrayMin(ea_github_run_ids)",
+            curated._tables.workflow_jobs: "(SELECT * FROM {table} WHERE ((run_id >= arrayMin(ea_github_run_ids)",
+            depot.table: "(SELECT * FROM {table} WHERE run_id IN (SELECT arrayJoin(ea_depot_run_ids))",
+        }
+        sources = {
+            "runs": curated.run_source(live=True, scoped=True),
+            "jobs": curated.jobs_source(include_steps=True, scoped=True),
+            "job_costs": curated.job_cost_source(scoped=True),
+        }
+        unscoped = {
+            (name, table): sql.count(table) - sql.count(scoped_read.format(table=table))
+            for name, sql in sources.items()
+            if sql is not None
+            for table, scoped_read in scoped_reads.items()
+            if sql.count(table) != sql.count(scoped_read.format(table=table))
+        }
+        assert not unscoped, "A scoped source reads a raw CI table outside its run scope, so it scans all history."

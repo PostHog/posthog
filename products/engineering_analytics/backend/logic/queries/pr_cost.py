@@ -134,11 +134,9 @@ _EMPTY = PRCostSummary(
 # is missing, matching the legacy INNER JOIN population.
 #
 # The only two cost queries with no scan floor (see job_cost_source(created_floor=...)) are this one
-# and _COSTS_BY_PR_SELECT without run_from: both are keyed by PR number, not by a window, and a PR's
-# created_at would cost an extra round trip here (build_pr_cost is handed a number and a repo, nothing
-# else) or be the min across a whole page there, which for a page holding one old PR is no bound at
-# all. Left unfloored deliberately; if these ever get slow, thread the PR's created_at down and floor
-# a day below it rather than inventing a window.
+# and _COSTS_BY_PR_SELECT without run_from: both are keyed by PR number, not by a window. A PR's
+# created_at is no floor for either, because CI associated with a PR can predate the PR's creation.
+# _COSTS_BY_PR_SELECT bounds its scans to the runs of its PRs instead (see scoped_to_pr_history).
 _PR_COST_SELECT = """
     SELECT
         c.workflow_name AS workflow_name,
@@ -237,10 +235,8 @@ def query_pr_costs(
     A population that can be repo-wide (every PR merged in a window) passes ``run_from``: runs started
     before it are left out, which trims the jobs scan for a population of thousands of PRs.
     """
-    scope_ctes = curated.pr_history_scope_ctes() if run_from is None else []
-    cost_source = curated.job_cost_source(
-        created_floor=run_from is not None, since=run_from, run_ids_filter=bool(scope_ctes)
-    )
+    scoped = run_from is None
+    cost_source = curated.job_cost_source(created_floor=run_from is not None, since=run_from, scoped=scoped)
     if cost_source is None or not pr_numbers:
         return {}
     placeholders: dict[str, ast.Expr] = {"pr_numbers": ast.Constant(value=pr_numbers)}
@@ -254,8 +250,8 @@ def query_pr_costs(
         .replace("__COST_AGGREGATES__", _cost_aggregates())
         .replace("__RUN_FROM__", run_from_clause)
     )
-    if scope_ctes:
-        sql = f"WITH {', '.join(scope_ctes)} {sql}"
+    if scoped:
+        sql = curated.scoped_to_pr_history(sql)
 
     def load(numbers: list[int]) -> dict[int, tuple[_CostRow, ...]]:
         response = curated.run(
