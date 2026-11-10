@@ -85,6 +85,34 @@ def SHARDED_WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE_SQL():
         WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED_TABLE_BASE_SQL
         + """
 PARTITION BY toYYYYMMDD(expires_at)
+PRIMARY KEY (
+    team_id,
+    job_id,
+    period_bucket,
+    host,
+    device_type,
+    entry_pathname,
+    end_pathname,
+    browser,
+    os,
+    viewport_width,
+    viewport_height,
+    referring_domain,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    country_code,
+    city_name,
+    region_code,
+    region_name,
+    has_gclid,
+    has_gad_source_paid_search,
+    has_fbclid,
+    mat_metadata_backend,
+    mat_metadata_loggedIn
+)
 ORDER BY (
     team_id,
     job_id,
