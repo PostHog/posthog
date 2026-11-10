@@ -146,7 +146,7 @@ SUMMARY_INTERPRETATION_INSTRUCTIONS = """Interpret performance against an approp
 
 
 TREND_FIELD_INSTRUCTIONS = """Trend series fields:
-- latest is the most recent complete period, previous point is the period before it, and change is the direction and size of the move between them.
+- latest is the most recent complete period, previous point is the point before it in the chart, and change is the direction and size of the move between them.
 - in progress is a period that was still collecting data. Do not compare it with complete periods or describe it as a rise or fall.
 - window trend compares the later half of the chart window with the earlier half. It describes the shape of the whole window, not the latest move, so it can point the other way from change.
 - When you describe a move "from X to Y", use the direction of the numbers. Never use window trend as the direction of a from-to change.

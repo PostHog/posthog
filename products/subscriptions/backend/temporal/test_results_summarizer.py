@@ -3,8 +3,10 @@ import pytest
 import structlog
 from parameterized import parameterized_class
 
+from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT
+
 from products.subscriptions.backend.temporal.results_summarizer import (
-    MAX_SUMMARY_LENGTH,
+    MAX_SERIES_SUMMARY_LENGTH,
     build_results_summary,
     last_period_is_incomplete,
 )
@@ -236,9 +238,8 @@ class TestBuildResultsSummaryIncompletePeriod:
         current, previous = build_results_summary("TrendsQuery", results, last_period_incomplete=True).split("\n")
 
         assert "latest=171 (2026-04-05)" in current
-        assert "previous point=54 (2026-04-04)" in current
-        assert "change=up 217%" in current
-        assert "in progress=40 (2026-04-06) (incomplete period)" in current
+        assert "previous point=54, change=up 217%" in current
+        assert "in progress=40 (2026-04-06)," in current
         assert "min=54" in current
         assert "window trend=down" in current
         assert "latest=99 (2026-04-06)" in previous
@@ -247,7 +248,7 @@ class TestBuildResultsSummaryIncompletePeriod:
     def test_only_an_incomplete_period(self):
         results = [{"label": "Signups", "data": [12], "days": ["2026-04-06"]}]
         summary = build_results_summary("TrendsQuery", results, last_period_incomplete=True)
-        assert summary == "- Signups: in progress=12 (2026-04-06) (incomplete period)"
+        assert summary == "- Signups: in progress=12 (2026-04-06)"
 
     @pytest.mark.parametrize(
         "query_kind,query_results,interval,expected",
@@ -358,10 +359,20 @@ class TestBuildResultsSummaryStickiness:
 
 
 class TestBuildResultsSummaryTruncation:
+    def test_default_breakdown_keeps_every_series_line(self):
+        days = [f"2026-04-{day:02d}" for day in range(1, 31)]
+        results = [
+            {"label": f"Pageview - Country {i}", "data": [1000 + i * 37 + day * 11 for day in range(30)], "days": days}
+            for i in range(BREAKDOWN_VALUES_LIMIT)
+        ]
+        summary = build_results_summary("TrendsQuery", results, last_period_incomplete=True)
+        assert "truncated" not in summary
+        assert len(summary.split("\n")) == BREAKDOWN_VALUES_LIMIT
+
     def test_long_results_are_truncated(self):
-        results = [{"label": f"Series {i}", "data": list(range(100))} for i in range(50)]
+        results = [{"label": f"Series {i}", "data": list(range(100))} for i in range(100)]
         summary = build_results_summary("TrendsQuery", results)
-        assert len(summary) <= MAX_SUMMARY_LENGTH + len("\n... (truncated)")
+        assert len(summary) <= MAX_SERIES_SUMMARY_LENGTH + len("\n... (truncated)")
         assert "truncated" in summary
 
 

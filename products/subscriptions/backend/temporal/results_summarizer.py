@@ -9,6 +9,9 @@ from posthog.security.llm_prompt_sanitization import GENERIC_VALUE_MAX_LEN, SERI
 LOGGER = get_logger(__name__)
 
 MAX_SUMMARY_LENGTH = 2000
+# Trend, lifecycle and stickiness summaries print one line per series. This limit fits one line for each of
+# the default BREAKDOWN_VALUES_LIMIT breakdown values when the series labels are short.
+MAX_SERIES_SUMMARY_LENGTH = 5000
 
 # Query kinds whose metric values map onto the insight's Y-axis format, so summary
 # numbers should be rendered the way the chart renders them (e.g. duration, currency).
@@ -97,8 +100,9 @@ def build_results_summary(
         text = summarizer(results)
     else:
         text = _summarize_generic(results, columns)
-    if len(text) > MAX_SUMMARY_LENGTH:
-        text = text[:MAX_SUMMARY_LENGTH] + "\n... (truncated)"
+    max_length = MAX_SERIES_SUMMARY_LENGTH if query_kind in _TREND_SUMMARY_KINDS else MAX_SUMMARY_LENGTH
+    if len(text) > max_length:
+        text = text[:max_length] + "\n... (truncated)"
     return text
 
 
@@ -166,21 +170,19 @@ def _format_trend_series(
         latest_period, latest = complete[-1]
         parts.append(f"latest={_fmt_value(latest, value_format)}{_at(latest_period)}")
         if len(complete) >= 2:
-            previous_period, previous = complete[-2]
-            parts.append(f"previous point={_fmt_value(previous, value_format)}{_at(previous_period)}")
+            _, previous = complete[-2]
+            parts.append(f"previous point={_fmt_value(previous, value_format)}")
             parts.append(f"change={_change_from(previous, latest)}")
     if last_is_incomplete:
         in_progress_period, in_progress = points[-1]
-        parts.append(
-            f"in progress={_fmt_value(in_progress, value_format)}{_at(in_progress_period)} (incomplete period)"
-        )
+        parts.append(f"in progress={_fmt_value(in_progress, value_format)}{_at(in_progress_period)}")
 
     if complete:
         values = [value for _, value in complete]
         parts.append(
             f"avg={_fmt_value(sum(values) / len(values), value_format)}, "
             f"min={_fmt_value(min(values), value_format)}, max={_fmt_value(max(values), value_format)}, "
-            f"window trend={_trend_direction(values)} (later half vs earlier half of {len(values)} points)"
+            f"window trend={_trend_direction(values)} ({len(values)} points)"
         )
 
     return f"- {label}: {', '.join(parts)}"
@@ -253,7 +255,7 @@ def _summarize_boxplot_trend(results: list[dict[str, Any]], value_format: dict[s
             f"median avg={_fmt_value(sum(medians) / len(medians), value_format)}, "
             f"overall min={_fmt_value(min(mins) if mins else medians[-1], value_format)}, "
             f"overall max={_fmt_value(max(maxes) if maxes else medians[-1], value_format)}, "
-            f"median window trend={trend} (later half vs earlier half of {len(medians)} points)"
+            f"median window trend={trend} ({len(medians)} points)"
         )
 
     return "\n".join(lines) if lines else "No trend series"
