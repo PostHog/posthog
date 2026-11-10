@@ -1,7 +1,6 @@
 import { createExampleInvocation } from '~/cdp/_tests/fixtures'
 import { defaultConfig } from '~/common/config/config'
 
-import * as emailTracking from '../email-tracking.service'
 import { htmlForSes, tagEmailLinks } from './email-html'
 import { escapeHtml, escapedHtmlByteLength } from './escape-html'
 import { sesHtmlMaxBytes } from './ses-html-max-bytes'
@@ -73,11 +72,12 @@ describe('sesHtmlMaxBytes', () => {
         expect(escapedHtmlByteLength(html)).toBe(Buffer.byteLength(escapeHtml(html), 'utf8'))
     })
 
-    it('sizes anchors that never close without the link tracking the worker runs', () => {
-        const linkTracking = jest.spyOn(emailTracking, 'addTrackingToEmail')
+    it('sizes a body of anchors that never close well inside the accept deadline', () => {
+        const html = unclosedAnchors(64_000)
+        const startedAt = performance.now()
 
-        maxBytes(unclosedAnchors(1_000), UTM)
+        maxBytes(html, UTM)
 
-        expect(linkTracking).not.toHaveBeenCalled()
+        expect(performance.now() - startedAt).toBeLessThan(2000)
     })
 })

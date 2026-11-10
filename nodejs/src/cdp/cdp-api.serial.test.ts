@@ -3273,7 +3273,6 @@ describe('CDP API', () => {
                     acceptedSend: { tracking: { captureEngagement: false } },
                 }
             }
-            // A freshly started API has no template cached, so it looks the template up.
             const storedTemplateOnAFreshApi = async (): Promise<HeldSend> => ({
                 options: await storedTemplateRendering({ html: '<p>{{ variables.chunk }}</p>' }, 'x'),
                 app: await servedForOneTest({}),
