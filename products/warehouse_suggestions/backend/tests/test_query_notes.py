@@ -91,7 +91,6 @@ class TestMaterializeSummary(SimpleTestCase):
 class TestSuggestionsForReadViews(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(patch(f"{QUERY_NOTES}.query_notes_enabled", return_value=True))
         self.enterContext(patch(f"{QUERY_NOTES}.is_warehouse_suggestions_enabled", return_value=True))
         self.orders = self._view("orders")
         self.sessions = self._view("sessions")
@@ -190,7 +189,7 @@ class TestSuggestionsForReadViews(BaseTest):
     def test_early_exits(self, _name: str, flag_off: bool, views: tuple[str, ...], expected: list | None) -> None:
         make_surfaced_suggestion(self.team.id, self.orders.id)
         view_ids = [{"orders": self.orders, "sessions": self.sessions}[name].id for name in views]
-        with patch(f"{QUERY_NOTES}.query_notes_enabled", return_value=not flag_off):
+        with patch(f"{QUERY_NOTES}.is_warehouse_suggestions_enabled", return_value=not flag_off):
             assert self._notes(*view_ids) == expected
 
     def test_skips_a_suggestion_whose_payload_cannot_be_read(self) -> None:

@@ -3,11 +3,9 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.conf import settings
 from django.db.models import QuerySet
 
 import structlog
-import posthoganalytics
 
 from posthog.utils import absolute_uri
 
@@ -38,7 +36,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-QUERY_NOTES_FEATURE_FLAG = "warehouse-suggestions-query-notes"
 NOTE_KINDS = frozenset({WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestionKind.UNMATERIALIZE})
 MAX_NOTES = 10
 MAX_VIEW_NAME_CHARS = 60
@@ -57,27 +54,11 @@ SHARE_STEP = (
 )
 
 
-def query_notes_enabled(team: "Team") -> bool:
-    if settings.DEBUG or settings.E2E_TESTING:
-        return True
-    return (
-        posthoganalytics.feature_enabled(
-            QUERY_NOTES_FEATURE_FLAG,
-            str(team.organization_id),
-            groups={"organization": str(team.organization_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-        is True
-    )
-
-
 def suggestions_for_read_views(
     team: "Team", user: "User", saved_query_ids: Collection[str], *, is_mcp_run: bool
 ) -> list[WarehouseSuggestionNote] | None:
     view_ids = _parse_ids(saved_query_ids)
-    if not view_ids or not query_notes_enabled(team) or not is_warehouse_suggestions_enabled(team):
+    if not view_ids or not is_warehouse_suggestions_enabled(team):
         return None
     if not _open_suggestions(team.pk, view_ids).exists():
         return []
