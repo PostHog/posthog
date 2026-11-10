@@ -6291,7 +6291,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         undoLayoutChange: () => {
             const placements = values.layoutUndoStack[values.layoutUndoStack.length - 1]
             // A save still out would answer with the layout from before this undo, so wait for it.
-            if (!placements || values.tileSavesPending) {
+            if (!placements) {
+                return
+            }
+            if (values.tileSavesPending) {
+                // The toast's Undo button has no disabled state, so say why nothing happened.
+                lemonToast.info('Wait for the dashboard to finish saving, then undo.')
                 return
             }
             actions.popLayoutUndo()

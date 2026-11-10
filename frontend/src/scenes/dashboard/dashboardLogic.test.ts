@@ -2133,10 +2133,12 @@ describe('dashboardLogic', () => {
                 )
                 moveFirstTileRight()
                 expect(logic.values.tileSavesPending).toBe(true)
+                const infoToast = jest.spyOn(lemonToast, 'info').mockImplementation(() => '')
 
                 await expectLogic(logic, () => logic.actions.undoLayoutChange()).toNotHaveDispatchedActions([
                     'restoreTilePlacements',
                 ])
+                expect(infoToast).toHaveBeenCalledWith('Wait for the dashboard to finish saving, then undo.')
 
                 finishSave(logic.values.dashboard!)
                 await expectLogic(logic).toFinishAllListeners()

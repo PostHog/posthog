@@ -340,7 +340,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         () => ({
             enabled: canEditLayout,
             handle: '.CardMeta,.DashboardTileCard__body,.WidgetCard__header,.drag-handle',
-            cancel: 'a,table,button,input,.Popover',
+            // Text inside a tile stays selectable instead of starting a drag.
+            cancel: 'a,table,button,input,textarea,select,p,h4,[contenteditable="true"],[role="textbox"],.ProseMirror,.LemonMarkdown,.Popover',
             bounded: !showBands || activeTabIndex >= 0,
         }),
         [canEditLayout, showBands, activeTabIndex]
