@@ -205,7 +205,10 @@ const runningSuiteRun = {
     finished_at: null,
 }
 
-export function catalogStoryMocks({ databaseFails = false }: { databaseFails?: boolean } = {}): Mocks {
+export function catalogStoryMocks({
+    databaseFails = false,
+    certificationsFail = false,
+}: { databaseFails?: boolean; certificationsFail?: boolean } = {}): Mocks {
     return {
         get: {
             '/api/projects/:team_id/data_modeling_nodes/': { results: nodes, count: nodes.length },
@@ -224,10 +227,9 @@ export function catalogStoryMocks({ databaseFails = false }: { databaseFails?: b
             '/api/projects/:team_id/data_quality_checks/subjects/': [
                 { subject_type: 'posthog_table', id: 'posthog-events', name: 'events', display_name: '' },
             ],
-            '/api/projects/:team_id/data_catalog/certifications/': {
-                results: certifications,
-                count: certifications.length,
-            },
+            '/api/projects/:team_id/data_catalog/certifications/': certificationsFail
+                ? () => [500, { detail: 'Server error' }]
+                : { results: certifications, count: certifications.length },
             '/api/projects/:team_id/data_quality_runs/:id/': runningSuiteRun,
             '/api/projects/:team_id/data_catalog/relationship_proposals/': { results: [], count: 0 },
             '/api/projects/:team_id/data_catalog/metrics/': { results: [], count: 0 },
