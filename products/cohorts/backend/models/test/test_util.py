@@ -579,7 +579,7 @@ class TestCohortUtils(BaseTest):
 
     def test_copy_to_postgres_rereads_until_it_has_seen_the_rows_it_wrote(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
-        person = _create_person(team_id=self.team.id, distinct_ids=["person"])
+        person = _create_person(team_id=self.team.id, distinct_ids=["person"], uuid=uuid.uuid4())
         flush_persons_and_events()
 
         # The first pass reads an empty replica. The second pass reads the row, then the empty page that ends it.
