@@ -126,6 +126,9 @@ export async function groupMembers(group: string): Promise<number> {
 export function seekFailures(rpkSeek: string): string[] {
     const lines = rpkSeek.split('\n').filter((line) => line.trim() !== '')
     const header = lines[0] ?? ''
+    if (/UNKNOWN_TOPIC_OR_PARTITION/.test(header)) {
+        return []
+    }
     if (!/^TOPIC\s+PARTITION\s/.test(header)) {
         return [rpkSeek.trim() || 'rpk printed nothing']
     }
@@ -141,11 +144,12 @@ export function seekFailures(rpkSeek: string): string[] {
 }
 
 export async function seekToEnd({ group, topics }: ConsumerGroup): Promise<void> {
-    const failures = seekFailures(
-        await rpk(['group', 'seek', group, '--to', 'end', '--topics', topics.join(','), '--allow-new-topics'])
-    )
-    if (failures.length > 0) {
-        throw new Error(`Could not move ${group} to the end of ${topics.join(', ')}:\n${failures.join('\n')}`)
+    for (const topic of topics) {
+        const output = await rpk(['group', 'seek', group, '--to', 'end', '--topics', topic, '--allow-new-topics'])
+        const failures = seekFailures(output)
+        if (failures.length > 0) {
+            throw new Error(`Could not move ${group} to the end of ${topic}:\n${failures.join('\n')}`)
+        }
     }
 }
 
@@ -168,6 +172,24 @@ export async function rolesNotReady(specs: RoleSpec[]): Promise<Role[]> {
         )
     )
     return results.filter((role): role is Role => role !== null)
+}
+
+export const SES_BUCKET_KEY = '@posthog/ses/global'
+
+export async function forgetSesBucket({ host, port }: { host: string; port: number }): Promise<void> {
+    const valkey = new Redis({
+        host,
+        port,
+        lazyConnect: true,
+        commandTimeout: PROBE_TIMEOUT_MS,
+        maxRetriesPerRequest: 0,
+    })
+    try {
+        await valkey.connect()
+        await valkey.del(SES_BUCKET_KEY)
+    } finally {
+        valkey.disconnect()
+    }
 }
 
 export async function pingRedis({ host, port }: { host: string; port: number }): Promise<void> {
