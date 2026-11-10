@@ -57,6 +57,12 @@ class TestBuildResultsSummaryEmpty:
             ["Flat metric", "change=no change", "window trend=stable"],
         ),
         (
+            "trends_up_from_zero",
+            "TrendsQuery",
+            [{"label": "New feature", "data": [0, 0, 5]}],
+            ["New feature", "latest=5", "change=up from 0"],
+        ),
+        (
             "trends_down",
             "TrendsQuery",
             [{"label": "Declining", "data": [200, 180, 100, 80]}],
