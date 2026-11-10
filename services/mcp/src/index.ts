@@ -12,6 +12,7 @@ import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 
 import { proxyToHono, resolveProxyRegion } from './proxy'
 
+const OPENAI_CHALLENGE_TOKEN = 'pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU'
 const MUSE_CHALLENGE_TOKEN = '5e793573d164f4dde673230b30b881493267f7e5036340c31bdef7d50ee73afc'
 
 const handleRequest = async (
@@ -29,7 +30,7 @@ const handleRequest = async (
 
     // OpenAI ChatGPT App Directory domain verification
     if (url.pathname === '/.well-known/openai-apps-challenge') {
-        return new Response('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU', {
+        return new Response(OPENAI_CHALLENGE_TOKEN, {
             headers: { 'content-type': 'text/plain' },
         })
     }
