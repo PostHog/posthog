@@ -1,3 +1,4 @@
+import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SESv2Client, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
@@ -13,6 +14,13 @@ import { postgresThatDropsConnections } from '~/cdp/_tests/postgres-that-drops-c
 import { getDefaultCdpConfig } from '~/cdp/config'
 import { EmailStatusOutput } from '~/cdp/outputs/outputs'
 import {
+    CdpProducerName,
+    WAREHOUSE_PRODUCER,
+    WARPSTREAM_CYCLOTRON_PRODUCER,
+    WARPSTREAM_INGESTION_PRODUCER,
+} from '~/cdp/outputs/producers'
+import { createCdpOutputsRegistry } from '~/cdp/outputs/registry'
+import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersEmailType,
     EmailAttachmentMetadata,
@@ -21,8 +29,10 @@ import { CyclotronV2DequeuedJob } from '~/cdp/services/cyclotron-v2/types'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { v2JobToInvocation } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -304,8 +314,6 @@ const deliveredBySes = (request: any): DeliveredEmail | string => {
 
 type SesAnswer = 'accept' | 'reject' | 'throttle' | 'hold' | 'stallBody' | 'dropConnection'
 
-// Speaks the SES v2 SendEmail wire protocol, so the real SDK client serializes, signs, retries and parses
-// against it, and keeps what an accepted request would have delivered.
 class SesV2Fake {
     readonly delivered: DeliveredEmail[] = []
     answer: SesAnswer = 'accept'
@@ -365,8 +373,6 @@ class SesV2Fake {
 
 type BucketAnswer = 'pass' | 'refuse' | 'hold' | 'holdFilesItHas'
 
-// Sits between the attachment store and the real bucket to fail or hold its requests on demand, which the
-// shared bucket cannot do without disturbing everyone else using it.
 class BucketProxy {
     answer: BucketAnswer = 'pass'
     abandonedRequests = 0
@@ -499,6 +505,35 @@ describe('EmailService', () => {
     let hub: Hub
     let team: Team
     let workflowsActivationReporter: { report: jest.Mock }
+    let redisPools: RedisV2[]
+    const openRedisPool = (): RedisV2 => {
+        const pool = createRedisV2PoolFromConfig({
+            connection: hub.CDP_REDIS_HOST
+                ? { url: hub.CDP_REDIS_HOST, options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD } }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
+        redisPools.push(pool)
+        return pool
+    }
+    const quitEveryConnection = async (pool: RedisV2): Promise<void> => {
+        const connections = hub.REDIS_POOL_MAX_SIZE
+        let held = 0
+        let everyConnectionHeld: () => void = () => {}
+        const holdingEveryConnection = new Promise<void>((resolve) => (everyConnectionHeld = resolve))
+        await Promise.all(
+            Array.from({ length: connections }, () =>
+                pool.useClient({ name: 'quit-test-redis-pool' }, async (client) => {
+                    if (++held === connections) {
+                        everyConnectionHeld()
+                    }
+                    await holdingEveryConnection
+                    await client.quit()
+                })
+            )
+        )
+    }
     const createService = (config: Partial<EmailServiceConfig> = {}): EmailService =>
         new EmailService(
             {
@@ -526,20 +561,16 @@ describe('EmailService', () => {
         teamDailyCap,
         teamConfigDb = hub.postgres,
         attachmentSendDeadlineMs,
+        emailStatusService = null,
     }: {
         ses: SesV2Fake
         store?: AttachmentStore | null
         teamDailyCap?: number
         teamConfigDb?: PostgresRouter
         attachmentSendDeadlineMs?: number
+        emailStatusService?: EmailStatusService | null
     }): EmailService => {
-        const redis = createRedisV2PoolFromConfig({
-            connection: hub.CDP_REDIS_HOST
-                ? { url: hub.CDP_REDIS_HOST, options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD } }
-                : { url: hub.REDIS_URL },
-            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-        })
+        const redis = openRedisPool()
         const built = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -558,7 +589,7 @@ describe('EmailService', () => {
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres),
-            null,
+            emailStatusService,
             workflowsActivationReporter,
             undefined,
             new RateLimiterService(redis, { name: 'workflow-email-test' }),
@@ -587,10 +618,12 @@ describe('EmailService', () => {
         team = (await createTestTeamFixture(hub.postgres)).team
         integrationIdBase = team.id
         workflowsActivationReporter = { report: jest.fn() }
+        redisPools = []
         service = createService()
         mockFetch.mockClear()
     })
     afterEach(async () => {
+        await Promise.all(redisPools.map(quitEveryConnection))
         await closeHub(hub)
     })
     describe('when SES is not configured', () => {
@@ -1230,16 +1263,7 @@ describe('EmailService', () => {
         // workflow without a limit keeps sending right past the parked backlog.
         describe('a denied backlog cannot crowd out other sends', () => {
             it('spreads denied sends over distinct future slots and leaves unlimited workflows untouched', async () => {
-                const redis = createRedisV2PoolFromConfig({
-                    connection: hub.CDP_REDIS_HOST
-                        ? {
-                              url: hub.CDP_REDIS_HOST,
-                              options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                          }
-                        : { url: hub.REDIS_URL },
-                    poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                    poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-                })
+                const redis = openRedisPool()
                 const realLimitedService = new EmailService(
                     {
                         sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -1361,16 +1385,7 @@ describe('EmailService', () => {
                 name: string,
                 dailyCap: number
             ): { service: EmailService; sendSpy: jest.SpyInstance; limiter: RateLimiterService } => {
-                const redis = createRedisV2PoolFromConfig({
-                    connection: hub.CDP_REDIS_HOST
-                        ? {
-                              url: hub.CDP_REDIS_HOST,
-                              options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
-                          }
-                        : { url: hub.REDIS_URL },
-                    poolMinSize: hub.REDIS_POOL_MIN_SIZE,
-                    poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
-                })
+                const redis = openRedisPool()
                 const limiter = new RateLimiterService(redis, { name })
                 const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
                 jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
@@ -1837,22 +1852,6 @@ describe('EmailService', () => {
             sesAccepts()
             jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true)
         }
-        const filesGone = (): void => {
-            sesAccepts()
-            service['attachmentStore'] = attachmentStore
-            invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1 },
-                attachments: [{ ...attachmentFile().metadata, filename: 'report.pdf' }],
-            })
-        }
-        const filesUnreachableAfterEveryRetry = (): void => {
-            filesGone()
-            invocation.queueMetadata = { attachmentLoadRetries: 10 }
-            service['attachmentStore'] = buildAttachmentStore({
-                ...attachmentStoreConfig,
-                CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: 'http://127.0.0.1:9',
-            })
-        }
 
         describe('attachments', () => {
             let ses: SesV2Fake
@@ -1860,6 +1859,7 @@ describe('EmailService', () => {
             let pdf: StoredFile
             let logo: StoredFile
             let recipient: string
+            let emailStatus: EmailStatusService
 
             const send = (files: StoredFile[], integrationId = 1): void => {
                 invocation.queueParameters = createEmailParams({
@@ -1870,7 +1870,27 @@ describe('EmailService', () => {
             }
             const sender = (
                 options: Omit<Parameters<typeof buildEmailService>[0], 'ses' | 'store'> = {}
-            ): EmailService => buildEmailService({ ses, store: bucket.store(), ...options })
+            ): EmailService =>
+                buildEmailService({ ses, store: bucket.store(), emailStatusService: emailStatus, ...options })
+            const sendAsTransactionalEmail = (): void => {
+                invocation.id = new UUIDT().toString()
+                invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+            }
+            const recordedEmailStatuses = async (): Promise<Record<string, any>[]> => {
+                await emailStatus.flush()
+                return mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
+                    .map((message) => message.value as Record<string, any>)
+                    .filter((row) => row.message_id === invocation.id)
+            }
+            const failedEmailStatus = (reason: string): Record<string, any> =>
+                expect.objectContaining({
+                    team_id: team.id,
+                    message_id: invocation.id,
+                    status: 'failed',
+                    reason,
+                    sending_domain: 'posthog-test.com',
+                })
             const deliveredFiles = [
                 () => ({
                     filename: 'report.pdf',
@@ -1933,6 +1953,19 @@ describe('EmailService', () => {
             beforeEach(async () => {
                 ses = await SesV2Fake.start()
                 bucket = await BucketProxy.start()
+                mockProducerObserver.resetKafkaProducer()
+                const cdpConfig = getDefaultCdpConfig()
+                emailStatus = new EmailStatusService(
+                    createCdpOutputsRegistry().build(
+                        new KafkaProducerRegistry<CdpProducerName>({
+                            [WARPSTREAM_INGESTION_PRODUCER]: mockProducer,
+                            [WARPSTREAM_CYCLOTRON_PRODUCER]: mockProducer,
+                            [WAREHOUSE_PRODUCER]: mockProducer,
+                        }),
+                        cdpConfig
+                    ),
+                    cdpConfig
+                )
                 recipient = `${randomUUID()}@example.com`
                 pdf = await uploadAttachment(team.id, { filename: 'report.pdf', contentType: 'application/pdf' })
                 logo = await uploadAttachment(team.id, {
@@ -2057,6 +2090,7 @@ describe('EmailService', () => {
             ])(
                 'fails as attachments_missing, sends nothing and stops the other downloads when a file %s',
                 async (_name, otherFile) => {
+                    sendAsTransactionalEmail()
                     send([pdf, await otherFile()])
                     bucket.answer = 'holdFilesItHas'
 
@@ -2067,6 +2101,7 @@ describe('EmailService', () => {
                         error: expect.stringMatching(/^attachments_missing: /),
                     })
                     expect(ses.delivered).toEqual([])
+                    expect(await recordedEmailStatuses()).toEqual([failedEmailStatus('attachments_missing')])
                     await waitForExpect(() => expect(bucket.abandonedRequests).toBe(1), 3000)
                 }
             )
@@ -2161,13 +2196,14 @@ describe('EmailService', () => {
             )
 
             it.each([
-                [9, false, 'retries once more', false, undefined],
+                [9, false, 'retries once more', false, undefined, null],
                 [
                     10,
                     false,
                     'fails as attachment_unavailable',
                     true,
                     expect.stringMatching(/^attachment_unavailable: /),
+                    'attachment_unavailable',
                 ],
                 [
                     0,
@@ -2175,10 +2211,12 @@ describe('EmailService', () => {
                     'fails a test send at once as attachment_unavailable',
                     true,
                     expect.stringMatching(/^attachment_unavailable: .* in 1 try,/),
+                    null,
                 ],
             ])(
                 'after %s load retries (test send: %s), %s when the bucket still does not answer',
-                async (retriesSoFar, isTest, _outcome, finished, error) => {
+                async (retriesSoFar, isTest, _outcome, finished, error, failedStatusReason) => {
+                    sendAsTransactionalEmail()
                     invocation.queueMetadata = { attachmentLoadRetries: retriesSoFar }
                     bucket.answer = 'refuse'
 
@@ -2187,6 +2225,9 @@ describe('EmailService', () => {
                     expect(result.finished).toBe(finished)
                     expect(result.error).toEqual(error)
                     expect(ses.delivered).toEqual([])
+                    expect(await recordedEmailStatuses()).toEqual(
+                        failedStatusReason ? [failedEmailStatus(failedStatusReason)] : []
+                    )
                 }
             )
 
@@ -2272,22 +2313,6 @@ describe('EmailService', () => {
                 'failed',
                 'recipient_suppressed',
             ],
-            [
-                'a transactional email whose files are gone',
-                TRANSACTIONAL_EMAIL_EVENT,
-                false,
-                filesGone,
-                'failed',
-                'attachments_missing',
-            ],
-            [
-                'a transactional email whose files could not be loaded in any retry',
-                TRANSACTIONAL_EMAIL_EVENT,
-                false,
-                filesUnreachableAfterEveryRetry,
-                'failed',
-                'attachment_unavailable',
-            ],
             ['a test send of a transactional email', TRANSACTIONAL_EMAIL_EVENT, true, sesAccepts, null, null],
             [
                 'a skipped test send of a transactional email',
@@ -2315,13 +2340,7 @@ describe('EmailService', () => {
             await emailStatusService.flush()
 
             const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString()))
-            const sendingDomain =
-                status === 'sent' ||
-                reason === 'provider_error' ||
-                reason === 'attachments_missing' ||
-                reason === 'attachment_unavailable'
-                    ? 'posthog-test.com'
-                    : ''
+            const sendingDomain = status === 'sent' || reason === 'provider_error' ? 'posthog-test.com' : ''
             expect(rows).toEqual(
                 status
                     ? [
