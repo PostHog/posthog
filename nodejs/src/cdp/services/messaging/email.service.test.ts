@@ -1501,7 +1501,9 @@ describe('EmailService', () => {
                     })
                 )
                 for (const [, src] of html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)) {
-                    await supertest(new URL(src).origin).get(new URL(src).pathname)
+                    if (src.startsWith(sesEndpoint)) {
+                        await supertest(sesEndpoint).get(new URL(src).pathname)
+                    }
                 }
                 expect(delivered).toEqual(links)
                 expect(fakeSes.opened).toBe(opens ? 1 : 0)
