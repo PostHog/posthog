@@ -1390,10 +1390,16 @@
                         "type": "string",
                         "description": "Exact UUID of an existing scorer version in this project."
                     },
+                    "compute": {
+                        "default": false,
+                        "description": "Compute this composite scorer for this item. Supply no value or outcome; all input results must already exist or be in this request.",
+                        "type": "boolean"
+                    },
                     "status": {
+                        "default": "ok",
+                        "description": "Outcome of this scorer execution.\n\n* `ok` - OK\n* `error` - Error\n* `skipped` - Skipped\n* `not_applicable` - Not applicable",
                         "type": "string",
-                        "enum": ["ok", "error", "skipped", "not_applicable"],
-                        "description": "Outcome of this scorer execution.\n\n* `ok` - OK\n* `error` - Error\n* `skipped` - Skipped\n* `not_applicable` - Not applicable"
+                        "enum": ["ok", "error", "skipped", "not_applicable"]
                     },
                     "value": {
                         "description": "Required for ok: finite number, boolean, or distinct category keys matching the scorer version.",
@@ -1496,7 +1502,7 @@
                         "additionalProperties": false
                     }
                 },
-                "required": ["item_id", "scorer_version_id", "status"]
+                "required": ["item_id", "scorer_version_id"]
             },
             "description": "One to 1,000 unique item/scorer-version results. The entire request commits atomically."
         },
