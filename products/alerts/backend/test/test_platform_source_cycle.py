@@ -1256,7 +1256,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 platform_testing.start_firing(configuration.id, team_id=self.team.id, at=CUTOFF - timedelta(hours=1))
             elif before is not None:
                 platform_testing.set_check_status(configuration.id, "errored")
-        events = (_check_event(previous_state="errored", state="errored"),)
+        events: tuple[PlatformCheckEvent, ...] = (_check_event(previous_state="errored", state="errored"),)
         if before != "errored before the window":
             interrupted = (before or "").removeprefix("errored after ") or "not_firing"
             events = (*events, _check_event(previous_state=interrupted, state="errored"))

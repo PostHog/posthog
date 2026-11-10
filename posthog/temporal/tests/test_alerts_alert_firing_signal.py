@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
@@ -293,7 +294,8 @@ class TestEmitAlertFiringSignal(BaseTest):
     def test_a_retried_platform_batch_spends_no_token_on_a_firing_it_already_sent(self) -> None:
         alert = FiringAlert.of(self._alert_and_check()[0])
         sent, unsent = (
-            FiringStart(check_id=f"{alert.id}:{episode}", started_at=self.insight.created_at) for episode in ("a", "b")
+            FiringStart(check_id=f"{alert.id}:{episode}", started_at=datetime(2026, 9, 16, tzinfo=UTC))
+            for episode in ("a", "b")
         )
 
         def emit_batch(firings: tuple[FiringStart, ...]) -> list[bool]:
