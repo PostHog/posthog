@@ -575,7 +575,7 @@ def create_visibility_dashboard(team: Team, user: User) -> VisibilityDashboard:
     """Create the "AI visibility weekly" dashboard. Each call creates a new one, so a person who deleted or
     edited theirs can start over."""
     created = dashboard.create_visibility_dashboard(team, user)
-    return VisibilityDashboard(id=created.id, name=created.name)
+    return VisibilityDashboard(id=created.id, name=created.name or dashboard.DASHBOARD_NAME)
 
 
 MAX_CONSENSUS_DOMAINS = 10
