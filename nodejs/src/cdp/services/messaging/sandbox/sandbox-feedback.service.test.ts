@@ -14,19 +14,51 @@ import { KAFKA_APP_METRICS_2 } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
-import { captureTeamEvent } from '~/common/utils/posthog'
 import { FetchResponse } from '~/common/utils/request'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
-jest.mock('~/common/utils/posthog', () => ({
-    ...jest.requireActual('~/common/utils/posthog'),
-    captureTeamEvent: jest.fn(),
+const mockAnalytics = { received: [] as Record<string, any>[], failing: false }
+
+jest.mock('posthog-node', () => ({
+    PostHog: class {
+        capture(message: Record<string, any>): void {
+            if (mockAnalytics.failing) {
+                throw new Error('analytics unreachable')
+            }
+            mockAnalytics.received.push(message)
+        }
+        captureException(): void {}
+        disable(): Promise<void> {
+            return Promise.resolve()
+        }
+        register(): Promise<void> {
+            return Promise.resolve()
+        }
+        isFeatureEnabled(): Promise<boolean> {
+            return Promise.resolve(false)
+        }
+        flush(): Promise<void> {
+            return Promise.resolve()
+        }
+        shutdown(): Promise<void> {
+            return Promise.resolve()
+        }
+    },
 }))
 
-const capturedEvents = jest.mocked(captureTeamEvent)
+// jest.setup.ts loads the config before this file runs, with no POSTHOG_API_KEY, so the analytics
+// client would be null. Loading the module again in an isolated registry builds it with a key.
+jest.mock('~/common/utils/posthog', () => {
+    process.env.POSTHOG_API_KEY = 'phc_sandbox_feedback_test'
+    let analyticsModule: unknown
+    jest.isolateModules(() => {
+        analyticsModule = jest.requireActual('~/common/utils/posthog')
+    })
+    return analyticsModule
+})
 
 const TOPIC_ARN = 'arn:aws:sns:us-east-1:123456789012:workflows-sandbox-feedback'
 const FROM_ADDRESS = 'sandbox@mail.example.com'
@@ -188,7 +220,15 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             .map((message) => message.value as Record<string, any>)
             .filter((value) => String(value.metric_name).startsWith('email_sandbox_'))
 
-    const capturedEventNames = (): string[] => capturedEvents.mock.calls.map(([, event]) => event)
+    const capturedEvents = (): Record<string, any>[] =>
+        mockAnalytics.received.filter((message) => String(message.event).startsWith('workflows sandbox email'))
+
+    const capturedEvent = (event: string, properties: Record<string, any>): Record<string, any> => ({
+        distinctId: team.uuid,
+        event,
+        properties: { team: team.uuid, ...properties },
+        groups: expect.objectContaining({ project: team.uuid, organization: team.organization_id }),
+    })
 
     beforeEach(async () => {
         hub = await createHub({})
@@ -200,7 +240,8 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             'test-reset-sandbox-global-bounces'
         )
         mockProducerObserver.resetKafkaProducer()
-        capturedEvents.mockReset()
+        mockAnalytics.received.length = 0
+        mockAnalytics.failing = false
         mockFetch.mockReset()
         mockFetch.mockImplementation((url) =>
             Promise.resolve({
@@ -410,17 +451,13 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
                     { ...expected, app_source: 'hog_flow', app_source_id: FLOW_ID, metric_name: metric },
                     { ...expected, app_source: 'hog_flow_version', app_source_id: `${FLOW_ID}/3`, metric_name: metric },
                 ])
-                expect(capturedEvents.mock.calls).toEqual([
-                    [
-                        expect.objectContaining({ id: team.id }),
-                        eventName,
-                        {
-                            workflow_id: FLOW_ID,
-                            action_id: ACTION_ID,
-                            is_test: false,
-                            ...(bounceType ? { bounce_type: bounceType } : {}),
-                        },
-                    ],
+                expect(capturedEvents()).toEqual([
+                    capturedEvent(eventName, {
+                        workflow_id: FLOW_ID,
+                        action_id: ACTION_ID,
+                        is_test: false,
+                        ...(bounceType ? { bounce_type: bounceType } : {}),
+                    }),
                 ])
             })
         })
@@ -441,7 +478,7 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             expect(await globalHardBounces()).toEqual([])
             await waitForExpect(() => {
                 expect(sandboxMetrics().map((m) => m.metric_name)).toContain('email_sandbox_delivered')
-                expect(capturedEventNames()).toContain('workflows sandbox email delivered')
+                expect(capturedEvents().map((message) => message.event)).toContain('workflows sandbox email delivered')
             })
         })
 
@@ -478,12 +515,12 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             expect(res.status).toBe(200)
             expect(await suppressionRows()).toMatchObject([{ identifier: RECIPIENT, source: 'COMPLAINT' }])
             await waitForExpect(() => {
-                expect(capturedEvents.mock.calls).toEqual([
-                    [
-                        expect.objectContaining({ id: team.id }),
-                        'workflows sandbox email complained',
-                        { workflow_id: FLOW_ID, action_id: ACTION_ID, is_test: true },
-                    ],
+                expect(capturedEvents()).toEqual([
+                    capturedEvent('workflows sandbox email complained', {
+                        workflow_id: FLOW_ID,
+                        action_id: ACTION_ID,
+                        is_test: true,
+                    }),
                 ])
             })
             expect(sandboxMetrics()).toEqual([])
@@ -495,16 +532,14 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             const res = await post(notification(sesRecord(team.id, complaint())))
 
             expect(res.status).toBe(500)
-            expect(capturedEvents).not.toHaveBeenCalled()
+            expect(capturedEvents()).toEqual([])
         })
 
         it('answers 200 once the suppression write lands when Kafka and event capture fail', async () => {
             jest.mocked((mockProducer as any).producer.produce).mockImplementationOnce((...args: any[]) =>
                 args[args.length - 1]?.(new Error('kafka unavailable'))
             )
-            capturedEvents.mockImplementation(() => {
-                throw new Error('capture failed')
-            })
+            mockAnalytics.failing = true
 
             const res = await post(notification(sesRecord(team.id, complaint())))
 
