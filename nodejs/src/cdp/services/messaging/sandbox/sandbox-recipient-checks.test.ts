@@ -3,38 +3,42 @@ import { Client } from 'pg'
 import { defaultConfig } from '~/common/config/config'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { MessageOptOutRecord } from '../../../types'
-import { RecipientsManagerService } from '../../managers/recipients-manager.service'
 import { EmailSuppressionService } from '../email-suppression.service'
 import { FrequencyCapCheck } from '../recipient-preferences.service'
-import { SandboxRecipientCheckRequest, checkSandboxRecipient } from './sandbox-recipient-checks'
+import {
+    SandboxRecipientCheckDependencies,
+    SandboxRecipientCheckRequest,
+    checkSandboxRecipient,
+    sandboxRecipientReads,
+} from './sandbox-recipient-checks'
 
 describe('checkSandboxRecipient', () => {
     let postgres: PostgresRouter
     let unreachable: PostgresRouter
-    let suppression: EmailSuppressionService
-    let recipients: RecipientsManagerService
+    let suppressionList: EmailSuppressionService
+    let reads: SandboxRecipientCheckDependencies
     let teamId: number
     let address: string
     let frequencyCap: FrequencyCapCheck
     let optOuts: MessageOptOutRecord[]
 
-    const check = (request: Partial<SandboxRecipientCheckRequest> = {}, timeoutMs?: number) =>
-        checkSandboxRecipient(
-            { suppression, recipients, timeoutMs },
-            {
-                teamId,
-                address,
-                categoryId: 'newsletter',
-                categoryType: 'marketing',
-                optOuts,
-                isTest: false,
-                frequencyCap: () => Promise.resolve(frequencyCap),
-                ...request,
-            }
-        )
+    const suppressionConfig = { transientBounceThreshold: 5 }
+
+    const check = (request: Partial<SandboxRecipientCheckRequest> = {}) =>
+        checkSandboxRecipient(reads, {
+            teamId,
+            address,
+            categoryId: 'newsletter',
+            categoryType: 'marketing',
+            optOuts,
+            isTest: false,
+            frequencyCap: () => Promise.resolve(frequencyCap),
+            ...request,
+        })
 
     const storePreferences = (preferences: Record<string, string>) =>
         postgres.query(
@@ -61,8 +65,8 @@ describe('checkSandboxRecipient', () => {
     beforeEach(async () => {
         teamId = (await createTestTeamFixture(postgres)).team.id
         address = `member-${teamId}@example.com`
-        suppression = new EmailSuppressionService(postgres, { transientBounceThreshold: 5 })
-        recipients = new RecipientsManagerService(postgres)
+        suppressionList = new EmailSuppressionService(postgres, suppressionConfig)
+        reads = sandboxRecipientReads(postgres, suppressionConfig)
         frequencyCap = { capped: false }
         optOuts = []
     })
@@ -72,16 +76,16 @@ describe('checkSandboxRecipient', () => {
     })
 
     it.each<[string, () => unknown, Partial<SandboxRecipientCheckRequest>, string]>([
-        ['a suppressed address', () => suppression.recordComplaints(teamId, [address], 'abuse'), {}, 'suppressed'],
+        ['a suppressed address', () => suppressionList.recordComplaints(teamId, [address], 'abuse'), {}, 'suppressed'],
         [
             'a hard-bounced address on a transactional step',
-            () => suppression.recordHardBounces(teamId, [address], 'mailbox does not exist'),
+            () => suppressionList.recordHardBounces(teamId, [address], 'mailbox does not exist'),
             { categoryType: 'transactional' },
             'suppressed',
         ],
         [
             'a suppressed address on a test send',
-            () => suppression.recordComplaints(teamId, [address], 'abuse'),
+            () => suppressionList.recordComplaints(teamId, [address], 'abuse'),
             { isTest: true },
             'suppressed',
         ],
@@ -105,15 +109,15 @@ describe('checkSandboxRecipient', () => {
     })
 
     it.each<[string, () => unknown, Partial<SandboxRecipientCheckRequest>]>([
-        ['the opt-out lookup', () => (recipients = new RecipientsManagerService(unreachable)), {}],
         [
-            'the suppression lookup',
-            () => (suppression = new EmailSuppressionService(unreachable, { transientBounceThreshold: 5 })),
+            'the opt-out lookup',
+            () => (reads = { ...reads, recipients: sandboxRecipientReads(unreachable, suppressionConfig).recipients }),
             {},
         ],
+        ['the suppression lookup', () => (reads = sandboxRecipientReads(unreachable, suppressionConfig)), {}],
         [
             'the suppression lookup on a transactional step',
-            () => (suppression = new EmailSuppressionService(unreachable, { transientBounceThreshold: 5 })),
+            () => (reads = sandboxRecipientReads(unreachable, suppressionConfig)),
             { categoryType: 'transactional' },
         ],
     ])('blocks for a retry when %s fails', async (_case, arrange, request) => {
@@ -124,25 +128,42 @@ describe('checkSandboxRecipient', () => {
     it.each([
         ['the suppression lookup', 'posthog_messagesuppression'],
         ['the opt-out lookup', 'posthog_messagerecipientpreference'],
-    ])('blocks for a retry when %s waits behind a lock past the deadline', async (_case, table) => {
-        const lockHolder = new Client({ connectionString: defaultConfig.DATABASE_URL })
-        lockHolder.on('error', () => undefined)
-        await lockHolder.connect()
-        try {
-            await lockHolder.query('BEGIN')
-            await lockHolder.query(`SET LOCAL idle_in_transaction_session_timeout = '3s'`)
-            await lockHolder.query(`LOCK TABLE ${table} IN ACCESS EXCLUSIVE MODE`)
+    ])(
+        'blocks for a retry when %s waits behind a lock past the deadline, and gives its connection back',
+        async (_case, table) => {
+            const applicationName = `sandbox-recipient-reads-${teamId}`
+            const reader = new PostgresRouter(defaultConfig, applicationName)
+            const lockHolder = new Client({ connectionString: defaultConfig.DATABASE_URL })
+            lockHolder.on('error', () => undefined)
+            await lockHolder.connect()
+            try {
+                await lockHolder.query('BEGIN')
+                await lockHolder.query(`SET LOCAL idle_in_transaction_session_timeout = '10s'`)
+                await lockHolder.query(`LOCK TABLE ${table} IN ACCESS EXCLUSIVE MODE`)
+                reads = sandboxRecipientReads(reader, suppressionConfig, 200)
 
-            expect(await check({}, 200)).toEqual({ ok: false, reason: 'authorization_unavailable' })
-        } finally {
-            await lockHolder.end()
+                expect(await check()).toEqual({ ok: false, reason: 'authorization_unavailable' })
+                await waitForExpect(async () => {
+                    const { rows } = await postgres.query(
+                        PostgresUse.COMMON_READ,
+                        `SELECT count(*)::int AS waiting FROM pg_stat_activity
+                         WHERE application_name = $1 AND wait_event_type = 'Lock'`,
+                        [applicationName],
+                        'test:sandbox-reads-waiting-on-lock'
+                    )
+                    expect(rows).toEqual([{ waiting: 0 }])
+                }, 3_000)
+            } finally {
+                await lockHolder.end()
+                await reader.end()
+            }
         }
-    })
+    )
 
     it.each<[string, () => unknown, Partial<SandboxRecipientCheckRequest>]>([
         [
             'a complaint on a transactional step',
-            () => suppression.recordComplaints(teamId, [address], 'abuse'),
+            () => suppressionList.recordComplaints(teamId, [address], 'abuse'),
             { categoryType: 'transactional' },
         ],
         [
