@@ -43,6 +43,10 @@ export const LoadError: Story = {
     parameters: { msw: { mocks: catalogStoryMocks({ databaseFails: true }) } },
 }
 
+export const CertificationsLoadError: Story = {
+    parameters: { msw: { mocks: catalogStoryMocks({ certificationsFail: true }) } },
+}
+
 async function selectRows(canvasElement: HTMLElement, names: string[]): Promise<void> {
     for (const name of names) {
         const checkbox = await waitFor(() => {
