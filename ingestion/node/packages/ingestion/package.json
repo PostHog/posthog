@@ -38,8 +38,8 @@
         "test:rust-ingestion-e2e": "if [ -f tests/service-e2e/rust-ingestion-consumer.serial.test.ts ]; then jest --config jest.serial.config.js --runInBand --forceExit --testPathPatterns='service-e2e/rust-ingestion-consumer.serial.test.ts'; else jest --runInBand --forceExit --testPathPatterns='service-e2e/rust-ingestion-consumer.test.ts'; fi",
         "test:personhog-kafka-parity-e2e": "jest --config jest.serial.config.js --runInBand --forceExit --testPathPatterns='service-e2e/personhog-kafka-parity.serial.test.ts'",
         "test:postgres-parity": "jest --runInBand --forceExit --testPathPatterns='postgres-parity'",
-        "setup:test:persons-parity": "PERSONS_DATABASE_NAME=test_persons_parity ../../../rust/bin/migrate-entry persons --fresh",
-        "migrate:persons": "../../../rust/bin/migrate-entry persons",
+        "setup:test:persons-parity": "PERSONS_DATABASE_NAME=test_persons_parity ../../rust/bin/migrate-entry persons --fresh",
+        "migrate:persons": "../../rust/bin/migrate-entry persons",
         "update-ai-costs": "tsx src/ingestion/pipelines/ai/costs/scripts/update-ai-costs.ts"
     },
     "dependencies": {

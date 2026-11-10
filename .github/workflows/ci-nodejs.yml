@@ -67,7 +67,6 @@ jobs:
         outputs:
             nodejs: ${{ steps.nodejs-changes.outputs.nodejs || 'true' }}
             # The e2e job alone, for a personhog crate change that touches no Node source.
-            personhog_e2e: ${{ steps.nodejs-changes.outputs.personhog_e2e || 'false' }}
             # Jest selection for the tests job. `mode` is 'selective' only when the diff is
             # confined to Node source files jest can resolve; anything else is 'full'.
             test_mode: ${{ steps.select-tests.outputs.mode || 'full' }}
@@ -250,10 +249,6 @@ jobs:
                   NODEJS_CHANGED: ${{ steps.filter.outputs.nodejs }}
                   RUST_CHANGED: ${{ steps.filter.outputs.rust }}
                   RUST_REBUILD_ALL: ${{ steps.rust-affected.outputs.rebuild-all }}
-                  RUST_AFFECTED_CRATES: ${{ steps.rust-affected.outputs.crates }}
-                  RUST_NODE_E2E_CRATES: '["ingestion-consumer"]'
-                  # The Kafka parity e2e spawns identity, the publisher and the parity monitor through the harness.
-                  RUST_PERSONHOG_E2E_CRATES: '["personhog-identity", "personhog-test-harness", "personhog-parity-monitor"]'
               run: |
                   # `schedule` alongside `push`: the paths filter is skipped on both, so
                   # NODEJS_CHANGED is empty there. Without this the hourly run would decide
@@ -272,16 +267,6 @@ jobs:
                     if [ "$RUST_REBUILD_ALL" = "true" ]; then
                       echo "nodejs=true" >> "$GITHUB_OUTPUT"
                       exit 0
-                    fi
-
-                    if echo "${RUST_AFFECTED_CRATES:-[]}" | jq -e --argjson e2e_crates "$RUST_NODE_E2E_CRATES" '. as $affected | any($e2e_crates[]; . as $crate | $affected | index($crate) != null)' >/dev/null; then
-                      echo "nodejs=true" >> "$GITHUB_OUTPUT"
-                      exit 0
-                    fi
-
-                    # Not the whole Node matrix for these: only the e2e job reads this output.
-                    if echo "${RUST_AFFECTED_CRATES:-[]}" | jq -e --argjson e2e_crates "$RUST_PERSONHOG_E2E_CRATES" '. as $affected | any($e2e_crates[]; . as $crate | $affected | index($crate) != null)' >/dev/null; then
-                      echo "personhog_e2e=true" >> "$GITHUB_OUTPUT"
                     fi
                   fi
 
@@ -619,10 +604,6 @@ jobs:
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
               run: pnpm --filter=@posthog/nodejs setup:test
 
-            - name: Set up postgres-parity database
-              if: matrix.lane == 'serial' && matrix.shard == 1
-              run: cd nodejs && pnpm run setup:test:persons-parity
-
             # Build workspace deps (Rust addons + TS) up front so the Jest step times only tests, not the addon compile.
             - name: Prepare Node.js workspace
               env:
@@ -682,24 +663,6 @@ jobs:
                     echo "Parallel Jest config is not present on this branch; skipping."
                   fi
 
-            - name: Test postgres-parity (isolated DB)
-              id: run-parity
-              continue-on-error: true
-              if: (success() || failure()) && matrix.lane == 'serial' && matrix.shard == 1
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
-                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_parity'
-                  PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_parity'
-                  REDIS_URL: 'redis://localhost'
-                  NODE_OPTIONS: '--max_old_space_size=4096'
-                  LOG_LEVEL: ${{ runner.debug == '1' && 'info' || 'error' }}
-                  JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
-                  JEST_JUNIT_OUTPUT_NAME: junit-nodejs-postgres-parity.xml
-                  JEST_JUNIT_SUITE_NAME: '{filepath}'
-                  JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
-              run: cd nodejs && pnpm run test:postgres-parity
-
             - name: Upload test results
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -736,232 +699,16 @@ jobs:
               with:
                   junit-paths: junit-results/junit-*.xml
                   test-collection-id: ugvRjGsw # nodejs
-                  # Worst of the two test steps: the gate must know the run failed even when
-                  # only the parity step (shard 1) did. A skipped parity step counts as success.
-                  previous-step-outcome: ${{ (steps.run-jest.outcome == 'failure' || steps.run-parity.outcome == 'failure') && 'failure' || 'success' }}
+                  previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
             # also covers the skipped gate on fork/Dependabot. Sits before the logs-on-failure step
             # so a real failure still triggers it via failure().
             - name: Fail on test failure
-              if: ${{ !cancelled() && (steps.run-jest.outcome == 'failure' || steps.run-parity.outcome == 'failure') && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
+              if: ${{ !cancelled() && steps.run-jest.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success') }}
               shell: bash
               run: exit 1
-
-            - name: Output logs on failure
-              if: failure()
-              run: |
-                  docker compose -f docker-compose.dev.yml logs clickhouse
-                  # Echo out the logs stored in the container
-                  docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
-
-    rust_ingestion_e2e:
-        # Not on master push — master coverage comes from the hourly run (see `schedule`).
-        if: (needs.changes.outputs.nodejs == 'true' || needs.changes.outputs.personhog_e2e == 'true') && github.event_name != 'push'
-        name: Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
-        needs: changes
-        runs-on: depot-ubuntu-24.04-4
-        timeout-minutes: 30
-        env:
-            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
-            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-            REDIS_URL: 'redis://localhost'
-            CLICKHOUSE_HOST: 'localhost'
-            CLICKHOUSE_DATABASE: 'posthog_test'
-            KAFKA_HOSTS: 'kafka:9092'
-        steps:
-            - name: Code check out
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  clean: false
-
-            - name: Clean up data directories with container permissions
-              run: |
-                  # Use docker to clean up files created by containers
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
-              continue-on-error: true
-
-            - name: Log in to Docker Hub
-              continue-on-error: true
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
-              with:
-                  username: ${{ vars.DOCKERHUB_USER }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-            - name: Stop/Start stack with Docker Compose
-              env:
-                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: dev_tools
-                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
-              run: |
-                  bin/ci-wait-for-docker launch --down
-
-            - name: Wait for Docker services
-              env:
-                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: dev_tools
-              run: bin/ci-wait-for-docker wait
-
-            - name: Add service hostnames to /etc/hosts
-              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
-
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
-                  skip-token-revoke: true
-
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version-file: 'pyproject.toml'
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
-            - name: Install uv
-              id: setup-uv
-              uses: ./.github/actions/setup-uv
-
-            - name: Install rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
-
-            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
-              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
-
-            - name: Install sccache
-              uses: ./.github/actions/setup-sccache
-
-            # A key of its own: the other jobs on the shared key save it first on each master
-            # push, so it never held the dev-profile deps this job builds.
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-nodejs-e2e'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
-
-            - name: Install sqlx-cli
-              uses: ./.github/actions/setup-sqlx-cli
-
-            - name: Install SAML (python3-saml) dependencies
-              if: steps.setup-uv.outputs.cache-hit != 'true'
-              run: |
-                  sudo rm -f /etc/apt/sources.list.d/*twingate*
-                  sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-
-            - name: Install python dependencies
-              run: |
-                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-
-            - name: Download MaxMind Database
-              run: |
-                  ./bin/download-mmdb
-
-            - name: Install pnpm dependencies
-              uses: ./.github/actions/pnpm-install
-              with:
-                  install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
-            - name: Wait for Clickhouse, Redis, Kafka, etcd
-              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev etcd -d --wait
-
-            - name: Create Kafka topics
-              run: docker compose -f docker-compose.dev.yml up kafka-init
-
-            - name: Set up databases
-              env:
-                  TEST: 'true'
-                  SECRET_KEY: 'abcdef' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-              run: pnpm --filter=@posthog/nodejs setup:test
-
-            # The Node ingestion API worker runs as a real subprocess (tsx src/index.ts), so it
-            # needs the compiled workspace dependencies (e.g. @posthog/hogvm/dist) on disk. The
-            # regular Jest job gets these via `bin/turbo run test` (^build); here we build them
-            # explicitly since we invoke the test directly.
-            - name: Build Node.js workspace dependencies
-              run: bin/turbo --filter=@posthog/nodejs prepare
-
-            # ingestion-consumer depends on ingestion-worker-proto, whose build script runs protoc.
-            - name: Install protoc
-              uses: ./.github/actions/setup-protoc
-
-            - name: Pre-build Rust ingestion consumer
-              working-directory: rust
-              run: cargo build -p ingestion-consumer
-
-            # The Kafka parity test spawns this stack through the harness's `stack`
-            # subcommand; building it here keeps the spawn out of the test's clock.
-            # Keyed on the test file, as the e2e step is: a branch that predates
-            # the test has neither the file nor its package script.
-            - name: Pre-build the personhog stack and harness
-              run: |
-                  if [ -f nodejs/tests/service-e2e/personhog-kafka-parity.serial.test.ts ]; then
-                    packages=(-p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity -p personhog-test-harness)
-                    # The parity test spawns the monitor through the stack; a branch without the crate runs the test without it.
-                    if [ -d rust/personhog-parity-monitor ]; then
-                      packages+=(-p personhog-parity-monitor)
-                    fi
-                    cd rust && cargo build "${packages[@]}"
-                  else
-                    echo "Kafka parity e2e test is not present on this branch; skipping the stack build."
-                  fi
-
-            - name: Test Rust ingestion consumer with Node ingestion API
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
-                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
-                  PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
-                  REDIS_URL: 'redis://localhost'
-                  NODE_OPTIONS: '--max_old_space_size=4096'
-                  LOG_LEVEL: ${{ runner.debug == '1' && 'info' || 'error' }}
-              run: |
-                  if [ -f nodejs/tests/service-e2e/rust-ingestion-consumer.serial.test.ts ] || [ -f nodejs/tests/service-e2e/rust-ingestion-consumer.test.ts ]; then
-                    cd nodejs && pnpm run test:rust-ingestion-e2e
-                  else
-                    echo "Rust ingestion service e2e test is not present on this branch; skipping."
-                  fi
-
-            # Both person backends run the same creates, attaches and merges; the test
-            # compares the clickhouse_person_distinct_id and person_merge_events feeds
-            # they produce. The personhog side is the harness-spawned stack built above.
-            - name: Test Kafka parity between the Postgres and personhog person backends
-              env:
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
-                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
-                  PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
-                  REDIS_URL: 'redis://localhost'
-                  NODE_OPTIONS: '--max_old_space_size=4096'
-                  LOG_LEVEL: ${{ runner.debug == '1' && 'info' || 'error' }}
-              run: |
-                  if [ -f nodejs/tests/service-e2e/personhog-kafka-parity.serial.test.ts ]; then
-                    cd nodejs && pnpm run test:personhog-kafka-parity-e2e
-                  else
-                    echo "Kafka parity e2e test is not present on this branch; skipping."
-                  fi
-
-            # The spawned stack logs each service under the target directory;
-            # the test's failure message only carries their tails.
-            - name: Upload personhog stack logs
-              if: failure()
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  name: personhog-kafka-parity-logs
-                  path: rust/target/debug/harness-logs/
-                  if-no-files-found: ignore
-                  retention-days: 7
 
             - name: Output logs on failure
               if: failure()
@@ -1084,7 +831,7 @@ jobs:
 
     node_tests:
         # report-test-speed is deliberately not in needs: it is visible but non-gating.
-        needs: [changes, tests, rust_ingestion_e2e, build, lint]
+        needs: [changes, tests, build, lint]
         name: Node.js Tests Pass
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -1104,11 +851,6 @@ jobs:
                     exit 1
                   fi
                   echo "All jobs in the Node.js test matrix passed."
-                  if [[ "${{ needs.rust_ingestion_e2e.result }}" != "success" && "${{ needs.rust_ingestion_e2e.result }}" != "skipped" ]]; then
-                    echo "Rust ingestion consumer Node API e2e failed."
-                    exit 1
-                  fi
-                  echo "Rust ingestion consumer Node API e2e passed."
                   if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
                     echo "Node.js build failed."
                     exit 1

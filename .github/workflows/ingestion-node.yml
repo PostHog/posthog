@@ -26,6 +26,7 @@ jobs:
             pull-requests: read
         outputs:
             node: ${{ steps.filter.outputs.node || 'true' }}
+            e2e: ${{ steps.filter.outputs.e2e || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -79,6 +80,14 @@ jobs:
                         - 'rust/cyclotron-node-migrations/**'
                         - 'rust/behavioral_cohorts_migrations/**'
                         - '.github/workflows/ingestion-node.yml'
+                      # The service e2e tests spawn the Rust ingestion consumer and the personhog stack.
+                      e2e:
+                        - 'ingestion/rust/ingestion-consumer/**'
+                        - 'ingestion/rust/ingestion-worker-proto/**'
+                        - 'ingestion/rust/personhog-*/**'
+                        - 'rust/common/**'
+                        - 'rust/Cargo.toml'
+                        - 'rust/Cargo.lock'
 
     check:
         name: Typecheck, lint and format
@@ -130,6 +139,7 @@ jobs:
                     - { package: ingestion, lane: parallel, shard: 3, shard_count: 3 }
                     - { package: ingestion, lane: serial, shard: 1, shard_count: 2 }
                     - { package: ingestion, lane: serial, shard: 2, shard_count: 2 }
+                    - { package: ingestion, lane: postgres-parity, shard: 1, shard_count: 1 }
                     - { package: ai-research, lane: parallel, shard: 1, shard_count: 1 }
                     - { package: ai-research, lane: serial, shard: 1, shard_count: 1 }
         env:
@@ -182,6 +192,9 @@ jobs:
                   DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_persons sqlx migrate run --source ingestion/rust/persons_migrations/
                   curl -fsS 'http://localhost:8123/' --data-binary 'CREATE DATABASE IF NOT EXISTS posthog_test'
                   python3 ingestion/ci/bin/clickhouse_apply.py ingestion/pinned/schema/clickhouse.sql
+            - name: Create the parity database
+              if: matrix.lane == 'postgres-parity'
+              run: pnpm --filter=@posthog/ingestion setup:test:persons-parity
             - name: Download MaxMind database
               run: ingestion/ci/bin/download-mmdb
             - name: Build the dependencies
@@ -192,6 +205,8 @@ jobs:
               env:
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: ${{ matrix.shard_count }}
+                  PERSONS_DATABASE_URL: ${{ matrix.lane == 'postgres-parity' && 'postgres://posthog:posthog@localhost:5432/test_persons_parity' || 'postgres://posthog:posthog@localhost:5432/test_persons' }}
+                  PERSONS_READONLY_DATABASE_URL: ${{ matrix.lane == 'postgres-parity' && 'postgres://posthog:posthog@localhost:5432/test_persons_parity' || 'postgres://posthog:posthog@localhost:5432/test_persons' }}
                   JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/ingestion/node/junit
                   JEST_JUNIT_OUTPUT_NAME: junit-${{ matrix.package }}-${{ matrix.lane }}-${{ matrix.shard }}.xml
                   HOG_BYTECODE_CACHE_REQUIRED: 'true'
@@ -216,9 +231,96 @@ jobs:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
                   variant: ingestion-node
 
+    e2e:
+        name: Service e2e
+        needs: changes
+        if: needs.changes.outputs.node == 'true' || needs.changes.outputs.e2e == 'true'
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 30
+        permissions:
+            contents: read
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+            - name: Log in to Docker Hub
+              continue-on-error: true
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+            # etcd is for the personhog stack the Kafka parity test spawns.
+            - name: Start the services
+              working-directory: ingestion/ci
+              env:
+                  COMPOSE_FILE: ${{ github.workspace }}/ingestion/ci/docker-compose.yml
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
+              run: |
+                  bin/ci-wait-for-docker launch --down db kafka redis7 valkey-cluster clickhouse etcd objectstorage seaweedfs dynamodb
+                  bin/ci-wait-for-docker wait --only db kafka redis7 valkey-cluster clickhouse etcd objectstorage seaweedfs dynamodb
+                  echo "127.0.0.1 db redis7 kafka clickhouse objectstorage seaweedfs" | sudo tee -a /etc/hosts
+            - name: Create the Kafka topics
+              working-directory: ingestion/ci
+              run: docker compose up kafka-init
+            - uses: ./ingestion/ci/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/ingestion... install --frozen-lockfile
+            - uses: ./ingestion/ci/actions/setup-protoc
+            - uses: ./ingestion/ci/actions/setup-rust
+              with:
+                  toolchain: 1.91.1
+            - name: Set sccache WebDAV key prefix (Cargo.lock hash)
+              run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
+            - uses: ./ingestion/ci/actions/setup-sccache
+            - uses: ./ingestion/ci/actions/setup-sqlx-cli
+            - name: Create the test databases
+              env:
+                  PGPASSWORD: posthog
+              run: |
+                  psql -h localhost -U posthog -d postgres -c 'CREATE DATABASE test_posthog'
+                  psql -h localhost -U posthog -d test_posthog -v ON_ERROR_STOP=1 -q -f ingestion/pinned/schema/postgres.sql
+                  DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_persons sqlx database create
+                  DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_persons sqlx migrate run --source ingestion/rust/persons_migrations/
+                  curl -fsS 'http://localhost:8123/' --data-binary 'CREATE DATABASE IF NOT EXISTS posthog_test'
+                  python3 ingestion/ci/bin/clickhouse_apply.py ingestion/pinned/schema/clickhouse.sql
+            - name: Download MaxMind database
+              run: ingestion/ci/bin/download-mmdb
+            - name: Build the dependencies
+              run: bin/turbo --filter=@posthog/ingestion prepare
+            - name: Build the Rust ingestion consumer and the personhog stack
+              working-directory: rust
+              run: cargo build -p ingestion-consumer -p personhog-replica -p personhog-router -p personhog-leader -p personhog-writer -p personhog-identity -p personhog-test-harness -p personhog-parity-monitor
+            - name: Test the Rust ingestion consumer against the Node ingestion API
+              env:
+                  NODE_OPTIONS: '--max_old_space_size=4096'
+                  LOG_LEVEL: ${{ runner.debug == '1' && 'info' || 'error' }}
+              run: pnpm --filter=@posthog/ingestion test:rust-ingestion-e2e
+            - name: Test Kafka parity between the Postgres and personhog person backends
+              env:
+                  NODE_OPTIONS: '--max_old_space_size=4096'
+                  LOG_LEVEL: ${{ runner.debug == '1' && 'info' || 'error' }}
+              run: pnpm --filter=@posthog/ingestion test:personhog-kafka-parity-e2e
+            - name: Upload the personhog stack logs
+              if: failure()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: personhog-kafka-parity-logs
+                  path: rust/target/debug/harness-logs/
+                  if-no-files-found: ignore
+                  retention-days: 7
+            - name: Dump the ClickHouse logs on failure
+              if: failure()
+              working-directory: ingestion/ci
+              run: |
+                  docker compose logs --no-color --tail=500 clickhouse || true
+
     ingestion_node_tests:
         name: Ingestion Node Tests Pass
-        needs: [changes, check, test]
+        needs: [changes, check, test, e2e]
         if: ${{ !cancelled() }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -230,7 +332,7 @@ jobs:
                       echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                       exit 1
                   fi
-                  if [[ "${{ needs.changes.outputs.node }}" != "true" ]]; then
+                  if [[ "${{ needs.changes.outputs.node }}" != "true" && "${{ needs.changes.outputs.e2e }}" != "true" ]]; then
                       echo "Ingestion Node checks were skipped (no relevant changes)."
                       exit 0
                   fi
@@ -240,5 +342,9 @@ jobs:
                   fi
                   if [[ "${{ needs.test.result }}" != "success" && "${{ needs.test.result }}" != "skipped" ]]; then
                       echo "test did not pass (result: ${{ needs.test.result }})."
+                      exit 1
+                  fi
+                  if [[ "${{ needs.e2e.result }}" != "success" && "${{ needs.e2e.result }}" != "skipped" ]]; then
+                      echo "e2e did not pass (result: ${{ needs.e2e.result }})."
                       exit 1
                   fi
