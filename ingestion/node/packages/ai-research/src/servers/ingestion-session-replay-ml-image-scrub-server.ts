@@ -1,0 +1,194 @@
+import { S3Client } from '@aws-sdk/client-s3'
+import { Message } from 'node-rdkafka'
+
+import { createProducerRegistry } from '@posthog/ingestion/pipelines/sessionreplay/outputs/producer-registry'
+import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB } from '@posthog/node-common/config/kafka-topics'
+import { KafkaConsumer, KafkaConsumerConfig } from '@posthog/node-common/kafka/consumer/consumer-v1'
+import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+import { CleanupResources } from '@posthog/node-common/servers/base-server'
+import {
+    CaptureWatermark,
+    CapturedData,
+    capturedRecords,
+    releasingOffsetStore,
+} from '@posthog/replay-storage/capture-watermark'
+import { SessionReplayProducerName } from '@posthog/replay-storage/config'
+import { INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER } from '@posthog/replay-storage/outputs/producer-config'
+import { buildSessionRecordingS3Client } from '@posthog/replay-storage/s3-client'
+
+import { parseImageRef } from '~/pipelines/ml-mirror-image-scrub/content-ref'
+import { KafkaDeadLetterSink } from '~/pipelines/ml-mirror-image-scrub/dead-letter-sink'
+import { ImageBatcher } from '~/pipelines/ml-mirror-image-scrub/image-batcher'
+import { ImageShardStore } from '~/pipelines/ml-mirror-image-scrub/image-shard-store'
+import { ScrubClient } from '~/pipelines/ml-mirror-image-scrub/scrub-client'
+import { MlKeyManager } from '~/pipelines/ml-mirror/keys/runtime'
+
+import { IngestionSessionReplayMlMirrorServerConfig } from './ingestion-session-replay-ml-mirror-server'
+import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
+
+// A scrub + S3-write batch blocks the poll loop (which only heartbeats once per batch) for up to minutes, so
+// we refresh the heartbeat this often during it. Must stay under CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s).
+const BATCH_HEARTBEAT_INTERVAL_MS = 10_000
+
+// librdkafka's max.poll.interval.ms as consumer-v1 sets it; a batch that outlives it gets the pod evicted mid-batch.
+const KAFKA_MAX_POLL_INTERVAL_MS = 300_000
+// The share of the poll interval that scrub timeouts may use. The rest covers the key read at the
+// start of a batch, the window drain at its end and a wait for the write lane to have room.
+const SCRUB_TIMEOUT_BUDGET_MS = 0.8 * KAFKA_MAX_POLL_INTERVAL_MS
+
+/**
+ * The most messages a poll may hold so that every image can time out once at the sidecar and the
+ * batch still returns inside max.poll.interval.ms. The window scrubs scrubConcurrency images at a
+ * time, so a batch is ceil(size / concurrency) waves of at most one scrub timeout each. The configured
+ * size is what a healthy sidecar gets; this cap is what a degraded one is held to.
+ */
+export function boundedImageScrubBatchSize(config: IngestionSessionReplayMlMirrorServerConfig): number {
+    const timeoutWavesInBudget = Math.floor(
+        SCRUB_TIMEOUT_BUDGET_MS / config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS
+    )
+    const imagesThatCanEachTimeOutOnce =
+        timeoutWavesInBudget * config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY
+    return Math.max(1, Math.min(config.SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE, imagesThatCanEachTimeOutOnce))
+}
+
+export function requireS3Client(client: S3Client | null): S3Client {
+    if (!client) {
+        throw new Error('SESSION_RECORDING_V2_S3_* must be configured for the image-scrub consumer')
+    }
+    return client
+}
+
+export function buildImageScrubConsumerConfig(config: IngestionSessionReplayMlMirrorServerConfig): KafkaConsumerConfig {
+    return {
+        topic: KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
+        groupId: config.SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID,
+        autoCommit: true,
+        autoOffsetStore: false,
+        callEachBatchWhenEmpty: true,
+        // Far below the 500 default, because this lane's batch has no time limit: a busy sidecar is
+        // waited on rather than dropped, so batch duration is set by how many images it holds. A
+        // batch that outlives max.poll.interval.ms (300s) gets the pod evicted mid-batch, and that
+        // is not a clean retry: the evicted pod loses the offsets for work it already did, and the
+        // partition lands on a pod whose sidecar is just as busy and redoes the same images, so
+        // offered load rises while throughput falls. Set here rather than as a deployment value so
+        // the bound cannot drift away from the design that needs it.
+        fetchBatchSize: boundedImageScrubBatchSize(config),
+    }
+}
+
+/** URL images reach the scrub topic in fetch order, not capture order, so they keep a watermark apart from inline images. */
+export function scrubbedImageData(message: Pick<Message, 'key'>): CapturedData | undefined {
+    const source = parseImageRef(message.key?.toString('utf8') ?? '')?.source
+    return source === undefined ? undefined : source === 'url' ? 'url_images' : 'inline_images'
+}
+
+export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerServer {
+    private keyManager?: MlKeyManager
+    private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
+
+    protected async startServices(): Promise<void> {
+        if (
+            this.config.AI_RESEARCH_REPLAY_KEY_TABLE &&
+            !this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC.trim()
+        ) {
+            throw new Error('ML key manager-enabled image scrubber requires SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC')
+        }
+        if (this.config.AI_RESEARCH_REPLAY_KEY_TABLE) {
+            this.keyManager = new MlKeyManager(this.config)
+            await this.keyManager.start()
+        }
+        const s3Client = requireS3Client(buildSessionRecordingS3Client(this.config))
+        if (!this.config.AI_RESEARCH_REPLAY_S3_BUCKET) {
+            throw new Error(
+                'AI_RESEARCH_REPLAY_S3_BUCKET must be set: images of months after the v3 cutoff write there'
+            )
+        }
+        const store = new ImageShardStore(
+            s3Client,
+            { v2: this.config.SESSION_RECORDING_V2_S3_BUCKET, v3: this.config.AI_RESEARCH_REPLAY_S3_BUCKET },
+            this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX,
+            this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS
+        )
+        // The lane's own producer slot, not the generic one. It is on the replay cluster that holds
+        // the source topic and carries this lane's message.max.bytes, and a parked image is an
+        // original of the same size as the source message. The generic slot points at a different
+        // cluster with librdkafka's 1 MB default, where every park of a normal image would fail
+        // non-retriably.
+        const dlqTopic = this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC
+        let deadLetters: KafkaDeadLetterSink | null = null
+        if (dlqTopic) {
+            this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+            deadLetters = new KafkaDeadLetterSink(
+                this.producerRegistry.getProducer(INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER),
+                dlqTopic
+            )
+        }
+        // Built after, because whether a dead-letter destination exists changes what the client does
+        // with an image it cannot get scrubbed: park it, or keep waiting on it forever. Clearing the
+        // topic is therefore the rollback, and it reverts to the documented waiting behaviour rather
+        // than to producing at an empty topic name.
+        const scrubClient = new ScrubClient(
+            this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL,
+            this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS,
+            deadLetters !== null
+        )
+
+        const maximumRecordBytes = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES * 2 + 64 * 1024
+        const consumer = new KafkaConsumer(buildImageScrubConsumerConfig(this.config), {
+            'fetch.message.max.bytes': maximumRecordBytes,
+            'max.partition.fetch.bytes': maximumRecordBytes,
+        })
+        const watermark = new CaptureWatermark('image_scrub')
+        const batcher = new ImageBatcher(
+            store,
+            releasingOffsetStore(consumer, watermark),
+            scrubClient,
+            {
+                flushIntervalMs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS,
+                maxImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES,
+                maxBytes: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES,
+                scrubConcurrency: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY,
+                dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS,
+            },
+            deadLetters,
+            this.keyManager
+        )
+        await scrubClient.waitUntilReachable()
+        await consumer.connect(
+            (messages) => {
+                watermark.hold(capturedRecords(messages, scrubbedImageData))
+                const heartbeat = setInterval(() => consumer.heartbeat(), BATCH_HEARTBEAT_INTERVAL_MS)
+                return batcher.handleBatch(messages, Date.now()).finally(() => clearInterval(heartbeat))
+            },
+            (partitions) => {
+                watermark.forget(partitions)
+                return Promise.resolve()
+            }
+        )
+
+        this.lifecycle.services.push({
+            id: 'session-replay-ml-image-scrub',
+            // batcher.stop() first: disconnect() waits on the running batch, and a batch waiting on an
+            // unresponsive sidecar never returns, so without the interrupt a graceful stop runs to the
+            // termination grace period and ends in a SIGKILL. stop() also waits for the write lane, so
+            // the offsets of every written image are stored before disconnect() stops the poll loop
+            // and commits them. Whatever was still scrubbing was never stored and replays on restart.
+            onShutdown: async () => {
+                await batcher.stop()
+                await consumer.disconnect()
+            },
+            healthcheck: () => consumer.isHealthy(),
+        })
+    }
+
+    protected getCleanupResources(): CleanupResources {
+        return {
+            kafkaProducers: [],
+            additionalCleanup: async () => {
+                this.keyManager?.stop()
+                await this.producerRegistry?.disconnectAll()
+            },
+            redisPools: [],
+        }
+    }
+}

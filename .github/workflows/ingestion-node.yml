@@ -85,7 +85,7 @@ jobs:
                   clean: false
             - uses: ./ingestion/ci/actions/pnpm-install
               with:
-                  install-command: pnpm --filter=@posthog/ingestion... install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/ingestion... --filter=@posthog/ingestion-ai-research... install --frozen-lockfile
             - uses: ./ingestion/ci/actions/setup-rust
               with:
                   toolchain: 1.91.1
@@ -93,13 +93,13 @@ jobs:
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
             - uses: ./ingestion/ci/actions/setup-sccache
             - name: Build the dependencies
-              run: bin/turbo --filter=@posthog/ingestion prepare
+              run: bin/turbo --filter=@posthog/ingestion --filter=@posthog/ingestion-ai-research prepare
             - name: Typecheck
-              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion-common --filter=@posthog/replay-storage --filter=@posthog/ingestion typescript:check
+              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion-common --filter=@posthog/replay-storage --filter=@posthog/ingestion --filter=@posthog/ingestion-ai-research typescript:check
             - name: Lint
-              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion-common --filter=@posthog/replay-storage --filter=@posthog/ingestion lint
+              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion-common --filter=@posthog/replay-storage --filter=@posthog/ingestion --filter=@posthog/ingestion-ai-research lint
             - name: Check formatting
-              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion-common --filter=@posthog/replay-storage --filter=@posthog/ingestion format:check
+              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion-common --filter=@posthog/replay-storage --filter=@posthog/ingestion --filter=@posthog/ingestion-ai-research format:check
 
     test:
         name: Test (${{ matrix.package }}, ${{ matrix.lane }} ${{ matrix.shard }}/${{ matrix.shard_count }})
@@ -121,6 +121,8 @@ jobs:
                     - { package: ingestion, lane: parallel, shard: 3, shard_count: 3 }
                     - { package: ingestion, lane: serial, shard: 1, shard_count: 2 }
                     - { package: ingestion, lane: serial, shard: 2, shard_count: 2 }
+                    - { package: ai-research, lane: parallel, shard: 1, shard_count: 1 }
+                    - { package: ai-research, lane: serial, shard: 1, shard_count: 1 }
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -147,7 +149,7 @@ jobs:
                   echo "127.0.0.1 db redis7 kafka clickhouse objectstorage seaweedfs" | sudo tee -a /etc/hosts
             - uses: ./ingestion/ci/actions/pnpm-install
               with:
-                  install-command: pnpm --filter=@posthog/ingestion... install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/ingestion... --filter=@posthog/ingestion-ai-research... install --frozen-lockfile
             - uses: ./ingestion/ci/actions/setup-rust
               with:
                   toolchain: 1.91.1
@@ -170,7 +172,7 @@ jobs:
             - name: Download MaxMind database
               run: ingestion/ci/bin/download-mmdb
             - name: Build the dependencies
-              run: bin/turbo --filter=@posthog/ingestion prepare
+              run: bin/turbo --filter=@posthog/ingestion --filter=@posthog/ingestion-ai-research prepare
             - name: Test with Jest
               id: run-tests
               continue-on-error: true
@@ -188,6 +190,8 @@ jobs:
                       pnpm --filter=@posthog/ingestion-common test
                   elif [ "${{ matrix.package }}" = "replay-storage" ]; then
                       pnpm --filter=@posthog/replay-storage test
+                  elif [ "${{ matrix.package }}" = "ai-research" ]; then
+                      pnpm --filter=@posthog/ingestion-ai-research test:${{ matrix.lane }}
                   else
                       pnpm --filter=@posthog/ingestion test:${{ matrix.lane }}
                   fi

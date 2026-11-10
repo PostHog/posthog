@@ -1543,14 +1543,7 @@ const NODE_LANES = [NODE_INGESTION, ...NODE_SUB_LANES.map(([lane]) => lane)]
 // is prose like anywhere else.
 const INGESTION = 'ingestion'
 const INGESTION_AI_RESEARCH = 'ingestion:ai-research'
-const INGESTION_AI_RESEARCH_DIRS = [
-    'ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ml-mirror',
-    'ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ai-research',
-    'ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/anonymize',
-    'ingestion/node/packages/ingestion/src/servers/ai-research-',
-    'ingestion/node/packages/ingestion/src/servers/ingestion-session-replay-ml-',
-    'ingestion/node/packages/ingestion/src/servers/ml-mirror-',
-]
+const INGESTION_AI_RESEARCH_DIRS = ['ingestion/node/packages/ai-research/']
 // Until @posthog/node-common and @posthog/ingestion are published, nodejs
 // consumes them from the workspace, so a change to either still runs the
 // nodejs suites. Each entry goes once its consumers pin a version.
@@ -1568,7 +1561,7 @@ function ingestionLaneFor(file) {
     }
     return INGESTION
 }
-const NATIVE_BINDING_CONSUMER_LANES = [...NODE_LANES, INGESTION]
+const NATIVE_BINDING_CONSUMER_LANES = [...NODE_LANES, INGESTION, INGESTION_AI_RESEARCH]
 
 // Every target this script can emit. A widening decision names this set instead
 // of the "ALL" sentinel, so the set intersection Trunk computes is unchanged

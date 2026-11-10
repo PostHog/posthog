@@ -1592,7 +1592,7 @@ mod tests {
     fn block_context_reproduces_the_shared_vector() {
         // The Node writers and readers in other languages check themselves against the same file.
         let vector: Value = serde_json::from_str(include_str!(
-            "../../../../ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector-v4.json"
+            "../../../../ingestion/node/packages/ai-research/src/pipelines/ai-research/v4-keys/encryption-vector-v4.json"
         ))
         .unwrap();
         let block = &vector["block"];

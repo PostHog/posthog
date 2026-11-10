@@ -1713,7 +1713,7 @@ test('nodejs is still the only workspace package importing a rust binding', () =
     }
     assert.deepEqual(
         dependentDirs.sort(),
-        ['ingestion/node/packages/ingestion', 'nodejs', 'nodejs/packages/hog-engine'],
+        ['ingestion/node/packages/ai-research', 'nodejs', 'nodejs/packages/hog-engine'],
         `NATIVE_BINDING_CONSUMER_LANES (${NATIVE_BINDING_CONSUMER_LANES.join(', ')}) must cover every dependent`
     )
 })
@@ -2367,10 +2367,9 @@ test('ingestion claims only its own lane', () => {
 })
 
 test('the AI research pipelines inside the ingestion tree have a lane of their own', () => {
-    const file =
-        'ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ml-mirror/ml-mirror-pipeline.ts'
+    const file = 'ingestion/node/packages/ai-research/src/pipelines/ml-mirror/ml-mirror-pipeline.ts'
     assert.deepEqual(computeTargets([file], CONTEXT), [INGESTION_AI_RESEARCH])
-    const server = 'ingestion/node/packages/ingestion/src/servers/ai-research-v4-parquet-sink-server.ts'
+    const server = 'ingestion/node/packages/ai-research/src/servers/ai-research-v4-parquet-sink-server.ts'
     assert.deepEqual(computeTargets([server], CONTEXT), [INGESTION_AI_RESEARCH])
 })
 
@@ -2387,7 +2386,10 @@ test('the unpublished package paths claim their consumers as well', () => {
     assert.equal(engine.includes(INGESTION), true)
     const storage = computeTargets(['nodejs/packages/replay-storage/src/keystore/index.ts'], CONTEXT)
     assert.equal(storage.includes(INGESTION), true)
-    const contract = computeTargets(['ingestion/node/packages/common/src/persons/repositories/person-repository.ts'], CONTEXT)
+    const contract = computeTargets(
+        ['ingestion/node/packages/common/src/persons/repositories/person-repository.ts'],
+        CONTEXT
+    )
     assert.equal(contract.includes(INGESTION), true)
     for (const lane of NODE_LANES) {
         assert.equal(contract.includes(lane), true)

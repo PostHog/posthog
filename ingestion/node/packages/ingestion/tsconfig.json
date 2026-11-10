@@ -28,7 +28,7 @@
         "skipLibCheck": true
     },
     "include": ["src", "tests"],
-    "exclude": ["node_modules", "dist", "src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar"],
+    "exclude": ["node_modules", "dist"],
     "ts-node": {
         "require": ["tsconfig-paths/register"]
     }

@@ -20,11 +20,7 @@ module.exports = {
     setupFilesAfterEnv: ['./jest.setup.ts'],
     testTimeout: 60000,
     // The image-scrub sidecar is a standalone package with its own jest run.
-    modulePathIgnorePatterns: [
-        '<rootDir>/.tmp/',
-        '<rootDir>/dist/',
-        '<rootDir>/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/',
-    ],
+    modulePathIgnorePatterns: ['<rootDir>/.tmp/', '<rootDir>/dist/'],
     // `dev/` folders hold dev-only benchmarks/scripts, never CI tests. Anchored to rootDir:
     // an unanchored '/dev/' also matches checkout paths like ~/dev/posthog and ignores every test.
     testPathIgnorePatterns: ['/node_modules/', '<rootDir>/(src|tests)(/.*)?/dev/'],

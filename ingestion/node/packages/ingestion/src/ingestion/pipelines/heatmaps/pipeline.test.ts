@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { createOkContext } from '@posthog/ingestion-common/framework/helpers'
 import { drop, ok } from '@posthog/ingestion-common/framework/results'
+import { createNoopTopHog } from '@posthog/ingestion-common/testing/tophog'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import {
     APP_METRICS_OUTPUT,
@@ -20,7 +21,6 @@ import { UUIDT } from '@posthog/node-common/utils/utils'
 
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
-import { createNoopTopHog } from '~/tests/helpers/tophog'
 
 import { HEATMAPS_OUTPUT } from './outputs'
 import { HeatmapsPipelineConfig, createHeatmapsPipeline } from './pipeline'

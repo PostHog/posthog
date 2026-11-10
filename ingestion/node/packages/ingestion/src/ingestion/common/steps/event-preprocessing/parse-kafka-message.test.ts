@@ -2,9 +2,9 @@ import { Message } from 'node-rdkafka'
 
 import { TopHogRegistry, createTopHogWrapper } from '@posthog/ingestion-common/framework/extensions/tophog'
 import { PipelineResultType, dlq, ok } from '@posthog/ingestion-common/framework/results'
+import { createRecordingTopHog } from '@posthog/ingestion-common/testing/tophog'
 import { logger } from '@posthog/node-common/utils/logger'
 
-import { createRecordingTopHog } from '~/tests/helpers/tophog'
 import { EventHeaders } from '~/types'
 
 import { createParseKafkaMessageStep, parseMessageTopHogMetrics } from './parse-kafka-message'

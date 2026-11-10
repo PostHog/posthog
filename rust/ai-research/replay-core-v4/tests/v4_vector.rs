@@ -15,7 +15,7 @@ use serde_json::Value;
 // Written with Node's crypto from the spec in replay-data.md, so this checks the Rust code against an independent
 // implementation. The v4 Node tests read the same file.
 const VECTOR: &str =
-    include_str!("../../../../ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector-v4.json");
+    include_str!("../../../../ingestion/node/packages/ai-research/src/pipelines/ai-research/v4-keys/encryption-vector-v4.json");
 
 fn vector() -> Value {
     serde_json::from_str(VECTOR).unwrap()

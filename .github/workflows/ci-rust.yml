@@ -104,8 +104,8 @@ jobs:
                         # common-cohort-team-access tests its query against the table these migrations build
                         - 'products/cohorts/backend/migrations/**'
                         # replay-core-v4's tests read the encryption vectors the Node writers pin
-                        - 'ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json'
-                        - 'ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json'
+                        - 'ingestion/node/packages/ai-research/src/pipelines/ml-mirror/keys/encryption-vector*.json'
+                        - 'ingestion/node/packages/ai-research/src/pipelines/ai-research/v4-keys/encryption-vector*.json'
                       all_crates:
                         - '.github/scripts/rust_test_shards.py'
                         # Pins the service images that every crate's tests run against.
@@ -586,8 +586,8 @@ jobs:
                       .github/actions/setup-protoc/
                       .github/actions/setup-rust/
                       .github/actions/setup-sccache/
-                      ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json
-                      ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json
+                      ingestion/node/packages/ai-research/src/pipelines/ml-mirror/keys/encryption-vector*.json
+                      ingestion/node/packages/ai-research/src/pipelines/ai-research/v4-keys/encryption-vector*.json
                   sparse-checkout-cone-mode: false
                   clean: false
 

@@ -59,8 +59,8 @@ mark-changed = ["common-cohort-team-access"]
 # Must come BEFORE the catch-all rule below.
 [[path-rule]]
 globs = [
-    "../ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json",
-    "../ingestion/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json",
+    "../ingestion/node/packages/ai-research/src/pipelines/ml-mirror/keys/encryption-vector*.json",
+    "../ingestion/node/packages/ai-research/src/pipelines/ai-research/v4-keys/encryption-vector*.json",
 ]
 mark-changed = ["replay-core-v4"]
 

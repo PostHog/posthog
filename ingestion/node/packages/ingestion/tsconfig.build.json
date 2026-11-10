@@ -4,10 +4,5 @@
         "rootDir": "src"
     },
     "include": ["src"],
-    "exclude": [
-        "node_modules",
-        "dist",
-        "src/**/*.test.ts",
-        "src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar"
-    ]
+    "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
 }

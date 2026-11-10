@@ -4,6 +4,7 @@ import { createOkContext } from '@posthog/ingestion-common/framework/helpers'
 import { ok } from '@posthog/ingestion-common/framework/results'
 import { ReadOnlyGroupTypeManager } from '@posthog/ingestion-common/groups/readonly-group-type-manager'
 import { PersonReadRepository } from '@posthog/ingestion-common/persons/repositories/person-repository'
+import { createNoopTopHog } from '@posthog/ingestion-common/testing/tophog'
 import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import {
@@ -26,7 +27,6 @@ import { UUIDT } from '@posthog/node-common/utils/utils'
 
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { DisabledOverflowRedirect } from '~/ingestion/common/overflow-redirect/disabled-overflow-redirect'
-import { createNoopTopHog } from '~/tests/helpers/tophog'
 
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from './outputs'
 import { AiIngestionPipelineConfig, createAiIngestionPipeline } from './pipeline'

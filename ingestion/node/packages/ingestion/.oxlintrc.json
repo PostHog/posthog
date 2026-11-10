@@ -19,8 +19,7 @@
         "bin",
         "dist",
         "node_modules",
-        // Standalone package with its own Oxlint config; excluded from the parent lint pass.
-        "src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar",
+        // Standalone package with its own Oxlint config; excluded from the parent lint pass.,
         "**/dev/**",
         // Match ESLint's default file extensions and hidden-file exclusions.
         "**/.*",

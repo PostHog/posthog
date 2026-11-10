@@ -236,6 +236,9 @@ jobs:
                       SCCACHE_LOG=debug
                       SCCACHE_NO_DAEMON=1
                       BIN=${{ matrix.bin || matrix.image }}
+                      PACKAGE=${{ matrix.build_args.PACKAGE || '' }}
+                      PACKAGE_DIR=${{ matrix.build_args.PACKAGE_DIR || '' }}
+                      RUNTIME_PACKAGES=${{ matrix.build_args.RUNTIME_PACKAGES || '' }}
                       BUILD_FEATURES=${{ matrix.features || '' }}
                       EXTRA_RUSTFLAGS=${{ matrix.extra_rustflags || '' }}
                       EXTRA_CFLAGS=${{ matrix.extra_cflags || '' }}

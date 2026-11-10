@@ -100,3 +100,14 @@
 - image: ingestion-node
   dockerfile: ./ingestion/node/Dockerfile
   project: mtvzx98zjn
+
+# The AI research team's Node services, from their own package.
+- image: ingestion-ai-research-node
+  dockerfile: ./ingestion/node/Dockerfile
+  project: mtvzx98zjn
+  build_args:
+      PACKAGE: '@posthog/ingestion-ai-research'
+      PACKAGE_DIR: ingestion/node/packages/ai-research
+      RUNTIME_PACKAGES: >-
+          common/hogvm/typescript nodejs/packages/hog-engine nodejs/packages/common nodejs/packages/replay-storage
+          ingestion/node/packages/common ingestion/node/packages/ingestion ingestion/node/packages/ai-research

@@ -13,6 +13,7 @@ import {
     redirect,
 } from '@posthog/ingestion-common/framework/results'
 import { ProcessingStep } from '@posthog/ingestion-common/framework/steps'
+import { RecordedTopHogMetric, createRecordingTopHog } from '@posthog/ingestion-common/testing/tophog'
 import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
@@ -25,7 +26,6 @@ import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
 import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 import { EventHeaders, IncomingEvent, Team } from '~/types'
 
 import { CommonIngestionPipelineConfig, newCommonIngestionPipeline } from './common-ingestion-pipeline'

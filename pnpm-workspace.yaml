@@ -8,6 +8,7 @@ packages:
     - nodejs/packages/replay-storage
     - ingestion/node/packages/common
     - ingestion/node/packages/ingestion
+    - ingestion/node/packages/ai-research
     - common/plugin_transpiler
     - common/storybook
     - common/replay-shared

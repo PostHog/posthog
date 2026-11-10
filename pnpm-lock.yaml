@@ -1574,6 +1574,142 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
 
+  ingestion/node/packages/ai-research:
+    dependencies:
+      '@aws-sdk/client-dynamodb':
+        specifier: 3.975.0
+        version: 3.975.0
+      '@aws-sdk/client-kms':
+        specifier: 3.975.0
+        version: 3.975.0
+      '@aws-sdk/client-s3':
+        specifier: 3.975.0
+        version: 3.975.0
+      '@dsnp/parquetjs':
+        specifier: 1.8.7
+        version: 1.8.7
+      '@opentelemetry/api':
+        specifier: 1.9.0
+        version: 1.9.0
+      '@posthog/ai-research-v4-native':
+        specifier: workspace:*
+        version: link:../../../../rust/ai-research/replay-core-v4-node
+      '@posthog/ingestion':
+        specifier: workspace:*
+        version: link:../ingestion
+      '@posthog/ingestion-common':
+        specifier: workspace:*
+        version: link:../common
+      '@posthog/node-common':
+        specifier: workspace:*
+        version: link:../../../../nodejs/packages/common
+      '@posthog/replay-anonymizer':
+        specifier: workspace:*
+        version: link:../../../../rust/replay-anonymizer-node
+      '@posthog/replay-storage':
+        specifier: workspace:*
+        version: link:../../../../nodejs/packages/replay-storage
+      '@smithy/node-http-handler':
+        specifier: 4.4.9
+        version: 4.4.9
+      '@trybyte/robotstxt-parser':
+        specifier: 1.2.0
+        version: 1.2.0
+      libsodium-wrappers:
+        specifier: 0.7.16
+        version: 0.7.16
+      lru-cache:
+        specifier: 11.0.2
+        version: 11.0.2
+      luxon:
+        specifier: 3.5.0
+        version: 3.5.0
+      node-rdkafka:
+        specifier: v3.6.1
+        version: 3.6.1
+      p-limit:
+        specifier: 3.1.0
+        version: 3.1.0
+      prom-client:
+        specifier: 14.2.0
+        version: 14.2.0
+      structured-headers:
+        specifier: 2.0.3
+        version: 2.0.3
+    devDependencies:
+      '@bufbuild/protoc-gen-es':
+        specifier: ^2.11.0
+        version: 2.16.0(supports-color@10.2.2)
+      '@opentelemetry/sdk-trace-node':
+        specifier: 2.0.1
+        version: 2.0.1(@opentelemetry/api@1.9.0)
+      '@trivago/prettier-plugin-sort-imports':
+        specifier: ^5.2.2
+        version: 5.2.2(prettier@3.6.2)(supports-color@10.2.2)
+      '@types/jest':
+        specifier: 30.0.0
+        version: 30.0.0
+      '@types/libsodium-wrappers':
+        specifier: 0.7.14
+        version: 0.7.14
+      '@types/long':
+        specifier: 4.0.2
+        version: 4.0.2
+      '@types/luxon':
+        specifier: 3.4.2
+        version: 3.4.2
+      '@types/node':
+        specifier: 26.6.5
+        version: 26.6.5
+      '@types/pg':
+        specifier: 8.6.6
+        version: 8.6.6
+      jest:
+        specifier: 30.0.5
+        version: 30.0.5(@types/node@26.6.5)(esbuild-register@3.6.0(esbuild@0.28.1)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@26.6.5)(typescript@6.0.3))
+      jest-junit:
+        specifier: 16.0.0
+        version: 16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811)
+      node-fetch:
+        specifier: 2.6.9
+        version: 2.6.9(encoding@0.1.13)
+      oxlint:
+        specifier: 1.72.0
+        version: 1.72.0(oxlint-tsgolint@7.0.2001)
+      oxlint-plugin-eslint:
+        specifier: 1.72.0
+        version: 1.72.0
+      oxlint-tsgolint:
+        specifier: 7.0.2001
+        version: 7.0.2001
+      prettier:
+        specifier: ~3.6.2
+        version: 3.6.2
+      snappy:
+        specifier: 7.2.2
+        version: 7.2.2
+      ts-jest:
+        specifier: 29.4.9
+        version: 29.4.9(@babel/core@7.29.0(supports-color@10.2.2))(@jest/transform@30.0.5(supports-color@10.2.2))(@jest/types@30.4.1)(babel-jest@30.0.5(@babel/core@7.29.0(supports-color@10.2.2))(supports-color@10.2.2))(esbuild@0.28.1)(jest-util@30.0.5)(jest@30.0.5(@types/node@26.6.5)(esbuild-register@3.6.0(esbuild@0.28.1)(supports-color@10.2.2))(supports-color@10.2.2)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@26.6.5)(typescript@6.0.3)))(typescript@6.0.3)
+      ts-node:
+        specifier: 10.9.1
+        version: 10.9.1(@swc/core@1.15.18)(@types/node@26.6.5)(typescript@6.0.3)
+      tsc-alias:
+        specifier: 1.8.16
+        version: 1.8.16
+      tsconfig-paths:
+        specifier: 4.2.0
+        version: 4.2.0
+      tsx:
+        specifier: 4.20.5
+        version: 4.20.5
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      undici:
+        specifier: 8.10.1
+        version: 8.10.1
+
   ingestion/node/packages/common:
     dependencies:
       '@bufbuild/protobuf':
@@ -1700,9 +1836,6 @@ importers:
       '@opentelemetry/api':
         specifier: 1.9.0
         version: 1.9.0
-      '@posthog/ai-research-v4-native':
-        specifier: workspace:*
-        version: link:../../../../rust/ai-research/replay-core-v4-node
       '@posthog/hog-engine':
         specifier: workspace:*
         version: link:../../../../nodejs/packages/hog-engine
@@ -1712,9 +1845,6 @@ importers:
       '@posthog/node-common':
         specifier: workspace:*
         version: link:../../../../nodejs/packages/common
-      '@posthog/replay-anonymizer':
-        specifier: workspace:*
-        version: link:../../../../rust/replay-anonymizer-node
       '@posthog/replay-storage':
         specifier: workspace:*
         version: link:../../../../nodejs/packages/replay-storage
@@ -27369,6 +27499,7 @@ snapshots:
 
   '@bufbuild/protoc-gen-es@2.16.0(supports-color@10.2.2)':
     dependencies:
+      '@bufbuild/protobuf': 2.16.0
       '@bufbuild/protoplugin': 2.16.0(supports-color@10.2.2)
     transitivePeerDependencies:
       - supports-color

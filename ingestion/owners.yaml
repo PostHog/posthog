@@ -3,9 +3,5 @@ owners: [team-ingestion]
 rules:
     - match: '/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/'
       owners: [team-replay, team-ingestion]
-    - match:
-          - '/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ml-mirror/'
-          - '/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ml-mirror-*/'
-          - '/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/ai-research/'
-          - '/node/packages/ingestion/src/ingestion/pipelines/sessionreplay/anonymize/'
+    - match: '/node/packages/ai-research/'
       owners: ai-research

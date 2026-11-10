@@ -40,11 +40,7 @@
         "test:postgres-parity": "jest --runInBand --forceExit --testPathPatterns='postgres-parity'",
         "setup:test:persons-parity": "PERSONS_DATABASE_NAME=test_persons_parity ../../../rust/bin/migrate-entry persons --fresh",
         "migrate:persons": "../../../rust/bin/migrate-entry persons",
-        "update-ai-costs": "tsx src/ingestion/pipelines/ai/costs/scripts/update-ai-costs.ts",
-        "build:replay-anonymizer": "pnpm --dir ../../../../rust/replay-anonymizer-node package",
-        "build:replay-anonymizer:dev": "pnpm --dir ../../../../rust/replay-anonymizer-node run build:dev",
-        "build:ai-research-v4-native": "pnpm --dir ../../../../rust/ai-research/replay-core-v4-node package",
-        "build:ai-research-v4-native:dev": "pnpm --dir ../../../../rust/ai-research/replay-core-v4-node run build:dev"
+        "update-ai-costs": "tsx src/ingestion/pipelines/ai/costs/scripts/update-ai-costs.ts"
     },
     "dependencies": {
         "@aws-sdk/client-dynamodb": "3.975.0",
@@ -56,11 +52,9 @@
         "@connectrpc/connect-node": "2.1.1",
         "@dsnp/parquetjs": "1.8.7",
         "@opentelemetry/api": "1.9.0",
-        "@posthog/ai-research-v4-native": "workspace:*",
         "@posthog/hog-engine": "workspace:*",
         "@posthog/ingestion-common": "workspace:*",
         "@posthog/node-common": "workspace:*",
-        "@posthog/replay-anonymizer": "workspace:*",
         "@posthog/replay-storage": "workspace:*",
         "@posthog/siphash": "1.1.1",
         "@smithy/node-http-handler": "4.4.9",
