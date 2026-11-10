@@ -161,6 +161,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         earlyAccessFeatureMissing,
         implementOptInInstructionsModal,
         originalEarlyAccessFeatureStage,
+        saveDisabledReason,
     } = useValues(earlyAccessFeatureLogic)
     const {
         loadEarlyAccessFeature,
@@ -172,6 +173,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         saveEarlyAccessFeature,
         setEarlyAccessFeatureValue,
         submitEarlyAccessFeature,
+        setImageUploading,
     } = useActions(earlyAccessFeatureLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
@@ -343,6 +345,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                                     onClick={submitEarlyAccessFeature}
                                                     data-attr="save-feature"
                                                     loading={isEarlyAccessFeatureSubmitting}
+                                                    disabledReason={saveDisabledReason}
                                                     size="small"
                                                 >
                                                     {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}
@@ -713,7 +716,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                 showOptional
                                 help="Shown on the feature's card in the opt-in UI. A screenshot or short GIF of the feature works well."
                             >
-                                <EarlyAccessFeatureImageInput />
+                                <EarlyAccessFeatureImageInput onUploadingChange={setImageUploading} />
                             </LemonField>
                         </div>
                     </>
