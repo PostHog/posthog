@@ -3,7 +3,6 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
-import { AddressInfo, Socket, connect, createServer } from 'node:net'
 import { Client, Pool } from 'pg'
 import { Histogram, register } from 'prom-client'
 
