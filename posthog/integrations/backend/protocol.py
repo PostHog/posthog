@@ -148,7 +148,7 @@ class StorageBackend(Protocol):
     ) -> TokenRefresh:
         """Lock the row, refresh its OAuth tokens when they expire soon or match `stale_access_token`, and store them.
 
-        A failed refresh stores `errors` and does not raise. The lock stops two workers from spending
-        the same refresh token.
+        An empty `stale_access_token` matches a row without an access token. A failed refresh stores
+        `errors` and does not raise. The lock stops two workers from spending the same refresh token.
         """
         ...

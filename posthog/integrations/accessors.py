@@ -554,8 +554,8 @@ class OAuthAccessor(AuthAccessor):
         worker stored.
 
         Pass `stale_access_token` to refresh also when that token is still the stored access token,
-        for example after the provider refused it. When the row has another token, the row comes back
-        without a refresh. A refresh that fails does not raise: the row comes back with `errors` set.
+        for example after the provider refused it. An empty string matches a row without an access
+        token. When the row has another token, the row comes back without a refresh. A refresh that fails does not raise: the row comes back with `errors` set.
         Raises `ValueError` when the kind has no OAuth token refresh.
         """
         if self._kind not in OauthIntegration.supported_kinds:
