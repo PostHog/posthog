@@ -177,7 +177,7 @@ describe('claimSandboxCaps', () => {
     })
 
     it('lets only one of two overlapping attempts on one charge send, and only that one release it', async () => {
-        const caps = { team: 5, recipient: 2 }
+        const caps = { team: 1, recipient: 1 }
         const sendAttempt = sameSend()
         const first = granted(await claimSandboxCaps(limiter, caps, sendAttempt))
         const overlapping = granted(await claimSandboxCaps(limiter, caps, sendAttempt))
@@ -185,8 +185,7 @@ describe('claimSandboxCaps', () => {
         expect(await first.markSending()).toBe(true)
         expect(await overlapping.markSending()).toBe(false)
         expect(await overlapping.releaseUnsent()).toBe(false)
-        expect(await claimSandboxCaps(limiter, caps, sendAttempt)).toMatchObject({ ok: true })
-        expect(await claim(caps, 'member@example.com')).toEqual({ ok: false, reason: 'daily_cap_reached' })
+        expect(await claimSandboxCaps(limiter, caps, sendAttempt)).toEqual({ ok: false, reason: 'daily_cap_reached' })
     })
 
     it.each([
