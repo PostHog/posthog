@@ -75,7 +75,7 @@ Before adding the first channel, review the selective role, source reads, origin
 
 ## Bound work before activation
 
-The workflow allows eight channels and four concurrent registry workers. A local representative run covers 48 first-parent commits and the full eight-channel fan-out; it measures fixture work, not production upload throughput. Recheck these bounds before increasing fan-out or enabling an origin with slower copy or readback behavior.
+The workflow allows twenty channels and four concurrent registry workers. The time bound covers only eight channels that all publish in one build at the full channel registry work bound, in two waves of four. With more channels publishing that slowly, the action total ends the run and blocks every remaining channel: a channel not yet started makes no copy, a channel cut short may already have written its tag, and the next build re-evaluates each from the frontier it finds. A local representative run gives each of twenty channels an interval of at least 48 first-parent commits, publishes all of them with at most four in progress and refuses a twenty-one-channel policy before any registry command; it measures fixture work, not production upload throughput. Recheck these bounds before raising the channel budget or concurrency, or enabling an origin with slower copy or readback behavior.
 
 | Work                           | Bound              |
 | ------------------------------ | ------------------ |
