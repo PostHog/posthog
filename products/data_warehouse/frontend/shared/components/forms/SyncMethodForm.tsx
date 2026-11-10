@@ -287,10 +287,28 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     // (its primary key by default), and the xmin reader resolves the key from the source itself, so
     // a different key would stop deletes and upserts from matching rows.
     const sourcePrimaryKeys = resolvedDetectedPks ?? schema.primary_key_columns ?? null
+    // The API refuses to replace a key once data has synced, so a synced key that differs from the source's
+    // can only be fixed by deleting the synced data.
+    const syncedPrimaryKeys = primaryKeyLocked ? (schema.primary_key_columns ?? []) : []
+    const lockedPrimaryKeyMismatchReason =
+        (radioValue === 'cdc' || radioValue === 'xmin') &&
+        replicationKeyRequired &&
+        syncedPrimaryKeys.length > 0 &&
+        !!sourcePrimaryKeys?.length &&
+        syncedPrimaryKeys.join(',') !== sourcePrimaryKeys.join(',')
+            ? `The synced data uses the primary key ${syncedPrimaryKeys.join(', ')}, but the source table's primary key is ${sourcePrimaryKeys.join(', ')}. Delete the synced data first, then save.`
+            : undefined
     const sourcePrimaryKeyNote = sourcePrimaryKeys?.length ? (
-        <p className="m-0">
-            Uses the primary key on the source table: <code>{sourcePrimaryKeys.join(', ')}</code>
-        </p>
+        <>
+            <p className="m-0">
+                Uses the primary key on the source table: <code>{sourcePrimaryKeys.join(', ')}</code>
+            </p>
+            {lockedPrimaryKeyMismatchReason && (
+                <LemonBanner type="warning" className="mt-2">
+                    {lockedPrimaryKeyMismatchReason}
+                </LemonBanner>
+            )}
+        </>
     ) : (
         <LemonBanner type="warning">
             No primary key was found on the source table. Add one there, or use full table replication instead.
@@ -742,18 +760,20 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         return false
     })()
 
-    const validationDisabledReason = getSaveDisabledReason(
-        radioValue,
-        incrementalFieldValue,
-        appendFieldValue,
-        radioValue === 'cdc' || radioValue === 'xmin'
-            ? sourcePrimaryKeys
-            : primaryKeyColumns.length
-              ? primaryKeyColumns
-              : resolvedDetectedPks,
-        keyRequired,
-        replicationKeyRequired
-    )
+    const validationDisabledReason =
+        lockedPrimaryKeyMismatchReason ??
+        getSaveDisabledReason(
+            radioValue,
+            incrementalFieldValue,
+            appendFieldValue,
+            radioValue === 'cdc' || radioValue === 'xmin'
+                ? sourcePrimaryKeys
+                : primaryKeyColumns.length
+                  ? primaryKeyColumns
+                  : resolvedDetectedPks,
+            keyRequired,
+            replicationKeyRequired
+        )
     const saveDisabledReason = validationDisabledReason ?? (!isDirty ? 'No changes to save' : undefined)
 
     const handleSave = (): void => {

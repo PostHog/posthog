@@ -222,6 +222,46 @@ describe('SyncMethodForm', () => {
             expect(screen.getByText(/select one or more columns to use as the primary key/i)).toBeInTheDocument()
         })
 
+        // The API refuses to replace a key once data has synced, so a synced key that differs from the source's
+        // must block saving in the form instead of failing after the request.
+        it.each([
+            ['cdc', ['order_key'], true],
+            ['xmin', ['order_key'], true],
+            ['cdc', ['id'], false],
+        ] as const)(
+            'switching a synced table to %s with synced key %s blocks saving: %s',
+            (syncType, syncedKey, blocked) => {
+                const onSaveDisabledReasonChange = jest.fn()
+                render(
+                    <SyncMethodForm
+                        schema={{
+                            ...baseSchema,
+                            sync_type: 'incremental',
+                            cdc_available: true,
+                            incremental_available: true,
+                            incremental_field: 'updated_at',
+                            incremental_fields: [
+                                { field: 'updated_at', field_type: 'datetime', label: 'updated_at', type: 'datetime' },
+                            ],
+                            primary_key_columns: [...syncedKey],
+                        }}
+                        availableColumns={[{ field: 'id', label: 'id', type: 'integer', nullable: false }]}
+                        detectedPrimaryKeys={['id']}
+                        primaryKeyDetectionSupported
+                        primaryKeyLocked
+                        onSaveDisabledReasonChange={onSaveDisabledReasonChange}
+                        onClose={() => {}}
+                        onSave={() => {}}
+                    />
+                )
+
+                fireEvent.click(screen.getByText(syncType === 'cdc' ? 'CDC (change data capture)' : 'xmin replication'))
+
+                const reason = onSaveDisabledReasonChange.mock.calls.at(-1)?.[0]
+                expect(reason?.includes('Delete the synced data first') ?? false).toBe(blocked)
+            }
+        )
+
         // A never-synced table has no stored key, and the API refuses CDC and xmin without one, so the
         // form has to send the key detection found.
         // CDC deletes carry only the source's primary key, and the xmin reader resolves the key from the
