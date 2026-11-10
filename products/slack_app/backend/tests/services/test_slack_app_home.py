@@ -686,8 +686,11 @@ class TestLinkedAccountsCard:
 
     def _rows(self, view: dict) -> list[tuple[str, dict | None]]:
         return [
-            (block["text"]["text"], block.get("accessory"))
-            for block in view["blocks"]
+            (
+                block["text"]["text"],
+                following["elements"][0] if following.get("type") == "actions" else None,
+            )
+            for block, following in zip(view["blocks"], [*view["blocks"][1:], {}])
             if block.get("type") == "section" and block["text"]["text"].startswith(("*PostHog*", "*GitHub*"))
         ]
 
@@ -729,7 +732,8 @@ class TestLinkedAccountsCard:
         assert button["url"] == "https://app/project/1/settings/user-personal-integrations"
         assert button.get("style") == expected_style
         if connected:
-            assert ("✅" in text) is credentials_usable
+            assert ("Connected as" in text) is credentials_usable
+            assert ("Access expired:" in text) is not credentials_usable
 
     def test_every_connected_installation_is_listed(self):
         view = self._view(

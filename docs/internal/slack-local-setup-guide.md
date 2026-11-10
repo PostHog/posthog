@@ -171,6 +171,8 @@ The full personal project name appears above its selector.
 Reply settings contains thread replies, channel questions, multiplayer options, and tips.
 These controls use standard Home blocks and remain visible.
 Edit model opens the personal model form.
+Model and account buttons sit below their details, aligned with the other controls.
+Linked accounts show their connection status in text.
 Use project default clears the personal model choice for Slack, PostHog Desktop, and the task composer.
 Workspace project and channel welcome controls appear only for Slack workspace admins.
 

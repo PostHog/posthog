@@ -712,11 +712,6 @@ def _active_model_blocks(run_defaults: RunDefaultsState) -> list[dict]:
         {
             "type": "section",
             "text": {"type": "mrkdwn", "text": f"*AI model*\n{headline}"},
-            "accessory": {
-                "type": "button",
-                "action_id": ACTION_EDIT_PERSONAL,
-                "text": {"type": "plain_text", "text": "Edit model"},
-            },
         },
     ]
     source_text = source_label
@@ -820,20 +815,16 @@ def _linked_accounts_section_blocks(
 ) -> list[dict]:
     """Render the linked-accounts card: one row per account.
 
-    A row is a section carrying that account's status, with its button as the
-    right-aligned `accessory`. Block Kit allows at most one accessory per
-    section and renders `actions` blocks full width, so a row apiece is the
-    only layout that keeps each button next to the account it acts on.
     The PostHog row only appears when `is_slack_app_oauth_enabled` returned
     True; the GitHub row is independent of that gate.
     """
     rows: list[dict] = []
 
     if account_state and account_state.enabled:
-        rows.append(_account_row(_posthog_account_text(account_state), _posthog_account_button(account_state)))
+        rows.extend(_account_row(_posthog_account_text(account_state), _posthog_account_button(account_state)))
 
     if github_state is not None:
-        rows.append(_account_row(_github_account_text(github_state), _github_account_button(github_state)))
+        rows.extend(_account_row(_github_account_text(github_state), _github_account_button(github_state)))
 
     if not rows:
         return []
@@ -844,16 +835,16 @@ def _linked_accounts_section_blocks(
     ]
 
 
-def _account_row(text: str, button: dict | None) -> dict:
-    row: dict[str, Any] = {"type": "section", "text": {"type": "mrkdwn", "text": text}}
+def _account_row(text: str, button: dict | None) -> list[dict]:
+    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
     if button:
-        row["accessory"] = button
-    return row
+        blocks.append({"type": "actions", "elements": [button]})
+    return blocks
 
 
 def _posthog_account_text(account_state: AccountState) -> str:
     if account_state.linked_email:
-        return f"*PostHog*\n✅ Connected as {account_state.linked_email}"
+        return f"*PostHog*\nConnected as {account_state.linked_email}"
     return "*PostHog*\nNot connected. Link your Slack identity so @PostHog knows it's you without matching on email."
 
 
@@ -889,8 +880,8 @@ def _github_account_text(github_state: GitHubState) -> str:
         return "*GitHub*\nLink your PostHog account first, so we know whose GitHub to look up."
     if not github_state.accounts:
         return "*GitHub*\nNot connected. Connect it so @PostHog opens pull requests as you."
-    marker = "✅ Connected as" if github_state.credentials_usable else "⚠️"
-    listed = "\n".join(f"{marker} {account.label}" for account in github_state.accounts)
+    status = "Connected as" if github_state.credentials_usable else "Access expired:"
+    listed = "\n".join(f"{status} {account.label}" for account in github_state.accounts)
     if github_state.credentials_usable:
         return f"*GitHub*\n{listed}"
     return f"*GitHub*\n{listed}\nYour access has expired. Reconnect it, or @PostHog can't open pull requests as you."
@@ -925,7 +916,13 @@ def _personal_section_blocks(run_defaults: RunDefaultsState) -> list[dict]:
     """
 
     has_preference = run_defaults.source == "user"
-    actions: list[dict] = []
+    actions: list[dict] = [
+        {
+            "type": "button",
+            "action_id": ACTION_EDIT_PERSONAL,
+            "text": {"type": "plain_text", "text": "Edit model"},
+        }
+    ]
     if has_preference:
         actions.append(
             {
@@ -945,7 +942,7 @@ def _personal_section_blocks(run_defaults: RunDefaultsState) -> list[dict]:
             }
         )
 
-    return [{"type": "actions", "elements": actions}] if actions else []
+    return [{"type": "actions", "elements": actions}]
 
 
 AUTO_MODEL_CHOICE_VALUE = "on"
