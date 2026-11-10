@@ -213,6 +213,7 @@ export const CLAIM_DEADLINE_MS = 2_000
 export interface RateLimiterConfig {
     /** Logical name for metrics/logging only (e.g. 'ses'). */
     name: string
+    claimDeadlineMs?: number
 }
 
 export interface ClaimRequest {
@@ -392,7 +393,11 @@ export class RateLimiterService {
             // useClient throws on error (failOpen unset), so the catch block
             // handles Valkey reachability — no need for a null-result branch.
             const result = await this.valkey.useClient(
-                { name: `rate-limiter:${this.config.name}:claimUpTo`, timeout: 1000 },
+                {
+                    name: `rate-limiter:${this.config.name}:claimUpTo`,
+                    timeout: 1000,
+                    deadlineMs: this.config.claimDeadlineMs,
+                },
                 (client) =>
                     client.eval(
                         CLAIM_UP_TO_LUA,

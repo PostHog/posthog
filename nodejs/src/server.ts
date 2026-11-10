@@ -56,6 +56,7 @@ import {
 import { createFrequencyCapValkeyPool } from './cdp/services/messaging/frequency-cap-valkey-pool'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
 import { SandboxEmailEvents } from './cdp/services/messaging/sandbox/sandbox-email-events'
+import { createSandboxEmailQueue } from './cdp/services/messaging/sandbox/sandbox-email-queue'
 import { createSandboxEmailRuntime } from './cdp/services/messaging/sandbox/sandbox-email-runtime'
 import {
     sandboxEmailTestRouter,
@@ -394,14 +395,7 @@ export class PluginServer implements NodeServer {
                     postgres: this.postgres!,
                     teamManager: cdpDeps!.teamManager,
                 })
-                const sesValkey = createSesRateLimiterValkeyPool(this.config)
-                const queue = sesValkey
-                    ? new CyclotronJobQueueRateLimitedPostgresV2(
-                          this.config.CONSUMER_BATCH_SIZE,
-                          this.config,
-                          sesRateLimitedQueueOptions(this.config, sesValkey)
-                      )
-                    : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
+                const queue = createSandboxEmailQueue(this.config)
                 const worker = new CdpCyclotronWorkerEmailSandbox(
                     this.config,
                     { ...this.withEmailActionValkeys(cdpDeps!), sandboxEmail },
