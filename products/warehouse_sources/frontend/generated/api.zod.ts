@@ -42,6 +42,12 @@ export const ExternalDataDestinationsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
         ),
+    migration_item_id: zod
+        .uuid()
+        .optional()
+        .describe(
+            'The warehouse migration item that planned this destination. The integration must keep every setting the connect page prefilled from it, or creation fails before PostHog connects anywhere.'
+        ),
 })
 
 /**
@@ -76,6 +82,12 @@ export const ExternalDataDestinationsUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
+        ),
+    migration_item_id: zod
+        .uuid()
+        .optional()
+        .describe(
+            'The warehouse migration item that planned this destination. The integration must keep every setting the connect page prefilled from it, or creation fails before PostHog connects anywhere.'
         ),
 })
 
@@ -113,6 +125,12 @@ export const ExternalDataDestinationsPartialUpdateBody = /* @__PURE__ */ zod.obj
         .nullish()
         .describe(
             "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
+        ),
+    migration_item_id: zod
+        .uuid()
+        .optional()
+        .describe(
+            'The warehouse migration item that planned this destination. The integration must keep every setting the connect page prefilled from it, or creation fails before PostHog connects anywhere.'
         ),
 })
 
@@ -1338,6 +1356,54 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
     .describe('Mixin for serializers to add user access control fields')
 
 /**
+ * Create the planned PostHog source for one migration item, then set its sync schedule.
+ */
+export const externalDataSourcesApplyMigrationItemCreateBodyPrefixMax = 100
+
+export const externalDataSourcesApplyMigrationItemCreateBodyCreatedViaDefault = `api`
+
+export const ExternalDataSourcesApplyMigrationItemCreateBody = /* @__PURE__ */ zod.object({
+    item_id: zod.uuid().describe('The migration item to create a PostHog source for.'),
+    credential_id: zod
+        .uuid()
+        .describe("Stored credential from the source connect page, for the item's PostHog source type."),
+    prefix: zod
+        .string()
+        .max(externalDataSourcesApplyMigrationItemCreateBodyPrefixMax)
+        .optional()
+        .describe('Table name prefix to use instead of the planned one, for example when the planned one is taken.'),
+    destination_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe('Destinations to write the new source to. Omit to write to the PostHog warehouse.'),
+    table_overrides: zod
+        .array(
+            zod.object({
+                vendor_table: zod
+                    .string()
+                    .describe(
+                        "A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`."
+                    ),
+                posthog_table: zod
+                    .string()
+                    .nullable()
+                    .describe('The PostHog table to sync it as. Null leaves the table out.'),
+            })
+        )
+        .optional()
+        .describe(
+            'Changes to the planned tables that the user confirmed: rename an inferred pair, map an unmatched table, or leave a table out.'
+        ),
+    created_via: zod
+        .enum(['web', 'api', 'mcp'])
+        .describe('\* `web` - web\n\* `api` - api\n\* `mcp` - mcp')
+        .default(externalDataSourcesApplyMigrationItemCreateBodyCreatedViaDefault)
+        .describe(
+            'Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
+        ),
+})
+
+/**
  * List the accounts a source's typed-in credentials can reach, in the shared
  * IntegrationAccount shape.
  *
@@ -1558,6 +1624,12 @@ export const ExternalDataSourcesStoreCredentialsCreateBody = /* @__PURE__ */ zod
         .describe(
             'Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored.'
         ),
+    migration_item_id: zod
+        .uuid()
+        .optional()
+        .describe(
+            'The migration item whose prefilled settings the connect page showed. Every prefilled setting must keep its value, or the request is rejected before PostHog connects anywhere.'
+        ),
 })
 
 /**
@@ -1634,6 +1706,48 @@ export const WarehouseMigrationsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Plan vendor connections an agent read, and add them to an uploaded migration.
+ */
+export const warehouseMigrationsConnectionsCreateBodyDestinationsMax = 100
+
+export const warehouseMigrationsConnectionsCreateBodyConnectionsMax = 25
+
+export const WarehouseMigrationsConnectionsCreateBody = /* @__PURE__ */ zod.object({
+    account: zod
+        .record(zod.string(), zod.unknown())
+        .nullish()
+        .describe('The Fivetran account info response, unchanged. Send it once, with the first upload.'),
+    destinations: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .max(warehouseMigrationsConnectionsCreateBodyDestinationsMax)
+        .optional()
+        .describe(
+            "Fivetran destination details responses, unchanged. Send them before the connections that use them, so PostHog reads each connection's sync time in its destination's time zone."
+        ),
+    connections: zod
+        .array(
+            zod.object({
+                connection: zod
+                    .record(zod.string(), zod.unknown())
+                    .describe(
+                        'The Fivetran connection details response, unchanged. The `code` and `data` envelope may stay.'
+                    ),
+                schema_config: zod
+                    .record(zod.string(), zod.unknown())
+                    .nullish()
+                    .describe(
+                        'The Fivetran schema config response for this connection, unchanged. Null when Fivetran has none.'
+                    ),
+            })
+        )
+        .max(warehouseMigrationsConnectionsCreateBodyConnectionsMax)
+        .optional()
+        .describe(
+            'At most 25 connections. A connection uploaded again replaces its plan, unless it is already created in PostHog or skipped.'
+        ),
+})
+
+/**
  * Skip many connections at once, or all but the ones to keep.
  */
 
@@ -1647,4 +1761,14 @@ export const WarehouseMigrationsItemsBulkSkipCreateBody = /* @__PURE__ */ zod.ob
         .array(zod.uuid())
         .optional()
         .describe('Items to keep. Every other item is skipped, for example to migrate only one connection.'),
+})
+
+/**
+ * Start a migration that an agent fills with what it reads from the vendor, without a vendor key.
+ */
+export const WarehouseMigrationsUploadCreateBody = /* @__PURE__ */ zod.object({
+    provider: zod
+        .enum(['fivetran'])
+        .describe('\* `fivetran` - Fivetran')
+        .describe('The ETL vendor to import from.\n\n\* `fivetran` - Fivetran'),
 })

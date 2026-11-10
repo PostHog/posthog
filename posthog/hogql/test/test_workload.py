@@ -111,6 +111,13 @@ class TestExecuteHogQLQueryWorkload(BaseTest):
             ("spans_online", "SELECT 1 FROM posthog.trace_spans", Workload.ONLINE, Workload.LOGS),
             ("logs_offline", "SELECT 1 FROM logs", Workload.OFFLINE, Workload.LOGS),
             ("events_offline", "SELECT 1 FROM events", Workload.OFFLINE, Workload.OFFLINE),
+            ("metrics_offline", "SELECT 1 FROM posthog.metrics", Workload.OFFLINE, Workload.METRICS),
+            (
+                "metrics_joined_with_logs",
+                "SELECT 1 FROM posthog.metrics AS m JOIN logs AS l ON m.trace_id = l.trace_id",
+                Workload.METRICS,
+                Workload.LOGS,
+            ),
         ]
     )
     def test_table_cluster_wins_over_priority_workload(
