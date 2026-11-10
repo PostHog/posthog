@@ -3914,8 +3914,6 @@ async def test_activity_returns_completed_outcome(ateam):
 @pytest.mark.django_db
 @pytest.mark.parametrize("outcome", ["runner_skipped", "skill_missing", "started"])
 async def test_activity_puts_back_claimed_workflow_triggers_when_no_run_starts(ateam, outcome):
-    # The claim runs before the runner's own skip checks. A run that never got a row must leave the
-    # fires queued for a later run, or the subjects they name are lost.
     def queue_fires() -> tuple[str, ...]:
         for note in ("Issue #1", "Issue #2"):
             enqueue_workflow_trigger(

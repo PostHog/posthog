@@ -2997,7 +2997,6 @@ async def test_report_checks_and_the_trigger_drain_run_only_on_the_patched_path(
 
 
 @pytest.mark.asyncio
-# A drain that times out raises out of the activity call, and must not stop the scheduled dispatch.
 @pytest.mark.parametrize("drain_fails", [False, True])
 async def test_workflow_dispatches_children_fire_and_forget(drain_fails):
     # `dispatch_smear_seconds` left at its default, which is also what an in-flight coordinator
