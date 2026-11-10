@@ -111,6 +111,7 @@ class LegalDocumentsPanel(Panel):
     key = "legal-documents"
     title = "Legal documents"
     owner = GROWTH
+    operation_keys = frozenset({"refetch-pdf", "resend-signing-email", "delete"})
 
     def facts(self, obj: Model) -> list[Fact]:
         documents = list_for_staff(obj.pk)

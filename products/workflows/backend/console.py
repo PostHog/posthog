@@ -149,6 +149,7 @@ class EmailSendingPanel(Panel):
     key = "email-sending"
     title = "Email sending"
     owner = WORKFLOWS
+    operation_keys = frozenset({"set-tier", "recompute-tier", "suspend", "unsuspend"})
 
     def facts(self, obj: Model) -> list[Fact]:
         state = get_email_sending_state(obj.pk)

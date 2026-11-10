@@ -37,7 +37,7 @@ A tool is a page that is not about one record, for example a report across all t
 ## Move a Django admin action
 
 Replace the old button with `MovedToConsole.action(record, obj, panel_key, label)` from `moved.py`. It links to the panel on the console record page, so staff who look in the usual place find the new one.
-Old URLs never break, because staff keep bookmarks to them, query parameters included. When a record action's view is deleted, declare its old path in your `console.py` with `console.register_moved_action(old_path=..., record=..., target=...)`, which redirects to the console form or panel. An old path without the record's `<pk>`, such as a legal document ID, passes a `resolver` that returns a `MovedRecord`. `urls.py` builds every old route from the registry, so a move never edits a shell file.
+Old URLs never break, because staff keep bookmarks to them, query parameters included. When a record action's view is deleted, declare its old path in your `console.py` with `console.register_moved_action(old_path=..., record=..., target=...)`, which redirects to the console form or panel. A form target, such as `api-token/set/`, needs `operation_keys` on its panel to list every key the panel can offer. An old path without the record's `<pk>`, such as a legal document ID, passes a `resolver` that returns a `MovedRecord`. `urls.py` builds every old route from the registry, so a move never edits a shell file.
 
 ## Shell modules and tests
 

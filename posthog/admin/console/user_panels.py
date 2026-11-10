@@ -481,6 +481,7 @@ class UserDeletionPanel(Panel):
     key = "deletion"
     title = "Deletion"
     owner = DEV_EXPERIENCE
+    operation_keys = frozenset({"delete"})
     order = 10
     danger = True
 

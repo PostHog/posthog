@@ -242,7 +242,7 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
                         kwargs={"pk": obj.pk, "panel_key": panel.key, "operation_key": operation.key},
                     ),
                 )
-                for operation in panel.operations(obj)
+                for operation in _offered_operations(panel, obj)
             ],
         )
         for panel in console.panels_for(record_type.key)
@@ -272,14 +272,23 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
     )
 
 
+def _offered_operations(panel: Panel, obj: Model) -> list[Operation]:
+    operations = panel.operations(obj)
+    if panel.operation_keys is not None:
+        undeclared = sorted({operation.key for operation in operations} - panel.operation_keys)
+        if undeclared:
+            raise ValueError(f"Console panel {panel.key!r} offers operations missing from operation_keys: {undeclared}")
+    return operations
+
+
 def _is_offered(panel: Panel, obj: Model, operation_key: str) -> bool:
-    return any(operation.key == operation_key for operation in panel.operations(obj))
+    return any(operation.key == operation_key for operation in _offered_operations(panel, obj))
 
 
 def _find_operation(panel: Panel, obj: Model, operation_key: str) -> Operation:
     # Look the operation up in what the panel offers now, so a stale form cannot run an operation the
     # current state no longer allows, for example suspending a team that is already suspended.
-    for operation in panel.operations(obj):
+    for operation in _offered_operations(panel, obj):
         if operation.key == operation_key:
             return operation
     raise Http404("This operation is not available for this record right now")

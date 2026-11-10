@@ -79,6 +79,7 @@ class AIGatewayPanel(Panel):
     key = "ai-gateway"
     title = "AI gateway"
     owner = AI_GATEWAY
+    operation_keys = frozenset({"add-credit", "enable", "revoke", "clear-revoke"})
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Team)

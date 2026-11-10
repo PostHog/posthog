@@ -127,6 +127,7 @@ class ApiTokenPanel(Panel):
     key = "api-token"
     title = "Project API token"
     owner = DEV_EXPERIENCE
+    operation_keys = frozenset({"set"})
     order = 30
     danger = True
 

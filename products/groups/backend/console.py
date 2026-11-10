@@ -176,6 +176,7 @@ class GroupTypesPanel(Panel):
     key = "group-types"
     title = "Group types"
     owner = PRODUCT_ANALYTICS
+    operation_keys = frozenset(f"edit-{index}" for index in range(GROUP_TYPES_LIMIT))
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Team)

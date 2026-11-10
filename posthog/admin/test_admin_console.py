@@ -41,6 +41,7 @@ from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
 from posthog.admin.console.urls import MovedUrlResolver
 from posthog.admin.console.user_panels import is_acting_as
+from posthog.admin.console.views import _offered_operations
 from posthog.csp_middleware import CSPMiddleware
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
@@ -97,6 +98,13 @@ class _DuplicatePanel(Panel):
     owner = Owner(name="Dev experience", crest="dev-experience")
 
 
+class _UndeclaredOperationPanel(_DuplicatePanel):
+    operation_keys = frozenset({"rebuild"})
+
+    def operations(self, obj: Model) -> list[Operation]:
+        return [Operation(key="rebuild-all", label="Rebuild all", handler=lambda request, obj, form: None)]
+
+
 class _Tool(ConsoleTool):
     key = "some-report"
     title = "Some report"
@@ -116,6 +124,20 @@ def _fresh_resolver() -> Callable[..., None]:
         return None
 
     return find_team
+
+
+def _assert_target_is_registered(moved: MovedAction) -> None:
+    # A target is a panel anchor such as "#panel-remote-config", or an operation form such as "api-token/set/".
+    page, _, anchor = moved.target.partition("#")
+    panel_key, _, operation_path = (anchor.removeprefix("panel-") if anchor else page).partition("/")
+    panel = console.get_panel(moved.record, panel_key)
+    assert panel is not None, f"{moved.old_path} leads to {moved.record} panel {panel_key!r}, which is not registered"
+    operation_key = operation_path.strip("/")
+    if operation_key:
+        assert panel.operation_keys is not None and operation_key in panel.operation_keys, (
+            f"{moved.old_path} leads to operation {operation_key!r}, which {type(panel).__name__}.operation_keys "
+            "does not declare"
+        )
 
 
 def _move_twice() -> None:
@@ -205,6 +227,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "needs a <pk>",
             ),
             ("moved_url_registered_by_two_contributions", _move_twice, "already registered"),
+            (
+                "operation_missing_from_operation_keys",
+                lambda: _offered_operations(_UndeclaredOperationPanel(), Team()),
+                "missing from operation_keys",
+            ),
             (
                 "danger_operation_without_reason",
                 lambda: Operation(key="wipe", label="Wipe", handler=lambda request, obj, form: None, danger=True),
@@ -378,8 +405,7 @@ class TestAdminConsoleMovedUrls(SimpleTestCase):
         record_page = f"/admin/console/{RECORD_TYPES[moved.record].plural}/{values['pk']}/"
         assert response.status_code == 302
         assert response["Location"] == f"{record_page}{page}?from=ticket" + (f"#{anchor}" if anchor else "")
-        panel_key = anchor.removeprefix("panel-") if anchor else page.split("/")[0]
-        assert console.get_panel(moved.record, panel_key) is not None, f"No {moved.record} panel {panel_key!r}"
+        _assert_target_is_registered(moved)
 
     @parameterized.expand([(moved.old_path, moved) for moved in console.moved() if isinstance(moved, MovedPage)])
     def test_an_old_page_url_lands_on_its_registered_tool(self, _name: str, moved: MovedPage) -> None:

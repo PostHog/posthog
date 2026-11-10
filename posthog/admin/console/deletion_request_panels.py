@@ -487,6 +487,7 @@ class DeletionRequestWorkflowPanel(Panel):
     key = "workflow"
     title = "Workflow"
     owner = CLICKHOUSE
+    operation_keys = frozenset({"submit", "approve", "revert-to-draft", "retry", "verify"})
     order = 30
     danger = True
 
