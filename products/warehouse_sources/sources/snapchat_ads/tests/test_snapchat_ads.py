@@ -9,11 +9,10 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
-from posthog.integrations import IntegrationRecord
-
 from products.warehouse_sources.sources.sdk import (
     IntegrationAccount,
     IntegrationAccountListingError,
+    IntegrationRecord,
     OauthIntegration,
     ResumableSourceManager,
 )

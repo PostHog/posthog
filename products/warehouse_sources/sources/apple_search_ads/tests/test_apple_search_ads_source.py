@@ -8,8 +8,6 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from posthog.integrations import IntegrationRecord
-
 from products.warehouse_sources.sources.apple_search_ads._config import (
     AppleSearchAdsAuthMethodConfig,
     AppleSearchAdsSourceConfig,
@@ -35,6 +33,7 @@ from products.warehouse_sources.sources.apple_search_ads.settings import (
 from products.warehouse_sources.sources.apple_search_ads.source import AppleSearchAdsSource
 from products.warehouse_sources.sources.sdk import (
     IntegrationAccountListingError,
+    IntegrationRecord,
     OauthIntegration,
     ResumableSourceManager,
     SourceFieldCredentialAccountSelectConfig,

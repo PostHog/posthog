@@ -1927,11 +1927,12 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
         with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
-            integration = GitHubIntegration.integration_from_installation_id(
+            record = GitHubIntegration.integration_from_installation_id(
                 "INSTALLATION_ID",
                 self.team.id,
                 self.user,
             )
+            integration = Integration.objects.get(pk=record.id)
             integration.errors = "TOKEN_REFRESH_FAILED"
             integration.save()
 

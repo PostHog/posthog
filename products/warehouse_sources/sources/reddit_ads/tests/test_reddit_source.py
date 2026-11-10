@@ -6,8 +6,6 @@ from unittest import mock
 
 from requests.exceptions import Timeout
 
-from posthog.integrations import IntegrationRecord
-
 from products.warehouse_sources.sources.reddit_ads._config import RedditAdsSourceConfig
 from products.warehouse_sources.sources.reddit_ads.reddit_ads import RedditAdsApiError, RedditAdsResumeConfig
 from products.warehouse_sources.sources.reddit_ads.source import RedditAdsSource
@@ -15,6 +13,7 @@ from products.warehouse_sources.sources.sdk import (
     ERROR_TOKEN_REFRESH_FAILED,
     IntegrationAccount,
     IntegrationAccountListingError,
+    IntegrationRecord,
     OauthIntegration,
 )
 from products.warehouse_sources.sources.sdk.testing import Integration, ScriptedResponse, SourceDriver
