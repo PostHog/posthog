@@ -792,6 +792,11 @@ class TestOrganizationMembership(BaseTest):
         mock_capture.assert_called_once_with(
             event="membership level changed",
             distinct_id=user.distinct_id,
-            properties={"new_level": 15, "previous_level": 1, "$set": mock.ANY},
+            properties={
+                "new_level": 15,
+                "previous_level": 1,
+                "$set": mock.ANY,
+                "$update_person_last_seen_at": False,
+            },
             groups=mock.ANY,
         )

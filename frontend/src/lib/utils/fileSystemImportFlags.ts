@@ -13,3 +13,12 @@ export function isFileSystemImportFlagEnabled(
     const flags = featureFlags as Record<string, boolean | string | undefined>
     return [item.flag, ...(item.alternativeFlags ?? [])].some((flag) => !!flags[flag])
 }
+
+export function isFileSystemImportShown(
+    item: Pick<FileSystemImport, 'flag' | 'alternativeFlags' | 'hiddenWhenFlags'>,
+    featureFlags: FeatureFlagsSet
+): boolean {
+    const flags = featureFlags as Record<string, boolean | string | undefined>
+    const hiddenByFlags = !!item.hiddenWhenFlags?.length && item.hiddenWhenFlags.every((flag) => !!flags[flag])
+    return !hiddenByFlags && isFileSystemImportFlagEnabled(item, featureFlags)
+}

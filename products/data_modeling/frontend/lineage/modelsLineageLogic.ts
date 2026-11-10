@@ -100,17 +100,22 @@ export type modelsLineageLogicType = MakeLogicType<modelsLineageLogicValues, mod
 
 export const modelsLineageLogic = kea<modelsLineageLogicType>([
     path(['scenes', 'models', 'modelsLineageLogic']),
-    urlToAction(({ actions }) => ({
-        [urls.models()]: (_, searchParams) => {
-            if (searchParams.tab === 'lineage') {
-                const searchTerm = typeof searchParams.search === 'string' ? searchParams.search : ''
-                actions.resetFilters()
-                actions.setSearchTerm(searchTerm)
-                actions.setDebouncedSearchTerm(searchTerm)
-                actions.setSearchAnchorNodeId(typeof searchParams.node_id === 'string' ? searchParams.node_id : null)
+    urlToAction(({ actions }) => {
+        const openLineage = (_: Record<string, string | undefined>, searchParams: Record<string, any>): void => {
+            if (searchParams.tab !== 'lineage') {
+                return
             }
-        },
-    })),
+            const searchTerm = typeof searchParams.search === 'string' ? searchParams.search : ''
+            actions.resetFilters()
+            actions.setSearchTerm(searchTerm)
+            actions.setDebouncedSearchTerm(searchTerm)
+            actions.setSearchAnchorNodeId(typeof searchParams.node_id === 'string' ? searchParams.node_id : null)
+        }
+        return {
+            [urls.models()]: openLineage,
+            [urls.dataCatalog()]: openLineage,
+        }
+    }),
     connect(() => ({
         values: [lineageDataLogic, ['nodes', 'nodesLoading', 'edges', 'edgesLoading']],
     })),
