@@ -344,14 +344,62 @@ html[data-today-transition]::view-transition-new(root) {
     gap: 12px;
 }
 
-.TodayPulse__emptySlot {
-    height: 72px;
-    border: 1px dashed var(--today-line);
-    border-radius: 8px;
+.TodayPulse--shadow {
+    pointer-events: none;
+    user-select: none;
 
-    @container main-content (max-width: 600px) {
-        background: transparent;
-        border-style: dashed;
+    .TodayPulse__metric {
+        gap: 9px;
+    }
+}
+
+.TodayPulse__shadowName {
+    display: block;
+    height: 11px;
+    margin-top: 5px;
+    background: var(--today-line);
+    border-radius: 999px;
+}
+
+.TodayPulse__shadowRow {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+}
+
+.TodayPulse__shadowValue {
+    display: block;
+    height: 18px;
+    background: var(--today-line);
+    border-radius: 5px;
+}
+
+.TodayPulse__shadowChange {
+    display: block;
+    width: 28px;
+    height: 10px;
+    margin-bottom: 2px;
+    background: var(--today-line);
+    border-radius: 999px;
+    opacity: 0.6;
+}
+
+.TodayPulse__shadowChart {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+
+    polyline {
+        fill: none;
+        stroke: var(--today-line);
+        stroke-linejoin: round;
+        stroke-linecap: round;
+        stroke-width: 1.5;
+        vector-effect: non-scaling-stroke;
+    }
+
+    circle {
+        fill: var(--today-line);
     }
 }
 
