@@ -19,6 +19,7 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_REVIEW_ARM,
     DEVEX_LENS,
+    DEVEX_LENS_NAME,
     FLASH_ARM,
     FLASH_LENS_MAX_CHUNKS,
     FLASH_LENSES,
@@ -662,6 +663,13 @@ async def test_select_perspectives_activity_skips_the_llm_when_nothing_is_prunab
             (2002, 2),
             "flash-lens-contracts-security",
             id="lens_session",
+        ),
+        pytest.param(
+            lens_review_activity,
+            {"lens": DEVEX_LENS_NAME, "chunk_id": 1},
+            (DEVEX_LENS.pass_number, 1),
+            "flash-lens-devex",
+            id="devex_lens_session",
         ),
     ],
 )
