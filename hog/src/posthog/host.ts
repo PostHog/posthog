@@ -49,7 +49,7 @@ export const REGIONS = { us: parseHost('https://us.posthog.com'), eu: parseHost(
 // other host needs --host or HOG_HOST, so a repository can't send a person's login or a CI job's
 // token elsewhere.
 export function cloudRegion(host: Host | undefined): Host | undefined {
-    return host && Object.values(REGIONS).find((region) => hostKey(region) === hostKey(host))
+    return host && Object.values(REGIONS).find((region) => sameHost(region, host))
 }
 
 // The origin of a host, without its path: its scheme, host name and port. Every map of logins is
@@ -58,6 +58,10 @@ export type HostKey = string & z.$brand<'HostKey'>
 
 export function hostKey(host: Host): HostKey {
     return new URL(host).origin as HostKey
+}
+
+export function sameHost(a: Host, b: Host): boolean {
+    return hostKey(a) === hostKey(b)
 }
 
 // Keeps the path a self-hosted PostHog can sit under, such as https://example.com/posthog.

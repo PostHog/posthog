@@ -322,7 +322,7 @@ export async function runApproval<Pending extends PendingApproval, Value>(
 export async function resumeApproval<Pending extends PendingApproval, Value>(
     ctx: Context,
     flow: ApprovalWait<Pending, Value>
-): Promise<Value> {
+): Promise<{ pending: Pending; value: Value }> {
     const pending = await readPending(ctx.runtime, flow)
     if (!pending) {
         throw new HogError(
@@ -333,7 +333,7 @@ export async function resumeApproval<Pending extends PendingApproval, Value>(
     }
     flow.checkResumable?.(pending)
     const spinner = ctx.prompts?.spinner(`Waiting for the ${flow.noun} to be approved in the browser`)
-    return withSpinner(spinner, flow.noun, waitFor(ctx.runtime, flow, pending))
+    return { pending, value: await withSpinner(spinner, flow.noun, waitFor(ctx.runtime, flow, pending)) }
 }
 
 // What a person sees when an agent or a script started the request.

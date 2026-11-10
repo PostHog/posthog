@@ -52,8 +52,9 @@ describe('resumeApproval', () => {
             },
         }
 
-        const outcome = await resumeApproval(ctx, flow).catch((error: unknown) =>
-            error instanceof HogError ? error.code : error
+        const outcome = await resumeApproval(ctx, flow).then(
+            ({ value }) => value,
+            (error: unknown) => (error instanceof HogError ? error.code : error)
         )
 
         expect(outcome).toBe(expected)
