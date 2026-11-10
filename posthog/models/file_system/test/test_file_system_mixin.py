@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from django.db import transaction
+from django.db.models import Value
 from django.test import TestCase
 
 from posthog.models import FileSystem, Organization, Team, User
@@ -180,7 +181,7 @@ class TestFileSystemSyncMixin(TestCase):
 
     def test_file_system_failure_preserves_notebook_in_transaction(self):
         def fail_file_write(**kwargs):
-            FileSystem.objects.create(team=self.team, path=None, depth=0, type="notebook", ref="failed-write")
+            FileSystem.objects.create(team=self.team, path=Value(None), depth=0, type="notebook", ref="failed-write")
 
         with (
             patch("posthog.models.file_system.file_system.create_or_update_file", side_effect=fail_file_write),

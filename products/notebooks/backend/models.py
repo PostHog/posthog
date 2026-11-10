@@ -1,5 +1,5 @@
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models import JSONField, QuerySet
 from django.utils import timezone
 
@@ -57,6 +57,10 @@ class Notebook(Taggable, FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class Meta:
         unique_together = ("team", "short_id")
         db_table = "posthog_notebook"
+
+    def sync_file_system(self) -> None:
+        with transaction.atomic():
+            super().sync_file_system()
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Notebook"]:
