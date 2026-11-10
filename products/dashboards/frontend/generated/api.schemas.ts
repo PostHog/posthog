@@ -10527,6 +10527,19 @@ export interface RunInsightsResponseApi {
     results: DashboardTileResultApi[]
 }
 
+export interface DashboardWidgetAppliedDateRangeApi {
+    /**
+     * Start of the dashboard date range the widget used, after the widget's limit. Null means the widget's default start.
+     * @nullable
+     */
+    date_from: string | null
+    /**
+     * End of the dashboard date range the widget used. Null means now.
+     * @nullable
+     */
+    date_to: string | null
+}
+
 export interface DashboardWidgetRunResultApi {
     /** Dashboard tile ID for this widget result. */
     tile_id: number
@@ -10542,6 +10555,10 @@ export interface DashboardWidgetRunResultApi {
      * @nullable
      */
     error: string | null
+    /** The dashboard date range this widget queried instead of its own date range. Null when no dashboard date range applies to the widget. */
+    applied_date_range?: DashboardWidgetAppliedDateRangeApi | null
+    /** Whether any dashboard filter (date range, test accounts, or property filters) changed this widget's query. */
+    dashboard_filters_applied?: boolean
 }
 
 export interface RunWidgetsResponseApi {
@@ -11478,6 +11495,10 @@ export const DashboardsRunInsightsRetrieveRefresh = {
 } as const
 
 export type DashboardsRunWidgetsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string
     format?: DashboardsRunWidgetsRetrieveFormat
     /**
      * Comma-separated dashboard tile IDs to run widgets for.

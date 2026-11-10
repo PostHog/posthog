@@ -6,12 +6,14 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import type { DashboardFilter } from '~/queries/schema/schema-general'
 
 import type { DashboardWidgetTopHeadingProps } from '../components/WidgetCard/WidgetCardHeader'
+import type { DashboardWidgetAppliedDateRangeApi } from '../generated/api.schemas'
 import type { DashboardWidgetProductAccess } from '../types'
 import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../widget_types/catalog'
 import type { WidgetAvailabilityConfig } from '../widget_types/widgetAvailability'
 export type DashboardWidgetTileFiltersProps = {
     tileId: number
     config: Record<string, unknown>
+    appliedDateRange?: DashboardWidgetAppliedDateRangeApi | null
     onUpdateConfig?: (config: Record<string, unknown>) => void | Promise<void>
     disabledReason?: string | null
     canMutateErrorTrackingIssues?: boolean

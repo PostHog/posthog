@@ -921,6 +921,12 @@ export const DashboardsRunWidgetsRetrieveParams = () => zod.object({
 })
 
 export const DashboardsRunWidgetsRetrieveQueryParams = () => zod.object({
+    filters_override: zod
+        .string()
+        .optional()
+        .describe(
+            'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
+        ),
     format: zod.enum(['json', 'txt']).optional(),
     tile_ids: zod.string().describe('Comma-separated dashboard tile IDs to run widgets for.'),
 })

@@ -12,6 +12,7 @@ import { dateFilterToText } from 'lib/utils/dateFilters'
 
 import { DashboardPlacement } from '~/types'
 
+import type { DashboardWidgetAppliedDateRangeApi } from '../../generated/api.schemas'
 import type { DashboardWidgetHeaderLayout, DashboardWidgetHeaderMeta } from '../../widget_types/catalog'
 import { LiveWidgetIndicator } from '../../widgets/live/components'
 import type { DashboardWidgetSlot } from '../../widgets/registry'
@@ -34,6 +35,8 @@ export type WidgetCardHeaderProps = {
     topHeading?: React.ReactNode
     widgetTypeLabel?: string
     config?: Record<string, unknown>
+    /** The dashboard date range the widget queried, which the header shows in place of the widget's own. */
+    appliedDateRange?: DashboardWidgetAppliedDateRangeApi | null
     headerMeta?: DashboardWidgetHeaderMeta
     /** Optional per-widget-type top heading row; falls back to the type + date range when absent.
      * A `DashboardWidgetSlot` so the registry can code-split it (rendered inside a Suspense below). */
@@ -172,6 +175,7 @@ export function WidgetCardHeader({
     topHeading,
     widgetTypeLabel,
     config,
+    appliedDateRange,
     headerMeta,
     TopHeading,
     description,
@@ -189,7 +193,9 @@ export function WidgetCardHeader({
     const showDateRange = headerMeta?.showDateRange ?? false
     const dateText =
         widgetTypeLabel && showDateRange
-            ? widgetDateRangeToText(config?.dateRange as Record<string, unknown> | null | undefined)
+            ? widgetDateRangeToText(
+                  (appliedDateRange ?? config?.dateRange) as Record<string, unknown> | null | undefined
+              )
             : null
     const derivedTopHeading =
         widgetTypeLabel && (showWidgetType || dateText || isLive) ? (

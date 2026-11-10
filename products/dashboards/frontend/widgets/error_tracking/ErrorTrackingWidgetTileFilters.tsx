@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { quickFiltersLogic } from 'lib/components/QuickFilters/quickFiltersLogic'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import type { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -13,8 +12,9 @@ import {
     type ErrorTrackingStatusSelectValue,
 } from 'products/error_tracking/frontend/components/IssueFilters/Status'
 
-import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
+import { type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
 import type { DashboardWidgetTileFiltersProps } from '../registry'
+import { WidgetDateRangeTileFilter } from '../WidgetDateRangeTileFilter'
 import { WidgetPropertyFiltersSection } from '../WidgetPropertyFiltersSection'
 import { getWidgetTileFiltersSetup, useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
 import {
@@ -35,6 +35,7 @@ export type ErrorTrackingWidgetTileFiltersProps = DashboardWidgetTileFiltersProp
 
 export function ErrorTrackingWidgetTileFilters({
     config,
+    appliedDateRange,
     onUpdateConfig,
     disabledReason,
     canMutateErrorTrackingIssues = false,
@@ -80,7 +81,7 @@ export function ErrorTrackingWidgetTileFilters({
     if (!onUpdateConfig) {
         return (
             <WidgetTileFiltersBar dataAttr="error-tracking-widget-tile-filters-readonly">
-                <WidgetDateRangeReadOnlyValue dateFrom={dateFrom} />
+                <WidgetDateRangeReadOnlyValue dateFrom={dateFrom} appliedDateRange={appliedDateRange} />
                 <ErrorTrackingStatusReadOnlyValue status={status} />
                 <ErrorTrackingAssigneeReadOnlyValue assignee={assignee} />
                 {filterDefinitions.length > 0 ? (
@@ -95,17 +96,12 @@ export function ErrorTrackingWidgetTileFilters({
 
     return (
         <WidgetTileFiltersBar dataAttr="error-tracking-widget-tile-filters">
-            <LemonSelect
-                size="small"
-                value={dateFrom}
-                disabled={!canUpdate}
+            <WidgetDateRangeTileFilter
+                dateFrom={dateFrom}
+                appliedDateRange={appliedDateRange}
+                canUpdate={canUpdate}
                 disabledReason={controlDisabledReason}
-                options={WIDGET_DATE_RANGE_SELECT_OPTIONS}
-                onChange={(value) => {
-                    if (value) {
-                        void applyPatch({ dateFrom: value })
-                    }
-                }}
+                onChange={(value) => void applyPatch({ dateFrom: value })}
             />
             <ErrorTrackingStatusSelect
                 value={status}

@@ -210,6 +210,7 @@ from products.dashboards.backend.widget_registry import (
     validate_widget_config,
 )
 from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
+from products.dashboards.backend.widgets.dashboard_filters import WidgetDashboardFilters, build_widget_dashboard_filters
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -381,6 +382,7 @@ class _RunWidgetQueryWorkItem(TypedDict):
     query_fn: Any
     config: dict[str, Any]
     user: User | None
+    dashboard_filters: WidgetDashboardFilters
 
 
 def _run_in_context(context: contextvars.Context, work: Callable[[], dict[str, Any]]) -> dict[str, Any]:
@@ -411,6 +413,12 @@ def _run_widget_query(
             "tile_id": tile_id,
         },
     ) as slo:
+        dashboard_filters = work_item["dashboard_filters"]
+        applied_date_range = (
+            {"date_from": dashboard_filters.date_from, "date_to": dashboard_filters.date_to}
+            if dashboard_filters.has_date_range
+            else None
+        )
         try:
             query_fn = work_item["query_fn"]
             result = query_fn(
@@ -418,12 +426,15 @@ def _run_widget_query(
                 work_item["config"],
                 user=work_item["user"],
                 include_total_count=False,
+                dashboard_filters=dashboard_filters,
             )
             return {
                 "tile_id": tile_id,
                 "widget_type": widget_type,
                 "result": result,
                 "error": None,
+                "applied_date_range": applied_date_range,
+                "dashboard_filters_applied": dashboard_filters.is_applied,
             }
         except Exception:
             logger.exception("dashboard_run_widgets_failed", tile_id=tile_id, widget_type=widget_type)
@@ -1293,6 +1304,17 @@ class RunInsightsResponseSerializer(serializers.Serializer):
     )
 
 
+class DashboardWidgetAppliedDateRangeSerializer(serializers.Serializer):
+    date_from = serializers.CharField(
+        allow_null=True,
+        help_text="Start of the dashboard date range the widget used, after the widget's limit. Null means the widget's default start.",
+    )
+    date_to = serializers.CharField(
+        allow_null=True,
+        help_text="End of the dashboard date range the widget used. Null means now.",
+    )
+
+
 class DashboardWidgetRunResultSerializer(serializers.Serializer):
     tile_id = serializers.IntegerField(help_text="Dashboard tile ID for this widget result.")
     widget_type = serializers.CharField(
@@ -1311,6 +1333,18 @@ class DashboardWidgetRunResultSerializer(serializers.Serializer):
     error = serializers.CharField(
         allow_null=True,
         help_text="Error message when the widget could not be run.",
+    )
+    applied_date_range = DashboardWidgetAppliedDateRangeSerializer(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "The dashboard date range this widget queried instead of its own date range. Null when no dashboard "
+            "date range applies to the widget."
+        ),
+    )
+    dashboard_filters_applied = serializers.BooleanField(
+        required=False,
+        help_text="Whether any dashboard filter (date range, test accounts, or property filters) changed this widget's query.",
     )
 
 
@@ -4224,6 +4258,7 @@ class DashboardsViewSet(
                 required=True,
                 description="Comma-separated dashboard tile IDs to run widgets for.",
             ),
+            FILTERS_OVERRIDE_PARAM,
         ],
         responses={200: RunWidgetsResponseSerializer},
     )
@@ -4238,6 +4273,7 @@ class DashboardsViewSet(
         dashboard = self.get_object()
         user_access_control = UserAccessControl(user=cast(User, request.user), team=self.team)
         distinct_id = str(cast(User, request.user).distinct_id)
+        requested_dashboard_filters = filters_override_requested_by_client(request, dashboard)
 
         tiles_by_id = {
             tile.id: tile
@@ -4312,6 +4348,25 @@ class DashboardsViewSet(
                     }
                     continue
 
+            try:
+                tile_dashboard_filters = build_widget_dashboard_filters(
+                    requested_dashboard_filters,
+                    tile.filters_overrides,
+                    registry_entry["dashboard_filters"],
+                    team=self.team,
+                    max_date_from=registry_entry["max_dashboard_date_from"],
+                )
+            except ValueError:
+                # Rows saved before filter validation can hold property groups that cannot merge. Fail
+                # only this tile, so the other tiles in the batch still load.
+                logger.exception("dashboard_run_widgets_filters_invalid", tile_id=tile_id)
+                results_by_id[tile_id] = {
+                    "tile_id": tile_id,
+                    "widget_type": widget.widget_type,
+                    "result": None,
+                    "error": "Couldn't apply the dashboard filters to this tile. Clear the dashboard and tile filters, then try again.",
+                }
+                continue
             query_work_items.append(
                 {
                     "tile_id": tile_id,
@@ -4319,6 +4374,7 @@ class DashboardsViewSet(
                     "query_fn": registry_entry["query_fn"],
                     "config": widget.config,
                     "user": cast(User, request.user),
+                    "dashboard_filters": tile_dashboard_filters,
                 }
             )
 

@@ -32,6 +32,8 @@ class TestWidgetAccess(BaseTest):
         entry: WidgetRegistryEntry = {
             "query_fn": lambda team, config: {},
             "required_scopes": [],
+            "dashboard_filters": frozenset(),
+            "max_dashboard_date_from": None,
         }
 
         self.assertIsNone(get_widget_product_access_error(entry, UserAccessControl(self.user, self.team)))

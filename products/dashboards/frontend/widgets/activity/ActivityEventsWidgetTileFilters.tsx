@@ -1,5 +1,4 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { NodeKind, type EventsQuery } from '~/queries/schema/schema-general'
@@ -7,8 +6,9 @@ import type { AnyPropertyFilter } from '~/types'
 
 import { EventName } from 'products/actions/frontend/components/EventName'
 
-import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
+import { type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
 import type { DashboardWidgetTileFiltersProps } from '../registry'
+import { WidgetDateRangeTileFilter } from '../WidgetDateRangeTileFilter'
 import { useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
 import {
     WidgetDateRangeReadOnlyValue,
@@ -24,6 +24,7 @@ export type ActivityEventsWidgetTileFiltersProps = DashboardWidgetTileFiltersPro
 
 export function ActivityEventsWidgetTileFilters({
     config,
+    appliedDateRange,
     onUpdateConfig,
     disabledReason,
 }: ActivityEventsWidgetTileFiltersProps): JSX.Element {
@@ -58,7 +59,7 @@ export function ActivityEventsWidgetTileFilters({
     if (!onUpdateConfig) {
         return (
             <WidgetTileFiltersBar dataAttr="activity-events-widget-tile-filters-readonly">
-                <WidgetDateRangeReadOnlyValue dateFrom={dateFrom} />
+                <WidgetDateRangeReadOnlyValue dateFrom={dateFrom} appliedDateRange={appliedDateRange} />
                 {eventName ? <WidgetTileFilterReadOnlyLabel name="Event" value={eventName} /> : null}
                 {properties.length > 0 ? (
                     <WidgetTileFilterReadOnlyLabel
@@ -79,17 +80,12 @@ export function ActivityEventsWidgetTileFilters({
 
     return (
         <WidgetTileFiltersBar dataAttr="activity-events-widget-tile-filters">
-            <LemonSelect
-                size="small"
-                value={dateFrom}
-                disabled={!canUpdate}
+            <WidgetDateRangeTileFilter
+                dateFrom={dateFrom}
+                appliedDateRange={appliedDateRange}
+                canUpdate={canUpdate}
                 disabledReason={controlDisabledReason}
-                options={WIDGET_DATE_RANGE_SELECT_OPTIONS}
-                onChange={(value) => {
-                    if (value) {
-                        void applyDateFrom(value)
-                    }
-                }}
+                onChange={(value) => void applyDateFrom(value)}
             />
             <EventName
                 value={eventName}

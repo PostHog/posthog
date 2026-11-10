@@ -9,6 +9,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widget_specs.configs import EXPERIMENTS_LIST_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
+from products.dashboards.backend.widgets.dashboard_filters import NO_DASHBOARD_FILTERS, WidgetDashboardFilters
 from products.dashboards.backend.widgets.list_widget import ListWidgetPage, run_list_widget
 from products.experiments.backend.facade.contracts import ExperimentListWidgetRow
 from products.experiments.backend.facade.dashboard_widgets import experiments_list_widget_page
@@ -45,6 +46,7 @@ def run_experiments_list_widget(
     user: User | None = None,
     *,
     include_total_count: bool = True,
+    dashboard_filters: WidgetDashboardFilters = NO_DASHBOARD_FILTERS,
 ) -> dict[str, Any]:
     typed_config = validate_widget_config(EXPERIMENTS_LIST_WIDGET_TYPE, config)
     limit = typed_config["limit"]

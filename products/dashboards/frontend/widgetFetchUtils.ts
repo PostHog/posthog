@@ -1,5 +1,6 @@
 import { DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/dashboard/dashboardUtils'
 
+import type { DashboardFilter } from '~/queries/schema/schema-general'
 import type { DashboardTile } from '~/types'
 
 import { dashboardsRunWidgetsRetrieve } from './generated/api'
@@ -38,6 +39,8 @@ export function chunkTileIds(tileIds: number[], chunkSize = 4): number[][] {
 
 export type FetchRunWidgetsOptions = {
     signal?: AbortSignal
+    /** Dashboard filters the widgets apply, on top of the dashboard's saved ones. */
+    filtersOverride?: DashboardFilter
 }
 
 export async function fetchRunWidgets(
@@ -53,7 +56,10 @@ export async function fetchRunWidgets(
     const response = await dashboardsRunWidgetsRetrieve(
         projectId,
         dashboardId,
-        { tile_ids: tileIds.join(',') },
+        {
+            tile_ids: tileIds.join(','),
+            ...(options?.filtersOverride ? { filters_override: JSON.stringify(options.filtersOverride) } : {}),
+        },
         { signal: options?.signal }
     )
 

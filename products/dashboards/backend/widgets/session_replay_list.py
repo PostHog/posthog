@@ -18,13 +18,15 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.dashboards.backend.constants import MAX_COLLECTION_SESSION_IDS, MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widget_specs.configs import SESSION_REPLAY_LIST_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
-from products.dashboards.backend.widgets.config import resolve_filter_test_accounts
+from products.dashboards.backend.widgets.dashboard_filters import NO_DASHBOARD_FILTERS, WidgetDashboardFilters
 from products.dashboards.backend.widgets.list_widget import ListWidgetPage, run_list_widget
 from products.dashboards.backend.widgets.widget_filters import build_event_property_filters_from_widget_filters
 
 logger = logging.getLogger(__name__)
 
 ValidatedSessionReplayListWidgetConfig = dict[str, Any]
+
+DEFAULT_RECORDINGS_DATE_FROM = "-7d"
 
 ORDER_BY_TO_RECORDING_ORDER: dict[str, RecordingOrder] = {
     "start_time": RecordingOrder.START_TIME,
@@ -92,8 +94,32 @@ def _build_collection_session_ids(team: Team, collection_id: str, user: User | N
     )
 
 
+def _apply_dashboard_filters(
+    query: RecordingsQuery, config: ValidatedSessionReplayListWidgetConfig, dashboard_filters: WidgetDashboardFilters
+) -> RecordingsQuery:
+    # Dashboard filters also narrow a saved filter's recordings, as they do an insight's own filters.
+    update: dict[str, Any] = {}
+    if dashboard_filters.has_date_range:
+        update["date_from"], update["date_to"] = dashboard_filters.resolve_date_range(
+            config, DEFAULT_RECORDINGS_DATE_FROM
+        )
+    if dashboard_filters.filter_test_accounts is not None:
+        update["filter_test_accounts"] = dashboard_filters.filter_test_accounts
+    if dashboard_filters.properties:
+        update["properties"] = dashboard_filters.with_properties(
+            query.model_dump(mode="json", exclude_none=True).get("properties")
+        )
+    if not update:
+        return query
+    # Validate rather than assign, so the dashboard's property dicts become typed filters.
+    return RecordingsQuery.model_validate({**query.model_dump(mode="json", exclude_none=True), **update})
+
+
 def _build_recordings_query(
-    team: Team, config: ValidatedSessionReplayListWidgetConfig, user: User | None
+    team: Team,
+    config: ValidatedSessionReplayListWidgetConfig,
+    user: User | None,
+    dashboard_filters: WidgetDashboardFilters,
 ) -> RecordingsQuery:
     collection_id = config.get("collectionId")
     collection_session_ids = _build_collection_session_ids(team, collection_id, user) if collection_id else None
@@ -106,26 +132,25 @@ def _build_recordings_query(
     query = _build_saved_filter_recordings_query(team, config, saved_filter_id, user) if saved_filter_id else None
 
     if query is None:
-        date_range_raw = config.get("dateRange")
-        date_from = "-7d"
-        if date_range_raw is not None:
-            date_from_value = date_range_raw.get("date_from")
-            if isinstance(date_from_value, str):
-                date_from = date_from_value
-
+        date_from, date_to = dashboard_filters.resolve_date_range(config, DEFAULT_RECORDINGS_DATE_FROM)
         params: dict[str, Any] = {
             "limit": config["limit"],
             "offset": 0,
             "date_from": date_from,
-            "filter_test_accounts": resolve_filter_test_accounts(config, team),
+            "date_to": date_to,
+            "filter_test_accounts": dashboard_filters.resolve_filter_test_accounts(config, team),
             "order": ORDER_BY_TO_RECORDING_ORDER[config["orderBy"]],
             "order_direction": config["orderDirection"],
         }
-        property_filters = build_event_property_filters_from_widget_filters(config.get("widgetFilters"))
+        property_filters = dashboard_filters.with_properties(
+            build_event_property_filters_from_widget_filters(config.get("widgetFilters"))
+        )
         if property_filters:
             params["properties"] = property_filters
 
         query = filter_from_params_to_query(params)
+    else:
+        query = _apply_dashboard_filters(query, config, dashboard_filters)
 
     if has_collection:
         query.session_ids = collection_session_ids
@@ -163,11 +188,12 @@ def run_session_replay_list_widget(
     user: User | None = None,
     *,
     include_total_count: bool = True,
+    dashboard_filters: WidgetDashboardFilters = NO_DASHBOARD_FILTERS,
 ) -> dict[str, Any]:
     typed_config = validate_widget_config(SESSION_REPLAY_LIST_WIDGET_TYPE, config)
     # Build once so a saved-filter playlist is fetched/converted only a single time; both the
     # visible page and the count page reuse it via model_copy with just the page limit.
-    query = _build_recordings_query(team, typed_config, user)
+    query = _build_recordings_query(team, typed_config, user, dashboard_filters)
 
     def fetch_page(page_limit: int) -> ListWidgetPage:
         page_query = query.model_copy(update={"limit": page_limit, "offset": 0})

@@ -7,7 +7,12 @@ from typing import Any, Literal, NotRequired, TypedDict
 from pydantic import BaseModel, ValidationError
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT
+from products.dashboards.backend.constants import (
+    DASHBOARD_GRID_COLUMN_COUNT,
+    METRICS_TABLE_MAX_DASHBOARD_DATE_FROM,
+    WIDGET_MAX_DASHBOARD_DATE_FROM,
+)
+from products.dashboards.backend.widget_specs.common import WidgetDashboardFilterKind
 from products.dashboards.backend.widget_specs.configs import (
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
     CANVAS_APP_WIDGET_TYPE,
@@ -91,6 +96,12 @@ class WidgetSpec:
     # Grid size of a new tile, in columns (of 12) and rows. The frontend catalog `defaultLayout` must match.
     default_width: int = 6
     default_height: int = 5
+    # Dashboard filters this widget applies. The runner then takes a `dashboard_filters` keyword
+    # (WidgetDashboardFilters) holding only these kinds. Leave empty when a filter has no meaning for
+    # the widget's data (e.g. event properties on logs).
+    dashboard_filters: frozenset[WidgetDashboardFilterKind] = frozenset()
+    # None means no limit.
+    max_dashboard_date_from: str | None = WIDGET_MAX_DASHBOARD_DATE_FROM
 
     def __post_init__(self) -> None:
         if self.is_live:
@@ -169,6 +180,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=(),
             form_fields=("limit", "dateRange", "filterTestAccounts"),
             filter_fields=("eventName", "properties"),
+            dashboard_filters=frozenset({"date_range", "filter_test_accounts", "properties"}),
         ),
         ERROR_TRACKING_LIST_WIDGET_TYPE: WidgetSpec(
             widget_type=ERROR_TRACKING_LIST_WIDGET_TYPE,
@@ -184,6 +196,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=("exception_autocapture",),
             form_fields=("limit", "orderBy", "orderDirection", "dateRange", "filterTestAccounts", "status"),
             filter_fields=("widgetFilters",),
+            dashboard_filters=frozenset({"date_range", "filter_test_accounts", "properties"}),
         ),
         SESSION_REPLAY_LIST_WIDGET_TYPE: WidgetSpec(
             widget_type=SESSION_REPLAY_LIST_WIDGET_TYPE,
@@ -199,6 +212,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=("session_replay_enabled",),
             form_fields=("limit", "orderBy", "orderDirection", "dateRange", "filterTestAccounts"),
             filter_fields=("widgetFilters",),
+            dashboard_filters=frozenset({"date_range", "filter_test_accounts", "properties"}),
         ),
         EXPERIMENTS_LIST_WIDGET_TYPE: WidgetSpec(
             widget_type=EXPERIMENTS_LIST_WIDGET_TYPE,
@@ -246,6 +260,9 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             # surveyId is chosen on the tile filter bar (like experiment_results' experimentId), so it
             # counts as a filter change — include it so "dashboard widget filters updated" fires on re-pick.
             filter_fields=("surveyId", "dateRange"),
+            dashboard_filters=frozenset({"date_range"}),
+            # A survey widget with no range covers the survey's whole lifetime, so "all time" stays open.
+            max_dashboard_date_from=None,
         ),
         LOGS_LIST_WIDGET_TYPE: WidgetSpec(
             widget_type=LOGS_LIST_WIDGET_TYPE,
@@ -263,6 +280,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=(),
             form_fields=("limit", "dateRange", "wrapLines", "timezone"),
             filter_fields=("severityLevels", "serviceNames"),
+            dashboard_filters=frozenset({"date_range"}),
         ),
         CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE: WidgetSpec(
             widget_type=CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE,
@@ -313,6 +331,8 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             default_width=DASHBOARD_GRID_COLUMN_COUNT,
             default_height=6,
             creation_flag=METRICS_FEATURE_FLAG,
+            dashboard_filters=frozenset({"date_range"}),
+            max_dashboard_date_from=METRICS_TABLE_MAX_DASHBOARD_DATE_FROM,
         ),
     }
 
@@ -326,6 +346,8 @@ class WidgetRegistryEntry(TypedDict):
     query_fn: Callable[..., dict[str, Any]]
     required_scopes: list[str]
     required_product_access: NotRequired[str | None]
+    dashboard_filters: frozenset[WidgetDashboardFilterKind]
+    max_dashboard_date_from: str | None
 
 
 def get_widget_registry_entry(widget_type: str) -> WidgetRegistryEntry | None:
@@ -336,6 +358,8 @@ def get_widget_registry_entry(widget_type: str) -> WidgetRegistryEntry | None:
         "query_fn": spec.query_fn,
         "required_scopes": list(spec.required_scopes),
         "required_product_access": spec.required_product_access,
+        "dashboard_filters": spec.dashboard_filters,
+        "max_dashboard_date_from": spec.max_dashboard_date_from,
     }
 
 

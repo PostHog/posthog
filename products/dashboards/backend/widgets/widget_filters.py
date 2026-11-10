@@ -79,7 +79,10 @@ def build_event_property_filters_from_widget_filters(
 def build_property_group_filter_from_widget_filters(
     widget_filters: WidgetFilterConfigInput | None,
 ) -> PropertyGroupFilter | None:
-    property_filters = build_event_property_filters_from_widget_filters(widget_filters)
+    return build_property_group_filter(build_event_property_filters_from_widget_filters(widget_filters))
+
+
+def build_property_group_filter(property_filters: list[dict[str, Any]] | None) -> PropertyGroupFilter | None:
     if not property_filters:
         return None
 

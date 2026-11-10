@@ -13,6 +13,7 @@ from products.canvas.backend.facade.contracts import CanvasNotFoundError, Canvas
 from products.canvas.backend.facade.enums import CanvasAccess
 from products.dashboards.backend.widget_specs.configs import CANVAS_APP_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
+from products.dashboards.backend.widgets.dashboard_filters import NO_DASHBOARD_FILTERS, WidgetDashboardFilters
 
 
 def run_canvas_app_widget(
@@ -22,6 +23,7 @@ def run_canvas_app_widget(
     *,
     # Part of the shared run_widgets runner signature (always passed by the dispatcher).
     include_total_count: bool = True,
+    dashboard_filters: WidgetDashboardFilters = NO_DASHBOARD_FILTERS,
 ) -> dict[str, Any]:
     """Resolve the canvas a tile points at, as the viewer.
 

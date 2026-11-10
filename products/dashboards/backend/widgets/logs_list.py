@@ -11,6 +11,7 @@ from posthog.models.user import User
 from products.dashboards.backend.constants import LOGS_LIST_MAX_LIMIT
 from products.dashboards.backend.widget_specs.configs import LOGS_LIST_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
+from products.dashboards.backend.widgets.dashboard_filters import NO_DASHBOARD_FILTERS, WidgetDashboardFilters
 from products.dashboards.backend.widgets.list_widget import ListWidgetPage, run_list_widget
 from products.logs.backend.facade.queries import LogsQueryRunner, build_logs_query_for_saved_view
 
@@ -25,16 +26,14 @@ LOGS_WIDGET_REQUIRED_FIELDS = ("uuid", "timestamp", "body")
 LOGS_WIDGET_OPTIONAL_FIELDS = ("severity_text", "level", "trace_id")
 
 
-def _resolve_date_from(config: ValidatedLogsListWidgetConfig) -> str:
-    date_range_raw = config.get("dateRange")
-    if date_range_raw is not None:
-        date_from_value = date_range_raw.get("date_from")
-        if isinstance(date_from_value, str):
-            return date_from_value
-    return DEFAULT_LOGS_WIDGET_DATE_FROM
+def _resolve_date_range(config: ValidatedLogsListWidgetConfig, dashboard_filters: WidgetDashboardFilters) -> DateRange:
+    date_from, date_to = dashboard_filters.resolve_date_range(config, DEFAULT_LOGS_WIDGET_DATE_FROM)
+    return DateRange(date_from=date_from, date_to=date_to)
 
 
-def _build_logs_query(team: Team, config: ValidatedLogsListWidgetConfig, limit: int) -> LogsQuery:
+def _build_logs_query(
+    team: Team, config: ValidatedLogsListWidgetConfig, limit: int, dashboard_filters: WidgetDashboardFilters
+) -> LogsQuery:
     saved_view_id = config.get("savedViewId")
     if saved_view_id:
         query = build_logs_query_for_saved_view(
@@ -46,12 +45,14 @@ def _build_logs_query(team: Team, config: ValidatedLogsListWidgetConfig, limit: 
             exclude_attributes=True,
         )
         if query is not None:
+            if dashboard_filters.has_date_range:
+                query.dateRange = _resolve_date_range(config, dashboard_filters)
             return query
         # Saved view was deleted or never existed — fall back to the widget's own config.
 
     return LogsQuery(
         kind="LogsQuery",
-        dateRange=DateRange(date_from=_resolve_date_from(config), date_to=None),
+        dateRange=_resolve_date_range(config, dashboard_filters),
         severityLevels=config.get("severityLevels") or [],
         serviceNames=config.get("serviceNames") or [],
         filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
@@ -80,11 +81,12 @@ def run_logs_list_widget(
     user: User | None = None,
     *,
     include_total_count: bool = True,
+    dashboard_filters: WidgetDashboardFilters = NO_DASHBOARD_FILTERS,
 ) -> dict[str, Any]:
     typed_config = validate_widget_config(LOGS_LIST_WIDGET_TYPE, config)
 
     def fetch_page(page_limit: int) -> ListWidgetPage:
-        data = _run_logs_query(team, _build_logs_query(team, typed_config, page_limit))
+        data = _run_logs_query(team, _build_logs_query(team, typed_config, page_limit, dashboard_filters))
         raw_results = data.get("results")
         return ListWidgetPage(
             results=raw_results if isinstance(raw_results, list) else [],

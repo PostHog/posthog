@@ -35,6 +35,8 @@ METRICS_TABLE_SPARKLINE_POINTS = 30
 METRICS_TABLE_RETRY_BUCKETS = 6
 # Metrics queries span at most 31 days, so the longer widget presets are not allowed.
 METRICS_TABLE_UNSUPPORTED_DATE_FROM_VALUES = frozenset({"-90d"})
+# Metrics queries cover at most 30 days, so a dashboard date range on a metrics table stops there.
+METRICS_TABLE_MAX_DASHBOARD_DATE_FROM = "-30d"
 
 # Cap widgets per batch create / run-widgets request.
 MAX_WIDGETS_BATCH_SIZE = 10
@@ -62,6 +64,9 @@ WIDGET_DATE_FROM_VALUES_ORDERED: tuple[str, ...] = (
     "-30d",
     "-90d",
 )
+
+# A dashboard date range reaches no further back than the widest range a widget tile can pick itself.
+WIDGET_MAX_DASHBOARD_DATE_FROM = WIDGET_DATE_FROM_VALUES_ORDERED[-1]
 
 WIDGET_DATE_FROM_LABELS: dict[str, str] = {
     "-1M": "Last minute",

@@ -10,8 +10,9 @@ import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'
 
-import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
+import { type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
 import type { DashboardWidgetTileFiltersProps } from '../registry'
+import { WidgetDateRangeTileFilter } from '../WidgetDateRangeTileFilter'
 import { WidgetPropertyFiltersSection } from '../WidgetPropertyFiltersSection'
 import { getWidgetTileFiltersSetup, useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
 import {
@@ -33,6 +34,7 @@ const CREATE_COLLECTION_VALUE = '__create_collection__'
 
 export function SessionReplayWidgetTileFilters({
     config,
+    appliedDateRange,
     onUpdateConfig,
     disabledReason,
 }: SessionReplayWidgetTileFiltersProps): JSX.Element {
@@ -147,7 +149,9 @@ export function SessionReplayWidgetTileFilters({
             <WidgetTileFiltersBar dataAttr="session-replay-widget-tile-filters-readonly">
                 {hasCollection ? <span className="text-sm text-muted">Collection: {collectionLabel}</span> : null}
                 {hasSavedFilter ? <span className="text-sm text-muted">Filter: {savedFilterLabel}</span> : null}
-                {showDateRange ? <WidgetDateRangeReadOnlyValue dateFrom={dateFrom} /> : null}
+                {showDateRange ? (
+                    <WidgetDateRangeReadOnlyValue dateFrom={dateFrom} appliedDateRange={appliedDateRange} />
+                ) : null}
                 {showPropertyFilters && filterDefinitions.length > 0 ? (
                     <WidgetPropertyFiltersReadOnlyValues
                         filterDefinitions={filterDefinitions}
@@ -181,17 +185,12 @@ export function SessionReplayWidgetTileFilters({
                 onChange={(value) => void applySavedFilter(value)}
             />
             {showDateRange ? (
-                <LemonSelect
-                    size="small"
-                    value={dateFrom}
-                    disabled={!canUpdate}
+                <WidgetDateRangeTileFilter
+                    dateFrom={dateFrom}
+                    appliedDateRange={appliedDateRange}
+                    canUpdate={canUpdate}
                     disabledReason={controlDisabledReason}
-                    options={WIDGET_DATE_RANGE_SELECT_OPTIONS}
-                    onChange={(value) => {
-                        if (value) {
-                            void applyDateFrom(value)
-                        }
-                    }}
+                    onChange={(value) => void applyDateFrom(value)}
                 />
             ) : null}
             {showPropertyFilters && filterDefinitions.length > 0 ? (

@@ -1464,7 +1464,7 @@ describe('dashboardLogic', () => {
                 expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBeNull()
             })
 
-            it('a filter preview neither aborts nor repeats the widget load of an opened group', async () => {
+            it('a filter preview reloads the widget of an opened group without aborting its load or taking its stale result', async () => {
                 groupTiles({ target: { collapsed: true } })
                 dashboards[5].tiles.push({ ...WIDGET_TILE, group_key: 'target' })
                 await mountDashboard()
@@ -1486,6 +1486,15 @@ describe('dashboardLogic', () => {
                                 ])
                         })
                 )
+                const newerWidgetResult = { results: [], hasMore: false }
+                fetchRunWidgetsMock.mockResolvedValueOnce([
+                    {
+                        tile_id: WIDGET_TILE.id,
+                        widget_type: 'error_tracking_list',
+                        result: newerWidgetResult,
+                        error: null,
+                    },
+                ])
                 logic.actions.toggleTileGroup('target')
                 await expectLogic(logic).toDispatchActions(['setWidgetRefreshStatuses'])
 
@@ -1494,8 +1503,14 @@ describe('dashboardLogic', () => {
                 finishWidgetLoad()
                 await expectLogic(logic).toFinishAllListeners()
 
-                expect(fetchRunWidgetsMock).toHaveBeenCalledTimes(1)
-                expect(logic.values.widgetResultsByTileId[WIDGET_TILE.id]?.result).toEqual({})
+                expect(fetchRunWidgetsMock).toHaveBeenCalledTimes(2)
+                expect(fetchRunWidgetsMock).toHaveBeenLastCalledWith(
+                    String(MOCK_TEAM_ID),
+                    5,
+                    [WIDGET_TILE.id],
+                    expect.objectContaining({ filtersOverride: expect.objectContaining({ date_from: '-7d' }) })
+                )
+                expect(logic.values.widgetResultsByTileId[WIDGET_TILE.id]?.result).toEqual(newerWidgetResult)
                 expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBeNull()
             })
 
@@ -6547,6 +6562,22 @@ describe('dashboardLogic', () => {
                 results: [],
                 hasMore: false,
             })
+        })
+
+        it('does not refetch a fresh widget for the same dashboard filters', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], filters: { date_from: '-30d' } })
+            }).toFinishAllListeners()
+            fetchRunWidgetsMock.mockClear()
+
+            await expectLogic(logic, () => {
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], filters: { date_from: '-30d' } })
+            }).toFinishAllListeners()
+
+            expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
         })
 
         it('does not fetch run_widgets on public placement', async () => {

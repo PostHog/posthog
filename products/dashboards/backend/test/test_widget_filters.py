@@ -1,3 +1,6 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -5,6 +8,15 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import EventPropertyFilter
 
+from posthog.models.team import Team
+
+from products.dashboards.backend.widget_specs.common import WidgetDashboardFilterKind
+from products.dashboards.backend.widgets.dashboard_filters import (
+    NO_DASHBOARD_FILTERS,
+    WidgetDashboardFilters,
+    build_widget_dashboard_filters,
+    parse_widget_datetime,
+)
 from products.dashboards.backend.widgets.widget_filters import (
     build_event_property_filters_from_widget_filters,
     build_property_group_filter_from_widget_filters,
@@ -95,3 +107,122 @@ class TestWidgetFilters(SimpleTestCase):
         property_filters = build_event_property_filters_from_widget_filters(widget_filters)
         assert property_filters is not None
         assert property_filters[0]["key"] == "$browser"
+
+
+def _event_filter(key: str, value: str | None, operator: str = "exact") -> dict:
+    return {"type": "event", "key": key, "operator": operator, **({"value": [value]} if value else {})}
+
+
+def _browser(value: str) -> dict:
+    return _event_filter("$browser", value)
+
+
+class TestBuildWidgetDashboardFilters(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "every_kind_supported",
+                frozenset({"date_range", "filter_test_accounts", "properties"}),
+                None,
+                WidgetDashboardFilters(
+                    date_from="-30d",
+                    date_to="-1d",
+                    filter_test_accounts=True,
+                    properties=({"type": "event", "key": "$browser", "operator": "exact", "value": ["Chrome"]},),
+                ),
+            ),
+            (
+                "unsupported_kinds_dropped",
+                frozenset({"date_range"}),
+                None,
+                WidgetDashboardFilters(date_from="-30d", date_to="-1d"),
+            ),
+            (
+                "tile_ignores_dashboard_filters",
+                frozenset({"date_range", "filter_test_accounts", "properties"}),
+                {"ignoreDashboardFilters": True},
+                NO_DASHBOARD_FILTERS,
+            ),
+            (
+                "tile_date_range_wins",
+                frozenset({"date_range"}),
+                {"date_from": "-3d"},
+                WidgetDashboardFilters(date_from="-3d"),
+            ),
+        ]
+    )
+    def test_build_widget_dashboard_filters(
+        self,
+        _name: str,
+        supported: frozenset[WidgetDashboardFilterKind],
+        tile_filters_overrides: dict | None,
+        expected: WidgetDashboardFilters,
+    ) -> None:
+        dashboard_filters = {
+            "date_from": "-30d",
+            "date_to": "-1d",
+            "filterTestAccounts": True,
+            "properties": {
+                "type": "AND",
+                "values": [{"type": "event", "key": "$browser", "operator": "exact", "value": ["Chrome"]}],
+            },
+        }
+
+        self.assertEqual(
+            build_widget_dashboard_filters(
+                dashboard_filters, tile_filters_overrides, supported, team=Team(timezone="UTC"), max_date_from=None
+            ),
+            expected,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "contradicted_widget_filter_dropped",
+                [_browser("Safari"), _event_filter("$os", "Mac")],
+                ["$os", "$browser"],
+            ),
+            ("compatible_widget_filter_kept", [_event_filter("$browser", None, "is_set")], ["$browser", "$browser"]),
+        ]
+    )
+    def test_with_properties(self, _name: str, widget_filters: list[dict], expected_keys: list[str]) -> None:
+        merged = WidgetDashboardFilters(properties=(_browser("Chrome"),)).with_properties(widget_filters)
+
+        self.assertEqual([prop["key"] for prop in merged], expected_keys)
+        self.assertNotIn(_browser("Safari"), merged)
+
+    @parameterized.expand(
+        [
+            ("range_past_the_limit_starts_at_the_limit", "-180d", "-90d", "-90d"),
+            ("all_time_starts_at_the_limit", "all", "-90d", "-90d"),
+            ("old_absolute_date_starts_at_the_limit", "2020-01-01", "-90d", "-90d"),
+            ("range_inside_the_limit_kept", "-30d", "-90d", "-30d"),
+            ("no_limit_keeps_all_time", "all", None, "all"),
+        ]
+    )
+    def test_build_widget_dashboard_filters_clamps_date_from(
+        self, _name: str, date_from: str, max_date_from: str | None, expected_date_from: str
+    ) -> None:
+        filters = build_widget_dashboard_filters(
+            {"date_from": date_from},
+            None,
+            frozenset({"date_range"}),
+            team=Team(timezone="UTC"),
+            max_date_from=max_date_from,
+        )
+
+        self.assertEqual(filters.date_from, expected_date_from)
+
+    @parameterized.expand(
+        [
+            ("calendar_day_upper_bound_is_inclusive", "2026-09-01", True, datetime(2026, 9, 1, 23, 59, 59, 999999)),
+            ("calendar_day_lower_bound_starts_the_day", "2026-09-01", False, datetime(2026, 9, 1)),
+            ("all_time_is_open", "all", True, None),
+        ]
+    )
+    def test_parse_widget_datetime(self, _name: str, value: str, end_of_day: bool, expected: datetime | None) -> None:
+        team = Team(timezone="UTC")
+
+        parsed = parse_widget_datetime(value, team, end_of_day=end_of_day)
+
+        self.assertEqual(parsed, expected.replace(tzinfo=ZoneInfo("UTC")) if expected else None)
