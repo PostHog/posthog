@@ -1409,32 +1409,12 @@ describe('workflowLogic auto-save', () => {
         }
 
         it.each([
-            {
-                case: 'untouched',
-                before: null,
-                reason: null,
-                subject: 'Written by AI',
-                status: 'applied',
-                dirty: false,
-            },
-            {
-                case: 'renamed',
-                before: 'rename',
-                reason: null,
-                subject: 'Written by AI',
-                status: 'applied',
-                dirty: true,
-            },
-            { case: 'email typed', before: 'typeEmail', reason: null, subject: 'Typed by me', skipped: 'edited' },
-            { case: 'saved', before: 'save', reason: null, subject: 'Template subject', skipped: 'saved' },
-            {
-                case: 'rate limited',
-                before: null,
-                reason: 'rate_limited',
-                subject: 'Template subject',
-                status: 'failed',
-            },
-        ] as const)('applies the AI draft only when it is $case', async ({ before, reason, ...expected }) => {
+            { case: 'untouched', act: null, reason: null, subject: 'Written by AI', status: 'applied', dirty: false },
+            { case: 'renamed', act: 'rename', reason: null, subject: 'Written by AI', status: 'applied', dirty: true },
+            { case: 'email typed', act: 'typeEmail', reason: null, subject: 'Typed by me', skipped: 'edited' },
+            { case: 'saved', act: 'save', reason: null, subject: 'Template subject', skipped: 'saved' },
+            { case: 'rate limited', act: null, reason: 'rate_limited', subject: 'Template subject', status: 'failed' },
+        ] as const)('applies the AI draft only when it is $case', async ({ act, reason, ...expected }) => {
             let respond: (body: unknown) => void = () => {}
             useMocks({
                 post: {
@@ -1454,7 +1434,7 @@ describe('workflowLogic auto-save', () => {
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess', 'loadAiEmailDraft'])
             expect(logic.values.aiEmailDraftStatus).toEqual({ status: 'loading' })
-            await (before ? whileLoading[before]() : undefined)
+            await (act ? whileLoading[act]() : undefined)
 
             respond({
                 subject: 'Written by AI',
