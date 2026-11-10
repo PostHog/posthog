@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 85 enabled ops
+ * PostHog API - MCP 87 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -5779,5 +5779,82 @@ export const SignalsMonthlyUsageQueryParams = () => zod.object({
         .optional()
         .describe(
             'UTC calendar month in YYYY-MM format, from 2026-10 onward. Defaults to the current month. Usage is grouped by finalization time.'
+        ),
+})
+
+/**
+ * Per-user signal autonomy config (singleton keyed by user).
+ *
+ * GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
+ * POST   /api/users/<id>/signal_autonomy/ → create or update
+ * DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
+ */
+export const UsersSignalAutonomyRetrieveParams = () => zod.object({
+    user_id: zod.string(),
+})
+
+/**
+ * Per-user signal autonomy config (singleton keyed by user).
+ *
+ * GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
+ * POST   /api/users/<id>/signal_autonomy/ → create or update
+ * DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
+ */
+export const UsersSignalAutonomyCreateParams = () => zod.object({
+    user_id: zod.string(),
+})
+
+export const usersSignalAutonomyCreateBodySlackNotificationChannelMax = 255
+
+export const UsersSignalAutonomyCreateBody = () => zod.object({
+    autostart_priority: zod
+        .union([
+            zod
+                .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+                .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'),
+            zod.null(),
+        ])
+        .optional(),
+    slack_notification_integration_id: zod
+        .number()
+        .nullish()
+        .describe(
+            "Primary key of a Slack `Integration` row in one of the caller's teams. Pair with `slack_notification_channel` to enable notifications; pass null on either to disable them."
+        ),
+    slack_notification_channel: zod
+        .string()
+        .max(usersSignalAutonomyCreateBodySlackNotificationChannelMax)
+        .nullish()
+        .describe(
+            '`channel_id|#channel-name` target, the same convention used by Insight Alerts, or a `member_id|@display-name` target (`U0123ABC456|@sam`) to send the ping as a direct message. A member target is checked against the workspace on save.'
+        ),
+    slack_notification_direct_message: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Set true to send the ping as a direct message from the PostHog app. The caller's own member id is resolved in the connected workspace and stored in `slack_notification_channel`, so nothing has to be picked. Rejected when the workspace has no eligible account for the caller, and cannot be combined with `slack_notification_channel`."
+        ),
+    slack_notification_min_priority: zod
+        .union([
+            zod
+                .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+                .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'P0 is highest. Null = notify for every priority. When set, reports without a priority judgment do not notify.\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'
+        ),
+    github_assign_on_pull_request: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Add this user as a GitHub assignee on implementation pull requests for reports that suggest them as reviewer. Off by default. Turning it off stops future assignment and never removes an existing assignee.'
+        ),
+    github_open_pull_request_ready: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Open implementation pull requests for reports that suggest this user as reviewer ready for review instead of draft, so the full CI matrix runs without anybody clicking Ready. Null follows the project default. A ready pull request runs the full matrix on every push.'
         ),
 })
