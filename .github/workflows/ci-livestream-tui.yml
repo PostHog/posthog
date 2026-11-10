@@ -6,11 +6,21 @@ on:
             - master
         paths:
             - '.github/workflows/ci-livestream-tui.yml'
-            - 'livestream/**'
+            - 'livestream/tui/**'
+            - 'livestream/go.mod'
+            - 'livestream/go.sum'
+            - 'livestream/Makefile.tui'
+            - 'livestream/.golangci.*'
+            - '.golangci.*'
     pull_request:
         paths:
             - '.github/workflows/ci-livestream-tui.yml'
-            - 'livestream/**'
+            - 'livestream/tui/**'
+            - 'livestream/go.mod'
+            - 'livestream/go.sum'
+            - 'livestream/Makefile.tui'
+            - 'livestream/.golangci.*'
+            - '.golangci.*'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
