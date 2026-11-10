@@ -306,6 +306,7 @@ export const FEATURE_FLAGS = {
     DATA_WAREHOUSE_CUSTOM_SOURCE_OAUTH2: 'dwh-custom-source-oauth2', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_RENAME_SAVED_VIEW: 'data-warehouse-rename-saved-view', // owner: #team-data-modeling
     DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: #team-data-modeling
+    DEFINITION_USAGE_SECTION: 'definition-usage-section', // owner: @thmsobrmlr #team-product-analytics, gates the query usage section on property and event definition pages
     DISCUSSIONS_SLACK_SYNC: 'discussions-slack-sync', // owner: #team-platform-features
     DROP_PERSON_LIST_ORDER_BY: 'drop-person-list-order-by', // owner: @arthurdedeus #team-customer-analytics
     DWH_POSTGRES_CDC: 'dwh-postgres-cdc', // owner: #team-warehouse-sources
@@ -332,6 +333,7 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_WIZARD_REPLAY_VISION_CARD: 'experiment-wizard-replay-vision-card', // owner: #team-experiments multivariate=control,test, shows the create wizard's Replay Vision option as a card with a toggle instead of a checkbox; gate on === 'test'
     EXPERIMENTS_EXCLUDED_VARIANTS: 'experiments-excluded-variants', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST: 'experiments-freeze-exposure-aa-test', // owner: @mp-hog #team-experiments multivariate=control,test, dogfood A/A used to validate the freeze-exposure lifecycle action
+    EXPERIMENTS_METRIC_VALUE_FORMAT: 'experiments-metric-value-format', // owner: @andehen #team-experiments, offers the value format setting when creating or editing a metric
     EXPERIMENTS_QUANTILE_METRICS: 'experiments-quantile-metrics', // owner: @andehen #team-experiments, offers the percentile metric type when creating or editing a metric
     EXPERIMENTS_RECALCULATION_RATE_LIMIT: 'experiment-metric-recalculation-rate-limit', // owner: @rodrigoi #team-experiments, five-minute window between manual metric reloads
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
