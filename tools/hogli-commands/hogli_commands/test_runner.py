@@ -341,7 +341,19 @@ def _rust_module_filter(file_only: str, crate_toml: Path, node_id: str | None = 
 
 
 def _find_workspace_toml(crate_toml: Path) -> Path | None:
-    """Walk up from a crate's Cargo.toml to find the workspace root Cargo.toml."""
+    """Find the workspace root Cargo.toml a crate belongs to.
+
+    A crate outside the workspace directory names its root with ``[package] workspace``;
+    otherwise the root is the nearest ancestor manifest with a ``[workspace]`` section.
+    """
+    try:
+        declared = tomllib.loads(crate_toml.read_text()).get("package", {}).get("workspace")
+    except (tomllib.TOMLDecodeError, OSError):
+        declared = None
+    if declared:
+        candidate = (crate_toml.parent / declared / "Cargo.toml").resolve()
+        if candidate.exists():
+            return candidate
     parent = crate_toml.parent.parent
     while parent == REPO_ROOT or REPO_ROOT in parent.parents:
         candidate = parent / "Cargo.toml"
