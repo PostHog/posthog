@@ -40,17 +40,11 @@
 
     /*
      * Press feedback — the button dips 1px under the cursor. Excluded are the
-     * variants/components that own their own press motion: `primary` rests
-     * raised and settles to 0, `toggle` dips 2px, and tabs stay put (a tab
-     * that jumps would drag the whole strip's baseline with it).
+     * variants/components that own their own press motion: `toggle` dips 2px,
+     * and tabs stay put (a tab that jumps would drag the whole strip's baseline
+     * with it).
      */
-    .quill-button:not(
-        :disabled,
-        [aria-disabled='true'],
-        .quill-button--variant-primary,
-        .quill-tabs__trigger,
-        .quill-toggle
-    ):active {
+    .quill-button:not(:disabled, [aria-disabled='true'], .quill-tabs__trigger, .quill-toggle):active {
         translate: 0 1px;
     }
 
@@ -146,24 +140,21 @@
        ========================================================================= */
 
     /*
-     * The ledge under the button is two-tone: a mid shade of the brand color for its side,
-     * closed off by the same dark edge that draws the border.
-     * `--quill-button-lift` is the height of that side; a press lowers it.
+     * A dark edge of the brand color draws the border, and a mid shade draws a ledge
+     * along the bottom inside it. The ledge stays inside the border box, so the button
+     * lines up with its neighbors in a row. `--quill-button-lift` is the ledge height;
+     * a press lowers it.
      */
     .quill-button--variant-primary {
         --quill-button-edge: color-mix(in oklab, var(--primary) 70%, black);
         --quill-button-side: color-mix(in oklab, var(--primary) 84%, black);
         --quill-button-lift: 2px;
-        --quill-button-ledge:
-            0 var(--quill-button-lift) 0 0 var(--quill-button-side),
-            0 calc(var(--quill-button-lift) + 1px) 0 0 var(--quill-button-edge);
+        --quill-button-ledge: inset 0 calc(var(--quill-button-lift) * -1) 0 0 var(--quill-button-side);
 
-        position: relative;
         color: var(--primary-foreground);
         background-color: var(--primary);
         border-color: var(--quill-button-edge);
         box-shadow: var(--quill-button-ledge);
-        translate: 0 -1px;
     }
 
     :is(.dark, [theme='dark']) .quill-button--variant-primary {
@@ -181,32 +172,18 @@
             0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
     }
 
-    /* Extend the hit area over the ledge, so a click on it still presses the button. */
-    .quill-button--variant-primary::after {
-        position: absolute;
-        top: calc(var(--quill-button-lift) + 1px);
-        bottom: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        content: '';
-    }
-
     .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):hover {
         background-color: color-mix(in oklab, var(--primary) 98%, black 5%);
     }
 
     .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):active {
         --quill-button-lift: 1px;
-
-        translate: 0 0;
     }
 
-    /* Disabled sits flat — no raised lift/shadow that reads as pressable. */
+    /* Disabled sits flat — no ledge that reads as pressable. */
     .quill-button--variant-primary:disabled,
     .quill-button--variant-primary[aria-disabled='true']:not([data-loading]) {
         box-shadow: none;
-        translate: 0 0;
     }
 
     /* =========================================================================
