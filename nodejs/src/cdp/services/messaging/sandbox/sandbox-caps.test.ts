@@ -3,7 +3,7 @@ import { Redis } from 'ioredis'
 
 import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { RedisClient, RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
+import { RedisClient, RedisClientPipeline, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { createRedisFromConfig } from '~/common/utils/db/redis'
 
 import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
@@ -112,10 +112,18 @@ describe('claimSandboxCaps', () => {
     })
 
     it('reports an unreachable limiter as storage that cannot be read', async () => {
-        const broken = new RateLimiterService(
-            { useClient: jest.fn().mockRejectedValue(new Error('connection lost')) } as unknown as RedisV2,
-            { name: 'broken' }
-        )
+        const unreachable = createRedisV2PoolFromConfig({
+            connection: {
+                url: '127.0.0.1',
+                options: { port: 1, commandTimeout: 100, retryStrategy: () => null },
+                name: 'sandbox-caps-unreachable',
+                exitOnRepeatedErrors: false,
+            },
+            poolMinSize: 0,
+            poolMaxSize: 1,
+            acquireTimeoutMillis: 100,
+        })
+        const broken = new RateLimiterService(unreachable, { name: 'broken' })
 
         expect(
             await claimSandboxCaps(
