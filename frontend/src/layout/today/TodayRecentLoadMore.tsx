@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { Button, Spinner, Text } from '@posthog/quill'
 
@@ -15,17 +15,40 @@ function scrollParent(node: HTMLElement): HTMLElement | null {
 }
 
 export interface TodayRecentLoadMoreProps {
+    hasMore: boolean
     loading: boolean
     failed: boolean
+    shownCount: number
     onLoadMore: () => void
 }
 
-export function TodayRecentLoadMore({ loading, failed, onLoadMore }: TodayRecentLoadMoreProps): JSX.Element {
+export function TodayRecentLoadMore({
+    hasMore,
+    loading,
+    failed,
+    shownCount,
+    onLoadMore,
+}: TodayRecentLoadMoreProps): JSX.Element | null {
     const ref = useRef<HTMLDivElement>(null)
+    const shownAtLoad = useRef<number | null>(null)
+    const [auto, setAuto] = useState(true)
+
+    useEffect(() => setAuto(true), [shownCount])
+
+    useEffect(() => {
+        if (loading) {
+            shownAtLoad.current = shownCount
+            return
+        }
+        if (shownAtLoad.current === shownCount) {
+            setAuto(false)
+        }
+        shownAtLoad.current = null
+    }, [loading, shownCount])
 
     useEffect(() => {
         const node = ref.current
-        if (!node || loading || failed) {
+        if (!node || !hasMore || !auto || loading || failed) {
             return
         }
         const observer = new IntersectionObserver(
@@ -38,7 +61,11 @@ export function TodayRecentLoadMore({ loading, failed, onLoadMore }: TodayRecent
         )
         observer.observe(node)
         return () => observer.disconnect()
-    }, [loading, failed, onLoadMore])
+    }, [hasMore, auto, loading, failed, onLoadMore])
+
+    if (!hasMore) {
+        return null
+    }
 
     return (
         <div ref={ref} data-attr="today-recent-load-more">
@@ -60,8 +87,19 @@ export function TodayRecentLoadMore({ loading, failed, onLoadMore }: TodayRecent
                 <div role="status" aria-label="Loading older chats" className="flex h-7 items-center px-2">
                     <Spinner />
                 </div>
-            ) : (
+            ) : auto ? (
                 <div aria-hidden className="h-px" />
+            ) : (
+                <div className="px-2 py-1">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onLoadMore()}
+                        data-attr="today-recent-load-more-button"
+                    >
+                        Load older chats
+                    </Button>
+                </div>
             )}
         </div>
     )

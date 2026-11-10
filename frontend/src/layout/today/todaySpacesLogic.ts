@@ -29,6 +29,7 @@ import {
     TaskActivityReadMarkerApi,
     TaskListItemApi,
     TasksListExcludeOriginProduct,
+    TasksListParams,
 } from 'products/tasks/frontend/generated/api.schemas'
 import { pullRequestStates, sessionIdsWithPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 
@@ -64,6 +65,7 @@ import {
 const PINNED_SESSION_LIMIT = 20
 const RECENT_SESSION_LIMIT = 30
 const RECENT_ITEM_LIMIT = 30
+const TASKS_PAGE_LIMIT = 100
 // One page of the requester's newest activity. Unread state older than this does not show on the rail.
 const UNREAD_ACTIVITY_LIMIT = 200
 // The sidebar and a space scene both refresh on mount, so collapse their requests into one.
@@ -72,6 +74,16 @@ const UNREAD_ACTIVITY_DEBOUNCE_MS = 100
 // the tab, and the cooldown holds a flick between tabs to one request.
 const RECENT_REFRESH_INTERVAL_MS = 60_000
 const RECENT_REFRESH_COOLDOWN_MS = 15_000
+
+function recentTasksParams(userId: number): TasksListParams {
+    return {
+        created_by: userId,
+        // Scout runs execute as their author and would fill the capped list.
+        exclude_origin_product: TasksListExcludeOriginProduct.SignalsScout,
+        ordering: '-last_activity_at',
+        basic: true,
+    }
+}
 
 export type TodayWorkSectionId = 'pinned' | 'recent'
 
@@ -125,12 +137,12 @@ export interface todaySpacesLogicValues {
     recentGrouping: TodayRecentGrouping
     recentGroups: TodayRecentSection[]
     recentItems: TodayWorkItem[]
+    recentLoadMoreFailed: boolean
     recentLoading: boolean
+    recentLoadingMore: boolean
     recentQuery: string
     recentSort: TodayRecentSort
     recentSourceOptions: string[]
-    recentLoadingMore: boolean
-    recentLoadMoreFailed: boolean
     recentTasks: TaskListItemApi[]
     recentTasksHasMore: boolean
     recentTasksLoading: boolean
@@ -180,6 +192,21 @@ export interface todaySpacesLogicActions {
     copySpaceLink: (spaceId: string) => {
         spaceId: string
     }
+    loadMoreRecentTasks: (_: void) => void
+    loadMoreRecentTasksFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMoreRecentTasksSuccess: (
+        recentTasks: TaskListItemApi[],
+        payload?: void
+    ) => {
+        recentTasks: TaskListItemApi[]
+        payload?: void
+    }
     loadPinnedTasks: () => any
     loadPinnedTasksFailure: (
         error: string,
@@ -207,21 +234,6 @@ export interface todaySpacesLogicActions {
         errorObject?: any
     }
     loadRecentTasksSuccess: (
-        recentTasks: TaskListItemApi[],
-        payload?: void
-    ) => {
-        recentTasks: TaskListItemApi[]
-        payload?: void
-    }
-    loadMoreRecentTasks: (_: void) => void
-    loadMoreRecentTasksFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadMoreRecentTasksSuccess: (
         recentTasks: TaskListItemApi[],
         payload?: void
     ) => {
@@ -431,21 +443,26 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                     if (!values.currentTeamId || !values.user) {
                         return []
                     }
-                    const response = await tasksList(String(values.currentTeamId), {
-                        created_by: values.user.id,
-                        // Scout runs execute as their author and would fill the capped list.
-                        exclude_origin_product: TasksListExcludeOriginProduct.SignalsScout,
-                        ordering: '-last_activity_at',
-                        basic: true,
-                        limit: RECENT_SESSION_LIMIT,
-                    })
-                    // A slower earlier reply must not overwrite what a newer refresh already returned.
-                    breakpoint()
+                    const requested = Math.max(RECENT_SESSION_LIMIT, values.recentTasks.length)
+                    const fetched: TaskListItemApi[] = []
+                    let fetchedHasMore = true
+                    while (fetchedHasMore && fetched.length < requested) {
+                        const response = await tasksList(String(values.currentTeamId), {
+                            ...recentTasksParams(values.user.id),
+                            limit: Math.min(TASKS_PAGE_LIMIT, requested - fetched.length),
+                            offset: fetched.length,
+                        })
+                        // A slower earlier reply must not overwrite what a newer refresh already returned.
+                        breakpoint()
+                        fetched.push(...response.results)
+                        fetchedHasMore = !!response.next && response.results.length > 0
+                    }
                     const refreshed = refreshRecentTasks(
+                        fetched,
+                        fetchedHasMore,
                         values.recentTasks,
                         values.recentTasksHasMore,
-                        response.results,
-                        !!response.next
+                        requested
                     )
                     actions.setRecentTasksHasMore(refreshed.hasMore)
                     return refreshed.tasks
@@ -455,10 +472,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                         return values.recentTasks
                     }
                     const response = await tasksList(String(values.currentTeamId), {
-                        created_by: values.user.id,
-                        exclude_origin_product: TasksListExcludeOriginProduct.SignalsScout,
-                        ordering: '-last_activity_at',
-                        basic: true,
+                        ...recentTasksParams(values.user.id),
                         limit: RECENT_SESSION_LIMIT,
                         offset: values.recentTasks.length,
                     })

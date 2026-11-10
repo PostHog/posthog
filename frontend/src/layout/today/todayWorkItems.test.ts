@@ -95,39 +95,16 @@ describe('todayWorkItems', () => {
         expect(items.map((item) => `${item.kind}:${item.id}`)).toEqual(['chat:c-new', 'session:s-old'])
     })
 
-    it.each<[string, string[], boolean, string[], boolean, string[], boolean]>([
-        [
-            'keeps older pages a refresh did not reach',
-            ['a', 'b', 'c', 'd'],
-            true,
-            ['x', 'b'],
-            true,
-            ['x', 'b', 'c', 'd'],
-            true,
-        ],
-        ['asks for more when nothing older was loaded', ['a', 'b'], false, ['x', 'b'], true, ['x', 'b'], true],
-        [
-            'replaces the list once the first page holds everything',
-            ['a', 'b', 'c', 'd'],
-            true,
-            ['x', 'a'],
-            false,
-            ['x', 'a'],
-            false,
-        ],
+    it.each<[string, string[], boolean, string[], number, string[], boolean]>([
+        ['drops a session archived out of the loaded range', ['x', 'b'], true, ['a', 'b'], 2, ['x', 'b'], true],
+        ['keeps a page loaded while the refresh ran', ['x', 'a'], true, ['a', 'b', 'c'], 2, ['x', 'a', 'c'], false],
+        ['replaces the list once the fetch holds everything', ['x', 'a'], false, ['a', 'b', 'c'], 2, ['x', 'a'], false],
     ])(
         'a refresh of Recent %s',
-        (_, loadedIds, loadedHasMore, freshIds, freshHasMore, expectedIds, expectedHasMore) => {
-            const times: Record<string, string> = {
-                x: '2026-03-10T12:00:00',
-                a: '2026-03-10T11:00:00',
-                b: '2026-03-10T10:00:00',
-                c: '2026-03-09T10:00:00',
-                d: '2026-03-08T10:00:00',
-            }
-            const tasks = (ids: string[]): TaskListItemApi[] => ids.map((id) => session(id, times[id]))
+        (_, fetchedIds, fetchedHasMore, currentIds, requested, expectedIds, expectedHasMore) => {
+            const tasks = (ids: string[]): TaskListItemApi[] => ids.map((id) => session(id, '2026-03-10T12:00:00'))
 
-            const refreshed = refreshRecentTasks(tasks(loadedIds), loadedHasMore, tasks(freshIds), freshHasMore)
+            const refreshed = refreshRecentTasks(tasks(fetchedIds), fetchedHasMore, tasks(currentIds), false, requested)
 
             expect(refreshed.tasks.map((task) => task.id)).toEqual(expectedIds)
             expect(refreshed.hasMore).toBe(expectedHasMore)

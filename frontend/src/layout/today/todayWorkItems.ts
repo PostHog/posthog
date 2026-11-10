@@ -282,18 +282,17 @@ export interface TodayRecentTasksPage {
 }
 
 export function refreshRecentTasks(
-    loaded: TaskListItemApi[],
-    loadedHasMore: boolean,
-    fresh: TaskListItemApi[],
-    freshHasMore: boolean
+    fetched: TaskListItemApi[],
+    fetchedHasMore: boolean,
+    current: TaskListItemApi[],
+    currentHasMore: boolean,
+    requested: number
 ): TodayRecentTasksPage {
-    if (!freshHasMore || fresh.length === 0) {
-        return { tasks: fresh, hasMore: freshHasMore }
+    const loadedSince = current.slice(requested)
+    if (!fetchedHasMore || loadedSince.length === 0) {
+        return { tasks: fetched, hasMore: fetchedHasMore }
     }
-    const freshIds = new Set(fresh.map((task) => task.id))
-    const end = timeOf(sessionItem(fresh[fresh.length - 1]))
-    const older = loaded.filter((task) => !freshIds.has(task.id) && timeOf(sessionItem(task)) < end)
-    return { tasks: [...fresh, ...older], hasMore: older.length > 0 ? loadedHasMore : true }
+    return { tasks: appendRecentTasks(fetched, loadedSince), hasMore: currentHasMore }
 }
 
 export function appendRecentTasks(loaded: TaskListItemApi[], page: TaskListItemApi[]): TaskListItemApi[] {

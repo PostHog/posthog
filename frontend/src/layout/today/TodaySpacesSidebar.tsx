@@ -160,6 +160,16 @@ export function TodaySpacesSidebar(): JSX.Element {
             </Button>
         )
 
+    const loadMore = (
+        <TodayRecentLoadMore
+            hasMore={recentTasksHasMore}
+            loading={recentLoadingMore}
+            failed={recentLoadMoreFailed}
+            shownCount={recentItems.length}
+            onLoadMore={loadMoreRecentTasks}
+        />
+    )
+
     const pinnedRows = shownPinnedItems.map((item) => renderItem(item, 'pinned', 'today-pinned-session', true))
 
     const recentBody =
@@ -172,17 +182,20 @@ export function TodaySpacesSidebar(): JSX.Element {
                 Chats you start show up here. Start one with New chat.
             </Text>
         ) : recentState === 'no-matches' ? (
-            notice(
-                'No matches',
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={clearRecentSearchAndFilters}
-                    data-attr="today-recent-clear-filters"
-                >
-                    {todayRecentClearLabel(recentQuery !== '', recentFiltersActive)}
-                </Button>
-            )
+            <>
+                {notice(
+                    'No matches',
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={clearRecentSearchAndFilters}
+                        data-attr="today-recent-clear-filters"
+                    >
+                        {todayRecentClearLabel(recentQuery !== '', recentFiltersActive)}
+                    </Button>
+                )}
+                {loadMore}
+            </>
         ) : (
             <>
                 {recentTasksUnavailable && loadError('Some chats didn’t load.', loadRecentTasks, 'today-recent-retry')}
@@ -198,13 +211,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                         )}
                     </Fragment>
                 ))}
-                {recentTasksHasMore && (
-                    <TodayRecentLoadMore
-                        loading={recentLoadingMore}
-                        failed={recentLoadMoreFailed}
-                        onLoadMore={loadMoreRecentTasks}
-                    />
-                )}
+                {loadMore}
             </>
         )
 
