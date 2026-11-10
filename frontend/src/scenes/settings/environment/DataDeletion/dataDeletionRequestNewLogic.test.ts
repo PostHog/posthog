@@ -18,7 +18,7 @@ describe('dataDeletionRequestNewLogic', () => {
             post: {
                 '/api/projects/:project_id/data_deletion_requests/preview/': () => [200, { count: 3 }],
                 '/api/projects/:project_id/data_deletion_requests/': async ({ request }) => {
-                    const body = await request.json()
+                    const body = (await request.json()) as Record<string, unknown>
                     createdBodies.push(body)
                     return [201, { id: 'request-id', status: 'pending', query: body.query }]
                 },
