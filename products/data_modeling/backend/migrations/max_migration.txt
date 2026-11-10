@@ -1,1 +1,1 @@
-0061_saved_query_subscription
+0060_squash_2026_11_02_schema_addons
