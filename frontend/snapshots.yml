@@ -17400,6 +17400,10 @@ snapshots:
         hash: v1.k794b7964.b00d3139e5a2ba88542fbef3797a72de6808e6ded3faa667a7c873a3e8ce8d26.byvlPPPXZNZ6GpC3DM94D4vrWKlOZDnhBluUSmZBZqw
     scenes-other-toolbar-extension--experiments--light:
         hash: v1.k794b7964.e3115faf60178e70f22fd5b94f08714a513b660762bf3101f2a8f77ddc760d94.-SbW7x9Bz73JOswYlwvgx4vkamQtdx3Cxzgq8ZWPHkw
+    scenes-other-toolbar-extension--feature-flag-comparison--dark:
+        hash: v1.k794b7964.8a6ef6ab43cc9c5f8e0e62e9c4bcd4fcfad818749718c3ab08552133b21b8a81.JVmpKPgnkQw9gdk20rjP5C1o9bcE7OhqhNaYJeLRmPQ
+    scenes-other-toolbar-extension--feature-flag-comparison--light:
+        hash: v1.k794b7964.a87a51eb5a222430fa0beeb22c392fbe4157925253bc2a61ba22addbbcb8d479.IvpnBUZthzj7eohwyeSDArzGErjQGX3i-EzKgQq0KHo
     scenes-other-toolbar-extension--feature-flags--dark:
         hash: v1.k794b7964.b6f9c59caeb890f1955baec8614468cb2563d3c4b162821c65f6bd198cb009e3.iEZoGcbnGDovJT5K6ibfkSmcB6g06Zj5pfSGKAcdP7A
     scenes-other-toolbar-extension--feature-flags--light:
