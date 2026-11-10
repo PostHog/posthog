@@ -2776,7 +2776,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         needsSandboxSender(
                             newAction,
                             values.canAdoptSandbox,
-                            getTeamUtmDefaults(values.currentTeam?.workflows_config).enabled
+                            getTeamUtmDefaults(values.currentTeam?.workflows_config)
                         )
                     ) {
                         newAction = toSandboxAction(newAction)

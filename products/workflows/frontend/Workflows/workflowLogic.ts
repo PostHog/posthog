@@ -206,15 +206,15 @@ async function withDefaultEmailSender(workflow: HogFlow): Promise<HogFlow> {
             team && 'workflows_config' in team ? team.workflows_config?.default_email_integration_id : null
         )
         if (!sender) {
-            const teamUtmTagsEnabled = getTeamUtmDefaults(
+            const teamUtmDefaults = getTeamUtmDefaults(
                 team && 'workflows_config' in team ? team.workflows_config : null
-            ).enabled
+            )
             const needsSender =
                 !hasOwnSender(integrations) &&
                 sandboxSenderAllowed(workflow, false) &&
-                workflow.actions.some((action) => needsSandboxSender(action, true, teamUtmTagsEnabled))
+                workflow.actions.some((action) => needsSandboxSender(action, true, teamUtmDefaults))
             return needsSender && (await readySandboxSender(String(ApiConfig.getCurrentTeamId()), 'first_run'))
-                ? withSandboxSender(workflow, teamUtmTagsEnabled)
+                ? withSandboxSender(workflow, teamUtmDefaults)
                 : workflow
         }
         const result = withEmailSender(workflow, sender.integrationId)

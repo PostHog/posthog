@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { TeamType } from '~/types'
 
 import { HogFlow, HogFlowAction } from './hogflows/types'
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from './workflowLogic'
@@ -14,7 +15,7 @@ import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from './wo
 const EMAIL_ID = 'action_function_email_welcome'
 const TEMPLATE_ID = 'template-welcome'
 
-function templateWithEmail(value: Record<string, unknown> = {}): HogFlow {
+function templateWithEmail(value: Record<string, unknown> = {}, config: Record<string, unknown> = {}): HogFlow {
     return {
         ...NEW_WORKFLOW,
         id: TEMPLATE_ID,
@@ -30,6 +31,7 @@ function templateWithEmail(value: Record<string, unknown> = {}): HogFlow {
                 updated_at: 0,
                 config: {
                     template_id: 'template-email',
+                    ...config,
                     inputs: {
                         email: {
                             templating: 'liquid',
@@ -101,10 +103,10 @@ describe('workflowLogic first-run email sender', () => {
         })
     }
 
-    async function openTemplate(environmentId?: number): Promise<HogFlowAction | undefined> {
+    async function openTemplate(team?: Partial<TeamType>): Promise<HogFlowAction | undefined> {
         initKeaTests()
-        if (environmentId) {
-            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, id: environmentId })
+        if (team) {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ...team })
         }
         const logic = workflowLogic({ id: 'new', templateId: TEMPLATE_ID })
         logic.mount()
@@ -149,11 +151,32 @@ describe('workflowLogic first-run email sender', () => {
         const environmentId = MOCK_DEFAULT_TEAM.id + 1
         useSenderMocks([], sandboxStatus({ integration_id: null }))
 
-        const email = await openTemplate(environmentId)
+        const email = await openTemplate({ id: environmentId })
 
         expect(email?.type).toEqual('email_sandbox')
         expect(sandboxSenders).toEqual({ [String(environmentId)]: 11 })
     })
+
+    it.each([
+        ['follows the team default', { utm_source: 'posthog' }, 'email_sandbox'],
+        ['sets its own UTM tags', { utm_source: 'newsletter' }, 'function_email'],
+    ])(
+        'with team UTM tags on by default, a template email that %s gets the right sender',
+        async (_, utmParams, expectedType) => {
+            useSenderMocks(
+                [],
+                sandboxStatus(),
+                200,
+                templateWithEmail({}, { utm_tags_enabled: true, utm_params: utmParams })
+            )
+
+            const email = await openTemplate({
+                workflows_config: { email_utm_tags_enabled: true, email_utm_params: { utm_source: 'posthog' } },
+            } as Partial<TeamType>)
+
+            expect(email?.type).toEqual(expectedType)
+        }
+    )
 
     it.each([
         ['adoption is off', [], sandboxStatus({ adoption_enabled: false }), 200, {}],

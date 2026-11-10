@@ -1,6 +1,7 @@
 import type { IntegrationType } from '~/types'
 
 import type { HogFlow, HogFlowAction } from '../../types'
+import { type TeamUtmDefaults, matchesTeamUtmDefaults } from '../components/utmDefaults'
 
 export type OwnEmailAction = Extract<HogFlowAction, { type: 'function_email' }>
 export type SandboxEmailAction = Extract<HogFlowAction, { type: 'email_sandbox' }>
@@ -20,13 +21,18 @@ export function isEmailStep(action: HogFlowAction | null | undefined): action is
 export function needsSandboxSender(
     action: HogFlowAction,
     canAdoptSandbox: boolean,
-    teamUtmTagsEnabled: boolean
+    teamUtmDefaults: TeamUtmDefaults
 ): action is OwnEmailAction {
     return (
         canAdoptSandbox &&
         action.type === 'function_email' &&
         !action.config.inputs?.email?.value?.from?.integrationId &&
-        ownOnlySettings(action).every((setting) => setting === 'utm_tags' && teamUtmTagsEnabled)
+        ownOnlySettings(action).every(
+            (setting) =>
+                setting === 'utm_tags' &&
+                teamUtmDefaults.enabled &&
+                matchesTeamUtmDefaults(action.config.utm_params ?? {}, teamUtmDefaults)
+        )
     )
 }
 
