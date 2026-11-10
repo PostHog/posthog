@@ -33,6 +33,9 @@ const CALLS_SETTLE_BEFORE_WRITE_MS = CONSUMER_STOP_DEADLINE_MS - ATTACHMENT_SEND
 export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     protected override name = 'CdpCyclotronWorkerEmail'
     private readonly sendsWithFiles: InFlightRegistry
+    // A send runs on the workflow its admission checked. Read again, a reloaded workflow could put an email step with
+    // files ahead of a send that admission let through without taking room.
+    private readonly workflowAtAdmission = new WeakMap<CyclotronJobInvocation, HogFlow | null>()
 
     constructor(
         config: PluginsServerConfig,
@@ -78,6 +81,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
             (invocation) => !invocation.cancelRequestedAt && fileBytesOf(invocation) !== null
         )
         const hogFlows = withFiles.length ? await this.workflowsWithHeartbeat(invocations, withFiles) : {}
+        withFiles.forEach((invocation) => this.workflowAtAdmission.set(invocation, hogFlows[invocation.functionId]))
         for (const invocation of invocations) {
             const fileBytes = fileBytesOf(invocation)
             if (
@@ -149,8 +153,21 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
     }
 
     private async runSendWithFiles(invocation: CyclotronJobInvocation): Promise<void> {
-        const { backgroundTask } = await super.processBatch([withoutDeferralCount(invocation)])
+        const send = withoutDeferralCount(invocation)
+        this.workflowAtAdmission.set(send, this.workflowAtAdmission.get(invocation) ?? null)
+        const { backgroundTask } = await super.processBatch([send])
         await backgroundTask
+    }
+
+    protected override async hogFlowsFor(
+        invocations: CyclotronJobInvocation[]
+    ): Promise<Record<HogFlow['id'], HogFlow | null>> {
+        const admitted = invocations.filter((invocation) => this.workflowAtAdmission.has(invocation))
+        const checked = Object.fromEntries(
+            admitted.map((invocation) => [invocation.functionId, this.workflowAtAdmission.get(invocation) ?? null])
+        )
+        const unchecked = invocations.filter((invocation) => !Object.hasOwn(checked, invocation.functionId))
+        return { ...(await super.hogFlowsFor(unchecked)), ...checked }
     }
 
     protected override async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
