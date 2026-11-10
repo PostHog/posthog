@@ -15,8 +15,10 @@ import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
+import { createServer } from 'http'
 import jsonwebtoken from 'jsonwebtoken'
 import { DateTime } from 'luxon'
+import { AddressInfo } from 'net'
 import { Pool } from 'pg'
 import { register } from 'prom-client'
 import supertest from 'supertest'
@@ -34,6 +36,7 @@ import {
 } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { InternalFetchService } from '~/common/services/internal-fetch'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -83,7 +86,6 @@ import { CyclotronJobQueueRateLimitedPostgresV2 } from './services/job-queue/job
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { createFrequencyCapValkeyPool } from './services/messaging/frequency-cap-valkey-pool'
 import { mailDevWebUrl } from './services/messaging/helpers/maildev'
-import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
 import { HogFunctionInvocationGlobals } from './types'
@@ -3411,6 +3413,9 @@ describe('Workflows E2E (email queue)', () => {
 
         const queuedPriorities = async (): Promise<number[]> => (await queryCyclotronJobs()).map((j: any) => j.priority)
 
+        const preferencesTokenOwner = async (token: string) =>
+            (await supertest(app).get(`/api/messaging/validate_preferences_token/${token}`).expect(200)).body
+
         beforeEach(async () => {
             await emailWorker.stop()
             await insertHogFunctionTemplate(hub.postgres, {
@@ -3448,10 +3453,81 @@ describe('Workflows E2E (email queue)', () => {
             const token = email.text.match(/^Unsubscribe: \S+\/messaging-preferences\/([^/]+)\/$/m)[1]
             // Click tracking wraps the html link, so the token is all the two parts share.
             expect(email.html).toContain(token)
-            expect(
-                new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL).validatePreferencesToken(token)
-            ).toMatchObject({ valid: true, team_id: team.id, identifier: to })
+            expect(await preferencesTokenOwner(token)).toMatchObject({ valid: true, team_id: team.id, identifier: to })
             expect(await queuedPriorities()).toEqual([1])
+        })
+
+        it.each([
+            {
+                name: 'a marketing category carries a one-click unsubscribe',
+                category: newsletter,
+                step: 'transactional',
+                listed: true,
+            },
+            { name: 'a transactional category carries none', category: receipts, step: 'marketing', listed: false },
+        ] as const)('a code send through SES in $name', async ({ category, step, listed }) => {
+            const sesRequests: any[] = []
+            const ses = createServer((req, res) => {
+                let body = ''
+                req.on('data', (chunk) => (body += chunk))
+                req.on('end', () => {
+                    if (req.method !== 'POST' || req.url !== '/v2/email/outbound-emails') {
+                        res.writeHead(404).end()
+                        return
+                    }
+                    sesRequests.push(parseJSON(body))
+                    res.writeHead(200, { 'content-type': 'application/json' })
+                    res.end(JSON.stringify({ MessageId: `ses-${sesRequests.length}` }))
+                })
+            })
+            await new Promise<void>((resolve) => ses.listen(0, '127.0.0.1', resolve))
+            const env = { ...process.env }
+            process.env.AWS_ACCESS_KEY_ID = 'test'
+            process.env.AWS_SECRET_ACCESS_KEY = 'test'
+            try {
+                hub.SES_ENDPOINT = `http://127.0.0.1:${(ses.address() as AddressInfo).port}`
+                await insertIntegration(hub.postgres, team.id, {
+                    id: 2,
+                    kind: 'email',
+                    config: {
+                        email: 'sender@posthog.com',
+                        name: 'Test Sender',
+                        domain: 'posthog.com',
+                        verified: true,
+                        provider: 'ses',
+                    },
+                })
+                const flow = await insertHogFlow(hub.postgres, sendFlow('code', step))
+                const to = `reader-${new UUIDT().toString()}@example.com`
+
+                const res = await post('code', flow, {
+                    to,
+                    distinct_id: 'reader',
+                    send: { ...codeSend(category), from: { integrationId: 2, email: 'sender@posthog.com' } },
+                })
+                expect(res.status).toEqual(202)
+                await deliver(createCdpConsumerDeps(hub, kafkaProducer))
+
+                expect(sesRequests.map((r) => r.Destination.ToAddresses)).toEqual([[to]])
+                const headers: { Name: string; Value: string }[] = sesRequests[0].Content.Simple.Headers
+                const listUnsubscribe = headers.find((h) => h.Name === 'List-Unsubscribe')?.Value
+                if (!listed) {
+                    expect(listUnsubscribe).toBeUndefined()
+                    return
+                }
+                const token = listUnsubscribe!.match(
+                    /^<\S+\/messaging-preferences\/([^/]+)\/\?one_click_unsubscribe=1>$/
+                )![1]
+                expect(await preferencesTokenOwner(token)).toMatchObject({
+                    valid: true,
+                    team_id: team.id,
+                    identifier: to,
+                })
+                expect(headers).toContainEqual({ Name: 'List-Unsubscribe-Post', Value: 'List-Unsubscribe=One-Click' })
+            } finally {
+                process.env = env
+                ses.close()
+            }
         })
 
         it.each([
@@ -3565,29 +3641,28 @@ describe('Workflows E2E (email queue)', () => {
             const frequencyCapValkey = createFrequencyCapValkeyPool(hub)!
             await deleteKeysWithPrefix(frequencyCapValkey, `@posthog/workflows-frequency-cap/${team.id}/`)
             const to = `capped-${new UUIDT().toString()}@example.com`
-            const person: InternalPersonWithDistinctId = {
-                id: '1',
-                uuid: '0b6a7f52-3e1d-4c8a-9f2e-6d4b1a0c9e37',
-                team_id: team.id,
-                properties: { email: to },
-                properties_last_updated_at: {},
-                properties_last_operation: null,
-                created_at: DateTime.utc(),
-                version: 1,
-                is_identified: true,
-                is_user_id: null,
-                last_seen_at: null,
-                distinct_id: 'capped-reader',
+            // The cap counts per person, so the email worker reads the recipient from the persons table,
+            // the store personhog serves in production.
+            const persons = new PostgresPersonRepository(hub.postgres)
+            await persons.createPerson(
+                DateTime.utc(),
+                { email: to },
+                {},
+                {},
+                team.id,
+                null,
+                true,
+                new UUIDT().toString(),
+                { distinctId: 'capped-reader' }
+            )
+            const personRepository: PersonReadRepository = {
+                fetchPerson: (teamId, distinctId) => persons.fetchPerson(teamId, distinctId),
+                fetchPersonsByDistinctIds: (teamPersons) => persons.fetchPersonsByDistinctIds(teamPersons),
+                fetchPersonsByPersonIds: (teamPersons) => persons.fetchPersonsByPersonIds(teamPersons),
+                fetchDistinctIdsForPersons: (teamId, personIds, options) =>
+                    persons.fetchDistinctIdsForPersons(teamId, personIds, options),
             }
-            const personDeps = {
-                ...deps,
-                personRepository: {
-                    fetchPerson: jest.fn().mockResolvedValue(person),
-                    fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([person]),
-                    fetchPersonsByPersonIds: jest.fn().mockResolvedValue([person]),
-                    fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
-                },
-            }
+            const personDeps = { ...deps, personRepository }
             const flow = await insertHogFlow(hub.postgres, sendFlow(kind, step))
 
             for (const _ of [1, 2]) {
