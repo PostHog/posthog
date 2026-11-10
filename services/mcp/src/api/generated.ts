@@ -96530,9 +96530,9 @@ export namespace Schemas {
     }
 
     export interface ProjectLimits {
-      /** Sandbox training runs the project may start in any 24 hours, across all its pipelines. 0 means training is turned off. */
+      /** The project's daily limit of sandbox training runs, across all its pipelines. 0 means training is turned off. */
       max_training_runs_per_day: number;
-      /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+      /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
       training_runs_used: number;
       /**
          * When the next training run can start, while the project is at its daily limit. Null while a run can start now, and when training is turned off.
@@ -118048,9 +118048,9 @@ export namespace Schemas {
     export interface TrainingRunCapReached {
       /** Why the run did not start. */
       detail: string;
-      /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+      /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
       used: number;
-      /** Sandbox training runs the project may start in any 24 hours. */
+      /** The project's daily limit of sandbox training runs. */
       limit: number;
       /**
          * When the next training run can start. Null when training runs are turned off for the project.
