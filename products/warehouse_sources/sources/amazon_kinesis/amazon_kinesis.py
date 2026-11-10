@@ -188,7 +188,14 @@ class KinesisClient:
         )
 
     @retry(
-        retry=retry_if_exception_type((AmazonKinesisTransientError, requests.ConnectionError, requests.Timeout)),
+        retry=retry_if_exception_type(
+            (
+                AmazonKinesisTransientError,
+                requests.ConnectionError,
+                requests.Timeout,
+                requests.exceptions.ChunkedEncodingError,
+            )
+        ),
         stop=stop_after_attempt(MAX_ATTEMPTS) | stop_before_delay(RETRY_BUDGET_SECONDS),
         wait=wait_exponential_jitter(initial=2, max=30),
         sleep=_retry_wait,
