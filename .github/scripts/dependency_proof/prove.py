@@ -67,6 +67,8 @@ class StrictLoader(YAML_LOADER):  # type: ignore[misc,valid-type]
     """
 
     def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+        if not all(isinstance(key, yaml.ScalarNode) for key, _ in node.value):
+            raise Refused("a YAML file uses a key that is not a scalar")
         keys = [self.construct_object(key, deep=deep) for key, _ in node.value]
         if len(set(keys)) != len(keys):
             raise Refused("a lockfile repeats a key")
@@ -377,10 +379,14 @@ def prove_group(
     """Proves one lockfile directory and returns the settings paths its proof read."""
     lockfile, root_manifest = join(directory, LOCKFILE), join(directory, MANIFEST)
     workspace_path = join(directory, WORKSPACE_FILE)
-    workspace = load_workspace(git, workflow_sha, directory)
-    moved = policy.check_workspace(
-        workspace_path, workspace, load_workspace(git, merge_base, directory), load_workspace(git, head, directory)
+    # A lockfile directory without a workspace file is refused, because pnpm would then read the
+    # settings of a workspace file above it, and this proof judges the directory's own.
+    default_text, base_text, head_text = (
+        require(git.show(ref, workspace_path), workspace_path) for ref in (workflow_sha, merge_base, head)
     )
+    policy.check_workspace_text(workspace_path, default_text, head_text)
+    workspace = load_yaml(default_text)
+    moved = policy.check_workspace(workspace_path, workspace, load_yaml(base_text), load_yaml(head_text))
     settings = policy.settings_paths(directory, workspace)
     for path in settings:
         if path != workspace_path and git.blob(head, path) != git.blob(workflow_sha, path):
@@ -403,7 +409,7 @@ def prove_group(
         require(git.show(head, lockfile), lockfile),
     )
     base_lock, head_lock = load_yaml(base_lock_text), load_yaml(head_lock_text)
-    head_files = {path: require(git.show(head, path), path) for path in [*manifests, workspace_path]}
+    head_files = {workspace_path: head_text, **{path: require(git.show(head, path), path) for path in manifests}}
     for path in manifests:
         policy.check_member(path, directory, base_lock)
         policy.check_manifest(
@@ -413,7 +419,7 @@ def prove_group(
         )
     changes = policy.direct_changes(base_lock, head_lock)
     packages = {f"{change.name}@{change.new}" for change in changes} | set(policy.new_packages(base_lock, head_lock))
-    for spec in sorted(packages | set(moved)):
+    for spec in sorted(packages):
         if reason := policy.blocked_reason(spec, blocked):
             raise Refused(reason)
     releases = sorted({(change.name, change.new) for change in changes if change.old != change.new})
@@ -439,16 +445,6 @@ def prove_group(
     return set(settings)
 
 
-def load_workspace(git: Git, ref: str, directory: str) -> dict[str, Any]:
-    """The pnpm-workspace.yaml beside a lockfile.
-
-    A lockfile directory without one is refused, because pnpm would then read the settings of a
-    workspace file above it, and this proof judges the directory's own.
-    """
-    path = join(directory, WORKSPACE_FILE)
-    return load_yaml(require(git.show(ref, path), path))
-
-
 def load_yaml(text: bytes) -> dict[str, Any]:
     # pnpm reads UTF-8. PyYAML given bytes would detect UTF-16 and read it, so it is given text.
     try:
@@ -461,9 +457,19 @@ def load_yaml(text: bytes) -> dict[str, Any]:
     # pnpm never writes an alias or an explicit tag, and either would let two texts build one
     # structure. The C parser skips a Python compose hook, so the event stream is read for them.
     try:
+        previous = None
         for event in yaml.parse(decoded, Loader=StrictLoader):
             if isinstance(event, yaml.AliasEvent) or getattr(event, "tag", None) is not None:
                 raise Refused("a YAML file uses an alias or an explicit tag")
+            # pnpm's parser joins the lines of a scalar with other whitespace than this one does.
+            # pnpm writes one only for `deprecated`, which `comparable` drops.
+            if (
+                isinstance(event, yaml.ScalarEvent)
+                and event.start_mark.line != event.end_mark.line
+                and previous != "deprecated"
+            ):
+                raise Refused("a YAML file spreads a scalar over lines")
+            previous = getattr(event, "value", None)
         loaded = yaml.load(decoded, Loader=StrictLoader) or {}
     except yaml.YAMLError as error:
         raise Refused("a YAML file does not parse") from error

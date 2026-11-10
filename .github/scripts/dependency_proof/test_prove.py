@@ -21,7 +21,7 @@ from dependency_proof.policy import RENOVATE_BOT_USER_ID, Refused
 REPOSITORY = "PostHog/posthog"
 HEAD, MERGE_BASE, WORKFLOW_SHA = "a" * 40, "b" * 40, "c" * 40
 NOW = datetime(2026, 11, 9, 12, tzinfo=UTC)
-WORKSPACE = b"packages:\n    - '.'\nminimumReleaseAge: 10080\nminimumReleaseAgeExclude:\n    - posthog-js\n    - '@posthog/*'\nallowBuilds:\n    esbuild: true\n"
+WORKSPACE = b"packages:\n    - '.'\nminimumReleaseAge: 10080\nminimumReleaseAgeExclude:\n    - posthog-js\n    - '@posthog/*'\n    - left-pad@1.3.0\nallowBuilds:\n    esbuild: true\n"
 PROVER = ".github/scripts/dependency_proof/prove.py"
 REPLAY_FLAGS = ["--lockfile-only", "--recursive", "--ignore-scripts", "--ignore-pnpmfile"]
 
@@ -44,7 +44,7 @@ def lockfile(
     deprecated: bool = False,
     catalog: str | None = None,
 ) -> bytes:
-    deprecation = "    deprecated: use something else\n" if deprecated else ""
+    deprecation = "    deprecated: |-\n      use something else,\n      see the notes\n" if deprecated else ""
     snapshot = (
         f"catalogs:\n  default:\n    {name}:\n      specifier: {catalog}\n      version: {version}\n\n"
         if catalog
@@ -71,9 +71,7 @@ def trees(name: str = "left-pad", head_range: str = "^1.3.1", head_version: str 
     return {WORKFLOW_SHA: base, MERGE_BASE: base, HEAD: {**head, **head_extra}}
 
 
-def catalog_trees(
-    name: str = "left-pad", head_catalog: str = "^1.3.1", head_version: str = "1.3.1", head_settings: bytes = b""
-) -> dict:
+def catalog_trees(name: str = "left-pad", head_catalog: str = "^1.3.1", head_version: str = "1.3.1") -> dict:
     def workspace(catalog: str) -> bytes:
         return WORKSPACE + f"catalog:\n    {name}: {catalog}\n".encode()
 
@@ -84,7 +82,7 @@ def catalog_trees(
     }
     head = {
         **base,
-        "pnpm-workspace.yaml": head_settings + workspace(head_catalog),
+        "pnpm-workspace.yaml": workspace(head_catalog),
         "pnpm-lock.yaml": lockfile(name, "catalog:", head_version, catalog=head_catalog),
     }
     return {WORKFLOW_SHA: base, MERGE_BASE: base, HEAD: head}
@@ -257,7 +255,12 @@ def stray(path: str, base: bytes, head: bytes) -> dict:
     [
         (FakeGitHub(pull(), pusher=42), trees(), None, "not pushed by the pull request author"),
         (FakeGitHub(pull(head_repository="fork/posthog")), trees(), None, "not in this repository"),
-        (None, trees(**{"pnpm-workspace.yaml": b"packages: []\n"}), None, "differs from the default branch outside"),
+        (
+            None,
+            trees(**{"pnpm-workspace.yaml": WORKSPACE.replace(b"'.'", b'"."')}),
+            None,
+            "differs from the default branch by more than a catalog version",
+        ),
         (None, trees(**{".npmrc": b"audit=false\n"}), None, ".npmrc is not a modification"),
         (
             None,
@@ -283,14 +286,9 @@ def stray(path: str, base: bytes, head: bytes) -> dict:
             None,
             "tools/pnpm-workspace.yaml is not beside a lockfile",
         ),
-        (
-            None,
-            catalog_trees(head_settings=b"trustPolicy: off\n"),
-            None,
-            "differs from the default branch outside catalog",
-        ),
         (None, catalog_trees(head_catalog="~1.3.1"), None, "changes the range operator"),
-        (None, catalog_trees("esbuild", head_version="1.3.0"), None, "esbuild is named in allowBuilds"),
+        (None, catalog_trees("esbuild"), None, "esbuild is named in allowBuilds"),
+        (None, catalog_trees(head_version="1.3.0"), None, "changes no direct dependency version"),
         (
             None,
             catalog_trees(),
@@ -372,6 +370,9 @@ def test_comparable_keeps_scalars_that_pnpm_reads_differently_apart(one: bytes, 
     ("text", "reason"),
     [
         (b"a: 1\na: 2\n", "repeats a key"),
+        (b"? [a]\n: 1\n", "a key that is not a scalar"),
+        (b'a: "b \n  c"\n', "spreads a scalar over lines"),
+        (b"packages:\n  a@1.0.0:\n    engines: |\n      node\n", "spreads a scalar over lines"),
         (b"a: [1\n", "does not parse"),
         (b"a: &x 1\nb: *x\n", "an alias or an explicit tag"),
         (b"hasBin: !!int true\n", "an alias or an explicit tag"),
