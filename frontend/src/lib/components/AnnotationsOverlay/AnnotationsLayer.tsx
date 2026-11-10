@@ -35,6 +35,13 @@ const stopPointerPropagation = (e: React.MouseEvent<HTMLDivElement>): void => {
     e.stopPropagation()
 }
 
+// The chart clears its tooltip on a move over an interactive overlay, such as the quill annotations popover.
+const stopMouseMoveOutsideInteractiveOverlay = (e: React.MouseEvent<HTMLDivElement>): void => {
+    if (!(e.target instanceof Element && e.target.closest('[data-hog-charts-interactive-overlay]'))) {
+        e.stopPropagation()
+    }
+}
+
 export function AnnotationsLayer({
     insightNumericId,
     dates,
@@ -91,7 +98,7 @@ export function AnnotationsLayer({
             className="HogChartsAnnotationsLayer"
             style={WRAPPER_STYLE}
             onClick={stopPointerPropagation}
-            onMouseMove={stopPointerPropagation}
+            onMouseMove={stopMouseMoveOutsideInteractiveOverlay}
             onMouseDown={stopPointerPropagation}
         >
             <AnnotationsOverlay
