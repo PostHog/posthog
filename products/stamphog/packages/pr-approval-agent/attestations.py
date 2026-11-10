@@ -32,7 +32,7 @@ from policy import Attestation
 _MARKER_RE = re.compile(r"<!--\s*stamphog:v1\s+(\[.*?\]|\{.*?\})\s*-->", re.DOTALL)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class ReviewedHead:
     """What stamphog is reviewing, for the object-form marker to match."""
 
