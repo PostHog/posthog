@@ -36,6 +36,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.activity_log_visibility import CANVASES_TABLE, activity_visibility_predicates
 from posthog.hogql.database.schema.information_schema import information_schema_node
+from posthog.hogql.database.schema.integrations import integrations
 from posthog.hogql.database.schema.tagged_items import TaggedItemsTable
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -1374,27 +1375,6 @@ group_type_mappings: PostgresTable = PostgresTable(
         "name_plural": StringDatabaseField(
             name="name_plural", description="Plural display label, e.g. 'organizations'."
         ),
-    },
-)
-
-integrations: PostgresTable = PostgresTable(
-    name="integrations",
-    postgres_table_name="posthog_integration",
-    access_scope="integration",
-    description="Third-party integrations connected to the project (Slack, GitHub, etc.); one row per integration.",
-    fields={
-        "id": IntegerDatabaseField(name="id", description="Integration id."),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "kind": StringDatabaseField(name="kind", description="Integration type, e.g. 'slack', 'github', 'salesforce'."),
-        "integration_id": StringDatabaseField(
-            name="integration_id", description="Identifier of the account/workspace in the external system."
-        ),
-        "config": StringJSONDatabaseField(name="config", description="JSON non-sensitive integration config."),
-        "errors": StringDatabaseField(
-            name="errors", description="Most recent error encountered using the integration."
-        ),
-        "created_at": DateTimeDatabaseField(name="created_at", description="When the integration was connected."),
-        "created_by_id": IntegerDatabaseField(name="created_by_id", description="User who connected the integration."),
     },
 )
 
