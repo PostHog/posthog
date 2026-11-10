@@ -58,6 +58,7 @@ from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 UNSUBSCRIBE_LINK_CASES = json.loads((Path(__file__).parents[2] / "unsubscribe_link_cases.json").read_text())
 CLICKABLE_UNSUBSCRIBE_LINKS = [(case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if case["has_unsubscribe_link"]]
+TEXT_LINK_INTO_LONG_PUNCTUATION = "Unsubscribe: {{ unsubscribe_url }}" + "." * 200_000 + "x"
 MISSING_UNSUBSCRIBE_LINKS = [
     (case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if not case["has_unsubscribe_link"]
 ]
@@ -966,8 +967,10 @@ class TestTransactionalEmail(APIBaseTest):
         [
             *MISSING_UNSUBSCRIBE_LINKS,
             ("text_link_running_into_liquid_markup", {"html": "", "text": TEXT_LINK_INTO_LIQUID_MARKUP}),
+            ("text_link_running_into_a_long_run_of_punctuation", {"html": "", "text": TEXT_LINK_INTO_LONG_PUNCTUATION}),
         ]
     )
+    @pytest.mark.timeout(60)
     def test_a_marketing_code_send_without_a_clickable_unsubscribe_link_is_refused(
         self, cdp_post, _flag, capture, _name, case
     ):

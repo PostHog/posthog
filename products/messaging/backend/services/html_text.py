@@ -43,7 +43,7 @@ UNSUBSCRIBE_PLACEHOLDER = re.compile(
 )
 TEXT_WORDS = re.compile(r"[\t\n\v\f\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+")
 TEXT_LINK_START = re.compile(r"[hH][tT][tT][pP][sS]?://|[wW]{3}\.")
-TEXT_LINK_END = re.compile(r"""[.,;:!?'")\]}>*]*\Z""")
+TEXT_LINK_END_PUNCTUATION = ".,;:!?'\")]}>*"
 TEXT_LINK_END_BEFORE_LIQUID = re.compile(r"""[.,;:!?'")\]}>*]*(?:\{[{%].*)?\Z""")
 BLANK_LINES = re.compile(r"\n{3,}")
 WHITESPACE = re.compile(r"\s+")
@@ -64,9 +64,12 @@ def has_unsubscribe_link(html: str, text: str, *, liquid: bool) -> bool:
 
 
 def _text_links_to(text: str, base: str, *, liquid: bool) -> list[str]:
-    end = TEXT_LINK_END_BEFORE_LIQUID if liquid else TEXT_LINK_END
     links = (word[start.start() :] for word in TEXT_WORDS.split(text) if (start := TEXT_LINK_START.search(word)))
-    return [end.sub("", link[len(base) :], count=1) for link in links if link.startswith(base)]
+    rests = (link[len(base) :] for link in links if link.startswith(base))
+    return [
+        TEXT_LINK_END_BEFORE_LIQUID.sub("", rest, count=1) if liquid else rest.rstrip(TEXT_LINK_END_PUNCTUATION)
+        for rest in rests
+    ]
 
 
 def text_from_html(html: str, *, keep_unsubscribe_link: bool = False) -> str:
