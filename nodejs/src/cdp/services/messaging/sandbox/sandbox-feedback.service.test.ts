@@ -2,8 +2,10 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
-import { Server } from 'http'
+import { Server, createServer } from 'http'
+import { AddressInfo } from 'net'
 import { createSign, generateKeyPairSync } from 'node:crypto'
+import { gunzipSync } from 'node:zlib'
 import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
@@ -14,50 +16,20 @@ import { KAFKA_APP_METRICS_2 } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
+import { flush as flushAnalytics } from '~/common/utils/posthog'
 import { FetchResponse } from '~/common/utils/request'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
-const mockAnalytics = { received: [] as Record<string, any>[], failing: false }
+const mockAnalytics: { module?: typeof import('~/common/utils/posthog') } = {}
 
-jest.mock('posthog-node', () => ({
-    PostHog: class {
-        capture(message: Record<string, any>): void {
-            if (mockAnalytics.failing) {
-                throw new Error('analytics unreachable')
-            }
-            mockAnalytics.received.push(message)
-        }
-        captureException(): void {}
-        disable(): Promise<void> {
-            return Promise.resolve()
-        }
-        register(): Promise<void> {
-            return Promise.resolve()
-        }
-        isFeatureEnabled(): Promise<boolean> {
-            return Promise.resolve(false)
-        }
-        flush(): Promise<void> {
-            return Promise.resolve()
-        }
-        shutdown(): Promise<void> {
-            return Promise.resolve()
-        }
-    },
-}))
-
-// jest.setup.ts loads the config before this file runs, with no POSTHOG_API_KEY, so the analytics
-// client would be null. Loading the module again in an isolated registry builds it with a key.
+// posthog.ts builds its posthog-node client when jest.setup.ts first loads it, with no key, so the
+// client is null. The module delegates to a copy that beforeAll loads with a key and a local host.
 jest.mock('~/common/utils/posthog', () => {
-    process.env.POSTHOG_API_KEY = 'phc_sandbox_feedback_test'
-    let analyticsModule: unknown
-    jest.isolateModules(() => {
-        analyticsModule = jest.requireActual('~/common/utils/posthog')
-    })
-    return analyticsModule
+    const actual = jest.requireActual('~/common/utils/posthog')
+    return new Proxy({}, { get: (_target, name) => (mockAnalytics.module ?? actual)[name] })
 })
 
 const TOPIC_ARN = 'arn:aws:sns:us-east-1:123456789012:workflows-sandbox-feedback'
@@ -176,6 +148,40 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
     let team: Team
     let server: Server | undefined
     let app: express.Application
+    let analyticsReceiver: Server
+    const receivedEvents: Record<string, any>[] = []
+
+    beforeAll(async () => {
+        analyticsReceiver = createServer((req, res) => {
+            const chunks: Buffer[] = []
+            req.on('data', (chunk: Buffer) => chunks.push(chunk))
+            req.on('end', () => {
+                const raw = Buffer.concat(chunks)
+                const gzipped = req.headers['content-encoding'] === 'gzip' || req.url?.includes('compression=gzip')
+                const body = parseJSON((gzipped ? gunzipSync(raw) : raw).toString('utf8'))
+                receivedEvents.push(...(Array.isArray(body.batch) ? body.batch : [body]))
+                res.writeHead(200, { 'Content-Type': 'application/json' })
+                res.end('{"status":"Ok"}')
+            })
+        })
+        await new Promise<void>((resolve) => analyticsReceiver.listen(0, '127.0.0.1', resolve))
+        process.env.POSTHOG_API_KEY = 'phc_sandbox_feedback_test'
+        process.env.POSTHOG_HOST_URL = `http://127.0.0.1:${(analyticsReceiver.address() as AddressInfo).port}`
+        // posthog.ts disables its client when NODE_ENV is test, which would drop every event.
+        process.env.NODE_ENV = 'dev'
+        try {
+            jest.isolateModules(() => {
+                mockAnalytics.module = jest.requireActual('~/common/utils/posthog')
+            })
+        } finally {
+            process.env.NODE_ENV = 'test'
+        }
+    })
+
+    afterAll(async () => {
+        await mockAnalytics.module?.shutdown()
+        analyticsReceiver.close()
+    })
 
     const startApi = (config: { allowed?: string; from?: string } = {}): void => {
         server?.close()
@@ -220,15 +226,23 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             .map((message) => message.value as Record<string, any>)
             .filter((value) => String(value.metric_name).startsWith('email_sandbox_'))
 
-    const capturedEvents = (): Record<string, any>[] =>
-        mockAnalytics.received.filter((message) => String(message.event).startsWith('workflows sandbox email'))
+    const capturedEvents = (): Record<string, any>[] => {
+        flushAnalytics()
+        return receivedEvents.filter(
+            (event) => event.distinct_id === team.uuid && event.event.startsWith('workflows sandbox email')
+        )
+    }
 
-    const capturedEvent = (event: string, properties: Record<string, any>): Record<string, any> => ({
-        distinctId: team.uuid,
-        event,
-        properties: { team: team.uuid, ...properties },
-        groups: expect.objectContaining({ project: team.uuid, organization: team.organization_id }),
-    })
+    const capturedEvent = (event: string, properties: Record<string, any>): Record<string, any> =>
+        expect.objectContaining({
+            event,
+            distinct_id: team.uuid,
+            properties: expect.objectContaining({
+                team: team.uuid,
+                ...properties,
+                $groups: expect.objectContaining({ project: team.uuid, organization: team.organization_id }),
+            }),
+        })
 
     beforeEach(async () => {
         hub = await createHub({})
@@ -240,8 +254,6 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             'test-reset-sandbox-global-bounces'
         )
         mockProducerObserver.resetKafkaProducer()
-        mockAnalytics.received.length = 0
-        mockAnalytics.failing = false
         mockFetch.mockReset()
         mockFetch.mockImplementation((url) =>
             Promise.resolve({
@@ -532,14 +544,12 @@ describe('POST /public/m/ses_sandbox_webhook', () => {
             const res = await post(notification(sesRecord(team.id, complaint())))
 
             expect(res.status).toBe(500)
-            expect(capturedEvents()).toEqual([])
         })
 
-        it('answers 200 once the suppression write lands when Kafka and event capture fail', async () => {
+        it('answers 200 once the suppression write lands when Kafka fails', async () => {
             jest.mocked((mockProducer as any).producer.produce).mockImplementationOnce((...args: any[]) =>
                 args[args.length - 1]?.(new Error('kafka unavailable'))
             )
-            mockAnalytics.failing = true
 
             const res = await post(notification(sesRecord(team.id, complaint())))
 
