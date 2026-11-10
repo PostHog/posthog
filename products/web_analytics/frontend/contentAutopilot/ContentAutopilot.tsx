@@ -7,6 +7,8 @@ import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
 import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
 import { ContentAutopilotPromptAddModal } from './ContentAutopilotPromptAddModal'
+import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
+import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { ContentAutopilotPrompts } from './ContentAutopilotPrompts'
 import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOverview'
 import { ContentAutopilotPromptSuggestModal } from './ContentAutopilotPromptSuggestModal'
@@ -25,6 +27,8 @@ export interface ContentAutopilotBotsTab {
 type AiVisibilityTab = ContentAutopilotWorkspaceTab | 'bots'
 
 export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): JSX.Element => {
+    // Mounted here, so a prompt's own URL opens it whatever tab was last open.
+    const { promptId } = useValues(contentAutopilotPromptDetailLogic)
     const {
         profile,
         activeRun,
@@ -117,76 +121,80 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                         </LemonBanner>
                     ) : null}
 
-                    <LemonTabs<AiVisibilityTab>
-                        activeKey={bots?.active ? 'bots' : workspaceTab}
-                        onChange={selectTab}
-                        data-attr="content-autopilot-workspace-tabs"
-                        rightSlot={
-                            activeRun ? (
-                                <LemonButton
-                                    type="tertiary"
-                                    status="danger"
-                                    size="small"
-                                    onClick={confirmCancelRun}
-                                    loading={runMutationLoading}
-                                    data-attr="content-autopilot-stop-drafting"
-                                >
-                                    Stop drafting
-                                </LemonButton>
-                            ) : null
-                        }
-                        tabs={[
-                            {
-                                key: 'overview',
-                                label: 'Overview',
-                                content: <ContentAutopilotPromptsOverview />,
-                            },
-                            {
-                                key: 'rankings',
-                                label: 'Rankings',
-                                content: <ContentAutopilotRankings />,
-                            },
-                            {
-                                key: 'prompts',
-                                label: 'Prompts',
-                                content: <ContentAutopilotPrompts />,
-                            },
-                            bots ? { key: 'bots', label: 'Bots', content: bots.content } : null,
-                            {
-                                key: 'opportunities',
-                                label: profile ? `Opportunities (${visibleOpportunities.length})` : 'Opportunities',
-                                content: (
-                                    <ContentAutopilotSiteGate>
-                                        <ContentAutopilotOpportunities />
-                                    </ContentAutopilotSiteGate>
-                                ),
-                            },
-                            profile
-                                ? {
-                                      key: 'drafts',
-                                      label: readyDraftCount
-                                          ? `Drafts (${readyDraftCount} ready to review)`
-                                          : `Drafts (${draftRows.length})`,
-                                      content: (
-                                          <ContentAutopilotSiteGate>
-                                              <ContentAutopilotDrafts />
-                                          </ContentAutopilotSiteGate>
-                                      ),
-                                  }
-                                : null,
-                            profile
-                                ? {
-                                      key: 'settings',
-                                      label: 'Settings',
-                                      content: (
-                                          <ContentAutopilotSiteGate>
-                                              <ContentAutopilotSetup />
-                                          </ContentAutopilotSiteGate>
-                                      ),
-                                  }
-                                : null,
-                        ]}
-                    />
+                    {promptId ? (
+                        <ContentAutopilotPromptDetail />
+                    ) : (
+                        <LemonTabs<AiVisibilityTab>
+                            activeKey={bots?.active ? 'bots' : workspaceTab}
+                            onChange={selectTab}
+                            data-attr="content-autopilot-workspace-tabs"
+                            rightSlot={
+                                activeRun ? (
+                                    <LemonButton
+                                        type="tertiary"
+                                        status="danger"
+                                        size="small"
+                                        onClick={confirmCancelRun}
+                                        loading={runMutationLoading}
+                                        data-attr="content-autopilot-stop-drafting"
+                                    >
+                                        Stop drafting
+                                    </LemonButton>
+                                ) : null
+                            }
+                            tabs={[
+                                {
+                                    key: 'overview',
+                                    label: 'Overview',
+                                    content: <ContentAutopilotPromptsOverview />,
+                                },
+                                {
+                                    key: 'rankings',
+                                    label: 'Rankings',
+                                    content: <ContentAutopilotRankings />,
+                                },
+                                {
+                                    key: 'prompts',
+                                    label: 'Prompts',
+                                    content: <ContentAutopilotPrompts />,
+                                },
+                                bots ? { key: 'bots', label: 'Bots', content: bots.content } : null,
+                                {
+                                    key: 'opportunities',
+                                    label: profile ? `Opportunities (${visibleOpportunities.length})` : 'Opportunities',
+                                    content: (
+                                        <ContentAutopilotSiteGate>
+                                            <ContentAutopilotOpportunities />
+                                        </ContentAutopilotSiteGate>
+                                    ),
+                                },
+                                profile
+                                    ? {
+                                          key: 'drafts',
+                                          label: readyDraftCount
+                                              ? `Drafts (${readyDraftCount} ready to review)`
+                                              : `Drafts (${draftRows.length})`,
+                                          content: (
+                                              <ContentAutopilotSiteGate>
+                                                  <ContentAutopilotDrafts />
+                                              </ContentAutopilotSiteGate>
+                                          ),
+                                      }
+                                    : null,
+                                profile
+                                    ? {
+                                          key: 'settings',
+                                          label: 'Settings',
+                                          content: (
+                                              <ContentAutopilotSiteGate>
+                                                  <ContentAutopilotSetup />
+                                              </ContentAutopilotSiteGate>
+                                          ),
+                                      }
+                                    : null,
+                            ]}
+                        />
+                    )}
                 </>
             )}
             <ContentAutopilotProposalDetail />

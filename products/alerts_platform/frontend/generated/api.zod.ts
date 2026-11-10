@@ -9,6 +9,132 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Add a receiver that routes can send alerts to.
+ */
+export const platformAlertReceiversCreateBodyNameMax = 255
+
+export const PlatformAlertReceiversCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(platformAlertReceiversCreateBodyNameMax)
+        .describe('Name of the receiver, unique in the project.'),
+    enabled: zod.boolean().optional().describe('Whether routes send to this receiver. Defaults to true.'),
+    type: zod
+        .enum(['slack', 'webhook', 'teams', 'discord'])
+        .describe('\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord')
+        .describe(
+            'Notification destination type.\n\n\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord'
+        ),
+    slack_workspace_id: zod
+        .number()
+        .optional()
+        .describe('Integration ID for the Slack workspace. Required when type=slack.'),
+    slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
+    slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
+    webhook_url: zod
+        .url()
+        .optional()
+        .describe(
+            'HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted.'
+        ),
+})
+
+/**
+ * Change a receiver. Destination fields replace the stored destination and need the type.
+ */
+export const platformAlertReceiversPartialUpdateBodyNameMax = 255
+
+export const PlatformAlertReceiversPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(platformAlertReceiversPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Name of the receiver, unique in the project.'),
+    enabled: zod.boolean().optional().describe('Whether routes send to this receiver. Defaults to true.'),
+    type: zod
+        .enum(['slack', 'webhook', 'teams', 'discord'])
+        .describe('\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord')
+        .optional()
+        .describe(
+            'Notification destination type.\n\n\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord'
+        ),
+    slack_workspace_id: zod
+        .number()
+        .optional()
+        .describe('Integration ID for the Slack workspace. Required when type=slack.'),
+    slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
+    slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
+    webhook_url: zod
+        .url()
+        .optional()
+        .describe(
+            'HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted.'
+        ),
+})
+
+/**
+ * Add a route. Every alert whose labels match it also sends to its receiver.
+ */
+
+export const PlatformAlertRoutesCreateBody = /* @__PURE__ */ zod.object({
+    receiver_id: zod.uuid().describe('ID of the receiver this route sends to.'),
+    matchers: zod
+        .array(
+            zod.object({
+                label: zod.string().describe('Name of an alert label, such as team.'),
+                value: zod.string().describe('The value the label must equal, such as checkout.'),
+            })
+        )
+        .optional()
+        .describe(
+            'Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project.'
+        ),
+    event_kinds: zod
+        .array(
+            zod
+                .enum(['firing', 'resolved', 'errored', 'broken'])
+                .describe(
+                    '\* `firing` - firing\n\* `resolved` - resolved\n\* `errored` - errored\n\* `broken` - broken'
+                )
+        )
+        .min(1)
+        .optional()
+        .describe('The alert transitions the receiver hears about through this route. Defaults to every kind.'),
+    enabled: zod.boolean().optional().describe('Whether this route sends. Defaults to true.'),
+})
+
+/**
+ * Change a route. Fields left out keep their stored value.
+ */
+
+export const PlatformAlertRoutesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    receiver_id: zod.uuid().optional().describe('ID of the receiver this route sends to.'),
+    matchers: zod
+        .array(
+            zod.object({
+                label: zod.string().describe('Name of an alert label, such as team.'),
+                value: zod.string().describe('The value the label must equal, such as checkout.'),
+            })
+        )
+        .optional()
+        .describe(
+            'Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project.'
+        ),
+    event_kinds: zod
+        .array(
+            zod
+                .enum(['firing', 'resolved', 'errored', 'broken'])
+                .describe(
+                    '\* `firing` - firing\n\* `resolved` - resolved\n\* `errored` - errored\n\* `broken` - broken'
+                )
+        )
+        .min(1)
+        .optional()
+        .describe('The alert transitions the receiver hears about through this route. Defaults to every kind.'),
+    enabled: zod.boolean().optional().describe('Whether this route sends. Defaults to true.'),
+})
+
 export const platformAlertsCreateBodyOneNameDefault = `Untitled alert`
 export const platformAlertsCreateBodyOneNameMax = 255
 
@@ -859,6 +985,13 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
 
 export const platformAlertsUpdateBodyOneNameMax = 255
 
+export const platformAlertsUpdateBodyOneSourceConfigOneSkipWeekendDefault = false
+export const platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault = 0
+export const platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin = 0
+
+export const platformAlertsUpdateBodyOneSourceConfigOneInvestigationAgentEnabledDefault = false
+export const platformAlertsUpdateBodyOneSourceConfigOneInvestigationGatesNotificationsDefault = false
+export const platformAlertsUpdateBodyOneSourceConfigOneInvestigationInconclusiveActionDefault = `notify`
 export const platformAlertsUpdateBodyOneGroupingOneMaxInstancesDefault = 100
 export const platformAlertsUpdateBodyOneGroupingOneMaxInstancesMax = 100
 
@@ -1014,6 +1147,41 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                                 ),
                         })
                         .describe("The bound the insight's value is checked against."),
+                    config: zod
+                        .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                        .optional()
+                        .describe(
+                            "Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API."
+                        ),
+                    skip_weekend: zod
+                        .boolean()
+                        .default(platformAlertsUpdateBodyOneSourceConfigOneSkipWeekendDefault)
+                        .describe("Whether checks skip Saturdays and Sundays. It can't change through this API."),
+                    evaluation_delay_intervals: zod
+                        .number()
+                        .min(platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin)
+                        .default(platformAlertsUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault)
+                        .describe(
+                            "How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API."
+                        ),
+                    investigation_agent_enabled: zod
+                        .boolean()
+                        .default(platformAlertsUpdateBodyOneSourceConfigOneInvestigationAgentEnabledDefault)
+                        .describe(
+                            "Whether an AI agent investigates each firing of an anomaly alert. It can't change through this API."
+                        ),
+                    investigation_gates_notifications: zod
+                        .boolean()
+                        .default(platformAlertsUpdateBodyOneSourceConfigOneInvestigationGatesNotificationsDefault)
+                        .describe(
+                            "Whether a firing waits for the agent's verdict, and is dropped when the agent calls it a false positive. It can't change through this API."
+                        ),
+                    investigation_inconclusive_action: zod
+                        .enum(['notify', 'suppress'])
+                        .default(platformAlertsUpdateBodyOneSourceConfigOneInvestigationInconclusiveActionDefault)
+                        .describe(
+                            "What a waiting firing does when the agent's verdict is inconclusive. It can't change through this API."
+                        ),
                 })
                 .describe('Settings for a insight alert. The bound the alert is evaluated against is under condition.'),
             grouping: zod
@@ -1798,6 +1966,13 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
 
 export const platformAlertsPartialUpdateBodyOneNameMax = 255
 
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneSkipWeekendDefault = false
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault = 0
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin = 0
+
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationAgentEnabledDefault = false
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationGatesNotificationsDefault = false
+export const platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationInconclusiveActionDefault = `notify`
 export const platformAlertsPartialUpdateBodyOneGroupingOneMaxInstancesDefault = 100
 export const platformAlertsPartialUpdateBodyOneGroupingOneMaxInstancesMax = 100
 
@@ -1957,6 +2132,45 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                                 ),
                         })
                         .describe("The bound the insight's value is checked against."),
+                    config: zod
+                        .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                        .optional()
+                        .describe(
+                            "Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API."
+                        ),
+                    skip_weekend: zod
+                        .boolean()
+                        .default(platformAlertsPartialUpdateBodyOneSourceConfigOneSkipWeekendDefault)
+                        .describe("Whether checks skip Saturdays and Sundays. It can't change through this API."),
+                    evaluation_delay_intervals: zod
+                        .number()
+                        .min(platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsMin)
+                        .default(platformAlertsPartialUpdateBodyOneSourceConfigOneEvaluationDelayIntervalsDefault)
+                        .describe(
+                            "How many of the most recent intervals a check leaves out, so late data can arrive. It can't change through this API."
+                        ),
+                    investigation_agent_enabled: zod
+                        .boolean()
+                        .default(platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationAgentEnabledDefault)
+                        .describe(
+                            "Whether an AI agent investigates each firing of an anomaly alert. It can't change through this API."
+                        ),
+                    investigation_gates_notifications: zod
+                        .boolean()
+                        .default(
+                            platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationGatesNotificationsDefault
+                        )
+                        .describe(
+                            "Whether a firing waits for the agent's verdict, and is dropped when the agent calls it a false positive. It can't change through this API."
+                        ),
+                    investigation_inconclusive_action: zod
+                        .enum(['notify', 'suppress'])
+                        .default(
+                            platformAlertsPartialUpdateBodyOneSourceConfigOneInvestigationInconclusiveActionDefault
+                        )
+                        .describe(
+                            "What a waiting firing does when the agent's verdict is inconclusive. It can't change through this API."
+                        ),
                 })
                 .optional()
                 .describe('Settings for a insight alert. The bound the alert is evaluated against is under condition.'),

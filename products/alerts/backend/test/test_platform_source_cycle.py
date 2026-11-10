@@ -32,6 +32,7 @@ from posthog.tasks.alerts.utils import (
     RenderedInsightChart,
     next_check_time,
 )
+from posthog.temporal.ai.anomaly_investigation.workflow import _investigated_alert as load_investigated_alert
 from posthog.temporal.alerts.admission import admit_evaluation_slots, inflight_alert_ids, release_evaluation_slot
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 
@@ -70,6 +71,7 @@ from products.alerts.backend.platform_source_cycle import (
     ChartRenderTimedOut,
     evaluate_insight_check,
     fail_insight_check,
+    legacy_alerts_of,
     plan_insight_batch,
     readmit_retried_check,
     render_firing_chart,
@@ -129,7 +131,12 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                     "team_id": self.team.id,
                     "name": "alert",
                     "source_kind": SourceKind.INSIGHT,
-                    "source_config": {SOURCE_CONDITION_KEY: {"detector": alert.detector_config}} if alert else {},
+                    "source_config": {
+                        "insight_id": alert.insight_id,
+                        SOURCE_CONDITION_KEY: {"detector": alert.detector_config},
+                    }
+                    if alert
+                    else {},
                     "check_interval_minutes": 60 * 24,
                     "recurrence_unit": "day",
                     "next_check_at": CUTOFF - timedelta(minutes=1),
@@ -688,11 +695,67 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         query.assert_not_called()
         assert outcome is None
 
-    def test_a_copy_whose_production_alert_is_gone_is_disabled(self) -> None:
-        outcome, query = self._evaluate(self._copy(None))
+    @parameterized.expand(
+        [
+            ("copy_whose_production_alert_is_gone", {"legacy_configuration_id": UUID(int=404)}),
+            ("alert_whose_insight_is_gone", {"source_config": {"insight_id": 0}}),
+            ("alert_whose_insight_was_deleted", None),
+        ]
+    )
+    def test_an_alert_with_nothing_left_to_check_is_disabled(
+        self, _name: str, overrides: dict[str, Any] | None
+    ) -> None:
+        if overrides is None:
+            insight = self._alert().insight
+            insight.deleted = True
+            insight.save()
+            overrides = {"source_config": {"insight_id": insight.id}}
+        outcome, query = self._evaluate(self._copy(None, **overrides))
 
         query.assert_not_called()
         assert outcome is not None and outcome.disable
+
+    def test_an_alert_insight_keeps_no_row_for_is_checked_and_delivered_under_its_own_id(self) -> None:
+        alert = self._alert(evaluation_delay_intervals=1)
+        insight = alert.insight
+        assert alert.threshold is not None
+        threshold = alert.threshold.configuration
+        configuration = self._copy(
+            None,
+            owner=PlatformAlertOwner.PLATFORM,
+            created_by_id=self.user.id,
+            source_config={
+                "insight_id": insight.id,
+                SOURCE_CONDITION_KEY: {"threshold": threshold, "comparison": alert.condition, "detector": None},
+                "config": alert.config,
+                "skip_weekend": False,
+                "evaluation_delay_intervals": 1,
+            },
+        )
+        alert.delete()
+        slot = slot_of(configuration.next_check_at, CUTOFF)
+        planned = legacy_alerts_of(self.team.id, slot, CUTOFF, [str(configuration.id)])[str(configuration.id)]
+        assert (planned.calculation_interval, planned.platform_owned) == (AlertCalculationInterval.DAILY, True)
+
+        outcome, query = self._evaluate(
+            configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"])
+        )
+
+        (evaluated,) = query.call_args.args
+        assert (
+            evaluated.id,
+            evaluated.insight_id,
+            evaluated.threshold.configuration,
+            evaluated.config,
+            evaluated.evaluation_delay_intervals,
+            evaluated.created_by_id,
+        ) == (configuration.id, insight.id, threshold, alert.config, 1, self.user.id)
+        assert outcome is not None
+        assert (outcome.groups[0].kind, outcome.disable) == (AlertEventKind.FIRING, False)
+        assert [(delivery.destination_alert_id, delivery.source_alert_url) for delivery in self.deliveries] == [
+            (str(configuration.id), insight_alert_url(self.team.id, insight.short_id, str(configuration.id)))
+        ]
+        assert not AlertConfiguration.objects.filter(team=self.team).exists()
 
     @parameterized.expand(
         [
@@ -1110,6 +1173,39 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             assert investigation.evaluated["value"] == 150.0
             assert investigation.evaluated["triggered_dates"] == ["2026-09-16"]
         assert len(claims.deliveries) == (1 if not claimed and verdict is None else 0)
+
+    def test_an_alert_insight_keeps_no_row_for_is_investigated_under_its_own_id(self) -> None:
+        alert = self._alert(detector_config={"type": "zscore", "threshold": 0.95, "window": 30})
+        insight = alert.insight
+        configuration = self._copy(
+            None,
+            owner=PlatformAlertOwner.PLATFORM,
+            created_by_id=self.user.id,
+            source_config={
+                "insight_id": insight.id,
+                SOURCE_CONDITION_KEY: {"detector": alert.detector_config},
+                "investigation_agent_enabled": True,
+                "investigation_gates_notifications": True,
+            },
+        )
+        alert.delete()
+
+        outcome = self._fire(configuration)
+        record_outcomes(self.team.id, (outcome,), CUTOFF)
+        claims = claim_requested_investigations(self.team.id, (outcome,))
+
+        assert outcome.held_delivery is not None
+        (start,) = claims.starts
+        assert (start.alert_id, start.user_id) == (str(configuration.id), self.user.id)
+        investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get(id=start.investigation_id)
+        assert (investigation.alert_configuration_id, investigation.configuration_id) == (None, configuration.id)
+        investigated = load_investigated_alert(self.team.id, configuration.id)
+        assert investigated is not None
+        assert (investigated.id, investigated.insight_id, investigated.investigation_gates_notifications) == (
+            configuration.id,
+            insight.id,
+            True,
+        )
 
     def test_a_firing_whose_investigation_cannot_be_decided_still_goes_out(self) -> None:
         _alert, configuration = self._investigated_alert(investigation_gates_notifications=True)

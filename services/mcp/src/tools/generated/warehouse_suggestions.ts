@@ -39,6 +39,7 @@ const warehouseSuggestionsAcceptPrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'warehouse-suggestions-accept',
+            inputSchema: WarehouseSuggestionsAcceptSchema(),
             actionLabel: 'accept warehouse suggestion',
             messageTemplate:
                 "About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table. If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute cost. If it is a deprecate suggestion on a materialized view, its refreshes stop and its stored table is deleted, unless keep_materialized is true. If delete_view is true, the view is deleted for good. If it is an unmaterialize suggestion, the view's refreshes stop, its stored table is deleted, and each read computes the view instead. Reply 'confirm' to proceed.\n",
@@ -63,8 +64,8 @@ const warehouseSuggestionsAcceptExecute = (): ToolBase<
             {
                 incomingArgs: confirmationParams,
                 purpose: 'warehouse-suggestions-accept',
+                inputSchema: WarehouseSuggestionsAcceptSchema(),
                 codec: __runtime.codec,
-                ledger: __runtime.ledger,
                 stash: __runtime.stash,
                 expectedScope: { projectId: String(__scopeProjectId) },
             }
@@ -210,6 +211,7 @@ const warehouseSuggestionsList = (): ToolBase<
                 offset: params.offset,
                 status: params.status,
                 subject_id: params.subject_id,
+                surface: params.surface,
             },
         })
         const filtered = {
@@ -252,7 +254,10 @@ const warehouseSuggestionsResume = (): ToolBase<
     },
 })
 
-const WarehouseSuggestionsStatusSchema = () => z.object({})
+const WarehouseSuggestionsStatusSchema = () => {
+    const WarehouseSuggestionsStatusRetrieveQueryParams = orvalSchemas.WarehouseSuggestionsStatusRetrieveQueryParams()
+    return WarehouseSuggestionsStatusRetrieveQueryParams
+}
 
 const warehouseSuggestionsStatus = (): ToolBase<
     ReturnType<typeof WarehouseSuggestionsStatusSchema>,
@@ -260,11 +265,14 @@ const warehouseSuggestionsStatus = (): ToolBase<
 > => ({
     name: 'warehouse-suggestions-status',
     schema: WarehouseSuggestionsStatusSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof WarehouseSuggestionsStatusSchema>>) => {
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WarehouseSuggestionsStatusSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.WarehouseSuggestionStatus>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_suggestions/status/`,
+            query: {
+                surface: params.surface,
+            },
         })
         return result
     },

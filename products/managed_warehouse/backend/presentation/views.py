@@ -79,6 +79,9 @@ class PresentedTrinoStatus(TypedDict):
     state: TrinoStatusState
     ready_at: str | None
     connection: PresentedTrinoConnection | None
+    # The Trino catalog is a hoglake catalog that hoglake has created. Only then do hoglake
+    # credentials reach anything: a DuckLake catalog has no hoglake behind it.
+    hoglake: bool
 
 
 _TRINO_LIFECYCLE_STATES = frozenset({"pending", "provisioning", "ready", "failed"})
@@ -1210,12 +1213,12 @@ def trino_status_for(organization_id: UUID | str) -> PresentedTrinoStatus:
     The control plane's Trino status is an operator payload. Only the lifecycle state, the ready
     time, and the connection target leave this function.
     """
-    unavailable = PresentedTrinoStatus(state="unavailable", ready_at=None, connection=None)
+    unavailable = PresentedTrinoStatus(state="unavailable", ready_at=None, connection=None, hoglake=False)
     resp = _request("GET", organization_id, "/trino", timeout=10)
     if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
         return unavailable
     if resp.data.get("enabled") is not True:
-        return PresentedTrinoStatus(state="not_enabled", ready_at=None, connection=None)
+        return PresentedTrinoStatus(state="not_enabled", ready_at=None, connection=None, hoglake=False)
 
     trino_status = resp.data.get("status")
     if not isinstance(trino_status, dict):
@@ -1240,10 +1243,12 @@ def trino_status_for(organization_id: UUID | str) -> PresentedTrinoStatus:
         logger.warning("unexpected_trino_lifecycle_state", organization_id=str(organization_id), state=str(raw_state))
         return unavailable
     ready_at = trino_status.get("ready_at")
+    backend = resp.data.get("backend") or trino_status.get("backend")
     return PresentedTrinoStatus(
         state=state,
         ready_at=ready_at if isinstance(ready_at, str) else None,
         connection=_present_trino_connection(trino_status) if state == "ready" else None,
+        hoglake=backend == "hoglake" and resp.data.get("hoglake_initialized") is True,
     )
 
 
