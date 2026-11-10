@@ -1014,7 +1014,7 @@ export const ExecuteSQLSchema = z.object({
         .string()
         .optional()
         .describe(
-            'Why this query runs, and the governed-catalog outcome behind it: state "governed catalog consulted: no match" here when no approved metric covered the measure. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.'
+            'Why this query runs, and the governed-catalog outcome behind it. Write "governed catalog consulted: no match" here only after a catalog check found no approved metric for the measure: a `metric-list` call, or a metric listing that your instructions provide. Without that check, leave the phrase out. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.'
         ),
     truncate: z
         .boolean()

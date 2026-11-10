@@ -45,7 +45,13 @@ describe('workflowFoldersLogic', () => {
                         { id: 'cards', path: 'Billing/Cards', type: 'folder' },
                         { id: 'empty', path: 'Empty', type: 'folder' },
                         { id: 'dashboards', path: 'Reports', type: 'folder' },
-                        { id: 'report', path: 'Reports/Overview', type: 'dashboard', ref: 'synthetic-report' },
+                        {
+                            id: 'report',
+                            path: 'Reports/Overview',
+                            type: 'insight',
+                            ref: 'synthetic-report',
+                            meta: { type: 'SQL' },
+                        },
                         { id: 'unfiled', path: 'Unfiled', type: 'folder' },
                         { id: 'cohorts', path: 'Unfiled/Cohorts', type: 'folder' },
                         { id: 'direct', path: 'Billing/Welcome', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[0].id },
@@ -69,7 +75,7 @@ describe('workflowFoldersLogic', () => {
                         200,
                         paginated(
                             entries.filter((entry) =>
-                                type?.startsWith('-') ? entry.type === 'dashboard' : entry.type === type
+                                type?.startsWith('-') ? entry.type === 'insight' : entry.type === type
                             )
                         ),
                     ]
@@ -391,6 +397,33 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderTemplates.map((entry) => entry.ref)).toEqual(['template-receipt'])
     })
 
+    it('puts back the renamed file, not its old name, after the shared tree refreshes it and prunes', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openFolder('Billing/Cards')
+        const renamed = {
+            id: 'receipt',
+            path: 'Billing/Cards/Receipt v2',
+            type: 'message_template',
+            ref: 'template-receipt',
+            team_id: MOCK_TEAM_ID,
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': ({ request }) =>
+                    new URL(request.url).searchParams.get('ref') === 'template-receipt'
+                        ? [200, paginated([renamed])]
+                        : [200, paginated([])],
+            },
+        })
+        await projectTreeDataLogic.asyncActions.syncTypeAndRef('message_template', 'template-receipt', true)
+        logic.actions.openFolder('Empty')
+        projectTreeDataLogic.actions.pruneClosedFolders(['project://'])
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openFolder('Billing/Cards')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Billing/Cards/Receipt v2'])
+    })
+
     it.each([
         ['pages through a folder the shared tree cut to its first page, and nothing else', 200],
         ['keeps the cached files of a cut folder whose next page fails', 500],
@@ -584,6 +617,12 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderDraftError).toBe(EXISTS)
     })
 
+    it("keeps the metadata of other products' files it writes into the shared tree", async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const report = projectTreeDataLogic.values.folders['Reports']?.find((entry) => entry.id === 'report')
+        expect(report?.meta).toEqual({ type: 'SQL' })
+    })
+
     it("paints the folders before other products' files load, and checks folder names once they have", async () => {
         logic.unmount()
         let releaseOtherFiles!: () => void
@@ -618,6 +657,36 @@ describe('workflowFoldersLogic', () => {
         await waitFor(() => expect(logic.values.folderDraftError).toBe(EXISTS))
     })
 
+    it("checks folder names only once the folder scan has loaded, even when other products' files load first", async () => {
+        logic.unmount()
+        let releaseFolders!: () => void
+        const foldersHeld = new Promise<void>((resolve) => (releaseFolders = resolve))
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': async ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search') ?? ''
+                    if (search === 'type:folder') {
+                        await foldersHeld
+                        return [200, paginated([{ id: 'billing', path: 'Billing', type: 'folder' }])]
+                    }
+                    return [200, paginated([])]
+                },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        logic = workflowFoldersLogic()
+        logic.mount()
+
+        await waitFor(() => expect(logic.values.otherFilesReady).toBe(true))
+        logic.actions.startFolderDraft('')
+        logic.actions.setFolderDraftName('billing')
+        expect(logic.values.folderDraftError).toBe('Checking existing folder names. Try again in a moment.')
+
+        releaseFolders()
+        await waitFor(() => expect(logic.values.folderDraftError).toBe(EXISTS))
+    })
+
     it.each([
         ['a case-only rename of the same folder', 'billing', 'Billing', ['Billing'], null],
         ['a case-only rename onto a separate folder', 'billing', 'Billing', ['Billing', 'billing'], EXISTS],
@@ -627,9 +696,9 @@ describe('workflowFoldersLogic', () => {
     })
 
     it.each([
-        ['every scan fails', false],
-        ["only the other products' scan fails, before the folder scans answer", true],
-    ])('reports a failed folder index when %s, and recovers on retry', async (_, folderScansSucceed) => {
+        ['every scan fails', false, true],
+        ["only the other products' scan fails, before the folder scans answer", true, false],
+    ])('reports a failed scan when %s, and recovers on retry', async (_, folderScansSucceed, blocksContents) => {
         await expectLogic(logic).toFinishAllListeners()
         let releaseFolderScans!: () => void
         const folderScansHeld = new Promise<void>((resolve) => (releaseFolderScans = resolve))
@@ -647,10 +716,14 @@ describe('workflowFoldersLogic', () => {
         await expectLogic(logic, () => logic.actions.loadBrowser()).toDispatchActions(['loadOtherFilesFailure'])
         releaseFolderScans()
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.browserLoadFailed).toBe(true)
+        expect(logic.values.browserLoadFailed).toBe(blocksContents)
+        expect(logic.values.otherFilesScanFailed).toBe(true)
         useMocks({ get: { '/api/projects/:team_id/file_system/': () => [200, paginated([])] } })
-        await expectLogic(logic, () => logic.actions.loadBrowser()).toFinishAllListeners()
+        await expectLogic(logic, () =>
+            blocksContents ? logic.actions.loadBrowser() : logic.actions.loadOtherFiles()
+        ).toFinishAllListeners()
         expect(logic.values.browserLoadFailed).toBe(false)
+        expect(logic.values.otherFilesScanFailed).toBe(false)
     })
 
     it('restores folders when the project tree prunes during an index refresh', async () => {

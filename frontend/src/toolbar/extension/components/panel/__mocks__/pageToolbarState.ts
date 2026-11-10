@@ -37,6 +37,17 @@ export function pageToolbarState(mode: PageToolbarMode): PageToolbarState {
             heatmapFixedPositionMode: 'fixed',
             viewportRange: { min: 1152, max: 1408 },
             rawHeatmapLoading: false,
+            variantFilter: null,
+            variantFlags: [
+                {
+                    flagKey: 'pricing-page-redesign',
+                    variants: [
+                        { flagKey: 'pricing-page-redesign', variant: 'control' },
+                        { flagKey: 'pricing-page-redesign', variant: 'test' },
+                    ],
+                },
+            ],
+            variantFilterGate: true,
             heatmapsCollection: 'enabled',
             scrollDepthPosthogJsError: null,
             clickmapsEnabled: true,

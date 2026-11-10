@@ -48,16 +48,23 @@ def on_created(*, team_id: int, alert_id: UUID, at: datetime, grouping: Grouping
     return alert is not None and platform_ownership.on_created(alert, at, grouping=grouping)
 
 
-def on_updated(*, team_id: int, alert_id: UUID, snooze_changed: bool, grouping: Grouping | None = None) -> None:
+def on_updated(
+    *,
+    team_id: int,
+    alert_id: UUID,
+    snooze_changed: bool,
+    grouping: Grouping | None = None,
+    at: datetime | None = None,
+) -> None:
     """Writes an edit the logs API saved onto the platform's copy, with the grouping the edit set.
-    A `grouping` of None keeps the copy's own.
+    A `grouping` of None keeps the copy's own. `at` is when the edit started, before its logs history row.
 
     Raises `InvalidPlatformAlertEdit` when the platform's schema rejects the edit, or when the
     alert cannot take the grouping. Only an alert the platform owns can take one other than single.
     """
     alert = _alert(team_id, alert_id)
     if alert is not None:
-        platform_ownership.on_updated(alert, snooze_changed=snooze_changed, grouping=grouping)
+        platform_ownership.on_updated(alert, snooze_changed=snooze_changed, grouping=grouping, at=at)
 
 
 def creates_native_alert(team_id: int) -> bool:
