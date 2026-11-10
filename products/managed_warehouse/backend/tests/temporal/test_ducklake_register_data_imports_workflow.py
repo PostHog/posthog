@@ -2176,8 +2176,9 @@ class _FakeS3:
         ),
     ],
 )
-def test_trino_copy_activity_deletes_its_files_only_before_it_adds_any(
-    monkeypatch, registration, partial_copy_fails, rm_mode, expected_error, expected_result, files_deleted
+@pytest.mark.parametrize("engine", [ENGINE_TRINO, ENGINE_DUCKGRES])
+def test_copy_activity_deletes_its_files_only_before_it_adds_any(
+    monkeypatch, engine, registration, partial_copy_fails, rm_mode, expected_error, expected_result, files_deleted
 ) -> None:
     base = _activity_inputs()
     source_prefix = base.metadata.prepared_source_uri.removeprefix("s3://").rstrip("/")
@@ -2193,22 +2194,45 @@ def test_trino_copy_activity_deletes_its_files_only_before_it_adds_any(
             raise RuntimeError("add files failed")
         return trino_module.TrinoRegistrationResult(published=registration == "published", row_count=3)
 
+    def duckgres_execute(query: object) -> MagicMock:
+        query_text = str(query)
+        if "CREATE TABLE" in query_text and registration == "fails_before_add_files":
+            raise ApplicationError("footer type error", non_retryable=True)
+        if "ducklake_add_data_files" in query_text and registration == "fails_after_add_files_started":
+            raise RuntimeError("add files failed")
+        if "SELECT count(*)" in query_text:
+            return MagicMock(fetchone=MagicMock(return_value=(3,)))
+        return MagicMock()
+
+    duckgres_conn = MagicMock(closed=False)
+    duckgres_conn.execute.side_effect = duckgres_execute
+
     monkeypatch.setattr(registration_module, "get_s3_client", lambda: fake_s3)
     monkeypatch.setattr(registration_module, "capture_exception", capture)
     monkeypatch.setattr(
         registration_module, "register_prepared_files_through_trino", MagicMock(side_effect=fake_register)
     )
-    monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: True)
+    monkeypatch.setattr(
+        registration_module, "_connect_to_duckgres_for_team", lambda team_id: contextlib.nullcontext(duckgres_conn)
+    )
+    monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    monkeypatch.setattr(
+        registration_module, "_should_publish_prepared_generation", lambda inputs: registration != "unpublished"
+    )
     monkeypatch.setattr(registration_module, "_duckgres_cancel_delay", lambda started: 99.0)
     monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
     monkeypatch.setattr(registration_module, "HeartbeaterSync", lambda **kwargs: contextlib.nullcontext())
     _mock_activity_workload_metrics(monkeypatch)
+    if engine == ENGINE_TRINO:
+        registration_table_names = registration_module._new_trino_registration_table_names(
+            dt.datetime.now(dt.UTC) - dt.timedelta(minutes=5), "a1b2c3d4e5f60718"
+        )
+    else:
+        registration_table_names = registration_module.registration_table_names_from_token("feedc0de" * 4)
     inputs = dataclasses.replace(
         base,
-        metadata=dataclasses.replace(base.metadata, engine=ENGINE_TRINO, source_schema_id=str(uuid.UUID(int=5))),
-        registration_table_names=registration_module._new_trino_registration_table_names(
-            dt.datetime.now(dt.UTC) - dt.timedelta(minutes=5), "a1b2c3d4e5f60718"
-        ),
+        metadata=dataclasses.replace(base.metadata, engine=engine, source_schema_id=str(uuid.UUID(int=5))),
+        registration_table_names=registration_table_names,
     )
 
     if expected_error is not None:

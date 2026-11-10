@@ -11,7 +11,7 @@ import datetime as dt
 import threading
 import contextlib
 import dataclasses
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 
 from django.conf import settings
 from django.db import close_old_connections
@@ -458,6 +458,12 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
 
     registration_names = inputs.registration_table_names or _new_registration_table_names()
     attempt_inputs = dataclasses.replace(inputs, registration_table_names=registration_names)
+    add_files_started = False
+
+    def mark_add_files_started() -> None:
+        nonlocal add_files_started
+        add_files_started = True
+
     with heartbeater:
         generation_uri = _generation_scoped_landing_uri(
             inputs.metadata.landing_uri,
@@ -468,12 +474,12 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
         # second registration of the same generation never lists the files of the table that it replaces.
         attempt_token = registration_names.shadow_name.removeprefix(_SHADOW_TABLE_PREFIX)
         landing_uri = f"{generation_uri}/{attempt_token}"
-        with _stage_timer(stage="copy", team_id=inputs.team_id, schema_id=schema_id):
-            landing_paths, copied_bytes = _copy_prepared_parquet_files(
-                inputs.metadata.prepared_source_uri,
-                landing_uri,
-            )
         try:
+            with _stage_timer(stage="copy", team_id=inputs.team_id, schema_id=schema_id):
+                landing_paths, copied_bytes = _copy_prepared_parquet_files(
+                    inputs.metadata.prepared_source_uri,
+                    landing_uri,
+                )
             with _connect_to_duckgres_for_team(inputs.team_id) as conn:
                 cancel_delay = _duckgres_cancel_delay(activity_started_monotonic)
                 with _cancel_duckgres_query_after(conn, cancel_delay) as cancel_requested:
@@ -483,10 +489,17 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
                         landing_uri,
                         landing_paths,
                         cancel_requested=cancel_requested,
+                        before_add_data_files=mark_add_files_started,
                     )
         except _StalePreparedGenerationError:
             _record_stale_generation_skip(team_id=inputs.team_id, schema_id=schema_id, logger=logger)
             return False
+        except Exception:
+            # No table can reference this attempt's files before it adds them, and no other attempt writes into
+            # this folder.
+            if not add_files_started:
+                _delete_attempt_landing_files(landing_uri, logger=logger)
+            raise
 
         _record_registration_metrics(
             team_id=inputs.team_id,
@@ -615,7 +628,7 @@ def _copy_and_register_through_trino(
             # No table can reference this execution's files before it adds them, and no other execution writes
             # into this folder.
             if not add_files_started:
-                _delete_trino_landing_files(landing_uri, logger=logger)
+                _delete_attempt_landing_files(landing_uri, logger=logger)
             raise
         if not result.published:
             _record_stale_generation_skip(team_id=inputs.team_id, schema_id=schema_id, logger=logger)
@@ -637,7 +650,7 @@ def _copy_and_register_through_trino(
         return True
 
 
-def _trino_landing_files(landing_uri: str) -> list[str]:
+def _attempt_landing_files(landing_uri: str) -> list[str]:
     s3 = get_s3_client()
     # The trailing slash keeps the listing inside this execution's folder.
     prefix = landing_uri.removeprefix("s3://").rstrip("/") + "/"
@@ -645,22 +658,22 @@ def _trino_landing_files(landing_uri: str) -> list[str]:
     return list(s3.find(prefix))
 
 
-def _delete_trino_landing_files(landing_uri: str, *, logger: typing.Any) -> None:
+def _delete_attempt_landing_files(landing_uri: str, *, logger: typing.Any) -> None:
     try:
-        paths = _trino_landing_files(landing_uri)
+        paths = _attempt_landing_files(landing_uri)
         if paths:
             get_s3_client().rm(paths)
-        remaining = _trino_landing_files(landing_uri)
+        remaining = _attempt_landing_files(landing_uri)
         if remaining:
             raise RuntimeError(f"{len(remaining)} files remain after the delete")
         logger.info(
-            "Deleted the files of a Trino registration attempt that added none of them",
+            "Deleted the files of a registration attempt that added none of them",
             landing_uri=landing_uri,
             file_count=len(paths),
         )
     except Exception as error:
         logger.warning(
-            "Failed to delete the files of a Trino registration attempt that added none of them",
+            "Failed to delete the files of a registration attempt that added none of them",
             landing_uri=landing_uri,
             error=str(error),
         )
@@ -954,6 +967,7 @@ def _register_prepared_parquet_files(
     landing_paths: list[str],
     *,
     cancel_requested: threading.Event | None = None,
+    before_add_data_files: Callable[[], None] | None = None,
 ) -> int:
     schema_name = inputs.metadata.ducklake_schema_name
     table_name = inputs.metadata.ducklake_table_name
@@ -990,6 +1004,8 @@ def _register_prepared_parquet_files(
                     )
                 )
             _raise_if_duckgres_cancel_requested(cancel_requested)
+            if before_add_data_files is not None:
+                before_add_data_files()
             for path_batch in _add_data_files_path_batches(landing_paths):
                 _raise_if_duckgres_cancel_requested(cancel_requested)
                 conn.execute(
