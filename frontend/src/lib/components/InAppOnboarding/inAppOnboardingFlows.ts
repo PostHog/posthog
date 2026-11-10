@@ -1,6 +1,5 @@
 import { HotKeyOrModifier } from '~/types'
 
-/** Something the user did that a step can wait for. The logic maps app actions onto these. */
 export type InAppOnboardingSignal = 'command-opened-by-keyboard' | 'command-closed' | 'command-result-opened'
 
 export interface InAppOnboardingStep {
@@ -8,10 +7,8 @@ export interface InAppOnboardingStep {
     key: string
     title: string
     description: string
-    /** The keys the step asks for, shown as a keyboard shortcut. */
     keys?: HotKeyOrModifier[]
     signal: InAppOnboardingSignal
-    /** How many times the signal has to happen before the step is done. */
     times: number
 }
 
@@ -71,5 +68,4 @@ export const COMMAND_K_FLOW: InAppOnboardingFlow = {
     },
 }
 
-/** Flows in the order they run. Only one shows at a time: the first the user has not finished or skipped. */
 export const IN_APP_ONBOARDING_FLOWS: InAppOnboardingFlow[] = [COMMAND_K_FLOW]

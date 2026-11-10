@@ -56,8 +56,6 @@ export interface inAppOnboardingLogicActions {
 
 export type inAppOnboardingLogicType = MakeLogicType<inAppOnboardingLogicValues, inAppOnboardingLogicActions>
 
-/** Runs the in-app onboarding flows: picks the one to show, moves it on as the user does each step,
- * and records finishing or skipping it against the user so it shows once. */
 export const inAppOnboardingLogic = kea<inAppOnboardingLogicType>([
     path(['lib', 'components', 'InAppOnboarding', 'inAppOnboardingLogic']),
     connect(() => ({
@@ -73,7 +71,6 @@ export const inAppOnboardingLogic = kea<inAppOnboardingLogicType>([
         reportFlowShown: (flowKey: string) => ({ flowKey }),
     }),
     reducers({
-        // Kept across reloads, so a refresh mid-flow picks up at the same step.
         progressByFlow: [
             {} as Record<string, InAppOnboardingProgress>,
             { persist: true },

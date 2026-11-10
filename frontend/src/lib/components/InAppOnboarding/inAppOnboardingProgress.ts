@@ -2,7 +2,6 @@ import { InAppOnboardingFlow, InAppOnboardingSignal } from './inAppOnboardingFlo
 
 export interface InAppOnboardingProgress {
     stepIndex: number
-    /** How many times the current step's signal has happened so far. */
     count: number
 }
 
@@ -12,7 +11,6 @@ export function isFlowComplete(flow: InAppOnboardingFlow, progress: InAppOnboard
     return progress.stepIndex >= flow.steps.length
 }
 
-/** Moves a flow on by one signal. Returns the same object when the signal is not the one the current step waits for. */
 export function advanceProgress(
     flow: InAppOnboardingFlow,
     progress: InAppOnboardingProgress,

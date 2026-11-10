@@ -21,7 +21,6 @@ describe('inAppOnboardingLogic', () => {
         } as UserType)
     }
 
-    // Drives the palette the way a person does, through the command logic rather than the onboarding one.
     const pressCommandK = (): void => commandLogic.actions.toggleCommand('keyboard-shortcut')
     const finishLoading = (): void => commandLogic.actions.commandInputReady()
 

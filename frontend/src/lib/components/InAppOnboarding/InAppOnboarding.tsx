@@ -8,8 +8,6 @@ import { cn } from 'lib/utils/css-classes'
 
 import { inAppOnboardingLogic } from './inAppOnboardingLogic'
 
-/** The card for the in-app onboarding flow the user is on. Each step asks for something to do in the app,
- * and moves on once they have done it. */
 export function InAppOnboarding(): JSX.Element | null {
     const { activeFlow, activeProgress, isActiveFlowComplete } = useValues(inAppOnboardingLogic)
     const { skipFlow, closeFlow, reportFlowShown } = useActions(inAppOnboardingLogic)
@@ -45,7 +43,6 @@ export function InAppOnboarding(): JSX.Element | null {
                 </div>
                 {step.keys && (
                     <KeyboardShortcut
-                        // Re-keyed per step so the shortcut swaps cleanly when the step changes.
                         key={`${activeProgress.stepIndex}-${step.keys.join('+')}`}
                         {...Object.fromEntries(step.keys.map((key) => [key, true]))}
                         className="self-start"
