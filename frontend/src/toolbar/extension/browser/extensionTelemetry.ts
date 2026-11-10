@@ -5,6 +5,7 @@ type PageToolKey =
     | 'heatmap'
     | 'inspect'
     | 'save-heatmap'
+    | 'heatmap-variant-filter'
     | 'actions'
     | 'create-action'
     | 'save-action'
