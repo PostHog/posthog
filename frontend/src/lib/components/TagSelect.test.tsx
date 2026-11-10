@@ -96,5 +96,6 @@ describe('TagSelect', () => {
             resolveNextPage({ results: [{ tag: 'current' }], hasMore: false })
         })
         expect(screen.getByLabelText('current')).toBeInTheDocument()
+        expect(screen.getByLabelText('selected')).toHaveAttribute('aria-checked', 'true')
     })
 })

@@ -21,7 +21,7 @@ export function ScannerTagsFilter({
             onChange={onChange}
             loadTags={loadTags}
             logicKey="vision-scanners-tags-filter"
-            listDataAttr="vision-scanners-tags-filter-option"
+            listDataAttr="vision-scanners-tags-filter-list"
         >
             {(selected) => (
                 <LemonButton

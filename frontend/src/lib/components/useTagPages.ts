@@ -11,7 +11,7 @@ const TAGS_PER_PAGE = 100
 export function useTagSource(options?: TagOption[], customLoadTags?: LoadTags): LoadTags {
     const { currentTeamId } = useValues(teamLogic)
     return useCallback<LoadTags>(
-        async (query, offset) => {
+        async (query, offset, isStale) => {
             if (options) {
                 const matches = options.filter((option) => option.tag.toLowerCase().includes(query.toLowerCase()))
                 return {
@@ -20,7 +20,7 @@ export function useTagSource(options?: TagOption[], customLoadTags?: LoadTags): 
                 }
             }
             if (customLoadTags) {
-                return customLoadTags(query, offset)
+                return customLoadTags(query, offset, isStale)
             }
             if (currentTeamId == null) {
                 return { results: [], hasMore: false }

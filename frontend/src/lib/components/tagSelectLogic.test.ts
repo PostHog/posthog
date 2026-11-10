@@ -53,7 +53,7 @@ describe('tagSelectLogic', () => {
         logic.actions.loadMoreTags(loadNextPage)
 
         expect(loadNextPage).toHaveBeenCalledTimes(1)
-        expect(loadNextPage).toHaveBeenCalledWith('', 3)
+        expect(loadNextPage).toHaveBeenCalledWith('', 3, expect.any(Function))
         releasePage({ results: [], hasMore: false })
         await expectLogic(logic).toFinishAllListeners()
     })
@@ -87,5 +87,17 @@ describe('tagSelectLogic', () => {
             ['', 0],
             ['', 2],
         ])
+    })
+
+    it('stops loading excluded pages once the search is stale', async () => {
+        const loadPage = jest.fn<ReturnType<LoadTags>, Parameters<LoadTags>>(async (_, offset) => ({
+            results: [{ tag: `excluded,${offset}` }],
+            hasMore: offset < 2,
+        }))
+
+        const page = await excludingTags(loadPage, (tag) => tag.includes(','))('', 0, () => true)
+
+        expect(page).toEqual({ results: [], hasMore: false })
+        expect(loadPage).toHaveBeenCalledTimes(1)
     })
 })
