@@ -235,10 +235,6 @@ def list_workflow_summaries(
     user_access_control: "UserAccessControl | None",
     page: PageRequest,
 ) -> Page[WorkflowListRow]:
-    """One page of summary rows for the team's workflows that match `query` and that the reader may see,
-    newest created first. It takes the list's filters but not its sort options. Pass None for
-    `user_access_control` to skip the access filter, as a service credential does. Raises
-    WorkflowListFiltersInvalid when a field filter does not parse."""
     queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin=False, summaries=True)
     flows = _select_page_with_access(queryset, page, user_access_control)
     template_cache: TemplateCache = {}
@@ -289,7 +285,6 @@ def _list_queryset(
     # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
     # otherwise repeat on one page and never appear on another.
     if summaries:
-        # A summary row has no step graph to show, so it skips the staged draft, which can be large.
         queryset = (
             annotate_workflow_type(queryset).defer("draft", "draft_encrypted_inputs").order_by("-created_at", "-id")
         )
@@ -366,9 +361,9 @@ def _list_queryset(
     regex_pattern = re.escape(query.search).replace(r"\ ", r"[\s\-_]*")
 
     # Name, description and tags are small, while the step search has to read every workflow's `actions`
-    # JSON (tens of KB per email step). The list falls through to the step content only when nothing
-    # matched by name, so its common search stays cheap. Summary pages return both kinds of match
-    # together, because the redesigned list shows every workflow that mentions the term, and pay the scan.
+    # JSON (tens of KB per email step). Only fall through to the step content when nothing matched by
+    # name, so the common search stays cheap and a subject line or body text, which rarely appears in a
+    # workflow name, is still found.
     by_name = (
         Q(name__iregex=regex_pattern)
         | Q(description__iregex=regex_pattern)
@@ -443,7 +438,6 @@ def _to_workflow(
 
 
 class _ListRowAnnotations(Protocol):
-    # _list_queryset annotates these on every summary row.
     workflow_type: str
     pending_suggestions: int
     suggestions_enabled: bool
@@ -452,7 +446,6 @@ class _ListRowAnnotations(Protocol):
 def _to_list_row(
     flow: HogFlow, user_access_control: "UserAccessControl | None", template_cache: TemplateCache
 ) -> WorkflowListRow:
-    # The summary queryset defers the staged draft, so only the trigger is masked here.
     masked: dict[str, object] = {"trigger": flow.trigger}
     mask_workflow_fields(
         masked,
@@ -505,7 +498,6 @@ def _has_messaging_action_q() -> Q:
 
 
 def annotate_workflow_type(queryset: QuerySet) -> QuerySet:
-    """Adds `workflow_type`, decided by the same rules as the `type` filter in workflow_type_q."""
     return queryset.annotate(
         workflow_type=models.Case(
             *(

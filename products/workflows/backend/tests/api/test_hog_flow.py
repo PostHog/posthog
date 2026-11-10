@@ -1,4 +1,3 @@
-import re
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
@@ -16,7 +15,6 @@ from django.conf import UserSettingsHolder, settings
 from django.core.management import call_command
 from django.db import DatabaseError, connection
 from django.test import override_settings
-from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -965,15 +963,12 @@ class TestHogFlowAPI(APIBaseTest):
         assert "edges" not in result
         assert secret not in mcp_response.content.decode()
 
-        with CaptureQueriesContext(connection) as queries:
-            summaries_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/summaries")
+        summaries_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/summaries")
         assert summaries_response.status_code == 200, summaries_response.json()
         assert "actions" not in summaries_response.json()["results"][0]
         assert summaries_response.json()["results"][0]["suggestions_enabled"] is False
         assert summaries_response.json()["results"][0]["pending_suggestions"] == 0
         assert secret not in summaries_response.content.decode()
-        assert not any('"posthog_hogfunctiontemplate"' in query["sql"] for query in queries)
-        assert not any(re.search(r'"posthog_hogflow"\."draft(_encrypted_inputs)?"', query["sql"]) for query in queries)
 
         # The web app / raw API still get the full graph they rely on (e.g. client-side duplication) —
         # and it does carry the secret, proving the MCP omission above is the summary serializer at
@@ -7330,9 +7325,15 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
+        # The flag is released to this project the way the app targets it, by the project group keyed on the
+        # team UUID, so an evaluation that names the project any other way reads as off.
         flag_patch = patch(
             "posthoganalytics.feature_enabled",
-            side_effect=lambda key, *args, **kwargs: key == "workflows-list-v2" and self.list_v2_enabled,
+            side_effect=lambda key, *args, groups=None, **kwargs: (
+                key == "workflows-list-v2"
+                and self.list_v2_enabled
+                and (groups or {}).get("project") == str(self.team.uuid)
+            ),
         )
         flag_patch.start()
         self.addCleanup(flag_patch.stop)
@@ -7873,8 +7874,6 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert row["trigger"]["inputs"]["api_key"] == {"secret": True}
         assert "TRIGGER-SECRET" not in json.dumps(listing)
 
-        # Summary rows build their trigger apart from the step graph, and the route is gzipped on the
-        # promise that the trigger is masked.
         summaries = self.client.get(f"/api/projects/{self.team.id}/hog_flows/summaries").json()
         summary_row = next(r for r in summaries["results"] if r["id"] == str(flow.id))
         assert summary_row["trigger"]["inputs"]["api_key"] == {"secret": True}

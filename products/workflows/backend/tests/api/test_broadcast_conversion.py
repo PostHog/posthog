@@ -22,9 +22,16 @@ EDGES = [
 
 
 class TestBroadcastConversionAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag = patch("posthoganalytics.feature_enabled", return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
     def _flow(self, **overrides: Any) -> HogFlow:
         fields: dict[str, Any] = {
             "team": self.team,
+            "created_by": self.user,
             "name": "Monthly update",
             "status": "draft",
             "exit_condition": "exit_only_at_end",
@@ -76,6 +83,7 @@ class TestBroadcastConversionAPI(APIBaseTest):
     ) -> None:
         flow = self._flow(**overrides)
         workflow_file = FileSystem.objects.filter(team=self.team, type="hog_flow", ref=str(flow.id))
+        assert workflow_file.exists() is (flow.origin_product is None)
 
         assert (str(flow.id) in self._candidate_ids()) is convertible
 
