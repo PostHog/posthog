@@ -147,9 +147,7 @@ export type IngestionConsumerConfig = {
     INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS: number
     INGESTION_API_GRPC_READ_MAX_BYTES: number
     INGESTION_API_GRPC_DRAIN_TIMEOUT_MS: number
-    // A sub-batch in flight longer than this starts the stuck-batch shutdown:
-    // readiness fails, the other sub-batches drain for up to
-    // INGESTION_API_GRPC_STUCK_DRAIN_TIMEOUT_MS, then the worker exits. `0` disables it.
+    // A sub-batch in flight longer than this drains the worker and exits it. `0` disables it.
     // Keep it above the consumer's INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS (60s)
     // and above the longest batch without a soft budget. librdkafka's
     // message.timeout.ms is also 300s (the ingestion producers do not set it),

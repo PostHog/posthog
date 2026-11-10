@@ -43,15 +43,12 @@ interface Entry {
 }
 
 /**
- * Sub-batches from admission until they settle, by `streamId:seq`:
+ * Sub-batches from slot admission until they settle, including those of dead streams:
  *
  *   onFeeding -> feeding -> onAccepted -> inPipeline -> onCollected -> settling -> onSettled
  *
- * An entry exists before its sub-batch reaches the pipeline, and its phase
- * only moves forward, so the order in which the reader and the pump report a
- * sub-batch cannot corrupt the counts. Holds the in-flight accounting the
- * processor autoscaler reads. Kept apart from the streams, so a sub-batch
- * whose stream died is still collected and released.
+ * Phases only move forward, so the reader and the pump can report a sub-batch
+ * in either order. Owns the in-flight accounting the processor autoscaler reads.
  */
 export class InFlightSubBatches {
     private readonly entries = new Map<string, Entry>()
@@ -108,7 +105,7 @@ export class InFlightSubBatches {
         batchReleased(entry.accounting)
     }
 
-    /** The sub-batch left without the pipeline accepting it. */
+    /** Left without the pipeline accepting it; counts no error. */
     onAbandoned(streamId: number, seq: number): void {
         const entry = this.remove(streamId, seq)
         if (entry) {

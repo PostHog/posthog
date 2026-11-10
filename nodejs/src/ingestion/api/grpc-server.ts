@@ -144,7 +144,6 @@ export interface WorkerIngestServerOptions {
     drainTimeoutMs?: number
     /** `0` disables the stuck-batch shutdown; the oldest in-flight age gauge still updates. */
     stuckBatchTimeoutMs?: number
-    /** How long the stuck-batch shutdown waits for the other sub-batches to settle and ack. */
     stuckDrainTimeoutMs?: number
 }
 
@@ -219,7 +218,7 @@ interface WorkerIngestServerDeps {
      * HTTP path's crash-and-rebuild contract.
      */
     onFatal: (error: Error) => void
-    /** A sub-batch passed the stuck-batch deadline: the owner must fail readiness, so consumers stop routing here. */
+    /** The owner must fail readiness, so consumers stop routing here. */
     onStuck?: (error: Error) => void
     /** The other sub-batches drained, or the drain timed out: the owner must exit. */
     onStuckDrained?: (error: Error) => void
@@ -500,11 +499,7 @@ export class WorkerIngestServer {
         await Promise.race([this.pumpTask, sleep(5_000)])
     }
 
-    /**
-     * Takes no more work: new streams are refused, parked admissions abort,
-     * and each stream ends after its last ack. The streams in `failStreams`
-     * fail at once.
-     */
+    /** Refuses new streams and frames, and ends each stream after its last ack; `failStreams` fail at once. */
     private beginDrain(failStreams: Set<number> = new Set()): void {
         this.draining = true
         this.drainAbort.abort()
@@ -518,18 +513,12 @@ export class WorkerIngestServer {
         }
     }
 
-    /**
-     * Resolves `true` once every stream sent its last ack and every session
-     * closed, or `false` at the deadline. A batch whose stream died is not
-     * waited for: its ack has nowhere to go.
-     */
+    /** `false` at the deadline. Batches of dead streams are not waited for: their acks have nowhere to go. */
     private async waitDrained(deadline: number): Promise<boolean> {
         while (this.streams.size > 0 && Date.now() < deadline && !this.fatalError) {
             await sleep(10)
         }
-        // http2's close() waits for every session to end and consumers hold
-        // theirs open, so send GOAWAY: a session then closes once its streams
-        // have flushed.
+        // GOAWAY: a session closes once both sides of its streams have ended.
         const sessionsClosed = [...this.sessions].map(
             (session) => new Promise<void>((resolve) => (session.closed ? resolve() : session.once('close', resolve)))
         )
