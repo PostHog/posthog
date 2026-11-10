@@ -560,7 +560,6 @@ use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 
 use crate::config::CaptureMode;
-use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::outputs::OutputRegistry;
 use crate::quota_limiters::CaptureQuotaLimiter;
@@ -569,6 +568,7 @@ use crate::sinks::kafka::KafkaSinkBase;
 use crate::sinks::producer::MockKafkaProducer;
 use crate::sinks::registry::OutputTable;
 use crate::time::TimeSource;
+use event_restrictions::EventRestrictionService;
 
 /// Result of building a test state — gives access to both the `router::State`
 /// and the `MockKafkaProducer` behind its outputs, so tests can inspect sent

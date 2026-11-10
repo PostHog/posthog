@@ -15,7 +15,6 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::otel;
 use crate::outputs::OutputRegistry;
@@ -24,6 +23,7 @@ use crate::v0_request::DataType;
 use crate::{ai_endpoint, time::TimeSource, v0_endpoint};
 use common_ingestion_warnings::WarningEmitter;
 use common_redis::Client;
+use event_restrictions::EventRestrictionService;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
@@ -411,7 +411,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // (`/i/v0/ai*`) belong to capture-ai and the analytics paths to
     // capture-analytics; the ingress has always routed them that way, so a
     // deployment serving the other set is surface no traffic reaches and no
-    // restriction slice covers. `Pipeline::for_capture_mode` loads exactly the
+    // restriction slice covers. `CaptureMode::restriction_pipelines` loads exactly the
     // pipelines each set can produce to, so the two must stay in step.
     //
     // `$ai_*` events still reach capture-analytics — on `/batch`, from SDKs that

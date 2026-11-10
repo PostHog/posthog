@@ -20,9 +20,6 @@ use common_ingestion_warnings::WarningRequestContext;
 
 use crate::ai_rejection::{AiFailure, AiRejection};
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
-use crate::event_restrictions::{
-    AppliedRestrictions, EventContext as RestrictionEventContext, Pipeline,
-};
 use crate::events::ai_byte_limit::charge_ai_bytes;
 use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
@@ -37,6 +34,7 @@ use crate::v0_request::{
     exceeds_max_ai_event_bytes, is_ai_event, DataType, ProcessedEvent, ProcessedEventMetadata,
 };
 use crate::v1::gateway_provenance as gp;
+use event_restrictions::{AppliedRestrictions, EventContext as RestrictionEventContext, Pipeline};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PartInfo {

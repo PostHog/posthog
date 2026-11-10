@@ -10,7 +10,7 @@ workspace = true
 
 [dependencies]
 # The event ingestion restrictions capture and the replay lanes apply.
-capture = { path = "../../../ingestion/rust/capture" }
+event-restrictions = { path = "../../../ingestion/rust/event-restrictions" }
 common-alloc = { path = "../../common/alloc" }
 common-database = { path = "../../common/database" }
 common-kafka = { path = "../../common/kafka" }

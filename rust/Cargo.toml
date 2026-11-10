@@ -60,6 +60,7 @@ members = [
     "../ingestion/rust/assignment-coordination",
     "../ingestion/rust/capture",
     "../ingestion/rust/capture-load-gen",
+    "../ingestion/rust/event-restrictions",
     "../ingestion/rust/ingestion-consumer",
     "../ingestion/rust/ingestion-control-plane",
     "../ingestion/rust/ingestion-worker-proto",

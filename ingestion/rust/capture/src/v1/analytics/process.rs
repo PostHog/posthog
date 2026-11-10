@@ -18,10 +18,10 @@ use super::constants::{
 };
 use super::response::BatchResponse;
 use super::types::{Batch, Event, EventResult, OptionKeys, Options, ValidatedEvent, WrappedEvent};
-use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::events::ai_byte_limit::charge_ai_bytes;
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
 use crate::v0_request::{exceeds_max_ai_event_bytes, is_ai_event};
+use event_restrictions::{EventContext, EventRestrictionService};
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
@@ -929,7 +929,7 @@ async fn apply_restrictions(
 
 /// Drop every event an AI-mode deployment was sent that is not on the AI lane.
 ///
-/// capture-ai loads only the AI restriction slice (`Pipeline::for_capture_mode`),
+/// capture-ai loads only the AI restriction slice (`CaptureMode::restriction_pipelines`),
 /// so an analytics, exception, or heatmap event reaching it would ingest
 /// governed by nothing. Refusing it is what keeps "which restrictions apply"
 /// answerable from the event name alone, on every deployment. Only the
@@ -1231,9 +1231,6 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::event_restrictions::{
-        Pipeline, Restriction, RestrictionManager, RestrictionScope, RestrictionType,
-    };
     use crate::v1::analytics::constants::{CAPTURE_V1_PATH, DETAIL_INVALID_OPTIONS};
     use crate::v1::analytics::response::BatchEntryStatus;
     use crate::v1::analytics::types::{Batch, Event};
@@ -1243,6 +1240,9 @@ mod tests {
     };
     use crate::v1::types::Destination;
     use crate::v1::Error;
+    use event_restrictions::{
+        Pipeline, Restriction, RestrictionManager, RestrictionScope, RestrictionType,
+    };
     use rstest::rstest;
 
     fn valid_batch(events: Vec<Event>) -> Batch {
@@ -2083,7 +2083,7 @@ mod tests {
         token: &str,
         restrictions: Vec<Restriction>,
     ) -> EventRestrictionService {
-        let pipelines = Pipeline::for_capture_mode(crate::config::CaptureMode::Events);
+        let pipelines = crate::config::CaptureMode::Events.restriction_pipelines();
         let service = EventRestrictionService::new(pipelines, StdDuration::from_secs(300));
         let mut manager = RestrictionManager::new();
         manager.insert_restrictions(pipeline, token, restrictions);

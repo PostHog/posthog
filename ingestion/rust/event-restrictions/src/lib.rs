@@ -1,3 +1,6 @@
+//! Per-token event restrictions (drop, overflow, redirect) that capture and the replay
+//! recorder apply, loaded from Redis one pipeline slice at a time.
+
 mod manager;
 mod repository;
 mod types;
@@ -10,5 +13,5 @@ pub use types::{
     RestrictionType,
 };
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub use repository::testing::MockRestrictionsRepository;

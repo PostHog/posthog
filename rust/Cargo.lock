@@ -2305,6 +2305,7 @@ dependencies = [
  "common-redis",
  "common-types",
  "envconfig",
+ "event-restrictions",
  "flate2",
  "futures",
  "hex",
@@ -4729,6 +4730,24 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener 5.4.1",
  "pin-project-lite",
+]
+
+[[package]]
+name = "event-restrictions"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "common-redis",
+ "futures",
+ "lifecycle",
+ "metrics",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -11276,7 +11295,6 @@ dependencies = [
  "axum 0.7.9",
  "base64 0.22.1",
  "brotlic",
- "capture",
  "chrono",
  "common-alloc",
  "common-database",
@@ -11284,6 +11302,7 @@ dependencies = [
  "common-metrics",
  "common-redis",
  "envconfig",
+ "event-restrictions",
  "futures",
  "hegeltest",
  "lifecycle",

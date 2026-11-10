@@ -6,12 +6,10 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::api::CaptureError;
-use crate::event_restrictions::{
-    AppliedRestrictions, EventContext, EventRestrictionService, Pipeline,
-};
 use crate::prometheus::report_dropped_events;
 use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
+use event_restrictions::{AppliedRestrictions, EventContext, EventRestrictionService, Pipeline};
 
 use super::fan_out::SpanEvent;
 

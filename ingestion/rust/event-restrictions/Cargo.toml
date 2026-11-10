@@ -1,0 +1,29 @@
+[package]
+name = "event-restrictions"
+workspace = "../../../rust"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+# Exposes MockRestrictionsRepository to dependents' tests.
+test-utils = []
+
+[lints]
+workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+common-redis = { path = "../../../rust/common/redis" }
+futures = { workspace = true }
+lifecycle = { path = "../../../rust/common/lifecycle" }
+metrics = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }
+tokio-util = { version = "0.7.16", features = ["rt"] }

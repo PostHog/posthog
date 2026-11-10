@@ -2,11 +2,9 @@ use std::collections::HashSet;
 
 use metrics::counter;
 
-use crate::config::CaptureMode;
-
-/// Logical ingestion pipeline a restriction is scoped to. Distinct from
-/// [`CaptureMode`] — a single capture deployment (e.g. `CaptureMode::Events`)
-/// produces events to multiple pipelines (`Analytics` for normal events,
+/// Logical ingestion pipeline a restriction is scoped to. Distinct from a
+/// capture deployment: one deployment (e.g. capture's events mode) produces
+/// events to multiple pipelines (`Analytics` for normal events,
 /// `ErrorTracking` for `$exception` events). Each pipeline owns its own
 /// restriction config in Redis and its own [`EventRestrictionService`].
 ///
@@ -47,45 +45,7 @@ impl Pipeline {
     }
 }
 
-impl Pipeline {
-    /// Pipelines a given capture deployment produces events to. The events
-    /// deployment writes to `analytics` (normal events), `errortracking`
-    /// (`$exception`), `ai` (`$ai_` names), `heatmaps` (`$$heatmap`) and
-    /// `clientwarnings` (`$$client_ingestion_warning`), so its restriction
-    /// service must serve all five. `Import` is an events deployment
-    /// restricted to backfills, so it serves the same five.
-    ///
-    /// `Ai` serves only `ai`. That deployment registers no analytics route,
-    /// and `process_events` rejects a batch carrying anything off the AI lane,
-    /// so no event there resolves to another pipeline. Both halves have to
-    /// hold: serving fewer pipelines than a deployment can produce to leaves
-    /// those lookups matching an unloaded slice, which returns an empty
-    /// `RestrictionSet` — silently unrestricted.
-    pub fn for_capture_mode(mode: CaptureMode) -> Vec<Pipeline> {
-        match mode {
-            CaptureMode::Events | CaptureMode::Import => vec![
-                Self::Analytics,
-                Self::ErrorTracking,
-                Self::Ai,
-                Self::Heatmaps,
-                Self::ClientWarnings,
-            ],
-            CaptureMode::Recordings => vec![Self::SessionRecordings],
-            // capture-ai registers only the AI routes, and both pipelines
-            // refuse an event off the AI lane before restrictions are applied,
-            // so no event there ever resolves to another pipeline. Loading the
-            // analytics and error-tracking slices would only cost memory.
-            //
-            // The two refuse differently, each fitting its own response
-            // contract: v0's `process_events` rejects the whole request
-            // (`CaptureError::NonAiEventOnAiLane`, 400), while v1's
-            // `drop_non_ai_events` drops only the offenders, because it can
-            // report per-event outcomes. The guarantee relied on here is the
-            // same either way.
-            CaptureMode::Ai => vec![Self::Ai],
-        }
-    }
-}
+impl Pipeline {}
 
 /// Restriction types that can be applied to events in capture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -413,39 +373,6 @@ mod tests {
         ] {
             assert_eq!(Pipeline::parse(pipeline.as_str()), Some(pipeline));
         }
-    }
-
-    #[test]
-    fn test_pipeline_for_capture_mode() {
-        assert_eq!(
-            Pipeline::for_capture_mode(CaptureMode::Events),
-            vec![
-                Pipeline::Analytics,
-                Pipeline::ErrorTracking,
-                Pipeline::Ai,
-                Pipeline::Heatmaps,
-                Pipeline::ClientWarnings,
-            ]
-        );
-        // Import is an events deployment restricted to backfills, so it must
-        // serve the identical pipeline set -- a backfill can carry $exception
-        // and AI events too.
-        assert_eq!(
-            Pipeline::for_capture_mode(CaptureMode::Import),
-            Pipeline::for_capture_mode(CaptureMode::Events)
-        );
-        assert_eq!(
-            Pipeline::for_capture_mode(CaptureMode::Recordings),
-            vec![Pipeline::SessionRecordings]
-        );
-        // Ai serves only the AI lane: its routes are AI-only and its batch path
-        // rejects anything off the AI lane, so every event it processes
-        // resolves to Pipeline::Ai. Widening this would load slices nothing
-        // looks up; narrowing it below is only safe while both of those hold.
-        assert_eq!(
-            Pipeline::for_capture_mode(CaptureMode::Ai),
-            vec![Pipeline::Ai]
-        );
     }
 
     #[test]

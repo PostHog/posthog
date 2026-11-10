@@ -5,7 +5,7 @@
 //! capture-import. The ingress has always routed them that way, so the other
 //! set was surface no traffic reached.
 //!
-//! It also has to stay in step with `Pipeline::for_capture_mode`, which loads
+//! It also has to stay in step with `CaptureMode::restriction_pipelines`, which loads
 //! exactly the restriction slices each path set can produce to. A route on the
 //! wrong deployment accepts traffic no restriction there governs, which is
 //! silent rather than loud, so the split is asserted directly here.

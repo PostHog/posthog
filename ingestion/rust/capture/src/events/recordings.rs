@@ -24,13 +24,13 @@ use tokio::time::Instant;
 use tracing::{error, instrument, Span};
 use uuid::Uuid;
 
+use event_restrictions::{
+    AppliedRestrictions, EventContext as RestrictionEventContext, EventRestrictionService, Pipeline,
+};
+
 use crate::{
     api::CaptureError,
     debug_or_info,
-    event_restrictions::{
-        AppliedRestrictions, EventContext as RestrictionEventContext, EventRestrictionService,
-        Pipeline,
-    },
     ingestion_warnings::{
         emit_distinct_id_truncated_warning,
         replay::{
@@ -688,9 +688,9 @@ pub(crate) fn snapshot_library_fallback_from(user_agent: Option<&str>) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event_restrictions::RestrictionType;
     use common_ingestion_warnings::test_support::CollectingEmitter;
     use common_ingestion_warnings::WarningType;
+    use event_restrictions::RestrictionType;
     use rstest::rstest;
     use serde_json::json;
 
@@ -830,13 +830,13 @@ mod tests {
 
     // ============ Restriction tests ============
 
-    use crate::event_restrictions::Pipeline;
-    use crate::event_restrictions::{
-        EventRestrictionService, Restriction, RestrictionManager, RestrictionScope,
-    };
     use crate::outputs::OutputRegistry;
     use crate::sinks::test_sink::MockSink;
     use common_redis::MockRedisClient;
+    use event_restrictions::Pipeline;
+    use event_restrictions::{
+        EventRestrictionService, Restriction, RestrictionManager, RestrictionScope,
+    };
     use limiters::redis::{QuotaResource, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -1111,7 +1111,7 @@ mod tests {
 
         // Create a restriction that only applies to a different session
         let mut manager = RestrictionManager::new();
-        let mut filters = crate::event_restrictions::RestrictionFilters::default();
+        let mut filters = event_restrictions::RestrictionFilters::default();
         filters.session_ids.insert("other-session".to_string());
         manager.insert_restrictions(
             Pipeline::SessionRecordings,

@@ -16,7 +16,6 @@ use metrics::gauge;
 use tracing::{info, warn};
 
 use crate::config::{CaptureMode, Config};
-use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::global_rate_limiter::{ai_byte_limit_window, GlobalRateLimiter};
 use crate::outputs::{Output, OutputRegistry};
 use crate::producers::{self, ProducerConfig, ProducerName, ProducerRegistry};
@@ -31,6 +30,7 @@ use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::registry::OutputTable;
 use crate::sinks::s3::S3Sink;
+use event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -279,7 +279,7 @@ pub async fn build_components(
         create_event_restriction_service(
             &config,
             handle,
-            Pipeline::for_capture_mode(config.capture_mode),
+            config.capture_mode.restriction_pipelines(),
         )
     } else {
         None
@@ -761,9 +761,8 @@ fn create_event_restriction_service(
                             connection_timeout,
                         )
                         .await?;
-                        let result: Arc<
-                            dyn crate::event_restrictions::EventRestrictionsRepository,
-                        > = Arc::new(repo);
+                        let result: Arc<dyn event_restrictions::EventRestrictionsRepository> =
+                            Arc::new(repo);
                         Ok(result)
                     }
                 },

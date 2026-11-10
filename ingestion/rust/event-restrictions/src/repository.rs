@@ -210,7 +210,7 @@ impl EventRestrictionsRepository for RedisRestrictionsRepository {
 // Mock Repository for Testing
 // ============================================================================
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 pub mod testing {
     use super::*;
     use std::collections::HashMap;

@@ -33,6 +33,7 @@ common-continuous-profiling = { path = "../../../rust/common/continuous_profilin
 common-ingestion-warnings = { path = "../ingestion_warnings" }
 common-kafka = { path = "../../../rust/common/kafka" }
 common-redis = { path = "../../../rust/common/redis" }
+event-restrictions = { path = "../event-restrictions" }
 common-types = { path = "../../../rust/common/types" }
 limiters = { path = "../../../rust/common/limiters" }
 metrics = { workspace = true }
@@ -68,6 +69,7 @@ sha2 = { workspace = true }
 hmac = { workspace = true }
 
 [dev-dependencies]
+event-restrictions = { path = "../event-restrictions", features = ["test-utils"] }
 capture = { path = ".", features = ["test-utils"] }
 # `test-util` enables the paused clock (`start_paused`) the body drain deadline
 # tests use, so they assert the timeout without sleeping in real time.

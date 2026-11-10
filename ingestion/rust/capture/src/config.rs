@@ -2,6 +2,7 @@ use std::{net::SocketAddr, num::NonZeroU32};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
+use event_restrictions::Pipeline;
 use tracing::Level;
 
 use crate::producers::ProducerName;
@@ -20,6 +21,44 @@ pub enum CaptureMode {
 }
 
 impl CaptureMode {
+    /// Pipelines a given capture deployment produces events to. The events
+    /// deployment writes to `analytics` (normal events), `errortracking`
+    /// (`$exception`), `ai` (`$ai_` names), `heatmaps` (`$$heatmap`) and
+    /// `clientwarnings` (`$$client_ingestion_warning`), so its restriction
+    /// service must serve all five. `Import` is an events deployment
+    /// restricted to backfills, so it serves the same five.
+    ///
+    /// `Ai` serves only `ai`. That deployment registers no analytics route,
+    /// and `process_events` rejects a batch carrying anything off the AI lane,
+    /// so no event there resolves to another pipeline. Both halves have to
+    /// hold: serving fewer pipelines than a deployment can produce to leaves
+    /// those lookups matching an unloaded slice, which returns an empty
+    /// `RestrictionSet` — silently unrestricted.
+    pub fn restriction_pipelines(self) -> Vec<Pipeline> {
+        match self {
+            CaptureMode::Events | CaptureMode::Import => vec![
+                Pipeline::Analytics,
+                Pipeline::ErrorTracking,
+                Pipeline::Ai,
+                Pipeline::Heatmaps,
+                Pipeline::ClientWarnings,
+            ],
+            CaptureMode::Recordings => vec![Pipeline::SessionRecordings],
+            // capture-ai registers only the AI routes, and both pipelines
+            // refuse an event off the AI lane before restrictions are applied,
+            // so no event there ever resolves to another pipeline. Loading the
+            // analytics and error-tracking slices would only cost memory.
+            //
+            // The two refuse differently, each fitting its own response
+            // contract: v0's `process_events` rejects the whole request
+            // (`CaptureError::NonAiEventOnAiLane`, 400), while v1's
+            // `drop_non_ai_events` drops only the offenders, because it can
+            // report per-event outcomes. The guarantee relied on here is the
+            // same either way.
+            CaptureMode::Ai => vec![Pipeline::Ai],
+        }
+    }
+
     pub fn as_tag(&self) -> &'static str {
         match self {
             CaptureMode::Events => "events",
@@ -673,8 +712,87 @@ pub struct KafkaConfig {
 mod tests {
     use super::{CaptureMode, Config};
     use crate::producers::ProducerName;
+    use crate::v0_request::DataType;
+    use event_restrictions::{
+        EventContext, MockRestrictionsRepository, Pipeline, RestrictionEntry, RestrictionManager,
+        RestrictionType,
+    };
     use std::collections::HashMap;
     use std::str::FromStr;
+    use strum::IntoEnumIterator;
+
+    fn restriction_entry(token: &str, pipeline: Pipeline) -> RestrictionEntry {
+        RestrictionEntry {
+            version: Some(2),
+            token: token.to_string(),
+            pipelines: vec![pipeline.as_str().to_string()],
+            distinct_ids: vec![],
+            session_ids: vec![],
+            event_names: vec![],
+            event_uuids: vec![],
+            args: None,
+            index: None,
+        }
+    }
+
+    #[test]
+    fn restriction_pipelines_cover_each_deployment() {
+        assert_eq!(
+            CaptureMode::Events.restriction_pipelines(),
+            vec![
+                Pipeline::Analytics,
+                Pipeline::ErrorTracking,
+                Pipeline::Ai,
+                Pipeline::Heatmaps,
+                Pipeline::ClientWarnings,
+            ]
+        );
+        // Import is an events deployment restricted to backfills, so it must
+        // serve the identical pipeline set -- a backfill can carry $exception
+        // and AI events too.
+        assert_eq!(
+            CaptureMode::Import.restriction_pipelines(),
+            CaptureMode::Events.restriction_pipelines()
+        );
+        assert_eq!(
+            CaptureMode::Recordings.restriction_pipelines(),
+            vec![Pipeline::SessionRecordings]
+        );
+        // Ai serves only the AI lane: its routes are AI-only and its batch path
+        // rejects anything off the AI lane, so every event it processes
+        // resolves to Pipeline::Ai. Widening this would load slices nothing
+        // looks up; narrowing it below is only safe while both of those hold.
+        assert_eq!(CaptureMode::Ai.restriction_pipelines(), vec![Pipeline::Ai]);
+    }
+
+    #[tokio::test]
+    async fn events_deployment_loads_restrictions_for_every_classified_pipeline() {
+        for data_type in DataType::iter() {
+            let Some(pipeline) = data_type.pipeline() else {
+                continue;
+            };
+            let repo = MockRestrictionsRepository::new();
+            repo.set_entries(
+                RestrictionType::DropEvent,
+                Some(vec![restriction_entry("token", pipeline)]),
+            )
+            .await;
+
+            let manager = RestrictionManager::from_repository(
+                &repo,
+                &CaptureMode::Events.restriction_pipelines(),
+            )
+            .await
+            .unwrap();
+
+            let restrictions =
+                manager.get_restrictions("token", &EventContext::default(), pipeline);
+            assert!(
+                restrictions.contains(RestrictionType::DropEvent),
+                "{data_type:?}"
+            );
+        }
+    }
 
     fn required_config_env() -> HashMap<String, String> {
         [("REDIS_URL", "redis://localhost:6379/")]

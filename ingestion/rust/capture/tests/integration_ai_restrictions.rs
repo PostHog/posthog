@@ -7,10 +7,6 @@ use axum::Router;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
-use capture::event_restrictions::{
-    EventRestrictionService, Pipeline, Restriction, RestrictionManager, RestrictionScope,
-    RestrictionType,
-};
 use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
@@ -19,6 +15,10 @@ use capture::time::TimeSource;
 use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
+use event_restrictions::{
+    EventRestrictionService, Pipeline, Restriction, RestrictionManager, RestrictionScope,
+    RestrictionType,
+};
 use futures::StreamExt;
 use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG, DEFAULT_TEST_TIME};
 use limiters::overflow::OverflowLimiter;

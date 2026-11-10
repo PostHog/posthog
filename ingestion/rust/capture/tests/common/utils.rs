@@ -196,7 +196,7 @@ pub struct ServerHandle {
     pub addr: SocketAddr,
     shutdown: tokio_util::sync::CancellationToken,
     client: reqwest::Client,
-    event_restriction_service: Option<capture::event_restrictions::EventRestrictionService>,
+    event_restriction_service: Option<event_restrictions::EventRestrictionService>,
 }
 
 impl ServerHandle {

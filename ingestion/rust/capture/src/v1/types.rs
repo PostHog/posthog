@@ -1,10 +1,10 @@
 use common_types::CapturedEventHeaders;
 use uuid::Uuid;
 
-use crate::event_restrictions::Pipeline;
 use crate::ordering::OrderingGuarantee;
 use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, PipelineLane};
 use crate::v1::context::RequestContext;
+use event_restrictions::Pipeline;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum Destination {
@@ -99,8 +99,8 @@ pub trait Publishable: Send + Sync {
 #[cfg(test)]
 mod destination_tests {
     use super::Destination;
-    use crate::event_restrictions::Pipeline;
     use crate::sinks::registry::Destination as V0Destination;
+    use event_restrictions::Pipeline;
 
     #[rstest::rstest]
     #[case(Destination::AnalyticsMain, Some(Pipeline::Analytics))]

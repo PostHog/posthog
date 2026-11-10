@@ -36,10 +36,6 @@ mod integration_utils;
 use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 use capture::config::CaptureMode;
-use capture::event_restrictions::{
-    EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
-    RestrictionScope, RestrictionType,
-};
 use capture::global_rate_limiter::GlobalRateLimiter;
 use capture::outputs::OutputRegistry;
 use capture::quota_limiters::CaptureQuotaLimiter;
@@ -52,6 +48,10 @@ use capture::v1::router::{router as v1_router, RouterConfig as V1RouterConfig};
 use capture::v1::test_utils::TestStateBuilder;
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
+use event_restrictions::{
+    EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
+    RestrictionScope, RestrictionType,
+};
 use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG, DEFAULT_TEST_TIME};
 use limiters::token_dropper::TokenDropper;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder};
@@ -196,7 +196,7 @@ async fn build_restrictions(inputs: Inputs) -> EventRestrictionService {
         });
     }
     let service = EventRestrictionService::new(
-        Pipeline::for_capture_mode(CaptureMode::Events),
+        CaptureMode::Events.restriction_pipelines(),
         Duration::from_secs(300),
     );
     let mut manager = RestrictionManager::new();

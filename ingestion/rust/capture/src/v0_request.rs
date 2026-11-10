@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use common_types::{CapturedEvent, RawEngageEvent, RawEvent};
+use event_restrictions::Pipeline;
 use serde::Deserialize;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
@@ -9,7 +10,6 @@ use tracing::{instrument, Span};
 use crate::{
     api::CaptureError,
     config::CaptureMode,
-    event_restrictions::Pipeline,
     ingestion_warnings::SdkAttribution,
     payload::{decompress_payload, Compression},
 };

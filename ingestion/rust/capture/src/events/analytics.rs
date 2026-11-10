@@ -17,12 +17,12 @@ use serde_json;
 use tracing::{error, instrument, warn, Span};
 use uuid::Uuid;
 
+use event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService};
 use limiters::overflow::OverflowLimiter;
 
 use crate::{
     api::CaptureError,
     debug_or_info,
-    event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
     events::{ai_byte_limit::drop_ai_byte_limited, overflow_stamping::stamp_overflow_reason},
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     ingestion_warnings::{
@@ -380,7 +380,7 @@ async fn process_events_inner(
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "created ProcessedEvents batch");
 
     // capture-ai serves only the AI paths and loads only AI restrictions (see
-    // `Pipeline::for_capture_mode`), so an event on any other lane would run
+    // `CaptureMode::restriction_pipelines`), so an event on any other lane would run
     // ungoverned there. Reject the batch rather than dropping the offender: a
     // client sending non-AI events to an AI endpoint is misconfigured, and a
     // silent drop would hide that until someone went looking for the data. The
@@ -955,11 +955,11 @@ mod tests {
     }
 
     // Mock sink for testing process_events with restrictions
-    use crate::event_restrictions::{
+    use crate::sinks::test_sink::MockSink;
+    use event_restrictions::{
         EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
         RestrictionScope, RestrictionType,
     };
-    use crate::sinks::test_sink::MockSink;
     use rstest::rstest;
     use std::time::Duration;
 

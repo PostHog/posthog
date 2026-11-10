@@ -5,10 +5,6 @@ use async_trait::async_trait;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
-use capture::event_restrictions::{
-    EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
-    RestrictionScope, RestrictionType,
-};
 use capture::global_rate_limiter::GlobalRateLimiter;
 use capture::outputs::{OutputRegistry, PreparedEvent, PublishEvents, PublishPrepared};
 use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
@@ -20,6 +16,10 @@ use chrono::{DateTime, Utc};
 use common_ingestion_warnings::test_support::CollectingEmitter;
 use common_ingestion_warnings::{WarningEmitter, WarningType, CAPTURE_AI_OTEL};
 use common_redis::MockRedisClient;
+use event_restrictions::{
+    EventRestrictionService, Pipeline, Restriction, RestrictionFilters, RestrictionManager,
+    RestrictionScope, RestrictionType,
+};
 use hmac::{Hmac, Mac};
 use integration_utils::{test_lifecycle_handlers, DEFAULT_TEST_TIME};
 use limiters::overflow::OverflowLimiter;

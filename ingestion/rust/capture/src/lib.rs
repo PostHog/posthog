@@ -3,7 +3,6 @@ pub mod ai_event_limits;
 pub mod ai_rejection;
 pub mod api;
 pub mod config;
-pub mod event_restrictions;
 pub mod events;
 pub mod extractors;
 pub mod gateway_provenance;
