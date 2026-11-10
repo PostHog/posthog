@@ -2681,7 +2681,6 @@ describe('CDP API', () => {
             let receipt: StoredFile
             let large: StoredFile
 
-            // CDP reads persons through personhog, which reads the same rows from the persons database.
             const personsReadFrom = (persons: PostgresPersonRepository): PersonReadRepository => ({
                 fetchPerson: (teamId, distinctId, callerTag) => persons.fetchPerson(teamId, distinctId, { callerTag }),
                 fetchPersonsByDistinctIds: (teamPersons, callerTag) =>

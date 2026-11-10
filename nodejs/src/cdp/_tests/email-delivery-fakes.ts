@@ -198,7 +198,6 @@ export type BucketAnswer = 'pass' | 'refuse' | 'hold' | 'holdCopies' | 'holdFile
 // shared bucket cannot do without disturbing everyone else using it.
 export class BucketProxy {
     answer: BucketAnswer = 'pass'
-    // The bucket cannot age a file it just stored, so HEAD answers report it last modified this long before.
     lastModifiedAgeMs = 0
     requests = 0
     abandonedRequests = 0
@@ -312,9 +311,6 @@ export const sesClientWith = (overrides: Partial<ConstructorParameters<typeof SE
         ...overrides,
     })
 
-// The email worker sends a job only while it sits on the email queue, and other suites and runs share that
-// queue in this database. So each test's jobs live on queues only that test polls, and its worker sees them
-// as email jobs.
 export class EmailQueueOfOneTest extends CyclotronJobQueuePostgresV2 {
     constructor(
         private readonly queueName: string,
@@ -354,9 +350,6 @@ const SSL_REQUEST = 80877103
 const GSS_ENCRYPTION_REQUEST = 80877104
 const ENDS_A_REQUEST = new Set(['S', 'Q', 'X', 'p', 'H', 'c', 'f'])
 
-// Holds a query whose SQL and parameters match before Postgres sees it, so one query waits, or fails once
-// dropped, while every other query still runs. A lock inside Postgres would hold a job's heartbeat beside its
-// write, because both take the job's row.
 export class PostgresProxy {
     url = ''
     private readonly waiting: { matches: (request: string) => boolean; caught: (held: HeldQuery) => void }[] = []
