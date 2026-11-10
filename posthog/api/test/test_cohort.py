@@ -24,6 +24,7 @@ from django.utils import timezone
 
 from parameterized import param, parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
@@ -32,7 +33,9 @@ from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMP
 from posthog.api.cohort import (
     COHORT_USED_IN_PAGE_SIZE,
     AddPersonsToStaticCohortRequestSerializer,
+    CohortCalculationHistorySerializer,
     CohortFilters,
+    CohortSerializer,
     CohortViewSet,
     flag_call_criterion_shape_problem,
 )
@@ -949,6 +952,10 @@ email@example.org
 
         with patch(delay_path, side_effect=[ConnectionError("broker down"), None]) as mock_delay:
             failed = self.client.patch(url, **request_kwargs())
+            cohort.refresh_from_db()
+            self.assertFalse(cohort.is_calculating)
+            self.assertIsNone(cohort.pending_population_mode)
+            self.assertIsNone(cohort.population_marker)
             retried = self.client.patch(url, **request_kwargs())
 
         self.assertEqual(failed.status_code, 400, failed.json())
@@ -962,6 +969,105 @@ email@example.org
             (cohort.pending_population_mode, cohort.population_marker),
             (CohortPopulationMode.APPEND if source_field == "query" else None, None),
         )
+
+    def test_static_cohort_patch_population_mode_replace_rejected_when_flag_off(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
+        url = f"/api/projects/{self.team.id}/cohorts/{cohort.pk}"
+
+        with patch("posthog.api.cohort.feature_enabled_or_false", return_value=False):
+            response = self.client.patch(
+                url,
+                data={
+                    "query": {"kind": "HogQLQuery", "query": "select 1"},
+                    "population_mode": "replace",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "population_mode")
+        self.assertIn("The static cohort replace option is not enabled.", response.json()["detail"])
+
+    def test_static_cohort_patch_population_mode_replace_wires_claim_and_task(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
+        url = f"/api/projects/{self.team.id}/cohorts/{cohort.pk}"
+
+        with (
+            patch(
+                "posthog.api.cohort.feature_enabled_or_false",
+                side_effect=lambda flag, *args, **kwargs: flag == "static-cohort-replace-on-recalc",
+            ),
+            patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay") as mock_delay,
+        ):
+            response = self.client.patch(
+                url,
+                data={
+                    "query": {"kind": "HogQLQuery", "query": "select 1"},
+                    "population_mode": "replace",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cohort.refresh_from_db()
+        self.assertTrue(cohort.is_calculating)
+        self.assertEqual(cohort.pending_population_mode, CohortPopulationMode.REPLACE)
+        self.assertIsNone(cohort.population_marker)
+        mock_delay.assert_called_once_with(cohort.pk, self.team.id)
+
+    def test_enqueue_query_population_failure_clears_db_and_memory(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static",
+            is_static=True,
+            is_calculating=True,
+            pending_population_mode=CohortPopulationMode.REPLACE,
+            population_marker=timezone.now(),
+        )
+        serializer = CohortSerializer(context={"team_id": self.team.id, "request": MagicMock()})
+        with patch(
+            "posthog.tasks.calculate_cohort.insert_cohort_from_query.delay",
+            side_effect=ConnectionError("broker down"),
+        ):
+            with self.assertRaises(ValidationError):
+                serializer._enqueue_query_population(cohort)
+
+        # In memory
+        self.assertFalse(cohort.is_calculating)
+        self.assertIsNone(cohort.pending_population_mode)
+        self.assertIsNone(cohort.population_marker)
+
+        # In DB
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertIsNone(cohort.pending_population_mode)
+        self.assertIsNone(cohort.population_marker)
+
+    def test_calculation_history_endpoint_and_serializer_expose_mode(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Static with History", is_static=True)
+        history = CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(minutes=5),
+            finished_at=timezone.now(),
+            count=42,
+            mode=CohortPopulationMode.REPLACE,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/calculation_history/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], str(history.id))
+        self.assertEqual(results[0]["mode"], "replace")
+
+        # Read-only check: mode passed to serializer is not accepted in validated_data
+        serializer = CohortCalculationHistorySerializer(
+            data={"mode": "append", "cohort": cohort.id, "team": self.team.id, "filters": {}}
+        )
+        serializer.is_valid()
+        self.assertNotIn("mode", serializer.validated_data)
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_csv_patch_recovers_csv_only_cohort_left_calculating(self, mock_csv_delay: MagicMock):
@@ -9019,3 +9125,144 @@ class TestFlagCallCriterionShapeProblem(SimpleTestCase):
         )
 
         assert (flag_call_criterion_shape_problem(criterion) is not None) == unsupported
+
+
+class TestCohortPopulationModeValidation(SimpleTestCase):
+    def _make_context(self, request: Any | None = None, team: Any | None = None) -> dict[str, Any]:
+        if request is None:
+            request = MagicMock(
+                method="PATCH", FILES={}, user=MagicMock(is_authenticated=True, distinct_id="test-user")
+            )
+        if team is None:
+            team = MagicMock(
+                id=1,
+                uuid="00000000-0000-0000-0000-000000000001",
+                organization_id="00000000-0000-0000-0000-000000000002",
+            )
+        return {"request": request, "team": team, "team_id": 1}
+
+    @parameterized.expand(
+        [
+            (
+                "flag_off",
+                Cohort(id=1, is_static=True),
+                {"population_mode": "replace", "query": {"kind": "HogQLQuery", "query": "select 1"}},
+                None,
+                False,
+                "The static cohort replace option is not enabled.",
+            ),
+            (
+                "on_create",
+                None,
+                {
+                    "name": "new",
+                    "is_static": True,
+                    "population_mode": "replace",
+                    "query": {"kind": "HogQLQuery", "query": "select 1"},
+                },
+                MagicMock(method="POST", FILES={}, user=MagicMock(is_authenticated=True, distinct_id="test-user")),
+                True,
+                "population_mode cannot be specified on create.",
+            ),
+            (
+                "dynamic_cohort",
+                Cohort(id=1, is_static=False),
+                {"population_mode": "replace", "query": {"kind": "HogQLQuery", "query": "select 1"}},
+                None,
+                True,
+                "population_mode is only supported on static cohorts.",
+            ),
+            (
+                "csv_in_same_request",
+                Cohort(id=1, is_static=True),
+                {"population_mode": "replace", "query": {"kind": "HogQLQuery", "query": "select 1"}},
+                MagicMock(
+                    method="PATCH",
+                    FILES={"csv": SimpleUploadedFile("test.csv", b"id\n1")},
+                    user=MagicMock(is_authenticated=True, distinct_id="test-user"),
+                ),
+                True,
+                "population_mode cannot be used with CSV uploads.",
+            ),
+            (
+                "replace_without_query",
+                Cohort(id=1, is_static=True),
+                {"population_mode": "replace"},
+                None,
+                True,
+                "population_mode requires query in the same request.",
+            ),
+            (
+                "append_without_query",
+                Cohort(id=1, is_static=True),
+                {"population_mode": "append"},
+                None,
+                True,
+                "population_mode requires query in the same request.",
+            ),
+        ]
+    )
+    def test_population_mode_rejection_matrix(
+        self,
+        _name: str,
+        instance: Cohort | None,
+        payload: dict,
+        request: Any | None,
+        flag_enabled: bool,
+        expected_error: str,
+    ) -> None:
+        context = self._make_context(request=request)
+        with patch(
+            "posthog.api.cohort.feature_enabled_or_false",
+            side_effect=lambda flag, *args, **kwargs: (
+                flag_enabled if flag == "static-cohort-replace-on-recalc" else False
+            ),
+        ):
+            serializer = CohortSerializer(instance=instance, data=payload, context=context, partial=True)
+            assert not serializer.is_valid()
+            assert expected_error in serializer.errors["population_mode"]
+
+    def test_population_mode_rejected_when_no_team_in_context(self) -> None:
+        cohort = Cohort(id=1, is_static=True)
+        context = {"request": MagicMock(method="PATCH", FILES={})}
+        serializer = CohortSerializer(
+            instance=cohort,
+            data={"population_mode": "replace", "query": {"kind": "HogQLQuery", "query": "select 1"}},
+            context=context,
+            partial=True,
+        )
+        assert not serializer.is_valid()
+        assert "The static cohort replace option is not enabled." in serializer.errors["population_mode"]
+
+    def test_population_mode_invalid_choice_rejected(self) -> None:
+        cohort = Cohort(id=1, is_static=True)
+        context = self._make_context()
+        with patch(
+            "posthog.api.cohort.feature_enabled_or_false",
+            side_effect=lambda flag, *args, **kwargs: flag == "static-cohort-replace-on-recalc",
+        ):
+            serializer = CohortSerializer(
+                instance=cohort,
+                data={"population_mode": "invalid_mode", "query": {"kind": "HogQLQuery", "query": "select 1"}},
+                context=context,
+                partial=True,
+            )
+            assert not serializer.is_valid()
+            assert serializer.errors["population_mode"][0].code == "invalid_choice"
+
+    @parameterized.expand([("replace", "replace"), ("append", "append")])
+    def test_population_mode_valid_choices(self, _name: str, mode: str) -> None:
+        cohort = Cohort(id=1, is_static=True)
+        context = self._make_context()
+        with patch(
+            "posthog.api.cohort.feature_enabled_or_false",
+            side_effect=lambda flag, *args, **kwargs: flag == "static-cohort-replace-on-recalc",
+        ):
+            serializer = CohortSerializer(
+                instance=cohort,
+                data={"population_mode": mode, "query": {"kind": "HogQLQuery", "query": "select 1"}},
+                context=context,
+                partial=True,
+            )
+            assert serializer.is_valid(), serializer.errors
+            assert serializer.validated_data["population_mode"] == mode

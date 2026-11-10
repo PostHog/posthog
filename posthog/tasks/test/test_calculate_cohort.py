@@ -1549,6 +1549,29 @@ class TestCohortCalculationTasks(APIBaseTest):
         # one must not read as terminal.
         self.assertEqual("automatically retry" in history.error, another_attempt_coming)
 
+    @parameterized.expand(
+        [
+            ("replace", CohortPopulationMode.REPLACE),
+            ("append", CohortPopulationMode.APPEND),
+        ]
+    )
+    def test_query_population_records_claimed_mode_in_history(self, _name: str, mode: CohortPopulationMode) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static",
+            is_static=True,
+            is_calculating=True,
+            pending_population_mode=mode,
+        )
+        with (
+            patch(QUERY_CH_INSERT_PATH, side_effect=ClickHouseAtCapacity()),
+            patch(PG_SYNC_PATH),
+        ):
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+        history = CohortCalculationHistory.objects.get(cohort=cohort)
+        self.assertEqual(history.mode, mode)
+
     def test_a_failed_import_records_its_own_reason_rather_than_an_older_one(self) -> None:
         cohort = Cohort.objects.create(team=self.team, name="static cohort", is_static=True)
         person = create_person(team=self.team, distinct_ids=["import-failure"])
@@ -1853,8 +1876,9 @@ class TestCohortCalculationTasks(APIBaseTest):
                 cohort.population_marker,
                 cohort.errors_calculating,
                 history.error_code,
+                history.mode,
             ),
-            (False, None, None, 1, "empty_replace"),
+            (False, None, None, 1, "empty_replace", CohortPopulationMode.REPLACE),
         )
         self.assertEqual(
             history.error,
