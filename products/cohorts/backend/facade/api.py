@@ -89,8 +89,8 @@ _SEQUENCE_ACTION_JSONPATH = '$.** ? (@.seq_event_type == "actions" && (@.seq_eve
 def cohorts_referencing_action(*, project_id: int, action_id: int, limit: int) -> list[CohortActionReference]:
     """Up to `limit` live cohorts of the project whose filters reference the action."""
     vars_json = json.dumps({"id": action_id, "id_str": str(action_id)})
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
     rows = (
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
         Cohort.objects.filter(team__project_id=project_id, deleted=False)
         .extra(
             where=[

@@ -299,8 +299,8 @@ def update_insight_explanation(
 
 def insights_referencing_action(*, team_id: int, action_id: int, limit: int) -> list[InsightActionReference]:
     vars_json = json.dumps({"id": action_id, "id_str": str(action_id)})
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
     rows = (
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
         Insight.objects.filter(team_id=team_id, deleted=False)
         .extra(
             where=[
