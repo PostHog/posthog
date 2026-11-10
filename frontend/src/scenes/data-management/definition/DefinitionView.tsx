@@ -38,6 +38,7 @@ import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import type { EnterprisePropertyDefinitionApi } from '~/generated/core/api.schemas'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -54,6 +55,9 @@ import {
 } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
+import { DefinitionUsageSection } from './usage/DefinitionUsageSection'
+import { PropertyDefinitionUsage } from './usage/PropertyDefinitionUsage'
+import { propertyUsageEntry } from './usage/propertyUsageEntry'
 
 const DEFINITIONS_DOCS_URL = 'https://posthog.com/docs/data/events#managing-event-definitions'
 
@@ -138,10 +142,20 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
     // The app renders scene components with raw route params, so decode the id like paramsToProps does
     const props = { ...rawProps, id: decodeDefinitionId(rawProps.id) }
     const logic = definitionLogic(props)
-    const { definition, definitionLoading, definitionMissing, singular, isEvent, isProperty, metrics, metricsLoading } =
-        useValues(logic)
+    const {
+        definition,
+        definitionLoading,
+        definitionMissing,
+        singular,
+        isEvent,
+        isProperty,
+        metrics,
+        metricsLoading,
+        metricsFailed,
+    } = useValues(logic)
     const { deleteDefinition, stopIngestingEvent } = useActions(logic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const showUsageSection = useFeatureFlag('DEFINITION_USAGE_SECTION')
 
     const memoizedQuery = useMemo(() => {
         const columnsToUse =
@@ -180,6 +194,12 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
     const statusProps = getStatusProps(isProperty)
 
     const isVirtual = 'virtual' in definition && !!definition.virtual
+    const usageEntry =
+        showUsageSection && isProperty
+            ? propertyUsageEntry(
+                  definition as PropertyDefinition & Pick<EnterprisePropertyDefinitionApi, 'group_type_index'>
+              )
+            : null
     // Resolve label and description from the same taxonomy group the definition came from, so they can't disagree
     const virtualProperty = isVirtual ? getVirtualPropertyDefinition(definition.id) : null
     const propertyLabelGroup = virtualProperty?.group ?? TaxonomicFilterGroupType.EventProperties
@@ -420,7 +440,7 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                         <b>{definition.last_seen_at ? <TZLabel time={definition.last_seen_at} /> : '-'}</b>
                     </div>
                 )}
-                {isEvent && (
+                {isEvent && !showUsageSection && (
                     <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>
                             30 day queries{' '}
@@ -490,6 +510,8 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
 
             <SceneDivider />
 
+            {usageEntry && <PropertyDefinitionUsage entry={usageEntry} />}
+
             {isEvent && definition.id !== 'new' && (
                 <>
                     <FlaggedFeature flag={FEATURE_FLAGS.SCHEMA_MANAGEMENT}>
@@ -498,7 +520,16 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                     </FlaggedFeature>
                     <EventDefinitionProperties definition={definition} />
                     <SceneDivider />
-                    <EventDefinitionInsights definition={definition} />
+                    {showUsageSection ? (
+                        <DefinitionUsageSection
+                            queryCount={metrics?.query_usage_30_day ?? null}
+                            queryCountLoading={metricsLoading}
+                            queryCountFailed={metricsFailed}
+                            insightsLogicProps={{ definitionType: 'event', name: definition.name }}
+                        />
+                    ) : (
+                        <EventDefinitionInsights definition={definition} />
+                    )}
                     <SceneDivider />
                     <EventDefinitionExperiments definition={definition} />
                     <SceneDivider />

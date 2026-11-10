@@ -6,6 +6,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -23,6 +24,7 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.models.user_integration import (
     NEEDS_REAUTHORIZATION_Q,
+    NoAccessibleRepositories,
     ReauthorizationRequired,
     UserGitHubIntegration,
     UserIntegration,
@@ -1253,15 +1255,22 @@ def get_scoped_github_token(
 
 
 def get_user_github_token(github_user_integration_id: str, repositories: Sequence[str] = ()) -> Optional[str]:
-    """Return the installation access token from a UserIntegration, refreshing if expired."""
+    """Return an installation token limited to repositories the linked GitHub user can open."""
     integration = UserIntegration.objects.get(id=github_user_integration_id)
     github_integration = UserGitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
     private_repositories = _private_repositories(repositories)
-    if private_repositories:
-        return _mint_repository_scoped_token(github_integration, private_repositories)
-    if github_integration.access_token_expired():
-        github_integration.refresh_access_token()
-    return github_integration.integration.sensitive_config.get("access_token") or None
+    if not private_repositories:
+        try:
+            return github_integration.get_access_token()
+        except NoAccessibleRepositories:
+            return None
+    resolved_repositories: list[str] = []
+    for repository in private_repositories:
+        resolved = github_integration.resolve_user_repository(repository)
+        if resolved is None:
+            return None
+        resolved_repositories.append(resolved)
+    return _mint_repository_scoped_token(github_integration, resolved_repositories)
 
 
 def _normalize_repository(repository: str | None) -> str | None:
@@ -1686,6 +1695,13 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
     context that scoped-token minting depends on. `ctx` is the run's
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
+    from products.signals.backend.facade.trial import TrialExecutionRefused, start_task_trial
+
+    trial = bool((ctx.state or {}).get("self_driving_funding", {}).get("funding") == "trial")
+    if trial:
+        if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access) or ctx.task_runtime == "pi":
+            raise TrialExecutionRefused()
+        start_task_trial(team=task.team, run_id=UUID(str(ctx.run_id)))
     if task.is_scout_experiment is True:
         ensure_scout_trial_capture_ready()
         if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
@@ -1785,6 +1801,8 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
         raise GatewayTokenUnavailableError(
             "Pi scouts require a scoped AI gateway token", {"team_id": ctx.team_id, "run_id": ctx.run_id}
         )
+    if trial and not env_vars.get("AI_GATEWAY_TOKEN"):
+        raise GatewayNotConfiguredError("Trial work requires accounted AI gateway execution")
     # Retry provisioning if coverage cannot be recorded; otherwise fallback usage can look fully accounted for.
     record_gateway_routing(
         run_id=ctx.run_id,

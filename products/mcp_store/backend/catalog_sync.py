@@ -202,8 +202,20 @@ def _update_template(template: MCPServerTemplate, entry: CatalogEntry, skip_prob
     counts.updated += 1
 
 
-# Slack's MCP server offers `slack_search_public_and_private` only when the token holds the private search scopes.
-_SLACK_DEV_EXTRA_SCOPES = ("canvases:read", "search:read.private", "search:read.im", "search:read.mpim")
+# Slack's MCP server offers `slack_search_public_and_private` only when the token holds the private search scopes,
+# and reads private channels, DMs, and group DMs only with the matching history scopes.
+_SLACK_DEV_EXTRA_SCOPES = (
+    "canvases:read",
+    "search:read.private",
+    "search:read.im",
+    "search:read.mpim",
+    "groups:history",
+    "groups:read",
+    "im:history",
+    "im:read",
+    "mpim:history",
+    "mpim:read",
+)
 
 
 def _entry_for_environment(entry: CatalogEntry, template: MCPServerTemplate | None) -> CatalogEntry:

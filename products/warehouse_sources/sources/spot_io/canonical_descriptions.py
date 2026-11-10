@@ -77,4 +77,61 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "costs": "Actual and potential (on-demand) cost for the instance over the window.",
         },
     },
+    "elastigroup_events": {
+        "description": (
+            "Activity history of an Elastigroup: updates, scale-ups and scale-downs, spot "
+            "interruptions and instance launches, one row per event."
+        ),
+        "docs_url": "https://docs.spot.io/api/?version=v3#operation/elastigroupAwsActivityEvents",
+        "columns": {
+            "groupId": "Identifier of the Elastigroup the event happened in.",
+            "elastigroup_name": "Name of the Elastigroup the event happened in.",
+            "eventType": "Type of the event (e.g. Update).",
+            "createdAt": "Time at which the event happened.",
+            "subEvents": "Details of the event: the sub-event type (e.g. scaleUp) and the new spot requests and instances.",
+            "event_key": "Hash of the event content, used as the row identifier because Spot gives events no id.",
+        },
+    },
+    "accounts": {
+        "description": (
+            "A Spot account in the organization. Resolves the accountId carried by elastigroups, "
+            "Ocean clusters and cost rows. Listing all accounts needs an Organization Admin token."
+        ),
+        "docs_url": "https://docs.spot.io/api/?version=v3#operation/OrganizationsAndAccountsGetAccounts",
+        "columns": {
+            "accountId": "Unique identifier of the Spot account (e.g. act-12345678).",
+            "organizationId": "Identifier of the Spot organization that owns the account.",
+            "name": "Name of the account.",
+            "providerExternalId": "Identifier of the connected cloud provider account (e.g. the AWS account id).",
+        },
+    },
+    "ocean_cluster_nodes": {
+        "description": (
+            "A worker node currently running in an Ocean AWS Kubernetes cluster, with its instance "
+            "details and the CPU, memory and GPU that workloads and headroom request on it."
+        ),
+        "docs_url": "https://docs.spot.io/api/?version=v3#operation/oceanAwsGetNodes",
+        "columns": {
+            "ocean_cluster_id": "Identifier of the Ocean cluster the node belongs to.",
+            "instanceId": "AWS instance id of the node.",
+            "instanceType": "AWS instance type of the node.",
+            "availabilityZone": "AWS availability zone of the node.",
+            "launchSpecId": "Identifier of the node's Virtual Node Group.",
+            "launchSpecName": "Name of the node's Virtual Node Group.",
+            "lifeCycle": "AWS lifecycle of the node (spot or on-demand).",
+            "publicIp": "Public IP address of the node.",
+            "nodeName": "Kubernetes node name.",
+            "registrationStatus": "Registration status of the node in the cluster.",
+            "workloadRequestedMilliCpu": "Milli CPUs that Kubernetes workloads request on the node.",
+            "workloadRequestedMemoryInMiB": "Memory in MiB that Kubernetes workloads request on the node.",
+            "workloadRequestedGpu": "GPUs that Kubernetes workloads request on the node.",
+            "headroomRequestedMilliCpu": "Milli CPUs reserved for headroom on the node.",
+            "headroomRequestedMemoryInMiB": "Memory in MiB reserved for headroom on the node.",
+            "headroomRequestedGpu": "GPUs reserved for headroom on the node.",
+            "allocatableMilliCpu": "Allocatable milli CPUs as registered in Kubernetes.",
+            "allocatableMemoryInMiB": "Allocatable memory in MiB as registered in Kubernetes.",
+            "allocatableGpu": "Allocatable GPUs as registered in Kubernetes.",
+            "createdAt": "Time at which the node's instance was created.",
+        },
+    },
 }

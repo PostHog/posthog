@@ -79,8 +79,8 @@ def reports_generated_today(team: "Team", *, day_start: datetime) -> int:
 def daily_report_limit_gate(team: "Team") -> DailyReportLimitGate:
     """Resolve the daily report limit gate for one team.
 
-    Teams without a configured limit return immediately without running the count query, so the
-    fleet-wide hot paths (every buffer flush, every gate check) pay a single indexed limit read.
+    Teams without a configured limit return immediately without running the count query, so
+    admission pays only a single indexed limit read for unlimited teams.
     Fails open on any error: an infra blip lets work through rather than stalling the pipeline.
     Blocking database I/O; wrap in `sync_to_async`/`database_sync_to_async` from async code.
     """
@@ -122,3 +122,12 @@ def capture_signal_report_daily_limit_paused(
         logger.exception(
             "Failed to capture signal_report_daily_limit_paused", report_id=report_id, team_id=team.id, stage=stage
         )
+
+
+def check_daily_report_admission(team: "Team", *, report_id: str | None = None) -> None:
+    from products.signals.backend.trial.policy import TrialRefused  # noqa: PLC0415 -- model registration cycle
+
+    gate = daily_report_limit_gate(team)
+    if gate.limited:
+        capture_signal_report_daily_limit_paused(team, report_id=report_id, stage="admission", gate=gate)
+        raise TrialRefused("daily_report_limit")

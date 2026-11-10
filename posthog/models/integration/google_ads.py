@@ -11,9 +11,9 @@ from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.exceptions_capture import capture_exception
-from posthog.integrations.contracts import IntegrationRecord
+from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
 
-from . import common, model
+from . import common, row_writes
 
 logger = structlog.get_logger(__name__)
 
@@ -50,13 +50,13 @@ def _google_ads_request(method: str, url: str, **kwargs) -> requests.Response:
 
 
 class GoogleAdsIntegration:
-    integration: model.Integration
+    integration: IntegrationRecord
 
     def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "google-ads":
             raise Exception("GoogleAdsIntegration init called with Integration with wrong 'kind'")
 
-        self.integration = model.integration_model(integration)
+        self.integration = integration
 
     @property
     def client(self) -> WebClient:
@@ -86,8 +86,9 @@ class GoogleAdsIntegration:
                 status_code=response.status_code,
                 integration_id=self.integration.id,
             )
-            self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
-            self.integration.save(update_fields=["errors"])
+            self.integration = row_writes.update_row(
+                self.integration, IntegrationPatch(errors=common.ERROR_TOKEN_REFRESH_FAILED)
+            )
             raise ValidationError(
                 "This integration's authentication is no longer valid. "
                 "Please reconnect or disconnect this integration and connect a different account."
@@ -129,8 +130,9 @@ class GoogleAdsIntegration:
                 status_code=response.status_code,
                 integration_id=self.integration.id,
             )
-            self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
-            self.integration.save(update_fields=["errors"])
+            self.integration = row_writes.update_row(
+                self.integration, IntegrationPatch(errors=common.ERROR_TOKEN_REFRESH_FAILED)
+            )
             raise ValidationError(
                 "This integration's authentication is no longer valid. "
                 "Please reconnect or disconnect this integration and connect a different account."
