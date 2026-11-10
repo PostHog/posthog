@@ -24,7 +24,17 @@ import { userLogic } from 'scenes/userLogic'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
 import { FEATURE_PREVIEW_WARNINGS } from './featurePreviewWarnings'
 import { QuillFeaturePreviewCard } from './QuillFeaturePreviewCard'
+import { QuillFeaturePreviewGroup } from './QuillFeaturePreviewGroup'
 import { QuillFeaturePreviewImageDialog } from './QuillFeaturePreviewImageDialog'
+
+const STAGE_GROUPS = [
+    {
+        stage: 'beta',
+        title: 'Beta',
+        description: 'Close to release. These work well, and we are still polishing them.',
+    },
+    { stage: 'alpha', title: 'Alpha', description: 'Early versions. Expect rough edges and changes.' },
+]
 
 export interface QuillFeaturePreviewsProps {
     /** Alpha and beta features that match the search. */
@@ -42,7 +52,7 @@ export function QuillFeaturePreviews({ features, failedToLoad, flagsHonored }: Q
     const enabledCount = features.filter((feature) => feature.enabled).length
 
     return (
-        <div data-quill className="@container flex flex-col gap-3">
+        <div data-quill className="@container flex flex-col gap-4">
             {!flagsHonored && features.length > 0 && (
                 <Item tone="info" size="sm">
                     <ItemContent>
@@ -120,20 +130,34 @@ export function QuillFeaturePreviews({ features, failedToLoad, flagsHonored }: Q
                             </EmptyContent>
                         </Empty>
                     ) : (
-                        <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
-                            {features.map((feature) => (
-                                <QuillFeaturePreviewCard
-                                    key={feature.flagKey}
-                                    feature={feature}
-                                    flagsHonored={flagsHonored}
-                                    warning={FEATURE_PREVIEW_WARNINGS[feature.flagKey]?.resolve(hasAvailableFeature)}
-                                />
-                            ))}
-                        </div>
+                        STAGE_GROUPS.map(({ stage, title, description }) => {
+                            const groupFeatures = features.filter((feature) => feature.stage === stage)
+                            return groupFeatures.length === 0 ? null : (
+                                <QuillFeaturePreviewGroup
+                                    key={stage}
+                                    title={title}
+                                    description={description}
+                                    count={groupFeatures.length}
+                                >
+                                    <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2">
+                                        {groupFeatures.map((feature) => (
+                                            <QuillFeaturePreviewCard
+                                                key={feature.flagKey}
+                                                feature={feature}
+                                                flagsHonored={flagsHonored}
+                                                warning={FEATURE_PREVIEW_WARNINGS[feature.flagKey]?.resolve(
+                                                    hasAvailableFeature
+                                                )}
+                                            />
+                                        ))}
+                                    </div>
+                                </QuillFeaturePreviewGroup>
+                            )
+                        })
                     )}
                 </>
             )}
-            <QuillFeaturePreviewImageDialog />
+            <QuillFeaturePreviewImageDialog features={features} />
         </div>
     )
 }

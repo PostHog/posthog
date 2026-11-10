@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExpand45, IconExternal, IconMessage } from '@posthog/icons'
+import { IconExternal, IconMessage } from '@posthog/icons'
 import {
-    Badge,
     Button,
     Card,
     CardAction,
@@ -15,7 +14,6 @@ import {
     ItemDescription,
     Switch,
     Text,
-    cn,
     toast,
 } from '@posthog/quill'
 
@@ -25,8 +23,7 @@ import { FEATURE_PREVIEW_SELF_HOSTED_DISABLED_REASON } from 'lib/logic/featureFl
 
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
 import { QuillFeaturePreviewFeedbackForm } from './QuillFeaturePreviewFeedbackForm'
-
-const STAGE_LABELS: Record<string, string> = { alpha: 'Alpha', beta: 'Beta' }
+import { QuillFeaturePreviewImage } from './QuillFeaturePreviewImage'
 
 export interface QuillFeaturePreviewCardProps {
     feature: EnrichedEarlyAccessFeature
@@ -37,12 +34,8 @@ export interface QuillFeaturePreviewCardProps {
 
 export function QuillFeaturePreviewCard({ feature, flagsHonored, warning }: QuillFeaturePreviewCardProps): JSX.Element {
     const { activeFeedbackFlagKey } = useValues(featurePreviewsLogic)
-    const {
-        beginEarlyAccessFeatureFeedback,
-        updateEarlyAccessFeatureEnrollment,
-        copyExternalFeaturePreviewLink,
-        openFeaturePreviewImage,
-    } = useActions(featurePreviewsLogic)
+    const { beginEarlyAccessFeatureFeedback, updateEarlyAccessFeatureEnrollment, copyExternalFeaturePreviewLink } =
+        useActions(featurePreviewsLogic)
 
     const { flagKey, enabled, name, description, documentationUrl, imageUrl, stage } = feature
     const isFeedbackActive = activeFeedbackFlagKey === flagKey
@@ -60,34 +53,13 @@ export function QuillFeaturePreviewCard({ feature, flagsHonored, warning }: Quil
     }
 
     return (
-        <Card id={flagKey} size="sm" className={cn(imageUrl && 'pt-0')}>
-            {imageUrl && (
-                <button
-                    type="button"
-                    className="group/image relative block cursor-zoom-in overflow-hidden rounded-t-lg border-b bg-muted"
-                    onClick={() => openFeaturePreviewImage(flagKey)}
-                    aria-label={`View a larger image of ${name}`}
-                    data-attr="feature-preview-image"
-                >
-                    <img
-                        src={imageUrl}
-                        alt=""
-                        loading="lazy"
-                        className="block aspect-video w-full object-cover object-top"
-                    />
-                    <span className="absolute right-2 bottom-2 flex rounded-md bg-background p-1 text-foreground opacity-0 shadow-sm transition-opacity group-hover/image:opacity-100 group-focus-visible/image:opacity-100">
-                        <IconExpand45 />
-                    </span>
-                </button>
-            )}
+        <Card id={flagKey} size="sm">
+            {imageUrl && <QuillFeaturePreviewImage feature={feature} className="mx-3 h-32" />}
             <CardHeader>
-                <CardTitle className="flex min-w-0 flex-wrap items-center gap-2">
+                <CardTitle className="min-w-0">
                     <label htmlFor={switchId} className={flagsHonored ? 'cursor-pointer' : 'cursor-default'}>
                         {name}
                     </label>
-                    {STAGE_LABELS[stage] && (
-                        <Badge variant={stage === 'alpha' ? 'warning' : 'info'}>{STAGE_LABELS[stage]}</Badge>
-                    )}
                 </CardTitle>
                 <CardAction>
                     <Switch

@@ -2,13 +2,18 @@ import { useActions, useValues } from 'kea'
 
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@posthog/quill'
 
-import { featurePreviewsLogic } from './featurePreviewsLogic'
+import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
 
-export function QuillFeaturePreviewImageDialog(): JSX.Element {
-    const { expandedImageFlagKey, earlyAccessFeatures } = useValues(featurePreviewsLogic)
+export interface QuillFeaturePreviewImageDialogProps {
+    /** The features of one section. Each section has its own dialog, so only one opens. */
+    features: EnrichedEarlyAccessFeature[]
+}
+
+export function QuillFeaturePreviewImageDialog({ features }: QuillFeaturePreviewImageDialogProps): JSX.Element {
+    const { expandedImageFlagKey } = useValues(featurePreviewsLogic)
     const { closeFeaturePreviewImage } = useActions(featurePreviewsLogic)
 
-    const feature = earlyAccessFeatures.find((f) => f.flagKey === expandedImageFlagKey)
+    const feature = features.find((f) => f.flagKey === expandedImageFlagKey)
 
     return (
         <Dialog open={!!feature?.imageUrl} onOpenChange={(open: boolean) => !open && closeFeaturePreviewImage()}>

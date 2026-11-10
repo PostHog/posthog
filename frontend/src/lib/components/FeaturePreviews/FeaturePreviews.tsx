@@ -17,6 +17,7 @@ import { ConceptWaitlistCTA } from './ConceptWaitlistCTA'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
 import { FEATURE_PREVIEW_WARNINGS, hasPosthogJsFailedToLoadFeaturePreviews } from './featurePreviewWarnings'
 import { QuillFeaturePreviews } from './QuillFeaturePreviews'
+import { QuillFeaturePreviewsComingSoon } from './QuillFeaturePreviewsComingSoon'
 
 // Feature previews can be linked to by using hash in the url
 // example external link: https://app.posthog.com/settings/user-feature-previews#llm-analytics
@@ -111,6 +112,7 @@ export function FeaturePreviews(): JSX.Element {
 export function FeaturePreviewsComingSoon(): JSX.Element {
     const { filteredEarlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useLayoutEffect(() => loadEarlyAccessFeatures(), [loadEarlyAccessFeatures])
 
@@ -119,6 +121,10 @@ export function FeaturePreviewsComingSoon(): JSX.Element {
     useAnchor(rawEarlyAccessFeaturesLoading ? '' : window.location.hash)
 
     const conceptFeatures = filteredEarlyAccessFeatures.filter((f) => f.stage === 'concept')
+
+    if (todayRailNav) {
+        return <QuillFeaturePreviewsComingSoon features={conceptFeatures} />
+    }
 
     return (
         <div className="flex flex-col gap-2">

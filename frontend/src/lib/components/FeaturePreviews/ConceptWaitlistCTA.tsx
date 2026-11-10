@@ -17,6 +17,12 @@ export interface ConceptWaitlistCTAProps {
     collectEmail?: boolean
 }
 
+/** A concept feature with a linked survey collects an email instead of a one-click sign-up. */
+export const hasConceptWaitlistSurvey = (
+    feature: EnrichedEarlyAccessFeature,
+    waitlistSurveysEnabled: boolean
+): boolean => waitlistSurveysEnabled && !!feature.payload?.survey_id
+
 export function ConceptWaitlistCTA({
     feature,
     size = 'small',
@@ -30,7 +36,7 @@ export function ConceptWaitlistCTA({
 
     const { flagKey, enabled } = feature
 
-    const hasWaitlistSurvey = collectEmail && waitlistSurveysEnabled && !!feature.payload?.survey_id
+    const hasWaitlistSurvey = collectEmail && hasConceptWaitlistSurvey(feature, waitlistSurveysEnabled)
 
     const notifySignUp = (): void => {
         // submitConceptSurvey and the enrollment listener both refuse impersonated sessions, so
