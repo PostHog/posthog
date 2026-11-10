@@ -425,7 +425,7 @@ class DataWarehouseSavedQuerySerializer(
                 view.team_id,
                 view.id,
                 user=cast(User, request.user),
-                sync_frequency_interval=sync_frequency_to_sync_frequency_interval(sync_frequency),
+                frequency_target=sync_frequency_to_sync_frequency_interval(sync_frequency),
                 visible_blocker_names=lambda bounds: sync_cadence.visible_blocker_names(
                     bounds, self.user_access_control, team_id=view.team_id
                 ),
@@ -653,12 +653,6 @@ class DataWarehouseSavedQuerySerializer(
             if query_changed:
                 validated_data["query_revision"] = uuid.uuid4()
                 validated_data["query_updated_at"] = timezone.now()
-
-            if frequency_changed:
-                # The node target is the only store of frequency intent. The interval column
-                # stays NULL so a stale v1 schedule can never be revived from it.
-                locked_instance.sync_frequency_interval = None
-                validated_data["sync_frequency_interval"] = None
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
             name_changed = before_update.name != view.name
