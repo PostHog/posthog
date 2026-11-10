@@ -1975,9 +1975,6 @@ class InformationSchemaMetricsTable(InformationSchemaTable):
             description="Query kind: HogQLQuery, TrendsQuery, FunnelsQuery, or an event node.",
         ),
         "owner": _string_field("owner", nullable=True, description="Email of the human accountable for this metric."),
-        "confidence": FloatDatabaseField(
-            name="confidence", nullable=True, description="AI author's confidence for a proposed metric, 0-1."
-        ),
         "reasoning": _string_field(
             "reasoning",
             nullable=True,
