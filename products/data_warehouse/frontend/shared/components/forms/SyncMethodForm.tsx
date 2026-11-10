@@ -137,7 +137,8 @@ export const getSaveDisabledReason = (
     incrementalField: string | null,
     appendField: string | null,
     mergeKey: string[] | null,
-    keyRequired: boolean
+    keyRequired: boolean,
+    replicationKeyRequired: boolean
 ): string | undefined => {
     if (!syncType) {
         return 'You must select a sync method before saving'
@@ -155,6 +156,11 @@ export const getSaveDisabledReason = (
 
     if (syncType === 'append' && !appendField) {
         return 'You must select an append field'
+    }
+
+    // The schema API refuses CDC and xmin without a key, whatever the source.
+    if ((syncType === 'cdc' || syncType === 'xmin') && replicationKeyRequired && !mergeKey?.length) {
+        return 'Select primary key columns, or use full table replication instead'
     }
 }
 
@@ -261,6 +267,55 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const lookbackSeconds =
         lookbackAmount != null && lookbackAmount > 0 ? lookbackAmount * LOOKBACK_UNIT_SECONDS[lookbackUnit] : null
 
+    // New-source setup reads CDC keys from the source catalog and ignores a picked key, so the
+    // picker and the key requirement only apply to an existing source's tables.
+    const replicationKeyRequired = !isNewSource
+    const primaryKeyMethodLabel =
+        radioValue === 'cdc' ? 'CDC' : radioValue === 'xmin' ? 'xmin replication' : 'incremental sync'
+    const primaryKeyPicker =
+        columns.length > 0 ? (
+            <>
+                <p className="mt-4 mb-2">
+                    {radioValue === 'incremental'
+                        ? 'Optionally, select one or more columns to use as the primary key for deduplication. If not set, PostHog will attempt to auto-detect the primary key from the source.'
+                        : 'Select one or more columns to use as the primary key. Changed rows are merged into the synced table on this key.'}
+                </p>
+                <LemonInputSelect
+                    mode="multiple"
+                    value={primaryKeyColumns}
+                    onChange={(newValue) => !primaryKeyLocked && setPrimaryKeyColumns(newValue)}
+                    disabled={primaryKeyLocked}
+                    options={columns.map((col) => ({
+                        key: col.field,
+                        label: `${col.label} (${col.type})`,
+                    }))}
+                    placeholder={
+                        resolvedDetectedPks
+                            ? `Auto-detected: ${resolvedDetectedPks.join(', ')}`
+                            : 'No primary key detected'
+                    }
+                />
+                {primaryKeyLocked && (
+                    <LemonBanner type="info" className="mt-2">
+                        Primary key cannot be changed after data has been synced. Delete the synced data first to change
+                        it.
+                    </LemonBanner>
+                )}
+                {primaryKeyColumns.length === 0 && !resolvedDetectedPks && !primaryKeyLocked && (
+                    <LemonBanner type="info" className="mt-2">
+                        No primary key could be auto-detected from the source. Select one manually to enable{' '}
+                        {primaryKeyMethodLabel}, or use full table replication instead.
+                    </LemonBanner>
+                )}
+                {primaryKeyColumns.some((pk) => columns.find((col) => col.field === pk)?.nullable) && (
+                    <LemonBanner type="warning" className="mt-2">
+                        One or more selected primary key columns are nullable. Rows with null values may cause issues
+                        with deduplication.
+                    </LemonBanner>
+                )}
+            </>
+        ) : null
+
     const radioOptions: {
         value: 'webhook' | 'incremental' | 'append' | 'full_refresh' | 'cdc' | 'xmin'
         disabledReason?: string
@@ -357,6 +412,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                             />
                         </div>
                     )}
+                    {radioValue === 'cdc' && replicationKeyRequired && primaryKeyPicker}
                 </div>
             ),
         })
@@ -379,6 +435,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                         Does not capture row deletes, and reads the full table on every sync (the <code>xmin</code>{' '}
                         column is unindexed). Choose CDC if you need deletes or have a very large, high-churn table.
                     </p>
+                    {radioValue === 'xmin' && replicationKeyRequired && primaryKeyPicker}
                 </div>
             ),
         })
@@ -490,54 +547,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                             )}
                                         </div>
                                     )}
-                                {radioValue === 'incremental' && columns.length > 0 && (
-                                    <>
-                                        <p className="mt-4 mb-2">
-                                            Optionally, select one or more columns to use as the primary key for
-                                            deduplication. If not set, PostHog will attempt to auto-detect the primary
-                                            key from the source.
-                                        </p>
-                                        <LemonInputSelect
-                                            mode="multiple"
-                                            value={primaryKeyColumns}
-                                            onChange={(newValue) => !primaryKeyLocked && setPrimaryKeyColumns(newValue)}
-                                            disabled={primaryKeyLocked}
-                                            options={columns.map((col) => ({
-                                                key: col.field,
-                                                label: `${col.label} (${col.type})`,
-                                            }))}
-                                            placeholder={
-                                                resolvedDetectedPks
-                                                    ? `Auto-detected: ${resolvedDetectedPks.join(', ')}`
-                                                    : 'No primary key detected'
-                                            }
-                                        />
-                                        {primaryKeyLocked && (
-                                            <LemonBanner type="info" className="mt-2">
-                                                Primary key cannot be changed after data has been synced. Delete the
-                                                synced data first to change it.
-                                            </LemonBanner>
-                                        )}
-                                        {primaryKeyColumns.length === 0 &&
-                                            !resolvedDetectedPks &&
-                                            !primaryKeyLocked && (
-                                                <LemonBanner type="info" className="mt-2">
-                                                    No primary key could be auto-detected from the source. Select one
-                                                    manually to enable incremental sync, or use full table replication
-                                                    instead.
-                                                </LemonBanner>
-                                            )}
-                                        {primaryKeyColumns.length > 0 &&
-                                            primaryKeyColumns.some(
-                                                (pk) => columns.find((col) => col.field === pk)?.nullable
-                                            ) && (
-                                                <LemonBanner type="warning" className="mt-2">
-                                                    One or more selected primary key columns are nullable. Rows with
-                                                    null values may cause issues with deduplication.
-                                                </LemonBanner>
-                                            )}
-                                    </>
-                                )}
+                                {radioValue === 'incremental' && primaryKeyPicker}
                             </>
                         )}
                     </div>
@@ -634,15 +644,17 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         if (radioValue !== schema.sync_type) {
             return true
         }
-        if (radioValue === 'incremental') {
-            if (incrementalFieldValue !== (schema.incremental_field ?? null)) {
-                return true
-            }
+        if (radioValue === 'incremental' || radioValue === 'cdc' || radioValue === 'xmin') {
             const serverPrimaryKeys = schema.primary_key_columns ?? []
             if (primaryKeyColumns.length !== serverPrimaryKeys.length) {
                 return true
             }
             if (primaryKeyColumns.some((pk, index) => pk !== serverPrimaryKeys[index])) {
+                return true
+            }
+        }
+        if (radioValue === 'incremental') {
+            if (incrementalFieldValue !== (schema.incremental_field ?? null)) {
                 return true
             }
             if (lookbackSeconds !== (schema.incremental_field_lookback_seconds ?? null)) {
@@ -658,12 +670,14 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         return false
     })()
 
+    const effectivePrimaryKeys = primaryKeyColumns.length ? primaryKeyColumns : resolvedDetectedPks
     const validationDisabledReason = getSaveDisabledReason(
         radioValue,
         incrementalFieldValue,
         appendFieldValue,
-        primaryKeyColumns.length ? primaryKeyColumns : resolvedDetectedPks,
-        keyRequired
+        effectivePrimaryKeys,
+        keyRequired,
+        replicationKeyRequired
     )
     const saveDisabledReason = validationDisabledReason ?? (!isDirty ? 'No changes to save' : undefined)
 
@@ -671,10 +685,10 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         if (radioValue === 'webhook') {
             onSave('webhook', null, null, null)
         } else if (radioValue === 'cdc') {
-            onSave('cdc', null, null, null, cdcTableMode)
+            onSave('cdc', null, null, effectivePrimaryKeys, cdcTableMode)
         } else if (radioValue === 'xmin') {
             // xmin carries no user-picked incremental field; the source projects the system column.
-            onSave('xmin', null, null, null)
+            onSave('xmin', null, null, effectivePrimaryKeys)
         } else if (radioValue === 'incremental') {
             const fieldSelected = schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
             if (!fieldSelected) {
