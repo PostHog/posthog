@@ -31,7 +31,7 @@ describe('playlistPopoverLogic', () => {
         ['addToPlaylist', 'addRecordingToPlaylist' as const, 'Recording added to collection'],
         ['removeFromPlaylist', 'removeRecordingFromPlaylist' as const, 'Recording removed from collection'],
     ])('toasts once when %s succeeds', async (action, apiMethod, expectedMessage) => {
-        jest.spyOn(api.recordings, apiMethod).mockResolvedValue(undefined)
+        jest.spyOn(api.recordings, apiMethod).mockResolvedValue(collection)
 
         logic.actions[action as 'addToPlaylist' | 'removeFromPlaylist'](collection)
 
