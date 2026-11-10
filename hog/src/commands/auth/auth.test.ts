@@ -997,6 +997,21 @@ describe('hog auth login', () => {
         expect(result.files[PENDING_FILE]).toBeUndefined()
     })
 
+    test('logout of a keychain login removes the copy a move from the file left in the credentials file', async () => {
+        const result = await runHog(['auth', 'logout'], {
+            env: { CLAUDECODE: '1' },
+            files: {
+                ...KEYCHAIN_LOGIN.files,
+                [HOG_CREDENTIALS_FILE]: JSON.stringify({ [EU_ITEM]: { apiKey: 'phx_secret' } }),
+            },
+            keychain: KEYCHAIN_LOGIN.keychain,
+        })
+
+        expect(result.json()).toMatchObject({ status: 'logged_out' })
+        expect(result.keychain).toEqual({})
+        expect(result.files[HOG_CREDENTIALS_FILE]).toBeUndefined()
+    })
+
     test('logout --all revokes a login filed under its host alone, after a login filed under its project', async () => {
         const PROJECT_7_REFRESH = `phr_${'7'.repeat(43)}`
         const result = await runHog(['auth', 'logout', '--all'], {

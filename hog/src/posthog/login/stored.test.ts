@@ -13,6 +13,7 @@ import { loginStorage, writeLogin } from './stored'
 
 const EU = parseHost('https://eu.posthog.com')
 const US = parseHost('https://us.posthog.com')
+const SETTINGS_FILE = '/home/test/.config/hog/settings.json'
 
 function login(host: Host, apiKey: string, projectId = '42'): PersonalAPIKey {
     return new PersonalAPIKey({ host, projectId: parseProjectId(projectId), apiKey: parsePersonalApiKey(apiKey) })
@@ -52,5 +53,33 @@ describe('stored logins', () => {
 
         expect(runtime.keychain[`${EU}#42`]).toContain('phx_renewed')
         expect(runtime.files[file.path] ?? '').not.toContain('phx_renewed')
+    })
+
+    test('a renewal leaves a keychain leftover to the next login or logout', async () => {
+        const runtime = fakeRuntime({ keychain: { [EU]: JSON.stringify({ apiKey: 'phx_left_over' }) } })
+        const { secrets } = runtime
+        const deleted: string[] = []
+        runtime.secrets = {
+            ...secrets,
+            delete: async (name) => {
+                deleted.push(name)
+                return secrets.delete(name)
+            },
+        }
+        const record = {
+            store: 'keychain',
+            type: 'personal_api_key',
+            projectId: '42',
+            host: EU,
+            keychainLeftover: true,
+        }
+        runtime.files[SETTINGS_FILE] = JSON.stringify({ logins: { [EU]: { '42': record } }, host: EU })
+
+        await writeLogin(runtime, new KeychainStore(runtime), login(EU, 'phx_renewed'))
+
+        expect(deleted).toEqual([])
+        expect(readJson(runtime.files[SETTINGS_FILE] ?? '{}')).toMatchObject({
+            logins: { [EU]: { '42': { keychainLeftover: true } } },
+        })
     })
 })

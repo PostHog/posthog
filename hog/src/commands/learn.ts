@@ -17,12 +17,15 @@ const ASSET_NAMES: Record<SkillAssetStatus['name'], string> = {
 
 // The MCP exec tool reads one command string after `learn`. hog gets `-s`, `-d` and `--lines` as
 // options, so this puts them back where that grammar expects them.
-function learnWords(
-    words: readonly string[],
+function execLearnTokens(
+    skill: string | undefined,
+    paths: readonly string[],
     options: { search?: string; describe?: boolean; lines?: string }
 ): readonly string[] {
     const { search, describe, lines } = options
-    if ([search !== undefined, describe === true, lines !== undefined].filter(Boolean).length > 1) {
+    const words = skill === undefined ? paths : [skill, ...paths]
+    const modeCount = Number(search !== undefined) + Number(describe === true) + Number(lines !== undefined)
+    if (modeCount > 1) {
         throw new HogError(
             'invalid_learn_command',
             'Pass only one of --search, --describe and --lines.',
@@ -79,7 +82,7 @@ function toHogError(error: SkillsError): HogError {
 }
 
 // A person sees why the skills may be out of date before the skills themselves.
-function notices(out: Output, assets: readonly SkillAssetStatus[]): void {
+function printDownloadWarnings(out: Output, assets: readonly SkillAssetStatus[]): void {
     for (const asset of assets) {
         const outcome =
             asset.origin === 'cache' && asset.fetchedAt
@@ -97,9 +100,12 @@ function notices(out: Output, assets: readonly SkillAssetStatus[]): void {
 export default defineCommand({
     description: 'Read the PostHog agent skills, the step-by-step guides for PostHog tasks',
     args: {
-        words: {
-            description:
-                'A skill such as posthog:instrument-integration, then paths of files in it. `skills` lists every skill',
+        skill: {
+            description: 'A skill such as posthog:instrument-integration. `skills` lists every skill',
+            optional: true,
+        },
+        paths: {
+            description: 'Paths of files in the skill, such as references/COMMANDMENTS.md',
             optional: true,
             variadic: true,
         },
@@ -130,9 +136,9 @@ export default defineCommand({
     ],
 
     async run({ args, options, ctx }): Promise<LearnResult> {
-        const words = learnWords(args.words ?? [], options)
+        const tokens = execLearnTokens(args.skill, args.paths ?? [], options)
         const library = await ctx.skills()
-        const result = await library.learn(words)
+        const result = await library.learn(tokens)
         if (!result.ok) {
             throw toHogError(result.error)
         }
@@ -144,7 +150,7 @@ export default defineCommand({
     },
 
     human({ result, out }) {
-        notices(out, result.assets)
+        printDownloadWarnings(out, result.assets)
         const { output } = result
         switch (output.kind) {
             case 'overview':
