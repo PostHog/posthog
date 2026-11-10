@@ -25,8 +25,8 @@ from ..adapters.registry import REGISTRY
 from ..facade.contracts import AdapterVerdict
 from ..facade.enums import DocsRequestSource
 from ..logic import intake
-from ..logic.pull_requests import docs_github
-from ..settings import writer_settings
+from ..logic.pull_requests import docs_github, github_app_login
+from ..settings import docs_source, writer_settings
 
 MERGE_CHECK_FAILED_REASON = "merge_check_failed"
 MERGE_CHECK_ATTEMPTS = 3
@@ -111,6 +111,8 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
                 github=github,
                 http=http,
                 anthropic_client=anthropic_client,
+                source=docs_source(),
+                writer_login=github_app_login(),
             )
     except MERGE_CHECK_RETRYABLE_ERRORS as error:
         if not is_final_attempt:

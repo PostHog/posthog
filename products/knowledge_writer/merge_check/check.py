@@ -3,21 +3,11 @@ from anthropic import Anthropic
 
 from ..backend.facade.contracts import CriterionResult, MergeCheckReport
 from ..backend.facade.enums import CriterionEffect, DocsChangeKind
+from ..backend.settings import DocsSource
+from .gates import rule_gates, with_existing_docs_pull_requests
+from .gather import gather_merge
 from .judge import JUDGE_MODEL, judge_merge
-from .sources import (
-    DOCS_URL_PREFIX,
-    GitHubReader,
-    LandedChange,
-    is_generated_path,
-    is_published_from_repository,
-    is_test_path,
-    merged_pull_request,
-    reached_default_branch,
-    read_diff_by_path,
-    read_docs_page_urls,
-    read_generated_path_patterns,
-    read_numbered_pull_request,
-)
+from .sources import GitHubReader, LandedChange, merged_pull_request, reached_default_branch, read_numbered_pull_request
 
 
 class MergeNotConfirmed(Exception):
@@ -35,6 +25,8 @@ def run_merge_check(
     github: GitHubReader,
     http: httpx.Client,
     anthropic_client: Anthropic,
+    source: DocsSource | None,
+    writer_login: str | None,
 ) -> MergeCheckReport:
     commit_sha = change.after
     listed = read_numbered_pull_request(github, change)
@@ -47,21 +39,26 @@ def run_merge_check(
         raise MergeNotConfirmed(commit_sha)
     if pull_request is None:
         return no_docs_report(change, title="", reason="no_pull_request")
-    if not pull_request.is_trusted_author:
-        return no_docs_report(change, title=pull_request.title, reason="untrusted_author")
-    diff_by_path = read_diff_by_path(github, change)
-    page_url_by_path = {url.removeprefix(DOCS_URL_PREFIX): url for url in read_docs_page_urls(http)}
-    generated_path_patterns = read_generated_path_patterns(github, change.repository, commit_sha)
-    judged_diff = "".join(
-        chunk
-        for path, chunk in diff_by_path.items()
-        if not is_test_path(path) and not is_generated_path(path, generated_path_patterns)
-    )
+    if source is None:
+        return no_docs_report(change, title=pull_request.title, reason="docs_source_unconfigured")
+    evidence = gather_merge(change, listed, source=source, github=github, http=http, writer_login=writer_login)
+    gates = rule_gates(evidence)
+    if gates.blocking_reason is not None:
+        return no_docs_report(
+            change,
+            title=pull_request.title,
+            reason=gates.blocking_reason,
+            criteria=gates.rows,
+            low_confidence=gates.low_confidence,
+        )
+    page_url_by_key = {
+        page.url.removeprefix(source.docs_url_prefix).strip("/"): page.url for page in evidence.editable_pages
+    }
     verdict = judge_merge(
         anthropic_client,
         title=pull_request.title,
-        judged_diff=judged_diff,
-        docs_page_paths=list(page_url_by_path),
+        judged_diff=evidence.judged_diff,
+        docs_page_paths=list(page_url_by_key),
     )
     is_flagged_by_judge = verdict.needs_docs and verdict.change_kind is not None
     judge_row = CriterionResult(
@@ -71,19 +68,19 @@ def run_merge_check(
         evidence=verdict.reason,
         effect=CriterionEffect.SUPPORTS if is_flagged_by_judge else CriterionEffect.BLOCKS,
     )
+    criteria = (*gates.rows, judge_row)
     if not is_flagged_by_judge:
-        return no_docs_report(change, title=pull_request.title, reason=verdict.reason or "judge", criteria=(judge_row,))
-    named_page_paths = tuple(dict.fromkeys(path.strip("/") for path in verdict.page_urls))
-    if any(is_published_from_repository(github, change.repository, commit_sha, path) for path in named_page_paths):
         return no_docs_report(
             change,
             title=pull_request.title,
-            reason="docs_in_source_repo",
-            criteria=(judge_row, gate_row("docs_in_source_repo")),
+            reason=verdict.reason or "judge",
+            criteria=criteria,
+            low_confidence=gates.low_confidence,
         )
-    listed_page_urls = tuple(page_url_by_path[path] for path in named_page_paths if path in page_url_by_path)
+    named_page_keys = tuple(dict.fromkeys(path.strip("/") for path in verdict.page_urls))
+    listed_page_urls = tuple(page_url_by_key[key] for key in named_page_keys if key in page_url_by_key)
     has_nothing_to_update = verdict.change_kind == DocsChangeKind.UPDATE and not listed_page_urls
-    return MergeCheckReport(
+    report = MergeCheckReport(
         commit_sha=commit_sha,
         commit_url=commit_url_for(change),
         title=pull_request.title,
@@ -91,11 +88,13 @@ def run_merge_check(
         reason="judge",
         repository=change.repository,
         pull_request_number=change.pull_request_number,
-        criteria=(judge_row,),
+        low_confidence=gates.low_confidence,
+        criteria=criteria,
         change_kind=DocsChangeKind.CREATE if has_nothing_to_update else verdict.change_kind,
         page_urls=listed_page_urls,
         evidence=f"{pull_request.url}\n{verdict.reason}",
     )
+    return with_existing_docs_pull_requests(report, evidence)
 
 
 def commit_url_for(change: LandedChange) -> str:
@@ -103,7 +102,12 @@ def commit_url_for(change: LandedChange) -> str:
 
 
 def no_docs_report(
-    change: LandedChange, *, title: str, reason: str, criteria: tuple[CriterionResult, ...] = ()
+    change: LandedChange,
+    *,
+    title: str,
+    reason: str,
+    criteria: tuple[CriterionResult, ...] = (),
+    low_confidence: bool = False,
 ) -> MergeCheckReport:
     return MergeCheckReport(
         commit_sha=change.after,
@@ -113,6 +117,7 @@ def no_docs_report(
         reason=reason,
         repository=change.repository,
         pull_request_number=change.pull_request_number,
+        low_confidence=low_confidence,
         criteria=criteria or (gate_row(reason),),
     )
 

@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-import httpx
 import requests
 
 from posthog.egress.github.transport import github_request
@@ -14,12 +13,6 @@ COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 NULL_COMMIT_SHA = "0" * 40
 GITHUB_API_URL = "https://api.github.com"
 GITHUB_EGRESS_SOURCE = "knowledge_writer"
-SITEMAP_URL = "https://posthog.com/sitemap/sitemap-0.xml"
-DOCS_URL_PREFIX = "https://posthog.com/docs/"
-PUBLISHED_DOCS_DIRECTORY = "docs/published/docs"
-PUBLISHED_DOCS_EXTENSIONS = (".md", ".mdx")
-TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"MEMBER", "OWNER"})
-SITEMAP_DOCS_URL_PATTERN = re.compile(r"<loc>(https://posthog\.com/docs/[^<]+)</loc>")
 DIFF_FILE_HEADER_PATTERN = re.compile(r"^diff --git a/\S+ b/(\S+)$")
 GENERATED_ATTRIBUTES = frozenset({"linguist-generated", "linguist-generated=true"})
 TEST_PATH_PATTERN = re.compile(
@@ -32,7 +25,6 @@ class MergedPullRequest:
     number: int
     title: str
     url: str
-    is_trusted_author: bool
 
 
 @dataclass(frozen=True)
@@ -146,7 +138,6 @@ def merged_pull_request(listed: Mapping[str, Any], commit_sha: str) -> MergedPul
         number=listed["number"],
         title=listed["title"],
         url=listed["html_url"],
-        is_trusted_author=listed.get("author_association") in TRUSTED_AUTHOR_ASSOCIATIONS,
     )
 
 
@@ -228,25 +219,3 @@ def is_generated_path(path: str, generated_path_patterns: list[str]) -> bool:
         fnmatch.fnmatchcase(path, pattern) or ("/" not in pattern and fnmatch.fnmatchcase(file_name, pattern))
         for pattern in generated_path_patterns
     )
-
-
-def is_published_from_repository(github: GitHubReader, repository: str, commit_sha: str, page_path: str) -> bool:
-    for extension in PUBLISHED_DOCS_EXTENSIONS:
-        response = github.api_request(
-            "GET",
-            f"/repos/{repository}/contents/{PUBLISHED_DOCS_DIRECTORY}/{page_path.strip('/')}{extension}",
-            endpoint="/repos/{owner}/{repo}/contents/{path}",
-            params={"ref": commit_sha},
-            priority=Priority.NORMAL,
-        )
-        if response.status_code == 200:
-            return True
-        if response.status_code != 404:
-            response.raise_for_status()
-    return False
-
-
-def read_docs_page_urls(http: httpx.Client) -> list[str]:
-    response = http.get(SITEMAP_URL)
-    response.raise_for_status()
-    return SITEMAP_DOCS_URL_PATTERN.findall(response.text)

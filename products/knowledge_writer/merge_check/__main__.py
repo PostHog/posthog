@@ -6,6 +6,7 @@ from pathlib import Path
 
 import httpx
 
+from ..backend.settings import docs_source_for
 from .check import run_merge_check
 from .judge import judge_client
 from .sources import GitHubReader, LandedChange, PersonalTokenGitHub, landed_change, read_closed_pull_requests
@@ -17,6 +18,7 @@ def replay_command(arguments: argparse.Namespace) -> int:
     github_token = os.environ.get("GITHUB_TOKEN") or os.environ["GH_TOKEN"]
     flagged = 0
     github = PersonalTokenGitHub(github_token)
+    source = docs_source_for(arguments.docs_repository)
     with httpx.Client(timeout=30) as http:
         merges = (
             recent_merges(github, arguments.repository, arguments.recent)
@@ -36,6 +38,8 @@ def replay_command(arguments: argparse.Namespace) -> int:
                     github=github,
                     http=http,
                     anthropic_client=anthropic_client,
+                    source=source,
+                    writer_login=arguments.writer_login,
                 )
             flagged += report.needs_docs
             page_hits = sorted(set(report.page_urls) & set(merge.get("page_urls", [])))
@@ -79,6 +83,9 @@ def main(argv: list[str] | None = None) -> int:
         "--recent", type=recent_merge_count, help="replay the merged pull requests among the last N closed ones"
     )
     replay.add_argument("--repository", default="PostHog/posthog", help="owner/name of the merged repository")
+    replay.add_argument(
+        "--writer-login", help="GitHub login whose docs pull requests block a verdict, such as app-slug[bot]"
+    )
     replay.set_defaults(handler=replay_command)
     arguments = parser.parse_args(argv)
     return arguments.handler(arguments)
