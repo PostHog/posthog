@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
@@ -88,7 +88,7 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
                 fileBytes === null ||
                 exceedsLargestSend(fileBytes) ||
                 invocation.cancelRequestedAt ||
-                !emailStepAhead(invocation, hogFlows[invocation.functionId])
+                !sendStepAhead(invocation, hogFlows[invocation.functionId])
             ) {
                 plain.push(invocation)
                 continue
@@ -195,7 +195,11 @@ function registryFor(config: PluginsServerConfig): InFlightRegistry {
     return new InFlightRegistry(admission.limits)
 }
 
-function emailStepAhead(invocation: CyclotronJobInvocation, hogFlow: HogFlow | null | undefined): boolean {
+// A generic function step can run a template that calls sendEmail, and the stored workflow does not say which one does.
+const canSendEmail = (action: HogFlowAction | undefined): boolean =>
+    action?.type === 'function_email' || action?.type === 'function'
+
+function sendStepAhead(invocation: CyclotronJobInvocation, hogFlow: HogFlow | null | undefined): boolean {
     if (invocation.queueParameters?.type === 'email') {
         return true
     }
@@ -205,7 +209,7 @@ function emailStepAhead(invocation: CyclotronJobInvocation, hogFlow: HogFlow | n
     const currentActionId = (invocation.state as CyclotronJobInvocationHogFlow['state'] | null)?.currentAction?.id
     const start = currentActionId ?? hogFlow.actions.find((action) => action.type === 'trigger')?.id
     if (start === undefined || !hogFlow.actions.some((action) => action.id === start)) {
-        return hogFlow.actions.some((action) => action.type === 'function_email')
+        return hogFlow.actions.some(canSendEmail)
     }
     const seen = new Set<string>()
     const ahead = [start]
@@ -215,7 +219,7 @@ function emailStepAhead(invocation: CyclotronJobInvocation, hogFlow: HogFlow | n
             continue
         }
         seen.add(id)
-        if (hogFlow.actions.find((action) => action.id === id)?.type === 'function_email') {
+        if (canSendEmail(hogFlow.actions.find((action) => action.id === id))) {
             return true
         }
         ahead.push(...hogFlow.edges.filter((edge) => edge.from === id).map((edge) => edge.to))
