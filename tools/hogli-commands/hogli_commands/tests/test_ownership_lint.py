@@ -15,6 +15,10 @@ owners: []
 rules:
   - match: '/owned/'
     owners: team-a
+  - match: '/person/'
+    owners: '@alice'
+  - match: '/exempt/'
+    owners: null
 """
 
 Add = Callable[[str], None]
@@ -42,6 +46,8 @@ class TestLintTestOwners:
         [
             pytest.param("gap/test_new.py", 1, "warning", id="pytest_file_with_no_owner"),
             pytest.param("gap/New.test.tsx", 1, "warning", id="jest_file_with_no_owner"),
+            pytest.param("person/test_new.py", 1, "warning", id="test_that_only_a_person_owns"),
+            pytest.param("exempt/test_new.py", 0, "pass", id="test_under_owners_null"),
             pytest.param("owned/test_new.py", 0, "pass", id="test_with_an_owner"),
             pytest.param("gap/new.py", 0, "pass", id="file_that_is_not_a_test"),
         ],

@@ -14,7 +14,8 @@ HINT = "Name the owner in the nearest owners.yaml. `hogli owners:who <path>` sho
 
 
 def _unowned_new_tests(against: str, committed_only: bool) -> list[str]:
-    return [path for path in newly_unowned(REPO_ROOT, against, committed_only=committed_only) if runner_for_path(path)]
+    unowned = newly_unowned(REPO_ROOT, against, committed_only=committed_only, teams_only=True)
+    return [path for path in unowned if runner_for_path(path)]
 
 
 def check_test_owners(scope: Scope) -> Outcome:

@@ -8,8 +8,9 @@ import tempfile
 import subprocess
 from pathlib import Path
 
+from .census import UNOWNED_TEAM, owning_team
 from .matcher import SEP
-from .resolver import GitRefSource, OwnersResolver
+from .resolver import GitRefSource, OwnersResolver, Resolution
 
 
 def _git(repo_root: Path, *args: str, index: str | None = None) -> str:
@@ -18,7 +19,9 @@ def _git(repo_root: Path, *args: str, index: str | None = None) -> str:
     return subprocess.run(command, capture_output=True, text=True, check=True, env=env).stdout
 
 
-def newly_unowned(repo_root: Path, against: str, *, committed_only: bool = False) -> list[str]:
+def newly_unowned(
+    repo_root: Path, against: str, *, committed_only: bool = False, teams_only: bool = False
+) -> list[str]:
     """Files that are unowned now and were not at the merge base of HEAD and ``against``.
 
     A new file counts, and so does a file that lost its owners to a move or to an ownership file
@@ -27,6 +30,8 @@ def newly_unowned(repo_root: Path, against: str, *, committed_only: bool = False
 
     The worktree is the files on disk that git does not ignore, tracked or not.
     ``committed_only`` reads HEAD and not the worktree, for a check on what a push carries.
+    ``teams_only`` also counts a file that only ``@handles`` own, for a check that needs a team to
+    route to.
     """
     merge_base = _git(repo_root, "merge-base", against, "HEAD").strip()
     diff_args = ("diff", "--name-status", "-z", "--find-renames", "--relative", merge_base)
@@ -62,6 +67,9 @@ def newly_unowned(repo_root: Path, against: str, *, committed_only: bool = False
             if name in ownership_filenames:
                 reowned_directories.add(directory)
 
+    def lacks_owner(resolution: Resolution) -> bool:
+        return owning_team(resolution) == UNOWNED_TEAM if teams_only else resolution.is_unowned
+
     # An ownership file decides only the paths below its directory, so a file outside the changed
     # directories keeps the owners it had.
     candidates = [
@@ -70,12 +78,12 @@ def newly_unowned(repo_root: Path, against: str, *, committed_only: bool = False
         if path in path_at_base
         or any(not directory or path.startswith(directory + SEP) for directory in reowned_directories)
     ]
-    unowned = head.unowned(candidates)
+    unowned = [path for path in candidates if lacks_owner(head.resolve(path))]
     if not unowned:
         return []
     base = OwnersResolver(repo_root, source=GitRefSource(repo_root, merge_base))
     return [
         path
         for path in unowned
-        if (before := path_at_base.get(path, path)) is None or not base.resolve(before).is_unowned
+        if (before := path_at_base.get(path, path)) is None or not lacks_owner(base.resolve(before))
     ]
