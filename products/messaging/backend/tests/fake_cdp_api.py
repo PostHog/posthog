@@ -7,6 +7,8 @@ from typing import Any
 
 import requests
 
+from posthog.dataclasses import frozen
+
 # A copy of the request schemas in nodejs/src/cdp/services/hogflows/transactional-email.ts. Like the zod
 # schemas there, the code-send `send` object and every object in it refuse a key they don't name.
 RECIPIENT_ADDRESS_PATTERN = re.compile(
@@ -170,7 +172,7 @@ def _is_recipient_format_issue(issue: dict[str, Any]) -> bool:
     )
 
 
-@dataclass
+@frozen
 class FakeCdpApi:
     """Stands in for cdp-api's transactional email routes: it validates a request as those routes do and
     queues what it accepts."""
@@ -195,7 +197,7 @@ class FakeCdpApi:
         return _response(202, {"invocation_id": str(uuid.uuid4())})
 
 
-@dataclass
+@frozen
 class FakeAnalytics:
     """Stands in for `posthoganalytics.capture` and keeps the events it was given."""
 
