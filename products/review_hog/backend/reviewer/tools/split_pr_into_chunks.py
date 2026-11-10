@@ -184,6 +184,14 @@ def plan_lens_chunks(pr_files: list[PRFile]) -> LensChunkPlan:
     return LensChunkPlan(chunks=_pack_by_directory(reviewable, high), capped=True, reviewable_lines=reviewable_lines)
 
 
+_DEVEX_LENS_PATH = re.compile(r"^(\.github/(workflows|actions)/|\.depot/|tach\.toml$|hogli\.yaml$)")
+
+
+def devex_lens_files(pr_files: list[PRFile]) -> list[str]:
+    """The changed CI and repo-tooling files that the devex lens session reviews. Empty when the lens does not run."""
+    return [f.filename for f in pr_files if _DEVEX_LENS_PATH.match(f.filename)]
+
+
 def generate_chunking_prompt(
     pr_metadata: PRMetadata,
     pr_comments: list[PRComment],

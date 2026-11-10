@@ -450,27 +450,20 @@ class TestFetchPrData:
     @parameterized.expand(
         [
             (
-                "exclude_tests_and_text",
+                "pipeline",
                 False,
                 ["src/module.py", "src/large.py"],
-                [
-                    "tests/test_module.py",
-                    "requirements.txt",
-                    "build/report.txt",
-                    "tests/__snapshots__/test_module.ambr",
-                    "yarn.lock",
-                    "src/large.py",
-                ],
+                ["tests/test_module.py", "requirements.txt", "yarn.lock", "src/large.py"],
             ),
             (
-                "include_tests_and_text",
+                "single_agent",
                 True,
                 ["tests/test_module.py", "requirements.txt", "src/module.py", "src/large.py"],
-                ["build/report.txt", "tests/__snapshots__/test_module.ambr", "yarn.lock", "src/large.py"],
+                ["yarn.lock", "src/large.py"],
             ),
         ]
     )
-    def test_fetch_applies_file_policy_to_files_and_comments(
+    def test_filtered_and_test_files_are_excluded(
         self,
         mock_request: Mock,
         mock_paginated: Mock,
@@ -479,22 +472,18 @@ class TestFetchPrData:
         expected: list[str],
         expected_skipped: list[str],
     ) -> None:
-        # Including tests and text must preserve artifact exclusions in both review and dedup. GitHub sends
+        # A lock file never reaches the review. Test and `.txt` files reach only the single-agent
+        # design, which was measured with them in its diff; the pipeline was tuned without them. A
+        # comment follows its file, so dedup sees exactly the comments on reviewed files. GitHub sends
         # no patch for a large file, so the review never sees its changes and must report it skipped.
         _wire(
             mock_request,
             mock_paginated,
             _pr_json(),
-            comments=[
-                _comment_json(comment_id=1, path="tests/test_module.py"),
-                _comment_json(comment_id=2, path="build/report.txt"),
-                _comment_json(comment_id=3, path="tests/__snapshots__/test_module.ambr"),
-            ],
+            comments=[_comment_json(comment_id=1, path="tests/test_module.py")],
             files=[
                 _file_json(filename="tests/test_module.py", status="added", patch="@@ -0,0 +1,1 @@\n+x"),
                 _file_json(filename="requirements.txt", status="modified", patch="@@ -1,1 +1,1 @@\n+w"),
-                _file_json(filename="build/report.txt", status="modified", patch="@@ -1,1 +1,1 @@\n+generated"),
-                _file_json(filename="tests/__snapshots__/test_module.ambr", patch="@@ -1,1 +1,1 @@\n+snapshot"),
                 _file_json(filename="yarn.lock", status="modified", patch="@@ -1,1 +1,1 @@\n+y"),
                 _file_json(filename="src/module.py", status="modified", patch="@@ -1,1 +1,1 @@\n+z"),
                 _file_json(filename="src/large.py", status="modified"),

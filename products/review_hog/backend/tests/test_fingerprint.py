@@ -15,6 +15,7 @@ from products.review_hog.backend.models import ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact, parse_artefact_content
 from products.review_hog.backend.reviewer.constants import (
     CONTROL_ARM_SET,
+    DEVEX_LENS,
     FLASH_LENSES,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
@@ -24,7 +25,6 @@ from products.review_hog.backend.reviewer.constants import (
     reviewhog_version_for_mode,
 )
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
-from products.review_hog.backend.reviewer.models import PROMPTS_DIR
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import persist_pr_snapshot, upsert_review_report
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
@@ -72,6 +72,7 @@ class TestRecordTurnMarker(BaseTest):
         coordinator: bool = False,
         publishes: bool | None = None,
         arm_set: str = CONTROL_ARM_SET,
+        devex_lens: bool = False,
     ) -> ReviewHogMarker:
         return record_turn_marker(
             team_id=team_id or self.team.id,
@@ -85,10 +86,11 @@ class TestRecordTurnMarker(BaseTest):
             coordinator=coordinator,
             publishes=publishes,
             arm_set=arm_set,
+            devex_lens=devex_lens,
         )
 
     def _record_single_agent(
-        self, run_index: int, coordinator: bool = False, arm_set: str = CONTROL_ARM_SET
+        self, run_index: int, coordinator: bool = False, arm_set: str = CONTROL_ARM_SET, devex_lens: bool = False
     ) -> ReviewHogMarker:
         return self._record(
             run_index,
@@ -96,6 +98,7 @@ class TestRecordTurnMarker(BaseTest):
             review_design=REVIEW_DESIGN_SINGLE_AGENT,
             coordinator=coordinator,
             arm_set=arm_set,
+            devex_lens=devex_lens,
         )
 
     def _edit_single_agent_prompt(self, prompt_file: str) -> None:
@@ -124,25 +127,16 @@ class TestRecordTurnMarker(BaseTest):
         assert original.version == "reviewhog-flash-2-3"
         assert changed.fingerprint != original.fingerprint
 
-    @parameterized.expand(
-        [
-            ("standard", REVIEW_MODE_FLASH, REVIEW_DESIGN_SINGLE_AGENT),
-            ("deep", REVIEW_MODE_FULL, REVIEW_DESIGN_PIPELINE),
-        ]
-    )
-    def test_devex_standards_edits_change_each_designs_fingerprint(
-        self, _name: str, review_mode: str, review_design: str
-    ) -> None:
-        original = self._record(run_index=1, review_mode=review_mode, review_design=review_design)
-        with tempfile.TemporaryDirectory() as directory:
-            edited_dir = Path(directory) / "prompts"
-            shutil.copytree(PROMPTS_DIR, edited_dir)
-            policy = edited_dir / "devex_review_standards.md"
-            policy.write_text(policy.read_text() + "\nCheck the required recording outcome.\n")
-            with patch("products.review_hog.backend.reviewer.fingerprint.PROMPTS_DIR", edited_dir):
-                changed = self._record(run_index=2, review_mode=review_mode, review_design=review_design)
+    def test_only_a_turn_with_the_devex_lens_carries_its_prompt(self) -> None:
+        # A turn without the lens must keep its cohort when the lens ships or its prompt changes,
+        # or every earlier Standard evaluation stops being comparable.
+        without_lens = self._record_single_agent(run_index=1)
+        with_lens = self._record_single_agent(run_index=2, devex_lens=True)
+        self._edit_single_agent_prompt(DEVEX_LENS.prompt_file)
 
-        assert changed.fingerprint != original.fingerprint
+        assert with_lens.fingerprint != without_lens.fingerprint
+        assert self._record_single_agent(run_index=3).fingerprint == without_lens.fingerprint
+        assert self._record_single_agent(run_index=4, devex_lens=True).fingerprint != with_lens.fingerprint
 
     def test_each_arm_of_an_arm_set_splits_the_single_agent_cohort(self) -> None:
         # A trial that changes only the lens model would otherwise share the control cohort.

@@ -50,20 +50,6 @@ and the roadmap — including the designed-but-unbuilt loop. Nothing is summariz
 reasoning behind any part of this reference. [Status & next](#status--next) below is a short summary of what's
 in flight, with the detail in DECISIONS.md.
 
-### Repository-wide DevEx workflow review
-
-Standard main and lens sessions, Deep perspective and blind-spot sessions, and Deep validation share `backend/reviewer/prompts/devex_review_standards.md`.
-These developer experience checks prioritize workflow standards and GitHub/Depot correctness, reliability, and cost across products, languages, and owning teams, regardless of the selected perspective.
-Application, dependency, and generated-file changes stay in scope when they affect workflow contracts, even without a workflow-file diff.
-The rubric distinguishes GitHub Actions, GitHub Actions on Depot runners, and native Depot CI before evaluating their behavior.
-Its priorities cover event/ref semantics, required-check gates and test selection, permissions and trust, concurrency and caches, resource evidence, and workflow test claims.
-Reviewers use applicable repository guidance, canonical mechanisms, prior CI experiments, and current vendor documentation rather than generic optimization advice.
-Repository-wide coverage preserves each rule's documented path scope and project-instruction precedence.
-Standards-only findings start with `[Standards]` and distinguish required corrections from advisory work without claiming a production failure.
-Both designs include source tests and text files in their snapshots and comment deduplication; artifact exclusions still apply.
-Deep still applies the selected validation skill, which may set a stricter bar; the canonical validator accepts verified standards findings.
-Both turn fingerprints include the shared rubric, so a policy edit creates a distinct evaluation cohort.
-
 > **Keep the docs in sync, each in its lane.** This reference is the source of truth for ReviewHog's
 > architecture — the pipeline shape, the sandbox/contract surface it binds to in `products/tasks`, the data
 > models, the prompts, the artefact layout. A merge or refactor that moves or renames what ReviewHog depends on
@@ -320,6 +306,14 @@ sessions, all on the PR's arm set (below) and all returning `SingleAgentReview`:
   and image assets, and `max_migration.txt`. One session runs per lens and part, so a turn opens at most 9 sessions, under one
   `MAX_CONCURRENT_SANDBOXES` semaphore. A lens session gets `FLASH_LENS_SESSION_TIMEOUT` (10 minutes, retry
   included) instead of the sandbox timeout. A failed or timed-out lens session costs only its own findings.
+- **The devex lens session** (`DEVEX_LENS`, `lens_devex.md`) reviews CI and repo-tooling changes.
+  It is not in `FLASH_LENSES`.
+  It runs only when the PR changes a file that `devex_lens_files` matches (`.github/workflows/`, `.github/actions/`, `.depot/`, `tach.toml`, `hogli.yaml`) and the per-PR flag `reviewhog-devex-lens` is on.
+  The fetch activity records the answer on `ReviewMeta.devex_lens`.
+  The session is one more lens unit of `lens_review_activity` under pass 2003: its diff holds only the matched files, and its findings go through the same dedup, ranking, and cap as the other lens findings.
+  Its prompt holds the review method only. The session reads the repository's CI rules from the checkout (`.agents/ci.md` and the CI skills), so a rule lives in one place.
+  A coordinated turn and a delta turn run without it.
+  Only a turn that runs it hashes `lens_devex.md` into its fingerprint, so every other turn keeps its cohort.
 
 **Arm sets.** `SINGLE_AGENT_ARM_SETS` (`reviewer/constants.py`) names each set of arms the sessions can run on: one arm
 for the main session, one for every lens session. The `control` set runs every session on `SINGLE_AGENT_FLASH_ARM`
@@ -432,8 +426,9 @@ pipeline. `reviewhog_review_started` reports the choice as `review_design` and i
    returns `(pr_metadata, pr_comments, pr_files, diff)` **in-process** — no files. The fetch activity rejects fork PRs
    (`PRMetadata.is_fork`) non-retryably before opening the report. The
    `diff` is the reviewed files' raw unified patch (the point-in-time snapshot). Lockfiles, minified assets,
-   snapshots, `*.schema.py`, and build dirs are filtered out, with their comments
-   (`PRFilter`). Both designs keep test and `*.txt` files (`review_tests_and_text`). `branch =
+   snapshots, `*.schema.py`, `*.txt`, build dirs, and test files are filtered out, with their comments
+   (`PRFilter`). A single-agent Flash turn keeps test and `*.txt` files (`review_tests_and_text`), so the fetch
+   activity picks the design before it fetches. `branch =
 pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / `user_id`) into every sandbox
    activity — there is no ContextVar identity. The team's GitHub integration is validated up front by
    `validate_github_integration_activity`; `upsert_review_report` opens the living `ReviewReport`, and

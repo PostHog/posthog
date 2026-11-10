@@ -127,7 +127,8 @@ class TestFetchDecidesTheTier(BaseTest):
         _arm_set_flag: MagicMock,
     ) -> None:
         # The workflow fans the lens sessions out over this count, so a fetch that leaves it at the
-        # default runs every Flash turn without its lenses and no error shows it.
+        # default runs every Flash turn without its lenses and no error shows it. Only the
+        # single-agent design fetches test and `.txt` files, so the design must be known first.
         # Its prompt reads a left-out diff against the merge base, so the snapshot must keep it.
         coordinator_flag.return_value = coordinator_flag_on
         pr_files = [
@@ -155,12 +156,62 @@ class TestFetchDecidesTheTier(BaseTest):
         # The delta review and the arm sets exist only for separate sessions, so other turns stay in control.
         assert (meta.zero_change_skip, meta.delta_band) == (True, separate_sessions)
         assert meta.arm_set == ("trial" if separate_sessions else CONTROL_ARM_SET)
+        single_agent = review_mode == REVIEW_MODE_FLASH
         assert mock_fetcher.return_value.fetch_pr_data.call_args.kwargs == {
-            "review_tests_and_text": True,
+            "review_tests_and_text": single_agent,
             "with_merge_base": True,
         }
         snapshot = load_pr_snapshot(team_id=self.team.id, report_id=meta.report_id, head_sha=meta.head_sha)
         assert snapshot is not None and snapshot.merge_base_sha == merge_base_sha
+
+    @parameterized.expand(
+        [
+            ("workflow_file_with_flag", ".github/workflows/ci.yml", True, False, True),
+            ("flag_off", ".github/workflows/ci.yml", False, False, False),
+            ("application_file", "posthog/api.py", True, False, False),
+            ("coordinated_turn", ".github/workflows/ci.yml", True, True, False),
+        ]
+    )
+    @patch(f"{_MODULE}.devex_lens_on")
+    @patch(f"{_MODULE}.standard_coordinator_on")
+    @patch(f"{_MODULE}.flash_pipeline_kill_switch_on", return_value=False)
+    @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
+    @patch(f"{_MODULE}.PRFetcher")
+    def test_fetch_adds_the_devex_lens_only_to_a_routed_pr_on_separate_sessions(
+        self,
+        _name: str,
+        filename: str,
+        flag_on: bool,
+        coordinator_on: bool,
+        expected: bool,
+        mock_fetcher: MagicMock,
+        _auth: MagicMock,
+        _kill_switch: MagicMock,
+        coordinator_flag: MagicMock,
+        devex_flag: MagicMock,
+    ) -> None:
+        # The lens must stay off every turn outside its route, or those turns leave their evaluation cohort.
+        devex_flag.return_value = flag_on
+        coordinator_flag.return_value = coordinator_on
+        mock_fetcher.return_value.fetch_pr_data.return_value = FetchedPR(
+            pr_metadata=_pr_metadata(),
+            pr_comments=[],
+            pr_files=[PRFile(filename=filename, status="modified", additions=5, deletions=0)],
+            diff="",
+        )
+        meta = _fetch_and_persist(
+            FetchPRDataInput(
+                team_id=self.team.id,
+                user_id=self.user.id,
+                repository="o/r",
+                owner="o",
+                repo="r",
+                pr_number=9,
+                review_mode=REVIEW_MODE_FLASH,
+            )
+        )
+
+        assert meta.devex_lens is expected
 
     @patch(f"{_MODULE}._installation_auth", return_value=("tok", "9876543"))
     @patch(f"{_MODULE}.PRFetcher")

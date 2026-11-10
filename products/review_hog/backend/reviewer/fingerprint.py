@@ -29,6 +29,7 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_MODEL,
     DEDUP_REASONING_EFFORT,
     DEDUP_RUNTIME_ADAPTER,
+    DEVEX_LENS,
     FLASH_DEDUP_MODEL,
     FLASH_DEDUP_REASONING_EFFORT,
     FLASH_FIRST_REVIEW_CAP_MULTIPLIER,
@@ -169,7 +170,6 @@ class TurnFingerprint:
         hashes = {f"{name}/system": _text_hash(text) for name, text in _REVIEW_TURN_SYSTEM_PROMPTS.items()}
         hashes.update({name: _text_hash(text) for name, text in _REVIEW_TURN_EXTRA_PROMPTS.items()})
         hashes.update(cls._prompt_dir_hashes(_REVIEW_TURN_PROMPT_DIRS))
-        hashes["devex_review_standards.md"] = _text_hash((PROMPTS_DIR / "devex_review_standards.md").read_text())
         return hashes
 
     @classmethod
@@ -183,7 +183,6 @@ class TurnFingerprint:
             )
         hashes["issue_deduplicator/system"] = _text_hash(DEDUP_SYSTEM_PROMPT)
         hashes["sandbox/json_retry"] = _text_hash(JSON_RETRY_PROMPT)
-        hashes["devex_review_standards.md"] = _text_hash((PROMPTS_DIR / "devex_review_standards.md").read_text())
         return hashes
 
     @staticmethod
@@ -240,6 +239,7 @@ class TurnFingerprint:
         review_design: str = REVIEW_DESIGN_PIPELINE,
         coordinator: bool = False,
         arm_set: str = CONTROL_ARM_SET,
+        devex_lens: bool = False,
     ) -> TurnFingerprint:
         stored_arm = resolve_review_arm(
             report.review_runtime_adapter,
@@ -262,7 +262,11 @@ class TurnFingerprint:
                 coordinator_inputs["coordinator"] = {"prompt": _text_hash(prompt)}
             lens_arm = single_agent_arms(arm_set).lens
             # Only a set whose lenses run on another arm carries it, so sets with one arm keep their cohort.
-            lens_inputs = {"lens_arm": _arm_payload(lens_arm)} if lens_arm != review_arm else {}
+            lens_inputs: dict[str, Any] = {"lens_arm": _arm_payload(lens_arm)} if lens_arm != review_arm else {}
+            if devex_lens:
+                # Only a turn that runs the devex lens carries it, so every other turn keeps its cohort.
+                prompt = (SINGLE_AGENT_PROMPT_PATH / DEVEX_LENS.prompt_file).read_text()
+                lens_inputs["devex_lens"] = {"prompt": _text_hash(prompt)}
             return cls(
                 {
                     **coordinator_inputs,
@@ -319,6 +323,7 @@ def record_turn_marker(
     coordinator: bool = False,
     publishes: bool | None = None,
     arm_set: str = CONTROL_ARM_SET,
+    devex_lens: bool = False,
 ) -> ReviewHogMarker:
     """Compute the turn's marker and persist it as the turn's `turn_marker` artefact.
 
@@ -336,6 +341,7 @@ def record_turn_marker(
         review_design=review_design,
         coordinator=coordinator,
         arm_set=arm_set,
+        devex_lens=devex_lens,
     )
     marker = ReviewHogMarker(
         version=reviewhog_version_for_mode(review_mode, review_design), fingerprint=fingerprint.digest()

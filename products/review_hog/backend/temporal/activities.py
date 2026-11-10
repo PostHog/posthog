@@ -56,6 +56,8 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_RUNTIME_ADAPTER,
     CONTROL_ARM_SET,
     COORDINATOR_MAX_SUBAGENTS,
+    DEVEX_LENS,
+    DEVEX_LENS_NAME,
     FLASH_LENSES,
     FLASH_WHOLE_PR_TURNS,
     NON_RETRYABLE_UNIT_FAILURE_CATEGORIES,
@@ -78,6 +80,7 @@ from products.review_hog.backend.reviewer.constants import (
 )
 from products.review_hog.backend.reviewer.feature_flags import (
     delta_reviews_low_risk_follow_ups,
+    devex_lens_on,
     flash_pipeline_kill_switch_on,
     single_agent_arm_set,
     skips_zero_change_follow_ups,
@@ -224,6 +227,7 @@ from products.review_hog.backend.reviewer.tools.single_agent_review import (
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     CHUNKING_SYSTEM_PROMPT,
     count_reviewable_additions,
+    devex_lens_files,
     generate_chunking_prompt,
     plan_deterministic_chunks,
     plan_lens_chunks,
@@ -328,6 +332,9 @@ class ReviewMeta:
     # A single-agent turn that runs its sessions as sub-agents of one coordinator session. Recorded here
     # so a replay takes the same branch. Older histories decode as separate sessions.
     coordinator: bool = False
+    # The turn adds the devex lens session. Recorded here so a replay fans out over the same sessions.
+    # Older histories decode as no devex lens.
+    devex_lens: bool = False
     # The PR's arms in the zero-change and delta splits. Recorded here so a replay takes the same branch.
     # Older histories decode as the control arms.
     zero_change_skip: bool = False
@@ -663,6 +670,7 @@ class RecordTurnMarkerInput:
     # None in payloads from before the field existed.
     publishes: bool | None = None
     arm_set: str = CONTROL_ARM_SET
+    devex_lens: bool = False
 
 
 @frozen
@@ -869,7 +877,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     if pr_number is not None:
         fetched = PRFetcher(
             owner=input.owner, repo=input.repo, pr_number=pr_number, token=token, installation_id=installation_id
-        ).fetch_pr_data(review_tests_and_text=True, with_merge_base=True)
+        ).fetch_pr_data(review_tests_and_text=single_agent, with_merge_base=True)
         if fetched.pr_metadata.is_fork:
             raise ApplicationError(
                 f"Refusing to review fork PR #{pr_number} in {input.repository}: a fork's head ref is "
@@ -882,7 +890,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
             repository=input.repository,
             head_branch=input.head_branch or "",
             installation_id=installation_id,
-            review_tests_and_text=True,
+            review_tests_and_text=single_agent,
         )
     head_sha = fetched.pr_metadata.head_sha or ""
     report_id = upsert_review_report(
@@ -981,6 +989,11 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         lens_chunk_count=len(lens_plan.chunks) if lens_plan is not None else 0,
         lens_chunks_capped=lens_plan is not None and lens_plan.capped,
         coordinator=coordinator,
+        # The coordinator has no sub-agent slot for it, so a coordinated PR runs without the devex lens.
+        devex_lens=separate_sessions
+        and pr_number is not None
+        and bool(devex_lens_files(fetched.pr_files))
+        and devex_lens_on(input.repository, pr_number),
         zero_change_skip=pr_number is not None and skips_zero_change_follow_ups(input.repository, pr_number),
         # The delta review only exists for separate sessions, so a coordinated PR stays in the control arm.
         delta_band=separate_sessions
@@ -1220,6 +1233,7 @@ def _record_turn_marker_safe(input: RecordTurnMarkerInput) -> ReviewHogMarker | 
             coordinator=input.coordinator,
             publishes=input.publishes,
             arm_set=input.arm_set,
+            devex_lens=input.devex_lens,
         )
     except Exception:
         logger.exception("Failed to record the turn marker for report %s; continuing", input.report_id)
@@ -1545,8 +1559,10 @@ def _changed_since_head(
     return ChangedSinceReview.between(earlier.pr_files, current_files)
 
 
-def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_lens: bool, guidelines: str) -> str:
-    """The prompt of the main session, or of one lens session on lens part `chunk_id`."""
+def _prepare_single_agent_prompt(
+    input: SandboxStageInput, chunk_id: int, for_lens: bool, guidelines: str, devex_lens: bool = False
+) -> str:
+    """The prompt of the main session, of one lens session on lens part `chunk_id`, or of the devex lens session."""
     snapshot = load_pr_snapshot(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_design=input.review_design
     )
@@ -1556,7 +1572,9 @@ def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_le
     scope_files: list[str] | None = None
     # The workflow starts one session per lens on a delta turn, so a delta turn whose baseline is gone reviews the whole
     # PR in that session instead of one lens part.
-    if for_lens and input.delta_since_head_sha is None:
+    if devex_lens:
+        scope_files = devex_lens_files(snapshot.pr_files)
+    elif for_lens and input.delta_since_head_sha is None:
         chunks = plan_lens_chunks(snapshot.pr_files).chunks
         if not 1 <= chunk_id <= len(chunks):
             raise ApplicationError(f"Lens part {chunk_id} is not in the plan of {len(chunks)}", non_retryable=True)
@@ -1608,6 +1626,7 @@ async def _run_single_agent_session(
     guidelines: str,
     step_name: str,
     for_lens: bool,
+    devex_lens: bool = False,
 ) -> bool:
     """Run one single-agent session and persist its findings as one review result (idempotent).
 
@@ -1625,7 +1644,7 @@ async def _run_single_agent_session(
         logger.info("Reusing the persisted %s result for this turn", step_name)
         return (pass_number, chunk_id) in done.fallbacks
     prompt = await database_sync_to_async(_prepare_single_agent_prompt, thread_sensitive=False)(
-        input, chunk_id, for_lens, guidelines
+        input, chunk_id, for_lens, guidelines, devex_lens
     )
     fallback_for: ReviewArm | None = None
     try:
@@ -1685,7 +1704,8 @@ async def lens_review_activity(input: LensReviewInput) -> bool | None:
 
     Never None, for the same reason as `single_agent_review_activity`.
     """
-    lens = FLASH_LENSES[input.lens]
+    devex_lens = input.lens == DEVEX_LENS_NAME
+    lens = DEVEX_LENS if devex_lens else FLASH_LENSES[input.lens]
     return await _run_single_agent_session(
         input,
         arms=single_agent_arms(input.arm_set),
@@ -1695,6 +1715,7 @@ async def lens_review_activity(input: LensReviewInput) -> bool | None:
         guidelines=load_prompt_file(lens_prompt_path(lens.prompt_file)),
         step_name=f"flash-lens-{input.lens}-c{input.chunk_id}",
         for_lens=True,
+        devex_lens=devex_lens,
     )
 
 
@@ -1844,7 +1865,8 @@ def _changed_since_last_review(
 ) -> ChangedSinceReview | None:
     """What changed since the head the last completed turn reviewed, or None for a first review or a re-run at that head.
 
-    Use a single-agent baseline because older pipeline snapshots can omit tests and text files.
+    Only a single-agent snapshot is a baseline: a Full turn at that head fetched a different file set, so the check
+    then does not run.
     """
     reviewed_head = (
         ReviewReport.objects.for_team(team_id).filter(id=report_id).values_list("completed_head_sha", flat=True).first()
@@ -1873,7 +1895,7 @@ def _current_pr_comments(input: SandboxStageInput, snapshot: "PRSnapshotArtefact
             )
             if fetcher.fetch_head_sha() == input.head_sha:
                 # A complete read replaces the first one, so a comment deleted during the turn is gone.
-                comments = fetcher.fetch_pr_comments(PRFilter(review_tests_and_text=True), raise_errors=True)
+                comments = fetcher.fetch_pr_comments(PRFilter(), raise_errors=True)
         except Exception:
             logger.warning(
                 "Could not read the PR's comments again; deduplicating against the first read", exc_info=True

@@ -790,10 +790,7 @@ def test_full_dedup_reads_current_comments_without_outdated_ones(
     # comments on code the turn did not review, so the first read stays.
     snapshot = _snapshot().model_copy(update={"pr_comments": [_comment(1, 10), _comment(3, None), _comment(4, 30)]})
     fetcher = MagicMock()
-    live_comments = [_comment(2, 20).model_copy(update={"path": "tests/test_a.py"}), _comment(1, 10)]
-    fetcher.return_value.fetch_pr_comments.side_effect = lambda pr_filter, **kwargs: [
-        comment for comment in live_comments if not pr_filter.skips(comment.path)
-    ]
+    fetcher.return_value.fetch_pr_comments.return_value = [_comment(2, 20), _comment(1, 10)]
     fetcher.return_value.fetch_head_sha.return_value = current_head
     with (
         patch(

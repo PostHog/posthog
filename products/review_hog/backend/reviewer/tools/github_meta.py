@@ -32,13 +32,14 @@ def _format_diff_section(filename: str, status: str, patch: str) -> str:
 
 class PRFilter:
     def __init__(self, *, review_tests_and_text: bool = False) -> None:
+        # The single-agent design was measured on diffs that kept test and `.txt` files; the pipeline drops them.
         self.review_tests_and_text = review_tests_and_text
 
     def skips(self, filename: str) -> bool:
         """Whether the review leaves this file out, and its comments out of dedup."""
-        return self.is_filtered_file(filename, review_text=self.review_tests_and_text) or (
-            not self.review_tests_and_text and self.is_test_file(filename)
-        )
+        if self.review_tests_and_text:
+            return self.is_filtered_file(filename) and not filename.lower().endswith(".txt")
+        return self.is_filtered_file(filename) or self.is_test_file(filename)
 
     @staticmethod
     def is_test_file(filename: str) -> bool:
@@ -61,14 +62,12 @@ class PRFilter:
         return any(re.search(pattern, filename, re.IGNORECASE) for pattern in test_patterns)
 
     @staticmethod
-    def is_filtered_file(filename: str, *, review_text: bool = False) -> bool:
+    def is_filtered_file(filename: str) -> bool:
         """Check if a filename should be filtered out from PR analysis.
 
         Filters out lock files, build artifacts, and other auto-generated files
         that don't need LLM review.
         """
-        if not review_text and filename.lower().endswith(".txt"):
-            return True
         filter_patterns = [
             # Lock files
             r".*\.lock$",  # package-lock.json, yarn.lock, Cargo.lock, etc.
@@ -107,12 +106,13 @@ class PRFilter:
             r".*\.ico$",  # ICO files
             r".*\.webp$",  # WebP files
             # Snapshots
-            r"(^|/)__snapshots__/",
             r".*\.snap$",  # Snap files
             r".*\.snapshot$",  # Snapshot files
             r".*\.snapfile$",  # Snapfile files
             # Schema files (for PostHog, mostly)
             r".*\.schema\.py$",  # Schema files
+            # TXT files
+            r".*\.txt$",  # TXT files
         ]
 
         return any(re.search(pattern, filename, re.IGNORECASE) for pattern in filter_patterns)

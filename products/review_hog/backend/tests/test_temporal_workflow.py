@@ -156,6 +156,7 @@ async def _run_full_review_pr_workflow(
     review_design: str = "pipeline",
     lens_chunk_count: int = 0,
     lens_chunks_capped: bool = False,
+    devex_lens: bool = False,
     fail_lens_units: frozenset[tuple[str, int]] = frozenset(),
     fail_main_session: bool = False,
     coordinator: bool = False,
@@ -247,6 +248,7 @@ async def _run_full_review_pr_workflow(
             review_design=review_design,
             lens_chunk_count=lens_chunk_count,
             lens_chunks_capped=lens_chunks_capped,
+            devex_lens=devex_lens,
             coordinator=coordinator,
             zero_change_skip=zero_change_skip,
             delta_band=delta_band,
@@ -916,6 +918,7 @@ async def test_review_pr_workflow_runs_a_delta_turn_only_when_the_gate_plans_one
         review_mode="flash",
         review_design="single_agent",
         lens_chunk_count=3,
+        devex_lens=True,
         trigger_source="automatic",
         run_index=3,
         review_authored_prs=True,
@@ -930,7 +933,9 @@ async def test_review_pr_workflow_runs_a_delta_turn_only_when_the_gate_plans_one
     assert recorded["gate_arms"] == [(True, True)]
     assert recorded["main_delta"] == [baseline]
     assert set(recorded["lens_delta"]) == {baseline}
-    assert len(recorded["lens"]) == (2 if expect_delta else 6)
+    # The devex lens has no part of a delta, so only a whole-PR turn adds its session.
+    assert len(recorded["lens"]) == (2 if expect_delta else 7)
+    assert (("devex", 1) in recorded["lens"]) is not expect_delta
     assert recorded["track_p1"] == [(True, True, expect_delta)]
 
 

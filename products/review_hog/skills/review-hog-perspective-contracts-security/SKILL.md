@@ -68,8 +68,8 @@ Concentrate primary attention on:
 - External API integrations
 - API specification files (OpenAPI, GraphQL schemas) and security configuration files
 
-Reference docs and frontend-only UI components without data handling for context, but don't raise contract / security findings on them.
-Review changed tests for contract or security claims that their assertions do not prove, using the shared standards rubric.
+Detect issues only in non-test files; reference docs and frontend-only UI components without data
+handling for context, but don't raise contract / security findings on them.
 
 ## What to leave to other perspectives
 

@@ -1,8 +1,7 @@
 ---
 name: review-hog-validation-criteria
 description: >
-  Keeps verified defects and consequential workflow standards findings across the repository,
-  with emphasis on GitHub/Depot semantics, CI coverage, reliability, cost, and test claims.
+  Keeps findings that affect correctness, security, data, API compatibility, or performance.
   Drops speculative issues and style suggestions before publishing.
 metadata:
   owner_team: review_hog
@@ -38,13 +37,7 @@ Keep it if the flagged code, as written and as actually reached, would cause one
 - **Resource / reliability defects** — leaked connections / file handles, unreleased locks,
   swallowed errors that hide failures, missing handling for a failure mode that will occur.
 
-Also keep a **standards finding** when the change violates applicable repository guidance or demonstrates a concrete maintenance or test-quality cost. Verify the exact rule, its scope, and exceptions, or identify the repeated edit obligation, contract ambiguity, or outcome the test fails to prove. A production failure is not required. Keep the `[Standards]` title prefix and distinguish required corrections from advisory improvements. Use `code_quality`, `best_practice`, or `testing` as appropriate, and do not raise a standards-only finding to `must_fix`.
-Prioritize workflow standards and GitHub/Depot behavior across products, languages, and owning teams, including application code and tests that affect workflow contracts.
-Verify the execution engine and relevant provider semantics before accepting a platform-specific finding.
-Require actual workload evidence for optimization claims; a generic best practice is not sufficient.
-Apply each rule only within its documented scope, regardless of which perspective raised the candidate.
-
-A good defect "keep" can name the concrete trigger and the concrete consequence ("if `items` is empty this
+A good "keep" can name the concrete trigger and the concrete consequence ("if `items` is empty this
 raises `IndexError`", "this query runs once per row → N+1 on the dashboard"). If you can't name both,
 be skeptical.
 
