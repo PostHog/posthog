@@ -67,7 +67,7 @@ def newly_unowned(
         old = next(fields)
         new = next(fields) if status.startswith("R") else old
         if status.startswith(("A", "R")):
-            path_at_base[new] = old if old != new else None
+            path_at_base[new] = old if old != new and (include is None or include(old)) else None
         for path in (old, new):
             directory, sep, name = path.rpartition(SEP)
             if name in ownership_filenames:

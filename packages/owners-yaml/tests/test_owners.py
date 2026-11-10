@@ -1342,6 +1342,12 @@ def test_newly_unowned_skips_a_file_deleted_from_the_worktree(repo_with_a_gap: P
     assert newly_unowned(repo_with_a_gap, "HEAD") == []
 
 
+def test_newly_unowned_counts_a_file_moved_into_the_included_paths(repo_with_a_gap: Path) -> None:
+    _change(repo_with_a_gap, {"gap/b.py": "gap/test_b.py"}, {})
+
+    assert newly_unowned(repo_with_a_gap, "HEAD", include=runner_for_path) == ["gap/test_b.py"]
+
+
 @pytest.mark.parametrize(("moves", "writes", "expected"), _CHANGES)
 def test_newly_unowned_reads_head_when_the_check_is_on_a_push(
     repo_with_a_gap: Path, moves: dict[str, str], writes: dict[str, str], expected: list[str]
