@@ -456,12 +456,18 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
             activity_started_monotonic=activity_started_monotonic,
         )
 
+    registration_names = inputs.registration_table_names or _new_registration_table_names()
+    attempt_inputs = dataclasses.replace(inputs, registration_table_names=registration_names)
     with heartbeater:
-        landing_uri = _generation_scoped_landing_uri(
+        generation_uri = _generation_scoped_landing_uri(
             inputs.metadata.landing_uri,
             job_id=inputs.job_id,
             prepared_queryable_folder=inputs.metadata.prepared_queryable_folder,
         )
+        # DuckLake deletes the files of a dropped table by path. Each attempt copies into its own folder, so a
+        # second registration of the same generation never lists the files of the table that it replaces.
+        attempt_token = registration_names.shadow_name.removeprefix(_SHADOW_TABLE_PREFIX)
+        landing_uri = f"{generation_uri}/{attempt_token}"
         with _stage_timer(stage="copy", team_id=inputs.team_id, schema_id=schema_id):
             landing_paths, copied_bytes = _copy_prepared_parquet_files(
                 inputs.metadata.prepared_source_uri,
@@ -472,8 +478,9 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
                 cancel_delay = _duckgres_cancel_delay(activity_started_monotonic)
                 with _cancel_duckgres_query_after(conn, cancel_delay) as cancel_requested:
                     registered_rows = _register_prepared_parquet_files(
-                        inputs,
+                        attempt_inputs,
                         conn,
+                        landing_uri,
                         landing_paths,
                         cancel_requested=cancel_requested,
                     )
@@ -943,6 +950,7 @@ def _duckdb_varchar_list_literal(values: Sequence[str]) -> psql.Composed:
 def _register_prepared_parquet_files(
     inputs: DuckLakeRegisterDataImportsActivityInputs,
     conn: psycopg.Connection,
+    landing_uri: str,
     landing_paths: list[str],
     *,
     cancel_requested: threading.Event | None = None,
@@ -950,11 +958,6 @@ def _register_prepared_parquet_files(
     schema_name = inputs.metadata.ducklake_schema_name
     table_name = inputs.metadata.ducklake_table_name
     registration_names = inputs.registration_table_names or _new_registration_table_names()
-    landing_uri = _generation_scoped_landing_uri(
-        inputs.metadata.landing_uri,
-        job_id=inputs.job_id,
-        prepared_queryable_folder=inputs.metadata.prepared_queryable_folder,
-    )
     parquet_glob = psql.Literal(f"{landing_uri}/{_PARQUET_FILE_GLOB}")
     partition_columns = _hive_partition_columns(landing_uri, landing_paths)
 

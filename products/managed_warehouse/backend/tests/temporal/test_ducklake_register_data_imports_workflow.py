@@ -289,7 +289,11 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     workload_metrics.rows.record.side_effect = assert_heartbeat_active
     workload_metrics.bytes.record.side_effect = assert_heartbeat_active
 
-    inputs = _activity_inputs()
+    attempt_token = "feedc0de" * 4
+    inputs = dataclasses.replace(
+        _activity_inputs(),
+        registration_table_names=registration_module.registration_table_names_from_token(attempt_token),
+    )
     applied = copy_and_register_ducklake_data_imports_activity(inputs)
 
     assert applied is True
@@ -298,6 +302,10 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
         autocommit=True,
         options="-c duckgres.worker_cpu=4 -c duckgres.worker_memory=32Gi",
     )
+    attempt_folder = (
+        "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
+        f"1234567890_abcdef12/{attempt_token}"
+    )
     assert s3.copy_calls == [
         (
             [
@@ -305,10 +313,8 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
                 "source/team/customers__query_1234567890_abcdef12/_ph_partition_key=2026-08/b.parquet",
             ],
             [
-                "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-                "1234567890_abcdef12/_ph_partition_key=2026-07/a.parquet",
-                "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-                "1234567890_abcdef12/_ph_partition_key=2026-08/b.parquet",
+                f"{attempt_folder}/_ph_partition_key=2026-07/a.parquet",
+                f"{attempt_folder}/_ph_partition_key=2026-08/b.parquet",
             ],
             S3_COPY_BATCH_SIZE,
         )
@@ -322,18 +328,9 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     )
     assert len(registration_indexes) == 1
     registration_query = executed[registration_indexes[0]]
-    first_path = (
-        "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-        "1234567890_abcdef12/_ph_partition_key=2026-07/a.parquet"
-    )
-    second_path = (
-        "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-        "1234567890_abcdef12/_ph_partition_key=2026-08/b.parquet"
-    )
-    parquet_glob = (
-        "s3://ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
-        "1234567890_abcdef12/**/*.[pP][aA][rR][qQ][uU][eE][tT]"
-    )
+    first_path = f"s3://{attempt_folder}/_ph_partition_key=2026-07/a.parquet"
+    second_path = f"s3://{attempt_folder}/_ph_partition_key=2026-08/b.parquet"
+    parquet_glob = f"s3://{attempt_folder}/**/*.[pP][aA][rR][qQ][uU][eE][tT]"
     assert first_path in registration_query
     assert second_path in registration_query
     assert parquet_glob not in registration_query
@@ -526,6 +523,7 @@ def test_registration_stops_after_glob_query_cancellation(monkeypatch):
         registration_module._register_prepared_parquet_files(
             _activity_inputs(),
             conn,
+            landing_uri,
             landing_paths,
             cancel_requested=cancel_requested,
         )
@@ -559,7 +557,7 @@ def test_registration_splits_add_data_files_across_path_batches(monkeypatch):
     )
     landing_paths = [f"{landing_uri}/{name}.parquet" for name in ("first", "second")]
 
-    registration_module._register_prepared_parquet_files(_activity_inputs(), conn, landing_paths)
+    registration_module._register_prepared_parquet_files(_activity_inputs(), conn, landing_uri, landing_paths)
 
     executed = [str(call.args[0]) for call in conn.execute.call_args_list]
     registration_queries = [query for query in executed if "ducklake_add_data_files" in query]
@@ -860,6 +858,7 @@ def test_unknown_publish_commit_error_survives_temporary_table_cleanup(monkeypat
         registration_module._register_prepared_parquet_files(
             _activity_inputs(),
             conn,
+            _activity_inputs().metadata.landing_uri,
             [f"{_activity_inputs().metadata.landing_uri}/file.parquet"],
         )
 
@@ -1202,6 +1201,7 @@ def test_register_uses_workflow_minted_names(monkeypatch):
     registration_module._register_prepared_parquet_files(
         inputs,
         conn,
+        inputs.metadata.landing_uri,
         [f"{inputs.metadata.landing_uri}/file.parquet"],
     )
 
