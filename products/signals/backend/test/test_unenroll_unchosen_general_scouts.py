@@ -67,9 +67,7 @@ class TestUnenrollUnchosenGeneralScouts(APIBaseTest):
             ("edited_skill", {"edited": True}, False),
             ("renamed_duplicate", {"config": {"skill_name": "signals-scout-general-copy"}}, False),
             ("team_chose_other_scout", {"other_scout": True}, False),
-            # The enabler's account is gone, so `enabled_by` is null, but the log keeps `is_system=False`.
             ("person_enabled_then_deleted", {"log": ("updated", "enabled")}, False),
-            # The seed and the sync's label backfill log under the user whose request opened the inbox.
             ("seeded_in_a_request", {"log": ("created", "enabled")}, True),
             ("label_backfilled_in_a_request", {"log": ("updated", "display_name")}, True),
         ]
