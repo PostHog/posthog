@@ -408,7 +408,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
 
         return list(
             SessionRecordingExternalReferenceSerializer(
-                external_references_manager.select_related("integration").all(),
+                external_references_manager.all(),
                 many=True,
                 context=self.context,
             ).data

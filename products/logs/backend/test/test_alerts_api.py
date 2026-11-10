@@ -49,7 +49,7 @@ from products.logs.backend.platform_alert_backfill import (
     follow_logs_alert,
     platform_upsert_of,
 )
-from products.logs.backend.platform_cutover import cut_over_team, hand_over, roll_back_team
+from products.logs.backend.platform_cutover import NATIVE_CREATE_FLAG, cut_over_team, hand_over, roll_back_team
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
@@ -88,7 +88,10 @@ class TestLogsAlertAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
-        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        # Every flag on except native creates, so a new alert still gets the logs row these tests read.
+        self._ff_patcher = patch(
+            "posthoganalytics.feature_enabled", side_effect=lambda flag, *_, **__: flag != NATIVE_CREATE_FLAG
+        )
         self._ff_patcher.start()
         self.addCleanup(self._ff_patcher.stop)
 
@@ -225,9 +228,10 @@ class TestLogsAlertAPI(APIBaseTest):
         assert [(row["state"], row["next_check_at"]) for row in rows] == [
             ("firing", platform_due_at.isoformat().replace("+00:00", "Z"))
         ] * len(rows)
-        # One for the runtime and one for the history's ids, whatever the page size.
+        # One for the runtime and one for the history's ids, whatever the page size. A list also reads
+        # the alerts with no logs row.
         platform_reads = [q for q in queries.captured_queries if "alerts_platformalertconfiguration" in q["sql"]]
-        assert len(platform_reads) == 2
+        assert len(platform_reads) == (3 if action == "list" else 2)
 
     def test_list_filters_by_created_by(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)

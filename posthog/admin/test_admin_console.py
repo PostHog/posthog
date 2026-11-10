@@ -1,23 +1,33 @@
 import re
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from importlib import import_module
 from pathlib import Path
+from urllib.parse import urlencode
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
+from django.contrib import admin
+from django.contrib.admin.models import DELETION, LogEntry
+from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.auth.models import Group
 from django.contrib.messages import get_messages
 from django.core.management.base import CommandError
-from django.db.models import Model
+from django.db.models import PROTECT, Model
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
+from django.utils import timezone
 from django.utils.html import format_html
 
+from django_otp.plugins.otp_totp.models import TOTPDevice
+from loginas import settings as la_settings
 from parameterized import parameterized
+from structlog.testing import capture_logs
+from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
@@ -25,16 +35,26 @@ from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
+from posthog.admin.console.user_panels import is_acting_as
 from posthog.csp_middleware import CSPMiddleware
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, LedgerEntry, Wallet
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
-from posthog.models.organization import Organization
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project import Project
+from posthog.models.project_secret_api_key import RevokedTeamSecretToken
 from posthog.models.team.team import Team
 from posthog.models.tophog.queries import TopHogFilterOptions
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.personhog_client.fake_client import get_active_fake
+from posthog.session.models import Session
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.persons import create_group_type_mapping, update_group_type_mapping
 
 from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
@@ -42,6 +62,8 @@ from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCr
 from ee.billing.quota_limiting import QuotaResource
 
 TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
+PROJECT_PANEL_TITLES = ("Overview", "Deletion")
+USER_PANEL_TITLES = ("Overview", "Organizations", "Sign-in", "Personal API keys", "Deletion")
 CONSOLE_ASSETS = Path(settings.BASE_DIR) / "frontend" / "public" / "admin-console"
 REBUILD = "pnpm --filter=@posthog/frontend build:admin-console"
 
@@ -288,6 +310,9 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == 403
 
     def test_team_page_shows_core_and_product_panels(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
         response = self.client.get(f"/admin/console/teams/{self.team.pk}/")
 
         assert response.status_code == 200
@@ -299,6 +324,7 @@ class TestAdminConsoleViews(BaseTest):
             "Email sending",
             "AI gateway",
             "Project API token",
+            "Project secret API keys",
         ):
             assert title in content
         assert "Needs attention" in content and "Ingested events:" in content
@@ -306,14 +332,34 @@ class TestAdminConsoleViews(BaseTest):
             assert len(panel.facts(self.team)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
 
         assert f"/admin/console/organizations/{self.organization.pk}/" in content
+        assert f"/admin/console/projects/{self.project.pk}/" in content
+        assert f"/admin/console/users/{self.user.pk}/" in content
         assert f"/admin/console/tools/ai-gateway-wallet/?team={self.team.pk}" in content
 
         organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/")
         assert organization_page.status_code == 200
         organization_content = organization_page.content.decode()
-        for title in ("Overview", "Teams", "Billing", "Deletion"):
+        for title in ("Overview", "Teams", "Billing", "Deletion", "Legal documents"):
             assert title in organization_content
         assert f"/admin/console/teams/{self.team.pk}/" in organization_content
+
+        for record, path, titles in (
+            ("project", f"/admin/console/projects/{self.project.pk}/", PROJECT_PANEL_TITLES),
+            ("user", f"/admin/console/users/{self.user.pk}/", USER_PANEL_TITLES),
+        ):
+            record_page = self.client.get(path)
+            assert record_page.status_code == 200
+            record_content = record_page.content.decode()
+            for title in titles:
+                assert title in record_content, f"{title} is missing from the {record} page"
+            assert f"/admin/console/organizations/{self.organization.pk}/" in record_content
+            obj = self.project if record == "project" else self.user
+            for panel in console.panels_for(record):
+                assert len(panel.facts(obj)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
+        assert (
+            f"/admin/console/teams/{self.team.pk}/"
+            in self.client.get(f"/admin/console/projects/{self.project.pk}/").content.decode()
+        )
 
         home = self.client.get("/admin/console/").content.decode()
         assert "Recently opened" in home
@@ -331,11 +377,29 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == 302
         assert response["Location"] == expected
 
-    def test_a_name_with_one_match_opens_the_team(self) -> None:
-        response = self.client.get("/admin/console/", {"q": self.team.name})
+    @parameterized.expand(
+        [
+            ("team_name", "team", None),
+            ("user_email_in_another_case", "user", None),
+            ("user_email_from_a_support_ticket", "user", "https://support.example.com/tickets/42"),
+        ]
+    )
+    def test_a_lookup_with_one_match_opens_its_page(self, _name: str, record: str, ticket: str | None) -> None:
+        if record == "team":
+            query, expected = self.team.name, f"/admin/console/teams/{self.team.pk}/"
+        else:
+            query, expected = self.user.email.upper(), f"/admin/console/users/{self.user.pk}/"
+        params = {"q": query, **({"ticket": ticket} if ticket else {})}
+        kept = f"?{urlencode({'ticket': ticket})}" if ticket else ""
+
+        response = self.client.get("/admin/console/", params)
 
         assert response.status_code == 302
-        assert response["Location"] == f"/admin/console/teams/{self.team.pk}/"
+        assert response["Location"] == expected + kept
+        if record == "user":
+            # Log in as user in Django admin prefills its reason from the ticket.
+            raw_record = f"/admin/posthog/user/{self.user.pk}/change/{kept}"
+            assert f'href="{raw_record}"' in self.client.get(response["Location"]).content.decode()
 
     @parameterized.expand(
         [
@@ -354,13 +418,17 @@ class TestAdminConsoleViews(BaseTest):
                 "group-types/edit-3/?from=ticket",
             ),
             ("organization_action", "organization", "limit-product/?resource=events", "?resource=events#panel-billing"),
-            ("organization_deletion_form", "organization", "trigger-deletion/", "deletion/delete/"),
+            ("organization_deletion", "organization", "trigger-deletion/?from=ticket", "?from=ticket#panel-deletion"),
             (
                 "deletion_request_form_page",
                 "datadeletionrequest",
                 "approve/?from=ticket",
                 "workflow/approve/?from=ticket",
             ),
+            ("project_deletion", "project", "trigger-deletion/?from=ticket", "?from=ticket#panel-deletion"),
+            ("project_delete_now", "project", "delete-now/", "#panel-deletion"),
+            ("user_deletion", "user", "delete/?from=ticket", "deletion/delete/?from=ticket"),
+            ("user_password_lands_on_sign_in", "user", "password/", "#panel-sign-in"),
         ]
     )
     def test_an_old_django_admin_action_url_lands_on_the_console(
@@ -371,6 +439,10 @@ class TestAdminConsoleViews(BaseTest):
             obj, plural = self.team, "teams"
         elif record == "organization":
             obj, plural = self.organization, "organizations"
+        elif record == "project":
+            obj, plural = self.project, "projects"
+        elif record == "user":
+            obj, plural = self.user, "users"
         else:
             obj = DataDeletionRequest.objects.create(team_id=self.team.pk, request_type=RequestType.EVENT_REMOVAL)
             plural = "deletion-requests"
@@ -379,14 +451,26 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == 302
         assert response["Location"] == f"/admin/console/{plural}/{obj.pk}/{new}"
 
-    def test_django_admin_team_page_points_moved_actions_to_the_console(self) -> None:
-        response = self.client.get(f"/admin/posthog/team/{self.team.pk}/change/")
+    @parameterized.expand(
+        [
+            ("team", ("remote-config", "group-types", "email-sending", "ai-gateway", "api-token")),
+            ("project", ("deletion",)),
+            ("user", ("sign-in", "deletion")),
+        ]
+    )
+    def test_django_admin_page_points_moved_actions_to_the_console(
+        self, record: str, panel_keys: tuple[str, ...]
+    ) -> None:
+        obj: Model = {"team": self.team, "project": self.project, "user": self.user}[record]
+        plural = f"{record}s"
+
+        response = self.client.get(f"/admin/posthog/{record}/{obj.pk}/change/")
 
         assert response.status_code == 200
         content = response.content.decode()
         assert "This is the Django admin" in content
-        for panel_key in ("remote-config", "group-types", "email-sending", "ai-gateway", "api-token"):
-            assert f"/admin/console/teams/{self.team.pk}/#panel-{panel_key}" in content
+        for panel_key in panel_keys:
+            assert f"/admin/console/{plural}/{obj.pk}/#panel-{panel_key}" in content
 
     @parameterized.expand(
         [
@@ -733,11 +817,22 @@ class TestAdminConsoleViews(BaseTest):
             "?token=phc_tophog&amp;distinct_ids=new-id&amp;pipelines=session_recordings"
         ) in content
 
-        response = self.client.post(
-            f"/admin/console/tools/tophog/extend-{restriction.pk}/?token=phc_tophog&distinct_id=new-id", data
-        )
+        with capture_logs() as logs:
+            response = self.client.post(
+                f"/admin/console/tools/tophog/extend-{restriction.pk}/"
+                "?token=phc_tophog&distinct_id=new-id&pipelines=sessionreplay&team_id=7",
+                data,
+            )
 
         assert response.status_code == expected_status
+        if expected_status == 302:
+            started = next(log for log in logs if log["event"] == "admin_console_operation_started")
+            assert started["query"] == {
+                "token": "phc_tophog",
+                "distinct_id": "<not logged>",
+                "pipelines": "sessionreplay",
+                "team_id": "7",
+            }
         restriction.refresh_from_db()
         assert restriction.distinct_ids == expected_distinct_ids
 
@@ -965,3 +1060,461 @@ class TestAdminConsoleViews(BaseTest):
         assert "changed since you opened this form" in saved.content.decode()
         updates = [call.request for call in get_active_fake().calls if call.method == "update_group_type_mapping"]
         assert updates == []
+
+
+@time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+class TestAdminConsoleProjectDeletion(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.user.groups.add(Group.objects.get_or_create(name=DELETION_AUTHORIZED_GROUP)[0])
+        self.client.force_login(self.user)
+        start_patcher = patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+        self.start = start_patcher.start()
+        self.addCleanup(start_patcher.stop)
+
+    def _mark_pending(self, hours: float) -> datetime:
+        scheduled_at = timezone.now() + timedelta(hours=hours)
+        Project.objects.filter(pk=self.project.pk).update(is_pending_deletion=True, deletion_scheduled_at=scheduled_at)
+        return scheduled_at
+
+    def _post(self, operation_key: str, start_side_effect: Exception | None = None):
+        self.start.side_effect = start_side_effect
+        return self.client.post(
+            f"/admin/console/projects/{self.project.pk}/deletion/{operation_key}/", {"reason": "Customer asked"}
+        )
+
+    @parameterized.expand([("with_ingested_data", True, timedelta(hours=48)), ("without_ingested_data", False, None)])
+    def test_deleting_a_project_starts_the_workflow_and_marks_it_pending(
+        self, _name: str, has_ingested_data: bool, expected_delay: timedelta | None
+    ) -> None:
+        self.team.ingested_event = has_ingested_data
+        self.team.save(update_fields=["ingested_event"])
+
+        response = self._post("delete")
+
+        assert response.status_code == 302
+        assert response["Location"] == f"/admin/console/projects/{self.project.pk}/"
+        self.start.assert_called_once()
+        kwargs = self.start.call_args.kwargs
+        assert (kwargs["project_id"], kwargs["team_ids"], kwargs["user_id"], kwargs["project_name"]) == (
+            self.project.pk,
+            [self.team.pk],
+            self.user.pk,
+            self.project.name,
+        )
+        assert kwargs["start_delay"] == expected_delay
+        self.project.refresh_from_db()
+        assert self.project.is_pending_deletion
+        assert self.project.deletion_scheduled_at == timezone.now() + (expected_delay or timedelta())
+
+    @parameterized.expand(
+        [
+            ("form_page_only", "get", None, 200, False, False),
+            ("staff_outside_the_deletion_group", "other_staff", None, 403, False, False),
+            ("bulk_deletes_disabled", "bulk_deletes_disabled", None, 503, False, False),
+            ("already_pending", "already_pending", None, 404, False, True),
+            ("workflow_already_running", None, WorkflowAlreadyStartedError("id", "type"), 302, True, True),
+            ("workflow_fails_to_start", None, RuntimeError("temporal unavailable"), 500, True, False),
+        ]
+    )
+    def test_deleting_a_project_refuses_or_rolls_back(
+        self,
+        _name: str,
+        state: str | None,
+        start_side_effect: Exception | None,
+        expected_status: int,
+        expect_started: bool,
+        expect_pending: bool,
+    ) -> None:
+        if state == "other_staff":
+            self.user.groups.clear()
+        elif state == "already_pending":
+            self._mark_pending(hours=48)
+
+        with override_settings(DISABLE_BULK_DELETES=state == "bulk_deletes_disabled"):
+            if state == "get":
+                response = self.client.get(f"/admin/console/projects/{self.project.pk}/deletion/delete/")
+            else:
+                response = self._post("delete", start_side_effect)
+
+        assert response.status_code == expected_status
+        assert self.start.called == expect_started
+        self.project.refresh_from_db()
+        assert self.project.is_pending_deletion == expect_pending
+
+    def test_delete_now_cancels_the_wait_and_starts_the_workflow(self) -> None:
+        self._mark_pending(hours=48)
+
+        response = self._post("delete-now")
+
+        assert response.status_code == 302
+        self.start.assert_called_once()
+        assert self.start.call_args.kwargs["start_delay"] is None
+        assert self.start.call_args.kwargs["id_conflict_policy"] == WorkflowIDConflictPolicy.TERMINATE_EXISTING
+        self.project.refresh_from_db()
+        assert self.project.deletion_scheduled_at == timezone.now()
+
+    @parameterized.expand(
+        [
+            ("deletion_already_started", -1, None, None, 404),
+            ("staff_outside_the_deletion_group", 48, "other_staff", None, 403),
+            ("bulk_deletes_disabled", 48, "bulk_deletes_disabled", None, 503),
+            ("workflow_fails_to_start", 48, None, RuntimeError("temporal unavailable"), 500),
+        ]
+    )
+    def test_delete_now_keeps_the_schedule_when_it_cannot_start(
+        self,
+        _name: str,
+        hours_until_deletion: int,
+        state: str | None,
+        start_side_effect: Exception | None,
+        expected_status: int,
+    ) -> None:
+        scheduled_at = self._mark_pending(hours=hours_until_deletion)
+        if state == "other_staff":
+            self.user.groups.clear()
+
+        with override_settings(DISABLE_BULK_DELETES=state == "bulk_deletes_disabled"):
+            response = self._post("delete-now", start_side_effect)
+
+        assert response.status_code == expected_status
+        assert self.start.called == (start_side_effect is not None)
+        self.project.refresh_from_db()
+        assert self.project.is_pending_deletion
+        assert self.project.deletion_scheduled_at == scheduled_at
+
+
+class TestAdminConsoleUserSignIn(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+        self.target = User.objects.create_and_join(self.organization, "signin-target@example.com", None)
+
+    def _url(self, operation_key: str) -> str:
+        return f"/admin/console/users/{self.target.pk}/sign-in/{operation_key}/"
+
+    @parameterized.expand(
+        [
+            ("verification", "send-verification", {}, False, 302),
+            ("verification_for_a_verified_user", "send-verification", {}, True, 404),
+            ("password_reset", "send-password-reset", {}, False, 302),
+            ("two_factor_reset", "send-2fa-reset", {"reason": "Lost their phone, ticket 42"}, True, 302),
+            ("two_factor_reset_without_a_reason", "send-2fa-reset", {"reason": " "}, True, 400),
+            ("two_factor_reset_without_two_factor", "send-2fa-reset", {"reason": "Lost their phone"}, False, 404),
+        ]
+    )
+    @patch("posthog.admin.console.user_panels.send_two_factor_reset_email")
+    @patch("posthog.admin.console.user_panels.send_password_reset")
+    @patch("posthog.admin.console.user_panels.email_verification_code_verifier")
+    def test_sign_in_emails_go_out_only_when_they_apply(
+        self,
+        _name: str,
+        operation_key: str,
+        data: dict[str, str],
+        target_state: bool,
+        expected_status: int,
+        verifier: MagicMock,
+        send_password_reset: MagicMock,
+        send_two_factor_reset_email: MagicMock,
+    ) -> None:
+        if operation_key == "send-verification":
+            self.target.is_email_verified = target_state
+            self.target.save()
+        elif target_state:
+            TOTPDevice.objects.create(user=self.target, name="default", confirmed=True)
+
+        response = self.client.post(self._url(operation_key), data)
+
+        assert response.status_code == expected_status
+        sent = {
+            "send-verification": verifier.send_code,
+            "send-password-reset": send_password_reset.delay,
+            "send-2fa-reset": send_two_factor_reset_email.delay,
+        }[operation_key]
+        assert sent.called == (expected_status == 302)
+        if operation_key == "send-password-reset":
+            self.target.refresh_from_db()
+            assert self.target.requested_password_reset_at is not None
+            user_pk, token = sent.call_args.args[:2]
+            assert user_pk == self.target.pk
+            assert isinstance(token, str) and token
+
+    def test_revoking_sessions_signs_out_only_that_user(self) -> None:
+        engine = import_module(settings.SESSION_ENGINE)
+
+        def login_session(user: User) -> str:
+            store = engine.SessionStore()
+            store[SESSION_KEY] = str(user.pk)
+            store.create()
+            return store.session_key
+
+        target_keys = [login_session(self.target), login_session(self.target)]
+        other_key = login_session(User.objects.create_and_join(self.organization, "other@example.com", None))
+
+        response = self.client.post(self._url("revoke-sessions"), {"reason": "Account compromised"})
+
+        assert response.status_code == 302
+        assert not Session.objects.filter(session_key__in=target_keys).exists()
+        assert Session.objects.filter(session_key=other_key).exists()
+
+
+class _RefusesDeletionAdmin(admin.ModelAdmin):
+    def has_delete_permission(self, request: HttpRequest, obj: Model | None = None) -> bool:
+        return False
+
+
+class TestAdminConsoleUserDeletion(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+        self.target = User.objects.create_and_join(self.organization, "delete-me@example.com", None)
+        self.url = f"/admin/console/users/{self.target.pk}/deletion/delete/"
+
+    def _preview(self, reason: str = "Duplicate account after an email change"):
+        return self.client.post(self.url, {"reason": reason})
+
+    def _counts(self, preview) -> dict[str, str]:
+        table = next(block for block in preview.context["page"].blocks if isinstance(block, Table))
+        return {row.cells[0].text: row.cells[1].text for row in table.rows if isinstance(row, Row)}
+
+    def _deletion_logs(self, target_id: int):
+        return ActivityLog.objects.filter(scope="User", activity="deleted", item_id=str(target_id))
+
+    @parameterized.expand([("under_the_cap", 100, "2"), ("over_the_cap", 1, "1+")])
+    def test_the_preview_counts_the_cascade_instead_of_listing_every_row(
+        self, _name: str, cap: int, expected_views: str
+    ) -> None:
+        for session_id in ("one", "two"):
+            SessionRecordingViewed.objects.create(team=self.team, user=self.target, session_id=session_id)
+
+        with patch("posthog.admin.console.user_panels.DELETION_SUMMARY_COUNT_CAP", cap):
+            preview = self._preview()
+
+        assert preview.status_code == 200
+        counts = self._counts(preview)
+        assert counts[str(User._meta.verbose_name_plural)] == "1"
+        assert counts[str(SessionRecordingViewed._meta.verbose_name_plural)] == expected_views
+        assert counts[str(OrganizationMembership._meta.verbose_name_plural)] == "1"
+        assert User.objects.filter(pk=self.target.pk).exists()
+
+    def test_a_delete_without_a_reason_keeps_the_user(self) -> None:
+        response = self._preview(reason="  ")
+
+        assert response.status_code == 400
+        assert User.objects.filter(pk=self.target.pk).exists()
+
+    def test_the_confirmed_delete_records_the_reason_for_every_organization(self) -> None:
+        other_organization, _, _ = User.objects.bootstrap("Other org", "owner@example.com", None)
+        self.target.join(organization=other_organization)
+        target_id = self.target.pk
+
+        preview = self._preview()
+        response = self.client.post(self.url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert response.status_code == 302
+        assert response["Location"] == "/admin/console/"
+        assert not User.objects.filter(pk=target_id).exists()
+        logs = self._deletion_logs(target_id)
+        assert {log.organization_id for log in logs} == {self.organization.id, other_organization.id}
+        for log in logs:
+            assert log.user == self.user
+            assert (log.detail or {}).get("context") == {
+                "reason": "Duplicate account after an email change",
+                "email": "delete-me@example.com",
+            }
+
+    def test_the_reason_reaches_the_admin_log_when_the_user_has_no_organization(self) -> None:
+        # An ActivityLog row needs an organization or team to be scoped to, so the admin log is the only record.
+        self.target.organization_memberships.all().delete()
+        target_id = self.target.pk
+
+        preview = self._preview(reason="Requested by the customer")
+        self.client.post(self.url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert not User.objects.filter(pk=target_id).exists()
+        assert not self._deletion_logs(target_id).exists()
+        entry = LogEntry.objects.get(object_id=str(target_id), action_flag=DELETION)
+        assert "Requested by the customer" in entry.change_message
+
+    def test_a_protected_relation_refuses_the_delete_before_it_starts(self) -> None:
+        # Django raises ProtectedError from inside the delete, with part of the cascade already gone.
+        membership_user_field = OrganizationMembership._meta.get_field("user")
+
+        with patch.object(membership_user_field.remote_field, "on_delete", PROTECT):
+            response = self._preview()
+
+        assert response.status_code == 400
+        assert User.objects.filter(pk=self.target.pk).exists()
+
+    @parameterized.expand([("with_recorded_views", 1, 400), ("without_recorded_views", 0, 200)])
+    def test_an_admin_that_refuses_deletion_blocks_the_cascade_through_its_model(
+        self, _name: str, view_count: int, expected_status: int
+    ) -> None:
+        for index in range(view_count):
+            SessionRecordingViewed.objects.create(team=self.team, user=self.target, session_id=str(index))
+
+        with patch.dict(
+            admin.site._registry, {SessionRecordingViewed: _RefusesDeletionAdmin(SessionRecordingViewed, admin.site)}
+        ):
+            response = self._preview()
+
+        assert response.status_code == expected_status
+        assert User.objects.filter(pk=self.target.pk).exists()
+
+    @parameterized.expand([("own_account", "self"), ("impersonated_account", "impersonated")])
+    def test_the_confirm_refuses_an_account_the_staff_member_acts_as(self, _name: str, account: str) -> None:
+        target = self.user if account == "self" else self.target
+        url = f"/admin/console/users/{target.pk}/deletion/delete/"
+        with patch("posthog.admin.console.user_panels.is_acting_as", return_value=False):
+            preview = self.client.post(url, {"reason": "Duplicate account"})
+        assert preview.status_code == 200
+
+        impersonated = self.target if account == "impersonated" else None
+        with patch("posthog.admin.console.user_panels.get_impersonated_user", return_value=impersonated):
+            response = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert response.status_code == 409
+        assert User.objects.filter(pk=target.pk).exists()
+
+    @parameterized.expand([("self", True), ("impersonated_user", True), ("someone_else", False)])
+    def test_staff_cannot_delete_the_account_they_act_as(self, account: str, expected: bool) -> None:
+        request = RequestFactory().post(self.url)
+        request.user = self.user
+        request.session = import_module(settings.SESSION_ENGINE).SessionStore()
+        if account == "impersonated_user":
+            # AdminImpersonationMiddleware swaps `request.user` back to the staff operator on /admin/ paths.
+            request.session[la_settings.USER_SESSION_FLAG] = "signed-original-user"
+            request.session[SESSION_KEY] = str(self.target.pk)
+            request.session[BACKEND_SESSION_KEY] = "django.contrib.auth.backends.ModelBackend"
+
+        assert is_acting_as(request, self.user if account == "self" else self.target) == expected
+
+    def test_django_admin_offers_no_delete_of_its_own(self) -> None:
+        user_admin = admin.site._registry[User]
+        request = RequestFactory().get("/admin/posthog/user/")
+        request.user = self.user
+
+        assert not user_admin.has_delete_permission(request, self.target)
+        assert "delete_selected" not in user_admin.get_actions(request)
+
+
+class TestAdminConsoleApiKeys(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+
+    def _personal_key(self) -> PersonalAPIKey:
+        token = generate_random_token_personal()
+        return PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Leaked key",
+            secure_value=hash_key_value(token),
+            mask_value=mask_key_value(token),
+            scopes=["*"],
+        )
+
+    @patch("posthog.admin.console.api_key_panels.send_personal_api_key_exposed")
+    def test_rolling_a_personal_api_key_notifies_the_user(self, exposed: MagicMock) -> None:
+        key = self._personal_key()
+        old_secure_value, old_mask_value = key.secure_value, key.mask_value
+
+        response = self.client.post(
+            f"/admin/console/users/{self.user.pk}/personal-api-keys/roll/",
+            {"key": key.pk, "exposed_at": "https://example.com/leak", "reason": "Found in a public repo"},
+        )
+
+        assert response.status_code == 302
+        key.refresh_from_db()
+        assert key.secure_value != old_secure_value
+        assert key.last_rolled_at is not None
+        exposed.assert_called_once_with(
+            self.user.id, key.id, old_mask_value, "This key was detected at https://example.com/leak."
+        )
+
+    @patch("posthog.api.project_secret_api_key.send_feature_flags_secure_api_key_exposed")
+    @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
+    def test_revoking_a_secret_api_key_rolls_it_or_deletes_a_legacy_mirror(
+        self, psak_exposed: MagicMock, legacy_exposed: MagicMock
+    ) -> None:
+        key, _ = create_project_secret_api_key(team=self.team, created_by=self.user, label="Admin key")
+        old_secure_value = key.secure_value
+        legacy_token = "phs_legacy_token_mirrored_in_console"
+        self.team.secret_api_token = legacy_token
+        self.team.save()
+        mirrored, _ = create_project_secret_api_key(team=self.team, label="Migrated legacy key", value=legacy_token)
+        url = f"/admin/console/teams/{self.team.pk}/secret-api-keys/revoke/"
+
+        rolled = self.client.post(url, {"key": key.pk, "exposed_at": "", "reason": "Found in a public repo"})
+        deleted = self.client.post(url, {"key": mirrored.pk, "exposed_at": "", "reason": "Found in a public repo"})
+
+        assert (rolled.status_code, deleted.status_code) == (302, 302)
+        key.refresh_from_db()
+        assert key.secure_value != old_secure_value
+        psak_exposed.assert_called_once_with(self.team.id, key.id, ANY, "")
+        assert not type(mirrored).objects.filter(pk=mirrored.pk).exists()
+        assert RevokedTeamSecretToken.objects.for_team(self.team.id).filter().exists()
+        legacy_exposed.assert_called_once()
+
+    @parameterized.expand([("personal", "personalapikey"), ("project_secret", "projectsecretapikey")])
+    def test_an_old_roll_url_lands_on_the_panel_of_the_key_owner(self, kind: str, model_name: str) -> None:
+        if kind == "personal":
+            key: Model = self._personal_key()
+            expected = f"/admin/console/users/{self.user.pk}/?from=ticket#panel-personal-api-keys"
+        else:
+            key, _ = create_project_secret_api_key(team=self.team, created_by=self.user)
+            expected = f"/admin/console/teams/{self.team.pk}/?from=ticket#panel-secret-api-keys"
+
+        response = self.client.post(f"/admin/posthog/{model_name}/{key.pk}/roll/?from=ticket")
+
+        assert response.status_code == 302
+        assert response["Location"] == expected
+
+
+class TestAdminConsoleOAuthSessions(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_revoking_sessions_previews_the_applications_then_revokes_their_tokens(self) -> None:
+        app = OAuthApplication.objects.create(
+            name="Revoke console app",
+            client_id="revoke_console_client_id",
+            client_secret="revoke_console_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        access_token = OAuthAccessToken.objects.create(
+            application=app, user=self.user, token="at_revoke_console", expires=timezone.now() + timedelta(minutes=5)
+        )
+        OAuthRefreshToken.objects.create(
+            application=app, user=self.user, token="rt_revoke_console", access_token=access_token
+        )
+        url = "/admin/console/tools/oauth-sessions/revoke/"
+
+        form = self.client.get(url, {"application": str(app.id)})
+        preview = self.client.post(url, {"applications": str(app.id), "reason": "Scopes narrowed"})
+
+        assert form.context["form"].initial["applications"] == str(app.id)
+        assert preview.status_code == 200
+        assert "Revoke console app" in preview.content.decode()
+        assert OAuthAccessToken.objects.filter(application=app).count() == 1
+
+        confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302
+        assert OAuthAccessToken.objects.filter(application=app).count() == 0
+        assert OAuthRefreshToken.objects.filter(application=app, revoked__isnull=True).count() == 0
