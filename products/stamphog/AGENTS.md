@@ -182,7 +182,7 @@ narrow:
 
 A repo's `.stamphog/policy.yml` may name bots under `bot_authors`, each as `{name, login, id}`.
 The server reads that list from the default branch only (`logic/bot_admission.py`, cached briefly, absence included), so a PR cannot admit its own author.
-Admission needs the login and the numeric account id to match one entry, `user.type == "Bot"`, a repo-native head, and an `opened`, `synchronize` or `reopened` action.
+Admission needs the login and the numeric account id to match one entry, `user.type == "Bot"`, a repo-native head, and any action that starts a review except `labeled`, because no label requests these reviews.
 A draft stays skipped before admission is considered.
 An admitted delivery passes the bot-author skip, which also stands in for the author-association check, the review-mode gate and the write-permission gate, and nothing else.
 The run is stamped `bot_admission` provenance and the `bot_admission` trigger, and retention never keeps its approvals.

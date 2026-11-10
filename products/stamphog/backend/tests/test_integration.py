@@ -3222,18 +3222,24 @@ def _path_denied_engine_output(deny_categories: list[str]) -> str:
 
 
 @pytest.mark.parametrize(
-    "engine_output, expect_hint",
+    "engine_output, trigger, expect_hint",
     [
-        pytest.param(_refused_engine_output(), "Re-add the `stamphog` label", id="reviewer-refusal"),
+        pytest.param(_refused_engine_output(), "label", "Re-add the `stamphog` label", id="reviewer-refusal"),
         # A re-review of the same files refuses again, so the review must not invite one.
-        pytest.param(_path_denied_engine_output(["infra_cicd", "migrations"]), "gives the same result", id="path-deny"),
+        pytest.param(
+            _path_denied_engine_output(["infra_cicd", "migrations"]), "label", "gives the same result", id="path-deny"
+        ),
         # The Migration risk check lifts this deny with the files unchanged.
-        pytest.param(_path_denied_engine_output(["migrations"]), "Re-add the `stamphog` label", id="migrations-only"),
+        pytest.param(
+            _path_denied_engine_output(["migrations"]), "label", "Re-add the `stamphog` label", id="migrations-only"
+        ),
+        # A label on an admitted bot's PR starts no review, so the review must not ask for one.
+        pytest.param(_refused_engine_output(), "bot_admission", None, id="admitted-bot"),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_each_non_approval_posts_its_own_review(
-    team, stamphog_chain: StamphogChain, engine_output: str, expect_hint: str
+    team, stamphog_chain: StamphogChain, engine_output: str, trigger: str, expect_hint: str | None
 ) -> None:
     # Every verdict has to land in the Reviews section, the same list the approvals land in. A refusal
     # written into an edited issue comment notified nobody and sat in a different list from the
@@ -3256,7 +3262,7 @@ def test_each_non_approval_posts_its_own_review(
             pull_request=pull_request,
             head_sha=head_sha,
             status=ReviewRunStatus.REVIEWING,
-            output={"reviewer_raw": engine_output},
+            output={"reviewer_raw": engine_output, "review_trigger": trigger},
         )
         # Twice per run: a Temporal retry after the post must not repeat the review.
         with patch(FINISHED_REVIEW_HOOKS, return_value=(finished_hook,)):
@@ -3276,7 +3282,9 @@ def test_each_non_approval_posts_its_own_review(
         assert review["body"]["commit_id"] == head_sha
         assert review["body"]["body"].startswith("**Not approved")
         # LABEL mode strips the trigger label, so the review has to say how to ask again.
-        assert expect_hint in review["body"]["body"]
+        assert (expect_hint or "") in review["body"]["body"]
+        assert ("label" in review["body"]["body"]) is (expect_hint is not None)
+    assert bool([w for w in writes if w["kind"] == "remove_label"]) is (expect_hint is not None)
 
 
 @pytest.mark.parametrize(

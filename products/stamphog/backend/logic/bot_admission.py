@@ -23,10 +23,9 @@ logger = structlog.get_logger(__name__)
 
 POLICY_PATH = ".stamphog/policy.yml"
 BOT_AUTHORS_CACHE_SECONDS = 300
-_ADMITTING_ACTIONS = frozenset({"opened", "synchronize", "reopened"})
 
 
-def admitted_bot_author(repo_config: StamphogRepoConfig, pr: dict[str, Any], action: str) -> dict[str, Any] | None:
+def admitted_bot_author(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> dict[str, Any] | None:
     """The policy entry that admits this PR, as `{name, login, id}`, or None.
 
     The author must be a GitHub App account whose login and numeric id both match one entry, because
@@ -34,8 +33,6 @@ def admitted_bot_author(repo_config: StamphogRepoConfig, pr: dict[str, Any], act
     the repo itself, because the fork's owner controls a fork's branch. A transient policy fetch
     failure raises, so the caller retries the delivery rather than refusing a bot the policy admits.
     """
-    if action not in _ADMITTING_ACTIONS:
-        return None
     user = pr.get("user") or {}
     if user.get("type") != "Bot" or is_fork(pr, repo_config.repository):
         return None

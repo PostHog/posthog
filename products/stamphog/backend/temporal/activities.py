@@ -1859,7 +1859,13 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Computed before the branch chain because two things must agree on it: the trigger label is only
     # stripped for a refusal, and only then may the review tell the author to re-add it.
     is_refusal = parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
-    strips_label = repo_config.review_mode == ReviewMode.LABEL and is_refusal
+    # Same reading the reviewer got, from the same stamp, so the handoff can't disagree with what
+    # the run was told it was.
+    trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
+    # No label requested an admitted bot's review, and a label added to its PR starts none.
+    strips_label = (
+        repo_config.review_mode == ReviewMode.LABEL and is_refusal and trigger != ReviewTrigger.BOT_ADMISSION.value
+    )
 
     relabel_label = repo_config.trigger_label if strips_label else None
 
@@ -1914,9 +1920,6 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
     # but both the label-strip and the ReviewHog handoff below treat a gate-blocked refusal the same
     # as an engine-refused one.
-    # Same reading the reviewer got, from the same stamp, so the handoff can't disagree with what
-    # the run was told it was.
-    trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
 
     # Action parity: in label-triggered mode a refused/escalated verdict strips the trigger label, so
     # the author re-requests the next review by re-adding it.

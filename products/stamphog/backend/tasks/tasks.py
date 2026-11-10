@@ -681,10 +681,13 @@ _BOT_AUTHOR_LABEL_MESSAGE = (
 
 def _bot_admission(installation_id: str, repo: str, pr: dict[str, Any], action: str) -> dict[str, Any] | None:
     """The provenance stamped on a run for a PR whose author the repo policy admits, or None."""
+    # Admission stands in for the review mode, and a label on a PR that needs none starts no review.
+    if action == "labeled":
+        return None
     repo_config = _resolve_repo_config(installation_id, repo)
     if repo_config is None or not repo_config.enabled:
         return None
-    return admitted_bot_author(repo_config, pr, action)
+    return admitted_bot_author(repo_config, pr)
 
 
 def _clear_trigger_label_from_bot_pr(installation_id: str, repo: str, pr: dict[str, Any], action: str) -> None:
@@ -710,6 +713,10 @@ def _clear_trigger_label_from_bot_pr(installation_id: str, repo: str, pr: dict[s
             return
         label_names = {(label or {}).get("name") for label in pr.get("labels") or []}
         if repo_config.trigger_label not in label_names:
+            return
+        # Stamphog reviews a bot the policy names without the label, so the message below is wrong
+        # for its PR.
+        if admitted_bot_author(repo_config, pr) is not None:
             return
         client = StamphogGitHubClient(repo_config.installation_id)
         if action != "synchronize":
@@ -2091,11 +2098,17 @@ ROUTING_SAFETY_NET_SECONDS = 30 * 60
 def _stamphog_will_review(repo_config: StamphogRepoConfig, pr: dict[str, Any]) -> bool:
     """Whether the review path is expected to give a verdict on this head.
 
-    Payload facts only, the same ones the review path checks before its GitHub calls. A review
-    that these facts admit but a later gate refuses (author write permission, for example) gives
-    no verdict, and the safety net routes the head instead.
+    Payload facts, the same ones the review path checks before its GitHub calls, and for a bot
+    author the repo policy that admits it. A review that these facts admit but a later gate refuses
+    (author write permission, for example) gives no verdict, and the safety net routes the head
+    instead.
     """
-    if not repo_config.enabled or _review_skip_reason(pr) is not None:
+    if not repo_config.enabled:
+        return False
+    skip_reason = _review_skip_reason(pr)
+    if skip_reason == "bot_author":
+        return admitted_bot_author(repo_config, pr) is not None
+    if skip_reason is not None:
         return False
     label_names = {(label or {}).get("name") for label in pr.get("labels") or []}
     return repo_config.review_mode != ReviewMode.LABEL or repo_config.trigger_label in label_names
