@@ -5,7 +5,6 @@ import { IconCheck, IconX } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
-import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
@@ -15,12 +14,6 @@ import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
-
-const SQL_EDITOR_SHORTCUT = keyBinds.sqlEditor
-    .filter((key) => key !== 'then')
-    .map((key) => key.toUpperCase())
-    .join(' then ')
-const EMPTY_EDITOR_PLACEHOLDER = `Write a SQL query. Press Ctrl+Space for autocomplete.\nOpen the SQL editor from anywhere with ${SQL_EDITOR_SHORTCUT}.`
 
 interface QueryPaneProps {
     queryInput: string
@@ -54,7 +47,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
             },
             quickSuggestionsDelay: 300,
             readOnly: queryLoading,
-            placeholder: EMPTY_EDITOR_PLACEHOLDER,
+            placeholder: 'Write a SQL query.',
         }),
         [props.originalValue, queryLoading]
     )
