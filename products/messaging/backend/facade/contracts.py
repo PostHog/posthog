@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -103,25 +103,14 @@ class RecipientOptedOut(TransactionalEmailError):
     code = "recipient_opted_out"
 
 
-class UnknownCategory(TransactionalEmailError):
-    code = "unknown_category"
-    attr = "category"
-
-    def __init__(self, key: str) -> None:
-        super().__init__(
-            f"This project has no marketing message category with the key `{key}`. Send the key of one of its "
-            "marketing categories, or `transactional`."
-        )
-
-
 class CategoriesNotEnabled(TransactionalEmailError):
-    code = "unknown_category"
+    code = "categories_not_enabled"
     attr = "category"
 
     def __init__(self) -> None:
         super().__init__(
-            "Sending in a marketing message category isn't enabled for this project yet. Leave `category` out, "
-            "or send `transactional`."
+            "Sending in a message category isn't available for this project yet. Leave `category` out, or send "
+            "`transactional`."
         )
 
 
@@ -129,11 +118,14 @@ class CategoryMismatch(TransactionalEmailError):
     code = "category_mismatch"
     attr = "category"
 
-    def __init__(self, template_category: str) -> None:
-        super().__init__(
-            f"This template sends in the category `{template_category}`. Leave `category` out, or send "
-            f"`{template_category}`."
-        )
+
+class TooManyCategories(TransactionalEmailError):
+    code = "too_many_categories"
+    attr = "category"
+
+
+class CopiesNotAllowed(TransactionalEmailError):
+    code = "copies_not_allowed"
 
 
 class UnsubscribeLinkRequired(TransactionalEmailError):
@@ -180,6 +172,25 @@ class InvalidRequest(TransactionalEmailError):
     code = "invalid_request"
 
 
+MessageCategoryKind = Literal["marketing", "transactional"]
+
+
+@frozen
+class SendCategoryDefinition:
+    """A category a code send defines by key. The send creates it, or brings the existing one in line with it."""
+
+    key: str
+    type: MessageCategoryKind
+    name: str
+    description: str | None = None
+
+
+@frozen
+class SendCategory:
+    id: UUID
+    type: MessageCategoryKind
+
+
 @frozen
 class CodeEmail:
     key: str
@@ -192,8 +203,7 @@ class CodeEmail:
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
-    # A marketing send in this category. Without one, the send is transactional.
-    message_category_id: UUID | None = None
+    category: Literal["transactional"] | SendCategoryDefinition | None = None
 
 
 class DeliveryUnavailable(Exception):

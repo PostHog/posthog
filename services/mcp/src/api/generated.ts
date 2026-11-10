@@ -107884,17 +107884,33 @@ export namespace Schemas {
      */
     export type SendEmailMessageData = {[key: string]: unknown};
 
+    /**
+     * Message category of the email. Leave it out or send `transactional` for a transactional email with no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional `description`. The send creates the category when the project has none with that key, updates its name and description when they changed, and restores it when it was archived. An existing category must have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets unsubscribe headers, and can't have `cc` or `bcc`. Its `html`, or `text` when it has no `html`, must hold `{{ unsubscribe_url }}`, which PostHog replaces with the recipient's unsubscribe link. A send with `template_id`, or with a `template_key` that names a template, follows the template's category: leave it out there, or send the template's own.
+     */
+    export type SendEmailCategory = 'transactional' | {
+      /**
+         * The category's key, unique within the project, such as `newsletter`. Opt-outs and the preferences page refer to the category by it.
+         * @maxLength 64
+         */
+      key: string;
+      /** `marketing`: recipients can opt out, and the send skips those who did. `transactional`: for email a recipient must get, which skips opt-outs. */
+      type: 'marketing' | 'transactional';
+      /**
+         * The category's name, shown in the PostHog app.
+         * @maxLength 128
+         */
+      name: string;
+      /** Notes about which emails belong to the category. Recipients don't see it. Left out, an existing category keeps its description. */
+      description?: string;
+    } | null;
+
     export interface SendEmail {
       /** Email address of the recipient. */
       to: string;
       /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
       message_data?: SendEmailMessageData;
-      /**
-         * Message category of the email. Leave it out or send `transactional` for a transactional email, which skips opt-outs. Send the `key` of one of the project's marketing message categories, such as `newsletter`, for a marketing email in that category: it skips recipients who opted out of the category or of all marketing, and gets unsubscribe headers. Its `html`, or `text` when it has no `html`, must hold `{{ unsubscribe_url }}`, which PostHog replaces with the recipient's unsubscribe link. A send with `template_id` follows the template's category, so leave it out there or send the template's own.
-         * @maxLength 64
-         * @nullable
-         */
-      category?: string | null;
+      /** Message category of the email. Leave it out or send `transactional` for a transactional email with no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional `description`. The send creates the category when the project has none with that key, updates its name and description when they changed, and restores it when it was archived. An existing category must have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets unsubscribe headers, and can't have `cc` or `bcc`. Its `html`, or `text` when it has no `html`, must hold `{{ unsubscribe_url }}`, which PostHog replaces with the recipient's unsubscribe link. A send with `template_id`, or with a `template_key` that names a template, follows the template's category: leave it out there, or send the template's own. */
+      category?: SendEmailCategory;
       /** ID of the email template to send. The template must be made transactional first. Send either `template_id` or `template_key`. */
       template_id?: string;
       /**
@@ -107944,6 +107960,26 @@ export namespace Schemas {
      */
     export type SendTransactionalEmailMessageData = {[key: string]: unknown};
 
+    /**
+     * Message category of the email. Leave it out or send `transactional` for a transactional email with no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional `description`. The send creates the category when the project has none with that key, updates its name and description when they changed, and restores it when it was archived. An existing category must have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets unsubscribe headers, and can't have `cc` or `bcc`. Its `html`, or `text` when it has no `html`, must hold `{{ unsubscribe_url }}`, which PostHog replaces with the recipient's unsubscribe link. A send with `template_id`, or with a `template_key` that names a template, follows the template's category: leave it out there, or send the template's own.
+     */
+    export type SendTransactionalEmailCategory = 'transactional' | {
+      /**
+         * The category's key, unique within the project, such as `newsletter`. Opt-outs and the preferences page refer to the category by it.
+         * @maxLength 64
+         */
+      key: string;
+      /** `marketing`: recipients can opt out, and the send skips those who did. `transactional`: for email a recipient must get, which skips opt-outs. */
+      type: 'marketing' | 'transactional';
+      /**
+         * The category's name, shown in the PostHog app.
+         * @maxLength 128
+         */
+      name: string;
+      /** Notes about which emails belong to the category. Recipients don't see it. Left out, an existing category keeps its description. */
+      description?: string;
+    } | null;
+
     export interface TransactionalEmailIdentifiers {
       /**
          * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
@@ -107958,12 +107994,8 @@ export namespace Schemas {
       to: string;
       /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
       message_data?: SendTransactionalEmailMessageData;
-      /**
-         * Message category of the email. Leave it out or send `transactional` for a transactional email, which skips opt-outs. Send the `key` of one of the project's marketing message categories, such as `newsletter`, for a marketing email in that category: it skips recipients who opted out of the category or of all marketing, and gets unsubscribe headers. Its `html`, or `text` when it has no `html`, must hold `{{ unsubscribe_url }}`, which PostHog replaces with the recipient's unsubscribe link. A send with `template_id` follows the template's category, so leave it out there or send the template's own.
-         * @maxLength 64
-         * @nullable
-         */
-      category?: string | null;
+      /** Message category of the email. Leave it out or send `transactional` for a transactional email with no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional `description`. The send creates the category when the project has none with that key, updates its name and description when they changed, and restores it when it was archived. An existing category must have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets unsubscribe headers, and can't have `cc` or `bcc`. Its `html`, or `text` when it has no `html`, must hold `{{ unsubscribe_url }}`, which PostHog replaces with the recipient's unsubscribe link. A send with `template_id`, or with a `template_key` that names a template, follows the template's category: leave it out there, or send the template's own. */
+      category?: SendTransactionalEmailCategory;
       /** Who the email is for, used to attribute engagement events. */
       identifiers?: TransactionalEmailIdentifiers;
     }

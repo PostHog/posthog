@@ -1,10 +1,13 @@
 import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import fields as dataclass_fields
+from dataclasses import (
+    asdict,
+    fields as dataclass_fields,
+)
 from email.utils import parseaddr
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.core.exceptions import (
@@ -57,6 +60,8 @@ from products.messaging.backend.facade.api import (
     render_design_html,
     validate_design,
 )
+from products.messaging.backend.facade.categories import MESSAGE_CATEGORY_TYPE_CHOICES
+from products.messaging.backend.facade.preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
     MessageTemplateMissing,
@@ -78,11 +83,10 @@ from products.messaging.backend.facade.transactional_email import (
     EmailAttachment,
     FieldNotAccepted,
     QueuedEmail,
+    SendCategoryDefinition,
     TransactionalEmailError,
     TransactionalEmailStage,
     check_transactional_update,
-    code_send_category_id,
-    is_marketing_category,
     lock_transactional_workflow_id,
     make_transactional,
     observe_transactional_email_stage,
@@ -433,6 +437,7 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
 CODE_SEND_CATEGORIES_FLAG = "workflows-code-send-categories"
+TRANSACTIONAL_CATEGORY = "transactional"
 FIRST_CODE_SEND_EVENT = "email first code send"
 
 
@@ -441,6 +446,74 @@ DISTINCT_ID_HELP_TEXT = (
     "bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. "
     "The template can't read the person's properties, so pass everything it needs in `message_data`."
 )
+
+
+SEND_CATEGORY_KEY_HELP = (
+    "The category's key, unique within the project, such as `newsletter`. Opt-outs and the preferences page refer "
+    "to the category by it."
+)
+SEND_CATEGORY_TYPE_HELP = (
+    "`marketing`: recipients can opt out, and the send skips those who did. `transactional`: for email a recipient "
+    "must get, which skips opt-outs."
+)
+SEND_CATEGORY_NAME_HELP = "The category's name, shown in the PostHog app."
+SEND_CATEGORY_DESCRIPTION_HELP = (
+    "Notes about which emails belong to the category. Recipients don't see it. Left out, an existing category keeps "
+    "its description."
+)
+
+
+class SendCategoryDefinitionSerializer(serializers.Serializer):
+    key = serializers.CharField(max_length=64, help_text=SEND_CATEGORY_KEY_HELP)
+    type = serializers.ChoiceField(choices=MESSAGE_CATEGORY_TYPE_CHOICES, help_text=SEND_CATEGORY_TYPE_HELP)
+    name = serializers.CharField(max_length=128, help_text=SEND_CATEGORY_NAME_HELP)
+    description = serializers.CharField(required=False, allow_blank=True, help_text=SEND_CATEGORY_DESCRIPTION_HELP)
+
+    def validate_key(self, key: str) -> str:
+        if key == ALL_MESSAGE_PREFERENCE_CATEGORY_ID:
+            raise serializers.ValidationError(
+                f"`{key}` stands for all marketing email in opt-outs, so it can't be a category key."
+            )
+        return key
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string", "enum": [TRANSACTIONAL_CATEGORY]},
+            {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "maxLength": 64, "description": SEND_CATEGORY_KEY_HELP},
+                    "type": {
+                        "type": "string",
+                        "enum": [value for value, _label in MESSAGE_CATEGORY_TYPE_CHOICES],
+                        "description": SEND_CATEGORY_TYPE_HELP,
+                    },
+                    "name": {"type": "string", "maxLength": 128, "description": SEND_CATEGORY_NAME_HELP},
+                    "description": {"type": "string", "description": SEND_CATEGORY_DESCRIPTION_HELP},
+                },
+                "required": ["key", "type", "name"],
+            },
+        ]
+    }
+)
+class SendCategoryField(serializers.Field):
+    default_error_messages = {
+        "invalid": f"Send `{TRANSACTIONAL_CATEGORY}`, or a category object with `key`, `type` and `name`.",
+    }
+
+    def to_internal_value(self, data: Any) -> Literal["transactional"] | SendCategoryDefinition:
+        if data == TRANSACTIONAL_CATEGORY:
+            return TRANSACTIONAL_CATEGORY
+        if not isinstance(data, Mapping):
+            self.fail("invalid")
+        definition = SendCategoryDefinitionSerializer(data=data)
+        definition.is_valid(raise_exception=True)
+        return SendCategoryDefinition(**definition.validated_data)
+
+    def to_representation(self, value: Any) -> Any:
+        return value if isinstance(value, str) else asdict(value)
 
 
 class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
@@ -458,16 +531,18 @@ class TransactionalEmailMessageSerializer(serializers.Serializer):
         help_text="Data for the template's Liquid placeholders, available as `variables`. "
         'For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.',
     )
-    category = serializers.CharField(
+    category = SendCategoryField(
         required=False,
         allow_null=True,
-        max_length=64,
-        help_text="Message category of the email. Leave it out or send `transactional` for a transactional email, "
-        "which skips opt-outs. Send the `key` of one of the project's marketing message categories, such as "
-        "`newsletter`, for a marketing email in that category: it skips recipients who opted out of the category or "
-        "of all marketing, and gets unsubscribe headers. Its `html`, or `text` when it has no `html`, must hold "
+        help_text="Message category of the email. Leave it out or send `transactional` for a transactional email with "
+        "no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional "
+        "`description`. The send creates the category when the project has none with that key, updates its name and "
+        "description when they changed, and restores it when it was archived. An existing category must have the "
+        "same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets "
+        "unsubscribe headers, and can't have `cc` or `bcc`. Its `html`, or `text` when it has no `html`, must hold "
         "`{{ unsubscribe_url }}`, which PostHog replaces with the recipient's unsubscribe link. A send with "
-        "`template_id` follows the template's category, so leave it out there or send the template's own.",
+        "`template_id`, or with a `template_key` that names a template, follows the template's category: leave it out "
+        "there, or send the template's own.",
     )
 
 
@@ -785,9 +860,10 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
     400: OpenApiResponse(
         description="A field is invalid, the template isn't transactional or its email is paused, the sender isn't "
         "verified, the recipient can't be used, the Idempotency-Key is invalid, the email is too large to send, "
-        "the project has reached its limit of template keys and the `template_key` is new, `category` names no "
-        "marketing category of the project (`unknown_category`) or not the template's (`category_mismatch`), or a "
-        "marketing email has no `{{ unsubscribe_url }}` (`unsubscribe_link_required`)"
+        "the project has reached its limit of template keys and the `template_key` is new, `category` doesn't match "
+        "the existing category's type or the template's category (`category_mismatch`), the send would create a "
+        "category past the project's limit (`too_many_categories`), or a marketing email has no "
+        "`{{ unsubscribe_url }}` (`unsubscribe_link_required`) or has `cc` or `bcc` (`copies_not_allowed`)"
     ),
     404: OpenApiResponse(description="Template not found"),
     409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),
@@ -898,13 +974,11 @@ class TransactionalEmailSendMixin:
         body = request.validated_data if hasattr(request, "validated_data") else request.data
         size = attachment_size(body)
         names_a_key = isinstance(body, Mapping) and bool(body.get("template_key"))
-        category = body.get("category") if names_a_key else None
-        marketing = isinstance(category, str) and is_marketing_category(category)
         return {
             **({"addressed_by": "template_key"} if names_a_key else {}),
             "attachment_count": size.count,
             "attachment_bytes": size.bytes,
-            "category_type": "marketing" if marketing else "transactional",
+            "category_type": _requested_category_type(body.get("category") if names_a_key else None),
         }
 
     def _end_request_validation(self) -> None:
@@ -934,8 +1008,8 @@ class TransactionalEmailSendMixin:
             addressed={"template_id": str(template.id)},
         )
 
-    def _enabled_category(self, category: str | None) -> str | None:
-        if is_marketing_category(category) and not _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG):
+    def _enabled_category(self, category: Any) -> Any:
+        if isinstance(category, SendCategoryDefinition) and not _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG):
             raise CategoriesNotEnabled()
         return category
 
@@ -1388,9 +1462,10 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             "Send one transactional email to one recipient. Name a template made transactional in `template_id`, "
             "and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with "
             "a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run "
-            "history group under the key. Transactional emails skip opt-outs and frequency caps. A code send with a "
-            "marketing `category` goes out as a marketing email in that category: it skips recipients who opted out "
-            "and needs `{{ unsubscribe_url }}` in its body. Send an "
+            "history group under the key. Transactional emails skip opt-outs and frequency caps. A code send can define "
+            "its message `category` by key, and PostHog creates or updates that category. In a marketing category it "
+            "goes out as marketing email: it skips recipients who opted out, needs `{{ unsubscribe_url }}` in its "
+            "body, and can't have `cc` or `bcc`. Send an "
             "`Idempotency-Key` header to retry safely without sending the email twice. Needs the "
             "`transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the "
             "rest of Workflows too."
@@ -1445,8 +1520,16 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             cc=tuple(data.get("cc") or ()),
             bcc=tuple(data.get("bcc") or ()),
             attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
-            message_category_id=code_send_category_id(self.team_id, self._enabled_category(data.get("category"))),
+            category=self._enabled_category(data.get("category")),
         )
+
+
+def _requested_category_type(category: Any) -> str:
+    if isinstance(category, SendCategoryDefinition):
+        return category.type
+    if isinstance(category, Mapping) and category.get("type") == "marketing":
+        return "marketing"
+    return "transactional"
 
 
 def _distinct_id(data: Mapping[str, Any]) -> str | None:
