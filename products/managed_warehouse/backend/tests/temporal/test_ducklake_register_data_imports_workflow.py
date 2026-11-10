@@ -2113,6 +2113,150 @@ def test_trino_copy_activity_copies_under_the_attempt_token_and_reports_stalenes
     assert kwargs["deadline_monotonic"] == pytest.approx(time.monotonic() + 99.0, abs=30.0)
 
 
+class _FakeS3:
+    def __init__(self, keys: set[str], *, partial_copy_fails: bool = False, rm_fails: bool = False) -> None:
+        self.keys = set(keys)
+        self.partial_copy_fails = partial_copy_fails
+        self.rm_fails = rm_fails
+
+    def invalidate_cache(self, path: str | None = None) -> None:
+        pass
+
+    def find(self, prefix: str, detail: bool = False) -> Any:
+        folder = prefix.rstrip("/") + "/"
+        found = sorted(key for key in self.keys if key.startswith(folder))
+        return {key: {"Size": 10, "type": "file"} for key in found} if detail else found
+
+    def copy(self, sources: list[str], destinations: list[str], *, batch_size: int) -> None:
+        if self.partial_copy_fails:
+            self.keys.add(destinations[0])
+            raise RuntimeError("copy failed")
+        self.keys.update(destinations)
+
+    def rm(self, paths: list[str]) -> None:
+        if self.rm_fails:
+            raise RuntimeError("delete failed")
+        self.keys.difference_update(paths)
+
+
+@pytest.mark.parametrize(
+    "registration, publish_decision, partial_copy_fails, rm_fails, folder_has_old_file, expected_error, "
+    "expected_result, files_deleted",
+    [
+        pytest.param(
+            "raises_before_publish",
+            None,
+            False,
+            False,
+            False,
+            "footer type error",
+            None,
+            True,
+            id="raises_before_publish",
+        ),
+        pytest.param("returns_unpublished", False, False, False, False, None, False, True, id="stale_skip"),
+        pytest.param(
+            "raises_after_publish_decision",
+            True,
+            False,
+            False,
+            False,
+            "publish failed",
+            None,
+            False,
+            id="raises_after_publish_decision",
+        ),
+        pytest.param("returns_published", True, False, False, False, None, True, False, id="published"),
+        pytest.param(
+            "raises_before_publish", None, True, False, False, "copy failed", None, True, id="partial_copy_raises"
+        ),
+        pytest.param(
+            "raises_before_publish",
+            None,
+            False,
+            True,
+            False,
+            "footer type error",
+            None,
+            False,
+            id="rm_raises_on_error_path",
+        ),
+        pytest.param(
+            "returns_unpublished", False, False, True, False, None, False, False, id="rm_raises_on_stale_path"
+        ),
+        pytest.param(
+            "raises_before_publish",
+            None,
+            False,
+            False,
+            True,
+            "footer type error",
+            None,
+            False,
+            id="attempt_folder_already_holds_a_file",
+        ),
+    ],
+)
+def test_trino_copy_activity_deletes_the_attempt_files_only_when_nothing_was_published(
+    monkeypatch,
+    registration,
+    publish_decision,
+    partial_copy_fails,
+    rm_fails,
+    folder_has_old_file,
+    expected_error,
+    expected_result,
+    files_deleted,
+) -> None:
+    base = _activity_inputs()
+    source_prefix = base.metadata.prepared_source_uri.removeprefix("s3://").rstrip("/")
+    source_keys = {f"{source_prefix}/k=1/a.parquet", f"{source_prefix}/k=2/b.parquet"}
+    minted_at = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=5)
+    attempt_prefix = (
+        "ducklake/posthog_data_imports_team_1/postgres_customers/_imports/schema/job/"
+        f"1234567890_abcdef12/{int(minted_at.timestamp())}_a1b2c3d4e5f60718"
+    )
+    old_keys = {f"{attempt_prefix}/k=1/old.parquet"} if folder_has_old_file else set()
+    fake_s3 = _FakeS3(source_keys | old_keys, partial_copy_fails=partial_copy_fails, rm_fails=rm_fails)
+
+    def fake_register(**kwargs: Any) -> trino_module.TrinoRegistrationResult:
+        if registration == "raises_before_publish":
+            raise ApplicationError("footer type error", non_retryable=True)
+        decided = kwargs["should_publish"]()
+        if registration == "raises_after_publish_decision":
+            raise RuntimeError("publish failed")
+        return trino_module.TrinoRegistrationResult(published=decided, row_count=3)
+
+    monkeypatch.setattr(registration_module, "get_s3_client", lambda: fake_s3)
+    monkeypatch.setattr(
+        registration_module, "register_prepared_files_through_trino", MagicMock(side_effect=fake_register)
+    )
+    monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: publish_decision)
+    monkeypatch.setattr(registration_module, "_duckgres_cancel_delay", lambda started: 99.0)
+    monkeypatch.setattr(registration_module, "_get_org_id_for_team", lambda team_id: "org")
+    monkeypatch.setattr(registration_module, "HeartbeaterSync", lambda **kwargs: contextlib.nullcontext())
+    _mock_activity_workload_metrics(monkeypatch)
+    inputs = dataclasses.replace(
+        base,
+        metadata=dataclasses.replace(base.metadata, engine=ENGINE_TRINO, source_schema_id=str(uuid.UUID(int=5))),
+        registration_table_names=registration_module._new_trino_registration_table_names(minted_at, "a1b2c3d4e5f60718"),
+    )
+
+    if expected_error is not None:
+        with pytest.raises((ApplicationError, RuntimeError), match=expected_error):
+            copy_and_register_ducklake_data_imports_activity(inputs)
+    else:
+        assert copy_and_register_ducklake_data_imports_activity(inputs) is expected_result
+
+    assert source_keys <= fake_s3.keys
+    remaining = fake_s3.find(attempt_prefix)
+    if files_deleted:
+        assert remaining == []
+    else:
+        assert remaining
+        assert old_keys <= fake_s3.keys
+
+
 def test_trino_copy_activity_refuses_names_older_than_the_start_delay(monkeypatch) -> None:
     s3 = MagicMock()
     register = MagicMock()

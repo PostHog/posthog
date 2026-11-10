@@ -363,7 +363,8 @@ def register_prepared_files_through_trino(
     `landing_paths` are this attempt's copied files. The columns and the expected row count come from their Parquet
     footers, because add_files compares each file's own types exactly. The import ids derive from `attempt_token`,
     so a repeated attempt replays finished batches as no-ops. `deadline_monotonic` is the `time.monotonic()` value
-    at which the running statement is cancelled.
+    at which the running statement is cancelled. The live table can reference the landing files only after
+    `should_publish` returns True, because callers rely on that to delete the files of an attempt that did not publish.
     """
     sorted_paths = sorted(landing_paths)
     # A type error fails here, before any catalog work.
