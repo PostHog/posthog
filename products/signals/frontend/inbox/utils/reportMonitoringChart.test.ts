@@ -2,7 +2,7 @@ import { NodeKind, type TrendsQuery } from '~/queries/schema/schema-general'
 
 import { reportMetricsFixture } from '../__mocks__/reportMetricMocks'
 import {
-    monitoringChartBucketPosition,
+    monitoringChartBucketPositioner,
     monitoringChartMarkers,
     monitoringChartPoints,
     monitoringChartQuery,
@@ -34,7 +34,7 @@ describe('Monitoring chart context', () => {
         ['after the last bucket ends', '2026-09-01T00:00:00Z', { index: 2, fraction: 1 }],
     ])('places a time %s on the chart buckets', (_, time, expected) => {
         expect(
-            monitoringChartBucketPosition(['2026-08-27', '2026-08-28', '2026-08-29'], Date.parse(time), 'UTC')
+            monitoringChartBucketPositioner(['2026-08-27', '2026-08-28', '2026-08-29'], 'UTC')(Date.parse(time))
         ).toEqual(expected)
     })
 

@@ -75,6 +75,12 @@ describe('reportCheckObservations', () => {
     it.each<[string, Partial<NonNullable<SignalReportCheckApi['monitoring_timing']>>, boolean | null, string]>([
         ['an on-track latest measurement', {}, true, 'On track'],
         ['an off-track latest measurement', {}, false, 'Not on track'],
+        [
+            'an off-track measurement after the last interim run',
+            { state: 'no_interim_measurements' },
+            false,
+            'Not on track',
+        ],
         ['a latest measurement that errored', {}, null, 'Scheduled'],
         ['final verification', { state: 'paused', final_verification_state: 'verifying' }, false, 'Scheduled'],
     ])('labels the check from %s', (_, timing, matches, label) => {

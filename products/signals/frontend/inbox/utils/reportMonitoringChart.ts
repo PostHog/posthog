@@ -78,27 +78,29 @@ function bucketTimestamp(label: string, timezone: string): number {
     return /(?:Z|[+-]\d{2}:\d{2})$/i.test(label) ? dayjs(label).valueOf() : dayjs.tz(label, timezone).valueOf()
 }
 
-export function monitoringChartBucketPosition(
+export function monitoringChartBucketPositioner(
     labels: string[],
-    time: number,
     timezone: string
-): { index: number; fraction: number } | null {
+): (time: number) => { index: number; fraction: number } | null {
+    // Parsed once: a long window places many markers, and each lookup would otherwise reparse every label.
     const starts = labels.map((label) => bucketTimestamp(label, timezone))
-    if (!starts.length || !Number.isFinite(time)) {
-        return null
-    }
     const last = starts.length - 1
     // The last bucket has no successor, so it is assumed to last as long as the one before it.
     const end = last > 0 ? starts[last] + (starts[last] - starts[last - 1]) : starts[last]
-    if (time <= starts[0]) {
-        return { index: 0, fraction: 0 }
+    return (time) => {
+        if (!starts.length || !Number.isFinite(time)) {
+            return null
+        }
+        if (time <= starts[0]) {
+            return { index: 0, fraction: 0 }
+        }
+        if (time >= end) {
+            return { index: last, fraction: 1 }
+        }
+        const index = starts.findLastIndex((start) => start <= time)
+        const next = index < last ? starts[index + 1] : end
+        return { index, fraction: next > starts[index] ? (time - starts[index]) / (next - starts[index]) : 0 }
     }
-    if (time >= end) {
-        return { index: last, fraction: 1 }
-    }
-    const index = starts.findLastIndex((start) => start <= time)
-    const next = index < last ? starts[index + 1] : end
-    return { index, fraction: next > starts[index] ? (time - starts[index]) / (next - starts[index]) : 0 }
 }
 
 export function monitoringChartPoints(

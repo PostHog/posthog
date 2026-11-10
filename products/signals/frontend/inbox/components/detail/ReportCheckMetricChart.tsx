@@ -25,6 +25,7 @@ import {
     type ReportMonitoringChartWindow,
 } from '../../utils/reportMonitoringChart'
 import { CHART_TIMELINE_HEIGHT, ReportChartMonitoringTimeline } from './ReportChartMonitoringTimeline'
+import { ReportCheckMonitoringTimeline } from './ReportCheckMonitoringTimeline'
 import type { MonitoringTimeline } from './reportCheckObservations'
 import { ReportObservationChart } from './ReportObservationChart'
 
@@ -78,10 +79,20 @@ export function ReportCheckMetricChart({
         return <LemonSkeleton className="h-36 w-full" />
     }
     if (responseError) {
-        return <p className="text-tertiary m-0">Couldn't load the chart. Refresh the page to try again.</p>
+        return (
+            <>
+                <p className="text-tertiary m-0">Couldn't load the chart. Refresh the page to try again.</p>
+                {timeline && <ReportCheckMonitoringTimeline timeline={timeline} />}
+            </>
+        )
     }
     if (!points) {
-        return <p className="text-tertiary m-0">No chart data for this window.</p>
+        return (
+            <>
+                <p className="text-tertiary m-0">No chart data for this window.</p>
+                {timeline && <ReportCheckMonitoringTimeline timeline={timeline} />}
+            </>
+        )
     }
 
     const goal = metric.goal_value
@@ -117,7 +128,12 @@ export function ReportCheckMetricChart({
                 footer={
                     timeline
                         ? {
-                              node: <ReportChartMonitoringTimeline timeline={timeline} now={observedAt} />,
+                              node: (
+                                  <ReportChartMonitoringTimeline
+                                      timeline={timeline}
+                                      type={reportMetricChartType(metric)}
+                                  />
+                              ),
                               height: CHART_TIMELINE_HEIGHT,
                           }
                         : undefined

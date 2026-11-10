@@ -6,26 +6,30 @@ import { useChartLayout } from '@posthog/quill-charts'
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { monitoringChartBucketPosition } from '../../utils/reportMonitoringChart'
+import type { ReportMetricChartType } from '../../utils/reportMetrics'
+import { monitoringChartBucketPositioner } from '../../utils/reportMonitoringChart'
 import { ReportCheckMonitoringTimeline } from './ReportCheckMonitoringTimeline'
 import type { MonitoringTimeline } from './reportCheckObservations'
 
 export const CHART_TIMELINE_HEIGHT = 12
 
 /**
- * The Monitoring strip drawn on the chart's own x-axis: its edges are the first and last bucket edges,
- * and each point sits within its bucket by time, so a measurement lines up with its bar.
+ * The Monitoring strip drawn on the chart's own x-axis, so a measurement lines up with its bucket.
+ * Bars sit in bands, so the strip runs from the first band's left edge to the last band's right edge.
+ * Line points sit on bucket starts, so the strip runs from the first point to the last.
  */
 export function ReportChartMonitoringTimeline({
     timeline,
-    now,
+    type,
 }: {
     timeline: MonitoringTimeline
-    now: number
+    type: ReportMetricChartType
 }): JSX.Element | null {
     const { scales, dimensions, labels } = useChartLayout()
     const xScale = scales.x
     const { timezone } = useValues(teamLogic)
+
+    const bucketAt = useMemo(() => monitoringChartBucketPositioner(labels, timezone), [labels, timezone])
 
     const layout = useMemo(() => {
         const centers = labels.map((label) => xScale(label))
@@ -34,18 +38,21 @@ export function ReportChartMonitoringTimeline({
         }
         const first = centers[0] as number
         const last = centers[centers.length - 1] as number
+        const bands = type === 'bar' || centers.length === 1
         const step = centers.length > 1 ? (last - first) / (centers.length - 1) : dimensions.plotWidth
+        const slots = bands ? labels.length : labels.length - 1
         const positionAt = (time: number): number | null => {
-            const bucket = monitoringChartBucketPosition(labels, time, timezone)
-            return bucket ? (bucket.index + bucket.fraction) / labels.length : null
+            const bucket = bucketAt(time)
+            return bucket ? Math.min((bucket.index + bucket.fraction) / slots, 1) : null
         }
         const parse = (iso: string | null): number => (iso ? Date.parse(iso) : NaN)
         return {
-            left: first - step / 2,
-            width: step * centers.length,
+            left: bands ? first - step / 2 : first,
+            width: bands ? step * centers.length : last - first,
+            startPosition: positionAt(parse(timeline.startedAt)) ?? 0,
             timeline: {
                 ...timeline,
-                elapsed: positionAt(now) ?? 0,
+                elapsed: positionAt(Math.min(timeline.now, parse(timeline.endsAt))) ?? 0,
                 nextPosition: positionAt(parse(timeline.nextMeasurementAt)),
                 measurements: timeline.measurements.map((measurement) => ({
                     ...measurement,
@@ -53,7 +60,7 @@ export function ReportChartMonitoringTimeline({
                 })),
             },
         }
-    }, [xScale, labels, dimensions.plotWidth, timeline, now, timezone])
+    }, [xScale, labels, dimensions.plotWidth, timeline, type, bucketAt])
 
     if (!layout) {
         return null
@@ -64,7 +71,7 @@ export function ReportChartMonitoringTimeline({
             className="pointer-events-auto absolute -translate-y-1/2"
             style={{ left: layout.left, width: layout.width, top: dimensions.height - CHART_TIMELINE_HEIGHT / 2 }}
         >
-            <ReportCheckMonitoringTimeline timeline={layout.timeline} />
+            <ReportCheckMonitoringTimeline timeline={layout.timeline} startPosition={layout.startPosition} />
         </div>
     )
 }

@@ -21,12 +21,13 @@ export interface MonitoringTimeline {
     nextMeasurementAt: string | null
     nextPosition: number | null
     elapsed: number
+    now: number
     /** Oldest first, so the last entry is the latest measurement. */
     measurements: MonitoringTimelineMeasurement[]
 }
 
 /** While the window is open, the latest measurement is more useful than the schedule. */
-const INTERIM_TAG_STATES = ['scheduled', 'due']
+const INTERIM_TAG_STATES = ['scheduled', 'due', 'no_interim_measurements']
 
 /** Interim measurements per check, newest first. */
 export function checkObservationsByCheck(artefacts: SignalReportArtefact[]): Map<string, ReportCheckObservation[]> {
@@ -66,6 +67,7 @@ export function monitoringTimeline(
         nextMeasurementAt: Number.isFinite(next) ? (timing.next_measurement_at ?? null) : null,
         nextPosition: Number.isFinite(next) ? position(next) : null,
         elapsed: position(now),
+        now,
         measurements: observations
             // A restarted Monitoring period keeps the earlier period's measurements, which belong to another window.
             .filter(
