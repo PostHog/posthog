@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { IconEllipsis, IconGear, IconPalette } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonDivider, LemonLabel, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { Badge, Button } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -58,6 +59,7 @@ export function DashboardEditBarAdvancedFilters({
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { currentTeam } = useValues(teamLogic)
     const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const [visible, setVisible] = useState(false)
 
     const filterTestAccounts = effectiveEditBarFilters.filterTestAccounts ?? null
@@ -171,15 +173,30 @@ export function DashboardEditBarAdvancedFilters({
                 </div>
             }
         >
-            <LemonButton
-                size="small"
-                icon={<IconEllipsis />}
-                tooltip="Advanced options"
-                active={visible}
-                onClick={() => setVisible(!visible)}
-                sideIcon={overrideCount ? <LemonBadge.Number count={overrideCount} size="small" /> : undefined}
-                data-attr="dashboard-advanced-filters"
-            />
+            {todayRailNav ? (
+                <Button
+                    variant="outline"
+                    size={overrideCount ? 'default' : 'icon'}
+                    aria-label={overrideCount ? `Advanced options, ${overrideCount} active` : 'Advanced options'}
+                    tooltip="Advanced options"
+                    aria-expanded={visible}
+                    onClick={() => setVisible(!visible)}
+                    data-attr="dashboard-advanced-filters"
+                >
+                    <IconEllipsis />
+                    {overrideCount ? <Badge>{overrideCount}</Badge> : null}
+                </Button>
+            ) : (
+                <LemonButton
+                    size="small"
+                    icon={<IconEllipsis />}
+                    tooltip="Advanced options"
+                    active={visible}
+                    onClick={() => setVisible(!visible)}
+                    sideIcon={overrideCount ? <LemonBadge.Number count={overrideCount} size="small" /> : undefined}
+                    data-attr="dashboard-advanced-filters"
+                />
+            )}
         </Popover>
     )
 }

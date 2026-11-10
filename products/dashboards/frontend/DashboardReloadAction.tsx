@@ -8,12 +8,15 @@ import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
+
+import { QuillDashboardReloadAction } from './QuillDashboardReloadAction'
 
 export const LastRefreshText = (): JSX.Element => {
     const { effectiveLastRefresh } = useValues(dashboardLogic)
@@ -68,6 +71,7 @@ export function DashboardReloadAction(): JSX.Element {
     const { itemsLoading, autoRefresh, blockRefresh, nextAllowedDashboardRefresh } = useValues(dashboardLogic)
     const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility, cancelDashboardRefresh } =
         useActions(dashboardLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     usePageVisibilityCb(setPageVisibility)
 
@@ -78,6 +82,18 @@ export function DashboardReloadAction(): JSX.Element {
         dayjs(nextAllowedDashboardRefresh).isAfter(dayjs())
             ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
             : ''
+
+    if (todayRailNav) {
+        return (
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
+                <DashboardRefreshStatusText />
+                <QuillDashboardReloadAction
+                    refreshDisabledReason={refreshDisabledReason}
+                    intervalOptions={INTERVAL_OPTIONS}
+                />
+            </div>
+        )
+    }
 
     const options = INTERVAL_OPTIONS.map((option) => {
         return {
