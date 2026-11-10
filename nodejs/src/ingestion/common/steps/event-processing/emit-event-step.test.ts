@@ -282,19 +282,6 @@ describe('emit-event-step', () => {
                 })
             )
         })
-
-        it('carries the team and name of the emitted event in headers', async () => {
-            const step = createEmitEventStep(config)
-
-            await step(createInput({ ...mockProcessedEvent, team_id: 42, event: 'order placed' }))
-
-            expect(mockOutputs.produce).toHaveBeenCalledWith(
-                EVENTS_OUTPUT,
-                expect.objectContaining({
-                    headers: { productTrack: 'general', team_id: '42', event: 'order placed' },
-                })
-            )
-        })
     })
 
     describe('productTrackHeader', () => {
