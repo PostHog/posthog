@@ -24,6 +24,7 @@ import {
     canvasVersionTitle,
 } from '../../history/canvasHistoryLabels'
 import { canvasHistoryLogic } from '../../history/canvasHistoryLogic'
+import { canvasSceneLogic } from '../../scene/canvasSceneLogic'
 import { CanvasTimelineRow } from './CanvasTimelineRow'
 
 /** The Timeline tab: staged drafts, then every published version and how its build went. */
@@ -39,6 +40,7 @@ export function CanvasTimelineTab(): JSX.Element {
         displayedVersionId,
     } = useValues(canvasHistoryLogic)
     const { loadBuildHistory, setBrowseVersion, requestConfirmation } = useActions(canvasHistoryLogic)
+    const { editAccessDisabledReason } = useValues(canvasSceneLogic)
 
     useEffect(() => {
         loadBuildHistory()
@@ -98,16 +100,18 @@ export function CanvasTimelineTab(): JSX.Element {
                                 draft
                                 onOpen={() => setBrowseVersion(draft.version_id)}
                                 action={
-                                    <Button
-                                        size="xs"
-                                        variant="outline"
-                                        onClick={() =>
-                                            requestConfirmation({ kind: 'promote', versionId: draft.version_id })
-                                        }
-                                        data-attr="canvas-timeline-promote"
-                                    >
-                                        Publish…
-                                    </Button>
+                                    editAccessDisabledReason ? null : (
+                                        <Button
+                                            size="xs"
+                                            variant="outline"
+                                            onClick={() =>
+                                                requestConfirmation({ kind: 'promote', versionId: draft.version_id })
+                                            }
+                                            data-attr="canvas-timeline-promote"
+                                        >
+                                            Publish…
+                                        </Button>
+                                    )
                                 }
                                 dataAttr="canvas-timeline-draft"
                             />
@@ -146,7 +150,7 @@ export function CanvasTimelineTab(): JSX.Element {
                                 live={live}
                                 onOpen={() => setBrowseVersion(live ? null : version.id)}
                                 action={
-                                    live ? null : (
+                                    live || editAccessDisabledReason ? null : (
                                         <Button
                                             size="xs"
                                             variant="outline"

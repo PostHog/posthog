@@ -6,7 +6,8 @@ import { CanvasStartHero } from './CanvasStartHero'
 
 /** The body of a canvas with nothing to render yet: the composer that starts its first build. */
 export function CanvasEmptyBody({ notice }: { notice?: string }): JSX.Element {
-    const { instruction, instructionFromSuggestion, generationStarting } = useValues(canvasSceneLogic)
+    const { instruction, instructionFromSuggestion, generationStarting, editAccessDisabledReason } =
+        useValues(canvasSceneLogic)
     const { setInstruction, generateCanvas } = useActions(canvasSceneLogic)
 
     return (
@@ -16,7 +17,7 @@ export function CanvasEmptyBody({ notice }: { notice?: string }): JSX.Element {
                 onInstructionChange={setInstruction}
                 onSubmit={() => generateCanvas(instruction, instructionFromSuggestion)}
                 submitting={generationStarting}
-                disabledReason={instruction.trim() ? null : 'Describe the canvas first'}
+                disabledReason={editAccessDisabledReason ?? (instruction.trim() ? null : 'Describe the canvas first')}
             />
         </CanvasStartHero>
     )

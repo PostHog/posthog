@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 import { toast } from '@posthog/quill'
 
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
 import { projectLogic } from 'scenes/projectLogic'
@@ -27,7 +28,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { Breadcrumb, SidePanelTab, UserType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Breadcrumb, SidePanelTab, UserType } from '~/types'
 
 import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 
@@ -157,6 +158,7 @@ export interface canvasSceneLogicValues {
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
     user: UserType | null // userLogic
+    accessControlOpen: boolean
     agentTurn: CanvasAgentTurn | null
     bodyState: CanvasBodyState
     breadcrumbs: Breadcrumb[]
@@ -165,8 +167,10 @@ export interface canvasSceneLogicValues {
     builds: CanvasBuildsResponseApi | null
     buildsLoading: boolean
     busy: boolean
+    canManageAccess: boolean
     canvas: CanvasApi | null
     draftCode: string | null
+    editAccessDisabledReason: string | null
     fixRequestPending: boolean
     fixTaskId: string | null
     generationError: string | null
@@ -191,6 +195,7 @@ export interface canvasSceneLogicValues {
     view: CanvasViewResponseApi | null
     viewLoading: boolean
     viewMissing: boolean
+    userAccessLevel: AccessControlLevel | null
     viewUnavailable: boolean
     visibility: CanvasVisibility | null
     visibilityChanging: boolean
@@ -222,6 +227,9 @@ export interface canvasSceneLogicActions {
         canvas: CanvasApi
     }
     canvasVisibilityChanged: () => {
+        value: true
+    }
+    closeAccessControl: () => {
         value: true
     }
     closeMakePublic: () => {
@@ -322,6 +330,9 @@ export interface canvasSceneLogicActions {
         spaceId: string
         visibility: 'private' | 'public' | null
     }
+    openAccessControl: () => {
+        value: true
+    }
     openMakePublic: () => {
         value: true
     }
@@ -382,6 +393,9 @@ export interface canvasSceneLogicMeta {
         canvas: (view: CanvasViewResponseApi | null) => CanvasApi | null
         visibility: (canvas: CanvasApi | null, space: CanvasSpace | null) => CanvasVisibility | null
         isCreator: (canvas: CanvasApi | null, user: UserType | null) => boolean
+        userAccessLevel: (canvas: CanvasApi | null) => AccessControlLevel | null
+        editAccessDisabledReason: (userAccessLevel: AccessControlLevel | null) => string | null
+        canManageAccess: (userAccessLevel: AccessControlLevel | null, visibility: CanvasVisibility | null) => boolean
         sandboxDocumentUrl: (view: CanvasViewResponseApi | null) => string | null
         liveBuild: (view: CanvasViewResponseApi | null) => CanvasBuildApi | null
         draftCode: (view: CanvasViewResponseApi | null) => string | null
@@ -460,6 +474,8 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         deleteCanvas: true,
         openMakePublic: true,
         closeMakePublic: true,
+        openAccessControl: true,
+        closeAccessControl: true,
         setCanvasVisibility: (visibility: 'private' | 'public') => ({ visibility }),
         /**
          * Moves the canvas to a space. `visibility` is null when the move undoes the one before.
@@ -552,6 +568,13 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         view: {
             canvasUpdated: (state, { canvas }) => (state ? { ...state, canvas } : state),
         },
+        accessControlOpen: [
+            false,
+            {
+                openAccessControl: () => true,
+                closeAccessControl: () => false,
+            },
+        ],
         makePublicOpen: [
             false,
             {
@@ -667,6 +690,28 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             (s) => [s.canvas, s.user],
             (canvas: CanvasApi | null, user: UserType | null): boolean =>
                 !!canvas && !!user && canvas.created_by.id === user.id,
+        ],
+        userAccessLevel: [
+            (s) => [s.canvas],
+            (canvas: CanvasApi | null): AccessControlLevel | null =>
+                (canvas?.user_access_level as AccessControlLevel | null | undefined) ?? null,
+        ],
+        editAccessDisabledReason: [
+            (s) => [s.userAccessLevel],
+            (userAccessLevel: AccessControlLevel | null): string | null =>
+                userAccessLevel &&
+                !accessLevelSatisfied(AccessControlResourceType.Canvas, userAccessLevel, AccessControlLevel.Editor)
+                    ? 'You can view this canvas but not change it. Ask its creator or a project admin for edit access.'
+                    : null,
+        ],
+        /** A private canvas is its owner's alone, so access rules only apply once others can see it. */
+        canManageAccess: [
+            (s) => [s.userAccessLevel, s.visibility],
+            (userAccessLevel: AccessControlLevel | null, visibility: CanvasVisibility | null): boolean =>
+                !!userAccessLevel &&
+                !!visibility &&
+                visibility !== 'private' &&
+                accessLevelSatisfied(AccessControlResourceType.Canvas, userAccessLevel, AccessControlLevel.Manager),
         ],
         sandboxDocumentUrl: [
             (s) => [s.view],
@@ -986,6 +1031,14 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 toast.error({
                     title: "Couldn't rename the canvas",
                     description: error instanceof Error ? error.message : 'Try again in a moment.',
+                })
+            }
+        },
+        openAccessControl: () => {
+            if (values.canvas) {
+                captureCanvasAction('access_control_opened', {
+                    dashboard_id: values.canvas.id,
+                    channel_id: values.canvas.channel,
                 })
             }
         },

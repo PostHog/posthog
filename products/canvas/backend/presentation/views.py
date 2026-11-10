@@ -15,6 +15,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle, SimpleRateThrottle
@@ -28,10 +29,12 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
-from posthog.permissions import is_service_auth
+from posthog.permissions import AccessControlPermission, APIScopePermission, TeamMemberAccessPermission, is_service_auth
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.canvas.backend.facade import api as canvas_api
 from products.canvas.backend.facade.api import (
     apply_layout_ops,
@@ -361,7 +364,15 @@ def _state_page_links(request: Request, query: dict[str, Any], result: dict[str,
     return {"next": next_link, "previous": previous_link}
 
 
-class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
+class CanvasViewerAccessPermission(AccessControlPermission):
+    """Viewer access for the calls a canvas makes while someone uses it, which the canvas:write
+    scope would otherwise map to editor."""
+
+    def _get_required_access_level(self, request: Request, view: Any) -> AccessControlLevel:
+        return "viewer"
+
+
+class CanvasViewSet(CanvasAccessMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     """Canvases: agent-built sandboxed browser apps, filed into channels.
 
     Source is versioned per publish and built server-side; the canvas app
@@ -377,7 +388,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
     }
     serializer_class = CanvasSerializer
     pagination_class = FacadeLimitOffsetPagination
-    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
     scope_object_read_actions = [
         "list",
         "retrieve",
@@ -430,6 +441,30 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             return [*super().get_throttles(), CanvasConnectorCallThrottle()]
         return super().get_throttles()
 
+    # Writes a viewer makes while using the app, not changes to the canvas itself. A canvas
+    # made view-only must keep working for its viewers, so these need viewer access to it.
+    # Each action still runs its own checks: declared capabilities, the viewer's scopes on the
+    # target resource, and request_fix's authoring-task owner.
+    _VIEWER_WRITE_ACTIONS = {
+        "set_state",
+        "invoke_action",
+        "invoke_tool",
+        "call_connector",
+        "report_error",
+        "request_fix",
+        "request_agent",
+    }
+
+    def dangerously_get_permissions(self) -> list[BasePermission]:
+        if self.action not in self._VIEWER_WRITE_ACTIONS:
+            raise NotImplementedError()
+        return [
+            IsAuthenticated(),
+            APIScopePermission(),
+            CanvasViewerAccessPermission(),
+            TeamMemberAccessPermission(),
+        ]
+
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         # Invoking a verb writes the target resource, so a scoped credential
         # must hold that resource's scope — canvas:write alone is not consent
@@ -439,13 +474,15 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             tool = request.data.get("tool") if isinstance(request.data, dict) else None
             return canvas_api.tool_required_scopes(tool) if isinstance(tool, str) else None
         if action != "invoke_action":
-            return None
+            return super().dangerously_get_required_scopes(request, view)
         verb = request.data.get("verb") if isinstance(request.data, dict) else None
         return canvas_api.action_required_scopes(verb) if isinstance(verb, str) else None
 
     # Content writes. Every member who can see a canvas in a public space may
-    # publish a new version of it; a canvas in a personal space is only visible
-    # to its owner, so the creator rule is implied there. partial_update is in
+    # publish a new version of it, unless the canvas's access rules give them
+    # viewer access only (AccessControlPermission maps these to editor). A canvas
+    # in a personal space is only visible to its owner, so the creator rule is
+    # implied there. partial_update is in
     # this set because a member must record their own generation task on the
     # canvas; every other metadata field stays creator-only (see partial_update).
     _EDITOR_ACTIONS = {
@@ -475,21 +512,20 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             return CanvasAccess.DELETE
         return CanvasAccess.WRITE
 
-    def _check_object_access(self, canvas: CanvasRecord) -> None:
-        """Run the view's object permissions on a canvas the facade returned, as `get_object` would on a model."""
-        ref = ObjectAccessRef(
-            resource="canvas", id=str(canvas.id), team_id=canvas.team_id, created_by_id=canvas.created_by_id
+    def read_object(self) -> CanvasRecord | None:
+        try:
+            return canvas_api.get_canvas(self._viewer(), self._access(), self.kwargs["pk"])
+        except CanvasNotFoundError:
+            return None
+
+    def object_access_ref(self, record: CanvasRecord) -> ObjectAccessRef:
+        return ObjectAccessRef(
+            resource="canvas", id=str(record.id), team_id=record.team_id, created_by_id=record.created_by_id
         )
-        self.check_object_permissions(self.request, ref)
 
     def _canvas(self) -> CanvasRecord:
         """The canvas in the URL, or 404 when the current action may not reach it, or 403 below the required level."""
-        try:
-            canvas = canvas_api.get_canvas(self._viewer(), self._access(), self.kwargs["pk"])
-        except CanvasNotFoundError:
-            raise NotFound()
-        self._check_object_access(canvas)
-        return canvas
+        return self.get_object()
 
     @extend_schema(
         parameters=[
@@ -545,7 +581,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return Response(CanvasSerializer(self._canvas()).data)
+        return Response(CanvasSerializer(self._canvas(), context=self.get_serializer_context()).data)
 
     @extend_schema(
         operation_id="canvases_create",
@@ -589,7 +625,9 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             template_id=canvas.template_id,
             is_sandbox_created=canvas.generation_task_id is not None,
         )
-        return Response(CanvasSerializer(canvas).data, status=status.HTTP_201_CREATED)
+        return Response(
+            CanvasSerializer(canvas, context=self.get_serializer_context()).data, status=status.HTTP_201_CREATED
+        )
 
     @extend_schema(
         operation_id="canvases_partial_update",
@@ -630,7 +668,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             self._log_canvas_activity(
                 result.canvas, "updated", Detail(name=result.canvas.name, changes=_activity_changes(result.changes))
             )
-        return Response(CanvasSerializer(result.canvas).data)
+        return Response(CanvasSerializer(result.canvas, context=self.get_serializer_context()).data)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         canvas = canvas_api.delete_canvas(self.team_id, self._canvas().id)
@@ -714,7 +752,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         }
         if opened.component_lifecycles is not None:
             instance["component_lifecycles"] = opened.component_lifecycles
-        payload = CanvasViewResponseSerializer(instance=instance).data
+        payload = CanvasViewResponseSerializer(instance=instance, context=self.get_serializer_context()).data
         if opened.degraded:
             # A payload missing its source/layout must not revalidate as
             # current after storage recovers: no validator, no caching.
@@ -1513,14 +1551,16 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             )
         existing = canvas_api.home_canvas(self.team_id, user.id)
         if existing is not None:
-            return Response(CanvasSerializer(existing).data)
+            return Response(CanvasSerializer(existing, context=self.get_serializer_context()).data)
         channel_id = tasks_facade.ensure_personal_channel_id(self.team_id, user.id)
         canvas, created = canvas_api.provision_home_canvas(self.team_id, user.id, channel_id)
         if not created:
-            return Response(CanvasSerializer(canvas).data)
+            return Response(CanvasSerializer(canvas, context=self.get_serializer_context()).data)
         self._log_canvas_activity(canvas, "created", Detail(name=canvas.name))
         self._report_canvas_action("canvas home provisioned", canvas)
-        return Response(CanvasSerializer(canvas).data, status=status.HTTP_201_CREATED)
+        return Response(
+            CanvasSerializer(canvas, context=self.get_serializer_context()).data, status=status.HTTP_201_CREATED
+        )
 
     @extend_schema(
         operation_id="canvases_build_action_create",

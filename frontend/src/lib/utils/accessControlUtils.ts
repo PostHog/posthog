@@ -82,6 +82,7 @@ const RESOURCE_API_ROUTES: Partial<Record<APIScopeObject, string>> = {
     ticket: 'conversations/tickets',
     heatmap: 'saved',
     replay_scanner: 'vision/scanners',
+    canvas: 'canvases',
 }
 
 /** REST collection route for a resource, for building `.../{route}/{id}/access_controls` urls. */
@@ -144,6 +145,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'replay vision'
     } else if (resource === AccessControlResourceType.BusinessKnowledge) {
         return 'business knowledge'
+    } else if (resource === AccessControlResourceType.Canvas) {
+        return 'canvases'
     }
 
     return resource.replace(/_/g, ' ') + 's'

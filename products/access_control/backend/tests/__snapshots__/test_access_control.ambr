@@ -3,6 +3,7 @@
   list([
     'action',
     'ai_observability_clusters',
+    'canvas',
     'dashboard',
     'dataset',
     'early_access_feature',
@@ -34,6 +35,7 @@
     'account',
     'action',
     'ai_observability_clusters',
+    'canvas',
     'customer_analytics',
     'customer_journey',
     'dashboard',

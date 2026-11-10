@@ -8,6 +8,8 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.canvas.backend.facade.api import (
     CANVAS_LAYOUT_SCHEMA_VERSION,
     GRID_COLUMN_CHOICES,
@@ -89,7 +91,7 @@ class CanvasComponentMetaSerializer(serializers.Serializer):
     )
 
 
-class CanvasSerializer(serializers.Serializer):
+class CanvasSerializer(UserAccessControlSerializerMixin, serializers.Serializer):
     """A canvas document. Version/build content hangs off the source and build endpoints."""
 
     id = serializers.UUIDField(read_only=True)
@@ -142,6 +144,13 @@ class CanvasSerializer(serializers.Serializer):
     @extend_schema_field(CanvasComponentMetaSerializer(allow_null=True))
     def get_component_meta(self, canvas: CanvasRecord) -> dict | None:
         return canvas.component_meta
+
+    def get_user_access_level(self, obj: CanvasRecord | ObjectAccessRef | models.Model) -> str | None:
+        if isinstance(obj, CanvasRecord):
+            obj = ObjectAccessRef(
+                resource="canvas", id=str(obj.id), team_id=obj.team_id, created_by_id=obj.created_by_id
+            )
+        return super().get_user_access_level(obj)
 
 
 class CanvasCreateSerializer(serializers.Serializer):

@@ -788,6 +788,150 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert Canvas.objects.unscoped().filter(id=canvas_id, deleted=True).exists()
 
 
+class TestCanvasObjectAccessControl(CanvasAPIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.canvas_id = self._create_canvas(name="Team board")
+        self.member = self._create_user("viewer@example.com")
+        self.member_membership = OrganizationMembership.objects.get(organization=self.organization, user=self.member)
+        self.base = f"/api/projects/{self.team.id}/canvases/{self.canvas_id}"
+
+    def _make_view_only(self) -> None:
+        response = self.client.put(f"{self.base}/access_controls/", {"access_level": "viewer"}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def _member_api_key_client(self) -> APIClient:
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="canvas-mcp",
+            user=self.member,
+            secure_value=hash_key_value(raw_key),
+            scopes=["canvas:read", "canvas:write"],
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        return client
+
+    def test_creator_manages_the_canvas_access_and_members_cannot(self):
+        self._make_view_only()
+        below_minimum = self.client.put(f"{self.base}/access_controls/", {"access_level": "none"}, format="json")
+        assert below_minimum.status_code == status.HTTP_400_BAD_REQUEST
+        granted = self.client.put(
+            f"{self.base}/access_controls/",
+            {"access_level": "editor", "organization_member": str(self.member_membership.id)},
+            format="json",
+        )
+        assert granted.status_code == status.HTTP_200_OK, granted.json()
+
+        settings = self.client.get(f"{self.base}/access_controls/").json()
+        assert {(row["organization_member"], row["access_level"]) for row in settings["access_controls"]} == {
+            (None, "viewer"),
+            (str(self.member_membership.id), "editor"),
+        }
+        assert (settings["minimum_access_level"], settings["user_access_level"]) == ("viewer", "manager")
+        assert settings["user_can_edit_access_levels"] is True
+        users = self.client.get(f"{self.base}/users_with_access/").json()["users"]
+        assert {(row["user_id"], row["access_source"]) for row in users} >= {
+            (str(self.user.uuid), "creator"),
+            (str(self.member.uuid), "explicit_member"),
+        }
+
+        self.client.force_login(self.member)
+        assert self.client.get(f"{self.base}/access_controls/").json()["user_can_edit_access_levels"] is False
+        demote = self.client.put(f"{self.base}/access_controls/", {"access_level": "viewer"}, format="json")
+        assert demote.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("publish", "post", "publish/"),
+            ("publish_current_version", "post", "publish-current-version/"),
+            ("edit", "post", "edit/"),
+            ("draft", "post", "draft/"),
+            ("promote", "post", "promote/"),
+            ("revert", "post", "revert/"),
+            ("build_action", "post", "builds/action/"),
+            ("publish_layout", "post", "layout/publish/"),
+            ("patch_layout", "post", "layout/patch/"),
+            ("partial_update", "patch", ""),
+        ]
+    )
+    def test_view_only_canvas_refuses_member_edits(self, _name: str, method: str, path: str) -> None:
+        self._make_view_only()
+        self.client.force_login(self.member)
+
+        response = getattr(self.client, method)(f"{self.base}/{path}", {}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert response.json()["detail"] == "You do not have editor access to this resource."
+
+    def test_view_only_canvas_stays_usable_for_members_and_editable_for_its_creator(self):
+        capabilities = {
+            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": ["user"]},
+            "network": {"origins": []},
+        }
+        assert self._publish(self.canvas_id, project=self._project(capabilities=capabilities)).status_code == 200
+        self._make_view_only()
+        self.client.force_login(self.member)
+
+        assert self.client.get(f"{self.base}/").json()["user_access_level"] == "viewer"
+        assert self.client.get(f"{self.base}/view/").json()["canvas"]["user_access_level"] == "viewer"
+        set_state = self.client.post(
+            f"{self.base}/state/set/", {"scope": "user", "key": "draft", "value": "mine"}, format="json"
+        )
+        assert set_state.status_code == status.HTTP_200_OK, set_state.json()
+
+        self.client.force_login(self.user)
+        assert self.client.get(f"{self.base}/").json()["user_access_level"] == "manager"
+        assert self._publish(self.canvas_id).status_code == status.HTTP_200_OK
+
+    def test_member_override_lets_one_member_edit_a_view_only_canvas(self):
+        self._make_view_only()
+        self.client.put(
+            f"{self.base}/access_controls/",
+            {"access_level": "editor", "organization_member": str(self.member_membership.id)},
+            format="json",
+        )
+        self.client.force_login(self.member)
+
+        assert self.client.get(f"{self.base}/").json()["user_access_level"] == "editor"
+        assert self._publish(self.canvas_id).status_code == status.HTTP_200_OK
+
+    @parameterized.expand([("personal_api_key",), ("sandbox",)])
+    def test_token_callers_of_a_view_only_member_cannot_publish(self, caller: str) -> None:
+        self._make_view_only()
+        headers: dict[str, str] = {}
+        if caller == "sandbox":
+            task = Task.objects.create(
+                team=self.team,
+                channel=self.channel,
+                created_by=self.member,
+                title="Edit the board",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            client = self._sandbox_client(task.id, user=self.member)
+            headers = {"HTTP_X_POSTHOG_TASK_ID": str(task.id)}
+        else:
+            client = self._member_api_key_client()
+
+        response = client.post(f"{self.base}/publish/", {"project": self._project()}, format="json", **headers)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_rules_are_ignored_without_the_access_control_feature(self):
+        self._make_view_only()
+        self.organization.available_product_features = []
+        self.organization.save(update_fields=["available_product_features"])
+        self.client.force_login(self.member)
+
+        assert self.client.get(f"{self.base}/").json()["user_access_level"] == "editor"
+        assert self._publish(self.canvas_id).status_code == status.HTTP_200_OK
+
+
 class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
     def test_source_of_unpublished_canvas_is_synthetic_and_blank(self):
         canvas_id = self._create_canvas()

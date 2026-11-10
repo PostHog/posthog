@@ -65,6 +65,7 @@ ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE = 1000
 
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
+    "canvas",
     "customer_analytics",
     "data_catalog",
     "data_deletion",
@@ -215,6 +216,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "LLM playground"
     if resource == "business_knowledge":
         return "business knowledge"
+    if resource == "canvas":
+        # Ends in "s" but is singular, so the rule below would leave it as "canvas"
+        return "canvases"
     if resource == "stamphog":
         # Product name: a proper noun, and it does not take a plural
         return "Stamphog"
@@ -247,6 +251,9 @@ def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
 def minimum_access_level(resource: APIScopeObject) -> AccessControlLevel:
     """Returns the minimum allowed access level for a resource. 'none' is not included if a minimum is specified."""
     if resource == "action":
+        return "viewer"
+    if resource == "canvas":
+        # Who can see a canvas at all is its space's choice, so these rules only narrow editing.
         return "viewer"
     return "none"
 
@@ -1110,13 +1117,23 @@ class UserAccessControl:
         Returns None if the user has no access context.
         """
         resource = resource or model_to_resource(obj)
+        if not resource:
+            return None
+        return self._access_source(resource, str(obj.id), self._is_creator(obj))  # type: ignore[attr-defined]
+
+    def get_access_source_for_ref(self, ref: ObjectAccessRef) -> Optional[AccessSource]:
+        """`get_access_source_for_object` for an object the caller holds only as a reference."""
+        target = self._target_for_ref(ref)
+        return self._access_source(target.resource, target.object_id, self._is_creator_id(target.created_by_id))
+
+    def _access_source(self, resource: APIScopeObject, object_id: str, is_creator: bool) -> Optional[AccessSource]:
         org_membership = self._organization_membership
 
-        if not resource or not org_membership:
+        if not org_membership:
             return None
 
         # Check if user is the creator
-        if self._is_creator(obj):
+        if is_creator:
             return AccessSource.CREATOR
 
         # Check if user is org admin
@@ -1128,7 +1145,7 @@ class UserAccessControl:
             return AccessSource.DEFAULT
 
         # Get cached access controls for this object
-        filters = self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
+        filters = self._access_controls_filters_for_object(resource, object_id)
         cached_controls = self._get_access_controls(filters)
 
         # Check for explicit member access
