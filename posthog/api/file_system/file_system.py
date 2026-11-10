@@ -58,7 +58,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, InsufficientScope
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 from posthog.models.file_system.constants import (
     RETIRED_FILE_SYSTEM_TYPES,
@@ -88,6 +88,7 @@ from posthog.models.tagged_item_registry import object_column_for
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
+from posthog.permissions import scopes_caller_lacks
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
@@ -1248,6 +1249,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if remaining == 0 and ref:
                 objects_to_delete.append((file_type, ref, team_id))
 
+        if any(file_type in WORKFLOW_FILE_SYSTEM_TYPES for file_type, _ref, _team_id in objects_to_delete):
+            if missing_scopes := scopes_caller_lacks(self.request, ["hog_flow:write"]):
+                raise InsufficientScope(missing_scopes)
         self._ensure_can_delete_objects(objects_to_delete)
 
         return reaches_backing_object
