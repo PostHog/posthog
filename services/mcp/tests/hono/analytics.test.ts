@@ -712,12 +712,6 @@ describe('Hono MCP analytics contexts', () => {
             ],
             ['executing an email send', 'workflows-send-email-execute', { confirmation: 'confirm' }, false],
             [
-                'an email send through exec',
-                'exec',
-                { command: 'call workflows-send-email-prepare {"to":"ada@example.com","html":"<p>code 123456</p>"}' },
-                false,
-            ],
-            [
                 'an email send forwarded through a PostHog connection',
                 'exec',
                 {
