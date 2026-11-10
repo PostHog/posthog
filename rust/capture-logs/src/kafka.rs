@@ -1,4 +1,5 @@
 use crate::avro_schema::AVRO_SCHEMA;
+use crate::config::KafkaConfig;
 use crate::log_record::{min_kafka_log_row_timestamp_micros, sum_kafka_log_row_bytes, KafkaLogRow};
 use crate::metric_record::{sum_kafka_metric_row_bytes, KafkaMetricRow};
 use crate::metrics_avro_schema::METRICS_AVRO_SCHEMA;
@@ -6,7 +7,6 @@ use crate::trace_record::KafkaTraceRow;
 use crate::traces_avro_schema::TRACES_AVRO_SCHEMA;
 use anyhow::anyhow;
 use apache_avro::{Codec, Schema, Writer, ZstandardSettings};
-use capture::config::KafkaConfig;
 use chrono::Utc;
 use common_kafka::error::error_code_tag;
 use health::HealthHandle;

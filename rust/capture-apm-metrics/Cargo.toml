@@ -13,7 +13,6 @@ axum = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 limiters = { path = "../common/limiters" }
-capture = { path = "../../ingestion/rust/capture" }
 capture-logs = { path = "../capture-logs" }
 prometheus-rw-proto = { path = "../prometheus-rw-proto" }
 common-compression = { path = "../common/compression" }

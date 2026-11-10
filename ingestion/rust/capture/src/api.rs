@@ -4,7 +4,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::token::InvalidTokenReason;
+use common_types::token::InvalidTokenReason;
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum CaptureResponseCode {

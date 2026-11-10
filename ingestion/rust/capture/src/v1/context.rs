@@ -6,9 +6,9 @@ use chrono::{DateTime, Utc};
 use common_ingestion_warnings::{WarningRequestContext, UNKNOWN_ATTRIBUTION};
 use uuid::Uuid;
 
-use crate::token::validate_token;
 use crate::v1::constants::*;
 use crate::v1::Error;
+use common_types::token::validate_token;
 
 /// CaptureMode-agnostic request context shared by every v1 capture mode.
 /// Product-specific query state lives in a per-mode wrapper (e.g.

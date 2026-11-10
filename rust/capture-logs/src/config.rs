@@ -1,8 +1,6 @@
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
-use capture::config::KafkaConfig;
-
 #[derive(Envconfig, Clone)]
 pub struct Config {
     #[envconfig(nested = true)]
@@ -46,4 +44,69 @@ impl Config {
         let res = Self::init_from_env()?;
         Ok(res)
     }
+}
+
+#[derive(Envconfig, Clone)]
+pub struct KafkaConfig {
+    #[envconfig(default = "20")]
+    pub kafka_producer_linger_ms: u32, // Maximum time between producer batches during low traffic
+    #[envconfig(default = "400")]
+    pub kafka_producer_queue_mib: u32, // Size of the in-memory producer queue in mebibytes
+    #[envconfig(default = "20000")]
+    pub kafka_message_timeout_ms: u32, // Time before we stop retrying producing a message: 20 seconds
+    #[envconfig(default = "1000000")]
+    pub kafka_producer_message_max_bytes: u32, // message.max.bytes - max kafka message size we will produce
+    #[envconfig(default = "none")]
+    pub kafka_compression_codec: String, // none, gzip, snappy, lz4, zstd
+    pub kafka_hosts: String,
+    #[envconfig(default = "events_plugin_ingestion")]
+    pub kafka_topic: String,
+    #[envconfig(default = "ingestion-traces")]
+    pub kafka_traces_topic: String,
+    #[envconfig(default = "ingestion-metrics")]
+    pub kafka_metrics_topic: String,
+    #[envconfig(default = "false")]
+    pub kafka_tls: bool,
+    #[envconfig(default = "")]
+    pub kafka_client_id: String,
+    #[envconfig(default = "2")]
+    pub kafka_producer_max_retries: u32,
+    #[envconfig(default = "all")]
+    pub kafka_producer_acks: String,
+    // interval between metadata refreshes from the Kafka brokers
+    #[envconfig(default = "20000")]
+    pub kafka_topic_metadata_refresh_interval_ms: u32,
+    // default is 3x metadata refresh interval so we maintain that here
+    #[envconfig(default = "60000")]
+    pub kafka_metadata_max_age_ms: u32,
+
+    // Traces-cluster overrides (consumed by capture-logs). When unset, the
+    // traces producer reuses the corresponding `kafka_*` value above.
+    pub kafka_traces_hosts: Option<String>,
+    pub kafka_traces_tls: Option<bool>,
+    pub kafka_traces_client_id: Option<String>,
+    pub kafka_traces_compression_codec: Option<String>,
+    pub kafka_traces_producer_acks: Option<String>,
+    pub kafka_traces_producer_linger_ms: Option<u32>,
+    pub kafka_traces_producer_queue_mib: Option<u32>,
+    pub kafka_traces_message_timeout_ms: Option<u32>,
+    pub kafka_traces_producer_message_max_bytes: Option<u32>,
+    pub kafka_traces_producer_max_retries: Option<u32>,
+    pub kafka_traces_topic_metadata_refresh_interval_ms: Option<u32>,
+    pub kafka_traces_metadata_max_age_ms: Option<u32>,
+
+    // Metrics-cluster overrides (consumed by capture-logs). When unset, the
+    // metrics producer reuses the corresponding `kafka_*` value above.
+    pub kafka_metrics_hosts: Option<String>,
+    pub kafka_metrics_tls: Option<bool>,
+    pub kafka_metrics_client_id: Option<String>,
+    pub kafka_metrics_compression_codec: Option<String>,
+    pub kafka_metrics_producer_acks: Option<String>,
+    pub kafka_metrics_producer_linger_ms: Option<u32>,
+    pub kafka_metrics_producer_queue_mib: Option<u32>,
+    pub kafka_metrics_message_timeout_ms: Option<u32>,
+    pub kafka_metrics_producer_message_max_bytes: Option<u32>,
+    pub kafka_metrics_producer_max_retries: Option<u32>,
+    pub kafka_metrics_topic_metadata_refresh_interval_ms: Option<u32>,
+    pub kafka_metrics_metadata_max_age_ms: Option<u32>,
 }

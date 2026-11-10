@@ -8,6 +8,7 @@ use axum::body::Body;
 use axum::extract::{MatchedPath, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
+use common_types::token::validate_token;
 use metrics::counter;
 use tracing::{info, instrument, Span};
 
@@ -19,7 +20,6 @@ use crate::{
     ingestion_warnings::replay::attribution_from_event,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
-    token::validate_token,
     v0_request::ProcessingContext,
 };
 

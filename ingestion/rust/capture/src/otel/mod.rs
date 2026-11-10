@@ -28,8 +28,8 @@ use crate::ingestion_warnings::otel::{
 };
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
-use crate::token::validate_token;
 use crate::v0_request::exceeds_max_ai_event_bytes;
+use common_types::token::validate_token;
 
 use self::attribution::otel_request_context;
 

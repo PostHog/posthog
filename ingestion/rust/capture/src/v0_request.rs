@@ -342,10 +342,10 @@ impl ProcessedEventMetadata {
 
 #[cfg(test)]
 mod tests {
-    use crate::token::InvalidTokenReason;
     use crate::utils::extract_and_verify_token;
     use base64::Engine as _;
     use bytes::Bytes;
+    use common_types::token::InvalidTokenReason;
     use common_types::RawEvent;
     use rand::distributions::Alphanumeric;
     use rand::Rng;

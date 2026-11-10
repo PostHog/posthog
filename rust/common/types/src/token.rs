@@ -1,7 +1,7 @@
+//! The shape check every ingress applies to a project token before any lookup.
+
 use std::error::Error;
 use std::fmt::Display;
-
-/// Validate that a token is the correct shape
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum InvalidTokenReason {

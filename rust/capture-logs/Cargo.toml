@@ -13,11 +13,11 @@ health = { path = "../common/health" }
 axum = { workspace = true }
 common-kafka = { path = "../common/kafka" }
 common-metrics = { path = "../common/metrics" }
+common-types = { path = "../common/types" }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-compression = { path = "../common/compression" }
 limiters = { path = "../common/limiters" }
-capture = { path = "../../ingestion/rust/capture" }
 opentelemetry-proto = { workspace = true }
 tonic = { workspace = true }
 jsonwebtoken = "8.3"

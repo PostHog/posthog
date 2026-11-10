@@ -2356,7 +2356,6 @@ version = "0.1.0"
 dependencies = [
  "axum 0.7.9",
  "bytes",
- "capture",
  "capture-logs",
  "chrono",
  "common-alloc",
@@ -2418,7 +2417,6 @@ dependencies = [
  "axum 0.7.9",
  "base64 0.22.1",
  "bytes",
- "capture",
  "chrono",
  "clickhouse",
  "common-alloc",
@@ -2426,6 +2424,7 @@ dependencies = [
  "common-continuous-profiling",
  "common-kafka",
  "common-metrics",
+ "common-types",
  "envconfig",
  "flate2",
  "health",

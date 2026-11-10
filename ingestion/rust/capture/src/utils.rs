@@ -1,6 +1,7 @@
 use axum::http::HeaderMap;
 use base64::Engine;
 use chrono::{DateTime, TimeZone};
+use common_types::token::validate_token;
 use common_types::RawEvent;
 use rand::RngCore;
 use std::collections::HashSet;
@@ -10,7 +11,6 @@ use uuid::Uuid;
 use crate::{
     api::CaptureError,
     payload::{Compression, EventFormData, EventQuery},
-    token::validate_token,
 };
 
 // used to limit test scans and extract loggable snippets from potentially large strings/buffers

@@ -29,11 +29,11 @@ use crate::payload::decompression::decompress_gzip_to_bytes;
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
 use crate::timestamp;
-use crate::token::validate_token;
 use crate::v0_request::{
     exceeds_max_ai_event_bytes, is_ai_event, DataType, ProcessedEvent, ProcessedEventMetadata,
 };
 use crate::v1::gateway_provenance as gp;
+use common_types::token::validate_token;
 use event_restrictions::{AppliedRestrictions, EventContext as RestrictionEventContext, Pipeline};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{extract::DefaultBodyLimit, http::Method, routing::get, routing::post, Router};
-use capture::metrics_middleware::track_metrics;
 use capture_apm_metrics::config::Config;
 use capture_apm_metrics::k8s_resource_attributes::K8sResourceAttributes;
 use capture_apm_metrics::management;
@@ -18,7 +17,7 @@ use capture_logs::authorizer::Authorizer;
 use capture_logs::kafka::KafkaSink;
 use capture_logs::middleware::translate_compression_query_param;
 use capture_logs::service::options_handler;
-use common_metrics::setup_metrics_routes;
+use common_metrics::{setup_metrics_routes, track_metrics};
 use common_redis::{Client, CompressionConfig, RedisClient, RedisValueFormat};
 use std::future::ready;
 use std::net::SocketAddr;
