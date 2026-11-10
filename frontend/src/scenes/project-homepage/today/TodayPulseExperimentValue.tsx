@@ -1,3 +1,5 @@
+import './Today.scss'
+
 import type { HighlightExperimentResultApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayChange } from './TodayChange'
