@@ -989,9 +989,7 @@ async def test_sql_database_incremental_initial_value(team, postgres_config, pos
     assert len(res.results) == 1
 
 
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_billing_limits(team, stripe_customer, mock_stripe_client):
+async def _create_stripe_customer_schema(team: Team) -> tuple[str, ExternalDataSchema, ExternalDataWorkflowInputs]:
     with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
         source = await sync_to_async(ExternalDataSource.objects.create)(
             source_id=uuid.uuid4(),
@@ -1000,10 +998,7 @@ async def test_billing_limits(team, stripe_customer, mock_stripe_client):
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={
-                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                "stripe_account_id": "acct_id",
-            },
+            job_inputs=_STRIPE_JOB_INPUTS,
         )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
@@ -1014,12 +1009,18 @@ async def test_billing_limits(team, stripe_customer, mock_stripe_client):
         sync_type_config={},
     )
 
-    workflow_id = str(uuid.uuid4())
     inputs = ExternalDataWorkflowInputs(
         team_id=team.id,
         external_data_source_id=source.pk,
         external_data_schema_id=schema.id,
     )
+    return str(uuid.uuid4()), schema, inputs
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_billing_limits(team, stripe_customer, mock_stripe_client):
+    workflow_id, schema, inputs = await _create_stripe_customer_schema(team)
 
     limited_until = int(timezone.now().timestamp()) + 3600
     add_limited_team_tokens(
@@ -1043,34 +1044,7 @@ async def test_billing_limits(team, stripe_customer, mock_stripe_client):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_create_external_job_failure(team, stripe_customer, mock_stripe_client):
-    with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
-        source = await sync_to_async(ExternalDataSource.objects.create)(
-            source_id=uuid.uuid4(),
-            connection_id=uuid.uuid4(),
-            destination_id=uuid.uuid4(),
-            team=team,
-            status="running",
-            source_type="Stripe",
-            job_inputs={
-                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                "stripe_account_id": "acct_id",
-            },
-        )
-
-    schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        name="Customer",
-        team_id=team.pk,
-        source_id=source.pk,
-        sync_type=ExternalDataSchemaSyncType.FULL_REFRESH,
-        sync_type_config={},
-    )
-
-    workflow_id = str(uuid.uuid4())
-    inputs = ExternalDataWorkflowInputs(
-        team_id=team.id,
-        external_data_source_id=source.pk,
-        external_data_schema_id=schema.id,
-    )
+    workflow_id, schema, inputs = await _create_stripe_customer_schema(team)
 
     with mock.patch(IS_TEAM_LIMITED, side_effect=Exception("Ruhoh!")):
         with pytest.raises(Exception):
@@ -1193,34 +1167,7 @@ async def test_non_retryable_error(team, zendesk_brands):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_non_retryable_error_with_special_characters(team, stripe_customer, mock_stripe_client):
-    with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
-        source = await sync_to_async(ExternalDataSource.objects.create)(
-            source_id=uuid.uuid4(),
-            connection_id=uuid.uuid4(),
-            destination_id=uuid.uuid4(),
-            team=team,
-            status="running",
-            source_type="Stripe",
-            job_inputs={
-                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                "stripe_account_id": "acct_id",
-            },
-        )
-
-    schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        name="Customer",
-        team_id=team.pk,
-        source_id=source.pk,
-        sync_type=ExternalDataSchemaSyncType.FULL_REFRESH,
-        sync_type_config={},
-    )
-
-    workflow_id = str(uuid.uuid4())
-    inputs = ExternalDataWorkflowInputs(
-        team_id=team.id,
-        external_data_source_id=source.pk,
-        external_data_schema_id=schema.id,
-    )
+    workflow_id, schema, inputs = await _create_stripe_customer_schema(team)
 
     with (
         mock.patch(
