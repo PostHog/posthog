@@ -632,14 +632,14 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
         self.client = APIClient()
         self.client.force_login(self.user)
 
-    def _refuse_file_rows(self) -> None:
+    def _refuse_file_rows(self, operation: str = "INSERT") -> None:
         with connection.cursor() as cursor:
             cursor.execute(
                 "CREATE FUNCTION refuse_file_row() RETURNS trigger LANGUAGE plpgsql AS "
                 "$$ BEGIN RAISE EXCEPTION 'file row refused'; END $$"
             )
             cursor.execute(
-                "CREATE TRIGGER refuse_file_row BEFORE INSERT ON posthog_filesystem "
+                f"CREATE TRIGGER refuse_file_row BEFORE {operation} ON posthog_filesystem "
                 "FOR EACH ROW EXECUTE FUNCTION refuse_file_row()"
             )
 
@@ -658,6 +658,26 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
 
         self.assertEqual(created.status_code, 201, created.content)
         self.assertEqual(self.client.get(f"{templates_url}{created.json()['id']}/").status_code, 200)
+
+    def test_a_failed_file_cleanup_still_deletes_the_workflow(self) -> None:
+        workflows_url = f"/api/projects/{self.team.id}/hog_flows/"
+        created = self.client.post(
+            workflows_url,
+            {
+                "name": "Welcome",
+                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                "edges": [],
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        workflow_url = f"{workflows_url}{created.json()['id']}/"
+        self._refuse_file_rows("DELETE")
+
+        deleted = self.client.delete(workflow_url)
+
+        self.assertEqual(deleted.status_code, 204, deleted.content)
+        self.assertEqual(self.client.get(workflow_url).status_code, 404)
 
     @parameterized.expand(
         [
