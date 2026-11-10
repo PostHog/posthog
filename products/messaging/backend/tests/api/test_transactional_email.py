@@ -99,24 +99,44 @@ ACCEPTED_SEND_KEYS: dict[str, set[str] | None] = {
     "replyTo": None,
     "cc": None,
     "bcc": None,
-    "attachments": None,
     "tracking": {"captureEngagement"},
 }
+WELCOME_DELIVERED = {
+    "subject": "Welcome, Jane",
+    "html": "<p>Hi Jane</p>",
+    "text": "Hi Jane",
+    "captureEngagement": True,
+}
+
+
+class CapturedEvents:
+    def __init__(self, capture: MagicMock) -> None:
+        self._events: list[dict[str, Any]] = []
+        capture.side_effect = self._capture
+
+    def _capture(self, **event: Any) -> str:
+        self._events.append(event)
+        return str(uuid4())
+
+    def properties(self, event: str) -> list[dict[str, Any]]:
+        return [captured["properties"] for captured in self._events if captured.get("event") == event]
 
 
 class FakeCdpApi:
     def __init__(self) -> None:
+        self.received: list[dict[str, Any]] = []
         self._queued: list[dict[str, Any]] = []
 
     @contextmanager
     def serving(self, client_post: MagicMock) -> Iterator["FakeCdpApi"]:
         client_post.side_effect = partial(requests.Session.post, internal_requests)
-        with responses.RequestsMock() as http:
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
             http.add_callback(responses.POST, re.compile(r".*/hog_flows/[^/]+/transactional_email/send$"), self._send)
             yield self
 
     def _send(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
         payload = json.loads(request.body or "{}")
+        self.received.append(payload)
         send = payload["send"]
         issues = self._unrecognized_keys(send)
         if not isinstance(send.get("tracking", {}).get("captureEngagement"), bool):
@@ -125,6 +145,15 @@ class FakeCdpApi:
             return 400, {}, json.dumps({"error": json.dumps(issues)})
         self._queued.append(payload)
         return 202, {}, json.dumps({"invocation_id": f"invocation-{len(self._queued)}"})
+
+    def emails(self) -> list[dict[str, Any]]:
+        return [self._email(payload["send"]) for payload in self._queued]
+
+    @staticmethod
+    def _email(send: dict[str, Any]) -> dict[str, Any]:
+        email = {**send["content"], "captureEngagement": send["tracking"]["captureEngagement"]}
+        email.update({field: send[field] for field in ("from", "replyTo", "cc", "bcc") if field in send})
+        return email
 
     def deliver(self) -> list[tuple[str, str]]:
         delivered, self._queued = self._queued, []
@@ -816,70 +845,44 @@ class TestTransactionalEmail(APIBaseTest):
                 "sender_and_reply_to",
                 {"text": "Hi", "from": "Example <security@example.com>", "reply_to": ["help@example.com"]},
                 {
-                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi"},
+                    **WELCOME_DELIVERED,
+                    "text": "Hi",
                     "from": {"email": "security@example.com", "name": "Example"},
                     "replyTo": ["help@example.com"],
-                    "tracking": {"captureEngagement": True},
                 },
             ),
             (
                 "without_engagement_capture",
                 {"capture_engagement": False},
-                {
-                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
-                    "tracking": {"captureEngagement": False},
-                },
+                {**WELCOME_DELIVERED, "captureEngagement": False},
             ),
             (
                 "text_only",
                 {"html": "", "text": "Hi"},
-                {"content": {"subject": "Welcome, Jane", "text": "Hi"}, "tracking": {"captureEngagement": True}},
+                {"subject": "Welcome, Jane", "text": "Hi", "captureEngagement": True},
             ),
+            ("null_copies_and_attachments", {"cc": None, "bcc": None, "attachments": None}, WELCOME_DELIVERED),
             (
-                "null_copies_and_attachments",
-                {"cc": None, "bcc": None, "attachments": None},
-                {
-                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
-                    "tracking": {"captureEngagement": True},
-                },
-            ),
-            (
-                "cc_bcc_and_attachments",
-                {
-                    "cc": "copy@example.com",
-                    "bcc": ["audit@example.com", "archive@example.com"],
-                    "attachments": [
-                        {"filename": "a.csv", "content": "YSxi", "content_type": "text/csv", "content_id": "a"},
-                        {"filename": "notes.txt", "content": "aGk="},
-                    ],
-                },
-                {
-                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
-                    "tracking": {"captureEngagement": True},
-                    "cc": ["copy@example.com"],
-                    "bcc": ["audit@example.com", "archive@example.com"],
-                    "attachments": [
-                        {"filename": "a.csv", "content": "YSxi", "contentType": "text/csv", "contentId": "a"},
-                        {"filename": "notes.txt", "content": "aGk="},
-                    ],
-                },
+                "cc_and_bcc",
+                {"cc": "copy@example.com", "bcc": ["audit@example.com", "archive@example.com"]},
+                {**WELCOME_DELIVERED, "cc": ["copy@example.com"], "bcc": ["audit@example.com", "archive@example.com"]},
             ),
         ]
     )
-    def test_a_code_send_carries_what_the_caller_set(self, mock_post, _flag, _capture, _name, fields, sent):
-        self._cdp_accepts(mock_post)
+    def test_a_code_send_carries_what_the_caller_set(self, mock_post, _flag, _capture, _name, fields, delivered):
         newer_default = Integration.objects.create(
             team=self.team, kind="email", integration_id="news@example.com", config={"verified": True}
         )
         TeamWorkflowsConfig.objects.filter(team_id=self.team.id).update(default_email_integration_id=newer_default.id)
 
-        response = self._psak_client(["hog_flow:write"]).post(
-            self.send_email_url, self._code_send(**fields), format="json"
-        )
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, self._code_send(**fields), format="json"
+            )
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        sent = {**sent, "from": {**sent.get("from", {}), "integrationId": newer_default.id}}
-        assert json.loads(mock_post.call_args.kwargs["data"])["send"] == sent
+        sender = {**delivered.get("from", {}), "integrationId": newer_default.id}
+        assert cdp.emails() == [{**delivered, "from": sender}]
 
     UNSUBSCRIBE_HTML = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
     NEWSLETTER = {"key": "newsletter", "type": "marketing", "name": "Newsletter"}
@@ -1364,9 +1367,10 @@ class TestTransactionalEmail(APIBaseTest):
         content = "c2VjcmV0LWludm9pY2UtYnl0ZXM=" + "!"
         attachments = [{"filename": "invoice.pdf", "content": content}]
 
-        response = self._psak_client(["hog_flow:write"]).post(
-            self.send_email_url, self._code_send(attachments=attachments), format="json"
-        )
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, self._code_send(attachments=attachments), format="json"
+            )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         body = response.json()
@@ -1375,9 +1379,38 @@ class TestTransactionalEmail(APIBaseTest):
             "invalid_request",
             "attachments__0__content",
         )
-        assert body["why"] and body["fix"]
+        assert "base64 text" in body["why"]
+        assert "Encode the file as standard base64" in body["fix"]
         assert "c2VjcmV0" not in response.content.decode()
-        mock_post.assert_not_called()
+        assert cdp.emails() == []
+
+    @parameterized.expand(
+        [
+            (
+                "a_header_too_long",
+                {"attachments": [{"filename": "logo.png", "content": "aGk=", "content_id": "x" * 79}]},
+                "attachments__0__content_id",
+                "Shorten `content_id` to 78 characters",
+            ),
+            ("too_many_copies", {"bcc": [f"user{i}@example.com" for i in range(11)]}, "bcc", "at most 10 addresses"),
+            (
+                "an_attachment_that_is_not_an_object",
+                {"attachments": ["logo.png"]},
+                "attachments__0",
+                "`{filename, content}`",
+            ),
+        ]
+    )
+    def test_a_refused_extra_field_names_its_remedy(self, mock_post, _flag, _capture, _name, fields, attr, fix):
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, self._code_send(**fields), format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert (response.json()["code"], response.json()["attr"]) == ("invalid_request", attr)
+        assert fix in response.json()["fix"]
+        assert cdp.emails() == []
 
     @parameterized.expand(
         [
@@ -1477,28 +1510,44 @@ class TestTransactionalEmail(APIBaseTest):
             assert response.json() == {"message_id": "first-send", "replayed": True}
 
     def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, capture):
-        issues = [{"code": "unrecognized_keys", "keys": ["attachments"], "path": ["send"], "message": "Unrecognized"}]
-        mock_post.return_value = MagicMock(status_code=400, json=lambda: {"error": json.dumps(issues)})
+        events = CapturedEvents(capture)
 
-        response = self._psak_client(["hog_flow:write"]).post(
-            self.send_email_url,
-            self._code_send(attachments=[{"filename": "receipt.pdf", "content": "JVBERg=="}]),
-            format="json",
-        )
+        files = [
+            {
+                "filename": "receipt.pdf",
+                "content": "JVBERg==",
+                "content_type": "application/pdf",
+                "content_id": "receipt",
+            },
+            {"filename": "notes.txt", "content": "aGk="},
+        ]
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, self._code_send(attachments=files), format="json"
+            )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         body = response.json()
         assert (body["code"], body["attr"]) == ("invalid_request", "attachments")
-        assert body["why"] and body["fix"]
+        assert "doesn't take the field yet" in body["why"]
+        assert "Send the email without this field" in body["fix"]
+        assert cdp.emails() == []
+        assert [payload["send"]["attachments"] for payload in cdp.received] == [
+            [
+                {
+                    "filename": "receipt.pdf",
+                    "content": "JVBERg==",
+                    "contentType": "application/pdf",
+                    "contentId": "receipt",
+                },
+                {"filename": "notes.txt", "content": "aGk="},
+            ]
+        ]
         assert [
-            (
-                call.kwargs["properties"]["error_code"],
-                call.kwargs["properties"]["attachment_count"],
-                call.kwargs["properties"]["attachment_bytes"],
-            )
-            for call in capture.call_args_list
-            if call.kwargs.get("event") == "transactional email api send"
-        ] == [("field_not_accepted", 1, 4)]
+            (sent["outcome"], sent["error_code"], sent["attachment_count"], sent["attachment_bytes"])
+            for sent in events.properties("transactional email api send")
+        ] == [("rejected", "field_not_accepted", 2, 6)]
 
     @parameterized.expand(
         [

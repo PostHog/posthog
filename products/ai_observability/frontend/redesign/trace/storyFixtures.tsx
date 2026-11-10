@@ -8,7 +8,8 @@ import type {
     TraceTimelineRowApi,
 } from '../../generated/api.schemas'
 import type { ClusterChipItem, TraceClustersChipProps } from './components/TraceClustersChip'
-import { SampleNodeDetail, SampleTraceFixture } from './sampleFixtures/sampleTraceFixture'
+import { jsonContent, messagesContent, messagesSides } from './sampleFixtures/sampleContent'
+import { SampleNodeDetail, SampleTraceFixture, sampleRaw } from './sampleFixtures/sampleTraceFixture'
 import {
     ConversationTurn,
     EvalResult,
@@ -209,7 +210,9 @@ export const FIXTURE_LONG_AGENT_INPUT: ThreadMessage[] = [
     FIXTURE_GENERATION_INPUT[0],
     ...AGENT_TURNS.flatMap((turn, index) => [
         agentMessage(`agent-${index}-user`, 'user', [{ kind: 'text', text: turn.ask }]),
-        agentMessage(`agent-${index}-call`, 'assistant', [{ kind: 'toolCall', name: turn.tool, args: turn.args }]),
+        agentMessage(`agent-${index}-call`, 'assistant', [
+            { kind: 'toolCall', name: turn.tool, args: turn.args, result: null },
+        ]),
         agentMessage(`agent-${index}-result`, 'tool', [{ kind: 'text', text: turn.result }]),
         ...(turn.answer
             ? [agentMessage(`agent-${index}-answer`, 'assistant', [{ kind: 'text', text: turn.answer }])]
@@ -261,7 +264,7 @@ export const FIXTURE_LONG_ANSWER_MESSAGE: ThreadMessage = agentMessage('long-ans
 export const FIXTURE_TURN: ConversationTurn = {
     id: 'trace-1',
     timestamp: '2026-09-01T10:15:00Z',
-    messages: FIXTURE_GENERATION_MESSAGES,
+    ...messagesSides(FIXTURE_GENERATION_INPUT, FIXTURE_GENERATION_OUTPUT),
     error: null,
 }
 
@@ -458,11 +461,11 @@ export const FIXTURE_TRACE_EVALS: EvalResult[] = FIXTURE_EVALS.map((result) => (
 }))
 
 const FIXTURE_SPAN_DETAIL: SampleNodeDetail = {
-    content: { kind: 'io', input: { question: 'Why did my invoice go up?' }, output: { hits: 3 } },
+    content: jsonContent({ question: 'Why did my invoice go up?' }, { hits: 3 }),
     error: null,
     properties: FIXTURE_SPAN_PROPERTIES,
     evals: { status: 'ready', results: [] },
-    raw: { event: '$ai_span' },
+    raw: sampleRaw('span', 'span-1', { name: '$ai_span', timestamp: '2026-09-01T10:15:01Z', properties: {} }),
 }
 
 export const FIXTURE_TRACE: SampleTraceFixture = {
@@ -487,11 +490,15 @@ export const FIXTURE_TRACE: SampleTraceFixture = {
         'embed-question': FIXTURE_SPAN_DETAIL,
         'span-search': FIXTURE_SPAN_DETAIL,
         'gen-answer': {
-            content: { kind: 'messages', input: FIXTURE_GENERATION_INPUT, output: FIXTURE_GENERATION_OUTPUT },
+            content: messagesContent(FIXTURE_GENERATION_INPUT, FIXTURE_GENERATION_OUTPUT),
             error: null,
             properties: FIXTURE_GENERATION_PROPERTIES,
             evals: { status: 'ready', results: FIXTURE_EVALS },
-            raw: { event: '$ai_generation', id: 'gen-answer' },
+            raw: sampleRaw('generation', 'gen-answer', {
+                name: '$ai_generation',
+                timestamp: '2026-09-01T10:15:02Z',
+                properties: {},
+            }),
         },
     },
     thread: { status: 'ready', turns: [FIXTURE_TURN], activeTurnId: FIXTURE_TURN.id },

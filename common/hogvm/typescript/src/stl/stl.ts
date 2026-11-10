@@ -4,7 +4,7 @@ import { DEFAULT_MAX_MEMORY } from '../constants'
 import { isHogAST, isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { AsyncSTLFunction, ExecOptions, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
 import { COST_PER_UNIT, HogVMException, calculateCost, getNestedValue, like } from '../utils'
-import { md5, sha1, sha1HmacChain, sha256, sha256HmacBase64Key, sha256HmacChain } from './crypto'
+import { ed25519Verify, md5, sha1, sha1HmacChain, sha256, sha256HmacBase64Key, sha256HmacChain } from './crypto'
 import {
     formatDateTime,
     fromUnixTimestamp,
@@ -1237,6 +1237,14 @@ export const STL: Record<string, STLFunction> = {
         example: 'sha256HmacBase64Key($1, $2, $3)',
         minArgs: 2,
         maxArgs: 3,
+    },
+    ed25519Verify: {
+        fn: ([message, signature, publicKey, encoding], _, options) =>
+            ed25519Verify(message, signature, publicKey, encoding ?? 'hex', options),
+        description: 'Verifies an Ed25519 signature of a string. Signature and public key are hex or base64',
+        example: 'ed25519Verify($1, $2, $3, $4)',
+        minArgs: 3,
+        maxArgs: 4,
     },
     isIPAddressInRange: {
         fn: ([address, prefix]) => isIPAddressInRange(address, prefix),

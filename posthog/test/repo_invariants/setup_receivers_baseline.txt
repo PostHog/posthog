@@ -233,6 +233,7 @@ post_save:products.cohorts.backend.models.dependencies.cohort_person_shape_chang
 post_save:products.cohorts.backend.models.dependencies.cohort_person_shape_changed_supersede
 post_save:products.commands.backend.receivers.on_task_run_saved
 post_save:products.conversations.backend.signals.emit_ticket_created_event
+post_save:products.conversations.backend.signals.emit_ticket_tag_added_event
 post_save:products.conversations.backend.signals.post_github_reply_on_team_message
 post_save:products.conversations.backend.signals.post_slack_reply_on_team_message
 post_save:products.conversations.backend.signals.post_teams_reply_on_team_message
