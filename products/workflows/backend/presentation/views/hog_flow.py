@@ -6039,7 +6039,10 @@ class HogFlowViewSet(
     @extend_schema(
         parameters=[
             OpenApiParameter(
-                "action_id", str, OpenApiParameter.PATH, description="Id of the function_email step to edit."
+                "action_id",
+                str,
+                OpenApiParameter.PATH,
+                description="Id of the function_email or email_sandbox step to edit.",
             )
         ],
         request=HogFlowActionEmailUpdateSerializer,
