@@ -53,6 +53,7 @@ from posthog.clickhouse.adhoc_events_deletion import (
 from posthog.clickhouse.cleanup_snapshots import CLEANUP_SNAPSHOT_TABLE_SQL, DROP_CLEANUP_SNAPSHOT_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
+from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.custom_metrics import (
     CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
@@ -1971,6 +1972,13 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
     snapshot: Any
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Run the deferred ClickHouse setup before any test code, so query snapshots and query
+        # captures never record the setup queries.
+        clickhouse_test_setup.run()
+        super().setUpClass()  # type: ignore[misc]
+
     @staticmethod
     def generalize_sql(value: str):
         """Makes sure we can snapshot our SQL - swaps concrete team_id for placeholder."""
@@ -2053,6 +2061,9 @@ def run_clickhouse_statement_in_parallel(statements: list[str]) -> None:
         re.sub(r"\s+ON CLUSTER\s+'?[\w-]+'?", "", stmt) if stmt.lstrip().upper().startswith("TRUNCATE") else stmt
         for stmt in statements
     ]
+
+    # Other threads do not wait while the deferred ClickHouse setup runs, so run it before the workers start.
+    clickhouse_test_setup.run()
 
     def _execute_with_retry(stmt: str) -> None:
         max_attempts = 5
