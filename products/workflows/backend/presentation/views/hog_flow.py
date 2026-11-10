@@ -274,7 +274,6 @@ from products.workflows.backend.facade.sandbox_email import (
     can_default_to_sandbox,
     check_sandbox_sender_available,
     has_verified_own_sender,
-    is_verified_own_sender,
     own_only_settings,
     provision_sandbox_sender,
     sandbox_adoption_enabled,
@@ -282,6 +281,7 @@ from products.workflows.backend.facade.sandbox_email import (
     to_sandbox_action,
     valid_sandbox_action_id,
     validate_sandbox_email_action,
+    verified_own_sender_ids,
     written_in_liquid,
 )
 from products.workflows.backend.facade.schedules import (
@@ -1068,6 +1068,7 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
 
 
 SETS_UP_SANDBOX_SENDER = "sets_up_sandbox_sender"
+WORKFLOW_SAVE_ACTIONS = frozenset({"create", "update", "partial_update", "graph", "action_email", "publish"})
 
 
 def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, context: dict) -> Any:
@@ -4241,6 +4242,11 @@ class HogFlowGraphUpdateSerializer(serializers.Serializer):
     )
 
 
+class EmailStepSender(models.TextChoices):
+    SANDBOX = "sandbox", "sandbox"
+    OWN = "own", "own"
+
+
 class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
     base_updated_at = serializers.DateTimeField(
         required=False,
@@ -4271,7 +4277,7 @@ class HogFlowActionEmailUpdateSerializer(serializers.Serializer):
         ),
     )
     sender = serializers.ChoiceField(
-        choices=["sandbox", "own"],
+        choices=EmailStepSender.choices,
         required=False,
         help_text=(
             "Switch the step's sender. 'sandbox' moves it to PostHog's sandbox sender, which sends only to "
@@ -4321,6 +4327,13 @@ def _patched_sender_ids(email_patch: Any) -> list[Any]:
     sender = email_patch.get("from") if isinstance(email_patch, dict) else None
     rotation = (sender.get("integrationIds") if isinstance(sender, dict) else None) or []
     return [_patched_sender_id(email_patch), *(rotation if isinstance(rotation, list) else [rotation])]
+
+
+def _all_verified(sender_ids: list[Any], verified: frozenset[int]) -> bool:
+    return all(
+        isinstance(sender_id, int) and not isinstance(sender_id, bool) and sender_id in verified
+        for sender_id in sender_ids
+    )
 
 
 def _locate_action_email_value(actions: list[dict], action_id: str) -> dict:
@@ -5506,7 +5519,7 @@ class HogFlowViewSet(
         # command). See _should_validate_strictly.
         context = super().get_serializer_context()
         context["event_source"] = get_event_source(self.request)
-        context["default_new_email_steps_to_sandbox"] = True
+        context["default_new_email_steps_to_sandbox"] = self.action in WORKFLOW_SAVE_ACTIONS
         if self._workflow_last_runs is not None:
             context["workflow_last_runs"] = self._workflow_last_runs
         if self._proposals_hog_flow is not None:
@@ -6123,8 +6136,8 @@ class HogFlowViewSet(
         unlocked = self._edit_state()
         if sender == "sandbox":
             self._check_sandbox_sender_available(request)
-        if sender == "own" and not all(
-            is_verified_own_sender(self.team.id, sender_id) for sender_id in _patched_sender_ids(email_patch)
+        if sender == "own" and not _all_verified(
+            _patched_sender_ids(email_patch), verified_own_sender_ids(self.team.id)
         ):
             raise exceptions.ValidationError(
                 {
@@ -6899,7 +6912,6 @@ class HogFlowViewSet(
             data=request.data, context={**self.get_serializer_context(), "instance": hog_flow}
         )
         serializer.is_valid(raise_exception=True)
-        self._set_up_defaulted_sandbox_sender(serializer)
 
         payload = dict(serializer.validated_data)
         if payload.pop("use_draft", False):
