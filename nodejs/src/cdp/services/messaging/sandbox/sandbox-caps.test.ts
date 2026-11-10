@@ -3,10 +3,18 @@ import { Redis } from 'ioredis'
 
 import { defaultConfig } from '~/common/config/config'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { RedisClient, RedisClientPipeline, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
+import {
+    MAX_WAITING_ACQUIRES_WITH_DEADLINE,
+    RedisClient,
+    RedisClientPipeline,
+    RedisV2,
+    createRedisV2PoolFromConfig,
+} from '~/common/redis/redis-v2'
 import { createRedisFromConfig } from '~/common/utils/db/redis'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
-import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
+import { CLAIM_DEADLINE_MS, RateLimiterService } from '../../rate-limiter/rate-limiter.service'
 import { SandboxCapClaim, claimSandboxCaps } from './sandbox-caps'
 
 describe('claimSandboxCaps', () => {
@@ -228,6 +236,77 @@ describe('claimSandboxCaps', () => {
                 }
             )
         ).toEqual({ ok: false, reason: 'cap_storage_unavailable' })
+    })
+
+    describe('on a Valkey pool with no deadlines of its own', () => {
+        let store: StallingValkeyProxy
+        let stalling: RateLimiterService
+        const caps = { team: 5, recipient: 5 }
+        const unavailable = { ok: false, reason: 'cap_storage_unavailable' }
+
+        const answerWithin = <T>(work: Promise<T>, ms: number): Promise<T | 'no answer'> => {
+            let gaveUp: NodeJS.Timeout | undefined
+            return Promise.race([
+                work,
+                new Promise<'no answer'>((resolve) => {
+                    gaveUp = setTimeout(() => resolve('no answer'), ms)
+                }),
+            ]).finally(() => clearTimeout(gaveUp))
+        }
+
+        beforeEach(async () => {
+            store = new StallingValkeyProxy({ host: defaultConfig.CDP_REDIS_HOST, port: defaultConfig.CDP_REDIS_PORT })
+            const noDeadlinesPool = createRedisV2PoolFromConfig({
+                connection: {
+                    url: '127.0.0.1',
+                    options: {
+                        port: await store.start(),
+                        password: defaultConfig.CDP_REDIS_PASSWORD,
+                        retryStrategy: () => null,
+                    },
+                    name: 'sandbox-caps-stalling',
+                    exitOnRepeatedErrors: false,
+                },
+                poolMinSize: 0,
+                poolMaxSize: 1,
+            })
+            stalling = new RateLimiterService(noDeadlinesPool, { name: 'stalling' })
+        })
+
+        afterEach(() => {
+            store.stop()
+        })
+
+        it('answers unavailable when storage stops replying, and claims again on a fresh connection', async () => {
+            const first = granted(await claimSandboxCaps(stalling, caps, sameSend()))
+
+            store.stopAnsweringOpenConnections()
+            expect(await answerWithin(claimSandboxCaps(stalling, caps, sameSend()), 10_000)).toEqual(unavailable)
+            expect(await answerWithin(claimSandboxCaps(stalling, caps, sameSend()), 10_000)).toMatchObject({ ok: true })
+
+            store.stopAnsweringOpenConnections()
+            expect(await answerWithin(first.markSent(), 10_000)).toBe(false)
+        })
+
+        it('refuses at once while abandoned claims still wait for a connection, and claims again once storage answers', async () => {
+            store.stopAnswering()
+            const abandoned = await Promise.all(
+                Array.from({ length: MAX_WAITING_ACQUIRES_WITH_DEADLINE }, () =>
+                    claimSandboxCaps(stalling, caps, sameSend())
+                )
+            )
+            expect(abandoned).toEqual(abandoned.map(() => unavailable))
+
+            expect(await answerWithin(claimSandboxCaps(stalling, caps, sameSend()), CLAIM_DEADLINE_MS / 2)).toEqual(
+                unavailable
+            )
+
+            store.answerNewConnections()
+            await waitForExpect(
+                async () => expect(await claimSandboxCaps(stalling, caps, sameSend())).toMatchObject({ ok: true }),
+                30_000
+            )
+        })
     })
 
     it.each([

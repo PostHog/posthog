@@ -200,6 +200,8 @@ redis.call('expire', claimKey, claimTtlSeconds)
 return 1
 `
 
+export const CLAIM_DEADLINE_MS = 2_000
+
 export interface RateLimiterConfig {
     /** Logical name for metrics/logging only (e.g. 'ses'). */
     name: string
@@ -271,7 +273,11 @@ export class RateLimiterService {
     public async markClaimSpent(claim: { key: string; attempt: string }): Promise<boolean> {
         try {
             const result = await this.valkey.useClient(
-                { name: `rate-limiter:${this.config.name}:markClaimSpent`, timeout: 1000 },
+                {
+                    name: `rate-limiter:${this.config.name}:markClaimSpent`,
+                    timeout: 1000,
+                    deadlineMs: CLAIM_DEADLINE_MS,
+                },
                 (client) => client.eval(MARK_CLAIM_SPENT_LUA, 1, claim.key, claim.attempt)
             )
             return result === 1
@@ -291,7 +297,11 @@ export class RateLimiterService {
         const endTimer = claimLatency.startTimer({ limiter: this.config.name })
         try {
             const result = await this.valkey.useClient(
-                { name: `rate-limiter:${this.config.name}:claimAllOrNothingAcross`, timeout: 1000 },
+                {
+                    name: `rate-limiter:${this.config.name}:claimAllOrNothingAcross`,
+                    timeout: 1000,
+                    deadlineMs: CLAIM_DEADLINE_MS,
+                },
                 (client) =>
                     client.eval(
                         CLAIM_ALL_OR_NOTHING_ACROSS_LUA,
