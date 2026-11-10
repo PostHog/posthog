@@ -25,7 +25,6 @@ from posthog.models.file_system.constants import workflows_list_v2_enabled
 from posthog.permissions import FEATURE_FLAG_REQUIRED_ERROR_CODE
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.authorization.backend.facade import api as authorization
 from products.workflows.backend.facade.contracts import WorkflowViewConflict, WorkflowViewNotFound, WorkflowViewState
 from products.workflows.backend.facade.workflow_views import (
     create_workflow_view,
@@ -204,9 +203,7 @@ class WorkflowViewViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         owner = self.team.parent_team
         if owner is None:
             return super().user_access_control
-        access = UserAccessControl(user=cast(User, self.request.user), team=owner, organization_id=self.organization_id)
-        authorization.reuse_current_rules(access)
-        return access
+        return UserAccessControl(user=cast(User, self.request.user), team=owner, organization_id=self.organization_id)
 
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, WorkflowViewNotFound):
