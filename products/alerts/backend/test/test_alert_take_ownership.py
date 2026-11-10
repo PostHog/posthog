@@ -11,6 +11,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.test.insight_alerts import create_insight_alert
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 
 class TestAlertTakeOwnership(APIBaseTest):
@@ -31,15 +32,21 @@ class TestAlertTakeOwnership(APIBaseTest):
             "its creator, former-member@example.com, who is no longer in the organization" in response.json()["detail"]
         )
 
-    @parameterized.expand([(False,), (True,)])
-    def test_take_ownership_enables_the_alert(self, another_member: bool) -> None:
+    @parameterized.expand(
+        [
+            (False, OrganizationMembership.Level.MEMBER),
+            (True, OrganizationMembership.Level.MEMBER),
+            (True, OrganizationMembership.Level.ADMIN),
+        ]
+    )
+    def test_take_ownership_enables_the_alert(self, another_member: bool, requester_level: int) -> None:
         alert = self._disabled_alert_of_a_former_member()
         owner = self.user
         if another_member:
             owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
             OrganizationMembership.objects.create(organization=self.organization, user=owner)
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
+        self.organization_membership.level = requester_level
+        self.organization_membership.save()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/{alert.id}/take_ownership/",
@@ -56,7 +63,7 @@ class TestAlertTakeOwnership(APIBaseTest):
         assert [change["field"] for change in takeover.detail["changes"]] == ["created_by"]
         assert takeover.user == self.user
 
-    @parameterized.expand([("non_admin", 403), ("non_member", 400), ("inactive", 400), ("no_project_access", 400)])
+    @parameterized.expand([("non_member", 400), ("inactive", 400), ("no_project_access", 400)])
     def test_transfer_ownership_rejects_ineligible_owner(self, reason: str, expected_status: int) -> None:
         alert = self._disabled_alert_of_a_former_member()
         previous_owner = alert.created_by
@@ -65,9 +72,7 @@ class TestAlertTakeOwnership(APIBaseTest):
         )
         if reason != "non_member":
             OrganizationMembership.objects.create(organization=self.organization, user=owner)
-        self.organization_membership.level = (
-            OrganizationMembership.Level.MEMBER if reason == "non_admin" else OrganizationMembership.Level.ADMIN
-        )
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         if reason == "no_project_access":
             self.organization.available_product_features = [
@@ -95,6 +100,59 @@ class TestAlertTakeOwnership(APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/alerts/{alert.id}/take_ownership/")
 
         assert response.status_code == status.HTTP_200_OK, response.content
+
+    @parameterized.expand(
+        [(False, "requester"), (True, "requester"), (False, "owner"), (True, "owner"), (False, None), (True, None)]
+    )
+    def test_transfer_checks_both_users_table_access(self, enabled: bool, denied_user: str | None) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
+        owner_membership = OrganizationMembership.objects.create(organization=self.organization, user=owner)
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="governed_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1 AS value"},
+            columns={"value": "Integer"},
+        )
+        alert = create_insight_alert(
+            self.team,
+            created_by=self.user,
+            enabled=enabled,
+            config={"type": "HogQLAlertConfig", "evaluation": "last_row"},
+        )
+        alert.insight.query = {"kind": "HogQLQuery", "query": "SELECT value FROM governed_view"}
+        alert.insight.save()
+        if denied_user:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_objects",
+                organization_member=self.organization_membership if denied_user == "requester" else owner_membership,
+                access_level="none",
+            )
+
+        with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/{alert.id}/take_ownership/", {"user_uuid": str(owner.uuid)}
+            )
+
+        alert.refresh_from_db()
+        if denied_user:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "governed_view" in response.json()["detail"]
+            assert alert.created_by == self.user
+            assert alert.enabled is enabled
+            assert not ActivityLog.objects.filter(
+                scope="AlertConfiguration", item_id=str(alert.id), activity="took_ownership"
+            ).exists()
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.content
+            assert alert.created_by == owner
+            assert alert.enabled is True
 
     def test_take_ownership_of_an_ai_alert_needs_the_rollout(self) -> None:
         former_member = User.objects.create_user(email="former-member@example.com", first_name="", password=None)

@@ -1169,15 +1169,21 @@ class TestSubscriptionTemporal(APILicensedTest):
             "its creator, former-member@example.com, who is no longer in the organization" in response.json()["detail"]
         )
 
-    @parameterized.expand([(False,), (True,)])
-    def test_take_ownership_enables_the_subscription(self, another_member: bool) -> None:
+    @parameterized.expand(
+        [
+            (False, OrganizationMembership.Level.MEMBER),
+            (True, OrganizationMembership.Level.MEMBER),
+            (True, OrganizationMembership.Level.ADMIN),
+        ]
+    )
+    def test_take_ownership_enables_the_subscription(self, another_member: bool, requester_level: int) -> None:
         subscription = self._disabled_subscription_of_a_former_member()
         owner = self.user
         if another_member:
             owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
             OrganizationMembership.objects.create(organization=self.organization, user=owner)
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
+        self.organization_membership.level = requester_level
+        self.organization_membership.save()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
@@ -1197,7 +1203,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert [change["field"] for change in takeover.detail["changes"]] == ["created_by"]
         assert takeover.user == self.user
 
-    @parameterized.expand([("non_admin", 403), ("non_member", 400), ("inactive", 400), ("no_project_access", 400)])
+    @parameterized.expand([("non_member", 400), ("inactive", 400), ("no_project_access", 400)])
     def test_transfer_ownership_rejects_ineligible_owner(self, reason: str, expected_status: int) -> None:
         subscription = self._disabled_subscription_of_a_former_member()
         previous_owner = subscription.created_by
@@ -1206,9 +1212,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         if reason != "non_member":
             OrganizationMembership.objects.create(organization=self.organization, user=owner)
-        self.organization_membership.level = (
-            OrganizationMembership.Level.MEMBER if reason == "non_admin" else OrganizationMembership.Level.ADMIN
-        )
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         if reason == "no_project_access":
             self.organization.available_product_features = [
@@ -5084,6 +5088,41 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
     def _deny_warehouse_tables(self) -> None:
         self._rule("warehouse_objects", for_member=False)
+
+    @parameterized.expand(
+        [(False, "requester"), (True, "requester"), (False, "owner"), (True, "owner"), (False, None), (True, None)]
+    )
+    def test_transfer_checks_both_users_table_access(self, enabled: bool, denied_user: str | None) -> None:
+        owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
+        owner_membership = OrganizationMembership.objects.create(organization=self.organization, user=owner)
+        subscription = self._subscription_for(insight=self._insight_over_a_governed_view(), enabled=enabled)
+        if denied_user:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_objects",
+                organization_member=self.organization_membership if denied_user == "requester" else owner_membership,
+                access_level="none",
+            )
+
+        with patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+                {"user_uuid": str(owner.uuid)},
+            )
+
+        subscription.refresh_from_db()
+        if denied_user:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "governed_view" in response.json()["detail"]
+            assert subscription.created_by == self.user
+            assert subscription.enabled is enabled
+            assert not ActivityLog.objects.filter(
+                scope="Subscription", item_id=str(subscription.id), activity="took_ownership"
+            ).exists()
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.content
+            assert subscription.created_by == owner
+            assert subscription.enabled is True
 
     def _insight_target(self, insight: Insight) -> dict:
         return {"insight": insight.id}

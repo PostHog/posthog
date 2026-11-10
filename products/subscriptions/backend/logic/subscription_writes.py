@@ -1063,6 +1063,13 @@ def take_subscription_ownership(
     owner = owner or user
     owner_access = viewer if owner.pk == user.pk else UserAccessControl(user=owner, team=team)
     instance = Subscription.objects.get(pk=subscription_id, team_id=team.id)
+    if owner.pk != user.pk:
+        denied_resources = denied_resources_in_subscription(
+            user=user, team=team, user_access_control=viewer, subscription_id=subscription_id, attrs={}
+        )
+        if denied_resources:
+            denied_names = ", ".join(f"`{name}`" for name in denied_resources)
+            raise SubscriptionRequestInvalidError(f"Can't transfer ownership: you don't have access to {denied_names}.")
     try:
         assert_creator_can_run(owner, team, instance.dashboard, instance.insight)
     except (CreatorLeftOrganizationError, UserAccessControlError):

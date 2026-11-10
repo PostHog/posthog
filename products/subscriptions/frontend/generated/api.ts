@@ -15,12 +15,12 @@ import type {
     PatchedSubscriptionWriteApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
+    SubscriptionTransferOwnershipApi,
     SubscriptionWriteApi,
     SubscriptionsDeliveriesListParams,
     SubscriptionsListParams,
     SubscriptionsSummariesListParams,
     SubscriptionsSummaryQuotaRetrieve200,
-    TransferOwnershipApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -154,19 +154,19 @@ export const getSubscriptionsTakeOwnershipCreateUrl = (projectId: string, id: st
 }
 
 /**
- * Transfer this subscription to yourself or, for organization admins, another member and enable it. Deliveries run with the owner's access, so this is how a subscription continues after its owner left.
+ * Transfer this subscription to yourself or another organization member and enable it. Both users need access to its content. Deliveries run with the owner's access, so this is how a subscription continues after its owner left.
  */
 export const subscriptionsTakeOwnershipCreate = async (
     projectId: string,
     id: string,
-    transferOwnershipApi?: TransferOwnershipApi,
+    subscriptionTransferOwnershipApi?: SubscriptionTransferOwnershipApi,
     options?: RequestInit
 ): Promise<SubscriptionApi> => {
     return apiMutator<SubscriptionApi>(getSubscriptionsTakeOwnershipCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(transferOwnershipApi),
+        body: JSON.stringify(subscriptionTransferOwnershipApi),
     })
 }
 

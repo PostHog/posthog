@@ -666,8 +666,8 @@ export interface PatchedSubscriptionWriteApi {
     delivery_config?: DeliveryConfigApi
 }
 
-export interface TransferOwnershipApi {
-    /** New owner's user UUID. Defaults to yourself. Assigning another member requires organization admin access. */
+export interface SubscriptionTransferOwnershipApi {
+    /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
     user_uuid?: string
 }
 

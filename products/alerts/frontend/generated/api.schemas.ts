@@ -1012,8 +1012,8 @@ export interface AlertCreatePagerDutyDestinationApi {
     pagerduty_region?: PagerDutyRegionEnumApi
 }
 
-export interface TransferOwnershipApi {
-    /** New owner's user UUID. Defaults to yourself. Assigning another member requires organization admin access. */
+export interface AlertTransferOwnershipApi {
+    /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
     user_uuid?: string
 }
 

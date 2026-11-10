@@ -41,7 +41,7 @@ from posthog.schema import (
 
 from posthog.api.documentation import extend_schema_field
 from posthog.api.fields import OptionalBooleanField
-from posthog.api.ownership import TransferOwnershipSerializer
+from posthog.api.query_access_check import denied_query_resources
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
@@ -1886,6 +1886,24 @@ class AlertDestinationListItemSerializer(serializers.Serializer):
     )
 
 
+class AlertTransferOwnershipSerializer(serializers.Serializer):
+    user_uuid = serializers.UUIDField(
+        required=False,
+        help_text="New owner's user UUID. Must be an active organization member. Defaults to yourself.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        owner = User.objects.filter(
+            uuid=attrs.get("user_uuid", self.context["request"].user.uuid),
+            is_active=True,
+            organization_membership__organization=self.context["get_organization"](),
+        ).first()
+        if owner is None:
+            raise ValidationError({"user_uuid": "Choose an active member of this organization."})
+        attrs["owner"] = owner
+        return attrs
+
+
 class AlertListFiltersSerializer(serializers.Serializer):
     insight_tag = serializers.CharField(required=False, max_length=255)
     has_detector = OptionalBooleanField(required=False)
@@ -2452,19 +2470,19 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @extend_schema(
-        request=TransferOwnershipSerializer,
+        request=AlertTransferOwnershipSerializer,
         responses={200: AlertSerializer},
         description=(
-            "Transfer this alert to yourself or, for organization admins, another member and enable it. Checks run with the owner's "
+            "Transfer this alert to yourself or another organization member and enable it. Both users need access to its content. Checks run with the owner's "
             "access, so this is how an alert continues after its owner left."
         ),
     )
     @action(detail=True, methods=["POST"], required_scopes=["alert:write"])
     def take_ownership(self, request, *args, **kwargs):
         alert = self._alert_or_native()
-        ownership = TransferOwnershipSerializer(data=request.data, context=self.get_serializer_context())
+        ownership = AlertTransferOwnershipSerializer(data=request.data, context=self.get_serializer_context())
         ownership.is_valid(raise_exception=True)
-        user = ownership.resolve_owner()
+        user = ownership.validated_data["owner"]
         try:
             assert_creator_can_run(user, alert.team, alert.insight)
         except (CreatorLeftOrganizationError, UserAccessControlError):
@@ -2480,6 +2498,18 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Same lock order as update(): insight, then alert row. The owner write below locks the row.
             if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=alert.insight_id):
                 raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
+            alert.insight.refresh_from_db()
+            with upgrade_insight(alert.insight):
+                query = alert.insight.query
+            if query is not None:
+                principals = [(request.user, "You need")]
+                if user.pk != request.user.pk:
+                    principals.append((user, "The new owner needs"))
+                for principal, requirement in principals:
+                    denied = denied_query_resources(principal, alert.team, [query])
+                    if denied:
+                        denied_names = ", ".join(f"`{name}`" for name in denied)
+                        raise ValidationError(f"{requirement} access to {denied_names} to transfer this alert.")
             assign_alert_owner(
                 team_id=alert.team_id,
                 alert_id=alert.id,
