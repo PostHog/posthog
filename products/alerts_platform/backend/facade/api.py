@@ -32,6 +32,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformCheckEventPage,
     PlatformCheckPage,
     PlatformControlChangePage,
+    PlatformControlHistory,
     PlatformHandback,
     PlatformLastCheck,
     PlatformOwnershipHandover,
@@ -341,6 +342,17 @@ def control_changes_by_public_id(
     Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
     """
     return platform_reads.control_changes_by_public_id(team_id=team_id, public_id=public_id, kinds=kinds, limit=limit)
+
+
+def control_history_by_public_id(
+    *, team_id: int, public_ids: Collection[UUID], since: datetime, until: datetime
+) -> dict[UUID, PlatformControlHistory]:
+    """The control-plane changes in `[since, until)` of each named alert the platform owns, keyed by its
+    public id, with when its oldest kept change happened and its newest enable or disable before `since`.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.control_history_by_public_id(team_id=team_id, public_ids=public_ids, since=since, until=until)
 
 
 def update_configuration(

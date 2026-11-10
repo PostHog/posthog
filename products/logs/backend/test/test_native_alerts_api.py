@@ -354,12 +354,12 @@ class TestLogsAlertControlPlaneHistory(ClickhouseTestMixin, APIBaseTest):
         # Written by the logs API before the platform recorded any change of this alert.
         older = LogsAlertEvent.objects.create(
             alert=alert,
-            kind=LogsAlertEvent.Kind.DISABLE,
+            kind=LogsAlertEvent.Kind.ENABLE,
             threshold_breached=False,
-            state_before="firing",
+            state_before="broken",
             state_after="not_firing",
         )
-        LogsAlertEvent.objects.filter(pk=older.pk).update(created_at=_NOW - timedelta(days=1))
+        LogsAlertEvent.objects.filter(pk=older.pk).update(created_at=_NOW - timedelta(hours=1))
         [cutover] = cut_over_team(self.team.id, now=_NOW)
         assert cutover.skipped is None
         with team_scope(self.team.id):
@@ -405,17 +405,33 @@ class TestLogsAlertControlPlaneHistory(ClickhouseTestMixin, APIBaseTest):
         return rows
 
     @parameterized.expand([("no_logs_row", False), ("copy", True)])
-    def test_the_events_list_shows_each_control_plane_change_once_newest_first(
+    def test_each_control_plane_change_shows_once_in_the_events_and_the_state_timeline(
         self, _name: str, has_logs_row: bool
     ) -> None:
         if has_logs_row:
             alert_id, configuration_id = self._create_copy()
         else:
             alert_id = configuration_id = self._create_without_logs_row()
-        older = [("disable", "firing", "not_firing")] if has_logs_row else []
+        older = [("enable", "broken", "not_firing")] if has_logs_row else []
+        older_interval = [("2026-11-06T11:00:00Z", "not_firing", True)] if has_logs_row else []
 
         self._take_steps(alert_id, configuration_id)
 
         assert self._events(alert_id) == [row for _, _, row in reversed(_CONTROL_STEPS)] + older
-        assert self._events(alert_id, "?kind=disable") == [("disable", "not_firing", "not_firing"), *older]
-        assert self.client.get(f"{self.base_url}{alert_id}/").json()["last_checked_at"] is None
+        assert self._events(alert_id, "?kind=enable") == [("enable", "not_firing", "not_firing"), *older]
+        with time_machine.travel(_NOW + timedelta(minutes=10), tick=False):
+            retrieved = self.client.get(f"{self.base_url}{alert_id}/").json()
+            [listed] = self.client.get(self.base_url).json()["results"]
+        assert retrieved["last_checked_at"] is None
+        assert listed["state_timeline"] == retrieved["state_timeline"]
+        first, *rest = retrieved["state_timeline"]
+        assert ((first["state"], first["enabled"]), [(i["start"], i["state"], i["enabled"]) for i in rest]) == (
+            ("not_firing", not has_logs_row),
+            [
+                *older_interval,
+                ("2026-11-06T12:01:00Z", "not_firing", False),
+                ("2026-11-06T12:02:00Z", "not_firing", True),
+                ("2026-11-06T12:03:00Z", "snoozed", True),
+                ("2026-11-06T12:04:00Z", "not_firing", True),
+            ],
+        )

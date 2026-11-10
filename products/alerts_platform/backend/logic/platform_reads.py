@@ -24,6 +24,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformCheckEventPage,
     PlatformCheckPage,
     PlatformControlChangePage,
+    PlatformControlHistory,
     PlatformLastCheck,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
@@ -314,6 +315,18 @@ def control_changes_by_public_id(
     if platform_id is None:
         return None
     return platform_alert_events.control_changes(team_id, platform_id, kinds=kinds, limit=limit)
+
+
+def control_history_by_public_id(
+    *, team_id: int, public_ids: Collection[UUID], since: datetime, until: datetime
+) -> dict[UUID, PlatformControlHistory]:
+    """The control-plane changes in `[since, until)` of each named alert the platform owns, keyed by
+    its public id. An alert the platform does not own is left out, as in `runtime_by_public_id`."""
+    if not public_ids:
+        return {}
+    public_by_platform_id = _public_id_by_platform_id(team_id, public_ids)
+    histories = platform_alert_events.control_history(team_id, public_by_platform_id, since=since, until=until)
+    return {public_by_platform_id[platform_id]: history for platform_id, history in histories.items()}
 
 
 def check_page_by_public_id(

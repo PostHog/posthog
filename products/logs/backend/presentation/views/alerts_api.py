@@ -103,7 +103,9 @@ from products.logs.backend.facade.api import (
     PLATFORM_CONTROL_KINDS,
     AlertLimitReached,
     PlatformCheckRow,
+    PlatformControlBoundary,
     PlatformControlRow,
+    PlatformControlTimeline,
     claim_alert_slot,
     close_incident_on_commit,
     first_check_at,
@@ -113,6 +115,7 @@ from products.logs.backend.facade.api import (
     next_allowed_check_at,
     platform_check_rows,
     platform_control_rows,
+    platform_control_timelines,
 )
 from products.logs.backend.facade.platform_ownership import (
     create_native,
@@ -251,6 +254,7 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
 
 _PLATFORM_RUNTIME_CONTEXT_KEY: Final = "platform_runtime"
 _PLATFORM_HISTORY_CONTEXT_KEY: Final = "platform_history"
+_PLATFORM_CONTROL_CONTEXT_KEY: Final = "platform_control"
 
 
 def _platform_runtime_of(alerts: list[LogsAlertConfiguration]) -> dict[UUID, PlatformAlertRuntime]:
@@ -280,15 +284,31 @@ def _platform_history_of(
         return None
 
 
+def _platform_control_of(
+    alerts: list[LogsAlertConfiguration], window: tuple[datetime, datetime]
+) -> dict[UUID, PlatformControlTimeline] | None:
+    """None when ClickHouse fails. The logs rows then stand in, as in `_platform_history_of`."""
+    owned = [alert for alert in alerts if alert.platform_owned]
+    if not owned:
+        return {}
+    try:
+        return platform_control_timelines(
+            team_id=owned[0].team_id, alert_ids=[alert.id for alert in owned], since=window[0], until=window[1]
+        )
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+
 class LogsAlertConfigurationListSerializer(serializers.ListSerializer):
     def to_representation(self, data: Any) -> list[dict[str, Any]]:
         alerts = list(data.all() if isinstance(data, Manager) else data)
         # One platform read of each kind for the page, which the child serializer finds in the
         # shared context.
         self.context[_PLATFORM_RUNTIME_CONTEXT_KEY] = _platform_runtime_of(alerts)
-        self.context[_PLATFORM_HISTORY_CONTEXT_KEY] = _platform_history_of(
-            alerts, self.context.get("state_timeline_window") or _state_timeline_window_bounds()
-        )
+        window = self.context.get("state_timeline_window") or _state_timeline_window_bounds()
+        self.context[_PLATFORM_HISTORY_CONTEXT_KEY] = _platform_history_of(alerts, window)
+        self.context[_PLATFORM_CONTROL_CONTEXT_KEY] = _platform_control_of(alerts, window)
         return super().to_representation(alerts)
 
 
@@ -498,24 +518,34 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         self,
         obj: LogsAlertConfiguration,
         history: PlatformAlertHistory | None,
+        control: PlatformControlTimeline | None,
         platform_state: PlatformAlertState,
         window: tuple[datetime, datetime],
     ) -> list[StateInterval]:
         """The timeline of an alert the platform owns.
 
-        The platform's history holds the state changes. The logs API still writes the toggles, the
-        snoozes and the resets, so they come from LogsAlertEvent. A reset writes no platform history,
-        so its logs row is the only record that the platform state went back to not firing. Logs
-        check rows are left out, because the logs stack only shadows an alert the platform owns.
+        The platform's history holds the state changes, and its control-plane changes hold the
+        toggles, the snoozes and the resets. An alert with a logs row also has those in
+        LogsAlertEvent. From the platform's oldest kept change on, a logs row of a kind the platform
+        records is a second copy and is left out, as on the events list. Older logs rows are the only
+        record of their changes, so they stay. A reset moves no check, so its row is the only record
+        that the platform state went back to not firing. Logs check rows are left out, because the
+        logs stack only shadows an alert the platform owns.
 
         Each logs event keeps its own time, and the state shown at any moment is snoozed while a
         snooze holds, else the platform's state. A snooze that expired leaves no event, so only
         the current snooze's `snooze_until` can end one inside the window.
         """
         window_start, window_end = window
-        logs_events = [
-            event for event in self._timeline_events(obj, window_start) if event.kind in _PLATFORM_TIMELINE_LOGS_KINDS
+        logs_events: list[LogsAlertEvent | PlatformControlBoundary] = [
+            event
+            for event in self._timeline_events(obj, window_start)
+            if event.kind in _PLATFORM_TIMELINE_LOGS_KINDS
+            and (control is None or event.kind not in PLATFORM_CONTROL_KINDS or event.created_at < control.oldest_at)
         ]
+        if control is not None:
+            logs_events.extend(change for change in control.changes if change.kind in _PLATFORM_TIMELINE_LOGS_KINDS)
+            logs_events.sort(key=lambda event: event.created_at)
         snooze_events = [event for event in logs_events if event.kind in _SNOOZE_KINDS]
 
         # Each boundary is (time, kind, the platform state it moves to or None).
@@ -563,7 +593,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             elif kind in (LogsAlertEvent.Kind.UNSNOOZE, _SNOOZE_EXPIRY):
                 snoozed = False
             events.append(_TimelineEvent(kind=kind, created_at=at, state_before=before, state_after=shown()))
-        return self._state_intervals(obj, events, shown(), window)
+        return self._state_intervals(
+            obj, events, shown(), window, pre_window_toggle=control.toggle_before if control is not None else None
+        )
 
     def _state_intervals(
         self,
@@ -571,6 +603,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         events: Sequence[LogsAlertEvent | _TimelineEvent],
         fallback_state: str,
         window: tuple[datetime, datetime],
+        *,
+        pre_window_toggle: str | None = None,
     ) -> list[StateInterval]:
         window_start, window_end = window
 
@@ -582,9 +616,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         # Seed enabled at window_start: prefer the latest ENABLE/DISABLE at-or-before
         # window_start (annotated on the queryset), then infer from the first in-window
         # toggle (opposite kind), else fall back to alert.enabled (constant if never toggled).
-        pre_window_toggle = getattr(obj, "_pre_window_toggle_kind", _NOT_ANNOTATED)
-        if pre_window_toggle is _NOT_ANNOTATED:
-            pre_window_toggle = (
+        # A toggle the platform recorded is newer than any logs toggle the timeline still shows.
+        seed_toggle: object = pre_window_toggle
+        if seed_toggle is None:
+            seed_toggle = getattr(obj, "_pre_window_toggle_kind", _NOT_ANNOTATED)
+        if seed_toggle is _NOT_ANNOTATED:
+            seed_toggle = (
                 LogsAlertEvent.objects.filter(
                     alert=obj,
                     kind__in=(LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE),
@@ -594,8 +631,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 .values_list("kind", flat=True)
                 .first()
             )
-        if pre_window_toggle is not None:
-            seed_enabled = pre_window_toggle == LogsAlertEvent.Kind.ENABLE
+        if seed_toggle is not None:
+            seed_enabled = seed_toggle == LogsAlertEvent.Kind.ENABLE
         else:
             first_in_window_toggle = next(
                 (e for e in events if e.kind in (LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE)),
@@ -705,7 +742,11 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         if histories is None:
             return data
         history = cast(dict[UUID, PlatformAlertHistory], histories).get(instance.id)
-        data["state_timeline"] = self._platform_state_timeline(instance, history, runtime.state, window)
+        controls = self.context.get(_PLATFORM_CONTROL_CONTEXT_KEY, _NOT_ANNOTATED)
+        if controls is _NOT_ANNOTATED:
+            controls = _platform_control_of([instance], window)
+        control = cast(dict[UUID, PlatformControlTimeline], controls).get(instance.id) if controls is not None else None
+        data["state_timeline"] = self._platform_state_timeline(instance, history, control, runtime.state, window)
         # With no platform check in the window, the logs row is the newest check anyone made.
         if history is not None:
             data["last_checked_at"] = self.fields["last_checked_at"].to_representation(history.last_checked_at)

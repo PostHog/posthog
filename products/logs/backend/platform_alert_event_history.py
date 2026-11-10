@@ -13,7 +13,11 @@ from uuid import UUID, uuid5
 
 from posthog.dataclasses import frozen
 
-from products.alerts_platform.backend.facade.api import control_changes_by_public_id, notable_checks_by_public_id
+from products.alerts_platform.backend.facade.api import (
+    control_changes_by_public_id,
+    control_history_by_public_id,
+    notable_checks_by_public_id,
+)
 from products.alerts_platform.backend.facade.contracts import ControlChangeKind, PlatformCheckEvent
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.logs.backend.alert_source_cycle import LogsAlertCondition
@@ -158,3 +162,44 @@ def _shown_state(state: PlatformAlertState, at: datetime) -> str:
     if state == PlatformAlertState.SNOOZED:
         return LogsAlertConfiguration.State.SNOOZED
     return _logs_state(state, at)
+
+
+@frozen
+class PlatformControlBoundary:
+    """One control-plane change, as a logs alert's state timeline reads it."""
+
+    kind: LogsAlertEvent.Kind
+    created_at: datetime
+
+
+@frozen
+class PlatformControlTimeline:
+    """What a logs alert's state timeline reads from the platform's control-plane changes: the
+    window's changes oldest first, when the oldest kept change happened, and the newest enable or
+    disable before the window."""
+
+    changes: tuple[PlatformControlBoundary, ...]
+    oldest_at: datetime
+    toggle_before: LogsAlertEvent.Kind | None
+
+
+def platform_control_timelines(
+    *, team_id: int, alert_ids: Collection[UUID], since: datetime, until: datetime
+) -> dict[UUID, PlatformControlTimeline]:
+    """Each named alert's control-plane timeline in `[since, until)`. An alert the platform does not
+    own, or that has no kept change, is left out.
+
+    Raises when ClickHouse fails, so the caller can fall back to the logs rows.
+    """
+    histories = control_history_by_public_id(team_id=team_id, public_ids=alert_ids, since=since, until=until)
+    return {
+        alert_id: PlatformControlTimeline(
+            changes=tuple(
+                PlatformControlBoundary(kind=_LOGS_KIND_OF_CHANGE[change.kind], created_at=change.occurred_at)
+                for change in history.changes
+            ),
+            oldest_at=history.oldest_at,
+            toggle_before=_LOGS_KIND_OF_CHANGE[history.toggle_before] if history.toggle_before else None,
+        )
+        for alert_id, history in histories.items()
+    }

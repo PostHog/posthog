@@ -38,6 +38,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformCheckPage,
     PlatformControlChange,
     PlatformControlChangePage,
+    PlatformControlHistory,
     PlatformLastCheck,
     PlatformStateChange,
     SourceKind,
@@ -686,3 +687,69 @@ def control_changes(
         total=rows[0][-1] if rows else 0,
         oldest_at=oldest_at if kept else None,
     )
+
+
+# `argMaxIf` returns '' when no toggle precedes the window.
+_CONTROL_HISTORY_SQL = f"""
+SELECT configuration_id,
+       min(occurred_at),
+       argMaxIf(kind, occurred_at, kind IN %(toggles)s AND occurred_at < toDateTime64(%(since)s, 6, 'UTC')),
+       arraySort(change -> change.1, groupArrayIf(
+           (occurred_at, evaluation_key, kind, previous_state, state),
+           occurred_at >= toDateTime64(%(since)s, 6, 'UTC') AND occurred_at < toDateTime64(%(until)s, 6, 'UTC')
+       ))
+FROM (
+    SELECT configuration_id, evaluation_key, occurred_at, kind, previous_state, state
+    FROM {PLATFORM_ALERT_EVENTS_TABLE}
+    WHERE team_id = %(team_id)s
+      AND configuration_id IN %(configuration_ids)s
+      AND kind IN %(kinds)s
+    ORDER BY configuration_id, occurred_at, evaluation_key
+    LIMIT 1 BY configuration_id, evaluation_key
+)
+GROUP BY configuration_id
+"""
+
+
+def control_history(
+    team_id: int, configuration_ids: Collection[UUID], *, since: datetime, until: datetime
+) -> dict[UUID, PlatformControlHistory]:
+    """Each configuration's control-plane changes in `[since, until)`, in one query. A configuration
+    with no kept change is left out.
+
+    Raises on a ClickHouse failure, because only the caller knows what it can show instead.
+    """
+    if not configuration_ids:
+        return {}
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    # Not `_execute`, for the same reason as `history`.
+    rows = sync_execute(
+        _CONTROL_HISTORY_SQL,
+        {
+            "team_id": team_id,
+            "configuration_ids": list(configuration_ids),
+            "kinds": [kind.value for kind in ControlChangeKind],
+            "toggles": [ControlChangeKind.ENABLE.value, ControlChangeKind.DISABLE.value],
+            "since": _microseconds(since),
+            "until": _microseconds(until),
+        },
+        team_id=team_id,
+        settings=_READ_BUDGET,
+    )
+    return {
+        configuration_id: PlatformControlHistory(
+            changes=tuple(
+                PlatformControlChange(
+                    occurred_at=occurred_at,
+                    evaluation_key=evaluation_key,
+                    kind=ControlChangeKind(kind),
+                    previous_state=PlatformAlertState(previous_state),
+                    state=PlatformAlertState(state),
+                )
+                for occurred_at, evaluation_key, kind, previous_state, state in changes
+            ),
+            oldest_at=oldest_at,
+            toggle_before=ControlChangeKind(toggle_before) if toggle_before else None,
+        )
+        for configuration_id, oldest_at, toggle_before, changes in rows
+    }

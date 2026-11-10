@@ -546,6 +546,17 @@ class PlatformControlChangePage:
     oldest_at: datetime | None
 
 
+@frozen
+class PlatformControlHistory:
+    """An alert's control-plane changes in one window, oldest first, with what a timeline needs from
+    before it: when the oldest kept change of any kind happened, and the newest enable or disable
+    before the window, or None when there is none."""
+
+    changes: tuple[PlatformControlChange, ...]
+    oldest_at: datetime
+    toggle_before: ControlChangeKind | None
+
+
 class SkipReason(StrEnum):
     """Why a check reached an outcome without a query answering it.
 
