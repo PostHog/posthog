@@ -902,8 +902,6 @@ def referenced_segments(campaign: dict[str, Any], actions: list[dict[str, Any]])
     trees: list[Any] = [campaign.get("trigger"), campaign.get("global_exit_conditions")]
     trees.append(conditions.decode(campaign.get("filters")))
     for action in actions:
-        if not isinstance(action, dict):
-            continue
         trees.append(conditions.decode(action.get("preconditions")))
         trees.append(conditions.decode(action.get("conditions")))
         trees.extend(conditions.decode(item) for item in action.get("multi_conditions") or [])

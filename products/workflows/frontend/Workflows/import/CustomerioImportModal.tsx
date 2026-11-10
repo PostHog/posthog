@@ -146,9 +146,7 @@ export function CustomerioImportModal(): JSX.Element {
                             : `${replacing} automations were imported before. Importing replaces their drafts, and edits made to them since are lost.`}
                     </LemonBanner>
                 )}
-                {results && (
-                    <SegmentCohortsSummary segmentCohorts={results.segment_cohorts ?? []} dryRun={results.dryRun} />
-                )}
+                <SegmentCohortsSummary results={results} />
                 {results && (
                     <LemonTable
                         dataSource={results.results}
@@ -217,15 +215,15 @@ const SEGMENT_COHORT_HEADINGS: Record<WorkflowImportSegmentCohortApi['status'], 
 }
 
 function SegmentCohortsSummary({
-    segmentCohorts,
-    dryRun,
+    results,
 }: {
-    segmentCohorts: WorkflowImportSegmentCohortApi[]
-    dryRun: boolean
+    results: { dryRun: boolean; segment_cohorts: WorkflowImportSegmentCohortApi[] } | null
 }): JSX.Element | null {
-    if (!segmentCohorts.length) {
+    const segmentCohorts = results?.segment_cohorts ?? []
+    if (!results || !segmentCohorts.length) {
         return null
     }
+    const { dryRun } = results
     const statuses = (Object.keys(SEGMENT_COHORT_HEADINGS) as WorkflowImportSegmentCohortApi['status'][]).filter(
         (status) => segmentCohorts.some((item) => item.status === status)
     )
