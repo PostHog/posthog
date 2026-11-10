@@ -397,18 +397,24 @@ describe('S3AttachmentStore', () => {
         })
 
         it.each([
-            ['the use needs it no longer than it lives', (expiresAt: Date) => ({ at: DAY_MS, needsUntil: expiresAt })],
             [
-                'the use needs it until the expiry prepareUploads answered for a fresh upload',
-                (expiresAt: Date) => ({ at: 0, needsUntil: expiresAt }),
+                'the use needs it no longer than it lives',
+                (expiresAt: Date) => ({ now: new Date(Date.now() + DAY_MS), needsUntil: expiresAt }),
+            ],
+            [
+                'the use comes within a second of the upload and needs it until the expiry prepareUploads answered',
+                (expiresAt: Date) => ({
+                    now: new Date(expiresAt.getTime() - ATTACHMENT_LIFETIME_MS + BUCKET_CLOCK_PRECISION_MS / 2),
+                    needsUntil: expiresAt,
+                }),
             ],
         ])('leaves the expiry alone when %s', async (_, timing) => {
             const f = file()
             const expiresAt = await uploaded(1, f)
             await untilAKeepWouldMoveTheExpiry(expiresAt)
-            const { at, needsUntil } = timing(expiresAt)
+            const { now, needsUntil } = timing(expiresAt)
 
-            await use(storeAt(new Date(Date.now() + at)), f.sha256, needsUntil)
+            await use(storeAt(now), f.sha256, needsUntil)
 
             expect(await expiryOf(1, f)).toEqual(expiresAt)
         })
@@ -425,14 +431,55 @@ describe('S3AttachmentStore', () => {
             expect(await expiryOf(1, f)).toEqual(expiresAt)
         })
 
-        it('throws unavailable when the bucket stalls on the keep a use needs', async () => {
+        it.each([
+            [
+                'the bucket stalls the copy',
+                async (): Promise<{ s3: S3Client; close: () => Promise<void> }> => {
+                    const bucket = await bucketProxyThat('stall every copy')
+                    const viaBucket = buildAttachmentStore({
+                        ...config,
+                        CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint,
+                    })!
+                    return {
+                        s3: viaBucket.s3,
+                        close: async () => {
+                            viaBucket.s3.destroy()
+                            await bucket.close()
+                        },
+                    }
+                },
+            ],
+            [
+                'the credentials stop answering once the copy starts',
+                (): Promise<{ s3: S3Client; close: () => Promise<void> }> => {
+                    let copying = false
+                    const askedOnEveryRequest = Object.assign(
+                        () => (copying ? new Promise<never>(() => {}) : Promise.resolve(realCredentials)),
+                        { memoized: true }
+                    )
+                    const s3 = new S3Client({
+                        region: config.CDP_EMAIL_ATTACHMENTS_S3_REGION,
+                        endpoint: config.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT,
+                        forcePathStyle: true,
+                        credentials: askedOnEveryRequest,
+                    })
+                    s3.middlewareStack.add(
+                        (next, context) => (args) => {
+                            copying ||= context.commandName === 'CopyObjectCommand'
+                            return next(args)
+                        },
+                        { step: 'initialize' }
+                    )
+                    return Promise.resolve({ s3, close: () => Promise.resolve(s3.destroy()) })
+                },
+            ],
+        ])('throws unavailable when %s on the keep a use needs', async (_, stalling) => {
             const f = file()
             const storedAt = await uploadedAt(1, f)
-            const bucket = await bucketProxyThat('stall every copy')
-            const viaBucket = buildAttachmentStore({ ...config, CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint })!
+            const { s3, close } = await stalling()
             const aDayLater = new S3AttachmentStore(
-                viaBucket.s3,
-                viaBucket.s3,
+                s3,
+                s3,
                 { bucket: BUCKET, prefix: config.CDP_EMAIL_ATTACHMENTS_S3_PREFIX, timeoutMs: 200 },
                 () => new Date(storedAt.getTime() + DAY_MS)
             )
@@ -441,8 +488,7 @@ describe('S3AttachmentStore', () => {
                     use(aDayLater, f.sha256, new Date(storedAt.getTime() + ATTACHMENT_LIFETIME_MS + 1000))
                 ).rejects.toThrow(AttachmentStoreUnavailableError)
             } finally {
-                viaBucket.s3.destroy()
-                await bucket.close()
+                await close()
             }
         })
 
