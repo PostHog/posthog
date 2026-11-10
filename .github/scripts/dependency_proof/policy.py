@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import json
 from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -34,6 +35,19 @@ PNPM_VERSION = re.compile(r"^pnpm@(\d+\.\d+\.\d+)$")
 
 class Refused(Exception):
     """The update is outside what this proof covers. The message says why."""
+
+
+@dataclass(frozen=True, kw_only=True)
+class DirectChange:
+    """A workspace project dependency whose lockfile entry changes.
+
+    ``old`` and ``new`` are the resolved versions. They are equal when only the range or a peer suffix changes.
+    """
+
+    name: str
+    old: str
+    new: str
+    range_changed: bool
 
 
 def package_name(spec: str) -> str:
@@ -135,11 +149,8 @@ def check_manifest(path: str, base: Mapping[str, Any], head: Mapping[str, Any]) 
                 check_bump(f"{path} {name}", str(before[name]), str(new))
 
 
-def direct_changes(base_lock: Mapping[str, Any], head_lock: Mapping[str, Any]) -> list[tuple[str, str, str]]:
-    """Each workspace project dependency whose lockfile entry changes: (name, old version, new version).
-
-    The versions are equal when only the specifier or a peer suffix changes.
-    """
+def direct_changes(base_lock: Mapping[str, Any], head_lock: Mapping[str, Any]) -> list[DirectChange]:
+    """Each workspace project dependency whose lockfile entry changes. A version may move only as `check_bump` allows."""
     before_importers, after_importers = base_lock.get("importers") or {}, head_lock.get("importers") or {}
     if before_importers.keys() != after_importers.keys():
         raise Refused("the lockfile adds or removes a workspace project")
@@ -157,12 +168,17 @@ def direct_changes(base_lock: Mapping[str, Any], head_lock: Mapping[str, Any]) -
                 old_version, new_version = _resolved(old), _resolved(entry)
                 if old_version != new_version:
                     check_bump(f"{importer} {name}", old_version, new_version)
-                changes.append((name, old_version, new_version))
+                range_changed = _field(old, "specifier") != _field(entry, "specifier")
+                changes.append(DirectChange(name=name, old=old_version, new=new_version, range_changed=range_changed))
     return changes
 
 
+def _field(entry: Any, key: str) -> str:
+    return str(entry.get(key, "") if isinstance(entry, dict) else "")
+
+
 def _resolved(entry: Any) -> str:
-    return str(entry.get("version", "") if isinstance(entry, dict) else "").partition("(")[0]
+    return _field(entry, "version").partition("(")[0]
 
 
 def new_packages(base_lock: Mapping[str, Any], head_lock: Mapping[str, Any]) -> list[str]:

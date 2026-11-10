@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from dependency_proof import policy
-from dependency_proof.policy import Refused
+from dependency_proof.policy import DirectChange, Refused
 
 NOW = datetime(2026, 11, 9, tzinfo=UTC)
 
@@ -166,14 +166,27 @@ def importers(specifier: str, version: str, peer: str = "18.3.1", extra: dict | 
 
 
 BASE_LOCK = importers("^1.3.0", "1.3.0", peer="18.3.0")
-PEER_ONLY_CHANGE = ("react-dom", "18.3.0", "18.3.0")
+PEER_ONLY_CHANGE = DirectChange(name="react-dom", old="18.3.0", new="18.3.0", range_changed=False)
 
 
 @pytest.mark.parametrize(
     ("head_lock", "expected", "reason"),
     [
-        (importers("^1.3.0", "1.3.1"), [("left-pad", "1.3.0", "1.3.1"), PEER_ONLY_CHANGE], None),
-        (importers("^1.3.1", "1.3.0", peer="18.3.0"), [("left-pad", "1.3.0", "1.3.0")], None),
+        (
+            importers("^1.3.0", "1.3.1"),
+            [DirectChange(name="left-pad", old="1.3.0", new="1.3.1", range_changed=False), PEER_ONLY_CHANGE],
+            None,
+        ),
+        (
+            importers("^1.3.1", "1.3.1", peer="18.3.0"),
+            [DirectChange(name="left-pad", old="1.3.0", new="1.3.1", range_changed=True)],
+            None,
+        ),
+        (
+            importers("^1.3.1", "1.3.0", peer="18.3.0"),
+            [DirectChange(name="left-pad", old="1.3.0", new="1.3.0", range_changed=True)],
+            None,
+        ),
         (importers("^1.3.0", "left-pad@1.3.1"), None, "not a plain registry"),
         (importers("^1.3.0", "2.0.0"), None, "major change"),
         ({"importers": {".": {}, "frontend": {}}}, None, "adds or removes a workspace project"),
