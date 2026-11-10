@@ -263,6 +263,7 @@ describe('CLI skills library', () => {
                 if (url !== PRODUCT_SKILL_ARCHIVE_URL) {
                     return online.fetch(url, init)
                 }
+
                 productRequests.push(etag)
                 return etag ? new Response(null, { status: 304 }) : online.fetch(url, init)
             },

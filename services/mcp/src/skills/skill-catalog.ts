@@ -103,6 +103,7 @@ export class SkillCatalog {
 
     withOverlay(overlay: SkillCatalog): SkillCatalog {
         const skillsByName = new Map(this.skillsByName)
+
         for (const [name, skill] of overlay.skillsByName) {
             if (skillsByName.has(name)) {
                 // The product archive can be sha-pinned and the overlay is not, so the overlay never replaces a product skill.
@@ -111,6 +112,7 @@ export class SkillCatalog {
             }
             skillsByName.set(name, skill)
         }
+
         return new SkillCatalog([...skillsByName.values()])
     }
 
@@ -166,6 +168,7 @@ export class SkillCatalog {
 
     read(name: string, path?: string, identifier = name, command = 'learn'): string {
         const skill = this.requireSkill(name, command)
+
         if (path) {
             const file = this.requireFile(skill, path, identifier, command)
             return formatLearnFile(identifier, file, command)
@@ -189,24 +192,28 @@ export class SkillCatalog {
 
     private requireSkill(name: string, command: string): SkillDefinition {
         const skill = this.skillsByName.get(name)
+
         if (!skill) {
             throw new LearnLookupError(
                 'unknown_skill',
                 `Unknown skill: "${name}". Use \`${command} -s <query>\` to find a skill.`
             )
         }
+
         return skill
     }
 
     private requireFile(skill: SkillDefinition, path: string, identifier: string, command: string): SkillFile {
         validateRelativePath(path)
         const file = skill.files.find((candidate) => candidate.path === path)
+
         if (!file) {
             throw new LearnLookupError(
                 'unknown_file',
                 `Unknown file: "${path}" in skill "${identifier}". Run \`${command} ${identifier}\` for its manifest.`
             )
         }
+
         return file
     }
 }
@@ -439,11 +446,14 @@ export function unzipUntrusted(
             if (file.name.endsWith('/') || !filter(file)) {
                 return false
             }
+
             if (!isSafeRelativePath(file.name)) {
                 throw new Error(`${label} has an unsafe path: "${file.name}"`)
             }
+
             budget.files += 1
             budget.bytes += file.originalSize
+
             if (
                 budget.files > MAX_ARCHIVE_FILES ||
                 file.originalSize > MAX_ARCHIVE_FILE_BYTES ||
@@ -451,6 +461,7 @@ export function unzipUntrusted(
             ) {
                 throw new Error(`${label} exceeds the extraction limit`)
             }
+
             return true
         },
     })
