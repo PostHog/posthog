@@ -55,21 +55,17 @@ sequenceDiagram
     You->>hog: Yes
 
     Note over You,PH: 7. verify
-    hog->>PH: Any events since setup started?
-    PH-->>hog: None yet
-    hog->>You: Use the app, then run hog setup next
-    You->>hog: hog setup next
-    hog->>PH: Any events since setup started?
-    PH-->>hog: Yes
+    hog->>PH: Any events since setup started? (for up to 30 seconds)
+    PH-->>hog: The event count, or none yet
 
     Note over You,PH: 8. products, 9. connected
-    hog->>You: What else PostHog can do, and the skills you can add
     hog->>hog: Write the final PostHog section in AGENTS.md
+    hog->>You: The event count, what else PostHog can do, and the skills you can add
 ```
 
 ## You with a coding agent
 
-The agent runs every command. You answer one question, approve the login, and hear what else PostHog can do.
+The agent runs every command. It asks you what PostHog is for only when it can't tell, you approve the login, and it tells you what else PostHog can do at the end of its turn.
 
 ```mermaid
 sequenceDiagram
@@ -81,8 +77,10 @@ sequenceDiagram
     Note over You,PH: 1. purpose
     Agent->>hog: hog setup next
     hog-->>Agent: ask_user, with the question and the product list
-    Agent->>You: What do you want to use PostHog for? (and where the answer goes)
-    You->>Agent: Your answer
+    opt The agent can't tell what PostHog is for
+        Agent->>You: What do you want to use PostHog for?
+        You->>Agent: Your answer
+    end
     Agent->>hog: hog setup next --reason "..." --products a,b
 
     Note over You,PH: 2. login
@@ -109,20 +107,11 @@ sequenceDiagram
     Agent->>hog: hog setup next --reviewed
 
     Note over You,PH: 7. verify
-    hog->>PH: Any events since setup started?
-    PH-->>hog: None yet
-    hog-->>Agent: run, to trigger an event (exit code 1)
-    Agent->>Agent: Run the app, or ask you to use it
-    Agent->>hog: hog setup next
-    hog->>PH: Any events since setup started?
-    PH-->>hog: Yes
+    hog->>PH: Any events since setup started? (for up to 30 seconds)
+    PH-->>hog: The event count, or none yet
 
-    Note over You,PH: 8. products
-    hog-->>Agent: tell_user, with the other products and skills
-    Agent->>You: What else PostHog can do, and hog skills add
-    Agent->>hog: hog setup next --products-ack
-
-    Note over You,PH: 9. connected
+    Note over You,PH: 8. products, 9. connected
     hog->>hog: Write the final PostHog section in AGENTS.md
-    hog-->>Agent: done
+    hog-->>Agent: done, with the event count, the products and the skills
+    Agent->>You: At the end of its turn: what else PostHog can do, and hog skills add
 ```

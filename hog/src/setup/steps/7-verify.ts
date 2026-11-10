@@ -24,25 +24,40 @@ export async function countEvents(run: SetupRun, events: EventsContext): Promise
     return CountSchema.catch(0).parse(response.results[0]?.[0])
 }
 
+// Long enough for an app that just started to send its first event, short enough that the agent
+// can finish its turn. Setup goes on without events, and `hog setup` keeps counting them.
+const WAIT_MS = 30_000
+const POLL_MS = 5_000
+
+async function waitForEvents(run: SetupRun, events: EventsContext): Promise<number> {
+    const deadline = run.ctx.runtime.now() + WAIT_MS
+    let count = await countEvents(run, events)
+
+    while (count === 0 && run.ctx.runtime.now() < deadline) {
+        await run.ctx.runtime.sleep(POLL_MS)
+        count = await countEvents(run, events)
+    }
+
+    return count
+}
+
 export const verify: Step = {
-    summary: () => 'PostHog received events',
+    summary: () => 'Checked for events',
 
     async advance(run) {
         const events = eventsContext(run.state?.startedAt ?? 0, null)
-        const ask = `Run the app and trigger an event, or ask the user to. Then run \`${SETUP_NEXT}\` to check for events received since ${events.since}.`
-
         if (!run.input.next) {
             run.context.events = events
-            return runNext('setup_no_events_yet', ask)
+            return runNext(
+                'setup_verify_pending',
+                `Run \`${SETUP_NEXT}\` to wait up to 30 seconds for events PostHog received since ${events.since}.`
+            )
         }
 
-        const count = await countEvents(run, events)
+        const count = await waitForEvents(run, events)
         run.context.events = { ...events, count }
-        if (count > 0) {
-            await run.complete('verify')
-            return undefined
-        }
+        await run.complete('verify')
 
-        return runNext('setup_no_events_yet', `PostHog hasn't received any events since setup started. ${ask}`)
+        return undefined
     },
 }
