@@ -61,6 +61,7 @@ export enum PluginServerMode {
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
     ingestion_error_tracking = 'ingestion-errortracking',
+    ingestion_ai = 'ingestion-ai',
     ingestion_metrics = 'ingestion-metrics',
     cdp_cyclotron_worker_batch_resolve = 'cdp-cyclotron-worker-batch-resolve',
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',

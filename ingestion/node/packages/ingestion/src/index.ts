@@ -6,6 +6,7 @@ import { initSuperProperties } from '@posthog/node-common/utils/posthog'
 
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
+import { AiEventsServer } from '~/servers/ai-events-server'
 import {
     AiResearchV4ImageFetchRetryServer,
     AiResearchV4ImageFetchServer,
@@ -68,6 +69,9 @@ function createServer(): NodeServer {
 
         case PluginServerMode.ingestion_error_tracking:
             return new ErrorTrackingServer()
+
+        case PluginServerMode.ingestion_ai:
+            return new AiEventsServer()
 
         case PluginServerMode.ingestion_metrics:
             return new IngestionMetricsServer()

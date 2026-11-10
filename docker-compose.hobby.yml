@@ -357,6 +357,19 @@ services:
             - redis7
             - kafka
 
+    ingestion-ai:
+        extends:
+            file: docker-compose.base.yml
+            service: ingestion-ai
+        image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
+        logging: *default-logging
+        environment:
+            ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+        depends_on:
+            - db
+            - redis7
+            - kafka
+
     ingestion-logs:
         extends:
             file: docker-compose.base.yml
