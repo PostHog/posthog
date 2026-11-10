@@ -1,12 +1,51 @@
+import { timingSafeEqual } from 'node:crypto'
+
 import { isFeatureFlagEnabled } from '~/common/utils/posthog'
 
 import { IntegrationType } from '../types'
+import type { EncryptedFields } from './encryption-utils'
 
 // Persisted job state holds this in place of a resolved integration input, so the job queue never stores the
 // decrypted config. The executor loads the integration again from the id before the function runs.
 export const INTEGRATION_REF_KEY = '$integration_ref'
+// Event data can hold any JSON, so only a reference that the server signed resolves to an integration.
+export const INTEGRATION_REF_SIG_KEY = '$integration_ref_sig'
 
-export type IntegrationInputRef = { [INTEGRATION_REF_KEY]: IntegrationType['id'] }
+const INTEGRATION_REF_PURPOSE = 'integration-input-ref'
+
+export type IntegrationInputRef = { [INTEGRATION_REF_KEY]: IntegrationType['id']; [INTEGRATION_REF_SIG_KEY]?: unknown }
+
+export type IntegrationRefSigner = Pick<EncryptedFields, 'sign' | 'signatures'>
+
+// The signature binds the team and the input key, so a reference is valid only where the server wrote it.
+const integrationRefSigningBase = (teamId: number, inputKey: string, id: IntegrationType['id']): string =>
+    `${teamId}:${inputKey}:${id}`
+
+export const signIntegrationRef = (
+    signer: IntegrationRefSigner,
+    teamId: number,
+    inputKey: string,
+    id: IntegrationType['id']
+): string => signer.sign(INTEGRATION_REF_PURPOSE, integrationRefSigningBase(teamId, inputKey, id))
+
+export const isSignedIntegrationRef = (
+    signer: IntegrationRefSigner,
+    teamId: number,
+    inputKey: string,
+    ref: IntegrationInputRef
+): boolean => {
+    const signature = ref[INTEGRATION_REF_SIG_KEY]
+    if (typeof signature !== 'string') {
+        return false
+    }
+    const given = Buffer.from(signature)
+    return signer
+        .signatures(INTEGRATION_REF_PURPOSE, integrationRefSigningBase(teamId, inputKey, ref[INTEGRATION_REF_KEY]))
+        .some((accepted) => {
+            const expected = Buffer.from(accepted)
+            return expected.length === given.length && timingSafeEqual(expected, given)
+        })
+}
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
     typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -22,19 +61,24 @@ export const hasIntegrationRef = (inputs: Record<string, unknown>): boolean =>
         (value) => isIntegrationRef(value) || (Array.isArray(value) && value.some(isIntegrationRef))
     )
 
-const toRef = (value: unknown): unknown =>
-    isPlainObject(value) && isIntegrationId(value.$integration_id)
-        ? { [INTEGRATION_REF_KEY]: value.$integration_id }
-        : value
-
 /**
- * Replaces each resolved integration input (and each item of an integration_multi input) with a reference.
+ * Replaces each resolved integration input (and each item of an integration_multi input) with a signed reference.
  * Returns the same object when no input holds a resolved integration.
  */
-export function replaceIntegrationInputsWithRefs(inputs: Record<string, any>): Record<string, any> {
+export function replaceIntegrationInputsWithRefs(
+    inputs: Record<string, any>,
+    signRef: (inputKey: string, id: IntegrationType['id']) => string
+): Record<string, any> {
     let changed = false
     const result: Record<string, any> = {}
     for (const [key, value] of Object.entries(inputs)) {
+        const toRef = (item: unknown): unknown =>
+            isPlainObject(item) && isIntegrationId(item.$integration_id)
+                ? {
+                      [INTEGRATION_REF_KEY]: item.$integration_id,
+                      [INTEGRATION_REF_SIG_KEY]: signRef(key, item.$integration_id),
+                  }
+                : item
         const next = Array.isArray(value) ? value.map(toRef) : toRef(value)
         if (Array.isArray(value) ? (next as unknown[]).some((item, i) => item !== value[i]) : next !== value) {
             changed = true

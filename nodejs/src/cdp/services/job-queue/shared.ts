@@ -1,5 +1,6 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import type { CommonConfig } from '~/common/config'
 import { buildIntegerMatcher } from '~/common/config/config'
 
 import { ValueMatcher } from '../../../types'
@@ -10,7 +11,13 @@ import {
     CyclotronJobQueueKind,
     CyclotronJobQueueSource,
 } from '../../types'
-import { IntegrationInputRefsRollout, replaceIntegrationInputsWithRefs } from '../../utils/integration-input-refs'
+import { EncryptedFields } from '../../utils/encryption-utils'
+import {
+    IntegrationInputRefsRollout,
+    IntegrationRefSigner,
+    replaceIntegrationInputsWithRefs,
+    signIntegrationRef,
+} from '../../utils/integration-input-refs'
 
 export const cdpJobSizeKb = new Histogram({
     name: 'cdp_cyclotron_job_size_kb',
@@ -58,22 +65,27 @@ export function observeConsumedBatch(params: {
  * Strip transient data from invocation state before persisting.
  * Groups are always stripped. Person is stripped when stripPerson is true.
  * These are large and easily reloaded by the worker, so we avoid storing them.
- * When stripIntegrationSecrets is true, resolved integration inputs become references (see integration-input-refs).
+ * When integrationRefSigner is set, resolved integration inputs become signed references (see integration-input-refs).
  * Returns a new object if modifications are needed, otherwise the original.
  */
 export function sanitizeInvocationForPersistence(
     invocation: CyclotronJobInvocation,
-    { stripPerson, stripIntegrationSecrets }: { stripPerson?: boolean; stripIntegrationSecrets?: boolean } = {}
+    { stripPerson, integrationRefSigner }: { stripPerson?: boolean; integrationRefSigner?: IntegrationRefSigner } = {}
 ): CyclotronJobInvocation {
     const state = invocation.state
     if (!state) {
         return invocation
     }
 
+    const signRef = integrationRefSigner
+        ? (inputKey: string, id: string | number) =>
+              signIntegrationRef(integrationRefSigner, invocation.teamId, inputKey, id)
+        : undefined
+
     let newState = state
     const globals = state.globals
     if (globals) {
-        const newGlobals = sanitizeGlobals(globals, { stripPerson, stripIntegrationSecrets })
+        const newGlobals = sanitizeGlobals(globals, { stripPerson, signRef })
         if (newGlobals !== globals) {
             newState = { ...newState, globals: newGlobals }
         }
@@ -81,8 +93,8 @@ export function sanitizeInvocationForPersistence(
 
     // A workflow keeps the state of a paused function step, and that state carries the step's resolved inputs.
     const hogFunctionState = state.currentAction?.hogFunctionState
-    if (stripIntegrationSecrets && hogFunctionState?.globals?.inputs) {
-        const inputs = replaceIntegrationInputsWithRefs(hogFunctionState.globals.inputs)
+    if (signRef && hogFunctionState?.globals?.inputs) {
+        const inputs = replaceIntegrationInputsWithRefs(hogFunctionState.globals.inputs, signRef)
         if (inputs !== hogFunctionState.globals.inputs) {
             newState = {
                 ...newState,
@@ -99,12 +111,12 @@ export function sanitizeInvocationForPersistence(
 
 function sanitizeGlobals(
     globals: Record<string, any>,
-    { stripPerson, stripIntegrationSecrets }: { stripPerson?: boolean; stripIntegrationSecrets?: boolean }
+    { stripPerson, signRef }: { stripPerson?: boolean; signRef?: (inputKey: string, id: string | number) => string }
 ): Record<string, any> {
     const hasGroups = globals.groups && Object.keys(globals.groups).length > 0
     const hasPerson = stripPerson && globals.person
     const inputs =
-        stripIntegrationSecrets && globals.inputs ? replaceIntegrationInputsWithRefs(globals.inputs) : globals.inputs
+        signRef && globals.inputs ? replaceIntegrationInputsWithRefs(globals.inputs, signRef) : globals.inputs
 
     if (!hasGroups && !hasPerson && inputs === globals.inputs) {
         return globals
@@ -128,8 +140,9 @@ function sanitizeGlobals(
  * Call once at construction time, use the returned functions on every queue operation.
  */
 export function createInvocationSanitizer(
-    config: Pick<CdpConfig, 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'>,
-    integrationRefsRollout: Pick<IntegrationInputRefsRollout, 'isEnabled'> = new IntegrationInputRefsRollout()
+    config: Pick<CdpConfig, 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'> & Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>,
+    integrationRefsRollout: Pick<IntegrationInputRefsRollout, 'isEnabled'> = new IntegrationInputRefsRollout(),
+    integrationRefSigner: IntegrationRefSigner = new EncryptedFields(config.ENCRYPTION_SALT_KEYS)
 ) {
     const stripPersonMatcher: ValueMatcher<number> = buildIntegerMatcher(
         config.CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS,
@@ -138,22 +151,22 @@ export function createInvocationSanitizer(
 
     return {
         sanitizeInvocations(invocations: CyclotronJobInvocation[]): CyclotronJobInvocation[] {
-            const stripIntegrationSecrets = integrationRefsRollout.isEnabled()
+            const signer = integrationRefsRollout.isEnabled() ? integrationRefSigner : undefined
             return invocations.map((inv) =>
                 sanitizeInvocationForPersistence(inv, {
                     stripPerson: stripPersonMatcher(inv.teamId),
-                    stripIntegrationSecrets,
+                    integrationRefSigner: signer,
                 })
             )
         },
 
         sanitizeResults(results: CyclotronJobInvocationResult[]): CyclotronJobInvocationResult[] {
-            const stripIntegrationSecrets = integrationRefsRollout.isEnabled()
+            const signer = integrationRefsRollout.isEnabled() ? integrationRefSigner : undefined
             return results.map((result) => ({
                 ...result,
                 invocation: sanitizeInvocationForPersistence(result.invocation, {
                     stripPerson: stripPersonMatcher(result.invocation.teamId),
-                    stripIntegrationSecrets,
+                    integrationRefSigner: signer,
                 }),
             }))
         },

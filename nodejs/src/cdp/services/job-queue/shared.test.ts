@@ -1,10 +1,14 @@
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'
+import { EncryptedFields } from '../../utils/encryption-utils'
+import { signIntegrationRef } from '../../utils/integration-input-refs'
 import { createInvocation } from '../../utils/invocation-utils'
 import { serializeInvocation } from './job-queue-kafka'
 import { invocationToV2JobInit } from './job-queue-postgres-v2'
 import { createInvocationSanitizer, sanitizeInvocationForPersistence } from './shared'
+
+const ENCRYPTION_SALT_KEYS = '00beef0000beef0000beef0000beef00'
 
 describe('sanitizeInvocationForPersistence', () => {
     const exampleHogFunction = createHogFunction({
@@ -221,7 +225,10 @@ describe('createInvocationSanitizer', () => {
     }
 
     it('should strip groups from invocations', () => {
-        const sanitizer = createInvocationSanitizer({ CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '' })
+        const sanitizer = createInvocationSanitizer({
+            CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+            ENCRYPTION_SALT_KEYS,
+        })
         const invocation = createInvocation(
             { ...createHogExecutionGlobals({ groups: exampleGroups }), inputs: {} },
             exampleHogFunction
@@ -233,7 +240,10 @@ describe('createInvocationSanitizer', () => {
     })
 
     it('should strip person for configured teams', () => {
-        const sanitizer = createInvocationSanitizer({ CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '2' })
+        const sanitizer = createInvocationSanitizer({
+            CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '2',
+            ENCRYPTION_SALT_KEYS,
+        })
         const invocation = createInvocation(
             { ...createHogExecutionGlobals({ groups: exampleGroups }), inputs: {} },
             { ...exampleHogFunction, team_id: 2 }
@@ -244,7 +254,10 @@ describe('createInvocationSanitizer', () => {
     })
 
     it('should not strip person for non-configured teams', () => {
-        const sanitizer = createInvocationSanitizer({ CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '99' })
+        const sanitizer = createInvocationSanitizer({
+            CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '99',
+            ENCRYPTION_SALT_KEYS,
+        })
         const invocation = createInvocation(
             { ...createHogExecutionGlobals({ groups: exampleGroups }), inputs: {} },
             { ...exampleHogFunction, team_id: 2 }
@@ -255,7 +268,10 @@ describe('createInvocationSanitizer', () => {
     })
 
     it('should sanitize results', () => {
-        const sanitizer = createInvocationSanitizer({ CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '' })
+        const sanitizer = createInvocationSanitizer({
+            CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+            ENCRYPTION_SALT_KEYS,
+        })
         const invocation = createInvocation(
             { ...createHogExecutionGlobals({ groups: exampleGroups }), inputs: {} },
             exampleHogFunction
@@ -278,6 +294,7 @@ describe('createInvocationSanitizer', () => {
 })
 
 describe('integration input references', () => {
+    const signer = new EncryptedFields(ENCRYPTION_SALT_KEYS)
     const FAKE_SECRETS = ['fake-access-token-value', 'fake-auth-token-value', 'fake-signing-key-value']
 
     const hogFunction = createHogFunction({
@@ -340,7 +357,7 @@ describe('integration input references', () => {
     ])('for %s', (_name, buildInvocation) => {
         it.each(serializers)('keeps every integration secret out of %s', (_serializer, serialize) => {
             const sanitizer = createInvocationSanitizer(
-                { CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '' },
+                { CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '', ENCRYPTION_SALT_KEYS },
                 { isEnabled: () => true }
             )
             const invocation = buildInvocation()
@@ -350,8 +367,12 @@ describe('integration input references', () => {
             for (const secret of FAKE_SECRETS) {
                 expect(serialized).not.toContain(secret)
             }
-            expect(serialized).toContain('"twilio":{"$integration_ref":11}')
-            expect(serialized).toContain('"channels":[{"$integration_ref":12},{"$integration_ref":13}]')
+            const ref = (key: string, id: number) => ({
+                $integration_ref: id,
+                $integration_ref_sig: signIntegrationRef(signer, invocation.teamId, key, id),
+            })
+            expect(serialized).toContain(`"twilio":${JSON.stringify(ref('twilio', 11))}`)
+            expect(serialized).toContain(`"channels":${JSON.stringify([ref('channels', 12), ref('channels', 13)])}`)
             expect(serialized).toContain('"url":"https://example.com"')
             // The invocation the worker keeps in memory still holds the resolved values.
             expect(JSON.stringify(invocation)).toContain('fake-auth-token-value')
@@ -359,7 +380,7 @@ describe('integration input references', () => {
 
         it('keeps the resolved values while the rollout is off', () => {
             const sanitizer = createInvocationSanitizer(
-                { CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '' },
+                { CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '', ENCRYPTION_SALT_KEYS },
                 { isEnabled: () => false }
             )
 
@@ -372,7 +393,7 @@ describe('integration input references', () => {
 
     it('replaces the integrations in queued results too', () => {
         const sanitizer = createInvocationSanitizer(
-            { CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '' },
+            { CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '', ENCRYPTION_SALT_KEYS },
             { isEnabled: () => true }
         )
         const result: CyclotronJobInvocationResult = {
@@ -389,7 +410,10 @@ describe('integration input references', () => {
 
         const [sanitized] = sanitizer.sanitizeResults([result])
 
-        expect(sanitized.invocation.state!.globals.inputs.twilio).toEqual({ $integration_ref: 11 })
+        expect(sanitized.invocation.state!.globals.inputs.twilio).toEqual({
+            $integration_ref: 11,
+            $integration_ref_sig: signIntegrationRef(signer, result.invocation.teamId, 'twilio', 11),
+        })
     })
 
     it.each([
@@ -399,6 +423,6 @@ describe('integration input references', () => {
         const invocation = createInvocation({ ...createHogExecutionGlobals(), inputs }, hogFunction)
         delete invocation.state.globals.groups
 
-        expect(sanitizeInvocationForPersistence(invocation, { stripIntegrationSecrets: true })).toBe(invocation)
+        expect(sanitizeInvocationForPersistence(invocation, { integrationRefSigner: signer })).toBe(invocation)
     })
 })

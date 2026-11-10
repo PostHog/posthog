@@ -39,6 +39,7 @@ import {
 } from '../_tests/fixtures'
 import { isConnectionLevelError } from '../utils/cdp-fetch'
 import { EncryptedFields } from '../utils/encryption-utils'
+import { signIntegrationRef } from '../utils/integration-input-refs'
 import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
@@ -419,12 +420,18 @@ describe('Hog Executor', () => {
         it.each([
             [
                 'resolves a reference from the job queue before the function runs',
-                (integrationId: number) => ({ $integration_ref: integrationId }),
+                (teamId: number, integrationId: number) => ({
+                    $integration_ref: integrationId,
+                    $integration_ref_sig: signIntegrationRef(hub.encryptedFields, teamId, 'twilio', integrationId),
+                }),
                 'fake-auth-token-value',
             ],
             [
                 'runs a job queued with the resolved values before references existed',
-                (integrationId: number) => ({ $integration_id: integrationId, auth_token: 'fake-old-job-token' }),
+                (_teamId: number, integrationId: number) => ({
+                    $integration_id: integrationId,
+                    auth_token: 'fake-old-job-token',
+                }),
                 'fake-old-job-token',
             ],
         ])('%s', async (_name, persistedValue, expected) => {
@@ -440,14 +447,14 @@ describe('Hog Executor', () => {
                 inputs: { twilio: { value: integration.id } },
                 inputs_schema: [{ key: 'twilio', type: 'integration', required: true }],
             })
-            invocation.state.globals.inputs = { twilio: persistedValue(integration.id) }
+            invocation.state.globals.inputs = { twilio: persistedValue(team.id, integration.id) }
 
             const result = await executor.hogExecutor.execute(invocation)
 
             expect(result.error).toBeUndefined()
             expect(result.execResult).toBe(expected)
             // The resolved secret must not go back into the state that the queue persists.
-            expect(result.invocation.state.globals.inputs.twilio).toEqual(persistedValue(integration.id))
+            expect(result.invocation.state.globals.inputs.twilio).toEqual(persistedValue(team.id, integration.id))
         })
 
         it('fails the invocation when a reference does not resolve', async () => {
@@ -458,7 +465,12 @@ describe('Hog Executor', () => {
                 inputs: { twilio: { value: 999999999 } },
                 inputs_schema: [{ key: 'twilio', type: 'integration', required: true }],
             })
-            invocation.state.globals.inputs = { twilio: { $integration_ref: 999999999 } }
+            invocation.state.globals.inputs = {
+                twilio: {
+                    $integration_ref: 999999999,
+                    $integration_ref_sig: signIntegrationRef(hub.encryptedFields, team.id, 'twilio', 999999999),
+                },
+            }
 
             const result = await executor.hogExecutor.execute(invocation)
 

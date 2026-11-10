@@ -11,7 +11,7 @@ import { createHogExecutionGlobals, createHogFunction, insertIntegration } from 
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { HogConfigurationError, classifyHogError } from '../utils/hog-error-classification'
-import { replaceIntegrationInputsWithRefs } from '../utils/integration-input-refs'
+import { replaceIntegrationInputsWithRefs, signIntegrationRef } from '../utils/integration-input-refs'
 import { NATIVE_PUSH_TEMPLATE_ID } from '../utils/push-subscription-utils'
 import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
@@ -582,6 +582,20 @@ describe('Hog Inputs', () => {
     describe('resolveIntegrationRefs', () => {
         let hogFunction: HogFunctionType
 
+        const signedRef = (key: string, id: number, teamId: number = team.id) => ({
+            $integration_ref: id,
+            $integration_ref_sig: signIntegrationRef(hub.encryptedFields, teamId, key, id),
+        })
+
+        const expectNotLoaded = async (fn: HogFunctionType, inputs: Record<string, any>, key: string) => {
+            const error = await hogInputsService.resolveIntegrationRefs(fn, inputs).catch((e) => e)
+
+            expect(error).toBeInstanceOf(HogConfigurationError)
+            expect(error.message).toBe(
+                `The integration for input '${key}' could not be loaded. It may have been deleted. Select a connected integration for this input.`
+            )
+        }
+
         beforeEach(() => {
             hogFunction = createHogFunction({
                 team_id: team.id,
@@ -596,7 +610,9 @@ describe('Hog Inputs', () => {
 
         it('gives the function the same integration values as a fresh build', async () => {
             const built = await hogInputsService.buildInputs(hogFunction, createHogExecutionGlobals())
-            const persisted = replaceIntegrationInputsWithRefs(built)
+            const persisted = replaceIntegrationInputsWithRefs(built, (key, id) =>
+                signIntegrationRef(hub.encryptedFields, team.id, key, id)
+            )
             expect(JSON.stringify(persisted)).not.toContain('token')
 
             const resolved = await hogInputsService.resolveIntegrationRefs(hogFunction, persisted)
@@ -612,22 +628,84 @@ describe('Hog Inputs', () => {
         })
 
         it('does not resolve a reference in an input that is not an integration input', async () => {
-            const inputs = { body: { $integration_ref: integrationId1 } }
+            const inputs = { body: signedRef('body', integrationId1) }
 
             await expect(hogInputsService.resolveIntegrationRefs(hogFunction, inputs)).resolves.toBe(inputs)
         })
 
+        describe('when one mapping selects an integration under a key that another mapping fills from the event', () => {
+            let mappedFunction: HogFunctionType
+
+            beforeEach(() => {
+                mappedFunction = createHogFunction({
+                    team_id: team.id,
+                    mappings: [
+                        {
+                            inputs_schema: [{ key: 'payload', type: 'integration', required: true }],
+                            inputs: { payload: { value: integrationId1 } },
+                        },
+                        {
+                            inputs_schema: [{ key: 'payload', type: 'json', required: true }],
+                            inputs: { payload: { value: '{event.properties.payload}', templating: 'liquid' } },
+                        },
+                    ],
+                })
+            })
+
+            it('fails and does not load an unsigned reference that the event supplies', async () => {
+                const getMany = jest.spyOn(hub.integrationManager, 'getMany')
+
+                await expectNotLoaded(mappedFunction, { payload: { $integration_ref: integrationId1 } }, 'payload')
+                expect(getMany).not.toHaveBeenCalledWith(expect.arrayContaining([integrationId1]))
+            })
+
+            it('resolves the reference that the server signed', async () => {
+                const resolved = await hogInputsService.resolveIntegrationRefs(mappedFunction, {
+                    payload: signedRef('payload', integrationId1),
+                })
+
+                expect(resolved.payload.access_token_raw).toBe('token')
+            })
+        })
+
         it.each([
-            ['a deleted integration', 'oauth', () => Promise.resolve({ $integration_ref: team.id + 50 })],
+            ['an unsigned reference', 'oauth', () => Promise.resolve({ $integration_ref: integrationId1 })],
+            [
+                'a reference with a made-up signature',
+                'oauth',
+                () => Promise.resolve({ $integration_ref: integrationId1, $integration_ref_sig: 'a'.repeat(64) }),
+            ],
+            [
+                'a reference signed for another team',
+                'oauth',
+                () => Promise.resolve(signedRef('oauth', integrationId1, team.id + 1000)),
+            ],
+            [
+                'a reference signed for another input key',
+                'oauth',
+                () => Promise.resolve(signedRef('channels', integrationId1)),
+            ],
+            [
+                'a reference signed for another integration',
+                'channels',
+                () =>
+                    Promise.resolve([
+                        {
+                            $integration_ref: integrationId1,
+                            $integration_ref_sig: signedRef('channels', integrationId2).$integration_ref_sig,
+                        },
+                    ]),
+            ],
+            ['a deleted integration', 'oauth', () => Promise.resolve(signedRef('oauth', team.id + 50))],
             [
                 'a deleted integration_multi item',
                 'channels',
-                () => Promise.resolve([{ $integration_ref: team.id + 50 }]),
+                () => Promise.resolve([signedRef('channels', team.id + 50)]),
             ],
             [
                 'a team integration that the function is not configured with',
                 'oauth',
-                () => Promise.resolve({ $integration_ref: integrationId2 }),
+                () => Promise.resolve(signedRef('oauth', integrationId2)),
             ],
             [
                 "another team's integration",
@@ -638,7 +716,7 @@ describe('Hog Inputs', () => {
                         kind: 'slack',
                         sensitive_config: { access_token: hub.encryptedFields.encrypt('fake-foreign-token') },
                     })
-                    return { $integration_ref: foreign.id }
+                    return signedRef('oauth', foreign.id)
                 },
             ],
             [
@@ -649,18 +727,11 @@ describe('Hog Inputs', () => {
                         kind: 'posthog',
                         sensitive_config: { access_token: hub.encryptedFields.encrypt('fake-connection-token') },
                     })
-                    return { $integration_ref: connection.id }
+                    return signedRef('oauth', connection.id)
                 },
             ],
-        ])('fails with a clear error for a reference to %s', async (_name, key, buildRef) => {
-            const inputs = { [key]: await buildRef() }
-
-            const error = await hogInputsService.resolveIntegrationRefs(hogFunction, inputs).catch((e) => e)
-
-            expect(error).toBeInstanceOf(HogConfigurationError)
-            expect(error.message).toBe(
-                `The integration for input '${key}' could not be loaded. It may have been deleted. Select a connected integration for this input.`
-            )
+        ])('fails with a clear error for %s', async (_name, key, buildRef) => {
+            await expectNotLoaded(hogFunction, { [key]: await buildRef() }, key)
         })
     })
 })

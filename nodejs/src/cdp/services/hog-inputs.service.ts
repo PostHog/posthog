@@ -13,7 +13,12 @@ import {
 import { EncryptedFields } from '../utils/encryption-utils'
 import { HogConfigurationError, isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
-import { INTEGRATION_REF_KEY, isIntegrationRef } from '../utils/integration-input-refs'
+import {
+    INTEGRATION_REF_KEY,
+    IntegrationInputRef,
+    isIntegrationRef,
+    isSignedIntegrationRef,
+} from '../utils/integration-input-refs'
 import { LiquidRenderBudget, LiquidRenderer } from '../utils/liquid'
 import { NATIVE_PUSH_TEMPLATE_ID, getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
 import { IntegrationManagerService } from './managers/integration-manager.service'
@@ -252,6 +257,7 @@ export class HogInputsService {
     /**
      * Puts the resolved integration back in place of each reference that the job queue stored.
      * Inputs of jobs queued before references existed hold the resolved values, so they pass through unchanged.
+     * A reference must carry a valid server signature, and a reference without one fails the invocation.
      * Returns the same object when there is no reference to resolve.
      */
     public async resolveIntegrationRefs(
@@ -271,11 +277,17 @@ export class HogInputsService {
             return inputs
         }
 
+        // Mapping B can use mapping A's integration key for event JSON, so the config check alone lets an event
+        // name an integration that the function selects elsewhere. The signature proves the server wrote the ref.
+        const isTrustedRef = (key: string, ref: IntegrationInputRef): boolean =>
+            Boolean(configuredIds.get(key)?.has(String(ref[INTEGRATION_REF_KEY]))) &&
+            isSignedIntegrationRef(this.encryptedFields, hogFunction.team_id, key, ref)
+
         const ids = refEntries.flatMap(([key, value]) =>
             (Array.isArray(value) ? value : [value])
                 .filter(isIntegrationRef)
+                .filter((ref) => isTrustedRef(key, ref))
                 .map((ref) => ref[INTEGRATION_REF_KEY])
-                .filter((id) => configuredIds.get(key)?.has(String(id)))
         )
         const integrations = await this.integrationManager.getMany(ids)
 
@@ -285,9 +297,8 @@ export class HogInputsService {
             if (!isIntegrationRef(value)) {
                 return value
             }
-            const id = value[INTEGRATION_REF_KEY]
-            const resolved = configuredIds.get(key)?.has(String(id))
-                ? this.resolveIntegration(integrations[id], hogFunction.team_id)
+            const resolved = isTrustedRef(key, value)
+                ? this.resolveIntegration(integrations[value[INTEGRATION_REF_KEY]], hogFunction.team_id)
                 : null
             if (!resolved) {
                 throw new HogConfigurationError(
