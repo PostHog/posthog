@@ -275,6 +275,7 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
             distinct_id=inputs.distinct_id,
             event=REENRICHMENT_EVENT,
             properties={
+                "$update_person_last_seen_at": False,
                 "organization_id": inputs.organization_id,
                 "matched": matched,
                 "icp_fit_status": status,

@@ -513,7 +513,7 @@ def _capture_email_event(capture: ScopedCapture, dest: dict[str, str], event: st
         capture(
             distinct_id=dest.get("distinct_id") or dest["raw_email"],
             event=event,
-            properties={"recipient_email": dest["raw_email"], **properties},
+            properties={"recipient_email": dest["raw_email"], **properties, "$update_person_last_seen_at": False},
         )
     except Exception as analytics_err:
         logger.warning("email_send_analytics_capture_failed", error=str(analytics_err))

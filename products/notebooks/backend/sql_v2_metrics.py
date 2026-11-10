@@ -147,6 +147,7 @@ def record_notebook_run_terminal(notebook_run: Any, outcome: str) -> None:
 
         cell_plan = notebook_run.cell_plan if isinstance(notebook_run.cell_plan, list) else []
         properties: dict[str, Any] = {
+            "$update_person_last_seen_at": False,
             "notebook_short_id": notebook_run.notebook.short_id,
             "trigger": notebook_run.trigger,
             "outcome": outcome,
@@ -228,6 +229,7 @@ def _capture_completed_event(
 ) -> None:
     envelope = run.envelope if isinstance(run.envelope, dict) else {}
     properties: dict[str, Any] = {
+        "$update_person_last_seen_at": False,
         "notebook_short_id": run.notebook.short_id,
         "node_type": run.node_type,
         "outcome": outcome,
