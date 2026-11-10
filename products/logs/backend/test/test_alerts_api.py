@@ -228,10 +228,10 @@ class TestLogsAlertAPI(APIBaseTest):
         assert [(row["state"], row["next_check_at"]) for row in rows] == [
             ("firing", platform_due_at.isoformat().replace("+00:00", "Z"))
         ] * len(rows)
-        # One for the runtime and one for the history's ids, whatever the page size. A list also reads
-        # the alerts with no logs row.
+        # One for the runtime, one for the history's ids and one for the control-plane changes' ids,
+        # whatever the page size. A list also reads the alerts with no logs row.
         platform_reads = [q for q in queries.captured_queries if "alerts_platformalertconfiguration" in q["sql"]]
-        assert len(platform_reads) == (3 if action == "list" else 2)
+        assert len(platform_reads) == (4 if action == "list" else 3)
 
     def test_list_filters_by_created_by(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)

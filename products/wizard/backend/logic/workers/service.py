@@ -93,6 +93,7 @@ class WizardExecutionRequest:
     wizard_version: str
     program_command: tuple[str, ...]
     use_local_wizard_source: bool = False
+    context_mill_version: str | None = None
 
 
 @frozen
@@ -256,6 +257,7 @@ def execute_wizard(request: WizardExecutionRequest) -> None:
                 request.wizard_version,
                 request.program_command,
                 use_local_wizard_source=request.use_local_wizard_source,
+                context_mill_version=request.context_mill_version,
             )
         ),
         timeout_seconds=SANDBOX_EXECUTION_TIMEOUT_SECONDS,
