@@ -17,8 +17,8 @@ import { TrendsFilterType } from '~/types'
 
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
-import { CalcColumnState } from '../InsightsTable'
 import { getAggregatedValue } from '../insightsTableDataLogic'
+import { CalcColumnState } from '../useInsightsTableModel'
 
 export const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     total: 'Total Sum',
