@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { IconCheck, IconCopy, IconWarning, IconX } from '@posthog/icons'
+import { IconCheck, IconCopy, IconRewind, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonModal } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { pluralize } from 'lib/utils/strings'
 
 import { DeletedFlagInfo, FlagRolloutState, flagSelectionLogic } from './flagSelectionLogic'
 
@@ -113,16 +114,25 @@ If there is an else branch, keep only the else body:
 }
 
 export function BulkDeleteResultsModal(): JSX.Element | null {
-    const { bulkDeleteResult, resultsModalVisible } = useValues(flagSelectionLogic)
-    const { hideResultsModal } = useActions(flagSelectionLogic)
+    const {
+        bulkDeleteResult,
+        resultsModalVisible,
+        stillDeletedFlags,
+        restorableFlags,
+        bulkRestoredIds,
+        bulkRestoreFailures,
+        bulkRestoreRunning,
+        bulkRestoreProgress,
+    } = useValues(flagSelectionLogic)
+    const { hideResultsModal, bulkRestoreFlags } = useActions(flagSelectionLogic)
     const [copied, setCopied] = useState(false)
 
     if (!bulkDeleteResult || !resultsModalVisible) {
         return null
     }
 
-    const { deleted, errors } = bulkDeleteResult
-    const cleanupPrompt = generateCleanupPrompt(deleted)
+    const { errors } = bulkDeleteResult
+    const cleanupPrompt = generateCleanupPrompt(stillDeletedFlags)
 
     const handleCopyPrompt = async (): Promise<void> => {
         await copyToClipboard(cleanupPrompt, 'cleanup prompt')
@@ -134,24 +144,70 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
         <LemonModal
             isOpen={resultsModalVisible}
             onClose={hideResultsModal}
+            // Closing clears the results, so a restore that then fails would have nowhere to list its flags.
+            closable={!bulkRestoreRunning}
             title="Bulk deletion results"
             width={600}
             footer={
-                <LemonButton type="primary" onClick={hideResultsModal}>
-                    Done
-                </LemonButton>
+                <>
+                    {restorableFlags.length > 0 && (
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconRewind />}
+                            loading={bulkRestoreRunning}
+                            onClick={() => bulkRestoreFlags(restorableFlags)}
+                            data-attr="bulk-restore-deleted-flags"
+                        >
+                            {bulkRestoreRunning && bulkRestoreProgress
+                                ? `Restoring ${bulkRestoreProgress.done} of ${bulkRestoreProgress.total}…`
+                                : `Restore ${pluralize(restorableFlags.length, 'flag')}`}
+                        </LemonButton>
+                    )}
+                    <LemonButton
+                        type="primary"
+                        onClick={hideResultsModal}
+                        disabledReason={bulkRestoreRunning ? 'Wait for the restore to finish' : undefined}
+                    >
+                        Done
+                    </LemonButton>
+                </>
             }
         >
             <div className="space-y-4">
-                {deleted.length > 0 && (
+                {(bulkRestoredIds.length > 0 || bulkRestoreFailures.length > 0) && (
+                    <div className="space-y-2">
+                        {bulkRestoredIds.length > 0 && (
+                            <div className="flex items-center gap-2 text-success font-medium">
+                                <IconRewind className="text-lg" />
+                                <span>Restored {pluralize(bulkRestoredIds.length, 'flag')}</span>
+                            </div>
+                        )}
+                        {bulkRestoreFailures.length > 0 && (
+                            <>
+                                <div className="flex items-center gap-2 text-danger font-medium">
+                                    <IconX className="text-lg" />
+                                    <span>Failed to restore {pluralize(bulkRestoreFailures.length, 'flag')}</span>
+                                </div>
+                                <ul className="list-none pl-6 space-y-1">
+                                    {bulkRestoreFailures.map((failure) => (
+                                        <li key={failure.id} className="text-sm">
+                                            <span className="text-muted">{failure.key}:</span>
+                                            <span className="text-muted-alt"> {failure.errorMessage}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </>
+                        )}
+                    </div>
+                )}
+
+                {stillDeletedFlags.length > 0 && (
                     <div className="space-y-2">
                         <div className="flex items-center gap-2 text-success font-medium">
                             <IconCheck className="text-lg" />
-                            <span>
-                                Deleted {deleted.length} flag{deleted.length !== 1 ? 's' : ''}
-                            </span>
+                            <span>Deleted {pluralize(stillDeletedFlags.length, 'flag')}</span>
                         </div>
-                        <FlagResultsList flags={deleted} />
+                        <FlagResultsList flags={stillDeletedFlags} />
                     </div>
                 )}
 
@@ -174,7 +230,7 @@ export function BulkDeleteResultsModal(): JSX.Element | null {
                     </div>
                 )}
 
-                {deleted.length > 0 && (
+                {stillDeletedFlags.length > 0 && (
                     <LemonCollapse
                         panels={[
                             {

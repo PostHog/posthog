@@ -32,7 +32,6 @@ from products.tasks.backend.constants import (
     PI_ACP_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
-    STORE_SKILLS_STATE_KEY,
     SUBSCRIPTION_PLAN_NAMES,
     is_same_run_resume_state,
     vm_sandbox_allowed_origin_products,
@@ -48,7 +47,7 @@ from products.tasks.backend.exceptions import (
     TaskRunNotReadyError,
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
-from products.tasks.backend.facade.profiles import TaskProfile, TaskProfileError, get_task_profile
+from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy
 from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
@@ -57,6 +56,7 @@ from products.tasks.backend.logic.services.agentsh import (
     _get_debug_only_ports,
     enforced_egress_domains,
 )
+from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
 from products.tasks.backend.logic.services.network_policy import (
     EffectiveNetworkPolicy,
     NetworkPolicyValidationError,
@@ -68,7 +68,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_MEMORY_GB,
     MAX_SANDBOX_TTL_SECONDS,
 )
-from products.tasks.backend.logic.services.store_skills import resolve_store_skills
+from products.tasks.backend.logic.services.store_skills import disabled_store_skills_state, resolve_store_skills_state
 from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_generation
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.redis import run_uses_dedicated_stream
@@ -241,6 +241,11 @@ class TaskProcessingContext:
         return (self.state or {}).get("github_read_access") is True
 
     @property
+    def github_token_scope(self) -> Literal["read", "push"] | None:
+        scope = (self.state or {}).get("github_token_scope")
+        return scope if scope in ("read", "push") else None
+
+    @property
     def sandbox_environment_id(self) -> str | None:
         return (self.state or {}).get("sandbox_environment_id")
 
@@ -263,7 +268,13 @@ class TaskProcessingContext:
     @property
     def model(self) -> str | None:
         value = (self.state or {}).get("model")
-        return value if isinstance(value, str) else None
+        if not isinstance(value, str):
+            return None
+        if self.origin_product == Task.OriginProduct.POSTHOG_AI and not model_allowed_by_product_pin(
+            "posthog_ai", value
+        ):
+            return None
+        return value
 
     @property
     def reasoning_effort(self) -> str | None:
@@ -329,7 +340,8 @@ class TaskProcessingContext:
         signals-origin runs, whose inference is unbilled and which therefore get their own
         (longer) ceiling, resolved activity-side into the field below. Autonomous runs get
         the cap as a safety net unless the setting disables it deployment-wide. A task with
-        a profile takes both the exemption and the cap from the profile's `max_wake_minutes`.
+        a profile takes the exemption from the profile's `max_wake_minutes`. Its cap is the
+        lower of `max_wake_minutes` and the setting.
         """
         if self.mode == "interactive" or self._exempt_from_max_run_duration():
             if self.interactive_max_run_duration_seconds:
@@ -338,7 +350,7 @@ class TaskProcessingContext:
         cap = resolve_max_run_duration()
         if cap is None or self.profile_max_wake_minutes is None:
             return cap
-        return timedelta(minutes=self.profile_max_wake_minutes)
+        return min(cap, timedelta(minutes=self.profile_max_wake_minutes))
 
     def _exempt_from_max_run_duration(self) -> bool:
         if self.profile_key:
@@ -888,14 +900,13 @@ def _resolve_sandbox_backend(
     return "hogland" if enabled else "modal"
 
 
-def _stored_task_profile(task: Task, run_id: str) -> TaskProfile | None:
-    if not task.profile:
+def _profile_allowed_domains(network: NetworkPolicy) -> list[str] | None:
+    level = network.levels[0]
+    if level == NetworkAccess.FULL:
         return None
-    try:
-        return get_task_profile(task.profile)
-    except TaskProfileError:
-        log_with_activity_context("task_profile_not_registered", run_id=run_id, profile=task.profile)
-        return None
+    return SandboxEnvironment.effective_domains(
+        level, network.allowed_domains, include_default_domains=network.include_default_domains
+    )
 
 
 def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNetworkPolicy:
@@ -971,6 +982,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     distinct_id = (
         get_actor_distinct_id(actor_user) if actor_user else task.created_by.distinct_id or "process_task_workflow"
     )
+    profile = task.stored_profile
     sandbox_environment_id = state.get("sandbox_environment_id")
     sandbox_environment_name: str | None = None
     allowed_domains: list[str] | None = None
@@ -1006,7 +1018,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                         f"Custom image '{custom_image.name}' is not ready (status: {custom_image.status}); "
                         "using the default base image",
                     )
-            if sandbox_environment.network_access_level == SandboxEnvironment.NetworkAccessLevel.FULL:
+            if profile is not None and sandbox_environment.internal:
+                allowed_domains = _profile_allowed_domains(profile.network)
+            elif sandbox_environment.network_access_level == SandboxEnvironment.NetworkAccessLevel.FULL:
                 allowed_domains = None
             else:
                 allowed_domains = sandbox_environment.get_effective_domains()
@@ -1020,6 +1034,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 log_with_activity_context(
                     f"Resolved sandbox environment '{sandbox_environment.name}' with full network access", run_id=run_id
                 )
+    elif profile is not None:
+        allowed_domains = _profile_allowed_domains(profile.network)
 
     # A per-run image (picked at task start) wins over the environment's image.
     state_custom_image_id = state.get("custom_image_id")
@@ -1067,18 +1083,19 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # The sandbox agent renders these into its skill roots at session start. Resolved here so the
     # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
     # stop the run, it only leaves the sandbox without store skills for this session.
+    store_skills_updates: dict[str, Any] | None
     try:
-        if not include_live_context:
-            store_skills: list[dict[str, Any]] | None = []
-            state[STORE_SKILLS_STATE_KEY] = []
+        if not include_live_context or state.get("disable_skills") is True:
+            store_skills_updates = disabled_store_skills_state()
+            state.update(store_skills_updates)
         else:
             with StepTimer("store_skills"):
-                store_skills = resolve_store_skills(team, actor_user or task.created_by, run_id=run_id)
+                store_skills_updates = resolve_store_skills_state(team, actor_user or task.created_by, run_id=run_id)
     except Exception as e:
         log_with_activity_context("store_skills_resolve_failed", run_id=run_id, error=str(e))
-        store_skills = None
-    if store_skills is not None:
-        state_updates[STORE_SKILLS_STATE_KEY] = store_skills
+        store_skills_updates = None
+    if store_skills_updates is not None:
+        state_updates.update(store_skills_updates)
     # The sandbox writes these as the agent's user-level AGENTS.md / CLAUDE.md at session start.
     # Best-effort for the same reason as store skills.
     state_remove_keys: list[str] = []
@@ -1300,8 +1317,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         )
         if user_github_integration is not None:
             user_github_integration_id = str(user_github_integration.integration.id)
-
-    profile = _stored_task_profile(task, run_id)
 
     return TaskProcessingContext(
         task_id=str(task.id),

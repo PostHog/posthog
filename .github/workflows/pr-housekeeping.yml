@@ -37,6 +37,7 @@ jobs:
         uses: ./.github/workflows/ci-turbo.yml
 
     mobile-ci:
+        name: Mobile CI
         # Dispatch on every PR so repository rules can require "Mobile CI Pass".
         # Its own changes job skips the work when the diff does not touch the app.
         if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)

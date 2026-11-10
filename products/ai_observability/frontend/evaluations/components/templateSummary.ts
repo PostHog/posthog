@@ -24,7 +24,7 @@ export function templateSummary(template: EvaluationTemplate): string {
 }
 
 /** One line that says what a run returns, e.g. "Score from 1 to 5". */
-export function templateOutputText(template: EvaluationTemplate): string {
+export function templateOutputText(template: Pick<EvaluationTemplate, 'output_type' | 'output_config'>): string {
     const { min, max, options = [], selection_mode } = template.output_config
     switch (template.output_type) {
         case 'boolean':

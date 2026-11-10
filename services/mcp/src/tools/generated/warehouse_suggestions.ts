@@ -39,9 +39,10 @@ const warehouseSuggestionsAcceptPrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'warehouse-suggestions-accept',
+            inputSchema: WarehouseSuggestionsAcceptSchema(),
             actionLabel: 'accept warehouse suggestion',
             messageTemplate:
-                "About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table. If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute cost. If it is a deprecate suggestion on a materialized view, its refreshes stop and its stored table is deleted, unless keep_materialized is true. If it is an unmaterialize suggestion, the view's refreshes stop, its stored table is deleted, and each read computes the view instead. Reply 'confirm' to proceed.\n",
+                "About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table. If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute cost. If it is a deprecate suggestion on a materialized view, its refreshes stop and its stored table is deleted, unless keep_materialized is true. If delete_view is true, the view is deleted for good. If it is an unmaterialize suggestion, the view's refreshes stop, its stored table is deleted, and each read computes the view instead. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
             stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
@@ -63,8 +64,8 @@ const warehouseSuggestionsAcceptExecute = (): ToolBase<
             {
                 incomingArgs: confirmationParams,
                 purpose: 'warehouse-suggestions-accept',
+                inputSchema: WarehouseSuggestionsAcceptSchema(),
                 codec: __runtime.codec,
-                ledger: __runtime.ledger,
                 stash: __runtime.stash,
                 expectedScope: { projectId: String(__scopeProjectId) },
             }
@@ -92,6 +93,9 @@ const warehouseSuggestionsAcceptExecute = (): ToolBase<
         }
         if (params.keep_materialized !== undefined) {
             body['keep_materialized'] = params.keep_materialized
+        }
+        if (params.delete_view !== undefined) {
+            body['delete_view'] = params.delete_view
         }
         const result = await context.api.request<Schemas.WarehouseSuggestion>({
             method: 'POST',

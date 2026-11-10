@@ -67,22 +67,28 @@ def resolve_authoring_skill_names(team_id: int, report_ids: list[str]) -> dict[s
     if not report_ids:
         return {}
 
-    touched = Q()
+    emitted_filter = Q()
+    edited_filter = Q()
     for report_id in report_ids:
-        touched |= Q(emitted_report_ids__contains=[report_id]) | Q(edited_report_ids__contains=[report_id])
+        emitted_filter |= Q(emitted_report_ids__contains=[report_id])
+        edited_filter |= Q(edited_report_ids__contains=[report_id])
+    # `for_team`, not an ambient-scope filter: the default-owner caller runs in a Temporal
+    # activity, which sets no team scope, and the fail-closed manager raises there.
+    base_runs = SignalScoutRun.objects.for_team(team_id)
+    fields = ("id", "skill_name", "emitted_report_ids", "edited_report_ids", "created_at")
     runs = (
-        SignalScoutRun.objects.filter(team_id=team_id)
-        .filter(touched)
+        base_runs.filter(emitted_filter)
+        .values_list(*fields)
+        .union(base_runs.filter(edited_filter).values_list(*fields))
         # Ascending so that when several runs touched the same report the newest one, applied last,
         # is the skill that ends up owning it.
         .order_by("created_at")
-        .values_list("skill_name", "emitted_report_ids", "edited_report_ids")
     )
 
     wanted = set(report_ids)
     authored: dict[str, str] = {}
     edited: dict[str, str] = {}
-    for skill_name, emitted_ids, edited_ids in runs:
+    for _, skill_name, emitted_ids, edited_ids, _ in runs:
         if not skill_name:
             continue
         for report_id in wanted.intersection(emitted_ids or []):

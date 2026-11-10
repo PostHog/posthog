@@ -8,20 +8,24 @@ the CLI-facing upload contract and are surfaced verbatim by the views.
 
 import hashlib
 import datetime
+import itertools
 from collections import Counter
+from collections.abc import Iterator
 from typing import Any
 
 from django.conf import settings
-from django.db import transaction
-from django.db.models import Q
+from django.db import OperationalError, transaction
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+import psycopg
 import structlog
 import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps, groups
+from posthog.hogql_queries.utils.caller_context import map_in_caller_context
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
@@ -39,6 +43,10 @@ PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 # thousands of chunks per merge would rewrite all of them on each run. Cymbal throttles its own
 # `last_used` writes over the same window for the same reason.
 LAST_USED_UPLOAD_REFRESH_INTERVAL = datetime.timedelta(hours=12)
+
+DEADLOCK_RETRY_ATTEMPTS = 3
+
+HEAD_OBJECT_PARALLELISM = 8
 
 # The ID tiebreak keeps LIMIT/OFFSET paging stable when rows share a timestamp.
 # The reference is unique within a team, so it does not need a tiebreak.
@@ -126,19 +134,22 @@ def generate_symbol_set_upload_presigned_urls(file_key: str, content_length: int
     return urls
 
 
-def upload_content(content: bytearray) -> tuple[str, str]:
-    content_hash = hashlib.sha512(content).hexdigest()
+def check_upload_size(size: int) -> None:
+    if size > ONE_HUNDRED_MEGABYTES:
+        raise ValidationError(
+            code="file_too_large", detail="Combined source map and symbol set must be less than 100MB"
+        )
 
+
+def upload_content(content: bytearray) -> tuple[str, str]:
     if not settings.OBJECT_STORAGE_ENABLED:
         raise ValidationError(
             code="object_storage_required",
             detail="Object storage must be available to allow source map uploads.",
         )
 
-    if len(content) > ONE_HUNDRED_MEGABYTES:
-        raise ValidationError(
-            code="file_too_large", detail="Combined source map and symbol set must be less than 100MB"
-        )
+    check_upload_size(len(content))
+    content_hash = hashlib.sha512(content).hexdigest()
 
     upload_path = generate_symbol_set_file_key()
     object_storage.write(upload_path, bytes(content))
@@ -192,11 +203,18 @@ def refresh_last_used(team: Team, chunk_ids: list[str]) -> None:
     symbolicated until a later deploy recreates the row.
     """
     now = timezone.now()
-    ErrorTrackingSymbolSet.objects.filter(
-        Q(last_used__isnull=True) | Q(last_used__lt=now - LAST_USED_UPLOAD_REFRESH_INTERVAL),
-        team=team,
-        ref__in=chunk_ids,
-    ).update(last_used=now)
+    with transaction.atomic():
+        stale_ids = list(
+            ErrorTrackingSymbolSet.objects.filter(
+                Q(last_used__isnull=True) | Q(last_used__lt=now - LAST_USED_UPLOAD_REFRESH_INTERVAL),
+                team=team,
+                ref__in=chunk_ids,
+            )
+            .order_by("ref")
+            .select_for_update(no_key=True)
+            .values_list("id", flat=True)
+        )
+        ErrorTrackingSymbolSet.objects.filter(team=team, id__in=stale_ids).update(last_used=now)
 
 
 def _validate_uploads(new_symbol_sets: list[SymbolSetUpload], team: Team) -> None:
@@ -336,21 +354,30 @@ def bulk_check_symbol_sets(
     return chunk_ids_to_upload
 
 
-@posthoganalytics.scoped(capture_exceptions=False)
-def bulk_create_symbol_sets(
+def _lock_symbol_sets(team: Team, refs: list[str]) -> list[ErrorTrackingSymbolSet]:
+    return list(
+        ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=refs).order_by("ref").select_for_update(no_key=True)
+    )
+
+
+def _create_or_reuse_symbol_sets(
     new_symbol_sets: list[SymbolSetUpload],
     team: Team,
-    force: bool = False,
-    skip_on_conflict: bool = False,
+    force: bool,
+    skip_on_conflict: bool,
 ) -> dict[str, dict[str, Any]]:
-    _validate_uploads(new_symbol_sets, team)
-    chunk_ids = [x.chunk_id for x in new_symbol_sets]
+    chunk_ids = sorted(x.chunk_id for x in new_symbol_sets)
 
     id_url_map: dict[str, dict[str, Any]] = {}
     new_symbol_set_map = {x.chunk_id: x for x in new_symbol_sets}
 
     def reissue_upload(existing: ErrorTrackingSymbolSet) -> None:
-        storage_ptr = generate_symbol_set_file_key()
+        # Pending uploads share an object key so a retry cannot invalidate an in-flight upload URL.
+        storage_ptr = (
+            existing.storage_ptr
+            if existing.content_hash is None and existing.storage_ptr
+            else generate_symbol_set_file_key()
+        )
         id_url_map[existing.ref] = {
             **generate_symbol_set_upload_presigned_urls(storage_ptr, new_symbol_set_map[existing.ref].content_length),
             "symbol_set_id": str(existing.id),
@@ -360,9 +387,9 @@ def bulk_create_symbol_sets(
         existing.content_hash = None
 
     with transaction.atomic():
-        existing_symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids))
-        existing_symbol_set_refs = [s.ref for s in existing_symbol_sets]
-        missing_sets = list(set(chunk_ids) - set(existing_symbol_set_refs))
+        existing_symbol_sets = _lock_symbol_sets(team, chunk_ids)
+        existing_symbol_set_refs = {s.ref for s in existing_symbol_sets}
+        missing_sets = [chunk_id for chunk_id in chunk_ids if chunk_id not in existing_symbol_set_refs]
 
         symbol_sets_to_be_created = []
         for chunk_id in missing_sets:
@@ -382,10 +409,15 @@ def bulk_create_symbol_sets(
             symbol_sets_to_be_created.append(to_create)
 
         # create missing symbol sets
-        created_symbol_sets = ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created)
+        ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created, ignore_conflicts=True)
+        storage_ptrs_we_created = {s.ref: s.storage_ptr for s in symbol_sets_to_be_created}
 
-        for symbol_set in created_symbol_sets:
-            id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.pk)
+        for symbol_set in _lock_symbol_sets(team, missing_sets):
+            if symbol_set.storage_ptr == storage_ptrs_we_created[symbol_set.ref]:
+                id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.pk)
+            else:
+                del id_url_map[symbol_set.ref]
+                existing_symbol_sets.append(symbol_set)
 
         # update existing symbol sets
         to_update = []
@@ -413,6 +445,24 @@ def bulk_create_symbol_sets(
     return id_url_map
 
 
+@posthoganalytics.scoped(capture_exceptions=False)
+def bulk_create_symbol_sets(
+    new_symbol_sets: list[SymbolSetUpload],
+    team: Team,
+    force: bool = False,
+    skip_on_conflict: bool = False,
+) -> dict[str, dict[str, Any]]:
+    _validate_uploads(new_symbol_sets, team)
+    for attempt in range(1, DEADLOCK_RETRY_ATTEMPTS):
+        try:
+            return _create_or_reuse_symbol_sets(new_symbol_sets, team, force, skip_on_conflict)
+        except OperationalError as e:
+            if not isinstance(e.__cause__, psycopg.errors.DeadlockDetected):
+                raise
+            logger.warning("symbol_set_upload_deadlock_retry", team_id=team.id, attempt=attempt)
+    return _create_or_reuse_symbol_sets(new_symbol_sets, team, force, skip_on_conflict)
+
+
 def list_symbol_sets(
     team_id: int,
     *,
@@ -420,9 +470,7 @@ def list_symbol_sets(
     search: str | None,
     symbol_set_status: str | None,
     order_by: str | None,
-    limit: int | None,
-    offset: int,
-) -> tuple[list[ErrorTrackingSymbolSet], int]:
+) -> QuerySet[ErrorTrackingSymbolSet]:
     queryset = ErrorTrackingSymbolSet.objects.filter(team_id=team_id).select_related("release")
 
     if ref:
@@ -443,11 +491,7 @@ def list_symbol_sets(
     elif symbol_set_status == "invalid":
         queryset = queryset.filter(storage_ptr__isnull=True)
 
-    queryset = queryset.order_by(*SYMBOL_SET_ORDERINGS.get(order_by or "", DEFAULT_SYMBOL_SET_ORDERING))
-
-    total = queryset.count()
-    rows = queryset if limit is None else queryset[offset : offset + limit]
-    return list(rows), total
+    return queryset.order_by(*SYMBOL_SET_ORDERINGS.get(order_by or "", DEFAULT_SYMBOL_SET_ORDERING))
 
 
 def get_symbol_set(team_id: int, symbol_set_id: str) -> ErrorTrackingSymbolSet | None:
@@ -582,6 +626,25 @@ def bulk_check_upload(
     return bulk_check_symbol_sets(uploads, team, force=force, skip_on_conflict=skip_on_conflict)
 
 
+def _head_uploaded_file(symbol_set: ErrorTrackingSymbolSet) -> dict[str, Any] | None:
+    if not symbol_set.storage_ptr:
+        return None
+    return object_storage.head_object(file_key=symbol_set.storage_ptr)
+
+
+def _head_uploaded_files_in_batches(
+    symbol_sets: list[ErrorTrackingSymbolSet],
+) -> Iterator[tuple[ErrorTrackingSymbolSet, dict[str, Any] | None]]:
+    for batch in itertools.batched(symbol_sets, HEAD_OBJECT_PARALLELISM, strict=False):
+        s3_uploads = map_in_caller_context(
+            _head_uploaded_file,
+            batch,
+            max_workers=HEAD_OBJECT_PARALLELISM,
+            thread_name_prefix="symbol_set_head",
+        )
+        yield from zip(batch, s3_uploads, strict=True)
+
+
 def bulk_finish_upload(
     team: Team, content_hashes: dict[str, str], *, analytics_props: AnalyticsProps | None = None
 ) -> None:
@@ -604,11 +667,7 @@ def bulk_finish_upload(
                 detail=f"Unknown symbol set IDs: {', '.join(sorted(missing_symbol_set_ids))}",
             )
 
-        for symbol_set in symbol_sets:
-            s3_upload = None
-            if symbol_set.storage_ptr:
-                s3_upload = object_storage.head_object(file_key=symbol_set.storage_ptr)
-
+        for symbol_set, s3_upload in _head_uploaded_files_in_batches(symbol_sets):
             if s3_upload:
                 content_length = s3_upload.get("ContentLength")
                 if content_length:
@@ -629,7 +688,9 @@ def bulk_finish_upload(
 
             content_hash = content_hashes[str(symbol_set.id)]
             symbol_set.content_hash = content_hash
-        ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
+        with transaction.atomic():
+            _lock_symbol_sets(team, [symbol_set.ref for symbol_set in symbol_sets])
+            ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
     except Exception as e:
         posthoganalytics.capture(
             "error_tracking_symbol_set_uploaded",

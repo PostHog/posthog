@@ -6,6 +6,7 @@ import { v7 as uuidv7 } from 'uuid'
 import { logger } from '~/common/utils/logger'
 
 import { assignEmailDequeueSeq } from './manager'
+import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
@@ -235,7 +236,7 @@ export class CyclotronV2Worker {
     protected readonly fairDequeue: boolean
 
     constructor(private config: CyclotronV2WorkerConfig) {
-        this.pool = new Pool({
+        this.pool = createCyclotronPool('worker', {
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 10,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,

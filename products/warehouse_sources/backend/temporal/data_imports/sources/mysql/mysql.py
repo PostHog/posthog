@@ -46,6 +46,7 @@ from posthog.psycopg_helpers import (
     prefer_routable_addresses,
     resolve_psycopg_hostaddr_with_timeout,
 )
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_PRECISION,
@@ -59,9 +60,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     HostNotAllowedError,
+    check_oob_domain,
     check_resolved_addresses,
     host_lookup_is_skipped,
-    note_oob_domain,
     open_ssh_tunnel,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -213,7 +214,17 @@ class MySQLUnavoidableFilesortError(Exception):
 # config error.
 _CANT_CONNECT_CODE = 2003
 
-_SYSTEM_SCHEMAS = ("information_schema", "mysql", "performance_schema", "sys")
+_SYSTEM_SCHEMAS = (
+    "information_schema",
+    "mysql",
+    "performance_schema",
+    "sys",
+    # Vitess's internal sidecar database (vreplication/schema-tracking metadata). It shows
+    # up in `information_schema` like any other schema, but VTGate doesn't expose it as a
+    # routable keyspace, so a sync-all-databases discovery that picks it up fails every
+    # streaming read against it with "unknown database '_vt' in vschema" (VT05003).
+    "_vt",
+)
 
 
 def _configured_schema(config: MySQLSourceConfig) -> str | None:
@@ -701,7 +712,8 @@ def _pinned_addresses(host: str, port: int, connect_timeout: int, team_id: int |
     or a resolver "try again" answer raises the error pymysql raises for its own failed lookup,
     so the transient-connect retry runs a fresh lookup on the next attempt.
     """
-    note_oob_domain(host, team_id)
+    if check_oob_domain(host, team_id) is not None:
+        raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {OOB_DOMAIN_REFUSAL}")
 
     if host_lookup_is_skipped():
         return ()

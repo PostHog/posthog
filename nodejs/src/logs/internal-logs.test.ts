@@ -1,3 +1,7 @@
+import { register } from 'prom-client'
+
+import { logger } from '~/common/utils/logger'
+
 import { InternalLogsVerifier, signInternalLogs } from './internal-logs'
 
 const KEY = 'internal-logs-test-key'
@@ -9,6 +13,8 @@ const SIGNED_AT = new Date('2026-10-27T12:00:00Z')
 const CREATED_AT = '2026-10-27T12:01:00.123456789+00:00'
 
 describe('InternalLogsVerifier', () => {
+    afterEach(() => jest.restoreAllMocks())
+
     it.each([
         {
             name: 'accepts a batch signed with the newest key',
@@ -34,6 +40,7 @@ describe('InternalLogsVerifier', () => {
             source: SOURCE,
             billed: false,
             teamRules: false,
+            serviceName: 'posthog-internal-workflows',
         })
     })
 
@@ -71,9 +78,20 @@ describe('InternalLogsVerifier', () => {
         },
     ])(
         'bills a batch with $name',
-        ({ signature, keys = KEY, teams = String(TEAM_ID), createdAt = CREATED_AT as string | null }) => {
+        async ({ signature, keys = KEY, teams = String(TEAM_ID), createdAt = CREATED_AT as string | null }) => {
+            // Collected pod stdout comes back with no header, so a per-batch log line on a key mismatch loops.
+            const logSpies = (['info', 'warn', 'error'] as const).map((level) => jest.spyOn(logger, level))
+            const notInternal = async (): Promise<number> =>
+                (await register.getSingleMetric('logs_ingestion_internal_logs_total')!.get()).values
+                    .filter((v) => v.labels.outcome === 'not_internal')
+                    .reduce((sum, v) => sum + v.value, 0)
+            const before = await notInternal()
+
             const verifier = new InternalLogsVerifier(keys, teams)
             expect(verifier.verify(signature, TEAM_ID, createdAt ?? undefined)).toBeUndefined()
+
+            expect(await notInternal()).toBe(before + (signature === undefined ? 0 : 1))
+            logSpies.forEach((spy) => expect(spy).not.toHaveBeenCalled())
         }
     )
 

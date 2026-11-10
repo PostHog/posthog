@@ -88,7 +88,8 @@ class WorkflowImportRequestSerializer(serializers.Serializer):
         child=serializers.CharField(allow_blank=True),
         required=False,
         default=dict,
-        help_text='Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`.',
+        help_text="Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. "
+        "When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too.",
     )
     segment_cohorts = serializers.DictField(
         child=serializers.IntegerField(),

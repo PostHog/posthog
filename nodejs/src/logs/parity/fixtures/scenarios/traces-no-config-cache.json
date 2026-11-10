@@ -1,0 +1,361 @@
+{
+ "scenario": {
+  "name": "traces-no-config-cache",
+  "description": "Traces without the tracing config cache use the built-in default.",
+  "consumer": "traces",
+  "batch_now_ms": [
+   1736944633250
+  ],
+  "config": {
+   "LOGS_INGESTION_CONSUMER_GROUP_ID": "ingestion-logs",
+   "LOGS_INGESTION_CONSUMER_CONSUME_TOPIC": "logs_ingestion_test",
+   "LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC": "logs_ingestion_overflow_test",
+   "LOGS_INGESTION_CONSUMER_DLQ_TOPIC": "logs_ingestion_dlq_test",
+   "LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC": "clickhouse_logs_test",
+   "LOGS_REDIS_HOST": "127.0.0.1",
+   "LOGS_REDIS_PORT": 6379,
+   "LOGS_REDIS_PASSWORD": "",
+   "LOGS_REDIS_TLS": false,
+   "LOGS_LIMITER_ENABLED_TEAMS": "*",
+   "LOGS_LIMITER_DISABLED_FOR_TEAMS": "",
+   "LOGS_LIMITER_BUCKET_SIZE_KB": 10000,
+   "LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND": 1000,
+   "LOGS_LIMITER_TTL_SECONDS": 86400,
+   "LOGS_LIMITER_TEAM_BUCKET_SIZE_KB": "",
+   "LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND": "",
+   "LOGS_SAMPLING_ENABLED_TEAMS": "",
+   "LOGS_SAMPLING_KILLSWITCH": false,
+   "LOGS_METRICS_RULES_ENABLED_TEAMS": "",
+   "LOGS_METRICS_RULES_KILLSWITCH": false,
+   "LOGS_METRICS_RULES_EXPORT_URL": "",
+   "LOGS_DEFAULT_METRIC_RULES_ENABLED_TEAMS": "",
+   "LOGS_RETENTION_ENABLED_TEAMS": "",
+   "LOGS_BACKFILL_ENABLED_TEAMS": "",
+   "LOGS_RETENTION_KILLSWITCH": false,
+   "LOGS_INTERNAL_INGESTION_ENABLED_TEAMS": "",
+   "LOGS_INTERNAL_INGESTION_SIGNING_KEYS": "",
+   "LOGS_INTERNAL_PRODUCER_URL": "",
+   "LOGS_INTERNAL_PRODUCER_TEAMS": "",
+   "LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT": 20,
+   "LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES": 67108864,
+   "LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS": 60000,
+   "LOGS_PATTERN_MASKING_ENABLED_TEAMS": "",
+   "LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS": "",
+   "LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS": "",
+   "LOGS_BILLING_PRORATE_ENABLED": false,
+   "LOGS_TRANSFORMATIONS_ENABLED_TEAMS": "",
+   "LOGS_TRANSFORMATIONS_KILLSWITCH": false,
+   "LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS": 10,
+   "LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS": 100,
+   "LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS": 2000,
+   "LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION": 3,
+   "REDIS_URL": "",
+   "REDIS_POOL_MIN_SIZE": 1,
+   "REDIS_POOL_MAX_SIZE": 3,
+   "TRACES_INGESTION_CONSUMER_GROUP_ID": "ingestion-traces",
+   "TRACES_INGESTION_CONSUMER_CONSUME_TOPIC": "ingestion-traces_test",
+   "TRACES_INGESTION_CONSUMER_OVERFLOW_TOPIC": "ingestion-traces-overflow_test",
+   "TRACES_INGESTION_CONSUMER_DLQ_TOPIC": "ingestion-traces-dlq_test",
+   "TRACES_INGESTION_CONSUMER_CLICKHOUSE_TOPIC": "clickhouse_traces_test",
+   "TRACES_REDIS_HOST": "127.0.0.1",
+   "TRACES_REDIS_PORT": 6379,
+   "TRACES_REDIS_PASSWORD": "",
+   "TRACES_REDIS_TLS": false,
+   "TRACES_LIMITER_ENABLED_TEAMS": "*",
+   "TRACES_LIMITER_DISABLED_FOR_TEAMS": "",
+   "TRACES_LIMITER_BUCKET_SIZE_KB": 10000,
+   "TRACES_LIMITER_REFILL_RATE_KB_PER_SECOND": 1000,
+   "TRACES_LIMITER_TTL_SECONDS": 86400,
+   "TRACES_LIMITER_TEAM_BUCKET_SIZE_KB": "",
+   "TRACES_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND": "",
+   "TRACES_METRICS_RULES_ENABLED_TEAMS": "",
+   "TRACES_METRICS_RULES_KILLSWITCH": false,
+   "TRACES_METRICS_RULES_EXPORT_URL": "",
+   "TRACES_DEFAULT_METRIC_RULES_ENABLED_TEAMS": "",
+   "TRACES_RETENTION_ENABLED_TEAMS": "",
+   "TRACES_RETENTION_KILLSWITCH": false
+  },
+  "teams": [
+   {
+    "id": 101,
+    "api_token": "phc_parity_plain",
+    "logs_settings": null
+   },
+   {
+    "id": 102,
+    "api_token": "phc_parity_json",
+    "logs_settings": {
+     "json_parse_logs": true
+    }
+   },
+   {
+    "id": 103,
+    "api_token": "phc_parity_pii",
+    "logs_settings": {
+     "pii_scrub_logs": true
+    }
+   },
+   {
+    "id": 104,
+    "api_token": "phc_parity_both",
+    "logs_settings": {
+     "json_parse_logs": true,
+     "pii_scrub_logs": true,
+     "retention_days": 30
+    }
+   },
+   {
+    "id": 105,
+    "api_token": "phc_parity_attr",
+    "logs_settings": {
+     "json_parse_logs": true,
+     "json_parse_logs_attribute_key": "payload",
+     "retention_days": 90
+    }
+   },
+   {
+    "id": 106,
+    "api_token": "phc_parity_ret7",
+    "logs_settings": {
+     "retention_days": 7
+    }
+   }
+  ],
+  "quota_limited_tokens": [],
+  "sampling_rules": {},
+  "retention_rules": {},
+  "metric_rules": {},
+  "pattern_message_keys": {},
+  "traces_retention_days": {},
+  "team_lookup_faults": {},
+  "team_by_id_faults": {},
+  "team_by_id_missing": [],
+  "metric_rules_faults": {},
+  "metric_emit_faults": [],
+  "pattern_keys_faults": {},
+  "omit_deps": [
+   "tracingConfigCache"
+  ],
+  "produce_faults": [],
+  "batches": [
+   [
+    {
+     "topic": "traces_ingestion",
+     "partition": 3,
+     "offset": 6,
+     "timestamp": 1736944632250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "phc_parity_plain"
+      ],
+      [
+       "bytes_uncompressed",
+       "10134"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "6756"
+      ],
+      [
+       "bytes_compressed",
+       "3378"
+      ],
+      [
+       "record_count",
+       "2"
+      ],
+      [
+       "created_at",
+       "2025-01-15T12:36:56.328Z"
+      ]
+     ],
+     "value_b64": "T2JqAQQWYXZyby5zY2hlbWGqL3sibmFtZSI6IlRyYWNlUmVjb3JkIiwidHlwZSI6InJlY29yZCIsImZpZWxkcyI6W3sibmFtZSI6InV1aWQiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVW5pcXVlIGlkZW50aWZpZXIgZm9yIHRoZSBzcGFuIHJlY29yZC4ifSx7Im5hbWUiOiJ0cmFjZV9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSB0cmFjZSB0aGlzIHNwYW4gYmVsb25ncyB0by4ifSx7Im5hbWUiOiJzcGFuX2lkIiwidHlwZSI6WyJudWxsIiwiYnl0ZXMiXSwiZG9jIjoiSWRlbnRpZmllciBmb3IgdGhpcyBzcGFuIHdpdGhpbiB0aGUgdHJhY2UuIn0seyJuYW1lIjoicGFyZW50X3NwYW5faWQiLCJ0eXBlIjpbIm51bGwiLCJieXRlcyJdLCJkb2MiOiJJZGVudGlmaWVyIGZvciB0aGUgcGFyZW50IHNwYW4sIGlmIGFueS4ifSx7Im5hbWUiOiJ0cmFjZV9zdGF0ZSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJXM0MgdHJhY2Ugc3RhdGUgc3RyaW5nLiJ9LHsibmFtZSI6Im5hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiT3BlcmF0aW9uIG5hbWUgb2YgdGhlIHNwYW4uIn0seyJuYW1lIjoia2luZCIsInR5cGUiOlsibnVsbCIsImludCJdLCJkb2MiOiJTcGFuS2luZDogMD1VTlNQRUNJRklFRCwgMT1JTlRFUk5BTCwgMj1TRVJWRVIsIDM9Q0xJRU5ULCA0PVBST0RVQ0VSLCA1PUNPTlNVTUVSLiJ9LHsibmFtZSI6ImZsYWdzIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6IlRyYWNlIGZsYWdzIGFzIGRlZmluZWQgaW4gVzNDIFRyYWNlIENvbnRleHQgc3BlY2lmaWNhdGlvbi4ifSx7Im5hbWUiOiJ0aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlN0YXJ0IHRpbWUgb2YgdGhlIHNwYW4sIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJlbmRfdGltZSIsInR5cGUiOlsibnVsbCIsImxvbmciXSwiZG9jIjoiRW5kIHRpbWUgb2YgdGhlIHNwYW4sIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJvYnNlcnZlZF90aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSB0aW1lc3RhbXAgd2hlbiB0aGUgc3BhbiB3YXMgcmVjZWl2ZWQgYnkgdGhlIGNvbGxlY3Rvci4ifSx7Im5hbWUiOiJzZXJ2aWNlX25hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVGhlIG5hbWUgb2YgdGhlIHNlcnZpY2UgdGhhdCBnZW5lcmF0ZWQgdGhlIHNwYW4uIn0seyJuYW1lIjoicmVzb3VyY2VfYXR0cmlidXRlcyIsInR5cGUiOlsibnVsbCIseyJ0eXBlIjoibWFwIiwidmFsdWVzIjoic3RyaW5nIn1dLCJkb2MiOiJBdHRyaWJ1dGVzIGRlc2NyaWJpbmcgdGhlIHJlc291cmNlIHRoYXQgcHJvZHVjZWQgdGhlIHNwYW4uIn0seyJuYW1lIjoiaW5zdHJ1bWVudGF0aW9uX3Njb3BlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlRoZSBuYW1lIGFuZCB2ZXJzaW9uIG9mIHRoZSBpbnN0cnVtZW50YXRpb24gbGlicmFyeSB0aGF0IGNhcHR1cmVkIHRoZSBzcGFuLiJ9LHsibmFtZSI6ImF0dHJpYnV0ZXMiLCJ0eXBlIjpbIm51bGwiLHsidHlwZSI6Im1hcCIsInZhbHVlcyI6InN0cmluZyJ9XSwiZG9jIjoiQSBtYXAgb2YgY3VzdG9tIHN0cmluZy12YWx1ZWQgYXR0cmlidXRlcyBhc3NvY2lhdGVkIHdpdGggdGhlIHNwYW4uIn0seyJuYW1lIjoiZHJvcHBlZF9hdHRyaWJ1dGVzX2NvdW50IiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6Ik51bWJlciBvZiBhdHRyaWJ1dGVzIHRoYXQgd2VyZSBkcm9wcGVkIGR1ZSB0byBsaW1pdHMuIn0seyJuYW1lIjoiZXZlbnRzIiwidHlwZSI6WyJudWxsIix7InR5cGUiOiJhcnJheSIsIml0ZW1zIjoic3RyaW5nIn1dLCJkb2MiOiJBcnJheSBvZiBzcGFuIGV2ZW50cywgZWFjaCBzZXJpYWxpemVkIGFzIGEgSlNPTiBzdHJpbmcuIn0seyJuYW1lIjoiZHJvcHBlZF9ldmVudHNfY291bnQiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZG9jIjoiTnVtYmVyIG9mIGV2ZW50cyB0aGF0IHdlcmUgZHJvcHBlZCBkdWUgdG8gbGltaXRzLiJ9LHsibmFtZSI6ImxpbmtzIiwidHlwZSI6WyJudWxsIix7InR5cGUiOiJhcnJheSIsIml0ZW1zIjoic3RyaW5nIn1dLCJkb2MiOiJBcnJheSBvZiBzcGFuIGxpbmtzLCBlYWNoIHNlcmlhbGl6ZWQgYXMgYSBKU09OIHN0cmluZy4ifSx7Im5hbWUiOiJkcm9wcGVkX2xpbmtzX2NvdW50IiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6Ik51bWJlciBvZiBsaW5rcyB0aGF0IHdlcmUgZHJvcHBlZCBkdWUgdG8gbGltaXRzLiJ9LHsibmFtZSI6InN0YXR1c19jb2RlIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRvYyI6IlN0YXR1cyBjb2RlOiAwPVVOU0VULCAxPU9LLCAyPUVSUk9SLiJ9LHsibmFtZSI6InN0YXR1c19tZXNzYWdlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlN0YXR1cyBtZXNzYWdlIn0seyJuYW1lIjoiYnl0ZXNfdW5jb21wcmVzc2VkIiwidHlwZSI6WyJudWxsIiwibG9uZyJdLCJkb2MiOiJMb2dpY2FsIGNvbnRlbnQgc2l6ZSBvZiB0aGUgcm93IChzdW0gb2YgYnl0ZSBsZW5ndGhzIG9mIHN0cmluZy9tYXAvYXJyYXkgZmllbGRzKS4gVXNlZCBieSBkcm9wLXJ1bGUgYWNjb3VudGluZzsgZG9lcyBub3QgaW5jbHVkZSBmaXhlZC13aWR0aCBudW1lcmljIG9yIHRpbWVzdGFtcCBmaWVsZHMuIn0seyJuYW1lIjoicmV0ZW50aW9uX2RheXMiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZGVmYXVsdCI6bnVsbCwiZG9jIjoiUGVyLXJvdyByZXRlbnRpb24gaW4gZGF5cywgc3RhbXBlZCBieSB0aGUgTm9kZSBjb25zdW1lciBmcm9tIHRlYW0gcmV0ZW50aW9uIHJ1bGVzLiBOdWxsIHdoZW4gdW5zZXQg4oCUIENsaWNrSG91c2UgdGhlbiBmYWxscyBiYWNrIHRvIHRoZSBiYXRjaCBgcmV0ZW50aW9uLWRheXNgIGhlYWRlci4gY2FwdHVyZS1sb2dzIGFsd2F5cyB3cml0ZXMgbnVsbDsgaXQgZG9lcyBub3QgZXZhbHVhdGUgdGVhbSBydWxlcy4ifV0sImRvYyI6IlNjaGVtYSBmb3IgYW4gT1RFTCB0cmFjZSBzcGFuLiJ9FGF2cm8uY29kZWMSenN0YW5kYXJkAOuRnzObnAu80BPsTcO2Iy0EogQotS/9YKQAPQgAtA4CSDAtMDAwMC00MDAwLTkwMDcxMDc5NQIgwLLtAF3i0T7i6qXfSwk9zwIQcDkerSLaz5UAAAIGam9iAggCAgKu3tGyru+VBgKgg+D9vQx3b3JrZXICAhhzZXJ2aWNlLm5hbWUKImFwaSIAAAIEIGh0dHAuc3RhdHVzX2NvZGUGNDA0FHVzZXIuZW1haWweImRAZXhhbXBsZS5jb20iAAIAAuQEADE3NTk3OQIgirvyw+qhBD9OjRYOpCAjlQIQeI3L7JjQERMCEP/xWkxlD95RAAIQR0VUIC9hcGkCCgICAvi+1NutNTAwpAMACQABmrkWoWwFBFM7jNPgJ+Xi6CwHyiQpA0PrkZ8zm5wLvNAT7E3DtiMt"
+    }
+   ]
+  ]
+ },
+ "expected": {
+  "batches": [
+   {
+    "error": null
+   }
+  ],
+  "outputs": [
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":101,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"traces\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested\",\"count\":10134}",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 10134,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":101,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"traces\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_records\",\"count\":6756}",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 6756,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_records",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":101,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"traces\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_retention_14d\",\"count\":10134}",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 10134,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_retention_14d",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":101,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"traces\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_received\",\"count\":10134}",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 10134,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_received",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":101,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"traces\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_ingested\",\"count\":2}",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 2,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_ingested",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":101,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"traces\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_received\",\"count\":2}",
+     "json": {
+      "app_source": "traces",
+      "app_source_id": "",
+      "count": 2,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_received",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 0,
+    "output": "logs",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "3378",
+     "bytes_uncompressed": "10134",
+     "bytes_uncompressed_records": "6756",
+     "created_at": "2025-01-15T12:36:56.328Z",
+     "json-parse": "false",
+     "record_count": "2",
+     "retention-days": "14",
+     "source_partition": "3",
+     "source_topic": "traces_ingestion",
+     "team_id": "101",
+     "token": "phc_parity_plain"
+    },
+    "value": {
+     "kind": "passthrough",
+     "batch": 0,
+     "index": 0
+    }
+   }
+  ],
+  "metric_emits": [],
+  "usage_records": [
+   {
+    "batch": 0,
+    "team_id": 101,
+    "metric": "apm_traces_bytes",
+    "quantity": 10134,
+    "unit": "bytes",
+    "record_group": 0
+   },
+   {
+    "batch": 0,
+    "team_id": 101,
+    "metric": "apm_traces_spans",
+    "quantity": 2,
+    "unit": "records",
+    "record_group": 0
+   }
+  ],
+  "teams_ingested": [
+   [
+    101
+   ]
+  ],
+  "quota_checks": [
+   [
+    "phc_parity_plain",
+    "logs_mb_ingested"
+   ]
+  ]
+ }
+}

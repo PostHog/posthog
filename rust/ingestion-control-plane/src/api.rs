@@ -448,6 +448,8 @@ struct SeedChangelogRequest {
     topic: String,
     /// The writer's consumer group, as its `KAFKA_CONSUMER_GROUP` names it.
     writer_group: String,
+    #[serde(default)]
+    cluster: Option<String>,
 }
 
 async fn personhog_seed_changelog(
@@ -465,10 +467,22 @@ async fn personhog_seed_changelog(
         return Err(ApiError::bad_request("writer_group must not be empty"));
     }
     let client = etcd_client(&state).await?;
-    let seeded = changelog::seed(&state.config, &client, &prefix, topic, writer_group)
-        .await
-        .map_err(|e| ApiError::bad_request(format!("seed failed: {e:#}")))?;
+    let cluster = trimmed(request.cluster.as_deref());
+    let seeded = changelog::seed(
+        &state.config,
+        &client,
+        &prefix,
+        topic,
+        writer_group,
+        cluster,
+    )
+    .await
+    .map_err(|e| ApiError::bad_request(format!("seed failed: {e:#}")))?;
     Ok(Json(seeded))
+}
+
+fn trimmed(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|v| !v.is_empty())
 }
 
 fn backup_store(state: &AppState) -> Result<Arc<dyn crate::backup::BackupStore>, ApiError> {
@@ -526,6 +540,8 @@ async fn personhog_restore_changelog(
 #[derive(Deserialize)]
 struct StartMigrationRequest {
     topic: String,
+    #[serde(default)]
+    cluster: Option<String>,
 }
 
 async fn personhog_start_migration(
@@ -539,7 +555,8 @@ async fn personhog_start_migration(
         return Err(ApiError::bad_request("topic must not be empty"));
     }
     let client = etcd_client(&state).await?;
-    let migration = changelog::start_migration(&state.config, &client, &prefix, topic)
+    let cluster = trimmed(request.cluster.as_deref());
+    let migration = changelog::start_migration(&state.config, &client, &prefix, topic, cluster)
         .await
         .map_err(|e| ApiError::bad_request(format!("migration refused: {e:#}")))?;
     Ok(Json(migration))

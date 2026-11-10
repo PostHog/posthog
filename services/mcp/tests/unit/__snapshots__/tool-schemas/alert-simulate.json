@@ -134,6 +134,43 @@
                                     "default": "MetricsAlertConfig",
                                     "enum": ["MetricsAlertConfig"],
                                     "type": "string"
+                                },
+                                "variables": {
+                                    "anyOf": [
+                                        {
+                                            "additionalProperties": {
+                                                "properties": {
+                                                    "all": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "boolean"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "values": {
+                                                        "description": "The selected values. Empty when `all` is true: All stands for every option of the variable.",
+                                                        "items": {
+                                                            "type": "string"
+                                                        },
+                                                        "type": "array"
+                                                    }
+                                                },
+                                                "required": ["values"],
+                                                "type": "object"
+                                            },
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Values for the `$name` variables in the insight's query."
                                 }
                             },
                             "type": "object"

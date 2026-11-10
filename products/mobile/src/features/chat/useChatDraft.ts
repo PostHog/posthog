@@ -5,7 +5,8 @@ import { useAuthStore } from '@/auth/authStore'
 import { track } from '@/lib/analytics'
 
 import { chatDrafts, draftIdentity, draftScope } from './draftPersistence'
-import { type ChatDraft, restoreUnsent } from './draftStore'
+import { type ChatDraft, DraftStorageLimitError, restoreUnsent } from './draftStore'
+import { EMPTY_QUEUE, type QueueAction, type QueueState, queueReducer } from './messageQueue'
 
 interface DraftTarget {
     identity: string
@@ -16,9 +17,18 @@ interface DraftTarget {
 export function useChatDraft(
     taskId: string | null,
     reportId: string | undefined,
-    demo = false
+    demo = false,
+    kind: 'task' | 'conversation' = 'task'
 ): {
     draft: ChatDraft
+    queue: QueueState
+    queuePending: boolean
+    queueError: string | undefined
+    dismissQueueError: () => void
+    updateQueue: (action: QueueAction, clearComposer?: boolean) => Promise<boolean>
+    draftError: string | undefined
+    draftSaving: boolean
+    retrySave: () => Promise<void>
     ready: boolean
     change: (draft: ChatDraft) => void
     beginSend: (message: ChatDraft) => Promise<(sent: boolean) => Promise<void>>
@@ -28,25 +38,71 @@ export function useChatDraft(
     const userId = useAuthStore((state) => state.user?.uuid)
     const projectId = useAuthStore((state) => state.projectId)
     const identity = !demo && signedIn && host && userId && projectId !== null ? draftIdentity() : null
-    const key = taskId ? `task:${taskId}` : reportId ? `report:${reportId}` : 'new-chat'
+    const key = taskId
+        ? `${kind}:${taskId}`
+        : reportId
+          ? `report:${reportId}`
+          : kind === 'conversation'
+            ? 'new-classic-chat'
+            : 'new-chat'
     const initial = { text: '', reportIds: reportId ? [reportId] : [] }
     const [draft, setDraft] = useState<ChatDraft>(initial)
+    const [queue, setQueue] = useState<QueueState>(EMPTY_QUEUE)
+    const queueRef = useRef(queue)
+    const queueBusy = useRef(false)
+    const queueWrite = useRef<Promise<void>>(Promise.resolve())
+    const queueClear = useRef<{ draft: ChatDraft; committed: boolean } | null>(null)
+    const [queuePending, setQueuePending] = useState(false)
+    const [queueError, setQueueError] = useState<string>()
+    const [draftError, setDraftError] = useState<string>()
+    const [draftSaving, setDraftSaving] = useState(false)
+    const saveVersion = useRef(0)
     const latest = useRef(draft)
     const target = useRef<DraftTarget | null>(null)
     const [ready, setReady] = useState(false)
     const mounted = useRef(false)
     const destination = useRef(0)
+    const previousDestination = useRef({ identity, key })
     const edited = useRef(false)
     const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-    const flush = useCallback((): void => {
+    const flush = useCallback(async (): Promise<void> => {
         if (saveTimer.current) {
             clearTimeout(saveTimer.current)
             saveTimer.current = null
         }
         const current = target.current
-        if (current && draftIdentity() === current.identity) {
-            void chatDrafts.save(current.scope, current.key, latest.current).catch(() => undefined)
+        if (!current || draftIdentity() !== current.identity) return
+        const typed = latest.current
+        const pendingClear = queueClear.current
+        const mine = destination.current
+        const version = ++saveVersion.current
+        const active = (): boolean =>
+            mounted.current &&
+            mine === destination.current &&
+            target.current === current &&
+            draftIdentity() === current.identity &&
+            version === saveVersion.current
+        if (active()) setDraftSaving(true)
+        try {
+            if (queueBusy.current) await queueWrite.current
+            if (draftIdentity() !== current.identity) return
+            const savedDraft =
+                pendingClear?.committed && pendingClear.draft === typed
+                    ? { text: '', reportIds: typed.reportIds }
+                    : typed
+            await chatDrafts.save(current.scope, current.key, savedDraft)
+            if (active() && latest.current === typed) setDraftError(undefined)
+        } catch (error) {
+            if (active() && latest.current === typed) {
+                setDraftError(
+                    error instanceof DraftStorageLimitError
+                        ? `Draft not saved. ${error.message}`
+                        : 'Draft not saved on this device. Retry before closing the chat.'
+                )
+            }
+        } finally {
+            if (active()) setDraftSaving(false)
         }
     }, [])
 
@@ -66,7 +122,7 @@ export function useChatDraft(
     useEffect(() => {
         const subscription = AppState.addEventListener('change', (state) => {
             if (state !== 'active') {
-                flush()
+                void flush()
             }
         })
         return () => subscription.remove()
@@ -75,19 +131,30 @@ export function useChatDraft(
     useEffect(() => {
         let cancelled = false
         mounted.current = true
-        destination.current++
         setReady(false)
+        setQueueError(undefined)
         const previous = target.current
-        const adopting = previous?.identity === identity && !previous.key.startsWith('task:') && key.startsWith('task:')
+        const prior = previousDestination.current
+        const adopting = prior.identity === identity && !prior.key.startsWith(`${kind}:`) && key.startsWith(`${kind}:`)
+        previousDestination.current = { identity, key }
         if (!adopting) {
+            destination.current++
+            queueBusy.current = false
+            setQueuePending(false)
+            setDraftError(undefined)
+            setDraftSaving(false)
             edited.current = false
             latest.current = { text: '', reportIds: reportId ? [reportId] : [] }
             setDraft(latest.current)
+            queueRef.current = EMPTY_QUEUE
+            setQueue(EMPTY_QUEUE)
         }
-        target.current = null
+        if (!adopting) target.current = null
         if (!identity) {
             setReady(true)
-            return undefined
+            return () => {
+                mounted.current = false
+            }
         }
         void (async () => {
             const scope = await draftScope(identity)
@@ -95,18 +162,33 @@ export function useChatDraft(
                 return
             }
             if (adopting && previous) {
-                await chatDrafts.move(scope, previous.key, key)
+                while (queueBusy.current) await queueWrite.current
+                if (cancelled || draftIdentity() !== identity) return
+                const source = previous.key
+                previous.key = key
+                await chatDrafts.move(scope, source, key)
             }
             const saved = await chatDrafts.load(scope, key)
+            const savedQueue = await chatDrafts.loadQueue(scope, key)
             if (cancelled || draftIdentity() !== identity) {
                 return
             }
             if (adopting && previous) {
-                previous.key = key
                 target.current = previous
             } else {
                 target.current = { identity, scope, key }
             }
+            const restored = adopting
+                ? {
+                      ...savedQueue,
+                      hold: queueRef.current.hold,
+                      rows: savedQueue.rows.map(
+                          (row) => queueRef.current.rows.find((live) => live.id === row.id) ?? row
+                      ),
+                  }
+                : savedQueue
+            queueRef.current = restored
+            setQueue(restored)
             if (!edited.current && saved) {
                 latest.current = saved
                 setDraft(saved)
@@ -117,20 +199,87 @@ export function useChatDraft(
                     })
                 }
             } else if (edited.current) {
-                await chatDrafts.save(scope, key, latest.current)
+                await flush()
             }
             setReady(true)
         })().catch(() => {
             if (!cancelled) {
+                setQueueError("Couldn't load saved messages. Close and reopen this chat to try again.")
                 setReady(true)
             }
         })
         return () => {
-            flush()
+            void flush()
             mounted.current = false
             cancelled = true
         }
-    }, [identity, key, reportId, flush])
+    }, [identity, key, reportId, flush, kind])
+
+    const updateQueue = useCallback(
+        async (action: QueueAction, clearComposer = false): Promise<boolean> => {
+            const current = target.current
+            const mine = destination.current
+            if (queueBusy.current && (action.type === 'enqueue' || action.type === 'remove')) return false
+            while (queueBusy.current) await queueWrite.current
+            if (mine !== destination.current) return false
+            if (
+                (!ready && !(action.type === 'hold' && current)) ||
+                (identity && (!current || draftIdentity() !== current.identity))
+            ) {
+                if (mine === destination.current && mounted.current)
+                    setQueueError("Couldn't load saved messages. Close and reopen this chat to try again.")
+                return false
+            }
+            queueBusy.current = true
+            let finish!: () => void
+            queueWrite.current = new Promise<void>((resolve) => {
+                finish = resolve
+            })
+            setQueuePending(true)
+            setQueueError(undefined)
+            const next = queueReducer(queueRef.current, action)
+            if (action.type === 'hold') {
+                queueRef.current = next
+                setQueue(next)
+            }
+            const typed = latest.current
+            const cleared = { text: '', reportIds: typed.reportIds }
+            const clearing = clearComposer ? { draft: typed, committed: false } : null
+            queueClear.current = clearing
+            try {
+                if (current)
+                    await chatDrafts.saveQueue(current.scope, current.key, next, clearComposer ? cleared : undefined)
+                if (clearing) clearing.committed = true
+                if (
+                    mine !== destination.current ||
+                    (current && draftIdentity() !== current.identity) ||
+                    !mounted.current
+                )
+                    return false
+                queueRef.current = next
+                setQueue(next)
+                if (clearComposer && latest.current === typed) change(cleared)
+                return true
+            } catch (error) {
+                if (mine === destination.current && mounted.current) {
+                    setQueueError(
+                        error instanceof DraftStorageLimitError
+                            ? error.message
+                            : "Couldn't save queued messages on this device. Try again before closing the chat."
+                    )
+                }
+                return false
+            } finally {
+                if (queueClear.current === clearing) queueClear.current = null
+                finish()
+                if (mine === destination.current) {
+                    queueBusy.current = false
+                    setQueuePending(false)
+                }
+            }
+        },
+        [change, identity, ready]
+    )
 
     const beginSend = useCallback(
         async (message: ChatDraft): Promise<(sent: boolean) => Promise<void>> => {
@@ -161,5 +310,19 @@ export function useChatDraft(
         [change]
     )
 
-    return { draft, ready, change, beginSend }
+    const dismissQueueError = useCallback((): void => setQueueError(undefined), [])
+    return {
+        draft,
+        ready,
+        change,
+        beginSend,
+        queue,
+        queuePending,
+        queueError,
+        dismissQueueError,
+        updateQueue,
+        draftError,
+        draftSaving,
+        retrySave: flush,
+    }
 }

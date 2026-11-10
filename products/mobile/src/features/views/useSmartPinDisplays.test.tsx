@@ -345,7 +345,7 @@ describe('automatic displays for actual Views pins', () => {
     test('canceling optional metadata during a family pause sends no request', async () => {
         viewsQueue.notePause('insights', new ApiError(429, {}, new Headers({ 'Retry-After': '60' })))
         const controller = new AbortController()
-        const pin = { kind: 'insight', ref: 'ins-1', shortcutId: 'pin-1', native: true } as PinView
+        const pin = { kind: 'insight', ref: 'ins-1', shortcutId: 'pin-1' } as PinView
         const run = discoverPinDisplays(
             { client, scope: mockScope, demo: false },
             [pin],

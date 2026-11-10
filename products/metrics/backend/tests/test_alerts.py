@@ -15,22 +15,37 @@ from parameterized import parameterized
 from pydantic import ValidationError
 from rest_framework import status
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.models import Team
+from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import create_configuration, record_outcomes, slot_of
+from products.alerts_platform.backend.facade.api import (
+    create_configuration,
+    list_alert_destinations,
+    record_outcomes,
+    slot_of,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     Grouping,
     GroupingMode,
+    IncidentAction,
     PlatformAlertConfigurationEdit,
     PlatformAlertOutcome,
+    SourceBatchEvaluation,
     SourceKind,
 )
 from products.metrics.backend.alerts.evaluation import ABSENT_RESOLVE_AFTER, INFLIGHT_KEY, evaluate_metrics_alert_batch
-from products.metrics.backend.alerts.freshness import evaluation_time, fetch_metrics_freshness
+from products.metrics.backend.alerts.freshness import (
+    CHECKPOINT_EVAL_DELAY,
+    IngestionReach,
+    fetch_metrics_freshness,
+    fetch_partition_checkpoint,
+)
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
@@ -89,19 +104,28 @@ class TestMetricsAlertCreate(APIBaseTest):
 class TestEvaluationTime(SimpleTestCase):
     @parameterized.expand(
         [
-            ("ingestion_slightly_behind", timedelta(seconds=-30), timedelta(seconds=-30)),
-            ("ingestion_lagging", timedelta(minutes=-20), timedelta(minutes=-20)),
-            ("ingestion_past_the_due_time", timedelta(seconds=30), timedelta(0)),
-            ("freshness_unknown", None, timedelta(0)),
+            ("ingestion_slightly_behind", timedelta(seconds=-30), None, timedelta(seconds=-30)),
+            ("ingestion_lagging", timedelta(minutes=-20), None, timedelta(minutes=-20)),
+            ("ingestion_past_the_due_time", timedelta(seconds=30), None, timedelta(0)),
+            ("freshness_unknown", None, None, timedelta(0)),
+            ("checkpoint_overrides_freshness", timedelta(0), timedelta(0), -CHECKPOINT_EVAL_DELAY),
+            ("checkpoint_well_past_the_due_time", None, timedelta(minutes=5), timedelta(0)),
         ]
     )
     def test_a_check_reads_no_later_than_ingestion_reached(
-        self, _name: str, freshness_offset: timedelta | None, expected_offset: timedelta
+        self,
+        _name: str,
+        freshness_offset: timedelta | None,
+        checkpoint_offset: timedelta | None,
+        expected_offset: timedelta,
     ) -> None:
         due_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
         freshness = None if freshness_offset is None else due_at + freshness_offset
+        checkpoint = None if checkpoint_offset is None else due_at + checkpoint_offset
 
-        assert evaluation_time(due_at, freshness) == due_at + expected_offset
+        reach = IngestionReach(checkpoint=checkpoint, newest_point=freshness)
+
+        assert reach.evaluation_time(due_at) == due_at + expected_offset
 
 
 def _vector(*series: tuple[dict[str, str], str]) -> dict[str, Any]:
@@ -150,14 +174,49 @@ class TestMetricsFreshnessRead(ClickhouseTestMixin, APIBaseTest):
         assert now - timedelta(seconds=5) <= freshness <= datetime.now(UTC)
 
 
+class TestPartitionCheckpointRead(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics_kafka_metrics")
+
+    def _deliver(self, partition: int, observed: datetime) -> None:
+        sync_execute(
+            "INSERT INTO metrics_kafka_metrics (_partition, _topic, max_offset, max_observed_timestamp) VALUES",
+            [(partition, "clickhouse_metrics", 1, observed)],
+        )
+
+    @parameterized.expand(
+        [
+            ("every_partition_recent", timedelta(seconds=40), timedelta(seconds=40)),
+            ("one_partition_stalled", timedelta(minutes=6), None),
+        ]
+    )
+    def test_reads_the_oldest_partitions_newest_capture(
+        self, _name: str, slowest_age: timedelta, expected_age: timedelta | None
+    ) -> None:
+        now = datetime.now(UTC).replace(microsecond=0)
+        # A partition's older block must not lower its checkpoint.
+        self._deliver(0, now - timedelta(minutes=30))
+        self._deliver(0, now - timedelta(seconds=10))
+        self._deliver(1, now - slowest_age)
+
+        checkpoint = fetch_partition_checkpoint(self.team, max_execution_time=5)
+
+        assert checkpoint == (None if expected_age is None else now - expected_age)
+
+
 class TestMetricsAlertEvaluation(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.cutoff = timezone.now().replace(second=0, microsecond=0) + timedelta(minutes=5)
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.snuffle = MagicMock()
         self.enterContext(patch("products.metrics.backend.promql.snuffle_request", self.snuffle))
         self.freshness = self.enterContext(
             patch("products.metrics.backend.alerts.evaluation.fetch_metrics_freshness", return_value=None)
+        )
+        self.checkpoint = self.enterContext(
+            patch("products.metrics.backend.alerts.evaluation.fetch_partition_checkpoint", return_value=None)
         )
         with team_scope(self.team.id):
             self.configuration_id = create_configuration(
@@ -181,10 +240,12 @@ class TestMetricsAlertEvaluation(APIBaseTest):
     def due_at(self) -> datetime:
         return self.cutoff - timedelta(minutes=1)
 
-    def _evaluate(self) -> PlatformAlertOutcome:
+    def _evaluate_batch(self) -> SourceBatchEvaluation:
         with team_scope(self.team.id):
-            evaluation = evaluate_metrics_alert_batch(self.team.id, slot_of(self.due_at, self.cutoff), self.cutoff)
-        (outcome,) = evaluation.outcomes
+            return evaluate_metrics_alert_batch(self.team.id, slot_of(self.due_at, self.cutoff), self.cutoff)
+
+    def _evaluate(self) -> PlatformAlertOutcome:
+        (outcome,) = self._evaluate_batch().outcomes
         return outcome
 
     def _next_check(self, outcome: PlatformAlertOutcome) -> None:
@@ -209,6 +270,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
         assert self._kinds(first) == {"a": AlertEventKind.FIRING, "b": AlertEventKind.FIRING}
         assert self.snuffle.call_args.kwargs["data"]["time"] == str((self.due_at - timedelta(seconds=30)).timestamp())
+        assert self.snuffle.call_args.kwargs["ch_user"] == ClickHouseUser.ALERTS_PLATFORM_METRICS
 
         self._next_check(first)
         self.snuffle.return_value = _response(
@@ -227,7 +289,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
 
         assert self._kinds(self._evaluate()) == {}
 
-        self.freshness.return_value = self.due_at - timedelta(seconds=30)
+        self.freshness.return_value = self.due_at
         resolved = self._evaluate()
 
         assert self._kinds(resolved) == {"a": AlertEventKind.RESOLVED}
@@ -237,6 +299,40 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         self.freshness.return_value = self.due_at - timedelta(seconds=30)
 
         assert self._kinds(self._evaluate()) == {}
+
+    def test_a_missing_series_resolves_at_once_when_every_partition_has_caught_up(self) -> None:
+        self.checkpoint.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000"), ({"group": "b"}, "2000")))
+        first = self._evaluate()
+
+        assert self._kinds(first) == {"a": AlertEventKind.FIRING, "b": AlertEventKind.FIRING}
+        assert self.snuffle.call_args.kwargs["data"]["time"] == str((self.due_at - CHECKPOINT_EVAL_DELAY).timestamp())
+
+        self._next_check(first)
+        self.checkpoint.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector(({"group": "b"}, "NaN")))
+
+        assert self._kinds(self._evaluate()) == {"a": AlertEventKind.RESOLVED}
+
+    def test_a_check_behind_its_last_read_waits_until_ingestion_passes_it(self) -> None:
+        self.freshness.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
+        first = self._evaluate()
+
+        assert self._kinds(first) == {"a": AlertEventKind.FIRING}
+
+        last_read = self.due_at
+        self._next_check(first)
+        self.checkpoint.return_value = last_read + CHECKPOINT_EVAL_DELAY - timedelta(seconds=15)
+        deferred = self._evaluate_batch()
+
+        assert (deferred.outcomes, deferred.omitted) == ((), 1)
+
+        self.checkpoint.return_value = self.due_at
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "10")))
+
+        assert self._kinds(self._evaluate()) == {"a": AlertEventKind.RESOLVED}
+        assert self.snuffle.call_args.kwargs["data"]["time"] == str((self.due_at - CHECKPOINT_EVAL_DELAY).timestamp())
 
     def test_a_firing_held_back_by_a_mute_is_not_announced_on_a_value_with_no_number(self) -> None:
         self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
@@ -293,3 +389,52 @@ class TestMetricsAlertEvaluation(APIBaseTest):
             UUID(str(self.configuration_id)),
             consecutive_failures,
         )
+
+    def test_destinations_are_alert_destination_rows_that_the_firing_reaches(self) -> None:
+        workspace = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
+        destinations_url = f"/api/projects/{self.team.id}/platform_alerts/{self.configuration_id}/destinations/"
+        slack = self.client.post(
+            destinations_url,
+            {
+                "type": "slack",
+                "slack_workspace_id": workspace.id,
+                "slack_channel_id": "C123",
+                "webhook_url": "https://example.com/hooks/secret-token",
+            },
+            format="json",
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            pagerduty = self.client.post(
+                destinations_url,
+                {"type": "pagerduty", "pagerduty_routing_key": "0123456789abcdef0123456789abcdef"},
+                format="json",
+                HTTP_REFERER="https://[",
+            )
+        assert slack.status_code == pagerduty.status_code == status.HTTP_201_CREATED, (slack.json(), pagerduty.json())
+        assert (slack.json()["event_kinds"], pagerduty.json()["event_kinds"]) == (
+            ["firing", "resolved", "errored", "broken"],
+            ["firing", "resolved"],
+        )
+        listed = self.client.get(destinations_url).json()
+        assert [d["id"] for d in listed] == [slack.json()["id"], pagerduty.json()["id"]]
+        with team_scope(self.team.id):
+            stored = list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id)
+        assert [sorted(d.data) for d in stored] == [
+            ["slack_channel_id", "slack_workspace_id", "type"],
+            ["pagerduty_region", "pagerduty_routing_key", "pagerduty_severity", "type"],
+        ]
+
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
+        (delivery,) = self._evaluate_batch().deliveries
+        assert delivery.sends_messages
+        assert list(delivery.incident_actions.values()) == [IncidentAction.TRIGGER]
+
+        removed = self.client.post(
+            f"{destinations_url}delete/", {"destination_ids": [slack.json()["id"]]}, format="json"
+        )
+        assert removed.status_code == status.HTTP_204_NO_CONTENT
+        assert [d["type"] for d in self.client.get(destinations_url).json()] == ["pagerduty"]
+        deleted = self.client.delete(f"/api/projects/{self.team.id}/platform_alerts/{self.configuration_id}/")
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+        with team_scope(self.team.id):
+            assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id) == ()

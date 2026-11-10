@@ -14,6 +14,7 @@ from __future__ import annotations
 from ..check import WorkflowCheck
 from .cache_writes import CacheWriteGateCheck
 from .checkout_full_depth import CheckoutFullDepthCheck
+from .checkout_work_gate import CheckoutWorkGateCheck
 from .dorny_negation import DornyNegationCheck
 from .job_timeouts import JobTimeoutsCheck
 from .mcp_filter_coverage import McpFilterCoverageCheck
@@ -42,6 +43,7 @@ CHECKS: list[WorkflowCheck] = [
     ShellSplitActionArgsCheck(),
     StorybookStaticDirsCoverageCheck(),
     PausedPublicImagePullsCheck(),
+    CheckoutWorkGateCheck(),
 ]
 
 

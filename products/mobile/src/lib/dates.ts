@@ -1,4 +1,6 @@
-// Written by hand instead of with Intl so the output is identical in Hermes, the web build and Jest.
+import { getCalendars } from 'expo-localization'
+
+// Keep the English labels consistent across Hermes, the web build and Jest.
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
@@ -8,12 +10,19 @@ const MINUTE = 60_000
 const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
-export function formatClock(date: Date): string {
+export function prefers24HourClock(devicePreference: boolean | null = getCalendars()[0].uses24hourClock): boolean {
+    return devicePreference ?? Intl.DateTimeFormat(undefined, { hour: 'numeric' }).resolvedOptions().hour12 === false
+}
+
+export function formatClock(date: Date, uses24hourClock = prefers24HourClock()): string {
     const hours = date.getHours()
-    const minutes = date.getMinutes()
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    if (uses24hourClock) {
+        return `${String(hours).padStart(2, '0')}:${minutes}`
+    }
     const hour12 = hours % 12 === 0 ? 12 : hours % 12
     const suffix = hours < 12 ? 'AM' : 'PM'
-    return `${hour12}:${String(minutes).padStart(2, '0')} ${suffix}`
+    return `${hour12}:${minutes} ${suffix}`
 }
 
 export function formatMonthDay(date: Date): string {

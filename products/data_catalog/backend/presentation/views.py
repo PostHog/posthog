@@ -133,7 +133,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             metrics = metrics.filter(status=status_filter)
         if definition_kind := self.request.query_params.get("definition_kind"):
             metrics = metrics.filter(definition__kind=definition_kind)
-        return metrics
+        return metrics.select_related("created_by", "owner")
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
         if getattr(view, "action", None) not in ("create", "update", "partial_update"):
@@ -383,6 +383,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             date_from=overrides.get("date_from"),
             date_to=overrides.get("date_to"),
             interval=overrides.get("interval"),
+            offset=overrides.get("offset"),
             query_id=overrides.get("query_id"),
             request=request,
         )

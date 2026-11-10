@@ -40,6 +40,7 @@ test('selection resolves source paths from the frontend package and retains the 
             files: [
                 'frontend/src/a.ts',
                 'products/example/frontend/a.tsx',
+                'packages/quill/packages/charts/src/a.ts',
                 'common/example/data.json',
                 'ee/frontend/a.js',
                 'frontend/src/a.scss',
@@ -52,10 +53,11 @@ test('selection resolves source paths from the frontend package and retains the 
             changedFiles: [
                 'src/a.ts',
                 '../products/example/frontend/a.tsx',
+                '../packages/quill/packages/charts/src/a.ts',
                 '../common/example/data.json',
                 '../ee/frontend/a.js',
             ],
-            changedFileCount: 7,
+            changedFileCount: 8,
         }
     )
 })
@@ -67,10 +69,10 @@ test('the changed-file ceiling includes its boundary', () => {
 
 for (const [testCount, shardCount] of [
     [0, 0],
-    [342, 1],
-    [343, 2],
-    [1200, 4],
-    [2000, 6],
+    [171, 1],
+    [172, 2],
+    [684, 4],
+    [1368, 8],
     [100000, 8],
 ]) {
     test(`${testCount} related tests use ${shardCount} shards`, () => {

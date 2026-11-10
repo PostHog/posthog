@@ -89,7 +89,8 @@ For one event the steps are:
    The event's changes join the sub-batch's output buffer.
    Each behavioral row with a finite deadline is placed in the worker's eviction queue at its new deadline.
 10. **Produce at the end of the sub-batch.**
-    The worker produces the buffered changes and, with cascades enabled, one cascade message per change, then marks the offsets.
+    The worker hands the buffered changes and, with cascades enabled, one cascade message per change to the producer.
+    It then marks the offsets without waiting for the acknowledgments.
     [Processor runtime](processor-runtime.md#the-worker-loop) describes this step.
 
 ## Behavioral leaves
@@ -131,7 +132,7 @@ Each person has one **person record**.
 It stores the set of person condition hashes that currently match, plus:
 
 - a **properties fingerprint**, a digest of the raw `person_properties` string last evaluated,
-- a **catalog fingerprint**, a digest of the team's distinct person condition hashes when last evaluated,
+- a **catalog fingerprint**, a digest of the evaluator version and the team's distinct person condition hashes when last evaluated,
 - a **stamp**, the event time and source offset of the newest event applied.
 
 For each event with person properties, the worker makes one of four decisions.
@@ -223,7 +224,7 @@ Each change is a small JSON message on the membership output topic, keyed by `pe
 
 Live output is at most once.
 State commits before the change is produced.
-If the produce fails, the next successful batch commits past it, and a replay finds nothing left to emit.
+If the produce fails, the batch's mark has already passed it, and a replay finds nothing left to emit.
 The pipeline accepts this and relies on reconcile to repair the downstream table.
 [Processor runtime](processor-runtime.md#delivery-semantics) lists every path's guarantee.
 
@@ -244,6 +245,7 @@ Every change applies lazily, person by person, on their next relevant event, fli
 - **A composition edit** keeps every leaf's state.
   A person is recomposed under the new tree when one of their leaves next flips, or, with cascades on, when a cohort it references flips for them.
 - **A change to the set of distinct person conditions** changes the catalog fingerprint, so every person in the team is re-evaluated on their next event with person properties.
+  A new evaluator version does the same for every team at once.
   A new cohort that reuses a person condition the team already has does not change the fingerprint, so the reused condition makes no transition.
   Its current matchers enter a single-leaf cohort only through the backfill, and a composed cohort through the backfill or the next flip of one of its other leaves.
 - **A cohort that is deleted, stops being realtime, or becomes excluded** stops producing output.

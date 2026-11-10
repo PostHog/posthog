@@ -1,5 +1,6 @@
 import json as _json
 import base64
+from collections.abc import Iterable
 from typing import Any, Literal, Optional, cast, overload
 from urllib.parse import urlencode
 
@@ -17,22 +18,25 @@ from rest_framework.exceptions import NotFound, ValidationError
 from posthog.schema import ProductKey
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import extend_schema
+from posthog.api.person import get_person_name_helper
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SerializedGroupActorSerializer, SerializedPersonActorSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.constants import GroupTypeIndex
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import GroupUsageMetric
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
-from posthog.models.filters.utils import GroupTypeIndex
+from posthog.models.activity_logging.property_value_visibility import GroupActivityContext
 from posthog.models.group import Group
 from posthog.models.group.util import (
     GroupAlreadyExistsError,
@@ -56,6 +60,7 @@ from posthog.personhog_client.converters import GroupTypeMappingResult
 from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import str_to_bool
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.groups.backend.facade import api as groups
 from products.groups.backend.facade.contracts import GroupPropertyDefinitionInput
@@ -70,7 +75,6 @@ from products.notebooks.backend.facade.content import (
     create_paragraph_with_text,
     create_text_content,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -268,6 +272,17 @@ class GroupSerializer(serializers.HyperlinkedModelSerializer):
         model = Group
         fields = ["group_type_index", "group_key", "group_properties", "created_at"]
 
+    def to_representation(self, instance: Group) -> dict[str, Any]:
+        representation = super().to_representation(instance)
+        # Restrictions are scoped per group type.
+        restricted: dict[int | None, frozenset[str]] | None = self.context.get("restricted_group_properties")
+        if restricted and representation.get("group_properties"):
+            names = restricted.get(instance.group_type_index, frozenset()) | restricted.get(None, frozenset())
+            representation["group_properties"] = access_control_api.redact_restricted_properties(
+                representation["group_properties"], names
+            )
+        return representation
+
 
 class FindGroupSerializer(GroupSerializer):
     notebook = serializers.SerializerMethodField()
@@ -342,6 +357,14 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         return self.serializer_classes.get(self.action, self.serializer_classes["default"])
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        user = self.request.user if self.request.user.is_authenticated else None
+        context["restricted_group_properties"] = access_control_api.get_restricted_group_property_names_by_type_index(
+            user=cast(Optional[User], user), team_id=self.team_id
+        )
+        return context
 
     @overload
     def _safely_get_query_params(self, require_group_key: Literal[True]) -> tuple[str, str]: ...
@@ -479,6 +502,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             group_type_index=group_type_index,
             group_key_contains=group_key,
             search=group_search,
+            restricted_properties=self._restricted_properties_for_group_type(request, group_type_index),
             cursor_created_at_us=cursor_created_at_us,
             cursor_group_key=cursor_group_key,
         )
@@ -505,6 +529,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
         group_key = request_data.validated_data["group_key"]
         group_type_index = request_data.validated_data["group_type_index"]
+        group_properties = request_data.validated_data["group_properties"]
+        if isinstance(group_properties, dict):
+            self._raise_if_properties_not_writable(request, group_type_index, group_properties.keys())
 
         # create_group writes ClickHouse before personhog reports a duplicate. Reject a known
         # duplicate here so that it never reaches that write.
@@ -549,6 +576,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                         after=value,
                     )
                 ],
+                context=GroupActivityContext(group_type_index=group.group_type_index),
             )
             for name, value in group.group_properties.items()
         ]
@@ -640,10 +668,11 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             group = self.get_object()
             property_key = request.data.get("key")
             property_value = request.data.get("value")
-            if not property_key:
-                raise ValidationError({"key": ["This field is required."]})
+            if not isinstance(property_key, str) or not property_key:
+                raise ValidationError({"key": ["This field is required and must be a non-empty string."]})
             if property_value is None:
                 raise ValidationError({"value": ["This field is required."]})
+            self._raise_if_properties_not_writable(request, group.group_type_index, [property_key])
             create_or_update = "update" if property_key in group.group_properties else "create"
             original_value = group.group_properties.get(property_key, None)
             group.group_properties[property_key] = property_value
@@ -697,6 +726,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                             after=property_value,
                         )
                     ],
+                    context=GroupActivityContext(group_type_index=group.group_type_index),
                 ),
             )
             return response.Response(self.get_serializer(group).data)
@@ -730,6 +760,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 raise ValidationError(
                     {"$unset": ["This field is required and must be a string (the property name to delete)."]}
                 )
+            self._raise_if_properties_not_writable(request, group.group_type_index, [property_key])
             if property_key not in group.group_properties:
                 raise ValidationError({"$unset": [f"Property '{property_key}' does not exist on this group."]})
             group_type_mapping = self.get_group_type_mapping_or_404(cast(GroupTypeIndex, group.group_type_index))
@@ -801,6 +832,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 detail=Detail(
                     name=str(property_key),
                     changes=[Change(type="Group", action="deleted", before=original_value)],
+                    context=GroupActivityContext(group_type_index=group.group_type_index),
                 ),
             )
             return response.Response(self.get_serializer(group).data)
@@ -839,7 +871,17 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             limit=page_params.limit,
             page=page_params.page,
         )
-        return activity_page_response(activity_page, page_params.limit, page_params.page, request)
+        activity_response = activity_page_response(activity_page, page_params.limit, page_params.page, request)
+        restricted = self._restricted_group_property_names(request, group.group_type_index)
+        if restricted:
+            for entry in activity_response.data["results"]:
+                detail = entry.get("detail") or {}
+                name = detail.get("name")
+                if isinstance(name, str) and access_control_api.property_key_overlaps_restriction(name, restricted):
+                    for change in detail.get("changes") or []:
+                        change["before"] = None
+                        change["after"] = None
+        return activity_response
 
     @extend_schema(
         parameters=[
@@ -866,6 +908,26 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             raise ValidationError({"id": ["This query parameter is required."]})
 
         results = groups.get_related_actors(self.team, group_type_index, actor_id)
+        user = cast(Optional[User], request.user if request.user.is_authenticated else None)
+        restricted_groups = access_control_api.get_restricted_group_property_names_by_type_index(
+            user=user, team_id=self.team_id
+        )
+        restricted_person = access_control_api.split_restricted_property_names(
+            access_control_api.get_restricted_properties_with_group_type_index_for_team(user=user, team_id=self.team_id)
+        ).person
+        for actor in results:
+            if actor["type"] == "group":
+                names = restricted_groups.get(actor["group_type_index"], frozenset()) | restricted_groups.get(
+                    None, frozenset()
+                )
+            else:
+                names = restricted_person
+            if names:
+                actor["properties"] = access_control_api.redact_restricted_properties(actor["properties"], names)
+                if actor["type"] == "person":
+                    actor["name"] = get_person_name_helper(
+                        actor["id"], actor["properties"], actor["distinct_ids"], self.team
+                    )
         return response.Response(results)
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
@@ -886,6 +948,10 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             span.set_attribute("group_type_index", group_type_index)
             span.set_attribute("property_key", key)
             span.set_attribute("has_value_filter", value_filter is not None)
+
+            if key in self._restricted_group_property_names(request, int(group_type_index)):
+                span.set_attribute("result_count", 0)
+                return response.Response({"results": [], "refreshing": False})
 
             where_extra = ""
             placeholders: dict[str, ast.Expr] = {
@@ -919,12 +985,47 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             )
 
             tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.QUERY)
-            rows = execute_hogql_query(query, team=self.team).results
+            rows = execute_hogql_query(
+                query,
+                team=self.team,
+                context=HogQLContext(
+                    team_id=self.team.pk,
+                    restricted_properties=self._restricted_properties_for_group_type(request, int(group_type_index)),
+                ),
+            ).results
 
             span.set_attribute("result_count", len(rows))
             return response.Response(
                 {"results": [{"name": name, "count": count} for name, count in rows], "refreshing": False}
             )
+
+    def _restricted_properties_for_group_type(
+        self, request: request.Request, group_type_index: int
+    ) -> set[RestrictedProperty]:
+        user = request.user if request.user.is_authenticated else None
+        return access_control_api.get_restricted_properties_for_group_type(
+            user=cast(Optional[User], user), team_id=self.team_id, group_type_index=group_type_index
+        )
+
+    def _restricted_group_property_names(self, request: request.Request, group_type_index: int) -> frozenset[str]:
+        user = request.user if request.user.is_authenticated else None
+        restricted = access_control_api.get_restricted_group_property_names_by_type_index(
+            user=cast(Optional[User], user), team_id=self.team_id
+        )
+        return restricted.get(group_type_index, frozenset()) | restricted.get(None, frozenset())
+
+    def _raise_if_properties_not_writable(
+        self, request: request.Request, group_type_index: int, keys: Iterable[str]
+    ) -> None:
+        user = request.user if request.user.is_authenticated else None
+        non_writable = access_control_api.get_non_writable_group_property_names(
+            user=cast(Optional[User], user), team_id=self.team_id, group_type_index=group_type_index
+        )
+        blocked = sorted(
+            key for key in set(keys) if access_control_api.property_key_overlaps_restriction(key, non_writable)
+        )
+        if blocked:
+            raise ValidationError(f"You do not have write access to the following properties: {', '.join(blocked)}.")
 
     def _is_crm_enabled(self, user: User) -> bool:
         return feature_enabled_or_false(
@@ -936,10 +1037,15 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         )
 
     def _create_notebook_for_group(self, group: Group) -> None:
+        # The notebook is shared with every project member, so leave out properties any access rule covers.
+        restricted = access_control_api.group_property_names_with_access_rules(
+            team_id=self.team.id, group_type_index=group.group_type_index
+        )
+        properties = access_control_api.redact_restricted_properties(group.group_properties, restricted)
         # A group name is customer data and can hold line breaks. Markdown escapes inline syntax
         # but keeps line breaks, so a second line starts its own block — a heading, a list, or a
         # live component. Collapse the name to one line, which is what a title is anyway.
-        group_name = " ".join(str(group.group_properties.get("name") or "").split())
+        group_name = " ".join(str(properties.get("name") or "").split())
         notebook_title = f"{group_name} Notes" if group_name else "Notes"
         template_nodes = [
             create_heading_with_text(text=notebook_title, level=1),
@@ -961,116 +1067,3 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             convert_notebook_content_to_markdown({"type": "doc", "content": template_nodes})
         )
         notebooks.create_group_notebook(self.team.id, group.id, title=notebook_title, content=notebook_content)
-
-
-_DW_FILTER_REQUIRED_FIELDS = ("table_name", "timestamp_field", "key_field")
-
-
-class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
-    name = serializers.CharField(
-        max_length=255,
-        help_text="Name of the usage metric. Must be unique per group type within the project.",
-    )
-    format = serializers.ChoiceField(
-        choices=GroupUsageMetric.Format.choices,
-        default=GroupUsageMetric.Format.NUMERIC,
-        help_text="How the metric value is formatted in the UI. One of `numeric` or `currency`.",
-    )
-    interval = serializers.IntegerField(
-        default=7,
-        help_text="Rolling time window in days used to compute the metric. Defaults to 7.",
-    )
-    display = serializers.ChoiceField(
-        choices=GroupUsageMetric.Display.choices,
-        default=GroupUsageMetric.Display.NUMBER,
-        help_text="Visual representation in the UI. One of `number` or `sparkline`.",
-    )
-    filters = serializers.DictField(
-        help_text=(
-            "Filter definition for the metric. Two shapes are accepted, discriminated by an optional "
-            "`source` key.\n\n"
-            '**Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — '
-            "`events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n"
-            '**Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), '
-            "`timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value "
-            "matches the entity key). Currently DW metrics only render on group profiles — person profiles "
-            "are not yet supported."
-        ),
-    )
-    math = serializers.ChoiceField(
-        choices=GroupUsageMetric.Math.choices,
-        default=GroupUsageMetric.Math.COUNT,
-        help_text=(
-            "Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` "
-            "on matching events."
-        ),
-    )
-    math_property = serializers.CharField(
-        max_length=255,
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text=(
-            "Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this "
-            "is an event property name. For data warehouse metrics this is the column name (or HogQL "
-            "expression) to sum on the DW table."
-        ),
-    )
-
-    class Meta:
-        model = GroupUsageMetric
-        fields = ("id", "name", "format", "interval", "display", "filters", "math", "math_property")
-
-    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
-        data = super().validate(data)
-
-        math = data.get("math", self.instance.math if self.instance else GroupUsageMetric.Math.COUNT)
-        math_property = data.get("math_property", self.instance.math_property if self.instance else None)
-        filters = data.get("filters", self.instance.filters if self.instance else None)
-
-        source = (filters or {}).get("source") if isinstance(filters, dict) else None
-
-        if source == GroupUsageMetric.Source.DATA_WAREHOUSE:
-            self._validate_data_warehouse(cast(dict, filters), math, math_property)
-        elif source in (None, GroupUsageMetric.Source.EVENTS):
-            self._validate_events(math, math_property)
-        else:
-            raise serializers.ValidationError({"filters": f"Unknown source: {source!r}"})
-
-        return data
-
-    def _validate_events(self, math: str, math_property: str | None) -> None:
-        if math == GroupUsageMetric.Math.SUM and not math_property:
-            raise serializers.ValidationError({"math_property": "math_property is required when math is 'sum'."})
-        if math == GroupUsageMetric.Math.COUNT and math_property:
-            raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
-
-    def _validate_data_warehouse(self, filters: dict, math: str, math_property: str | None) -> None:
-        missing = [field for field in _DW_FILTER_REQUIRED_FIELDS if not filters.get(field)]
-        if missing:
-            raise serializers.ValidationError(
-                {"filters": f"Data warehouse metrics require {', '.join(_DW_FILTER_REQUIRED_FIELDS)}."}
-            )
-
-        if math == GroupUsageMetric.Math.SUM and not math_property:
-            raise serializers.ValidationError(
-                {"math_property": "math_property (column to sum) is required when math is 'sum'."}
-            )
-        if math == GroupUsageMetric.Math.COUNT and math_property:
-            raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
-
-        team = self.context["get_team"]()
-        if not DataWarehouseTable.objects.filter(team=team, name=filters["table_name"]).exclude(deleted=True).exists():
-            raise serializers.ValidationError(
-                {"filters": f"Data warehouse table {filters['table_name']!r} does not exist."}
-            )
-
-
-@extend_schema(extensions={"x-product": "customer_analytics"})
-class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "usage_metric"
-    queryset = GroupUsageMetric.objects.all()
-    serializer_class = GroupUsageMetricSerializer
-
-    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
-        serializer.save(team=self.team, group_type_index=self.parents_query_dict["group_type_index"])

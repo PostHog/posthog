@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 
-import { DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, cn } from '@posthog/quill'
+import { FilterSubMenu } from '@posthog/quill'
 
 import { useTodaySheetMenu } from './todaySheetMenuContext'
 import { TodaySheetSub } from './TodaySheetSub'
@@ -29,19 +29,8 @@ export function TodayRecentFilterSubmenu({
         )
     }
     return (
-        <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-                <span>{label}</span>
-                <span
-                    className={cn(
-                        'flex-1 truncate pl-4 text-right',
-                        narrowed ? 'text-primary' : 'text-muted-foreground'
-                    )}
-                >
-                    {value}
-                </span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>{children}</DropdownMenuSubContent>
-        </DropdownMenuSub>
+        <FilterSubMenu label={label} value={value} active={narrowed}>
+            {children}
+        </FilterSubMenu>
     )
 }

@@ -57,7 +57,12 @@ import type { EffortLevel } from "../types";
 import type { RunBudgetGuard } from "./budget-guard";
 import { loadUserClaudeJsonMcpServers } from "./mcp-config";
 import { createMemoryKillNoticeHook } from "./memory-kill-hook";
-import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
+import {
+  type ContextWindowChoice,
+  contextWindowEnv,
+  DEFAULT_MODEL,
+  resolveFallbackModel,
+} from "./models";
 import { isPinnedSettingsFile, pinnedSettingsDir } from "./pinned-settings";
 import { createRtkRewriteHook } from "./rtk-hook";
 import type { SettingsManager } from "./settings";
@@ -115,6 +120,7 @@ export interface BuildOptionsParams {
   onProcessExited?: (pid: number) => void;
   onStartupOutput?: (stdout: Readable) => void;
   effort?: EffortLevel;
+  contextWindow?: ContextWindowChoice;
   enrichmentDeps?: FileEnrichmentDeps;
   enrichedReadCache?: EnrichedReadCache;
   /** Records PostHog product usage from MCP exec calls (deduped, session-wide). */
@@ -201,6 +207,7 @@ function buildEnvironment(
   bedrockGatewayVariant?: BedrockGatewayVariant,
   contextWiki?: ContextWikiEnv,
   machineAuth?: MachineClaudeAuth,
+  contextWindow?: ContextWindowChoice,
 ): Record<string, string> {
   // SDK 0.3.142 made MCP servers connect in the background by default. That
   // default is what we want: a slow or unreachable user MCP server (PostHog
@@ -221,6 +228,7 @@ function buildEnvironment(
     // Enable idle state as end-of-turn signal (required for SDK 0.2.114+)
     CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
     CLAUDE_CODE_STARTUP_FAILURE_RESULTS: "1",
+    ...(contextWindow && contextWindowEnv(contextWindow)),
     ...(mcpNonblocking !== undefined && {
       MCP_CONNECTION_NONBLOCKING: mcpNonblocking,
     }),
@@ -686,6 +694,29 @@ function pinGatewayEnvSettings(
   return true;
 }
 
+function disableClaudeSandbox(options: Options): boolean {
+  const off: Settings = { sandbox: { enabled: false } };
+  if (typeof options.settings === "string") return false;
+  if (options.settings) {
+    options.settings = { ...options.settings, ...off };
+    return true;
+  }
+  const raw = options.extraArgs?.settings;
+  let base: Settings = {};
+  if (raw) {
+    try {
+      base = JSON.parse(raw) as Settings;
+    } catch {
+      return false;
+    }
+  }
+  options.extraArgs = {
+    ...options.extraArgs,
+    settings: JSON.stringify({ ...base, ...off }),
+  };
+  return true;
+}
+
 function ensureLocalSettings(cwd: string): void {
   const claudeDir = path.join(cwd, ".claude");
   const localSettingsPath = path.join(claudeDir, "settings.local.json");
@@ -750,7 +781,6 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
 
   const options: Options = {
     ...params.userProvidedOptions,
-    betas: ["context-1m-2025-08-07"],
     systemPrompt: params.systemPrompt ?? buildSystemPrompt(),
     settingSources: params.userProvidedOptions?.settingSources ?? [
       "user",
@@ -789,6 +819,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.bedrockGatewayVariant,
       params.contextWiki,
       params.machineAuth,
+      params.contextWindow,
     ),
     hooks: buildHooks(
       params.userProvidedOptions?.hooks,
@@ -824,6 +855,12 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       ),
     }),
   };
+
+  if (params.cloudMode && !disableClaudeSandbox(options)) {
+    options.settingSources = options.settingSources?.filter(
+      (source) => source !== "project" && source !== "local",
+    );
+  }
 
   if (
     params.gatewayEnv?.anthropicBaseUrl &&
