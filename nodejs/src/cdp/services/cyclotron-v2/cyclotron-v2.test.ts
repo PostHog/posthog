@@ -1,5 +1,5 @@
 import { Pool } from 'pg'
-import { register } from 'prom-client'
+import { Histogram, register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
@@ -191,21 +191,25 @@ async function churnCountForQueue(queue: string): Promise<number> {
     return line ? Number(line.trim().split(' ').pop()) : 0
 }
 
+const ENQUEUE_PHASE_METRIC = 'cdp_cyclotron_v2_enqueue_phase_duration_seconds'
 const ENQUEUE_PHASES = ['depth_check', 'sequence_reserve', 'insert'] as const
+type EnqueuePhaseTotals = Record<(typeof ENQUEUE_PHASES)[number], { count: number; seconds: number }>
 
-async function enqueuePhaseCounts(): Promise<Record<(typeof ENQUEUE_PHASES)[number], number>> {
-    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_enqueue_phase_duration_seconds')
-    const countOf = (phase: string): number => {
-        const line = metric
-            .split('\n')
-            .find((l) => l.startsWith(`cdp_cyclotron_v2_enqueue_phase_duration_seconds_count{phase="${phase}"}`))
-        return line ? Number(line.trim().split(' ').pop()) : 0
-    }
-    return {
-        depth_check: countOf('depth_check'),
-        sequence_reserve: countOf('sequence_reserve'),
-        insert: countOf('insert'),
-    }
+async function enqueuePhaseTotals(): Promise<EnqueuePhaseTotals> {
+    const metric = register.getSingleMetric(ENQUEUE_PHASE_METRIC) as Histogram | undefined
+    const values = metric ? (await metric.get()).values : []
+    const sample = (phase: string, suffix: 'count' | 'sum'): number =>
+        values.find((v) => v.metricName === `${ENQUEUE_PHASE_METRIC}_${suffix}` && v.labels.phase === phase)?.value ?? 0
+    return Object.fromEntries(
+        ENQUEUE_PHASES.map((phase) => [phase, { count: sample(phase, 'count'), seconds: sample(phase, 'sum') }])
+    ) as EnqueuePhaseTotals
+}
+
+async function enqueuePhaseCountsDuring(step: () => Promise<unknown>): Promise<Record<string, number>> {
+    const before = await enqueuePhaseTotals()
+    await step()
+    const after = await enqueuePhaseTotals()
+    return Object.fromEntries(ENQUEUE_PHASES.map((phase) => [phase, after[phase].count - before[phase].count]))
 }
 
 describe('Cyclotron V2', () => {
@@ -2061,26 +2065,80 @@ describe('Cyclotron V2', () => {
                 expect(await readDequeueSeq(hogId)).toBeNull()
             })
 
-            it.each([
+            it.each<{
+                write: string
+                prepare: () => Promise<() => Promise<unknown>>
+                expected: Record<string, number>
+            }>([
                 {
-                    batch: 'an email and hogflow',
-                    queues: [EMAIL_QUEUE, 'hogflow'],
+                    write: 'a manager batch of an email and a hogflow job',
+                    prepare: () =>
+                        Promise.resolve(() =>
+                            manager.bulkCreateJobs([
+                                { teamId: 7, queueName: EMAIL_QUEUE },
+                                { teamId: 7, queueName: 'hogflow' },
+                            ])
+                        ),
                     expected: { depth_check: 1, sequence_reserve: 1, insert: 1 },
                 },
                 {
-                    batch: 'a hogflow-only',
-                    queues: ['hogflow', 'hogflow'],
+                    write: 'a manager batch of hogflow jobs',
+                    prepare: () =>
+                        Promise.resolve(() =>
+                            manager.bulkCreateJobs([
+                                { teamId: 7, queueName: 'hogflow' },
+                                { teamId: 7, queueName: 'hogflow' },
+                            ])
+                        ),
                     expected: { depth_check: 1, sequence_reserve: 0, insert: 1 },
                 },
-            ])('times each enqueue phase of $batch batch', async ({ queues, expected }) => {
-                const before = await enqueuePhaseCounts()
-                await manager.bulkCreateJobs(queues.map((queueName) => ({ teamId: 7, queueName })))
-                const after = await enqueuePhaseCounts()
+                {
+                    write: 'a worker moving its job into the email queue',
+                    prepare: async () => {
+                        const { job } = await seedAndDequeue({ teamId: 7 })
+                        return () => job.reschedule({ queueName: EMAIL_QUEUE })
+                    },
+                    expected: { depth_check: 0, sequence_reserve: 1, insert: 0 },
+                },
+                {
+                    write: 'a worker inserting children with its check-in',
+                    prepare: async () => {
+                        const { job } = await seedAndDequeue({ teamId: 7 })
+                        return () =>
+                            job.bulkCreateAndCheckIn({
+                                newJobs: [{ teamId: 7, queueName: 'hogflow' }],
+                                selfDisposition: { kind: 'ack' },
+                            })
+                    },
+                    expected: { depth_check: 0, sequence_reserve: 0, insert: 1 },
+                },
+            ])('times each enqueue phase of $write', async ({ prepare, expected }) => {
+                const step = await prepare()
 
-                const recorded = Object.fromEntries(
-                    ENQUEUE_PHASES.map((phase) => [phase, after[phase] - before[phase]])
+                expect(await enqueuePhaseCountsDuring(step)).toEqual(expected)
+            })
+
+            it('times a wait for the team sequence row as sequence_reserve, not as insert', async () => {
+                const holdMs = 300
+                await manager.bulkCreateJobs([{ teamId: 7, queueName: EMAIL_QUEUE }])
+                const before = await enqueuePhaseTotals()
+                const holder = await assertPool.connect()
+                try {
+                    await holder.query('BEGIN')
+                    await holder.query('SELECT counter FROM cyclotron_email_team_seq WHERE team_id = 7 FOR UPDATE')
+                    const enqueued = manager.bulkCreateJobs([{ teamId: 7, queueName: EMAIL_QUEUE }])
+                    await sleep(holdMs)
+                    await holder.query('COMMIT')
+                    await enqueued
+                } finally {
+                    holder.release()
+                }
+                const after = await enqueuePhaseTotals()
+
+                expect(after.sequence_reserve.seconds - before.sequence_reserve.seconds).toBeGreaterThanOrEqual(
+                    (holdMs - 50) / 1000
                 )
-                expect(recorded).toEqual(expected)
+                expect(after.insert.seconds - before.insert.seconds).toBeLessThan((holdMs - 50) / 1000)
             })
 
             it('uses counter * 16M + team_id as the formula', async () => {
