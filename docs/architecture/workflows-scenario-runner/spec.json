@@ -1,0 +1,390 @@
+{
+    "rows": [
+        {
+            "modules": [
+                {
+                    "id": "runner",
+                    "name": "Runner",
+                    "note": "nodejs/tests/scenarios",
+                    "change": "added",
+                    "flex": 2.2,
+                    "seam": ["up", "run(card)", "down"],
+                    "chips": [
+                        {
+                            "text": "reset → seed → drive → converge → judge → write",
+                            "change": "added",
+                            "wide": true
+                        },
+                        {
+                            "text": "ready file",
+                            "change": "added"
+                        },
+                        {
+                            "text": "exit 0 / 1 / 2 / 3",
+                            "change": "added"
+                        }
+                    ]
+                },
+                {
+                    "id": "cards",
+                    "name": "Cards",
+                    "change": "added",
+                    "seam": ["load"],
+                    "chips": [
+                        {
+                            "text": "cards/*.yaml",
+                            "change": "added"
+                        },
+                        {
+                            "text": "zod schema, hash",
+                            "change": "added"
+                        },
+                        {
+                            "text": "profiles",
+                            "change": "added"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "judge",
+                    "name": "Judge",
+                    "change": "added",
+                    "seam": ["open", "record", "converge", "check", "measure"],
+                    "chips": [
+                        {
+                            "text": "journal",
+                            "change": "added"
+                        },
+                        {
+                            "text": "invariants",
+                            "change": "added"
+                        },
+                        {
+                            "text": "measurements",
+                            "change": "added"
+                        }
+                    ]
+                },
+                {
+                    "id": "valves",
+                    "name": "Valves",
+                    "change": "added",
+                    "seam": ["start", "releaseAll", "timeline"],
+                    "chips": [
+                        {
+                            "text": "vocabulary",
+                            "change": "added"
+                        },
+                        {
+                            "text": "at / when",
+                            "change": "added"
+                        },
+                        {
+                            "text": "observed or invalid",
+                            "change": "added"
+                        }
+                    ]
+                },
+                {
+                    "id": "score",
+                    "name": "Scorecard",
+                    "note": "event + evidence",
+                    "change": "added",
+                    "seam": ["write"],
+                    "chips": [
+                        {
+                            "text": "local first",
+                            "change": "added"
+                        },
+                        {
+                            "text": "upload, then event",
+                            "change": "added"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "probe",
+                    "name": "Cyclotron probe",
+                    "change": "added",
+                    "seam": ["counts"],
+                    "chips": [
+                        {
+                            "id": "psql",
+                            "text": "one SQL query",
+                            "change": "added"
+                        }
+                    ]
+                },
+                {
+                    "id": "edge",
+                    "name": "Provider edge",
+                    "change": "added",
+                    "seam": [":4566", "proxy", "faults", "truth"],
+                    "chips": [
+                        {
+                            "id": "sesapi",
+                            "text": "SES v2 API",
+                            "change": "added"
+                        },
+                        {
+                            "text": "SNS signer, cert host",
+                            "change": "added"
+                        },
+                        {
+                            "text": "CONNECT proxy, CA",
+                            "change": "added"
+                        },
+                        {
+                            "text": "webhook receiver",
+                            "change": "added"
+                        },
+                        {
+                            "text": "truth journal",
+                            "change": "added"
+                        }
+                    ]
+                },
+                {
+                    "id": "env",
+                    "name": "Environment",
+                    "note": "one per target",
+                    "change": "added",
+                    "seam": ["up", "reset", "role", "actuate", "health", "exits", "down"],
+                    "chips": [
+                        {
+                            "text": "local: process group per mode",
+                            "change": "added",
+                            "wide": true
+                        },
+                        {
+                            "text": "cloud slice",
+                            "change": "added",
+                            "followUp": true
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "cyc",
+                    "name": "Cyclotron v2",
+                    "used": 11,
+                    "seam": ["bulkCreateJobs", "Worker"],
+                    "chips": [
+                        {
+                            "id": "cjobs",
+                            "text": "cyclotron_jobs"
+                        }
+                    ]
+                },
+                {
+                    "id": "fses",
+                    "name": "fake-ses.ts",
+                    "note": "#132730",
+                    "change": "removed",
+                    "seam": [
+                        {
+                            "name": "startFakeSes",
+                            "change": "removed"
+                        }
+                    ],
+                    "chips": [
+                        {
+                            "text": "port 0, one fault",
+                            "change": "removed"
+                        }
+                    ]
+                },
+                {
+                    "id": "roles",
+                    "name": "Node roles",
+                    "seam": ["PLUGIN_SERVER_MODE"],
+                    "chips": [
+                        {
+                            "text": "5 CDP modes"
+                        }
+                    ]
+                },
+                {
+                    "id": "gen",
+                    "name": "Generator",
+                    "change": "added",
+                    "seam": ["seed", "drive"],
+                    "chips": [
+                        {
+                            "text": "profile sampler",
+                            "change": "added"
+                        },
+                        {
+                            "text": "Kafka, API clients",
+                            "change": "added"
+                        },
+                        {
+                            "text": "unit id in address, path",
+                            "change": "added"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "fix",
+                    "name": "Hogflow fixtures",
+                    "used": 26,
+                    "flex": 1.6,
+                    "seam": ["HogFlowBuilder", "insertHogFlow"],
+                    "chips": [
+                        {
+                            "text": "jest spies, same file",
+                            "change": "removed"
+                        },
+                        {
+                            "text": "jest-free seed helper",
+                            "change": "added"
+                        }
+                    ]
+                },
+                {
+                    "id": "base",
+                    "name": "Base code tree",
+                    "note": "deploy.roll",
+                    "change": "added",
+                    "flex": 1.4,
+                    "seam": ["same modes"],
+                    "chips": [
+                        {
+                            "text": "detached checkout, built once",
+                            "change": "added",
+                            "wide": true
+                        }
+                    ],
+                    "followUp": true
+                }
+            ]
+        }
+    ],
+    "wires": [
+        {
+            "from": "runner",
+            "to": "cards-seam",
+            "fromSide": "right",
+            "toSide": "left"
+        },
+        {
+            "from": "runner",
+            "to": "judge-seam",
+            "fromAt": 0.1
+        },
+        {
+            "from": "runner",
+            "to": "valves-seam",
+            "fromAt": 0.5
+        },
+        {
+            "from": "runner",
+            "to": "score-seam",
+            "fromAt": 0.9
+        },
+        {
+            "from": "psql",
+            "to": "cjobs",
+            "kind": "leak",
+            "label": "1 query",
+            "fromSide": "bottom",
+            "toSide": "top"
+        },
+        {
+            "from": "env",
+            "to": "roles-seam",
+            "fromAt": 0.3,
+            "toAt": 0.6,
+            "label": "start, signal"
+        },
+        {
+            "from": "roles",
+            "to": "edge",
+            "fromSide": "top",
+            "toSide": "bottom",
+            "fromAt": 0.2,
+            "toAt": 0.75,
+            "label": "SES, HTTPS"
+        },
+        {
+            "from": "fses",
+            "to": "sesapi",
+            "fromSide": "top",
+            "toSide": "bottom",
+            "change": "removed",
+            "crossAt": 0.2
+        },
+        {
+            "from": "gen",
+            "to": "roles",
+            "fromSide": "left",
+            "toSide": "right"
+        },
+        {
+            "from": "gen",
+            "to": "fix-seam",
+            "fromAt": 0.5,
+            "toAt": 0.8,
+            "label": "seed flows"
+        },
+        {
+            "from": "env",
+            "to": "base",
+            "change": "added",
+            "toSide": "right",
+            "bend": 26,
+            "fromSide": "right",
+            "followUp": true
+        },
+        {
+            "from": "judge",
+            "to": "probe-seam",
+            "fromAt": 0.2,
+            "toAt": 0.5
+        },
+        {
+            "from": "judge",
+            "to": "edge-seam",
+            "fromAt": 0.6,
+            "toAt": 0.3,
+            "label": "truth",
+            "labelAt": 0.7
+        },
+        {
+            "from": "valves",
+            "to": "probe-seam",
+            "fromAt": 0.1,
+            "toAt": 0.85,
+            "label": "when",
+            "labelAt": 0.75
+        },
+        {
+            "from": "valves",
+            "to": "edge-seam",
+            "fromAt": 0.4,
+            "toAt": 0.8,
+            "label": "faults"
+        },
+        {
+            "from": "valves",
+            "to": "env-seam",
+            "fromAt": 0.8,
+            "toAt": 0.4
+        }
+    ]
+}

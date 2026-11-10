@@ -1,0 +1,268 @@
+{
+    "rows": [
+        {
+            "modules": [
+                {
+                    "id": "agent",
+                    "name": "Agent",
+                    "note": "local stack, worktree box",
+                    "external": true,
+                    "seam": []
+                },
+                {
+                    "id": "person",
+                    "name": "Person",
+                    "note": "cloud slice, by hand",
+                    "external": true,
+                    "seam": []
+                },
+                {
+                    "id": "pr",
+                    "name": "PR run",
+                    "note": "label on a PR",
+                    "external": true,
+                    "change": "added",
+                    "followUp": true,
+                    "seam": []
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "runner",
+                    "name": "Runner",
+                    "note": "one command, ready file, exit code",
+                    "change": "added",
+                    "flex": 2.4,
+                    "seam": ["up", "run(card)", "down"]
+                },
+                {
+                    "id": "cards",
+                    "name": "Cards",
+                    "note": "versioned files",
+                    "change": "added",
+                    "seam": ["load"]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "gen",
+                    "name": "Generator",
+                    "change": "added",
+                    "seam": ["seed", "drive"]
+                },
+                {
+                    "id": "edge",
+                    "name": "Provider edge",
+                    "change": "added",
+                    "seam": [":4566", "proxy", "truth"],
+                    "note": "SES, proxy, SNS, webhooks"
+                },
+                {
+                    "id": "judge",
+                    "name": "Judge",
+                    "change": "added",
+                    "seam": ["record", "check"]
+                },
+                {
+                    "id": "valves",
+                    "name": "Valves",
+                    "note": "one per name",
+                    "change": "added",
+                    "seam": ["start", "releaseAll"]
+                },
+                {
+                    "id": "score",
+                    "name": "Scorecard",
+                    "note": "event + evidence",
+                    "change": "added",
+                    "seam": ["write"]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "fix",
+                    "name": "Hogflow fixtures",
+                    "used": 26,
+                    "seam": ["HogFlowBuilder"]
+                },
+                {
+                    "id": "roles",
+                    "name": "Node roles",
+                    "note": "one process per CDP mode",
+                    "flex": 1.6,
+                    "seam": ["PLUGIN_SERVER_MODE"]
+                },
+                {
+                    "id": "base",
+                    "name": "Base code tree",
+                    "note": "deploy.roll",
+                    "change": "added",
+                    "seam": ["same modes"],
+                    "followUp": true
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "steps",
+                    "name": "Hogflow time steps",
+                    "seam": ["delay", "window"]
+                },
+                {
+                    "id": "cyc",
+                    "name": "Cyclotron v2",
+                    "used": 11,
+                    "seam": ["Manager", "Worker", "Janitor"]
+                },
+                {
+                    "id": "djs",
+                    "name": "Django schedules",
+                    "seam": ["process_due"]
+                },
+                {
+                    "id": "clock",
+                    "name": "Scheduling clock",
+                    "change": "added",
+                    "followUp": true,
+                    "seam": ["now", "advance"]
+                }
+            ],
+            "gap": 56
+        }
+    ],
+    "wires": [
+        {
+            "from": "agent",
+            "to": "runner-seam",
+            "toAt": 0.1,
+            "label": "run card"
+        },
+        {
+            "from": "person",
+            "to": "runner-seam",
+            "toAt": 0.5,
+            "label": "run card"
+        },
+        {
+            "from": "pr",
+            "to": "runner-seam",
+            "toAt": 0.9,
+            "change": "added",
+            "followUp": true
+        },
+        {
+            "from": "runner",
+            "to": "cards-seam",
+            "fromSide": "right",
+            "toSide": "left"
+        },
+        {
+            "from": "runner",
+            "to": "gen-seam",
+            "fromAt": 0.08
+        },
+        {
+            "from": "runner",
+            "to": "judge-seam",
+            "fromAt": 0.5
+        },
+        {
+            "from": "runner",
+            "to": "valves-seam",
+            "fromAt": 0.8
+        },
+        {
+            "from": "runner",
+            "to": "score-seam",
+            "fromAt": 0.97
+        },
+        {
+            "from": "gen",
+            "to": "fix-seam",
+            "fromAt": 0.3,
+            "toAt": 0.3,
+            "label": "seed"
+        },
+        {
+            "from": "gen",
+            "to": "roles-seam",
+            "fromAt": 0.8,
+            "toAt": 0.1,
+            "label": "events, sends",
+            "labelAt": 0.6
+        },
+        {
+            "from": "roles",
+            "to": "edge",
+            "fromSide": "top",
+            "toSide": "bottom",
+            "fromAt": 0.45,
+            "toAt": 0.5,
+            "label": "SES, HTTPS"
+        },
+        {
+            "from": "judge",
+            "to": "edge-seam",
+            "fromSide": "left",
+            "toSide": "right"
+        },
+        {
+            "from": "valves",
+            "to": "roles-seam",
+            "fromAt": 0.2,
+            "toAt": 0.85,
+            "label": "kill, freeze"
+        },
+        {
+            "from": "valves",
+            "to": "base-seam",
+            "fromAt": 0.8,
+            "toAt": 0.5,
+            "change": "added",
+            "followUp": true
+        },
+        {
+            "from": "roles",
+            "to": "cyc",
+            "kind": "leak",
+            "fromAt": 0.35,
+            "toAt": 0.5,
+            "label": "own pool, 11 NOW()"
+        },
+        {
+            "from": "clock",
+            "to": "djs",
+            "fromSide": "left",
+            "toSide": "right",
+            "change": "added",
+            "followUp": true
+        },
+        {
+            "from": "clock",
+            "to": "cyc",
+            "fromSide": "bottom",
+            "toSide": "bottom",
+            "bend": 16,
+            "change": "added",
+            "followUp": true
+        },
+        {
+            "from": "clock",
+            "to": "steps",
+            "fromSide": "bottom",
+            "toSide": "bottom",
+            "fromAt": 0.3,
+            "bend": 28,
+            "change": "added",
+            "followUp": true,
+            "labelAt": 0.2
+        }
+    ]
+}
