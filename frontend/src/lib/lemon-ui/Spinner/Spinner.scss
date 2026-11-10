@@ -114,8 +114,8 @@
             z-index: 1;
             pointer-events: none;
             content: '';
-            background: color-mix(in srgb, var(--color-bg-primary) 60%, transparent);
-            backdrop-filter: blur(12px);
+            background: color-mix(in srgb, var(--color-bg-primary) 25%, transparent);
+            backdrop-filter: blur(3px);
         }
 
         .SpinnerOverlay__ribbon {
