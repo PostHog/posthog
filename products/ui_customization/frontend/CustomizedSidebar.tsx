@@ -23,6 +23,7 @@ import { SidebarCustomizationControls } from './SidebarCustomizationControls'
 import { sidebarCustomizationLogic } from './sidebarCustomizationLogic'
 import { SIDEBAR_ICONS } from './sidebarIcons'
 import { SidebarLayoutSections } from './SidebarLayoutSections'
+import { SortableSidebarList } from './SortableSidebarList'
 
 const SidebarAgentListener = lazyWithRetry(() =>
     import('./SidebarAgentListener').then((m) => ({ default: m.SidebarAgentListener }))
@@ -48,6 +49,8 @@ export interface CustomizedSidebarProps {
             item: AnalyticsFragmentLinkApi | AnalyticsFragmentButtonApi
         ) => Omit<SidebarNavigationItem, 'value'> | null
         lists: Partial<Record<AnalyticsListSourceApi, SidebarNavigationItem[]>>
+        /** Lists whose rows can be dragged into a new order. Indexes refer to the list as given. */
+        reorder?: Partial<Record<AnalyticsListSourceApi, (fromIndex: number, toIndex: number) => void>>
         metric: (item: AnalyticsFragmentMetricApi, value: string) => JSX.Element
     }
     customization: { prompt: string; event: string }
@@ -93,9 +96,20 @@ export function CustomizedSidebar(props: CustomizedSidebarProps): JSX.Element {
                     renderItem={(section, item, index) => {
                         const value = `${section.id}:${index}`
                         if (item.type === 'list') {
-                            return (props.navigation.lists[item.source] ?? [])
-                                .filter((row) => matches(row.label))
-                                .map(renderRow)
+                            const rows = props.navigation.lists[item.source] ?? []
+                            const onReorder = props.navigation.reorder?.[item.source]
+                            // A filtered list hides rows, so a drop there has no clear place in the full order.
+                            if (onReorder && rows.length > 1 && !props.search.query.trim()) {
+                                return [
+                                    <SortableSidebarList
+                                        key={value}
+                                        rows={rows}
+                                        renderRow={renderRow}
+                                        onReorder={onReorder}
+                                    />,
+                                ]
+                            }
+                            return rows.filter((row) => matches(row.label)).map(renderRow)
                         }
                         if (item.type === 'metric') {
                             return matches(item.label)

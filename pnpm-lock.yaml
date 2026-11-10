@@ -5635,6 +5635,18 @@ importers:
 
   products/ui_customization:
     dependencies:
+      '@dnd-kit/core':
+        specifier: '*'
+        version: 6.3.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@dnd-kit/modifiers':
+        specifier: '*'
+        version: 6.0.1(@dnd-kit/core@6.3.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
+      '@dnd-kit/sortable':
+        specifier: '*'
+        version: 7.0.2(@dnd-kit/core@6.3.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
+      '@dnd-kit/utilities':
+        specifier: '*'
+        version: 3.2.2(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.39.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)

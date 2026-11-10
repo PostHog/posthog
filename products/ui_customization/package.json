@@ -5,6 +5,10 @@
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "peerDependencies": {
+        "@dnd-kit/core": "*",
+        "@dnd-kit/modifiers": "*",
+        "@dnd-kit/sortable": "*",
+        "@dnd-kit/utilities": "*",
         "@posthog/icons": "catalog:",
         "@posthog/quill": "workspace:*",
         "@posthog/quill-components": "workspace:*",
