@@ -3,13 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
-import { PersonIcon } from 'products/persons/frontend/components/PersonDisplay'
-import { asDisplay } from 'products/persons/frontend/person-utils'
 import { QuillSummarizeRecordingBar } from 'products/replay_vision/frontend/components/QuillSummarizeRecordingBar'
 import { useVisionSurfaceShown } from 'products/replay_vision/frontend/utils/useVisionSurfaceShown'
 
@@ -31,10 +28,22 @@ export function WatchPanel(): JSX.Element | null {
     if (!sessionRecordingId) {
         return null
     }
-    if (watchPanelCollapsed) {
-        return <WatchPanelCollapsedBar />
-    }
     const debugDocked = debugMode && watchDebugDock === 'bottom'
+    const actions = vision ? <QuillSummarizeRecordingBar /> : undefined
+    const toggle = (
+        <Button
+            size="icon"
+            onClick={() => setWatchPanelCollapsed(!watchPanelCollapsed)}
+            tooltip={watchPanelCollapsed ? 'Expand' : 'Collapse'}
+            aria-label={watchPanelCollapsed ? 'Expand' : 'Collapse'}
+            data-attr="watch-panel-collapse"
+        >
+            <IconChevronDown className={watchPanelCollapsed ? 'rotate-180' : undefined} />
+        </Button>
+    )
+    if (watchPanelCollapsed) {
+        return <RecordingTitleBlock compact actions={actions} trailingActions={toggle} />
+    }
 
     return (
         <div
@@ -43,55 +52,13 @@ export function WatchPanel(): JSX.Element | null {
             data-attr="watch-panel"
         >
             <DebugModeBanner />
-            <RecordingTitleBlock
-                actions={vision ? <QuillSummarizeRecordingBar /> : undefined}
-                trailingActions={
-                    <Button
-                        size="icon"
-                        onClick={() => setWatchPanelCollapsed(true)}
-                        tooltip="Collapse"
-                        aria-label="Collapse"
-                        data-attr="watch-panel-collapse"
-                    >
-                        <IconChevronDown />
-                    </Button>
-                }
-            />
+            <RecordingTitleBlock actions={actions} trailingActions={toggle} />
             {vision && dataProcessingAccepted ? (
                 <WatchPanelSectionsWithObservations sessionId={sessionRecordingId} debug={debugDocked} />
             ) : (
                 <WatchPanelSections debug={debugDocked} />
             )}
             <RecordingCommentsList sessionId={sessionRecordingId} />
-        </div>
-    )
-}
-
-function WatchPanelCollapsedBar(): JSX.Element {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { sessionPerson } = useValues(playerMetaLogic(logicProps))
-    const { setWatchPanelCollapsed } = useActions(playerSettingsLogic)
-
-    return (
-        <div
-            data-quill
-            className="flex items-center gap-2 px-2 h-full min-w-0 text-foreground"
-            data-attr="watch-panel-collapsed"
-        >
-            {sessionPerson && <PersonIcon person={sessionPerson} size="sm" className="mr-0 shrink-0" />}
-            <span className="text-sm font-medium truncate ph-no-capture">
-                {sessionPerson ? asDisplay(sessionPerson) : 'Unknown user'}
-            </span>
-            <Button
-                size="icon"
-                className="ml-auto"
-                onClick={() => setWatchPanelCollapsed(false)}
-                tooltip="Expand"
-                aria-label="Expand"
-                data-attr="watch-panel-collapse"
-            >
-                <IconChevronDown className="rotate-180" />
-            </Button>
         </div>
     )
 }
