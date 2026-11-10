@@ -52,6 +52,8 @@ SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_ONBOARDING_FLAG = "slack-app-onboarding"
 SLACK_APP_LINK_SEARCH_SCOPES_FLAG = "slack-app-link-search-scopes"
 SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG = "slack-app-connect-tool-from-chat"
+SLACK_APP_RUNTIME_HANDOFF_FLAG = "slack-app-runtime-handoff"
+SLACK_APP_DAILY_WORK_FOCUS_FLAG = "slack-app-daily-work-focus"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -201,6 +203,25 @@ def is_slack_app_connect_tool_from_chat_enabled(integration: IntegrationRecord) 
         SLACK_APP_CONNECT_TOOL_FROM_CHAT_FLAG,
         integration,
         failure_log_key="slack_app_connect_tool_from_chat_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_runtime_handoff_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """Gate for moving a live thread onto a model from the other runtime by stopping its run and resuming the
+    task in a new run. ``distinct_id`` is the PostHog user who asked for the model, so a person rule matches them."""
+    return _workspace_flag_enabled(
+        SLACK_APP_RUNTIME_HANDOFF_FLAG,
+        integration,
+        failure_log_key="slack_app_runtime_handoff_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_daily_work_focus_enabled(integration: IntegrationRecord) -> bool:
+    return _workspace_flag_enabled(
+        SLACK_APP_DAILY_WORK_FOCUS_FLAG,
+        integration,
+        failure_log_key="slack_app_daily_work_focus_feature_flag_check_failed",
     )
 
 

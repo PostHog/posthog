@@ -21,6 +21,7 @@ from posthog.errors import InternalCHQueryError
 from posthog.models import Team
 
 from products.signals.backend.filter_catalog_schema import CatalogBundle, JsonPathRecipe
+from products.signals.backend.filter_catalog_seeds import LINEAR_ISSUE_SEED
 from products.signals.backend.filter_expression import FilterValidationError
 from products.signals.backend.filter_recipes import WarehouseFilterBindings
 
@@ -300,39 +301,8 @@ class TestFilterRecipeExecution(SimpleTestCase):
         )
         self.assertEqual(self.execute(engine, json.dumps({key: "safe"})), "safe")
 
-    def test_linear_recipes_in_scoped_query(self) -> None:
-        specs = [
-            ("team_id", "team", "id"),
-            ("project_id", "project", "id"),
-            ("project_name", "project", "name"),
-            ("assignee_id", "assignee", "id"),
-            ("state_type", "state", "type"),
-            ("label_names", "labels", "name"),
-        ]
-        fields: list[dict[str, object]] = [
-            {
-                "name": name,
-                "type": "array<string>" if name == "label_names" else "string",
-                "description": "Synthetic issue field.",
-                "binding": {"kind": "json_array_map", "column": column, "array_path": ["nodes"], "value_path": [key]}
-                if name == "label_names"
-                else {"kind": "json_path", "column": column, "path": [key]},
-                "missing_value": "empty_array" if name == "label_names" else "null",
-                "malformed_value": "error",
-            }
-            for name, column, key in specs
-        ]
-        fields.append(
-            {
-                "name": "priority",
-                "type": "integer",
-                "description": "Synthetic issue priority.",
-                "binding": {"kind": "column", "column": "priority"},
-                "missing_value": "null",
-                "malformed_value": "error",
-            }
-        )
-        bundle = CatalogBundle.model_validate({"schema_version": 1, "fields": fields, "starter_expressions": []})
+    def test_linear_seed_recipes_in_scoped_query(self) -> None:
+        bundle = CatalogBundle.model_validate(LINEAR_ISSUE_SEED.bundle)
         payloads: dict[str, str | int] = {
             "team": json.dumps({"id": "team-a", "name": "Engineering", "key": "ENG"}),
             "project": json.dumps({"id": "project-a", "name": "Core"}),

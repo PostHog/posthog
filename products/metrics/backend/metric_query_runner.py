@@ -744,7 +744,7 @@ class MetricQueryRunner:
             query_type="MetricQuery",
             query=query,
             team=self.team,
-            workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+            workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
         self._raise_on_truncation(response.results)
@@ -774,7 +774,7 @@ class MetricQueryRunner:
             query_type="MetricQuery",
             query=query,
             team=self.team,
-            workload=Workload.LOGS,
+            workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
         self._raise_on_truncation(response.results)

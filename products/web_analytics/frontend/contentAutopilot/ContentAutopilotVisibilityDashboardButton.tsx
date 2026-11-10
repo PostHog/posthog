@@ -20,10 +20,10 @@ export const ContentAutopilotVisibilityDashboardButton = (): JSX.Element => {
             icon={<IconDashboard />}
             onClick={createVisibilityDashboard}
             loading={creatingVisibilityDashboard}
-            disabledReason={getAccessControlDisabledReason(
-                AccessControlResourceType.Dashboard,
-                AccessControlLevel.Editor
-            )}
+            disabledReason={
+                getAccessControlDisabledReason(AccessControlResourceType.Dashboard, AccessControlLevel.Editor) ??
+                getAccessControlDisabledReason(AccessControlResourceType.Insight, AccessControlLevel.Editor)
+            }
             tooltip="Creates a dashboard of weekly non-branded visibility, topics and pages to watch, which you can subscribe to in Slack or email."
             data-attr="content-autopilot-create-visibility-dashboard"
         >

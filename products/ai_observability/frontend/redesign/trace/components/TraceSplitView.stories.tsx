@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { messagesContent } from '../sampleFixtures/sampleContent'
 import {
     FIXTURE_EVALS,
     FIXTURE_GENERATION_INPUT,
@@ -27,11 +28,11 @@ const meta: Meta<typeof TraceSplitView> = {
             onTabChange: () => {},
             messagesOpening: 'lastTurn',
             onMessagesOpeningChange: () => {},
-            content: { kind: 'messages', input: FIXTURE_GENERATION_INPUT, output: FIXTURE_GENERATION_OUTPUT },
+            content: messagesContent(FIXTURE_GENERATION_INPUT, FIXTURE_GENERATION_OUTPUT),
             error: null,
             properties: FIXTURE_GENERATION_PROPERTIES,
             evals: { status: 'ready', results: FIXTURE_EVALS },
-            raw: {},
+            raw: undefined,
             onViewInThread: () => {},
         },
     },

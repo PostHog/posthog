@@ -81,6 +81,7 @@ NON_RETRYABLE_ERRORS = [
     "NodeNotFoundException",
     "EmptyHogQLResponseColumnsError",
     "DuplicateOutputColumnError",
+    "DuplicateUniqueKeyError",
     "UnstorableIntegerError",
     "EndpointMaterializationTurnedOffError",
 ]

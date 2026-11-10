@@ -30,10 +30,16 @@ CHECKS_TABLE = "system.aeo_citation_checks"
 
 # A brand a person ignored counts as neither own nor competitor.
 _BRANDS_OF_KIND = "SELECT groupArray({expr}) FROM system.aeo_brands WHERE kind = '{kind}' AND status != 'ignored'"
-_BRAND_NAMES = _BRANDS_OF_KIND.format(expr="lower(splitByChar('.', domain)[1])", kind="own")
+# A citation-sourced domain comes from a third-party URL, whose host can hold characters a real domain label
+# cannot, such as "|" or "(". A brand name goes into a regex unescaped, so a name with any character other than
+# a letter, a digit or a hyphen is dropped. One such name could otherwise mark every prompt as branded, or make
+# the regex invalid and fail the tile.
+_BRAND_NAMES = (
+    r"SELECT arrayFilter(name -> match(name, '^[\\p{L}\\p{N}-]+$'), groupArray(lower(splitByChar('.', domain)[1]))) "
+    "FROM system.aeo_brands WHERE kind = 'own' AND status != 'ignored'"
+)
 _OWN_DOMAINS = _BRANDS_OF_KIND.format(expr="lower(domain)", kind="own")
 _COMPETITOR_DOMAINS = _BRANDS_OF_KIND.format(expr="lower(domain)", kind="competitor")
-# Domain labels are letters, digits and hyphens, so the names need no regex escaping.
 _BRAND_REGEX = r"concat('(?i)\\b(', arrayStringConcat(brand_names, '|'), ')\\b')"
 _NAMES_BRAND = "notEmpty(brand_names) AND match({field}, brand_regex)"
 
@@ -44,23 +50,33 @@ _TRENDS_NAMES_BRAND = (
     f"({_BRAND_NAMES}))"
 )
 _TRENDS_ANSWERED_NON_BRANDED = f"NOT check_failed AND NOT {_TRENDS_NAMES_BRAND.format(field='prompt_text')}"
-_TRENDS_MENTIONED = f"cited OR {_TRENDS_NAMES_BRAND.format(field="ifNull(answer_text, '')")}"
+# Matches the cited URLs against the current own domains, as `_answers` does, instead of the stored `cited`.
+_TRENDS_CITES_OWN = (
+    "arrayExists(url -> arrayExists(d -> lower(domain(url)) = d OR endsWith(lower(domain(url)), concat('.', d)), "
+    f"({_OWN_DOMAINS})), JSONExtract(ifNull(cited_urls, '[]'), 'Array(String)'))"
+)
+_TRENDS_MENTIONED = f"{_TRENDS_CITES_OWN} OR {_TRENDS_NAMES_BRAND.format(field="ifNull(answer_text, '')")}"
 
 
 def _answers(days: int) -> str:
     """Answered non-branded checks from the last `days` complete days in the project's timezone.
 
     `days_ago` is 1 for yesterday, so days 1-7 are the report week and days 8-14 the week before.
+    An answer is cited when it cites a page on a current own domain. The stored `cited` column is not used,
+    because it was computed at ingestion from the domains configured then, and the pages tile reads the catalog.
     A cited answer counts as a mention even when its text only carries the URL, as in `brand.mention_filter`.
     """
     return f"""
-        WITH ({_BRAND_NAMES}) AS brand_names, {_BRAND_REGEX} AS brand_regex
+        WITH ({_BRAND_NAMES}) AS brand_names, {_BRAND_REGEX} AS brand_regex, ({_OWN_DOMAINS}) AS own_domains
         SELECT
             dateDiff('day', toDate(created_at), toDate(now())) AS days_ago,
             prompt_topic,
-            cited,
-            cited OR ({_NAMES_BRAND.format(field="ifNull(answer_text, '')")}) AS mentioned,
-            arrayDistinct(JSONExtract(ifNull(cited_urls, '[]'), 'Array(String)')) AS urls
+            arrayDistinct(JSONExtract(ifNull(cited_urls, '[]'), 'Array(String)')) AS urls,
+            arrayExists(
+                url -> arrayExists(d -> lower(domain(url)) = d OR endsWith(lower(domain(url)), concat('.', d)), own_domains),
+                urls
+            ) AS cites_own,
+            cites_own OR ({_NAMES_BRAND.format(field="ifNull(answer_text, '')")}) AS mentioned
         FROM system.aeo_citation_checks
         WHERE NOT check_failed
             AND created_at >= toStartOfDay(now()) - INTERVAL {days} DAY
@@ -167,7 +183,7 @@ def _rate_query(
         "kind": "InsightVizNode",
         "source": {
             "kind": "TrendsQuery",
-            "series": [_checks_series(), _checks_series(_TRENDS_MENTIONED), _checks_series("cited")],
+            "series": [_checks_series(), _checks_series(_TRENDS_MENTIONED), _checks_series(_TRENDS_CITES_OWN)],
             "interval": interval,
             "dateRange": date_range,
             "compareFilter": {"compare": compare},
