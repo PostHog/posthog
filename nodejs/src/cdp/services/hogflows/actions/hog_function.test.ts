@@ -13,6 +13,7 @@ import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { workflowStepDispatchKeyFromInvocation } from '~/cdp/utils/workflow-step-dispatch-key'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
@@ -832,7 +833,6 @@ describe('HogFunctionHandler', () => {
         }
     }
 
-    // A production send leaves the step on the email queue, so run the step again there, as the worker does.
     const executeStep = async (
         handler: HogFunctionHandler,
         flowInvocation: CyclotronJobInvocationHogFlow,
@@ -877,9 +877,14 @@ describe('HogFunctionHandler', () => {
     )(
         'emits $billingType metrics and only excludes mocked usage in $mode mode',
         async ({ billingType, usageKey, isTest, mockFunctions }) => {
-            const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
-                reportBillableInvocation: jest.fn(),
-            }
+            const ingested: UsageRecordInput[] = []
+            const usageIngestion = {
+                ingest: (records: UsageRecordInput[]) => {
+                    ingested.push(...records)
+                    return Promise.resolve()
+                },
+            } as unknown as UsageIngestionClient
+            const usageReporter = new CdpUsageReporterService(usageIngestion, () => true)
             const handler = new HogFunctionHandler(
                 mockHogFlowFunctionsService,
                 mockRecipientPreferencesService,
@@ -902,13 +907,14 @@ describe('HogFunctionHandler', () => {
                     : {}),
             })
 
+            await usageReporter.flush()
             const billableMetrics = invocationResult.metrics.filter(
                 (metric) => metric.metric_name === 'billable_invocation'
             )
 
-            // A mocked email test reaches no provider, so there is nothing to bill.
             if (billingType === 'email' && mockFunctions) {
                 expect(billableMetrics).toEqual([])
+                expect(ingested).toEqual([])
                 return
             }
             expect(billableMetrics).toHaveLength(1)
@@ -921,14 +927,15 @@ describe('HogFunctionHandler', () => {
                 metric_name: 'billable_invocation',
                 count: 1,
             })
-            if (isTest && mockFunctions) {
-                expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
-            } else {
-                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(billingType === 'push' ? 2 : 1)
-                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
-                    expect.objectContaining({ teamId: team.id, usageKey })
-                )
-            }
+            const expectedUsageKeys =
+                isTest && mockFunctions
+                    ? []
+                    : billingType === 'push'
+                      ? [usageKey, 'workflow_billable_invocations']
+                      : [usageKey]
+            expect(ingested.map((record) => ({ teamId: record.teamId, usageKey: record.usageKey }))).toEqual(
+                expectedUsageKeys.map((key) => ({ teamId: team.id, usageKey: key }))
+            )
         }
     )
 
