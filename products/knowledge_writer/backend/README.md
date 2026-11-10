@@ -16,6 +16,8 @@ Set up the dev GitHub App with `python manage.py create_github_app`, following [
 - A fresh database needs `hogli migrations:up`, then `python manage.py setup_dev --no-data`, before `setup_background_agents`.
 - Fork `posthog.com` into your own account and install the App on that fork only. The writer picks the GitHub integration whose account matches the repository owner.
 
+Publish runs as a Temporal workflow, so the scratch run also needs the Temporal server and worker listed under the full run below.
+
 Then:
 
 ```bash

@@ -16,6 +16,7 @@ import {
 } from '~/types'
 
 import { SERVING_ENGINE } from 'products/data_modeling/frontend/suspension'
+import { viewEngine } from 'products/data_warehouse/frontend/shared/viewEngine'
 
 export interface MaterializationRunActionInputs {
     savedQuery: DataWarehouseSavedQuery
@@ -161,6 +162,7 @@ export function materializationRunActionState({
             (updatingDataWarehouseSavedQuery || materializationActionLoading ? 'Updating materialization' : undefined),
         materializeReason:
             accessReason ||
+            viewEngine(savedQuery).capabilities.materialize.reason ||
             refreshReason ||
             deletingReason ||
             (updatingDataWarehouseSavedQuery ? 'Saving materialization settings' : undefined) ||

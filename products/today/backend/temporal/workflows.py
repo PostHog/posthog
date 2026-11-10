@@ -24,7 +24,6 @@ with temporalio.workflow.unsafe.imports_passed_through():
 HIGHLIGHT_SOURCE_TIMEOUT = timedelta(seconds=180)
 HIGHLIGHT_SOURCE_TOTAL_TIMEOUT = timedelta(seconds=240)
 FINALIZE_HIGHLIGHTS_TIMEOUT = timedelta(seconds=30)
-PINNED_NUMBERS_PATCH = "today-pinned-numbers"
 
 
 @temporalio.workflow.defn(name=HIGHLIGHTS_WORKFLOW_NAME)
@@ -34,7 +33,6 @@ class ComputeTodayHighlightsWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: ComputeHighlightsInputs) -> None:
         sources = asyncio.gather(*(_run_source(inputs, name) for name in inputs.source_names))
-        temporalio.workflow.deprecate_patch(PINNED_NUMBERS_PATCH)
         if inputs.pins:
             results, pinned = await asyncio.gather(sources, _resolve_pins(inputs))
         else:
