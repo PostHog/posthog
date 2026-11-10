@@ -187,9 +187,13 @@ export interface SkillsLibrary {
     /** The `posthog:instrument-*` skills. Downloads only context-mill, not the product skills. */
     instrumentSkills(): Promise<SkillsResult<{ skills: string[]; assets: SkillAssetStatus[] }>>
     installable(): Promise<SkillsResult<{ skills: InstallableSkill[]; assets: SkillAssetStatus[] }>>
-    /** Writes a skill into `.agents/skills/<id>` under `cwd`, as `posthog-cli api skill install` does. */
+    /**
+     * Writes a skill into `<skillsDir>/<id>` under `cwd`. `skillsDir` defaults to `.agents/skills`, where
+     * `posthog-cli api skill install` writes. A write that would land outside `cwd`, through `..` or a
+     * symlink, fails with `install_failed`.
+     */
     install(
         id: string,
-        options: { cwd: string; force?: boolean }
+        options: { cwd: string; force?: boolean; skillsDir?: string }
     ): Promise<SkillsResult<{ skill: InstalledSkill; assets: SkillAssetStatus[] }>>
 }
