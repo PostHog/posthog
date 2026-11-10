@@ -106,8 +106,7 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     mirror=mirror_platform_edit,
     # For an insight alert with no insight row: the platform deletes it, and its destinations stay
     # HogFunctions. Creates stay off, and out of the API schema, until `creates` and
-    # `creates_native_alert` turn them on. A native create picks any insight cadence, and gets daily
-    # when it names none, as the insight API does.
+    # `creates_native_alert` turn them on. A native create picks any insight cadence, daily by default.
     native=NativeAlertLifecycle(
         check_interval_minutes=MINUTES_PER_DAY,
         check_intervals=frozenset(minutes for minutes, _ in RECURRENCE.values()),

@@ -1110,9 +1110,7 @@ class PlatformAlertConfigurationEdit:
     cooldown_minutes: int
     labels: dict[str, str] = field(default_factory=dict)
     annotations: dict[str, str] = field(default_factory=dict)
-    # The cadence a native create asks for, from the kind's `NativeAlertLifecycle.check_intervals`. None
-    # takes the kind's own interval. Only a native create reads it: an edit never moves the schedule, and
-    # a source that keeps a row sets the schedule from that row.
+    # Only a native create reads it, because an edit never moves the schedule. None takes the kind's default.
     check_interval_minutes: int | None = None
 
 
@@ -1226,9 +1224,7 @@ class NativeAlertLifecycle:
     """
 
     check_interval_minutes: int
-    # The intervals a create may ask for through `PlatformAlertConfigurationEdit.check_interval_minutes`,
-    # for a kind whose alerts choose their own cadence. None for a kind with one fixed cadence. The
-    # source's `admit` sees the chosen interval, so its cadence limits apply to the alert as stored.
+    # None for a kind with one fixed cadence. `admit` sees the chosen interval, so cadence limits hold.
     check_intervals: frozenset[int] | None = None
     # The most alerts of the kind a team can have, or None for no cap.
     max_per_team: int | None = None
