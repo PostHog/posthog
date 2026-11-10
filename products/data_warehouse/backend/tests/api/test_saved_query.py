@@ -3438,16 +3438,22 @@ class TestSavedQueryRun(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("single_view_completed", {}, DataModelingJob.Status.COMPLETED, 200),
-            ("with_direction_completed", {"direction": "upstream"}, DataModelingJob.Status.COMPLETED, 200),
-            ("single_view_running", {}, DataModelingJob.Status.RUNNING, 409),
-            ("full_refresh_running", {"full_refresh": True}, DataModelingJob.Status.RUNNING, 409),
-            ("with_direction_running", {"direction": "upstream"}, DataModelingJob.Status.RUNNING, 409),
+            ("single_view_completed", {}, [DataModelingJob.Status.COMPLETED], 200),
+            ("with_direction_completed", {"direction": "upstream"}, [DataModelingJob.Status.COMPLETED], 200),
+            ("single_view_running", {}, [DataModelingJob.Status.RUNNING], 409),
+            ("full_refresh_running", {"full_refresh": True}, [DataModelingJob.Status.RUNNING], 409),
+            ("with_direction_running", {"direction": "upstream"}, [DataModelingJob.Status.RUNNING], 409),
+            (
+                "with_direction_running_then_skipped",
+                {"direction": "upstream"},
+                [DataModelingJob.Status.RUNNING, DataModelingJob.Status.SKIPPED],
+                409,
+            ),
         ]
     )
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_from_a_browser_session_is_refused_only_while_a_run_is_in_progress(
-        self, _name, body, job_status, expected_status, mock_sync_connect
+        self, _name, body, job_statuses, expected_status, mock_sync_connect
     ):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -3456,13 +3462,14 @@ class TestSavedQueryRun(APIBaseTest):
         saved_query.save(update_fields=["incremental_state"])
         node.type = NodeType.MAT_VIEW
         node.save(update_fields=["type"])
-        job = DataModelingJob.objects.create(
-            team=self.team,
-            saved_query=saved_query,
-            status=job_status,
-            engine=DataModelingJobEngine.CLICKHOUSE,
-        )
-        DataModelingJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(minutes=5))
+        for minutes_ago, job_status in zip((5, 3), job_statuses):
+            job = DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=job_status,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+            )
+            DataModelingJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",

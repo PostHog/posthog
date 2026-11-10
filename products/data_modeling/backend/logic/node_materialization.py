@@ -151,14 +151,15 @@ def _seconds_until_limit_ends(started_at: datetime, now: datetime) -> int:
 
 def raise_if_manual_run_is_refused(team_id: int, saved_query_id: UUID | str, *, from_browser_session: bool) -> None:
     """Refuse a manual run of one view inside the limit. A failed or cancelled latest run can retry at once."""
+    if from_browser_session:
+        if _any_view_is_running(team_id, {saved_query_id}):
+            raise MaterializationAlreadyRunningError(RUN_IN_PROGRESS_REFUSAL)
+        return
     now = timezone.now()
     for status, started_at in _latest_runs_inside_limit(
         team_id, {saved_query_id}, now=now, ignored_statuses=frozenset({DataModelingJobStatus.SKIPPED})
     ):
-        if from_browser_session:
-            if status == DataModelingJobStatus.RUNNING:
-                raise MaterializationAlreadyRunningError(RUN_IN_PROGRESS_REFUSAL)
-        elif status in (DataModelingJobStatus.RUNNING, DataModelingJobStatus.COMPLETED):
+        if status in (DataModelingJobStatus.RUNNING, DataModelingJobStatus.COMPLETED):
             raise MaterializationRanRecentlyError(
                 RAN_RECENTLY_REFUSAL, retry_after_seconds=_seconds_until_limit_ends(started_at, now)
             )
@@ -179,11 +180,15 @@ def _raise_if_every_view_ran_recently(team_id: int, saved_query_ids: AbstractSet
         )
 
 
-def _raise_if_any_view_is_running(team_id: int, saved_query_ids: AbstractSet[UUID | str]) -> None:
-    """Refuse a manual run while the latest run of any view it would build is still in progress."""
-    latest_runs = _latest_runs_inside_limit(team_id, saved_query_ids, now=timezone.now())
-    if any(status == DataModelingJobStatus.RUNNING for status, _ in latest_runs):
-        raise MaterializationAlreadyRunningError(RELATED_RUN_IN_PROGRESS_REFUSAL)
+def _any_view_is_running(team_id: int, saved_query_ids: AbstractSet[UUID | str]) -> bool:
+    """Whether any job of these views, latest or not, is a ClickHouse run in progress inside MANUAL_RUN_MIN_INTERVAL."""
+    return DataModelingJob.objects.filter(
+        team_id=team_id,
+        saved_query_id__in=saved_query_ids,
+        engine=DataModelingJobEngine.CLICKHOUSE,
+        status=DataModelingJobStatus.RUNNING,
+        created_at__gt=timezone.now() - MANUAL_RUN_MIN_INTERVAL,
+    ).exists()
 
 
 def _get_node(team_id: int, node_id: UUID | str) -> Node:
@@ -253,7 +258,8 @@ def run_related_node_materializations(
         .values_list("saved_query_id", flat=True)
     )
     if from_browser_session:
-        _raise_if_any_view_is_running(team_id, built_saved_query_ids)
+        if _any_view_is_running(team_id, built_saved_query_ids):
+            raise MaterializationAlreadyRunningError(RELATED_RUN_IN_PROGRESS_REFUSAL)
     else:
         _raise_if_every_view_ran_recently(team_id, built_saved_query_ids)
 
