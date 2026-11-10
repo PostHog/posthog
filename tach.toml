@@ -1144,6 +1144,8 @@ depends_on = [
     "products.webmcp",
     # Object access checks on canvases served as contracts (via the access_control facade).
     "products.access_control",
+    # The canvas experiment needs the new navigation (via the today facade).
+    "products.today",
 ]
 layer = "modules"
 
