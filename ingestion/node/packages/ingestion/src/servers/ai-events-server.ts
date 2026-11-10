@@ -1,5 +1,6 @@
 import { createHogTransformerService } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '@posthog/hog-engine/cdp/services/managers/postgres-integration-source'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import {
     getDefaultKafkaDownstreamProducerEnvConfig,
@@ -113,7 +114,10 @@ export class AiEventsServer implements NodeServer {
         const geoipService = new GeoIPService(this.config.MMDB_FILE_LOCATION)
         await geoipService.get()
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub,
+            new PostgresIntegrationSource(this.postgres, encryptedFields)
+        )
 
         // The consumer cannot construct the CDP-owned hog transformer itself, so the server injects it
         // and the lane's outputs, which also back the transformer's monitoring, through this scope.

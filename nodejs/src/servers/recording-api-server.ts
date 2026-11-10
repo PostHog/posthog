@@ -8,7 +8,7 @@ import {
     ServerLifecycle,
 } from '@posthog/node-common/servers/base-server'
 import { PostgresRouter, PostgresRouterConfig } from '@posthog/node-common/utils/db/postgres'
-import { isProdEnv } from '@posthog/node-common/utils/env-utils'
+import { isHostedCloud, isProdEnv } from '@posthog/node-common/utils/env-utils'
 import { logger } from '@posthog/node-common/utils/logger'
 import { getDefaultSessionRecordingApiConfig, getDefaultSessionRecordingConfig } from '@posthog/replay-storage/config'
 import {
@@ -88,7 +88,9 @@ export class RecordingApiServer implements NodeServer {
     private async startServices(): Promise<void> {
         assertRecordingApiRoleAuthConfigured({
             role: this.role,
-            isProd: isProdEnv(),
+            // DEBUG makes isProdEnv false, so a deployed pod with DEBUG set still counts as production here.
+            isProd: isProdEnv() || isHostedCloud(),
+            deployed: isHostedCloud(),
             blocksJwtSecret: this.config.RECORDING_API_BLOCKS_JWT_SECRET,
             jwtSecret: this.config.RECORDING_API_JWT_SECRET,
         })

@@ -1,11 +1,19 @@
+import { Gauge } from 'prom-client'
+
 import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
 
+import {
+    MainLaneOverflowRedirect,
+    MainLaneOverflowRedirectConfig,
+} from '~/ingestion/common/overflow-redirect/main-lane-overflow-redirect'
+import {
+    overflowRedirectCacheSize,
+    overflowRedirectRateLimiterBuckets,
+} from '~/ingestion/common/overflow-redirect/metrics'
+import { OverflowEventGroup } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
+import { OverflowRedisRepository } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
+import { eventRateStrategy, mergeEventRateStrategy } from '~/ingestion/common/overflow-redirect/overflow-strategy'
 import { HealthCheckResultOk } from '~/types'
-
-import { MainLaneOverflowRedirect, MainLaneOverflowRedirectConfig } from './main-lane-overflow-redirect'
-import { OverflowEventGroup } from './overflow-redirect-service'
-import { OverflowRedisRepository } from './overflow-redis-repository'
-import { eventRateStrategy, mergeEventRateStrategy } from './overflow-strategy'
 
 const createMockRepository = (): jest.Mocked<OverflowRedisRepository> => ({
     batchCheck: jest.fn().mockResolvedValue(new Map()),
@@ -35,6 +43,7 @@ describe('MainLaneOverflowRedirect', () => {
         return new MainLaneOverflowRedirect({
             redisRepository: mockRepository,
             localCacheTTLSeconds: 60,
+            localCacheMaxSize: 50_000,
             strategies: [{ ...eventRateStrategy(), bucketCapacity: 10, replenishRate: 1 }],
             overflowType: 'events',
             ...overrides,
@@ -264,6 +273,39 @@ describe('MainLaneOverflowRedirect', () => {
                 expect(result.size).toBe(0)
             }
         )
+    })
+
+    describe('memory', () => {
+        const gaugeValue = async (gauge: Gauge, labels: Record<string, string> = {}) => {
+            const { values } = await gauge.get()
+            return values.find((v) => Object.entries(labels).every(([k, l]) => v.labels[k] === l))?.value
+        }
+
+        // lru-cache keeps the `performance` object it found at import, which fake timers do not replace.
+        const importTimePerformance = performance
+
+        beforeEach(() => {
+            jest.useFakeTimers().setSystemTime(new Date('2025-01-01T01:00:00'))
+            jest.spyOn(importTimePerformance, 'now').mockImplementation(() => Date.now())
+            service = createService()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+            jest.useRealTimers()
+        })
+
+        it('drops expired cache entries and refilled buckets of keys that are not seen again', async () => {
+            await service.handleEventBatch([createGroup('token1', 'user1', 5)])
+
+            jest.advanceTimersByTime(61_000)
+            await service.handleEventBatch([createGroup('token1', 'user2', 1)])
+
+            expect(await gaugeValue(overflowRedirectCacheSize)).toBe(1)
+            expect(
+                await gaugeValue(overflowRedirectRateLimiterBuckets, { type: 'events', strategy: 'event_rate' })
+            ).toBe(1)
+        })
     })
 
     describe('healthCheck', () => {

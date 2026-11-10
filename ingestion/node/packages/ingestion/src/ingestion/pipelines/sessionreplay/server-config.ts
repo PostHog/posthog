@@ -1,6 +1,8 @@
+import { CdpConfig } from '@posthog/hog-engine/cdp/config'
 import { KafkaDownstreamProducerEnvConfig } from '@posthog/ingestion-common/outputs/producers'
 import { CommonConfig } from '@posthog/node-common/config'
 import { KafkaBrokerConfig, RedisConnectionsConfig } from '@posthog/node-common/config/connections'
+import { InternalLogsProducerConfig } from '@posthog/node-common/logs/internal-logs-producer'
 import { BaseServerConfig } from '@posthog/node-common/servers/base-server'
 import { RedisPool } from '@posthog/node-common/types'
 import { PostgresRouterConfig } from '@posthog/node-common/utils/db/postgres'
@@ -18,6 +20,8 @@ export type IngestionSessionReplayServerConfig = BaseServerConfig &
     SessionReplayOutputsConfig &
     RedisConnectionsConfig &
     PostgresRouterConfig &
+    Pick<CdpConfig, 'CDP_INTERNAL_LOGS_SOURCES'> &
+    InternalLogsProducerConfig &
     Pick<
         CommonConfig,
         'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'HEALTHCHECK_MAX_STALE_SECONDS' | 'KAFKA_HEALTHCHECK_SECONDS'

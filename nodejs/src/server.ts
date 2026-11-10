@@ -1,5 +1,6 @@
 import { CdpProducerName } from '@posthog/hog-engine/cdp/outputs/producers'
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '@posthog/hog-engine/cdp/services/managers/postgres-integration-source'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import { GroupReadRepository } from '@posthog/ingestion-common/groups/repositories/group-repository.interface'
 import { createPersonHogClient } from '@posthog/ingestion-common/personhog/index'
@@ -25,42 +26,42 @@ import { logger } from '@posthog/node-common/utils/logger'
 import { PubSub } from '@posthog/node-common/utils/pubsub'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
+import { startEvaluationScheduler } from '~/ai-observability/evaluation-scheduler/evaluation-scheduler'
+import { getPluginServerCapabilities } from '~/capabilities'
+import { CdpApi } from '~/cdp/cdp-api'
+import { CdpConsumerBaseDeps } from '~/cdp/consumers/cdp-base.consumer'
+import { CdpCohortMembershipTriggerConsumer } from '~/cdp/consumers/cdp-cohort-membership-trigger.consumer'
+import { CdpCohortMembershipConsumer } from '~/cdp/consumers/cdp-cohort-membership.consumer'
+import { CdpCyclotronWorkerBatchResolve } from '~/cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
+import { CdpCyclotronWorkerEmail } from '~/cdp/consumers/cdp-cyclotron-worker-email.consumer'
+import { CdpCyclotronWorkerHogFlow } from '~/cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
+import { CdpCyclotronWorker } from '~/cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpDatawarehouseEventsConsumer } from '~/cdp/consumers/cdp-data-warehouse-events.consumer'
+import { CdpDlqReplayConsumer } from '~/cdp/consumers/cdp-dlq-replay.consumer'
+import { CdpEventsConsumer } from '~/cdp/consumers/cdp-events.consumer'
+import { CdpHogflowSubscriptionMatcherConsumer } from '~/cdp/consumers/cdp-hogflow-subscription-matcher.consumer'
+import { CdpInternalEventsConsumer } from '~/cdp/consumers/cdp-internal-event.consumer'
+import { CdpLegacyEventsConsumer } from '~/cdp/consumers/cdp-legacy-event.consumer'
+import { CdpPersonUpdatesConsumer } from '~/cdp/consumers/cdp-person-updates-consumer'
+import { CdpRerunWorkerConsumer } from '~/cdp/consumers/cdp-rerun-worker.consumer'
+import { CdpSesWebhooksConsumer } from '~/cdp/consumers/cdp-ses-webhooks.consumer'
+import { createCdpProducerRegistry } from '~/cdp/outputs/producer-registry'
+import { createCdpOutputsRegistry } from '~/cdp/outputs/registry'
+import { CyclotronV2JanitorService, CyclotronV2Manager, CyclotronV2Worker } from '~/cdp/services/cyclotron-v2'
+import { HogFlowScheduleService } from '~/cdp/services/hogflow-schedule/hogflow-schedule.service'
+import { HOGFLOW_BATCH_RESOLVE_QUEUE } from '~/cdp/services/hogflows/batch-resolver.types'
+import { HogFlowBatchPersonQueryService } from '~/cdp/services/hogflows/hogflow-batch-person-query.service'
+import { createIdempotencyValkeyPool } from '~/cdp/services/hogflows/idempotency-keys'
+import { CyclotronJobQueueKafka } from '~/cdp/services/job-queue/job-queue-kafka'
+import { CyclotronJobQueuePostgresV2 } from '~/cdp/services/job-queue/job-queue-postgres-v2'
+import { CyclotronJobQueueRateLimitedPostgresV2 } from '~/cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { createFrequencyCapValkeyPool } from '~/cdp/services/messaging/frequency-cap-valkey-pool'
+import { hasEmailSigningKey } from '~/cdp/services/messaging/helpers/tracking-code'
+import { HogInvocationResultsService } from '~/cdp/services/monitoring/hog-invocation-results.service'
+import { createSesRateLimiterValkeyPool } from '~/cdp/services/rate-limiter/rate-limiter-valkey-pool'
+import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
 import { defaultConfig } from '~/common/config/config'
-
-import { startEvaluationScheduler } from './ai-observability/evaluation-scheduler/evaluation-scheduler'
-import { getPluginServerCapabilities } from './capabilities'
-import { CdpApi } from './cdp/cdp-api'
-import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
-import { CdpCohortMembershipTriggerConsumer } from './cdp/consumers/cdp-cohort-membership-trigger.consumer'
-import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
-import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
-import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
-import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
-import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
-import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
-import { CdpDlqReplayConsumer } from './cdp/consumers/cdp-dlq-replay.consumer'
-import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
-import { CdpHogflowSubscriptionMatcherConsumer } from './cdp/consumers/cdp-hogflow-subscription-matcher.consumer'
-import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
-import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
-import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
-import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
-import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
-import { createCdpOutputsRegistry } from './cdp/outputs/registry'
-import { CyclotronV2JanitorService, CyclotronV2Manager, CyclotronV2Worker } from './cdp/services/cyclotron-v2'
-import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
-import { HOGFLOW_BATCH_RESOLVE_QUEUE } from './cdp/services/hogflows/batch-resolver.types'
-import { HogFlowBatchPersonQueryService } from './cdp/services/hogflows/hogflow-batch-person-query.service'
-import { createIdempotencyValkeyPool } from './cdp/services/hogflows/idempotency-keys'
-import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
-import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
-import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
-import { createFrequencyCapValkeyPool } from './cdp/services/messaging/frequency-cap-valkey-pool'
-import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
-import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
-import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
-import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
-import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
+import { PluginServerService, PluginsServerConfig, RedisPool } from '~/types'
 
 /**
  * PluginServer handles CDP, logs, evaluation scheduler, and local-dev combined modes.
@@ -102,6 +103,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpProcessedEvents ||
             capabilities.cdpDataWarehouseEvents ||
             capabilities.cdpInternalEvents ||
+            capabilities.cdpSesWebhooks ||
             capabilities.cdpPersonUpdates ||
             capabilities.cdpLegacyOnEvent ||
             capabilities.cdpApi ||
@@ -322,6 +324,14 @@ export class PluginServer implements NodeServer {
             })
         }
 
+        if (capabilities.cdpSesWebhooks) {
+            serviceLoaders.push(async () => {
+                const consumer = new CdpSesWebhooksConsumer(this.config, cdpDeps!)
+                await consumer.start()
+                return consumer.service
+            })
+        }
+
         if (capabilities.cdpRerunWorker) {
             serviceLoaders.push(async () => {
                 const worker = new CdpRerunWorkerConsumer(this.config, cdpDeps!, {
@@ -440,6 +450,7 @@ export class PluginServer implements NodeServer {
                     // it only leaves queued peers un-heartbeated behind a slow audience fetch until
                     // the janitor's stall sweep reclaims them. Same shape as the rerun worker.
                     batchMaxSize: 1,
+                    boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
                 })
                 const internalFetchService = new InternalFetchService(
                     this.config.INTERNAL_API_BASE_URL,
@@ -546,7 +557,10 @@ export class PluginServer implements NodeServer {
         const groupRepository = new PersonHogGroupReadRepository(personhogClient, clientLabel)
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub!, this.postgres!, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub!,
+            new PostgresIntegrationSource(this.postgres!, encryptedFields)
+        )
         const internalCaptureService = new InternalCaptureService(this.config)
 
         return {

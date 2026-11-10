@@ -4,6 +4,7 @@ import {
     createHogTransformerService,
 } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '@posthog/hog-engine/cdp/services/managers/postgres-integration-source'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import {
     KafkaDownstreamProducerEnvConfig,
@@ -47,6 +48,7 @@ import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { CookielessManagerComponent, CookielessServerConfig } from '~/ingestion/common/cookieless/cookieless-manager'
 import { ingestionConsumerService } from '~/ingestion/common/ingestion-consumer'
 import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
+import { IngestionConsumerConfig, getDefaultIngestionConsumerConfig } from '~/ingestion/config'
 import {
     ErrorTrackingConsumerConfig,
     ErrorTrackingOutputsConfig,
@@ -55,9 +57,7 @@ import {
 } from '~/ingestion/pipelines/errortracking/config'
 import { createErrorTrackingConsumer } from '~/ingestion/pipelines/errortracking/consumer'
 import { createOutputsRegistry } from '~/ingestion/pipelines/errortracking/outputs/registry'
-
-import { IngestionConsumerConfig, getDefaultIngestionConsumerConfig } from '../ingestion/config'
-import { PluginServerService, RedisPool } from '../types'
+import { PluginServerService, RedisPool } from '~/types'
 
 /**
  * Complete config type for an error tracking ingestion deployment.
@@ -194,7 +194,10 @@ export class ErrorTrackingServer implements NodeServer {
         await geoipService.get()
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub,
+            new PostgresIntegrationSource(this.postgres, encryptedFields)
+        )
 
         // The same outputs instance backs the pipeline's emissions and the hog
         // transformer's monitoring (app_metrics + log_entries).

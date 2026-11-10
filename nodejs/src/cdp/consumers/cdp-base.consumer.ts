@@ -13,31 +13,31 @@ import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.serv
 import { GeoIPService } from '@posthog/node-common/utils/geoip'
 import { logger } from '@posthog/node-common/utils/logger'
 
-import { HealthCheckResult, PluginServerService, Team, TeamId } from '../../types'
 import {
     CdpCoreServicesConfig,
     CdpCoreServicesDeps,
     CdpOutputs,
     CdpValkeyShadowPools,
     createCdpCoreServices,
-} from '../cdp-services'
-import { HogExecutorAsyncService } from '../services/hog-executor-async.service'
-import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
-import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
-import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
-import { InvocationResultsService } from '../services/invocation-results.service'
-import { GroupsManagerService } from '../services/managers/groups-manager.service'
-import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
-import { PersonsManagerService } from '../services/managers/persons-manager.service'
-import { EmailAttachmentsService } from '../services/messaging/email-attachments.service'
-import { EmailService } from '../services/messaging/email.service'
-import { RecipientPreferencesService } from '../services/messaging/recipient-preferences.service'
-import { HogMaskerService } from '../services/monitoring/hog-masker.service'
-import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
-import { WorkflowsActivationReporter } from '../services/monitoring/workflows-activation-reporter'
-import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
-import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
-import { CdpUsageReporterService } from '../services/usage/cdp-usage-reporter.service'
+} from '~/cdp/cdp-services'
+import { HogExecutorAsyncService } from '~/cdp/services/hog-executor-async.service'
+import { HogFlowExecutorService } from '~/cdp/services/hogflows/hogflow-executor.service'
+import { HogFlowFunctionsService } from '~/cdp/services/hogflows/hogflow-functions.service'
+import { HogFlowManagerService } from '~/cdp/services/hogflows/hogflow-manager.service'
+import { InvocationResultsService } from '~/cdp/services/invocation-results.service'
+import { GroupsManagerService } from '~/cdp/services/managers/groups-manager.service'
+import { HogFunctionTemplateManagerService } from '~/cdp/services/managers/hog-function-template-manager.service'
+import { PersonsManagerService } from '~/cdp/services/managers/persons-manager.service'
+import { EmailTrackingService } from '~/cdp/services/messaging/email-tracking.service'
+import { EmailService } from '~/cdp/services/messaging/email.service'
+import { RecipientPreferencesService } from '~/cdp/services/messaging/recipient-preferences.service'
+import { HogMaskerService } from '~/cdp/services/monitoring/hog-masker.service'
+import { HogWatcherService } from '~/cdp/services/monitoring/hog-watcher.service'
+import { WorkflowsActivationReporter } from '~/cdp/services/monitoring/workflows-activation-reporter'
+import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
+import { SegmentDestinationExecutorService } from '~/cdp/services/segment-destination-executor.service'
+import { CdpUsageReporterService } from '~/cdp/services/usage/cdp-usage-reporter.service'
+import { HealthCheckResult, PluginServerService, Team, TeamId } from '~/types'
 
 export type TeamWork = { team: Team; hogFunctions: HogFunctionType[]; hogFlows: HogFlow[] }
 
@@ -77,7 +77,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     recipientsManager: RecipientsManagerService
 
     emailService: EmailService
-    emailAttachmentsService: EmailAttachmentsService
+    emailTrackingService: EmailTrackingService
     hogFunctionMonitoringService: HogFunctionMonitoringService
     workflowsActivationReporter: WorkflowsActivationReporter
     cdpUsageReporter: CdpUsageReporterService
@@ -111,7 +111,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.recipientPreferencesService = services.recipientPreferencesService
         this.hogFlowExecutor = services.hogFlowExecutor
         this.emailService = services.emailService
-        this.emailAttachmentsService = services.emailAttachmentsService
+        this.emailTrackingService = services.emailTrackingService
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
         this.workflowsActivationReporter = services.workflowsActivationReporter
         this.cdpUsageReporter = services.cdpUsageReporter
@@ -165,7 +165,6 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         // Release the per-consumer conversion-watcher pool created in createCdpCoreServices, so
         // graceful shutdown frees its cyclotron connections like the other cyclotron pools do.
         await this.invocationResultsService.stop()
-        await this.emailAttachmentsService.stop()
         logger.info('👍', `${this.name} - stopped!`)
     }
 

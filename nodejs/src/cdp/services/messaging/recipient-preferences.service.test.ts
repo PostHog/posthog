@@ -16,7 +16,11 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub, Team } from '~/types'
 
 import { FrequencyCap, TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
-import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
+import {
+    EmailSuppressionService,
+    SuppressionLookupError,
+    emailSuppressionConfigFromEnv,
+} from './email-suppression.service'
 import { createFrequencyCapValkeyPool } from './frequency-cap-valkey-pool'
 import { FrequencyCapCheck, RecipientPreferencesService } from './recipient-preferences.service'
 
@@ -397,6 +401,18 @@ describe('RecipientPreferencesService', () => {
                     const result = await service.shouldSkipAction(invocation, action)
 
                     expect(result).toBe(expected)
+                })
+
+                it('runs the step when the list cannot be read, so the send path can hold the email', async () => {
+                    jest.spyOn(mockEmailSuppressionService, 'isSuppressed').mockRejectedValue(
+                        new SuppressionLookupError()
+                    )
+                    const action = createEmailAction('unreadable@example.com', '123e4567-e89b-12d3-a456-426614174000')
+                    const invocation = createFunctionStepInvocation(action)
+
+                    const result = await service.shouldSkipAction(invocation, action)
+
+                    expect(result).toBeNull()
                 })
 
                 // Suppressed cc and bcc addresses are removed at send time, and a deliverable cc address

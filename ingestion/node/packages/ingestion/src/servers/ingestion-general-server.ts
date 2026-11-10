@@ -4,6 +4,7 @@ import {
     createHogTransformerService,
 } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '@posthog/hog-engine/cdp/services/managers/postgres-integration-source'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
 import { ClickhouseGroupRepository } from '@posthog/ingestion-common/groups/repositories/clickhouse-group-repository'
@@ -250,7 +251,10 @@ export class IngestionGeneralServer implements NodeServer {
         )
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub,
+            new PostgresIntegrationSource(this.postgres, encryptedFields)
+        )
 
         // 3. Ingestion-specific services
         // Same rationale as the team manager's loaderRetry above: group-type loads run

@@ -5,6 +5,7 @@ import {
     createHogTransformerService,
 } from '@posthog/hog-engine/cdp/hog-transformations/hog-transformer.service'
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '@posthog/hog-engine/cdp/services/managers/postgres-integration-source'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import { TopHog } from '@posthog/ingestion-common/framework/tophog/index'
 import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
@@ -60,9 +61,19 @@ import { PubSub } from '@posthog/node-common/utils/pubsub'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import { FeedOrderSentinel } from '~/ingestion/api/feed-order-sentinel'
+import { WorkerIngestServer } from '~/ingestion/api/grpc-server'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { EventFilterManagerComponent } from '~/ingestion/common/event-filters'
+import { createFeatureFlagCalledDedupService } from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { createFlagEvaluationsService } from '~/ingestion/common/flag-evaluations/flag-evaluations-service'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { buildIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
+import { MainLaneOverflowRedirect } from '~/ingestion/common/overflow-redirect/main-lane-overflow-redirect'
+import { OverflowLaneOverflowRedirect } from '~/ingestion/common/overflow-redirect/overflow-lane-overflow-redirect'
+import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
+import { RedisOverflowRepository } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
+import { createAnalyticsOverflowStrategies } from '~/ingestion/common/overflow-redirect/overflow-strategy'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
 import { PersonhogPersonsStore } from '~/ingestion/common/persons/personhog-persons-store'
@@ -78,6 +89,12 @@ import {
     createPersonProducePromises,
 } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import {
+    IngestionConsumerConfig,
+    IngestionOutputsConfig,
+    getDefaultIngestionConsumerConfig,
+    getDefaultIngestionOutputsConfig,
+} from '~/ingestion/config'
+import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
     JoinedIngestionPipelineDeps,
@@ -85,31 +102,8 @@ import {
     createJoinedIngestionPipeline,
 } from '~/ingestion/pipelines/analytics/joined-ingestion-pipeline'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
-
-import { FeedOrderSentinel } from '../ingestion/api/feed-order-sentinel'
-import { WorkerIngestServer } from '../ingestion/api/grpc-server'
-import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
-import { createFeatureFlagCalledDedupService } from '../ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
-import { createFlagEvaluationsService } from '../ingestion/common/flag-evaluations/flag-evaluations-service'
-import { MainLaneOverflowRedirect } from '../ingestion/common/overflow-redirect/main-lane-overflow-redirect'
-import { OverflowLaneOverflowRedirect } from '../ingestion/common/overflow-redirect/overflow-lane-overflow-redirect'
-import { OverflowRedirectService } from '../ingestion/common/overflow-redirect/overflow-redirect-service'
-import { RedisOverflowRepository } from '../ingestion/common/overflow-redirect/overflow-redis-repository'
-import { createAnalyticsOverflowStrategies } from '../ingestion/common/overflow-redirect/overflow-strategy'
-import {
-    IngestionConsumerConfig,
-    IngestionOutputsConfig,
-    getDefaultIngestionConsumerConfig,
-    getDefaultIngestionOutputsConfig,
-} from '../ingestion/config'
-import {
-    HealthCheckResult,
-    HealthCheckResultError,
-    HealthCheckResultOk,
-    PluginServerService,
-    RedisPool,
-} from '../types'
-import { GrpcBatchContext, GrpcStreamIngestDriver } from './grpc-stream-ingest-driver'
+import { GrpcBatchContext, GrpcStreamIngestDriver } from '~/servers/grpc-stream-ingest-driver'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
 
 export type IngestionApiServerConfig = BaseServerConfig &
     IngestionConsumerConfig &
@@ -264,7 +258,10 @@ export class IngestionApiServer implements NodeServer {
         )
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub,
+            new PostgresIntegrationSource(this.postgres, encryptedFields)
+        )
 
         // 3. Ingestion-specific services
         logger.info('🤔', 'Connecting to cookieless Redis...')
@@ -326,6 +323,7 @@ export class IngestionApiServer implements NodeServer {
             overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                localCacheMaxSize: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE,
                 strategies: createAnalyticsOverflowStrategies({
                     eventBucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                     eventReplenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,

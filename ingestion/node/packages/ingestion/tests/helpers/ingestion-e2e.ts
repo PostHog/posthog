@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '@posthog/hog-engine/cdp/services/managers/postgres-integration-source'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
 import { GroupRepository } from '@posthog/ingestion-common/groups/repositories/group-repository.interface'
@@ -472,7 +473,10 @@ export async function createIngestionTestInfra(
     const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
-    const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
+    const integrationManager = new IntegrationManagerService(
+        pubSub,
+        new PostgresIntegrationSource(postgres, encryptedFields)
+    )
 
     const close = async (): Promise<void> => {
         await pubSub.stop()

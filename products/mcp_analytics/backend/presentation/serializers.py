@@ -228,6 +228,28 @@ class MCPToolCallSerializer(serializers.Serializer):
     error_status = serializers.CharField(
         read_only=True, help_text="HTTP status ($mcp_error_status) when the failure carried one, otherwise empty."
     )
+    exec_verb = serializers.CharField(
+        read_only=True,
+        help_text="Command an exec-style server ran ($mcp_exec_verb), such as call, info, search or unrecognized. Empty for direct tool calls.",
+    )
+    exec_target_tool = serializers.CharField(
+        read_only=True,
+        help_text="Tool the exec command named ($mcp_exec_target_tool). Empty when the command named none.",
+    )
+    input_keys = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Argument names the client sent ($mcp_input_keys), without values. Empty when not captured.",
+    )
+    error_code = serializers.CharField(
+        read_only=True, help_text="Specific failure code ($mcp_error_code) when the server set one, otherwise empty."
+    )
+    error_field = serializers.CharField(
+        read_only=True, help_text="Argument the failure points at ($mcp_error_field), otherwise empty."
+    )
+    llm_model = serializers.CharField(
+        read_only=True, help_text="Model that made the call ($mcp_llm_model), otherwise empty."
+    )
 
 
 class MCPSessionListQuerySerializer(serializers.Serializer):
@@ -322,6 +344,13 @@ class MCPSessionToolCallsQuerySerializer(serializers.Serializer):
         help_text=(
             "Absolute ISO timestamp lower bound for the event scan — pass the session's start so "
             "older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
+        ),
+    )
+    date_to = LenientDateTimeField(
+        required=False,
+        help_text=(
+            "Absolute ISO timestamp upper bound for the event scan. Pass the session's end so the scan stops "
+            "there instead of reading up to now. Unbounded when omitted or unparseable."
         ),
     )
     properties = PropertyFiltersField(

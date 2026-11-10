@@ -1,22 +1,27 @@
 import { DateTime } from 'luxon'
 
 import { HogFlowAction } from '@posthog/hog-engine/cdp/schema/hogflow'
-import { CyclotronPerson } from '@posthog/hog-engine/cdp/types'
+import { CyclotronJobInvocationHogFlow, CyclotronPerson } from '@posthog/hog-engine/cdp/types'
 
-import { findContinueAction } from '../hogflow-utils'
-import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
-import { resolveTimezone } from './timezone'
+import {
+    ActionHandler,
+    ActionHandlerOptions,
+    ActionHandlerResult,
+} from '~/cdp/services/hogflows/actions/action.interface'
+import { resolveTimezone } from '~/cdp/services/hogflows/actions/timezone'
+import { findContinueAction } from '~/cdp/services/hogflows/hogflow-utils'
 
 type Action = Extract<HogFlowAction, { type: 'wait_until_time_window' }>
 
 const DAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const
+const DAYS_IN_WEEK = DAY_NAMES.length
 
 export class WaitUntilTimeWindowHandler implements ActionHandler {
     execute({
         invocation,
         action,
     }: ActionHandlerOptions<Extract<HogFlowAction, { type: 'wait_until_time_window' }>>): ActionHandlerResult {
-        const nextTime = getWaitUntilTime(action, invocation.person)
+        const nextTime = waitUntilTimeOrAbort(action, invocation)
 
         // Same as the delay handler: while still waiting for the window, park WITHOUT advancing
         // currentAction, so the job doesn't look like it has reached the next step (which the
@@ -49,14 +54,32 @@ function isValidDay(date: DateTime, dateConfig: Action['config']['day']): boolea
     return false
 }
 
-function getNextValidDay(now: DateTime, dateConfig: Action['config']['day']): DateTime {
-    let nextDay = now.plus({ days: 1 }).startOf('day')
+class NoValidDayError extends Error {
+    constructor() {
+        super(`No day in the next ${DAYS_IN_WEEK} days matches the time window. Check its days and timezone.`)
+    }
+}
 
-    while (!isValidDay(nextDay, dateConfig)) {
-        nextDay = nextDay.plus({ days: 1 })
+function waitUntilTimeOrAbort(action: Action, invocation: CyclotronJobInvocationHogFlow): DateTime | null {
+    try {
+        return getWaitUntilTime(action, invocation.person)
+    } catch (error) {
+        if (error instanceof NoValidDayError && invocation.state.currentAction) {
+            invocation.state.currentAction.delayUntilUnresolved = true
+        }
+        throw error
+    }
+}
+
+function getNextValidDay(now: DateTime, dateConfig: Action['config']['day']): DateTime {
+    for (let daysAhead = 1; daysAhead <= DAYS_IN_WEEK; daysAhead++) {
+        const day = now.startOf('day').plus({ days: daysAhead }).startOf('day')
+        if (isValidDay(day, dateConfig)) {
+            return day
+        }
     }
 
-    return nextDay
+    throw new NoValidDayError()
 }
 
 export const getWaitUntilTime = (

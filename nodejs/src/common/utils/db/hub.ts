@@ -1,4 +1,5 @@
 import { IntegrationManagerService } from '@posthog/hog-engine/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '@posthog/hog-engine/cdp/services/managers/postgres-integration-source'
 import { EncryptedFields } from '@posthog/hog-engine/cdp/utils/encryption-utils'
 import { GroupTypeManager } from '@posthog/ingestion-common/groups/group-type-manager'
 import { PostgresGroupRepository } from '@posthog/ingestion-common/groups/repositories/postgres-group-repository'
@@ -21,9 +22,8 @@ import { logger } from '@posthog/node-common/utils/logger'
 import { PubSub } from '@posthog/node-common/utils/pubsub'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
+import { defaultConfig } from '~/common/config/config'
 import { Hub, PluginsServerConfig } from '~/types'
-
-import { defaultConfig } from '../../config/config'
 
 // Ensure type parsers are installed for any code path that uses hub.ts directly
 // (many test files still use createHub instead of PluginServer)
@@ -103,7 +103,10 @@ export async function createHub(config: Partial<PluginsServerConfig> = {}): Prom
     const geoipService = new GeoIPService(serverConfig.MMDB_FILE_LOCATION)
     await geoipService.get()
     const encryptedFields = new EncryptedFields(serverConfig.ENCRYPTION_SALT_KEYS)
-    const integrationManager = new IntegrationManagerService(pubSub, postgres, encryptedFields)
+    const integrationManager = new IntegrationManagerService(
+        pubSub,
+        new PostgresIntegrationSource(postgres, encryptedFields)
+    )
     const quotaLimiting = new QuotaLimiting(posthogRedisPool, teamManager)
 
     const hub: Hub = {

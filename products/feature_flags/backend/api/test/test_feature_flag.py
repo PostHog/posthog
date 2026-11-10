@@ -44,6 +44,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import TaggedItem, User
 from posthog.models.group.util import create_group, raw_create_group_ch
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.signals import mute_selected_signals
@@ -2567,6 +2568,49 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), plaintext if should_decrypt else REDACTED_PAYLOAD_VALUE)
+
+    @parameterized.expand(
+        [
+            ("project_secret_key", False, "198.51.100.7", status.HTTP_200_OK),
+            ("personal_api_key", True, "198.51.100.7", status.HTTP_403_FORBIDDEN),
+            ("personal_api_key_allowed", True, "203.0.113.7", status.HTTP_200_OK),
+            ("psak", False, "198.51.100.7", status.HTTP_200_OK),
+            ("session", False, "198.51.100.7", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_remote_config_ip_restrictions(self, _name: str, should_decrypt: bool, ip: str, expected_status: int):
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        cache.clear()
+        plaintext = '{"secret": "value"}'
+        token = flag_payload_codec().encrypt(plaintext.encode("utf-8")).decode("utf-8")
+        self._create_encrypted_flag(stored_payload=token)
+
+        if should_decrypt:
+            auth_token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token)
+            )
+        elif _name == "session":
+            auth_token = None
+        elif _name == "psak":
+            auth_token, _ = _make_feature_flag_psak(self.team, label="encrypted")
+        else:
+            self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+            secret_token = self.team.secret_api_token
+            assert secret_token is not None
+            auth_token = secret_token
+
+        self.client.force_login(self.user)
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/feature_flags/my-encrypted-flag/remote_config",
+            headers={"authorization": f"Bearer {auth_token}"} if auth_token else {},
+            REMOTE_ADDR=ip,
+        )
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            self.assertEqual(response.json()["code"], "ip_not_allowed")
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(response.json(), plaintext if should_decrypt else REDACTED_PAYLOAD_VALUE)
 
     @parameterized.expand([("plaintext_payloads", False), ("encrypted_payloads", True)])
     def test_remote_config_increments_remote_config_bucket_by_one_per_request(
@@ -15682,6 +15726,74 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
             [prop["actual_value"] for prop in data["conditions"][1]["properties"]],
             ["retail" if group_visible else None],
         )
+
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_applies_nested_property_rule(self, mock_get_flags):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="profile.tax_id", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        create_property_access_control(
+            team_id=self.team.pk, property_definition_id=definition.id, access_level=PropertyAccessLevel.NONE.value
+        )
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "profile", "type": "person", "value": "x", "operator": "icontains"}]}
+                ]
+            },
+        )
+        create_person(
+            team=self.team, distinct_ids=["test-user"], properties={"profile": {"tax_id": "T-1", "plan": "pro"}}
+        )
+        mock_get_flags.return_value = {
+            "flags": {
+                "test-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                    "metadata": {},
+                    "conditions": [
+                        {
+                            "index": 0,
+                            "matched": True,
+                            "explanation": "Condition matched",
+                            "rollout_percentage": 100.0,
+                            "rollout_excluded": False,
+                            "variant": None,
+                            "properties": [
+                                {
+                                    "key": "profile",
+                                    "operator": "icontains",
+                                    "value": "x",
+                                    "type": "person",
+                                    "actual_value": {"tax_id": "T-1", "plan": "pro"},
+                                    "matched": True,
+                                    "explanation": "Property 'profile' matched",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["person_properties"], {"profile": {"plan": "pro"}})
+        self.assertIsNone(data["conditions"][0]["properties"][0]["actual_value"])
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @override_settings(INTERNAL_REQUEST_TOKEN="test-token")

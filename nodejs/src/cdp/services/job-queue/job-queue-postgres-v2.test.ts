@@ -1,17 +1,19 @@
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 import { v4 as uuidv4 } from 'uuid'
 
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '@posthog/hog-engine/cdp/types'
 import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
+import { CyclotronV2DequeuedJob } from '~/cdp/services/cyclotron-v2'
 import {
     CyclotronJobQueuePostgresV2,
     extractActionId,
     extractDistinctId,
     extractPersonId,
-} from './job-queue-postgres-v2'
+} from '~/cdp/services/job-queue/job-queue-postgres-v2'
 
-jest.mock('../cyclotron-v2', () => ({
+jest.mock('~/cdp/services/cyclotron-v2', () => ({
     CyclotronV2Manager: jest.fn(),
     CyclotronV2Worker: jest.fn(),
 }))
@@ -352,6 +354,44 @@ describe('CyclotronJobQueuePostgresV2', () => {
 
             expect(job.ack).toHaveBeenCalledTimes(1)
             expect((queue as any).pendingJobs.has(job.id)).toBe(false)
+        })
+    })
+
+    describe('startAsConsumer', () => {
+        async function failedResultWrites(queue: string): Promise<number> {
+            const metric = register.getSingleMetric('cdp_cyclotron_v2_result_write_failures_total')
+            const samples = metric ? (await metric.get()).values : []
+            return samples.find((sample) => sample.labels.queue === queue)?.value ?? 0
+        }
+
+        it('keeps the process up when writing a batch result fails on a dropped connection', async () => {
+            const { queue } = createQueue()
+            let consume: (jobs: CyclotronV2DequeuedJob[]) => Promise<void> = () => Promise.resolve()
+            jest.spyOn(queue as any, 'createWorker').mockReturnValue({
+                connect: (fn: typeof consume) => {
+                    consume = fn
+                    return Promise.resolve()
+                },
+            })
+            const unhandled = jest.fn()
+            process.on('unhandledRejection', unhandled)
+            try {
+                await queue.startAsConsumer('hog', () =>
+                    Promise.resolve({ backgroundTask: Promise.reject(new Error('Connection terminated unexpectedly')) })
+                )
+                const before = await failedResultWrites('hog')
+                await consume([
+                    createDequeuedJob({
+                        scheduled: DateTime.now(),
+                        created: DateTime.now(),
+                    }) as unknown as CyclotronV2DequeuedJob,
+                ])
+                await new Promise((resolve) => setImmediate(resolve))
+                expect(unhandled).not.toHaveBeenCalled()
+                expect(await failedResultWrites('hog')).toBe(before + 1)
+            } finally {
+                process.off('unhandledRejection', unhandled)
+            }
         })
     })
 

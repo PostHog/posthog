@@ -147,7 +147,8 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_INTERNAL_PRODUCER_TEAMS: '',
         LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: 20,
         LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES: 64 * 1024 * 1024,
-        LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: 60_000,
+        // The librdkafka default message.timeout.ms, so a record retries as long as the log_entries Kafka write beside it.
+        LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: 300_000,
         // Off by default: enabling forces decode+re-encode for allowlisted teams.
         LOGS_PATTERN_MASKING_ENABLED_TEAMS: '',
         LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: '',

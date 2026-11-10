@@ -32,43 +32,40 @@ import { logger } from '@posthog/node-common/utils/logger'
 import { PubSub } from '@posthog/node-common/utils/pubsub'
 import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
-import { CdpEventsDlqOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
-import { createCdpOutputsRegistry } from './outputs/registry'
-import { CapturedEventsService } from './services/captured-events/captured-events.service'
-import { CohortMembershipRepository } from './services/cohorts/cohort-membership-repository'
-import { PostgresCohortMembershipRepository } from './services/cohorts/postgres-cohort-membership-repository'
-import { ConversionWatchersService } from './services/conversion-watchers/conversion-watchers.service'
-import { HogExecutorAsyncService } from './services/hog-executor-async.service'
-import { HogFlowDuplicateObserverService } from './services/hogflows/hogflow-duplicate-observer.service'
-import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
-import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
-import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
-import { InvocationResultsService } from './services/invocation-results.service'
-import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
-import { PersonsManagerService } from './services/managers/persons-manager.service'
-import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
-import {
-    EMAIL_ATTACHMENTS_MAX_CONNECTIONS,
-    EmailAttachmentsService,
-} from './services/messaging/email-attachments.service'
-import { EmailStatusService } from './services/messaging/email-status.service'
-import { EmailSuppressionService } from './services/messaging/email-suppression.service'
-import { EmailValidationService } from './services/messaging/email-validation.service'
-import { EmailService, parseTeamEmailCapMode, parseTierCaps } from './services/messaging/email.service'
-import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
-import { MessageAssetsService } from './services/messaging/message-assets.service'
-import { PushNotificationService } from './services/messaging/push-notification.service'
-import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
-import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
-import { HogWatcherService } from './services/monitoring/hog-watcher.service'
-import { WorkflowsActivationReporter } from './services/monitoring/workflows-activation-reporter'
-import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
-import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
-import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
-import { CdpUsageReporterService } from './services/usage/cdp-usage-reporter.service'
-import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhooks.service'
-import { configureValkeyReads } from './utils/dual-store'
-import { ScopedServiceJwt } from './utils/scoped-service-jwt'
+import { CdpEventsDlqOutput, SesWebhooksOutput, WarehouseSourceWebhooksOutput } from '~/cdp/outputs/outputs'
+import { createCdpOutputsRegistry } from '~/cdp/outputs/registry'
+import { CapturedEventsService } from '~/cdp/services/captured-events/captured-events.service'
+import { CohortMembershipRepository } from '~/cdp/services/cohorts/cohort-membership-repository'
+import { PostgresCohortMembershipRepository } from '~/cdp/services/cohorts/postgres-cohort-membership-repository'
+import { ConversionWatchersService } from '~/cdp/services/conversion-watchers/conversion-watchers.service'
+import { HogExecutorAsyncService } from '~/cdp/services/hog-executor-async.service'
+import { HogFlowDuplicateObserverService } from '~/cdp/services/hogflows/hogflow-duplicate-observer.service'
+import { HogFlowExecutorService } from '~/cdp/services/hogflows/hogflow-executor.service'
+import { HogFlowFunctionsService } from '~/cdp/services/hogflows/hogflow-functions.service'
+import { HogFlowManagerService } from '~/cdp/services/hogflows/hogflow-manager.service'
+import { InvocationResultsService } from '~/cdp/services/invocation-results.service'
+import { HogFunctionTemplateManagerService } from '~/cdp/services/managers/hog-function-template-manager.service'
+import { PersonsManagerService } from '~/cdp/services/managers/persons-manager.service'
+import { TeamWorkflowsConfigService } from '~/cdp/services/managers/team-workflows-config.service'
+import { EmailStatusService } from '~/cdp/services/messaging/email-status.service'
+import { EmailSuppressionService } from '~/cdp/services/messaging/email-suppression.service'
+import { EmailTrackingService } from '~/cdp/services/messaging/email-tracking.service'
+import { EmailValidationService } from '~/cdp/services/messaging/email-validation.service'
+import { EmailService, parseTeamEmailCapMode, parseTierCaps } from '~/cdp/services/messaging/email.service'
+import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
+import { MessageAssetsService } from '~/cdp/services/messaging/message-assets.service'
+import { PushNotificationService } from '~/cdp/services/messaging/push-notification.service'
+import { RecipientPreferencesService } from '~/cdp/services/messaging/recipient-preferences.service'
+import { HogInvocationResultsService } from '~/cdp/services/monitoring/hog-invocation-results.service'
+import { HogWatcherService } from '~/cdp/services/monitoring/hog-watcher.service'
+import { WorkflowsActivationReporter } from '~/cdp/services/monitoring/workflows-activation-reporter'
+import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
+import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
+import { SegmentDestinationExecutorService } from '~/cdp/services/segment-destination-executor.service'
+import { CdpUsageReporterService } from '~/cdp/services/usage/cdp-usage-reporter.service'
+import { WarehouseWebhooksService } from '~/cdp/services/warehouse/warehouse-webhooks.service'
+import { configureValkeyReads } from '~/cdp/utils/dual-store'
+import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 
 /** Union of every output name resolved by `createCdpOutputsRegistry()`. */
 export type CdpOutput =
@@ -77,6 +74,7 @@ export type CdpOutput =
     | HogInvocationResultsOutput
     | WarehouseSourceWebhooksOutput
     | CdpEventsDlqOutput
+    | SesWebhooksOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
 
@@ -135,7 +133,7 @@ export interface CdpCoreServices {
     messageAssetsService: MessageAssetsService
     /** Buffers transactional email status rows. `invocationResultsService.flush()` produces them. */
     emailStatusService: EmailStatusService
-    emailAttachmentsService: EmailAttachmentsService
+    emailTrackingService: EmailTrackingService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -192,6 +190,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
+        | 'CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS'
+        | 'CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
@@ -217,6 +217,9 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_DLQ_BATCH_FAIL_RATIO'
         | 'CDP_EVENTS_DLQ_TOPIC'
         | 'CDP_EVENTS_DLQ_PRODUCER'
+        | 'CDP_SES_WEBHOOKS_TOPIC'
+        | 'CDP_SES_WEBHOOKS_PRODUCER'
+        | 'CDP_SES_WEBHOOKS_QUEUE_ENABLED'
     > &
     InternalLogsProducerConfig
 
@@ -467,6 +470,7 @@ export function createCdpCoreServices(
     const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
         globalHardBounceEnforce: config.EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE,
+        softBounceEventTimeTeams: config.CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
@@ -482,10 +486,6 @@ export function createCdpCoreServices(
     const teamEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
         : null
-    const emailAttachmentsService = new EmailAttachmentsService(
-        config.CYCLOTRON_NODE_DATABASE_URL,
-        EMAIL_ATTACHMENTS_MAX_CONNECTIONS
-    )
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -497,6 +497,7 @@ export function createCdpCoreServices(
             teamEmailCapMode: parseTeamEmailCapMode(config.EMAIL_TEAM_SENDING_CAP_MODE),
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
             utmLinkScannerTeams: config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
+            workflowRunLinkTagTeams: config.CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
@@ -509,8 +510,7 @@ export function createCdpCoreServices(
         workflowsActivationReporter,
         messageAssetsService,
         workflowEmailRateLimiter,
-        teamEmailRateLimiter,
-        emailAttachmentsService
+        teamEmailRateLimiter
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
@@ -622,6 +622,19 @@ export function createCdpCoreServices(
         emailStatusService
     )
 
+    const emailTrackingService = new EmailTrackingService(
+        hogFunctionManager,
+        hogFlowManager,
+        hogFunctionMonitoringService,
+        capturedEventsService,
+        teamWorkflowsConfigService,
+        trackingCodeSigner,
+        emailSuppressionService,
+        emailStatusService,
+        redis,
+        config.CDP_SES_WEBHOOKS_QUEUE_ENABLED ? outputs : null
+    )
+
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)
     const segmentDestinationExecutorService = new SegmentDestinationExecutorService(config)
 
@@ -655,8 +668,8 @@ export function createCdpCoreServices(
         recipientTokensService,
         outputs,
         emailService,
-        emailAttachmentsService,
         messageAssetsService,
         emailStatusService,
+        emailTrackingService,
     }
 }

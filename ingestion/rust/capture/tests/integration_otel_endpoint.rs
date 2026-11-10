@@ -201,6 +201,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         options.ai_byte_rate_limiter,
         None, // replay_overflow_limiter
         8,    // capture_v1_scatter_gather_min_batch
+        true, // capture_v1_legacy_property_splice
         options.ai_gateway_signing_secret,
         options.ingestion_warning_emitter, // ingestion_warning_emitter
     );

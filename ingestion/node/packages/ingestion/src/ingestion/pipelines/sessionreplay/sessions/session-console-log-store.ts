@@ -1,6 +1,9 @@
+import { InternalLogEntry, InternalLogsProducer } from '@posthog/node-common/logs/internal-logs-producer'
 import { LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '@posthog/node-common/outputs/index'
 import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
+import { clickHouseTimestampToDateTime } from '@posthog/node-common/utils/utils'
 import { SessionBatchMetrics } from '@posthog/replay-storage/metrics'
 import { ConsoleLogLevel } from '@posthog/replay-storage/rrweb-types'
 
@@ -23,13 +26,15 @@ export class SessionConsoleLogStore {
     private readonly messageLimit: number
 
     private readonly enabled: boolean
+    private readonly internalLogsProducer?: InternalLogsProducer
 
     constructor(
         private readonly outputs: IngestionOutputs<LogEntriesOutput>,
-        options: { messageLimit: number; enabled?: boolean }
+        options: { messageLimit: number; enabled?: boolean; internalLogsProducer?: InternalLogsProducer }
     ) {
         this.messageLimit = options.messageLimit
         this.enabled = options.enabled ?? true
+        this.internalLogsProducer = options.internalLogsProducer
         logger.debug('session_console_log_store_created')
     }
 
@@ -63,6 +68,18 @@ export class SessionConsoleLogStore {
 
         logger.debug(`syncing ${this.pendingMessages.length} console log messages`)
 
+        // Only starts the sends, and the catch makes sure a producer bug can never stop the log_entries write below.
+        const producer = this.internalLogsProducer
+        if (producer) {
+            try {
+                const entries = this.pendingMessages.filter((log) => producer.accepts(log.team_id))
+                producer.enqueue('session_replay', entries.map(toInternalLogEntry))
+                producer.flush()
+            } catch (error) {
+                captureException(error)
+            }
+        }
+
         const messages = this.pendingMessages.map((log) => ({
             value: Buffer.from(JSON.stringify(log)),
             key: log.log_source_id,
@@ -72,5 +89,16 @@ export class SessionConsoleLogStore {
         // queueMessages awaits delivery acks for every message, so no separate flush is needed
         // to guarantee messages are on Kafka before the batch offset is committed.
         await this.outputs.queueMessages(LOG_ENTRIES_OUTPUT, messages)
+    }
+}
+
+function toInternalLogEntry(log: ConsoleLogEntry): InternalLogEntry {
+    return {
+        team_id: log.team_id,
+        log_source_id: log.log_source_id,
+        instance_id: log.instance_id ?? '',
+        timestamp: clickHouseTimestampToDateTime(log.timestamp),
+        level: log.level,
+        message: log.message,
     }
 }

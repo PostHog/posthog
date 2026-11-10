@@ -62,6 +62,9 @@ class CitationGap:
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
 PROMPT_TOPIC_MAX_LENGTH = 200
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
+MAX_RANKED_COMPETITORS = 10
+MAX_RANKED_DOMAINS = 20
+MAX_RANKED_PAGES = 20
 
 
 @frozen
@@ -71,6 +74,8 @@ class PromptEngineCheck:
     engine: str
     cited: bool
     check_failed: bool
+    target_best_position: int | None
+    search_queries: tuple[str, ...]
     checked_at: dt.datetime
 
 
@@ -130,6 +135,7 @@ class PromptEngineStats:
     # Answers that name the brand, cited ones included: the same definition the citation gaps use.
     mentioned: int
     failed: int
+    avg_position: float | None
     first_checked_at: dt.datetime
     last_checked_at: dt.datetime
 
@@ -152,6 +158,7 @@ class PromptDailyEngineStats:
     cited: int
     mentioned: int
     failed: int
+    avg_position: float | None
 
 
 @frozen
@@ -211,6 +218,7 @@ class PromptSetCounts:
     # Distinct prompts that ran at least once in the window, and how many of them were cited at least once.
     prompts: int
     prompts_cited: int
+    avg_position: float | None
 
     @property
     def citation_rate(self) -> float | None:
@@ -245,6 +253,26 @@ class PromptSetDomain:
 
 
 @frozen
+class PromptSetSearchPrompt:
+    """A prompt whose answers ran a search, with its current text."""
+
+    id: str
+    text: str
+
+
+@frozen
+class PromptSetSearch:
+    """A web search the engines ran while answering, across the set in the window."""
+
+    query: str
+    prompts: int
+    answers: int
+    cited: int
+    engines: tuple[str, ...]
+    top_prompts: tuple[PromptSetSearchPrompt, ...]
+
+
+@frozen
 class PromptSetOverview:
     """How the whole prompt set did over the last `days` days, against the `days` days before."""
 
@@ -260,6 +288,7 @@ class PromptSetOverview:
     engines: tuple[PromptSetEngineCounts, ...]
     topics: tuple[PromptSetTopicCounts, ...]
     top_domains: tuple[PromptSetDomain, ...]
+    top_searches: tuple[PromptSetSearch, ...]
 
 
 class PromptOrigin(LabeledStrEnum):
@@ -311,6 +340,63 @@ class PromptVersion:
 
 
 class PromptNotFoundError(Exception):
+    pass
+
+
+BRAND_NAME_MAX_LENGTH = 200
+BRAND_DOMAIN_MAX_LENGTH = 253
+
+
+class BrandKind(LabeledStrEnum):
+    OWN = "own", "Own"
+    COMPETITOR = "competitor", "Competitor"
+    PUBLISHER = "publisher", "Publisher"
+    UNKNOWN = "unknown", "Unknown"
+
+
+class BrandStatus(LabeledStrEnum):
+    SUGGESTED = "suggested", "Suggested"
+    CONFIRMED = "confirmed", "Confirmed"
+    IGNORED = "ignored", "Ignored"
+
+
+class BrandSource(LabeledStrEnum):
+    CITATIONS = "citations", "Citations"
+    MANUAL = "manual", "Manual"
+
+
+@frozen
+class Brand:
+    """One company in the team's brand catalog, keyed by its registrable domain."""
+
+    id: str
+    name: str
+    domain: str
+    kind: BrandKind
+    status: BrandStatus
+    source: BrandSource
+    aliases: tuple[str, ...]
+    created_at: dt.datetime
+    updated_at: dt.datetime | None
+
+
+@frozen
+class BrandUpdate:
+    """A partial edit of one brand. None leaves the field as it is."""
+
+    name: str | None = None
+    kind: BrandKind | None = None
+    status: BrandStatus | None = None
+    aliases: tuple[str, ...] | None = None
+
+
+@frozen
+class BrandSyncResult:
+    domains: int
+    created: int
+
+
+class BrandNotFoundError(Exception):
     pass
 
 
@@ -378,3 +464,64 @@ class PromptSuggestionJob:
 
 class PromptSuggestionJobNotFoundError(Exception):
     pass
+
+
+@frozen
+class RankedBrand:
+    """How often answers named one brand: the project's own, or a competitor derived from the
+    domains the engines cite."""
+
+    domain: str
+    name: str
+    is_target: bool
+    answers_mentioning: int
+    visibility: float | None
+    previous_visibility: float | None
+    positive_share: float | None
+
+
+@frozen
+class RankedBrandDay:
+    """One brand's visibility on one day."""
+
+    date: dt.date
+    domain: str
+    answers: int
+    visibility: float | None
+
+
+@frozen
+class RankedDomain:
+    """A registrable domain the engines cited, with how many answers and distinct pages."""
+
+    domain: str
+    answers: int
+    share_of_answers: float
+    urls: int
+    is_target: bool
+    is_competitor: bool
+
+
+@frozen
+class RankedPage:
+    """A page the engines cited."""
+
+    url: str
+    answers: int
+    share_of_answers: float
+    is_target: bool
+
+
+@frozen
+class PromptSetRankings:
+    """Brand visibility against competitors, and the domains and pages the engines cite, over the
+    last `days` days."""
+
+    days: int
+    window_from: dt.date
+    window_to: dt.date
+    answers: int
+    brands: tuple[RankedBrand, ...]
+    daily: tuple[RankedBrandDay, ...]
+    top_domains: tuple[RankedDomain, ...]
+    top_pages: tuple[RankedPage, ...]

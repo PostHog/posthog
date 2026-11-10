@@ -50,6 +50,7 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
         | 'INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS'
         | 'INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS'
+        | 'INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE'
         | 'EVENT_OVERFLOW_BUCKET_CAPACITY'
         | 'EVENT_OVERFLOW_BUCKET_REPLENISH_RATE'
         | 'INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY'
@@ -137,6 +138,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
                     ? new MainLaneOverflowRedirectComponent({
                           redisRepository: container.overflowRedisRepository,
                           localCacheTTLSeconds: config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
+                          localCacheMaxSize: config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE,
                           strategies: [
                               {
                                   ...eventRateStrategy(),

@@ -3,13 +3,6 @@ import {
     INGESTION_UPSTREAM_PRODUCER,
     type ProducerName,
 } from '@posthog/ingestion-common/outputs/producers'
-import type { CommonConfig } from '@posthog/node-common/config'
-import type {
-    DatabaseConnectionConfig,
-    KafkaBrokerConfig,
-    KafkaConsumerBaseConfig,
-    RedisConnectionsConfig,
-} from '@posthog/node-common/config/connections'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
@@ -36,14 +29,6 @@ export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = ''
 /** Default for FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS: '' excludes nobody, so the allowlist alone decides. */
 export const DEFAULT_FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS = ''
 
-// =============================================================================
-// Infrastructure sub-config types
-// These group CommonConfig keys by infrastructure concern for use in server
-// config types. Defined here (rather than common/config.ts) because they are
-// ingestion-specific groupings — other domains may slice CommonConfig differently.
-// =============================================================================
-
-/** Kafka broker connection and authentication config */
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
@@ -202,6 +187,7 @@ export type IngestionConsumerConfig = {
     // Stateful overflow config
     INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
+    INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE: number
 
     // Per-token/distinct_id restrictions
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
@@ -373,6 +359,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         // Stateful overflow config
         INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300,
         INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60,
+        INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE: 50_000,
 
         // Per-token/distinct_id restrictions
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',

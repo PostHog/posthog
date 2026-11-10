@@ -15,9 +15,11 @@ from pydantic import BaseModel
 from posthog.dataclasses import frozen
 
 
-@dataclass
+@dataclass(frozen=True)
 class PostHogSlackInboxOnboardingInputs:
     integration_id: int
+    # Absent in workflows started before the field existed.
+    team_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,13 @@ class SlackAppOnboardingInputs:
     slack_user_id: str
     # Spreads a burst of new members over time. Only a fresh run waits; continue_as_new resets it to 0.
     start_delay_seconds: int = 0
+
+
+@dataclass(frozen=True)
+class SlackAppWorkFocusInputs:
+    integration_id: int
+    slack_team_id: str
+    slack_user_id: str
 
 
 @frozen
@@ -168,6 +177,7 @@ class PostHogCodeSlackMentionWorkflowInputs:
     user_id: int
     # Event that dispatched the workflow
     slack_event_id: str | None = None
+    report_implementation_message_ts: str | None = None
     # True when the workflow was started for an untagged thread reply (event type
     # ``message``) rather than an explicit ``app_mention``. The routing layer
     # already verified a ``SlackThreadTaskMapping`` exists before dispatch, but

@@ -2,13 +2,14 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { useMocks } from '~/mocks/jest'
+import type { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
@@ -133,5 +134,45 @@ describe('WorkflowSceneHeader', () => {
         const launch = document.querySelector('[data-attr="workflow-launch"]')
         expect(launch).toHaveTextContent('Disable')
         expect(launch).not.toHaveAttribute('aria-disabled', 'true')
+    })
+
+    const serveWorkflow = (overrides: Partial<HogFlow>): Mocks => ({
+        get: { '/api/environments/:team_id/hog_flows/:id/': { ...ACTIVE_WITH_DRAFT, ...overrides } },
+    })
+
+    const reloadWorkflow = async (): Promise<void> => {
+        await act(async () => {
+            await logic.asyncActions.loadWorkflow()
+        })
+    }
+
+    it('gives a viewer of a manual workflow no way to trigger it', async () => {
+        useMocks(
+            serveWorkflow({
+                trigger: { type: 'manual' } as HogFlow['trigger'],
+                user_access_level: AccessControlLevel.Viewer,
+            })
+        )
+        await reloadWorkflow()
+
+        renderHeader()
+
+        const trigger = Array.from(document.querySelectorAll('button')).find(
+            (button) => button.textContent === 'Trigger'
+        )
+        expect(trigger).toHaveAttribute('aria-disabled', 'true')
+    })
+
+    it.each([
+        [AccessControlLevel.Viewer, false],
+        [AccessControlLevel.Editor, true],
+    ])('lets a workflow %s rename it by clicking the name: %s', async (userAccessLevel, canRename) => {
+        useMocks(serveWorkflow({ user_access_level: userAccessLevel }))
+        await reloadWorkflow()
+
+        renderHeader()
+        fireEvent.click(screen.getByText('Header test'))
+
+        expect(!!screen.queryByPlaceholderText('Enter name')).toBe(canRename)
     })
 })

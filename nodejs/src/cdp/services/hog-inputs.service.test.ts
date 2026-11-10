@@ -1,6 +1,7 @@
 import '@posthog/node-common/testing/mocks/date.mock'
 
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 import { inspect } from 'util'
 
 import {
@@ -13,13 +14,13 @@ import { RecipientTokensService } from '@posthog/hog-engine/cdp/services/messagi
 import { compileHog } from '@posthog/hog-engine/cdp/templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '@posthog/hog-engine/cdp/types'
 import { classifyHogError } from '@posthog/hog-engine/cdp/utils/hog-error-classification'
+import { LiquidRenderBudget } from '@posthog/hog-engine/cdp/utils/liquid'
 import { NATIVE_PUSH_TEMPLATE_ID } from '@posthog/hog-engine/cdp/utils/push-subscription-utils'
 import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 
+import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '~/cdp/_tests/fixtures'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub, Team } from '~/types'
-
-import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 
 describe('getAppIdentifierForPush', () => {
     it('returns null when no integration inputs are present', () => {
@@ -161,31 +162,68 @@ describe('Hog Inputs', () => {
             expect(inspect(thrown)).not.toContain('bogus')
         })
 
+        const exhaustedBudget = (): LiquidRenderBudget => {
+            const budget = new LiquidRenderBudget()
+            budget.useTime(Number.MAX_SAFE_INTEGER)
+            return budget
+        }
+
+        const renderFailures = async (reason: string): Promise<number> => {
+            const metric = await register.getSingleMetric('cdp_liquid_render_failures_total')?.get()
+            return metric?.values.find((v) => v.labels.reason === reason)?.value ?? 0
+        }
+
+        it('exports every render failure reason before the first failure', async () => {
+            const metric = await register.getSingleMetric('cdp_liquid_render_failures_total')?.get()
+            expect(metric?.values.map((v) => v.labels.reason).sort()).toEqual([
+                'contract',
+                'data',
+                'memory',
+                'output',
+                'parse_length',
+                'time',
+            ])
+        })
+
         it.each([
-            ['an unsupported filter', '{{ event.event | where_exp: "i", "i" }}', 'contract'],
-            ['a syntax error', '{% if %}', 'contract'],
+            ['an unsupported filter', '{{ event.event | where_exp: "i", "i" }}', 'contract', 'contract', undefined],
+            ['a syntax error', '{% if %}', 'contract', 'contract', undefined],
             // The same template renders for a well-formed URL, so this failure belongs to the event.
-            ['a malformed URL meeting url_decode', '{{ event.properties.url | url_decode }}', 'data'],
+            [
+                'a malformed URL meeting url_decode',
+                '{{ event.properties.url | url_decode }}',
+                'data',
+                'data',
+                undefined,
+            ],
             [
                 'a template over its memory budget',
                 "{% assign s = 'aaaaaaaa' %}{% for i in (1..40) %}{% assign s = s | append: s %}{% endfor %}{{ s | size }}",
                 'limit',
+                'memory',
+                undefined,
             ],
-        ])('gives a liquid failure from %s a kind and keeps its message', (_name, template, kind) => {
-            const globals = createHogExecutionGlobals({
-                event: { event: '$pageview', properties: { url: '%' } } as any,
-                inputs: {},
-            } as any) as any
-            let thrown: any
-            try {
-                formatLiquidInput(template, globals, 'field')
-            } catch (error) {
-                thrown = error
+            ['an invocation out of render time', '{{ event.event }}', 'limit', 'time', exhaustedBudget],
+        ])(
+            'gives a liquid failure from %s a kind, keeps its message and counts it',
+            async (_name, template, kind, reason, budget) => {
+                const globals = createHogExecutionGlobals({
+                    event: { event: '$pageview', properties: { url: '%' } } as any,
+                    inputs: {},
+                } as any) as any
+                const before = await renderFailures(reason)
+                let thrown: any
+                try {
+                    formatLiquidInput(template, globals, 'field', budget?.())
+                } catch (error) {
+                    thrown = error
+                }
+                expect(thrown).toBeInstanceOf(Error)
+                expect(thrown.message).toBe(thrown.cause.message)
+                expect(thrown.cause).toMatchObject({ kind })
+                expect(await renderFailures(reason)).toBe(before + 1)
             }
-            expect(thrown).toBeInstanceOf(Error)
-            expect(thrown.message).toBe(thrown.cause.message)
-            expect(thrown.cause).toMatchObject({ kind })
-        })
+        )
 
         it('can handle deep null and undefined values', async () => {
             const globals = {
@@ -461,7 +499,10 @@ describe('Hog Inputs', () => {
 
         it.each([
             { name: 'a hog function', source: undefined },
-            { name: 'a workflow email step', source: { appSourceId: 'flow-1', instanceId: 'action-1' } },
+            {
+                name: 'a workflow email step',
+                source: { appSourceId: 'flow-1', instanceId: 'action-1', workflowId: 'flow-1', invocationId: 'run-1' },
+            },
         ])('should add unsubscribe url if email input is present for $name', async ({ source }) => {
             hogFunction.inputs = {
                 email: {
