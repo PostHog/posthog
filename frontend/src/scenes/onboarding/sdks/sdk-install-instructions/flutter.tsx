@@ -18,7 +18,14 @@ export interface FlutterInstallProps {
 }
 
 function FlutterInstallSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.YAML}>posthog_flutter: ^6.0.0</CodeSnippet>
+    return (
+        <>
+            <CodeSnippet language={Language.YAML}>posthog_flutter: ^6.0.0</CodeSnippet>
+            <p>
+                posthog_flutter 6.0 requires Flutter <strong>3.41</strong> or later on every platform.
+            </p>
+        </>
+    )
 }
 
 function FlutterDartSetup(props: FlutterSetupProps & FlutterInstallProps): JSX.Element {
@@ -187,11 +194,11 @@ function FlutterIOSSetupSnippet({ requiresManualInstall }: FlutterSetupProps): J
 
     const minPlatformVersionInstructions = (
         <p>
-            iOS and macOS builds require Flutter <strong>3.41</strong> or later and Xcode <strong>26</strong> or later.
-            Set the minimum deployment target to iOS <strong>15.0</strong>, or macOS <strong>11.0</strong> for a macOS
-            app, in Xcode (<strong>Runner &gt; General &gt; Minimum Deployments</strong>). PostHog installs through
-            Swift Package Manager, which is on by default from Flutter 3.44. On Flutter 3.41 to 3.43, or if you turned
-            it off, run <code>flutter config --enable-swift-package-manager</code>.
+            iOS and macOS builds require Xcode <strong>26</strong> or later. Set the minimum deployment target to iOS{' '}
+            <strong>15.0</strong>, or macOS <strong>11.0</strong> for a macOS app, in Xcode (
+            <strong>Runner &gt; General &gt; Minimum Deployments</strong>). PostHog installs through Swift Package
+            Manager, which is on by default from Flutter 3.44. On Flutter 3.41 to 3.43, or if you turned it off, run{' '}
+            <code>flutter config --enable-swift-package-manager</code>.
         </p>
     )
 
