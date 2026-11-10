@@ -30,18 +30,24 @@ const snsSigningCertPem = snsSigningKeys.publicKey.export({ type: 'spki', format
 
 describe('SesWebhookHandler', () => {
     let handler: SesWebhookHandler
-    let snsRequests: string[]
+    let snsConfirmedSubscriptions: { topicArn: string | null; token: string | null }[]
     let snsAvailable: boolean
     let snsHeldResponses: Map<string, Promise<void>>
     beforeEach(() => {
         handler = new SesWebhookHandler(signer)
-        snsRequests = []
+        snsConfirmedSubscriptions = []
         snsAvailable = true
         snsHeldResponses = new Map()
         jest.mocked(fetch).mockImplementation(async (url: string): Promise<FetchResponse> => {
-            snsRequests.push(url)
             await snsHeldResponses.get(url)
-            const body = new URL(url).pathname.endsWith('.pem') ? snsSigningCertPem : ''
+            const { pathname, searchParams } = new URL(url)
+            if (snsAvailable && searchParams.get('Action') === 'ConfirmSubscription') {
+                snsConfirmedSubscriptions.push({
+                    topicArn: searchParams.get('TopicArn'),
+                    token: searchParams.get('Token'),
+                })
+            }
+            const body = pathname.endsWith('.pem') ? snsSigningCertPem : ''
             return {
                 status: snsAvailable ? 200 : 503,
                 headers: {},
@@ -844,7 +850,9 @@ describe('SesWebhookHandler', () => {
         )
         const result = await handler.handleWebhook({ body: snsEnvelope, headers: {}, verifySignature: false })
         expect(result.status).toBe(200)
-        expect(snsRequests).toEqual([snsEnvelope.SubscribeURL])
+        expect(snsConfirmedSubscriptions).toEqual([
+            { topicArn: 'arn:aws:sns:us-east-1:123456789012:ses-topic', token: 'token-123' },
+        ])
     })
 
     // Signs like AWS SNS SignatureVersion=1: alphabetical key/value lines of the fields each
@@ -868,7 +876,9 @@ describe('SesWebhookHandler', () => {
 
         const result = await handler.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
         expect(result.status).toBe(200)
-        expect(snsRequests).toContain(envelope.SubscribeURL)
+        expect(snsConfirmedSubscriptions).toEqual([
+            { topicArn: 'arn:aws:sns:us-east-1:123456789012:ses-topic', token: 'token-123' },
+        ])
     })
 
     describe('the SNS signing certificate', () => {
