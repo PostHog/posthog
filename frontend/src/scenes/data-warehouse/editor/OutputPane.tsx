@@ -45,7 +45,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { tryJsonParse } from 'lib/utils/json'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -646,6 +645,8 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         responseError,
         queryId,
         pollResponse,
+        hasMoreData,
+        dataLimit,
     } = useValues(dataNodeLogic)
     const { queryCancelled, isChartSettingsPanelOpen } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
@@ -654,10 +655,12 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         visualizationProps: visualizationLogic.props,
         tabId: tabId || '',
     })
-    const { choosingChart, statusMessage } = useValues(chartRecommendationLogic)
+    const { choosingChart } = useValues(chartRecommendationLogic)
     const { skipRecommendation } = useActions(chartRecommendationLogic)
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
+    // The backend reports a limit only when it applied its default row limit to a query without a LIMIT clause.
+    const showRowLimitHint = !!response && !responseError && !responseLoading && hasMoreData && !!dataLimit
     const splitPaneRef = useRef<HTMLDivElement>(null)
     const splitView = !biMode && activeTab === OutputTab.Both
     const splitResizerProps = useMemo<ResizerLogicProps>(
@@ -1000,9 +1003,9 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
             <div className="flex flex-wrap justify-between gap-x-4 px-2 border-t">
                 <div className="flex flex-wrap items-center gap-x-4">
                     {response && !responseError ? <LoadPreviewText localResponse={response} /> : null}
-                    {statusMessage ? (
-                        <span className="text-xs text-muted" role="status" data-attr="sql-editor-chart-status">
-                            {statusMessage}
+                    {showRowLimitHint ? (
+                        <span className="text-xs text-muted" role="status" data-attr="sql-editor-row-limit">
+                            Add a LIMIT clause to return more rows.
                         </span>
                     ) : null}
                 </div>
@@ -1279,9 +1282,7 @@ const Content = ({
     const { selectedDirectSource, singleStatement, showAgentHints } = useValues(sqlEditorLogic)
     // dataNodeLogic's timer resets on every loadData dispatch, so a rerun issued while a
     // query is still in flight restarts the count (a local isLoading-keyed timer wouldn't).
-    const { loadingTimeSeconds, hasMoreData, dataLimit } = useValues(dataNodeLogic)
-    // The backend reports a limit only when it applied its default row limit to a query without a LIMIT clause.
-    const truncatedAtLimit = hasMoreData && dataLimit ? humanFriendlyNumber(dataLimit) : null
+    const { loadingTimeSeconds } = useValues(dataNodeLogic)
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
     const { closeCopyMenu, openCopyMenu, copyMenu } = useCellCopyContextMenu()
@@ -1372,15 +1373,6 @@ const Content = ({
         return (
             <div className="absolute inset-0 flex flex-col border-t overflow-hidden">
                 <QueryWarningsBanner warnings={response?.warnings} />
-                {truncatedAtLimit && (
-                    <LemonBanner
-                        type="info"
-                        className="m-2 flex-shrink-0"
-                        data-attr="sql-editor-output-pane-visualization-row-limit"
-                    >
-                        This chart uses only the first {truncatedAtLimit} rows. Add a LIMIT clause to include more.
-                    </LemonBanner>
-                )}
                 {showQueryScan && <EditorQueryScanBanner />}
                 <div className="flex flex-col flex-1 min-h-0 hide-scrollbar overflow-auto">
                     <InternalDataTableVisualization
@@ -1461,11 +1453,6 @@ const Content = ({
         return (
             <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
                 <QueryWarningsBanner warnings={response?.warnings} />
-                {truncatedAtLimit && (
-                    <LemonBanner type="info" className="m-2 flex-shrink-0" data-attr="sql-editor-output-pane-row-limit">
-                        Showing the first {truncatedAtLimit} rows. Add a LIMIT clause to return more.
-                    </LemonBanner>
-                )}
                 {showQueryScan && <EditorQueryScanBanner />}
                 {rows.length === 0 ? (
                     <EmptyResultsState />
