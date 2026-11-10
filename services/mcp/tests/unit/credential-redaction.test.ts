@@ -334,6 +334,11 @@ describe('credential redaction', () => {
             expected: { results: ['/?access%5Ftoken=[REDACTED]'] },
         },
         {
+            tool: 'logs-context',
+            response: { timeline: [{ body: 'Authorization: Bearer secret' }] },
+            expected: { timeline: [{ body: 'Authorization: [REDACTED]' }] },
+        },
+        {
             tool: 'logs-facet-values-create',
             response: { results: [{ value: '{"password":"secret"}', count: 2 }] },
             expected: { results: [{ value: '{"password":"[REDACTED]"}', count: 2 }] },
