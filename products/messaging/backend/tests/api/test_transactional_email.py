@@ -1573,6 +1573,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("marketing_template", "marketing_template"),
             ("deleted_marketing_category", "marketing_template"),
             ("marketing_template_without_an_unsubscribe_link", "unsubscribe_link_required"),
+            ("marketing_template_whose_placeholder_liquid_renders_empty", "unsubscribe_link_required"),
             ("template_without_subject", "template_not_sendable"),
             ("template_without_body", "template_not_sendable"),
             ("unverified_sender", "sender_unavailable"),
@@ -1588,9 +1589,13 @@ class TestTransactionalEmail(APIBaseTest):
             "marketing_template",
             "deleted_marketing_category",
             "marketing_template_without_an_unsubscribe_link",
+            "marketing_template_whose_placeholder_liquid_renders_empty",
         ):
-            if case != "marketing_template_without_an_unsubscribe_link":
+            if case in ("marketing_template", "deleted_marketing_category"):
                 flag.side_effect = lambda key, *_args, **_kwargs: key != CODE_SEND_CATEGORIES_FLAG
+            if case == "marketing_template_whose_placeholder_liquid_renders_empty":
+                html = '<a href="{{\ufeffunsubscribe_url}}">Unsubscribe</a>'
+                template.content = {"email": {**template.content["email"], "html": html}}
             template.message_category = MessageCategory.objects.create(
                 team=self.team,
                 key="news",
