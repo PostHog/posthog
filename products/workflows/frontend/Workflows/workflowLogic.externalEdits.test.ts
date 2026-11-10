@@ -422,22 +422,30 @@ describe('workflowLogic external edits', () => {
         expect(saved.name).toBe('Typed before the reload')
     })
 
-    it('shows the banner when the reload fails while edits wait to be saved', async () => {
+    it.each([
+        { case: 'edits wait to be saved', keepLocalEdits: true, edit: 'Typed before the reload', banner: true },
+        { case: 'the form is clean', keepLocalEdits: true, edit: null, banner: false },
+        { case: 'local edits are not kept', keepLocalEdits: false, edit: 'Typed before the reload', banner: false },
+    ])('when the reload fails while $case, shows the banner: $banner', async ({ keepLocalEdits, edit, banner }) => {
         silenceKeaLoadersErrors()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_KEEP_LOCAL_EDITS]: keepLocalEdits })
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': () => [500, { detail: 'boom' }],
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
         })
-        logic.actions.setWorkflowValue('name', 'Typed before the reload')
+        if (edit) {
+            logic.actions.setWorkflowValue('name', edit)
+        }
 
         await expectLogic(logic, () => {
             resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
         }).toDispatchActions(['setSyncingExternalEdit', 'loadWorkflow', 'loadWorkflowFailure'])
 
-        expect(logic.values.externallyEdited).toBe(true)
-        expect(logic.values.workflow.name).toBe('Typed before the reload')
+        expect(logic.values.externallyEdited).toBe(banner)
+        expect(logic.values.isSyncingExternalEdit).toBe(false)
+        expect(logic.values.workflow.name).toBe(edit ?? 'External edits test')
     })
 
     it('lets the server copy win when the flag is off', async () => {

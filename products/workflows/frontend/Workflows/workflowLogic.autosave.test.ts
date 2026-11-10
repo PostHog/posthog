@@ -1,9 +1,11 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { LemonDialog, LemonDialogProps } from 'lib/lemon-ui/LemonDialog'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo, MockSignature } from '~/mocks/utils'
@@ -14,6 +16,7 @@ import { resourceEditedLogic } from 'products/notifications/frontend/resourceEdi
 
 import { saveEntrySource } from '../Broadcasts/broadcastUsage'
 import { HogFlow, HogFlowSchedule } from './hogflows/types'
+import { prefilledEmailContent, withPrefilledEmail } from './workflowEmailPrefill'
 import { workflowLogic } from './workflowLogic'
 
 const WORKFLOW_ID = 'wf-autosave-1'
@@ -1234,6 +1237,265 @@ describe('workflowLogic auto-save', () => {
             expect(patched[0].status).toBe('draft')
             // The queued form save must not speak about status at all.
             expect(patched[1]).not.toHaveProperty('status')
+        })
+    })
+
+    describe('editor menu actions', () => {
+        const BATCH_URL = '/api/environments/:team_id/hog_flows/:id/batch_jobs/'
+        const audience = {
+            properties: [{ key: 'plan', value: ['paid'], operator: 'exact', type: 'person' }],
+        } as Parameters<typeof logic.actions.triggerBatchWorkflow>[1]
+        let dialogs: LemonDialogProps[]
+        let posted: Record<string, any>[]
+
+        const recordPost =
+            (status: number, response: unknown): MockSignature =>
+            async ({ request }: MockResolverInfo) => {
+                posted.push((await request.json()) as Record<string, any>)
+                return [status, response]
+            }
+        const mountLoaded = async (id = WORKFLOW_ID): Promise<void> => {
+            initKeaTests()
+            logic = workflowLogic({ id })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        }
+
+        beforeEach(() => {
+            dialogs = []
+            posted = []
+            jest.spyOn(LemonDialog, 'open').mockImplementation((props) => {
+                dialogs.push(props)
+            })
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('starts a batch run for the audience and links the success toast to the logs', async () => {
+            useMocks({ post: { [BATCH_URL]: recordPost(200, { id: 'job-1' }) } })
+            await mountLoaded()
+            const infoToast = jest.spyOn(lemonToast, 'info')
+            const successToast = jest.spyOn(lemonToast, 'success')
+
+            await expectLogic(logic, () => {
+                logic.actions.triggerBatchWorkflow({ plan: 'paid' }, audience)
+            }).toFinishAllListeners()
+
+            expect(posted).toEqual([{ variables: { plan: 'paid' }, filters: audience }])
+            expect(infoToast).toHaveBeenCalledWith('Triggering batch workflow...')
+            expect(successToast).toHaveBeenCalledWith('Batch workflow triggered', expect.anything())
+            successToast.mock.calls[0][1]?.button?.action?.()
+            expect(router.values.location.pathname).toBe(`/project/997${urls.workflow(WORKFLOW_ID, 'logs')}`)
+        })
+
+        it.each([
+            {
+                case: 'a workflow that was never saved',
+                id: 'new',
+                message: 'You need to save the workflow before triggering it manually.',
+                requests: 0,
+            },
+            {
+                case: 'a batch job the API refuses',
+                id: WORKFLOW_ID,
+                message: 'Error creating batch workflow job: No access',
+                requests: 1,
+            },
+        ])('reports $case instead of claiming the batch run started', async ({ id, message, requests }) => {
+            useMocks({ post: { [BATCH_URL]: recordPost(403, { detail: 'No access' }) } })
+            await mountLoaded(id)
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            const successToast = jest.spyOn(lemonToast, 'success')
+
+            await expectLogic(logic, () => {
+                logic.actions.triggerBatchWorkflow({}, audience)
+            }).toFinishAllListeners()
+
+            expect(posted).toHaveLength(requests)
+            expect(errorToast).toHaveBeenCalledWith(message)
+            expect(successToast).not.toHaveBeenCalled()
+        })
+
+        it('ignores discard and duplicate before the workflow has loaded', async () => {
+            useMocks({ post: { '/api/environments/:team_id/hog_flows/': recordPost(201, makeWorkflow()) } })
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+
+            logic.actions.discardChanges()
+            logic.actions.duplicate()
+
+            expect(dialogs).toEqual([])
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
+            expect(posted).toEqual([])
+        })
+
+        it.each([
+            { case: 'saved version', loaded: makeWorkflow(), expectedName: 'Autosave test', expectedSteps: 2 },
+            {
+                case: 'staged draft of an active workflow',
+                loaded: makeWorkflow({
+                    status: 'active',
+                    draft: { name: 'Staged name', actions: [], edges: [] },
+                    draft_updated_at: '2026-05-01T00:01:00.000Z',
+                }),
+                expectedName: 'Staged name',
+                expectedSteps: 0,
+            },
+        ])(
+            'discarding changes resets the form to the $case once confirmed',
+            async ({ loaded, expectedName, expectedSteps }) => {
+                useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': loaded } })
+                await mountLoaded()
+                logic.actions.setWorkflowValue('name', 'Unwanted edit')
+
+                logic.actions.discardChanges()
+                expect(dialogs.map((dialog) => dialog.title)).toEqual(['Discard changes'])
+                expect(logic.values.workflow.name).toBe('Unwanted edit')
+                ;(dialogs[0].primaryButton?.onClick as () => void)()
+
+                expect(logic.values.workflow.name).toBe(expectedName)
+                expect(logic.values.workflow.actions).toHaveLength(expectedSteps)
+                expect(logic.values.hasUnsavedChanges).toBe(false)
+            }
+        )
+
+        it('duplicates the saved workflow as a draft copy and opens it', async () => {
+            useMocks({
+                get: { '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ status: 'active' }) },
+                post: { '/api/environments/:team_id/hog_flows/': recordPost(201, makeWorkflow({ id: 'wf-copy' })) },
+            })
+            await mountLoaded()
+            const successToast = jest.spyOn(lemonToast, 'success')
+
+            await expectLogic(logic, () => logic.actions.duplicate()).toFinishAllListeners()
+
+            expect(posted).toHaveLength(1)
+            expect(posted[0]).toMatchObject({ name: 'Autosave test (copy)', status: 'draft' })
+            expect(posted[0]).not.toHaveProperty('id')
+            expect(successToast).toHaveBeenCalledWith('Workflow duplicated')
+            expect(router.values.location.pathname).toBe(`/project/997${urls.workflow('wf-copy', 'workflow')}`)
+        })
+    })
+
+    describe('AI email draft on a new workflow from a link', () => {
+        const linkProps = {
+            id: 'new',
+            triggerPrefill: JSON.stringify({
+                type: 'event',
+                filters: { events: [{ id: 'signed_up', type: 'events' }] },
+            }),
+            emailPrefill: JSON.stringify({ subject: 'Template subject', paragraphs: ['Template body'] }),
+            draftSource: JSON.stringify({ source: 'error_tracking', source_id: 'issue-1' }),
+        }
+        const subject = (): string | undefined => prefilledEmailContent(logic.values.workflow)?.subject
+
+        const whileLoading = {
+            rename: async (): Promise<void> => logic.actions.setWorkflowValue('name', 'Renamed'),
+            typeEmail: async (): Promise<void> => {
+                const typed = withPrefilledEmail(logic.values.workflow, {
+                    subject: 'Typed by me',
+                    paragraphs: ['Mine'],
+                })
+                logic.actions.setWorkflowValue('actions', typed.actions)
+            },
+            save: async (): Promise<void> => {
+                await expectLogic(logic, () => logic.actions.saveWorkflow(logic.values.workflow)).toDispatchActions([
+                    'saveWorkflowSuccess',
+                ])
+            },
+        }
+
+        it.each([
+            {
+                case: 'untouched',
+                before: null,
+                reason: null,
+                subject: 'Written by AI',
+                status: 'applied',
+                dirty: false,
+            },
+            {
+                case: 'renamed',
+                before: 'rename',
+                reason: null,
+                subject: 'Written by AI',
+                status: 'applied',
+                dirty: true,
+            },
+            { case: 'email typed', before: 'typeEmail', reason: null, subject: 'Typed by me', skipped: 'edited' },
+            { case: 'saved', before: 'save', reason: null, subject: 'Template subject', skipped: 'saved' },
+            {
+                case: 'rate limited',
+                before: null,
+                reason: 'rate_limited',
+                subject: 'Template subject',
+                status: 'failed',
+            },
+        ] as const)('applies the AI draft only when it is $case', async ({ before, reason, ...expected }) => {
+            let respond: (body: unknown) => void = () => {}
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/workflow_email_drafts/': () =>
+                        new Promise((resolve) => {
+                            respond = resolve
+                        }).then((body) => [200, body]),
+                    '/api/environments/:team_id/hog_flows/': async ({ request }: MockResolverInfo) => [
+                        201,
+                        { ...((await request.json()) as HogFlow), id: 'wf-created' },
+                    ],
+                },
+            })
+            const capture = jest.spyOn(posthog, 'capture')
+            initKeaTests()
+            logic = workflowLogic(linkProps)
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess', 'loadAiEmailDraft'])
+            expect(logic.values.aiEmailDraftStatus).toEqual({ status: 'loading' })
+            await (before ? whileLoading[before]() : undefined)
+
+            respond({
+                subject: 'Written by AI',
+                preheader: '',
+                html: '<p>AI body</p>',
+                text: 'AI body',
+                generated_by: reason ? 'template' : 'ai',
+                template_reason: reason,
+            })
+            await expectLogic(logic).toDispatchActions(['loadAiEmailDraftSuccess']).toFinishAllListeners()
+
+            const status = 'status' in expected ? expected.status : undefined
+            expect(subject()).toBe(expected.subject)
+            expect(logic.values.aiEmailDraftStatus?.status).toBe(status)
+            expect(capture).toHaveBeenCalledWith(
+                'email draft prefilled',
+                expect.objectContaining({
+                    surface: 'workflow',
+                    applied: status === 'applied',
+                    skipped_reason: 'skipped' in expected ? expected.skipped : null,
+                })
+            )
+            if ('dirty' in expected) {
+                expect(logic.values.workflowChanged).toBe(expected.dirty)
+            }
+        })
+
+        it.each([
+            { case: 'a saved workflow', props: { ...linkProps, id: WORKFLOW_ID } },
+            { case: 'a link without an email', props: { ...linkProps, emailPrefill: undefined } },
+            { case: 'a link without a draft source', props: { ...linkProps, draftSource: undefined } },
+        ])('asks for no AI draft for $case', async ({ props }) => {
+            let requests = 0
+            useMocks({ post: { '/api/projects/:team_id/workflow_email_drafts/': () => [200, (requests += 1)] } })
+            initKeaTests()
+            logic = workflowLogic(props)
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
+
+            expect(requests).toBe(0)
+            expect(logic.values.aiEmailDraftStatus).toBeNull()
         })
     })
 
