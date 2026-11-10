@@ -1231,9 +1231,9 @@ export interface dashboardLogicActions {
     recheckRefreshEligibility: () => {
         value: true
     }
-    refreshDashboardItem: (payload: { tile: DashboardTile; reason?: DashboardRefreshReason }) => {
-        tile: DashboardTile
+    refreshDashboardItem: (payload: { reason?: DashboardRefreshReason; tile: DashboardTile }) => {
         reason: DashboardRefreshReason
+        tile: DashboardTile
     }
     refreshDashboardItems: (payload: {
         action: DashboardLoadAction | RefreshDashboardItemsAction
@@ -2175,13 +2175,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
          */
         forceRefreshIfStale: true,
         /** Manually refresh a single insight from the insight card on the dashboard. */
-        refreshDashboardItem: ({
-            tile,
-            reason = 'manual_tile_refresh',
-        }: {
-            tile: DashboardTile
-            reason?: DashboardRefreshReason
-        }) => ({ tile, reason }),
+        refreshDashboardItem: (payload: { tile: DashboardTile; reason?: DashboardRefreshReason }) => ({
+            tile: payload.tile,
+            reason: payload.reason ?? ('manual_tile_refresh' as DashboardRefreshReason),
+        }),
         /** Refresh tiles of a loaded dashboard e.g. stale tiles after initial load, previewed tiles after applying filters, etc. */
         refreshDashboardItems: (payload: {
             action: RefreshDashboardItemsAction | DashboardLoadAction
