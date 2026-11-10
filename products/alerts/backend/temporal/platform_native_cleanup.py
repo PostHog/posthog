@@ -6,6 +6,7 @@ from itertools import batched
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
@@ -65,8 +66,9 @@ class InsightAlertNativeCleanupWorkflow(PostHogWorkflow):
             retry_policy=DELETE_RETRY_POLICY,
             schedule_to_close_timeout=DELETE_SCHEDULE_TO_CLOSE,
         )
+        failed = 0
         for chunk in batched(configuration_ids, DELETES_AT_ONCE, strict=False):
-            await asyncio.gather(
+            results = await asyncio.gather(
                 *(
                     workflow.execute_activity(
                         delete_native_insight_alert_activity,
@@ -76,7 +78,19 @@ class InsightAlertNativeCleanupWorkflow(PostHogWorkflow):
                         retry_policy=DELETE_RETRY_POLICY,
                     )
                     for configuration_id in chunk
-                )
+                ),
+                return_exceptions=True,
+            )
+            for result in results:
+                # A cancellation stops the run. A delete that ran out of retries does not stop the
+                # deletes after it, which would otherwise leave their alerts behind as well.
+                if isinstance(result, BaseException) and not isinstance(result, ActivityError):
+                    raise result
+            failed += sum(isinstance(result, ActivityError) for result in results)
+        if failed:
+            raise ApplicationError(
+                f"{failed} of {len(configuration_ids)} insight alerts with no insight row were not deleted",
+                non_retryable=True,
             )
         return len(configuration_ids)
 
