@@ -24,6 +24,7 @@ from products.alerts_platform.backend.facade.contracts import (
     NativeAlertLifecycle,
     PlatformAlertConfigurationEdit,
     PlatformAlertCreateRefused,
+    PlatformAlertNotEditable,
     SourceConfigSpec,
     SourceKind,
 )
@@ -87,6 +88,13 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
                 created_by_id=self.user.id,
             )
         return view.id
+
+    def test_a_native_kind_whose_creates_are_switched_off_refuses_a_create(self) -> None:
+        with patch(_SOURCE_CONFIGS, return_value=replace(self.spec, native_create=lambda team_id: False)):
+            with pytest.raises(PlatformAlertNotEditable):
+                self._create()
+
+        assert count_configurations(team_id=self.team.id, source_kind=SourceKind.LOGS) == 0
 
     @parameterized.expand([("enabled", True), ("draft_turned_on_later", False)])
     def test_a_native_create_writes_one_platform_owned_configuration_and_no_source_row(

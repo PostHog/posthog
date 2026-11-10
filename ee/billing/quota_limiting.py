@@ -285,6 +285,15 @@ def _get_previous_recordings_zset_tokens() -> set[str]:
     return set(list_team_attributes_in_zset(QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY))
 
 
+def _get_quota_scores_for_teams(team_tokens: Sequence[str]) -> dict[tuple[QuotaResource, str], float | None]:
+    lookups = [(resource, token) for resource in QuotaResource for token in team_tokens]
+    pipeline = get_client().pipeline(transaction=False)
+    for resource, token in lookups:
+        pipeline.zscore(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{resource.value}", token)
+    scores = pipeline.execute()
+    return dict(zip(lookups, scores))
+
+
 def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: QuotaLimitingCaches) -> bool:
     """Whether the team's own entry in the resource's zset is still in force.
 
@@ -943,15 +952,20 @@ def update_org_billing_quotas(organization: Organization):
     if not team_attributes:
         logger.debug("quota_limiting_no_team_tokens", organization_id=str(organization.id))
     team_attributes_set: set[str] = set(team_attributes)
-    prev_recordings_zset_tokens: set[str] = _get_previous_recordings_zset_tokens() & team_attributes_set
+    now_ts = timezone.now().timestamp()
+    quota_scores = _get_quota_scores_for_teams(team_attributes)
+    # Removing an expired entry still needs to refresh the recording configuration.
+    prev_recordings_zset_tokens = {
+        token for token in team_attributes if quota_scores[(QuotaResource.RECORDINGS, token)] is not None
+    }
     recordings_transitioned_team_ids: set[int] = set()
 
     for resource in QuotaResource:
-        previously_quota_limited_team_tokens = list_limited_team_attributes(
-            resource,
-            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
-            # Get the teams tokens (e.g. ["phc_123", "phc_456"])
-        )
+        previously_quota_limited_team_tokens = [
+            token
+            for token in team_attributes
+            if (score := quota_scores[(resource, token)]) is not None and score >= now_ts
+        ]
 
         # Get the quota limiting information (e.g. {"quota_limited_until": 1737867600, "quota_limiting_suspended_until": 1737867600})
         result = org_quota_limited_until(

@@ -2821,6 +2821,18 @@ class TestIsConnectionDroppedError:
                 'connection to server at "203.0.113.40", port 5432 failed: ERROR:  connection is '
                 "insecure (try using `sslmode=require`)"
             ),
+            # Neon's proxy gives up on a compute that's still mid-wake from scale-to-zero, explicitly
+            # asking for a retry: "ERROR:  The endpoint is taking longer than expected to become
+            # active. Please wait a moment and try again." The real production message pairs it with
+            # the same generic plaintext-fallback rejection as the control-plane case above, on a
+            # second line that must not block the match.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "203.0.113.40", port 5432 failed: ERROR:  '
+                "The endpoint is taking longer than expected to become active. Please wait a moment "
+                "and try again.\n"
+                'connection to server at "203.0.113.40", port 5432 failed: ERROR:  connection is '
+                "insecure (try using `sslmode=require`)"
+            ),
             # Supavisor's own auth_query secret lookup (used to authenticate a tenant with no static
             # user record) times out waiting for the backend, reporting a bare OperationalError
             # carrying its "(EAUTHQUERY)" code. A race in the pooler's bookkeeping, not a credential
