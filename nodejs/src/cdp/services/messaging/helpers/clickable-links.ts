@@ -16,6 +16,14 @@ export const trimUrlWhitespace = (href: string): string => {
     return href.slice(start, end)
 }
 
+const TEXT_LINK_START = /https?:\/\//
+
+export const textLinks = (text: string): string[] =>
+    text.split(/\s+/).flatMap((word) => {
+        const start = word.search(TEXT_LINK_START)
+        return start === -1 ? [] : [word.slice(start)]
+    })
+
 const EMPTY_BOGUS_COMMENT = /<!>/g
 const COMMENT_END_AFTER_BANG = /--!>/g
 

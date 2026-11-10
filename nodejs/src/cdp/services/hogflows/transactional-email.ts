@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { CyclotronInvocationQueueParametersEmailType, EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 
-import { clickableHrefs } from '../messaging/helpers/clickable-links'
+import { clickableHrefs, textLinks } from '../messaging/helpers/clickable-links'
 
 export const MAX_COPY_RECIPIENTS = 10
 
@@ -94,10 +94,11 @@ const CODE_SEND_UNSUBSCRIBE_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/g
 const LIQUID_UNSUBSCRIBE_LINK = /\{\{-?\s*unsubscribe_url(_one_click)?\s*-?\}\}|\{%-?\s*unsubscribe_url\s*-?%\}/g
 
 const hasClickableUnsubscribeLink = (body: { html?: string; text?: string }, placeholder: RegExp): boolean => {
-    if (!body.html) {
-        return (body.text ?? '').search(placeholder) !== -1
-    }
     const link = `unsubscribe-link-${randomUUID()}`
+    if (!body.html) {
+        const url = `https://${link}.invalid/`
+        return textLinks((body.text ?? '').replace(placeholder, url)).some((textLink) => textLink.startsWith(url))
+    }
     return clickableHrefs(body.html.replace(placeholder, link)).includes(link)
 }
 

@@ -34,7 +34,7 @@ import {
     resolveEmailSendingAppSourceVersion,
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
-import { clickableHrefs } from './helpers/clickable-links'
+import { clickableHrefs, textLinks } from './helpers/clickable-links'
 import { escapeHtml } from './helpers/escape-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
@@ -1434,10 +1434,9 @@ export class EmailService {
                   const token = path.startsWith(preferencesPage) ? path.slice(preferencesPage.length) : ''
                   return /^[^/]+\/$/.test(token) ? [token.slice(0, -1)] : []
               })
-            : (params.text ?? '')
-                  .split(preferencesPage)
-                  .slice(1)
-                  .map((link) => link.split('/')[0])
+            : textLinks(params.text ?? '')
+                  .filter((link) => link.startsWith(preferencesPage))
+                  .map((link) => link.slice(preferencesPage.length).split('/')[0])
         return !tokens.some((token) => {
             const owner = this.recipientTokensService.validatePreferencesToken(token)
             return owner.valid && owner.team_id === invocation.teamId && unquoteMailbox(owner.identifier) === recipient

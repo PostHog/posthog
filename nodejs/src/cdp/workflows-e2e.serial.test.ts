@@ -3498,7 +3498,7 @@ describe('Workflows E2E (email queue)', () => {
 
         const preferencesLinkOwners = async (body: string): Promise<string[]> =>
             await Promise.all(
-                [...body.matchAll(/https?:\/\/[^\s"'<>]+/g)]
+                [...body.matchAll(/https?:\/\/[^\s"'<>()[\]]+/g)]
                     .map(([link]) => new URL(link.replace(/&amp;/g, '&')))
                     .filter(
                         ({ origin, pathname }) =>
@@ -4221,22 +4221,30 @@ describe('Workflows E2E (email queue)', () => {
             expect(outcomes).toEqual(EXPECTED_UNSUBSCRIBE_LINK_OUTCOMES)
         })
 
-        it('skips a marketing template send whose Liquid points its unsubscribe link at another host', async () => {
-            const flow = await insertHogFlow(
-                hub.postgres,
-                sendFlow('template', 'transactional', {
-                    html: '{% assign unsubscribe_url = "https://redirect.example.com/?to=" | append: unsubscribe_url %}<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
-                    text: '',
-                })
-            )
-            const to = `reader-${new UUIDT().toString()}@example.com`
+        it.each([
+            {
+                body: 'html',
+                html: '{% assign unsubscribe_url = "https://redirect.example.com/?to=" | append: unsubscribe_url %}<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+                text: '',
+            },
+            {
+                body: 'text',
+                html: '',
+                text: '{% assign unsubscribe_url = "https://redirect.example.com/?to=" | append: unsubscribe_url %}Unsubscribe: {{ unsubscribe_url }}',
+            },
+        ])(
+            'skips a marketing template send whose Liquid points its $body unsubscribe link at another host',
+            async ({ html, text }) => {
+                const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional', { html, text }))
+                const to = `reader-${new UUIDT().toString()}@example.com`
 
-            const res = await post('template', flow, { to, distinct_id: 'reader', message_category: newsletter })
-            expect(res.status).toEqual(202)
-            await deliver()
+                const res = await post('template', flow, { to, distinct_id: 'reader', message_category: newsletter })
+                expect(res.status).toEqual(202)
+                await deliver()
 
-            expect(await sendOutcome(to, res.body.invocation_id)).toEqual('unsubscribe_link_required')
-        })
+                expect(await sendOutcome(to, res.body.invocation_id)).toEqual('unsubscribe_link_required')
+            }
+        )
 
         it.each([
             {
