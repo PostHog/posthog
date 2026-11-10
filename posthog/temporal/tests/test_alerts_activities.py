@@ -1050,16 +1050,16 @@ class TestEvaluateAlert:
         assert check.targets_notified == {}
 
     @pytest.mark.parametrize(
-        "alert_change,signal_error,expect_emit",
+        "alert_change,signal_error,expect_emit,expect_link",
         [
-            (None, None, True),
-            (None, RuntimeError("signals unavailable"), True),
-            ("deleted", None, False),
-            ("disabled", None, False),
+            (None, None, True, True),
+            (None, RuntimeError("signals unavailable"), True, False),
+            ("deleted", None, False, False),
+            ("disabled", None, False, False),
         ],
     )
     async def test_emit_alert_firing_signal(
-        self, alert, alert_change: str | None, signal_error: Exception | None, expect_emit: bool
+        self, alert, alert_change: str | None, signal_error: Exception | None, expect_emit: bool, expect_link: bool
     ) -> None:
         check = await _create_alert_check(alert, state=AlertState.FIRING)
         if alert_change == "deleted":
@@ -1113,6 +1113,10 @@ class TestEvaluateAlert:
             assert emit.await_args.kwargs["source_id"] == f"{alert.id}:{check.id}"
         else:
             emit.assert_not_awaited()
+        linked = await sync_to_async(
+            lambda: AlertCheck.objects.filter(id=check.id).values_list("inbox_signal_source_id", flat=True).first()
+        )()
+        assert linked == (f"{alert.id}:{check.id}" if expect_link else None)
 
     @pytest.mark.parametrize(
         "investigated,previous_verdict,owner,expect_investigation,expect_notify,expect_held",

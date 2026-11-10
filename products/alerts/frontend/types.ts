@@ -160,6 +160,7 @@ export interface AlertCheck {
     notification_sent_at?: string | null
     notification_suppressed_by_agent?: boolean
     deliveries: AlertCheckDelivery[] | null
+    inbox_report_id?: string | null
 }
 
 export interface AlertType extends AlertTypeBase {

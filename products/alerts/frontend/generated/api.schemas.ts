@@ -216,6 +216,11 @@ export interface AlertCheckApi {
      * @nullable
      */
     readonly deliveries: readonly AlertDeliveryApi[] | null
+    /**
+     * ID of the Self-driving inbox report that this check's signal grouped into. Null when the check sent no signal, or when grouping has not placed the signal in a report yet. Only set on alert retrieve.
+     * @nullable
+     */
+    readonly inbox_report_id: string | null
 }
 
 export type TrendsAlertConfigApiType = (typeof TrendsAlertConfigApiType)[keyof typeof TrendsAlertConfigApiType]

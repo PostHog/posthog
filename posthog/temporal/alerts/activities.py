@@ -908,9 +908,19 @@ async def emit_alert_firing_signal(inputs: EmitAlertFiringSignalActivityInputs) 
     current alert, so an edit since the evaluation can still stop the signal.
     """
     signal = await database_sync_to_async(_prepare_firing_signal, thread_sensitive=False)(inputs)
-    if signal is not None:
-        # On the event loop, not in the thread: emit_signal needs the default executor.
-        await dispatch_alert_firing_signal(signal)
+    # On the event loop, not in the thread: emit_signal needs the default executor.
+    if signal is not None and await dispatch_alert_firing_signal(signal):
+        await database_sync_to_async(_link_inbox_signal, thread_sensitive=False)(
+            signal.alert_check_id, signal.source_id
+        )
+
+
+def _link_inbox_signal(alert_check_id: str, source_id: str) -> None:
+    """Store the emitted signal's source id on the check, so its history can link to the report. Never raises."""
+    try:
+        AlertCheck.objects.filter(id=alert_check_id).update(inbox_signal_source_id=source_id)
+    except Exception:
+        logger.exception("alert_check.inbox_signal_link_failed", alert_check_id=alert_check_id)
 
 
 def _lock_evaluation_alert(*, alert_id: str, team_id: int, insight_id: int) -> AlertConfiguration | None:
