@@ -31,7 +31,7 @@ export async function claimSandboxCaps(
         refillPerSecond: cap / SECONDS_PER_DAY,
         ttlSeconds: BUCKET_TTL_SECONDS,
     })
-    const claimDigest = createHash('sha256').update(claimId).digest('hex')
+    const claimDigest = createHash('sha256').update(`${teamId}\n${recipientDigest}\n${claimId}`).digest('hex')
     const claim = await limiter.claimAllOrNothingAcross(
         [
             bucket(`${keyPrefix}/recipient/${recipientDigest}`, caps.recipient),
