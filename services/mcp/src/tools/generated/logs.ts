@@ -60,6 +60,9 @@ const logsAlertsCreate = (): ToolBase<ReturnType<typeof LogsAlertsCreateSchema>,
         if (params.grouping !== undefined) {
             body['grouping'] = params.grouping
         }
+        if (params.labels !== undefined) {
+            body['labels'] = params.labels
+        }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/alerts/`,
@@ -354,6 +357,9 @@ const logsAlertsPartialUpdate = (): ToolBase<
         }
         if (params.grouping !== undefined) {
             body['grouping'] = params.grouping
+        }
+        if (params.labels !== undefined) {
+            body['labels'] = params.labels
         }
         const result = await context.api.request<Schemas.LogsAlertConfiguration>({
             method: 'PATCH',
