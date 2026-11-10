@@ -1,9 +1,8 @@
 name: Dependency proof trigger
 
-# This workflow exists only so that dependency-proof.yml can run on `workflow_run` for every pull
-# request. That workflow runs its default-branch copy and holds the dependency proof App key, which
-# a `pull_request` job must never see. This one has no paths filter, so every head of every pull
-# request gets a result.
+# dependency-proof.yml runs on `workflow_run` after this workflow, from its default-branch copy,
+# because it holds the dependency proof App key, which a `pull_request` job must never see.
+# This workflow has no paths filter, so every head of every pull request gets a result.
 
 on:
     pull_request:

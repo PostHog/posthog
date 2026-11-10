@@ -182,7 +182,7 @@ def fetch(request: urllib.request.Request, attempts: int = 3) -> bytes:
             # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- the scheme is checked above, and both callers build the URL from a constant https origin
             with OPENER.open(request, timeout=60) as response:
                 return response.read()
-        # OSError covers a refused or reset connection and a timeout, and HTTPException a body cut short.
+        # A body cut short raises IncompleteRead, which is an HTTPException and not an OSError.
         except (OSError, http.client.HTTPException) as error:
             if attempt == attempts - 1 or (isinstance(error, urllib.error.HTTPError) and error.code < 500):
                 raise
@@ -440,7 +440,7 @@ def load_workspace(git: Git, ref: str, directory: str) -> dict[str, Any]:
 
 
 def load_yaml(text: bytes) -> dict[str, Any]:
-    # pnpm reads UTF-8. PyYAML detects UTF-16 from the bytes, so it gets decoded text and no choice.
+    # pnpm reads UTF-8. PyYAML given bytes would detect UTF-16 and read it, so it is given text.
     try:
         decoded = text.decode("utf-8")
     except UnicodeDecodeError as error:
