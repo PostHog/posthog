@@ -21,7 +21,7 @@ The [implementation notes](./IMPLEMENTATION_NOTES.md) list known differences in 
 
 For PostHog accounts with AI training data enabled (note, you can check or modify an org's status in the [org settings](https://app.posthog.com/settings/organization-details)), we save a scrubbed copy of session recordings for use in [AI Research](https://posthog.com/blog/training-ai-models).
 
-The [upstream Kafka consumer](/nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror) processes RRWeb events, scrubs them, and attaches a global ref to image tags with external URLs. It posts those external URLs to our topic. We fetch those URLs and write the images to another topic, where the [image scrubber](/nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub) consumes them and writes them to S3, using the ref as a key. Then at data prep time, we can fetch the images for a given Session Recording by their key.
+The [upstream Kafka consumer](/ingestion/node/packages/ai-research/src/pipelines/ml-mirror) processes RRWeb events, scrubs them, and attaches a global ref to image tags with external URLs. It posts those external URLs to our topic. We fetch those URLs and write the images to another topic, where the [image scrubber](/ingestion/node/packages/ai-research/src/pipelines/ml-mirror-image-scrub) consumes them and writes them to S3, using the ref as a key. Then at data prep time, we can fetch the images for a given Session Recording by their key.
 
 ## Requirements
 

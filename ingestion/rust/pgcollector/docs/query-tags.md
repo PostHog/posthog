@@ -14,7 +14,7 @@ Three comment shapes are accepted, because all three already run against our clu
 | SQLCommenter | `/* route='/api/x', controller='PersonViewSet' */` | OpenTelemetry and Datadog instrumentation; values are percent-encoded |
 | SQLCommenter | `/* service='personhog-identity', operation='merge_flip_lock_persons' */` | Rust services: `op = "..."` on `common_sqlx_macros::mirrored_query!` and `personhog_common::query_tag!` for statements built at runtime |
 | colon pairs | `/* team_id:42 query_type:recording_api_list_blocks */` | the shape PostHog uses for ClickHouse, reused by the CDP and replay services |
-| ingestion prefix | `/* nodejs:PERSONS_WRITE:Tx<insertPerson:ingestion/merge> */` | `nodejs/src/common/utils/db/postgres.ts` |
+| ingestion prefix | `/* nodejs:PERSONS_WRITE:Tx<insertPerson:ingestion/merge> */` | `nodejs/packages/common/src/utils/db/postgres.ts` |
 
 A comment is a tag comment only when every token in it is a `key=value` or `key:value` pair.
 Prose comments and planner hints stay in the text, and comment markers inside string literals, dollar quotes and `--` comments are never read as tags.

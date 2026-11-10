@@ -6,7 +6,7 @@ import { CAPTURE_PRODUCED_WARNING_TYPES, INGESTION_WARNING_TYPES } from '~/inges
 /**
  * Codegen for the cross-language ingestion-warning contract.
  *
- * `INGESTION_WARNING_TYPES` (nodejs/src/ingestion/common/ingestion-warning-types.ts) is the single
+ * `INGESTION_WARNING_TYPES` (ingestion/node/packages/common/src/ingestion-warning-types.ts) is the single
  * source of truth. This script mirrors the whole registry — every type with its category and
  * severity — into a JSON artifact committed inside the Rust crate, from which
  * `ingestion/rust/ingestion_warnings/build.rs` generates the `WarningType` enum. Committing the artifact

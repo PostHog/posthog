@@ -101,7 +101,7 @@ pub(crate) const CAPTURE_V1_DISTINCT_ID_MAX_SIZE: usize = 200;
 
 /// Known-bad distinct_id values that indicate a bug or misconfiguration in the
 /// sending SDK. Ported from the Node.js ingestion pipeline
-/// (nodejs/src/common/persons/person-utils.ts) with
+/// (ingestion/node/packages/common/src/persons/person-utils.ts) with
 /// additions from the new #ingestion-reports feed.
 ///
 /// All comparisons are case-insensitive after trimming whitespace, which is a

@@ -192,7 +192,7 @@ pub enum DataType {
 pub const AI_LANE_NAME_PREFIX: &str = "$ai_";
 
 /// The single AI-lane membership rule; the ingestion AI pipeline admits by the
-/// same prefix (`isAiEventName` in `nodejs/src/ingestion/common/ai-event-types.ts`).
+/// same prefix (`isAiEventName` in `ingestion/node/packages/ingestion/src/ingestion/common/ai-event-types.ts`).
 pub fn is_ai_event(name: &str) -> bool {
     name.starts_with(AI_LANE_NAME_PREFIX)
 }

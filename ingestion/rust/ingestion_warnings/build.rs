@@ -1,7 +1,7 @@
 //! Codegen for the `WarningType` enum from `warning_types.generated.json`.
 //!
 //! That JSON mirrors the whole Node.js registry (the single source of truth,
-//! `nodejs/src/ingestion/common/ingestion-warning-types.ts`) via
+//! `ingestion/node/packages/common/src/ingestion-warning-types.ts`) via
 //! `pnpm --filter=@posthog/nodejs gen:ingestion-warning-types`. Generating the enum from the
 //! committed artifact keeps Rust's warning types — and their category/severity classification —
 //! from drifting out of the Node.js registry while respecting the isolated Rust build context

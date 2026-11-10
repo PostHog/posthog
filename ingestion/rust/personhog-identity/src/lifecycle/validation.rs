@@ -30,8 +30,8 @@ pub fn is_distinct_id_oversized(id: &str) -> bool {
     id.chars().count() > MAX_DISTINCT_ID_LENGTH
 }
 
-// Mirrors ingestion's isDistinctIdIllegal (nodejs/src/common/persons/
-// person-utils.ts): generic ids that stem from a bug or mistake must never
+// Mirrors ingestion's isDistinctIdIllegal (ingestion/node/packages/common/src/
+// persons/person-utils.ts): generic ids that stem from a bug or mistake must never
 // drive a merge. Some are illegal in any casing, others only exactly as
 // cased ('NaN' but not 'nan'), and both sets also match wrapped in single
 // or double quotes.

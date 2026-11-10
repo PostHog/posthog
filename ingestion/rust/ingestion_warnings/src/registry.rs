@@ -4,7 +4,7 @@
 //! registry-declared `category()`/`severity()` — is generated at build time (see
 //! `build.rs`) from `warning_types.generated.json`, which mirrors the whole
 //! Node.js registry, the single source of truth for the warning taxonomy
-//! (`nodejs/src/ingestion/common/ingestion-warning-types.ts`). The taxonomy is
+//! (`ingestion/node/packages/common/src/ingestion-warning-types.ts`). The taxonomy is
 //! producer-agnostic: which service emits which type is not registry data — each
 //! producer references the variants it emits, and the message's `source` field
 //! records who said it.

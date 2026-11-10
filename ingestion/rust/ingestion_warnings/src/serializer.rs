@@ -19,7 +19,7 @@
 //! indistinguishable from a client-forged event (the envelope's event name and
 //! properties are writable by any token holder), so the consumer is
 //! authoritative there (see
-//! `nodejs/src/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step.ts`);
+//! `ingestion/node/packages/ingestion/src/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step.ts`);
 //! rows are trusted by transport. Routing the envelope through that consumer
 //! also means capture never needs database access or token→team resolution.
 //!

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use common_kafka_consumer::{Offset, PolledMessage};
 use serde::{Deserialize, Serialize};
 
-/// Matches `SerializedKafkaMessage` in `nodejs/src/ingestion/api/types.ts`.
+/// Matches `SerializedKafkaMessage` in `ingestion/node/packages/ingestion/src/ingestion/api/types.ts`.
 /// Values are raw UTF-8 strings (PostHog Kafka messages are always JSON text).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializedKafkaMessage {

@@ -31,7 +31,7 @@ Use `/pipeline-doctor` for a general architecture overview that helps you pick t
 The 13 runnable doc-test chapters define all conventions:
 
 ```text
-nodejs/src/ingestion/framework/docs/
+ingestion/node/packages/common/src/framework/docs/
 ├── 01-introduction.test.ts
 ├── 02-chunk-pipelines.test.ts
 ├── 03-concurrent-processing.test.ts

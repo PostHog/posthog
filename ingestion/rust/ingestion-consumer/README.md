@@ -22,7 +22,7 @@ A commit that never lands costs a replay from the last landed commit on the next
 
 Both sides default to enabled and have kill switches: `CONSUMER_ORDER_SENTINEL_ENABLED` here, `INGESTION_API_FEED_ORDER_SENTINEL_ENABLED` (plus `INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS`) on the worker.
 The rebalance metrics from the consumer context stay on regardless, and the `consumer_id`/`replay` request fields are always stamped so either side can be toggled independently.
-The worker-side check lives in `nodejs/src/ingestion/api/feed-order-sentinel.ts`, fed by the `consumer_id` (process incarnation) and `replay` fields the transport stamps on every sub-batch.
+The worker-side check lives in `ingestion/node/packages/ingestion/src/ingestion/api/feed-order-sentinel.ts`, fed by the `consumer_id` (process incarnation) and `replay` fields the transport stamps on every sub-batch.
 It measures the invariant at its end point: the worker groups each key's messages by distinct id and processes each group in feed order, so "fed in offset order per key" is "processed in order per distinct id".
 A partial ack keeps that, because the worker leaves only the last messages of a distinct id unfinished and the consumer resends them in order.
 Rebalances reset all baselines (`ingestion_consumer_rebalances_total{event}` counts them), so partition handoffs don't fire false positives.

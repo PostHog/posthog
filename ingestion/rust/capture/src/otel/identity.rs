@@ -16,7 +16,7 @@ const SPAN_DISTINCT_ID_KEYS: &[&str] = &[
 const RESOURCE_DISTINCT_ID_KEYS: &[&str] = &["posthog.distinct_id", "user.id"];
 
 /// A session can span several traces, so its id takes priority over the trace id. The keys and
-/// their order mirror what the AI ingestion pipeline in nodejs/src/ingestion/pipelines/ai/otel
+/// their order mirror what the AI ingestion pipeline in ingestion/node/packages/ingestion/src/ingestion/pipelines/ai/otel
 /// resolves `$ai_session_id` from. Keep the two in step.
 const SESSION_ID_KEYS: &[&str] = &[
     "$ai_session_id",

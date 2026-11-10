@@ -10,7 +10,7 @@ static NO_PERSON_UPDATE_EVENTS: LazyLock<HashSet<&'static str>> =
 
 /// Properties that change too often to be worth a person update on their
 /// own. Copied from FILTERED_PERSON_UPDATE_PROPERTIES in
-/// nodejs/src/common/persons/person-property-utils.ts, which links back;
+/// nodejs/packages/common/src/utils/person-property-utils.ts, which links back;
 /// the two lists must stay identical while both backends run.
 static FILTERED_PERSON_UPDATE_PROPERTIES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     HashSet::from([

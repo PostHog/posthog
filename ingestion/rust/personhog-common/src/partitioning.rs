@@ -120,7 +120,7 @@ mod tests {
         assert_eq!(kafka_murmur2(b"test-key"), -1341026247);
     }
 
-    // The fixture `nodejs/src/common/kafka/murmur2.test.ts` pins.
+    // The fixture `nodejs/packages/common/src/kafka/murmur2.test.ts` pins.
     #[test]
     fn partition_for_key_matches_nodes_partitioner() {
         let key = b"2:01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee";

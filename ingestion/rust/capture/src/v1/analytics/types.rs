@@ -416,7 +416,7 @@ impl Publishable for WrappedEvent {
 
     fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders {
         // Downstream treats this header as absolute: `decideProcessPerson` in
-        // nodejs/src/common/persons/person-utils.ts skips person processing
+        // ingestion/node/packages/common/src/persons/person-utils.ts skips person processing
         // outright when it is set. So it carries only the person-processing
         // decision, never the partitioning one, which travels as `ordering()`.
         let force_disable_person_processing = if self.force_disable_person_processing {

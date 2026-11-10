@@ -5,7 +5,7 @@
 `/i/v0/ai` is the dedicated single-event ingress for AI observability events.
 It accepts one AI event per request as `multipart/form-data`, validates it against the AI event contract, and publishes it to Kafka like any other captured event.
 Heavy content (prompts, completions, media) rides inline in the event JSON;
-oversized media is offloaded to blob storage later, at ingestion, by the Node AI pipeline's blob-offload step (`nodejs/src/ingestion/pipelines/ai/blob-offload/`), not by capture.
+oversized media is offloaded to blob storage later, at ingestion, by the Node AI pipeline's blob-offload step (`ingestion/node/packages/ingestion/src/ingestion/pipelines/ai/blob-offload/`), not by capture.
 
 Batch traffic uses `/i/v0/ai/batch`, which dispatches to the standard batch handler.
 OTLP trace export uses `/i/v0/ai/otel`.

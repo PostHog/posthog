@@ -34,7 +34,7 @@
 //! Node.js `clientwarnings` consumer resolves the token to a `team_id` and
 //! writes the v2 row. That keeps every Rust producer database-free and
 //! identical; see [`serializer`] and
-//! `nodejs/src/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step.ts`.
+//! `ingestion/node/packages/ingestion/src/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step.ts`.
 
 pub mod registry;
 pub mod request;
