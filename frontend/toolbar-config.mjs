@@ -1,3 +1,4 @@
+import { zipSync } from 'fflate'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -21,19 +22,22 @@ const toolbarPublicPathOverride = process.env.TOOLBAR_PUBLIC_PATH
 // without side effects. If the upstream logic adds new connect() values, the shim
 // will silently return undefined — keep shims in sync when connect contracts change.
 const shimmedModules = {
-    'scenes/userLogic': 'src/toolbar/shims/userLogic.ts',
-    'scenes/organization/membersLogic': 'src/toolbar/shims/membersLogic.ts',
-    'scenes/sceneLogic': 'src/toolbar/shims/sceneLogic.ts',
-    'scenes/teamLogic': 'src/toolbar/shims/teamLogic.ts',
-    'lib/logic/featureFlagLogic': 'src/toolbar/shims/featureFlagLogic.ts',
+    'scenes/userLogic': 'src/toolbar/shared/shims/userLogic.ts',
+    'models/membersLogic': 'src/toolbar/shared/shims/membersLogic.ts',
+    'scenes/sceneLogic': 'src/toolbar/shared/shims/sceneLogic.ts',
+    'scenes/teamLogic': 'src/toolbar/shared/shims/teamLogic.ts',
+    'lib/logic/featureFlagLogic': 'src/toolbar/shared/shims/featureFlagLogic.ts',
     // Survey question labels load from an authenticated endpoint the toolbar can't reach, so
     // the shim keeps its shared consumers (PropertyKeyInfo, taxonomy helpers) out of the app zone.
-    'scenes/surveys/surveyQuestionLabelsLogic': 'src/toolbar/shims/surveyQuestionLabelsLogic.ts',
-    // Not a kea shim: the toolbar's parity-tested urls duplicate (see src/toolbar/urls.ts).
+    'scenes/surveys/surveyQuestionLabelsLogic': 'src/toolbar/shared/shims/surveyQuestionLabelsLogic.ts',
+    // The flag overview reads the feature flags API, which the toolbar can't reach, so the shim
+    // keeps PropertyKeyInfo out of the app zone.
+    'products/feature_flags/frontend/featureFlagSummaryLogic': 'src/toolbar/shared/shims/featureFlagSummaryLogic.ts',
+    // Not a kea shim: the toolbar's parity-tested urls duplicate (see src/toolbar/shared/urls.ts).
     // Toolbar code imports it directly; this entry covers lib/ components shared with the
     // app (TZLabel, Link, HeatmapEventsPanel), whose scenes/urls import would otherwise pull
     // every product manifest into the bundle.
-    'scenes/urls': 'src/toolbar/urls.ts',
+    'scenes/urls': 'src/toolbar/shared/urls.ts',
 }
 
 // Modules replaced with an inert proxy that logs access in debug mode
@@ -47,9 +51,9 @@ const deniedPaths = [
     'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager.ts',
 ]
 
-// PayGateMini (shipped in the toolbar) imports scenes/billing, which we can't bundle because it
-// pulls in chart.js, monaco, and the rest of the app's billing scene graph.
-const deniedPatterns = [/scenes\/billing/]
+// PayGateMini (shipped in the toolbar) imports billingLogic, which we can't bundle because it
+// pulls in app-only logics and, through scenes/billing, the app's billing scene graph.
+const deniedPatterns = [/scenes\/billing/, /lib\/logic\/billing\//]
 
 /**
  * The toolbar shares lib/ code with the main app, and that code reaches app-only modules
@@ -62,7 +66,7 @@ const deniedPatterns = [/scenes\/billing/]
  *   the toolbar genuinely needs different answers (its own team context, no scene routing)
  *   than the app.
  * - Denied modules get replaced with an inert proxy. The deny list is kept minimal: only the
- *   paths a toolbar-shipped module actually reaches today (chiefly PayGateMini -> scenes/billing)
+ *   paths a toolbar-shipped module actually reaches today (chiefly PayGateMini -> billingLogic)
  *   need cutting here. Regressions that reintroduce heavier dependencies are caught by the guard
  *   scripts rather than pre-emptively denied.
  *
@@ -70,7 +74,7 @@ const deniedPatterns = [/scenes\/billing/]
  * CloudFront limit), bin/check-toolbar-graph.mjs (boundary edges, forbidden packages, source
  * budget), and bin/check-toolbar-csp-eval.mjs (no eval on customer pages).
  */
-function createToolbarModulePlugin(dirname) {
+function createToolbarModulePlugin(dirname, extraDeniedPatterns = []) {
     // Shims must also catch relative imports of the same modules (e.g. dataThemeLogic's
     // `./teamLogic`), otherwise the real logic and its whole app graph leak into the bundle.
     // Map each shimmed module's extensionless absolute path to its shim.
@@ -100,7 +104,8 @@ function createToolbarModulePlugin(dirname) {
                 }
 
                 const shouldDeny =
-                    deniedPaths.includes(args.path) || deniedPatterns.some((pattern) => pattern.test(args.path))
+                    deniedPaths.includes(args.path) ||
+                    [...deniedPatterns, ...extraDeniedPatterns].some((pattern) => pattern.test(args.path))
                 if (shouldDeny) {
                     return { path: args.path, namespace: 'empty-module', sideEffects: false }
                 }
@@ -136,7 +141,7 @@ function createToolbarModulePlugin(dirname) {
 
 // The toolbar ships as two artifacts:
 //
-//   dist/toolbar.js          — a tiny classic-script loader (src/toolbar/loader.ts). posthog-js
+//   dist/toolbar.js          — a tiny classic-script loader (src/toolbar/floating/loader.ts). posthog-js
 //                              injects it with a plain <script> tag on customer pages and calls
 //                              window.ph_load_toolbar on load; the loader then import()s the app.
 //   dist/toolbar/            — the real app: an ESM entry (toolbar-app-<hash>.js, hashless copy
@@ -158,7 +163,7 @@ export function getToolbarAppBuildConfig(dirname) {
         // Named 'Toolbar' so the metafile lands at toolbar-esbuild-meta.json, which
         // bin/check-toolbar-graph.mjs and bin/check-toolbar-size.mjs read.
         name: 'Toolbar',
-        entryPoints: { 'toolbar-app': 'src/toolbar/index.tsx' },
+        entryPoints: { 'toolbar-app': 'src/toolbar/floating/index.tsx' },
         format: 'esm',
         splitting: true,
         outdir: path.resolve(dirname, 'dist', 'toolbar'),
@@ -228,7 +233,7 @@ export async function finalizeToolbarBuild(dirname, buildResponse) {
 
     await esbuildBuild({
         absWorkingDir: dirname,
-        entryPoints: ['src/toolbar/loader.ts'],
+        entryPoints: ['src/toolbar/floating/loader.ts'],
         bundle: true,
         // ESM output keeps the runtime-dynamic import() untouched; with no static
         // imports/exports of its own, the file still parses as a classic script.
@@ -244,4 +249,159 @@ export async function finalizeToolbarBuild(dirname, buildResponse) {
             __POSTHOG_TOOLBAR_APP_ENTRY__: JSON.stringify(path.basename(entryJs)),
         },
     })
+}
+
+// The browser extension ships as a folder to load unpacked in Chrome, and as a zip for the Chrome Web Store:
+//
+//   dist/toolbar-extension/chrome/manifest.json
+//   dist/toolbar-extension/chrome/panel.html, panel.js, panel.css, background.js, content.js, content.css,
+//   assets/, icons/
+//   dist/toolbar-extension/posthog-toolbar-chrome-<version>.zip
+const TOOLBAR_EXTENSION_OUT_DIR = 'toolbar-extension'
+
+// The release workflow bumps this version from Sampo changesets. See "Releases" in src/toolbar/extension/README.md.
+const TOOLBAR_EXTENSION_VERSION = JSON.parse(
+    fs.readFileSync(new URL('./src/toolbar/extension/release/package.json', import.meta.url), 'utf8')
+).version
+
+const TOOLBAR_EXTENSION_BUILD_DIR = 'toolbar-extension-build'
+
+const TOOLBAR_EXTENSION_ICONS = {
+    16: 'icons/favicon-16x16.png',
+    32: 'icons/favicon-32x32.png',
+    128: 'icons/posthog-128x128.png',
+    192: 'icons/android-chrome-192x192.png',
+}
+
+export function cleanToolbarExtensionBuild(dirname) {
+    fs.rmSync(path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR), { recursive: true, force: true })
+}
+
+/** panel.html isn't an esbuild input, so watch mode rebuilds on its edits only through this. */
+function watchExtensionPagesPlugin(dirname) {
+    return {
+        name: 'watch-toolbar-extension-pages',
+        setup(build) {
+            build.onLoad({ filter: /extension[\\/]panel\.tsx$/ }, (args) => ({
+                contents: fs.readFileSync(args.path, 'utf8'),
+                loader: 'tsx',
+                watchFiles: [path.resolve(dirname, 'src/toolbar/extension/panel.html')],
+            }))
+        },
+    }
+}
+
+function toolbarExtensionBaseConfig(dirname) {
+    return {
+        outdir: path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR),
+        // The pages and scripts name their files directly, so they carry no hash.
+        entryNames: '[name]',
+        // Extension pages resolve assets against their own folder, so URLs stay relative.
+        publicPath: undefined,
+        loader: { ...commonConfig.loader, '.svg': 'dataurl' },
+        define: {
+            ...commonConfig.define,
+            __POSTHOG_TOOLBAR_PUBLIC_PATH__: JSON.stringify(''),
+        },
+    }
+}
+
+export function getToolbarExtensionBuildConfig(dirname) {
+    return {
+        ...toolbarExtensionBaseConfig(dirname),
+        name: 'Toolbar extension',
+        entryPoints: { panel: 'src/toolbar/extension/panel.tsx' },
+        format: 'esm',
+        // Keeps lazily imported code (such as hedgehog mode, reached through lemon-ui) out of panel.js.
+        splitting: true,
+        chunkNames: 'chunks/[name]-[hash]',
+        extraPlugins: [createToolbarModulePlugin(dirname), watchExtensionPagesPlugin(dirname)],
+    }
+}
+
+/**
+ * The panel injects content.js into the tab with `scripting.executeScript`, which runs a file as a classic script, and
+ * the manifest loads background.js as a classic service worker. So each of these scripts is one self-contained IIFE.
+ */
+export function getToolbarExtensionScriptsBuildConfig(dirname) {
+    return {
+        ...toolbarExtensionBaseConfig(dirname),
+        name: 'Toolbar extension scripts',
+        entryPoints: {
+            background: 'src/toolbar/extension/background.ts',
+            content: 'src/toolbar/extension/content.tsx',
+            'page-agent': 'src/toolbar/extension/pageAgent.ts',
+        },
+        format: 'iife',
+        splitting: false,
+        // An IIFE inlines every lazy import. The content script never runs hedgehog mode (pixi needs `new Function`,
+        // which Manifest V3 forbids) or the product tours editor, so they stay out of every page it's injected into.
+        extraPlugins: [
+            createToolbarModulePlugin(dirname, [
+                /^@posthog\/hedgehog-mode$/,
+                /product-tours\/editor\/generateStepHtml$/,
+            ]),
+        ],
+    }
+}
+
+// Asks for every http and https site, because the panel follows the active tab without a click on the extension
+// button, which `activeTab` needs.
+function buildToolbarExtensionManifest() {
+    return {
+        manifest_version: 3,
+        name: 'PostHog',
+        description: 'Use the PostHog toolbar in a side panel next to your website.',
+        version: TOOLBAR_EXTENSION_VERSION,
+        icons: TOOLBAR_EXTENSION_ICONS,
+        action: {
+            default_title: 'Open PostHog',
+            default_icon: TOOLBAR_EXTENSION_ICONS,
+        },
+        permissions: ['scripting', 'storage', 'sidePanel'],
+        host_permissions: ['http://*/*', 'https://*/*'],
+        web_accessible_resources: [{ resources: ['content.css', 'assets/*'], matches: ['http://*/*', 'https://*/*'] }],
+        side_panel: { default_path: 'panel.html' },
+        // The PostHog app asks whether the extension is installed, and asks it to open an authorized URL. Only the cloud
+        // app hosts, because a sender also sets the extension's PostHog host.
+        externally_connectable: {
+            matches: ['https://us.posthog.com/*', 'https://eu.posthog.com/*', 'https://app.posthog.com/*'],
+        },
+        // 116 is the first release with `sidePanel.setPanelBehavior`, which opens the panel from the toolbar button.
+        minimum_chrome_version: '116',
+        background: { service_worker: 'background.js' },
+    }
+}
+
+export function finalizeToolbarExtensionBuild(dirname) {
+    const buildDir = path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR)
+    const extensionDir = path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_OUT_DIR)
+    const outDir = path.resolve(extensionDir, 'chrome')
+    fs.rmSync(extensionDir, { recursive: true, force: true })
+    fs.cpSync(buildDir, outDir, { recursive: true })
+    fs.copyFileSync(path.resolve(dirname, 'src/toolbar/extension/panel.html'), path.resolve(outDir, 'panel.html'))
+    for (const icon of Object.values(TOOLBAR_EXTENSION_ICONS)) {
+        fs.mkdirSync(path.dirname(path.resolve(outDir, icon)), { recursive: true })
+        fs.copyFileSync(path.resolve(dirname, 'public', icon), path.resolve(outDir, icon))
+    }
+    fs.writeFileSync(
+        path.resolve(outDir, 'manifest.json'),
+        JSON.stringify(buildToolbarExtensionManifest(), null, 4) + '\n'
+    )
+    fs.writeFileSync(
+        path.resolve(extensionDir, `posthog-toolbar-chrome-${TOOLBAR_EXTENSION_VERSION}.zip`),
+        zipSync(readDirectoryFiles(outDir))
+    )
+}
+
+function readDirectoryFiles(directory) {
+    const files = {}
+    for (const entry of fs.readdirSync(directory, { recursive: true, withFileTypes: true })) {
+        // Source maps stay in the unpacked folders for local debugging, but would triple the size of the zips.
+        if (entry.isFile() && !entry.name.endsWith('.map')) {
+            const filePath = path.join(entry.parentPath, entry.name)
+            files[path.relative(directory, filePath).split(path.sep).join('/')] = fs.readFileSync(filePath)
+        }
+    }
+    return files
 }

@@ -5,7 +5,6 @@ import {
   buildCreatePrReportPrompt,
   buildDiscussReportPrompt,
   canCreateImplementationPr,
-  canResolveReport,
 } from "./reportActions";
 
 describe("buildCreatePrReportPrompt", () => {
@@ -263,6 +262,28 @@ describe("buildDiscussReportPrompt", () => {
 });
 
 describe("canCreateImplementationPr", () => {
+  it("does not offer a pull request for a scout self-improvement report without a repository", () => {
+    const report = {
+      id: "r",
+      status: "pending_input",
+      is_self_improvement_report: true,
+      repo_slug: null,
+    } as Partial<SignalReport> as SignalReport;
+
+    expect(canCreateImplementationPr(report)).toBe(false);
+  });
+
+  it("offers a pull request for a scout self-improvement report with a repository", () => {
+    const report = {
+      id: "r",
+      status: "pending_input",
+      is_self_improvement_report: true,
+      repo_slug: "posthog/posthog",
+    } as Partial<SignalReport> as SignalReport;
+
+    expect(canCreateImplementationPr(report)).toBe(true);
+  });
+
   it("a merged PR no longer blocks a fresh attempt, but an open one does", () => {
     const base = {
       id: "r",
@@ -289,17 +310,5 @@ describe("canCreateImplementationPr", () => {
     expect(
       canCreateImplementationPr(report, { hasLiveImplementationTask: true }),
     ).toBe(false);
-  });
-});
-
-describe("canResolveReport", () => {
-  it.each([
-    [true, "ready"],
-    [true, "pending_input"],
-    [false, "in_progress"],
-    [false, "resolved"],
-    [false, "suppressed"],
-  ] as const)("returns %s for %s reports", (expected, status) => {
-    expect(canResolveReport({ status } as SignalReport)).toBe(expected);
   });
 });

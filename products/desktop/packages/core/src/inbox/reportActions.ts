@@ -17,6 +17,9 @@ export function canCreateImplementationPr(
     isTaskLookupPending?: boolean;
   } = {},
 ): boolean {
+  if (report.is_self_improvement_report && !report.repo_slug) {
+    return false;
+  }
   if (context.hasLiveImplementationTask || context.isTaskLookupPending) {
     return false;
   }
@@ -34,10 +37,6 @@ export function canCreateImplementationPr(
     );
   }
   return false;
-}
-
-export function canResolveReport(report: SignalReport): boolean {
-  return report.status === "ready" || report.status === "pending_input";
 }
 
 interface BuildCreatePrReportPromptOptions {

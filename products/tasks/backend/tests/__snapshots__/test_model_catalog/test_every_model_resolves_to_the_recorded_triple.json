@@ -175,6 +175,20 @@
           "supports_1m_context": true,
           "supports_fast_mode": false
         },
+        "claude-fable-5-2": {
+          "cost_multiplier": "4×",
+          "offered": true,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode"
+          ],
+          "supports_1m_context": true,
+          "supports_fast_mode": false
+        },
         "claude-opus-4-5": {
           "cost_multiplier": "2.5×",
           "offered": false,
@@ -460,6 +474,19 @@
         "gpt-6.1-sol": {
           "cost_multiplier": "1× base",
           "offered": true,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
+        },
+        "gpt-6.1-terra": {
+          "cost_multiplier": "0.5× base",
+          "offered": false,
           "reasoning_efforts": [
             "low",
             "medium",

@@ -4,6 +4,11 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io import api_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
     CIO_AUTO_WEBHOOK_NAME,
@@ -65,6 +70,26 @@ class TestValidateCredentials:
         assert success is False
         assert error is not None
         assert expected_substring.lower() in error.lower()
+
+    @parameterized.expand(
+        [
+            ("key_from_other_region", "us", CIO_EU_BASE_URL, "Set Region to EU"),
+            ("key_from_other_region_eu", "eu", CIO_US_BASE_URL, "Set Region to US"),
+            ("key_invalid_everywhere", "us", None, "Create a new key"),
+        ]
+    )
+    def test_rejected_key_names_the_region_it_belongs_to(self, _name, region, accepting_base_url, expected):
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if accepting_base_url and request.url.startswith(accepting_base_url):
+                return ScriptedResponse(status=200, json={"workspaces": []})
+            return ScriptedResponse(status=401, json={})
+
+        with scripted_network(respond):
+            success, error = api_client.validate_credentials("key", region)
+
+        assert success is False
+        assert error is not None
+        assert expected in error
 
 
 class TestCreateWebhook:

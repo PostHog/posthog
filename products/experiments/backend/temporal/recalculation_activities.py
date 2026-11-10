@@ -10,7 +10,10 @@ import asyncio
 import structlog
 import temporalio.activity
 
+from posthog.schema import PrecomputationMode
+
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.utils import on_asyncify_pool
 
 from products.experiments.backend.temporal.models import (
     MAX_METRIC_ATTEMPTS,
@@ -106,6 +109,8 @@ async def calculate_experiment_metric_for_recalculation(
     recalculation_id: str,
     query_to: str,
     role: str = "primary",
+    precomputation_mode: PrecomputationMode | None = None,
+    calculation_key_version: int = 1,
 ) -> MetricRecalculationResult:
     """Calculate one metric, write its recalc-fingerprinted result to ExperimentMetricResult, and fold the
     progress update (counter + error) into the same job atomically. query_to is the run's shared data-window end.
@@ -115,21 +120,35 @@ async def calculate_experiment_metric_for_recalculation(
     to resolve it. Defaults to "primary" so existing call sites and tests that don't pass it remain valid. The
     workflow passes these arguments by position, so recorded histories depend on their order, not their names.
 
+    precomputation_mode comes from discovery. The workflow passes it for a DIRECT calc on the activity queue, and
+    as None ahead of a calculation_key_version other than 1. None keeps the AUTO mode. A calc on the precompute queue also uses AUTO, because PRECOMPUTED is reserved
+    for staff tools.
+
     Finality is derived from activity.info().attempt against MAX_METRIC_ATTEMPTS, the same constant the
     workflow's RetryPolicy is built from, so both sides agree on which attempt is the last. On the final
     attempt a transient failure is persisted rather than re-raised silently, so the row reflects the real
     outcome once Temporal stops retrying. When Temporal ends the metric earlier (the schedule_to_close budget, or a
     kill from the outside), no attempt persists it and the workflow runs record_metric_out_of_time_failure.
     """
-    attempt = temporalio.activity.info().attempt
+    activity_info = temporalio.activity.info()
+    attempt = activity_info.attempt
     is_final_attempt = attempt >= MAX_METRIC_ATTEMPTS
     deadline = asyncio.get_running_loop().time() + METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS
     # The heartbeat runs on the event loop beside the body's thread. Temporal delivers a cancellation (a workflow
     # cancel, or a timeout the server enforces) only in a heartbeat response, so the drain below depends on it.
     async with Heartbeater(factor=_HEARTBEAT_FACTOR):
         task = asyncio.ensure_future(
-            _calculate_experiment_metric_for_recalculation_sync(
-                experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt
+            on_asyncify_pool(_calculate_experiment_metric_for_recalculation_sync)(
+                experiment_id,
+                metric_uuid,
+                recalculation_id,
+                query_to,
+                role,
+                is_final_attempt,
+                attempt,
+                precomputation_mode,
+                calculation_key_version,
+                activity_info.task_queue,
             )
         )
         try:

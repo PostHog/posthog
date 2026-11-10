@@ -394,15 +394,16 @@ class TestEmailChannelPermissions(BaseTest):
         mock_cache_delete.assert_called_once()
         assert EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
 
-    @patch("products.conversations.backend.api.email_settings.cache.add", side_effect=[True, False])
+    @patch("products.conversations.backend.api.email_settings.cache", wraps=cache)
     @patch("products.conversations.backend.api.email_settings.is_smtp_email_service_available", return_value=True)
     @patch("products.conversations.backend.api.email_settings.EmailMessage")
     def test_forwarding_challenge_resend_respects_channel_cooldown(
         self,
         mock_email_message: MagicMock,
         _mock_smtp_available: MagicMock,
-        _mock_cache_add: MagicMock,
+        mock_cache: MagicMock,
     ) -> None:
+        mock_cache.add.side_effect = [True, False]
         channel = EmailChannel.objects.create(
             team=self.team,
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
@@ -433,19 +434,19 @@ class TestEmailChannelPermissions(BaseTest):
 
         assert first_response.status_code == 200
         assert second_response.status_code == 429
-        assert [cache_call.kwargs["timeout"] for cache_call in _mock_cache_add.call_args_list] == [30, 60]
+        assert [cache_call.kwargs["timeout"] for cache_call in mock_cache.add.call_args_list] == [30, 60]
         assert mock_email_message.call_count == 1
 
-    @patch("products.conversations.backend.api.email_settings.cache.get")
+    @patch("products.conversations.backend.api.email_settings.cache", wraps=cache)
     @patch("products.conversations.backend.api.email_settings.is_smtp_email_service_available", return_value=True)
     @patch("products.conversations.backend.api.email_settings.EmailMessage")
     def test_forwarding_challenge_stops_after_the_address_reaches_its_attempt_limit(
         self,
         mock_email_message: MagicMock,
         _mock_smtp_available: MagicMock,
-        mock_cache_get: MagicMock,
+        mock_cache: MagicMock,
     ) -> None:
-        mock_cache_get.side_effect = lambda key, default=None: 8 if key.endswith(":attempts") else default
+        mock_cache.get.side_effect = lambda key, default=None: 8 if key.endswith(":attempts") else default
         channel = EmailChannel.objects.create(
             team=self.team,
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
@@ -2000,7 +2001,7 @@ class TestSendEmailReplyMultiConfig(BaseTest):
         assert b"From: " in mime_bytes
         assert b"support@example.com" in mime_bytes
 
-        # Guard against someone dropping linesep="\r\n" from the as_bytes() call.
+        # Guard against someone dropping linesep="\r\n" from mime_bytes_with_crlf().
         # RFC 5322 wants CRLF; Django's default is LF-only.
         assert b"\r\n" in mime_bytes
 

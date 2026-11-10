@@ -33,6 +33,7 @@ from products.managed_warehouse.backend.trino_compiler import (
     TrinoTargetUnavailable,
     compile_hogql_to_trino_sql,
     get_ready_trino_catalog_name,
+    get_trino_target_readiness,
     prepare_hogql_to_trino_compiler,
 )
 from products.warehouse_sources.backend.facade.models import (
@@ -99,6 +100,7 @@ class TestReadyTrinoCatalogName:
         "body, status_code, expected_log",
         [
             ({"error": "example upstream failure"}, 503, {"reason": "http_error", "log_level": "warning"}),
+            ({"error": "example missing target"}, 404, {"reason": "http_error", "log_level": "warning"}),
             ([], 200, {"reason": "invalid_response", "response_type": "list", "log_level": "warning"}),
             (
                 {"enabled": False},
@@ -195,7 +197,9 @@ class TestReadyTrinoCatalogName:
             ),
             capture_logs() as logs,
         ):
-            assert get_ready_trino_catalog_name("org-1") is None
+            readiness = get_trino_target_readiness("org-1")
+        assert readiness.catalog_name is None
+        assert readiness.lookup_failed is (status_code >= 500)
         assert logs == [
             {
                 "event": "trino_target_not_ready",
@@ -271,6 +275,44 @@ class TestCompileHogQLToTrinoSQL:
         assert 'AS "max_order_id"' in compiled.sql
         assert access_key not in compiled.sql
         assert access_secret not in compiled.sql
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "query, needs_probe",
+        [
+            ("SELECT 1 AS id, 'x' AS name", False),
+            ("SELECT [1, 2] AS ids, 'x' AS name", False),
+            ("SELECT tuple(1, 'x') AS tag", True),
+            ("SELECT 1 AS id, [tuple(1, 'x')] AS tags", True),
+            ("SELECT map('a', tuple(1)) AS pairs", True),
+        ],
+    )
+    def test_flags_output_columns_that_may_hold_anonymous_rows(self, query: str, needs_probe: bool) -> None:
+        organization = Organization.objects.create(name="trino-row-type-probe")
+        team = Team.objects.create(organization=organization)
+        membership = _membership(team_id=team.pk, organization_id=str(organization.pk))
+
+        with (
+            mock.patch("products.managed_warehouse.backend.cp_teams.list_org_teams", return_value=[]),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value="org_catalog",
+            ),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+                return_value=membership,
+            ),
+        ):
+            compiled = compile_hogql_to_trino_sql(
+                team.pk,
+                HogQLQuery(query=query),
+                team=team,
+                expansion_mode=TrinoExpansionMode.DJANGO,
+                bypass_warehouse_access_control=True,
+                preserve_clickhouse_output_names=True,
+            )
+
+        assert compiled.needs_row_type_probe is needs_probe
 
     @pytest.mark.parametrize(
         "limit_clause, trino_limit_clause",

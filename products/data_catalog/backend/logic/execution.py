@@ -20,7 +20,7 @@ from django.utils import timezone
 from pydantic import BaseModel
 from rest_framework.exceptions import Throttled, ValidationError
 
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import DEFAULT_DATA_CATALOG_RETURNED_ROWS, LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS
@@ -54,6 +54,15 @@ _LAST_RUN_THROTTLE = timedelta(minutes=30)
 # Same wording as /query/'s concurrency response, so agents see one message for one condition.
 _CONCURRENCY_LIMIT_MESSAGE = "Too many queries are running right now — please try again in a moment."
 
+MAX_METRIC_RUN_PAGES = 10
+_LAST_PAGE_OFFSET = (MAX_METRIC_RUN_PAGES - 1) * DEFAULT_DATA_CATALOG_RETURNED_ROWS
+_PAGE_LIMIT_MESSAGE = (
+    f"A metric run returns at most {MAX_METRIC_RUN_PAGES} pages "
+    f"({MAX_METRIC_RUN_PAGES * DEFAULT_DATA_CATALOG_RETURNED_ROWS} rows), because each page runs the whole query "
+    "again. The rows after that are not available through a metric run, so this result is partial. Tell the user "
+    "which rows the result covers, and suggest a metric that aggregates further or covers a narrower window."
+)
+
 
 def run_metric(
     *,
@@ -64,6 +73,7 @@ def run_metric(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     interval: Optional[str] = None,
+    offset: Optional[int] = None,
     query_id: Optional[str] = None,
     request: "Request | None" = None,
 ) -> dict:
@@ -87,7 +97,9 @@ def run_metric(
             return _markdown_envelope(metric, is_drifted)
 
         try:
-            query = prepare_execution_query(metric.definition, date_from=date_from, date_to=date_to, interval=interval)
+            query = prepare_execution_query(
+                metric.definition, date_from=date_from, date_to=date_to, interval=interval, offset=offset
+            )
         except ValidationError:
             run.record("rejected")
             raise
@@ -164,6 +176,7 @@ def prepare_execution_query(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     interval: Optional[str] = None,
+    offset: Optional[int] = None,
 ) -> dict:
     """The exact query handed to the engine: the stored definition, node kinds wrapped runnable,
     date/interval overrides applied."""
@@ -172,7 +185,20 @@ def prepare_execution_query(
         # A bare series node has no query runner of its own; run it as a single-series trends query.
         query = {"kind": "TrendsQuery", "series": [query]}
     _apply_date_params(query, date_from, date_to, interval)
+    _apply_offset(query, offset)
     return query
+
+
+def _apply_offset(query: dict, offset: Optional[int]) -> None:
+    if not offset:
+        return
+    if query.get("kind") != HOGQL_DEFINITION_KIND:
+        raise ValidationError(
+            {"offset": "Only HogQLQuery metrics return rows in pages. Narrow the window or the interval instead."}
+        )
+    if offset > _LAST_PAGE_OFFSET:
+        raise ValidationError({"offset": _PAGE_LIMIT_MESSAGE})
+    query["offset"] = offset
 
 
 def _apply_date_params(query: dict, date_from: Optional[str], date_to: Optional[str], interval: Optional[str]) -> None:
@@ -199,6 +225,9 @@ def _apply_date_params(query: dict, date_from: Optional[str], date_to: Optional[
 
 def _envelope(metric: Metric, payload: dict, team: Team, prepared_query: dict, is_drifted: bool) -> dict:
     row_limit = payload.get("limit")
+    has_more = row_limit is not None and bool(payload.get("hasMore"))
+    next_offset = (payload.get("offset") or 0) + row_limit if row_limit is not None and has_more else None
+    page_limit_reached = next_offset is not None and next_offset > _LAST_PAGE_OFFSET
     return {
         "status": metric.status,
         "is_drifted": is_drifted,
@@ -208,8 +237,10 @@ def _envelope(metric: Metric, payload: dict, team: Team, prepared_query: dict, i
         "columns": payload.get("columns"),
         "compiled_query": payload.get("hogql"),
         "query_status": payload.get("query_status"),
-        "has_more": row_limit is not None and bool(payload.get("hasMore")),
+        "has_more": has_more,
         "row_limit": row_limit,
+        "next_offset": None if page_limit_reached else next_offset,
+        "paging_stopped_reason": _PAGE_LIMIT_MESSAGE if page_limit_reached else None,
         "posthog_url": _deep_link(team, prepared_query),
         "instructions": None,
     }
@@ -227,6 +258,8 @@ def _markdown_envelope(metric: Metric, is_drifted: bool) -> dict:
         "query_status": None,
         "has_more": False,
         "row_limit": None,
+        "next_offset": None,
+        "paging_stopped_reason": None,
         "posthog_url": None,
         "instructions": (metric.definition or {}).get("markdown"),
     }

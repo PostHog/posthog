@@ -21,7 +21,7 @@ from posthog.taxonomy.property_access import restricted_property_names
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade import api as actions_facade
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.event_property import EventProperty
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, effective_project_id_expr
@@ -320,26 +320,23 @@ class ConversionRecommendationService:
         self.require_generation_access()
         goals = self.configured_goals()
         configured = {goal.source_ref for goal in goals}
-        alias = definition_read_db_alias(Action)
+        alias = actions_facade.action_read_db_alias()
         with statement_timeout(alias, CATALOG_QUERY_TIMEOUT_MS, DefinitionListTimedOut, CATALOG_QUERY_TIMEOUTS):
-            actions = list(
-                UserAccessControl(self.user, team=self.team)
-                .filter_queryset_by_access_level(
-                    Action.objects.using(alias).filter(team_id=self.team.pk, deleted=False), resource="action"
-                )
-                .annotate(short_description=Substr("description", 1, 200))
-                .order_by("-updated_at", "-pk")
-                .values_list("pk", "name", "short_description")[:MAX_CATALOG_ACTIONS]
+            actions = actions_facade.list_action_catalog(
+                team_id=self.team.pk,
+                access_control=UserAccessControl(self.user, team=self.team),
+                limit=MAX_CATALOG_ACTIONS,
+                using=alias,
             )
         sources = [
             ConversionCandidate(
-                source_ref=f"action:{pk}",
+                source_ref=f"action:{action.id}",
                 kind="ActionsNode",
-                action_id=pk,
-                name=name or f"Action {pk}",
-                description=description or "",
+                action_id=action.id,
+                name=action.name or f"Action {action.id}",
+                description=action.short_description or "",
             )
-            for pk, name, description in actions
+            for action in actions
         ] + self.event_catalog(run)
         candidates: dict[str, ConversionCandidate] = {}
         catalog: list[dict[str, str]] = []
@@ -382,12 +379,8 @@ class ConversionRecommendationService:
         action_ids = [
             int(goal["id"]) for goal in goals if goal.get("kind") == "ActionsNode" and str(goal.get("id", "")).isdigit()
         ]
-        accessible_action_ids = set(
-            UserAccessControl(self.user, team=self.team)
-            .filter_queryset_by_access_level(
-                Action.objects.filter(team_id=self.team.pk, pk__in=action_ids, deleted=False), resource="action"
-            )
-            .values_list("pk", flat=True)
+        accessible_action_ids = actions_facade.accessible_action_ids(
+            team_id=self.team.pk, action_ids=action_ids, access_control=UserAccessControl(self.user, team=self.team)
         )
         summaries: list[ConfiguredConversionGoal] = []
         for goal in goals:
@@ -566,14 +559,12 @@ class ConversionRecommendationService:
             return ConversionRecommendationResults()
         result = ConversionRecommendationResults.model_validate(run.results)
         action_ids = [
-            item.candidate.action_id for item in result.recommendations if item.candidate.kind == "ActionsNode"
+            item.candidate.action_id
+            for item in result.recommendations
+            if item.candidate.kind == "ActionsNode" and item.candidate.action_id is not None
         ]
-        allowed = set(
-            UserAccessControl(self.user, team=self.team)
-            .filter_queryset_by_access_level(
-                Action.objects.filter(team_id=self.team.pk, deleted=False, pk__in=action_ids), resource="action"
-            )
-            .values_list("id", flat=True)
+        allowed = actions_facade.accessible_action_ids(
+            team_id=self.team.pk, action_ids=action_ids, access_control=UserAccessControl(self.user, team=self.team)
         )
         return result.model_copy(
             update={

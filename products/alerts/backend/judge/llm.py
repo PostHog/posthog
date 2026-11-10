@@ -13,21 +13,22 @@ import json
 import uuid
 import hashlib
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.core.cache import cache
 
 import numpy as np
+import anthropic
 import structlog
-import posthoganalytics
 
+from posthog.llm.gateway_client import build_ai_gateway_anthropic_client
 from posthog.tasks.alerts.detector import LLM_DETECTOR_MIN_POINTS, llm_detector_lookback
 
 from products.alerts.backend.judge.contract import (
     MAX_CONCURRENT_MODEL_CALLS,
     MAX_PROMPT_POINTS,
     JudgeAttribution,
-    LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
     SeriesContext,
     SeriesJudgment,
@@ -40,6 +41,9 @@ from products.alerts.backend.judge.prompt import (
 )
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 from products.alerts.backend.llm_detector_limits import llm_detector_access_error
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -58,6 +62,17 @@ LLM_DETECTOR_MODEL = "claude-haiku-5-5"
 # Own product key in LLM analytics, so this judge's spend is separable from the
 # investigation agent's.
 LLM_DETECTOR_AI_PRODUCT = "alert_llm_detector"
+
+LLM_DETECTOR_PAUSED_SUFFIX = (
+    "This alert is still on and starts checking again once that changes. To keep it running now, "
+    "switch it to a statistical detector."
+)
+
+LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE = (
+    "This alert can't be checked because your organization has used all its AI credits. Add credits in "
+    "billing settings, or switch the alert to a statistical detector. The alert is still on and starts "
+    "checking again once credits are available."
+)
 
 # The verdict schema is a handful of fields; this only needs to cover that.
 MAX_OUTPUT_TOKENS = 1024
@@ -116,6 +131,29 @@ def _verdict_memo_key(
         ).encode()
     )
     return f"alerts:llm_detector:verdict:{fingerprint.hexdigest()}"
+
+
+def _is_over_ai_credit_budget(team: "Team") -> bool:
+    from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the billing query stack off the facade import path
+        is_team_over_ai_credit_budget,
+    )
+
+    try:
+        return is_team_over_ai_credit_budget(team.api_token)
+    except Exception:
+        # A Redis outage must not error every AI alert of a team that has credits, so this fails open.
+        logger.warning("alerts.llm_detector.ai_credit_check_failed", team_id=team.pk, exc_info=True)
+        return False
+
+
+def _is_gateway_credit_refusal(error: Exception) -> bool:
+    # The gateway marks its own credit refusals with X-PostHog-Denial. A 402 without that header is the
+    # provider blocking the gateway's workspace, which more credits for the organization cannot fix.
+    return (
+        isinstance(error, anthropic.APIStatusError)
+        and error.status_code == 402
+        and bool(error.response.headers.get("X-PostHog-Denial"))
+    )
 
 
 def _memoized_verdict(memo_key: str | None) -> LLMDetectionVerdict | None:
@@ -183,10 +221,10 @@ class LLMSeriesJudge:
             distinct_id=str(attribution.user.distinct_id), organization=attribution.team.organization
         )
         if access_error:
-            raise LLMDetectorMisconfiguredError(
-                f"{access_error} This alert cannot be checked until that changes. Switch it to a statistical "
-                "detector to keep it running."
-            )
+            raise LLMDetectorPausedError(f"{access_error} {LLM_DETECTOR_PAUSED_SUFFIX}")
+        # A call that is not billable charges no credits, so only a billable call needs them.
+        if attribution.is_agent_billable and _is_over_ai_credit_budget(attribution.team):
+            raise LLMDetectorPausedError(LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE)
 
         memo_key = _verdict_memo_key(series, attribution, data=data, window=window)
         memoized = _memoized_verdict(memo_key)
@@ -194,76 +232,64 @@ class LLMSeriesJudge:
             logger.info("alerts.llm_detector.verdict_reused", is_anomaly=memoized.is_anomaly)
             return memoized
 
-        # Deferred so importing the evaluation package does not pull langchain into every
-        # process that touches an alert.
-        from langchain_core.callbacks import BaseCallbackHandler  # noqa: PLC0415
-        from langchain_core.messages import HumanMessage, SystemMessage  # noqa: PLC0415
-        from langchain_core.runnables import RunnableConfig  # noqa: PLC0415
-        from posthoganalytics.ai.langchain.callbacks import CallbackHandler  # noqa: PLC0415
-
-        from ee.hogai.llm import MaxChatAnthropic  # noqa: PLC0415
         from ee.hogai.utils.exceptions import LLM_API_EXCEPTIONS  # noqa: PLC0415
         from ee.hogai.utils.feature_flags import is_privacy_mode_enabled  # noqa: PLC0415
 
         instructions_present = bool(series.instructions)
-        # No temperature: Haiku 5.5 rejects non-default sampling params with a 400. Disabled
-        # thinking is accepted only at effort "high" or below, so do not raise the effort past it.
-        model = MaxChatAnthropic(
-            model=LLM_DETECTOR_MODEL,
-            team=attribution.team,
-            user=attribution.user,
-            billable=True,
-            # The series, its definition, and the author's notes are the whole context; the
-            # project/org preamble would only dilute a single-judgment prompt.
-            inject_context=False,
-            streaming=False,
-            disable_streaming=True,
-            stream_usage=False,
-            # One in-request retry absorbs a transient blip inside the check's own budget;
-            # the Temporal evaluate retry is the outer net.
-            max_retries=1,
-            max_tokens=MAX_OUTPUT_TOKENS,
-            thinking={"type": "disabled"},
-            default_request_timeout=REQUEST_TIMEOUT_SECONDS,
-            posthog_properties={"ai_product": LLM_DETECTOR_AI_PRODUCT},
-        ).with_structured_output(LLMDetectionVerdict, include_raw=False)
-
-        messages = [
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=build_human_message(data=data, context=series, window=window)),
-        ]
-
-        callbacks: list[BaseCallbackHandler] = []
-        if posthoganalytics.default_client is not None:
-            callbacks.append(
-                CallbackHandler(
-                    posthoganalytics.default_client,
-                    distinct_id=str(attribution.team.id),
-                    trace_id=f"alert-llm-detector-{uuid.uuid4()}",
-                    properties={"ai_product": LLM_DETECTOR_AI_PRODUCT, "team_id": attribution.team.id},
-                    privacy_mode=is_privacy_mode_enabled(attribution.team),
-                )
-            )
-
-        if not _model_call_slots.acquire(timeout=MODEL_CALL_SLOT_WAIT_SECONDS):
-            raise LLMDetectorUnavailableError(
-                f"The AI detector is already running {MAX_CONCURRENT_MODEL_CALLS} model calls on this worker."
-            )
         try:
-            verdict = model.invoke(
-                messages,
-                config=RunnableConfig(
-                    callbacks=callbacks, configurable={"is_agent_billable": attribution.is_agent_billable}
-                ),
+            client = build_ai_gateway_anthropic_client(
+                ai_product=LLM_DETECTOR_AI_PRODUCT,
+                trace_id=f"alert-llm-detector-{uuid.uuid4()}",
+                team_id=attribution.team.id,
             )
-        except LLM_API_EXCEPTIONS as error:
-            # Provider credentials, permissions, and model availability are shared across
-            # alerts. Disabling an individual alert cannot fix a provider failure.
+        except ValueError as error:
             raise LLMDetectorUnavailableError(f"The AI detector could not reach the model: {error}") from error
-        except Exception as error:
-            raise LLMDetectorUnavailableError(f"The AI detector could not read the model response: {error}") from error
-        finally:
-            _model_call_slots.release()
+
+        extra_headers: dict[str, str] = {}
+        if not attribution.is_agent_billable:
+            extra_headers["X-PostHog-Billable"] = "false"
+        if is_privacy_mode_enabled(attribution.team):
+            extra_headers["X-PostHog-Privacy-Mode"] = "true"
+
+        with client:
+            if not _model_call_slots.acquire(timeout=MODEL_CALL_SLOT_WAIT_SECONDS):
+                raise LLMDetectorUnavailableError(
+                    f"The AI detector is already running {MAX_CONCURRENT_MODEL_CALLS} model calls on this worker."
+                )
+            try:
+                # One in-request retry absorbs a transient blip inside the check's own budget;
+                # the Temporal evaluate retry is the outer net.
+                response = client.with_options(max_retries=1, timeout=REQUEST_TIMEOUT_SECONDS).messages.parse(
+                    model=LLM_DETECTOR_MODEL,
+                    max_tokens=MAX_OUTPUT_TOKENS,
+                    # No temperature: Haiku 5.5 rejects non-default sampling params with a 400. Disabled
+                    # thinking is accepted only at effort "high" or below, so do not raise the effort past it.
+                    thinking={"type": "disabled"},
+                    system=SYSTEM_PROMPT,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": build_human_message(data=data, context=series, window=window),  # type: ignore[typeddict-item]
+                        }
+                    ],
+                    output_format=LLMDetectionVerdict,
+                    extra_headers=extra_headers,
+                )
+                verdict = response.parsed_output
+            except LLM_API_EXCEPTIONS as error:
+                # The in-app budget check above fails open and can read a stale budget, so the gateway's
+                # refusal is the backstop and pauses the check the same way.
+                if _is_gateway_credit_refusal(error):
+                    raise LLMDetectorPausedError(LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE) from error
+                # Provider credentials, permissions, and model availability are shared across
+                # alerts. Disabling an individual alert cannot fix a provider failure.
+                raise LLMDetectorUnavailableError(f"The AI detector could not reach the model: {error}") from error
+            except Exception as error:
+                raise LLMDetectorUnavailableError(
+                    f"The AI detector could not read the model response: {error}"
+                ) from error
+            finally:
+                _model_call_slots.release()
 
         if not isinstance(verdict, LLMDetectionVerdict):
             raise LLMDetectorUnavailableError(

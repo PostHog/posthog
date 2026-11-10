@@ -11,7 +11,7 @@ import { ChartDisplayType } from '~/types'
 import { dataNodeLogic } from '../../DataNode/dataNodeLogic'
 import { DataVisualizationLogicProps, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { SeriesTab, YSeriesDisplayTab, YSeriesFormattingTab } from './SeriesTab'
-import { YSeriesLogicProps } from './ySeriesLogic'
+import { YSeriesLogicProps, ySeriesLogic } from './ySeriesLogic'
 
 const renderPartOfWholeSeriesTab = (
     display: ChartDisplayType,
@@ -147,7 +147,10 @@ describe('SeriesTab', () => {
         expect(await screen.findByText('Display')).toBeInTheDocument()
     })
 
-    it('persists table column formatting changes immediately', async () => {
+    it.each([
+        { setting: 'formatting', field: 'decimalPlaces', value: 2 },
+        { setting: 'display', field: 'description', value: 'Value in USD' },
+    ])('persists table column $field changes immediately', async ({ setting, field, value }) => {
         initKeaTests()
 
         const setQuery = jest.fn()
@@ -212,14 +215,21 @@ describe('SeriesTab', () => {
 
         render(
             <BindLogic logic={dataVisualizationLogic} props={props}>
-                <YSeriesFormattingTab ySeriesLogicProps={ySeriesLogicProps} />
+                {setting === 'formatting' ? (
+                    <YSeriesFormattingTab ySeriesLogicProps={ySeriesLogicProps} />
+                ) : (
+                    <YSeriesDisplayTab ySeriesLogicProps={ySeriesLogicProps} />
+                )}
             </BindLogic>
         )
 
         const user = userEvent.setup()
-        const decimalPlacesInput = await screen.findByRole('spinbutton')
-        await user.clear(decimalPlacesInput)
-        await user.type(decimalPlacesInput, '2')
+        const input =
+            setting === 'formatting'
+                ? await screen.findByRole('spinbutton')
+                : await screen.findByLabelText('Description')
+        await user.clear(input)
+        await user.type(input, String(value))
 
         await waitFor(() =>
             expect(setQuery).toHaveBeenLastCalledWith(
@@ -229,9 +239,7 @@ describe('SeriesTab', () => {
                             expect.objectContaining({
                                 column: 'value',
                                 settings: expect.objectContaining({
-                                    formatting: expect.objectContaining({
-                                        decimalPlaces: 2,
-                                    }),
+                                    [setting]: expect.objectContaining({ [field]: value }),
                                 }),
                             }),
                         ]),
@@ -239,6 +247,26 @@ describe('SeriesTab', () => {
                 })
             )
         )
+
+        if (setting === 'display') {
+            await user.clear(input)
+            await waitFor(() =>
+                expect(setQuery).toHaveBeenLastCalledWith(
+                    expect.objectContaining({
+                        tableSettings: expect.objectContaining({
+                            columns: expect.arrayContaining([
+                                expect.objectContaining({
+                                    column: 'value',
+                                    settings: expect.objectContaining({
+                                        display: expect.objectContaining({ description: '' }),
+                                    }),
+                                }),
+                            ]),
+                        }),
+                    })
+                )
+            )
+        }
     })
 
     it('persists area as a y-axis display type', async () => {
@@ -329,5 +357,12 @@ describe('SeriesTab', () => {
                 })
             )
         )
+
+        setQuery.mockClear()
+        ySeriesLogic(ySeriesLogicProps).actions.submitDisplay()
+        await waitFor(() => expect(setQuery).toHaveBeenCalled())
+        const savedDisplay = setQuery.mock.lastCall[0].chartSettings.yAxis[0].settings.display
+        expect(savedDisplay).not.toHaveProperty('excludeFromTotal')
+        expect(savedDisplay).not.toHaveProperty('valueLabels')
     })
 })

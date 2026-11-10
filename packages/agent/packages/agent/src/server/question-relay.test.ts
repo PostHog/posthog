@@ -485,6 +485,9 @@ describe("Question relay", () => {
 
         expect(result.outcome.outcome).toBe("cancelled");
         expect(result._meta?.message).toContain("stop before publishing");
+        expect(result._meta?.message).toContain(
+          "Publishing is disabled for this run, even if the user invokes a skill.",
+        );
       });
     });
   });

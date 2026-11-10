@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use etcd_client::{EventType, WatchStream};
 use metrics::{counter, histogram};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -111,6 +112,118 @@ pub(crate) fn record_run_failure(
         consecutive,
         "coordination run failed; retrying while the data plane keeps serving"
     );
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum HeldKey<'a> {
+    Leader,
+    Router(&'a str),
+}
+
+impl HeldKey<'_> {
+    fn label(self) -> &'static str {
+        match self {
+            HeldKey::Leader => "leader",
+            HeldKey::Router(_) => "router",
+        }
+    }
+
+    /// (exists, the lease the value records if it records one, read revision)
+    async fn read(self, store: &PersonhogStore) -> Result<(bool, Option<i64>, i64)> {
+        match self {
+            HeldKey::Leader => {
+                let (leader, revision) = store.get_leader_with_revision().await?;
+                Ok((
+                    leader.is_some(),
+                    leader.map(|leader| leader.lease_id),
+                    revision,
+                ))
+            }
+            HeldKey::Router(name) => {
+                let (router, revision) = store.get_router_with_revision(name).await?;
+                Ok((router.is_some(), None, revision))
+            }
+        }
+    }
+
+    async fn watch_from(self, store: &PersonhogStore, start_revision: i64) -> Result<WatchStream> {
+        match self {
+            HeldKey::Leader => store.watch_leader_from(start_revision).await,
+            HeldKey::Router(name) => store.watch_router_from(name, start_revision).await,
+        }
+    }
+}
+
+/// Resolve once `key` is deleted or rewritten under a lease other than
+/// `lease_id`; `None` on cancellation. One watch stays open; a failed call or
+/// an ended watch re-reads after `retry_interval`.
+pub(crate) async fn await_held_key_lost(
+    store: &PersonhogStore,
+    key: HeldKey<'_>,
+    lease_id: i64,
+    retry_interval: Duration,
+    cancel: &CancellationToken,
+) -> Option<&'static str> {
+    let lost = |how: &'static str| {
+        counter!(
+            "personhog_coordination_held_key_lost_total",
+            "key" => key.label(),
+            "how" => how
+        )
+        .increment(1);
+        Some(how)
+    };
+    loop {
+        let earliest_retry = tokio::time::Instant::now() + retry_interval;
+        let read = tokio::select! {
+            _ = cancel.cancelled() => return None,
+            read = key.read(store) => read,
+        };
+        let revision = match read {
+            Ok((false, _, _)) => return lost("deleted"),
+            Ok((true, Some(holder), _)) if holder != lease_id => return lost("replaced"),
+            Ok((true, _, revision)) => Some(revision),
+            Err(e) => {
+                tracing::warn!(key = key.label(), error = %e, "held key read failed; retrying");
+                None
+            }
+        };
+        let stream = match revision {
+            Some(revision) => tokio::select! {
+                _ = cancel.cancelled() => return None,
+                stream = key.watch_from(store, revision + 1) => stream.map_err(|e| {
+                    tracing::warn!(key = key.label(), error = %e, "held key watch failed; retrying");
+                }).ok(),
+            },
+            None => None,
+        };
+        if let Some(mut stream) = stream {
+            loop {
+                let message = tokio::select! {
+                    _ = cancel.cancelled() => return None,
+                    message = stream.message() => message,
+                };
+                let Ok(Some(response)) = message else { break };
+                if response.canceled() {
+                    break;
+                }
+                for event in response.events() {
+                    match event.event_type() {
+                        EventType::Delete => return lost("deleted"),
+                        EventType::Put => {
+                            if event.kv().is_some_and(|kv| kv.lease() != lease_id) {
+                                return lost("replaced");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        tokio::select! {
+            _ = cancel.cancelled() => return None,
+            _ = tokio::time::sleep_until(earliest_retry) => {}
+        }
+    }
 }
 
 /// Maintain a lease keepalive until cancelled, treating connection
@@ -426,6 +539,14 @@ pub fn preregister_coordinator_metrics() {
     metrics::counter!("personhog_coordination_elections_won_total").increment(0);
     metrics::counter!("personhog_coordination_election_campaigns_total").increment(0);
     metrics::counter!("personhog_coordination_abdications_total").increment(0);
+    for how in ["deleted", "replaced"] {
+        metrics::counter!(
+            "personhog_coordination_held_key_lost_total",
+            "key" => "leader",
+            "how" => how
+        )
+        .increment(0);
+    }
     metrics::counter!("personhog_coordination_election_observation_failures_total").increment(0);
     metrics::counter!("personhog_coordination_election_watch_interruptions_total").increment(0);
     for stage in ["list", "delete"] {
@@ -564,6 +685,14 @@ pub fn preregister_router_coordination_metrics() {
         .increment(0);
     }
     metrics::counter!("personhog_coordination_freeze_acks_written_total").increment(0);
+    for how in ["deleted", "replaced"] {
+        metrics::counter!(
+            "personhog_coordination_held_key_lost_total",
+            "key" => "router",
+            "how" => how
+        )
+        .increment(0);
+    }
 }
 
 #[cfg(test)]

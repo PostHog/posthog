@@ -11,6 +11,7 @@ from django.conf import settings
 import httpx
 import openai
 import posthoganalytics
+from openai import omit
 from openai.types import CompletionUsage, ReasoningEffort
 from openai.types.chat import ChatCompletionDeveloperMessageParam, ChatCompletionSystemMessageParam
 from posthoganalytics.ai.openai import (
@@ -19,6 +20,7 @@ from posthoganalytics.ai.openai import (
 )
 from pydantic import BaseModel, ValidationError
 
+from products.ai_observability.backend.llm.attachments import AttachmentPart, convert_attachment_parts
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContentFilteredError,
@@ -29,7 +31,7 @@ from products.ai_observability.backend.llm.errors import (
     OutputTokenLimitError,
     ProviderConnectionError,
     QuotaExceededError,
-    RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
     is_output_limit_error_message,
@@ -39,6 +41,7 @@ from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
     CompletionResponse,
+    ReasoningLevel,
     StreamChunk,
     Usage,
 )
@@ -108,6 +111,17 @@ class OpenAIConfig:
         "o3",
         "o3-mini",
     ]
+
+    @staticmethod
+    def supports_reasoning_level(model: str) -> bool:
+        return model.startswith(("gpt-5", "o3", "o4")) and "chat" not in model
+
+    @staticmethod
+    def reasoning_effort(model: str, level: ReasoningLevel) -> ReasoningEffort:
+        # Only the original GPT-5 models accept "minimal". Later models and the o-series reject it.
+        if level == "minimal" and not (model == "gpt-5" or model.startswith("gpt-5-")):
+            return "low"
+        return level
 
 
 class OpenAIAdapter:
@@ -183,6 +197,11 @@ class OpenAIAdapter:
                         model=request.model,
                         messages=messages,
                         response_format=request.response_format,
+                        reasoning_effort=(
+                            OpenAIConfig.reasoning_effort(request.model, request.reasoning_level)
+                            if request.reasoning_level and OpenAIConfig.supports_reasoning_level(request.model)
+                            else omit
+                        ),
                         **(self._build_analytics_kwargs(analytics, client)),
                     )
                     parsed = response.choices[0].message.parsed
@@ -253,7 +272,7 @@ class OpenAIAdapter:
             error_code = error_body.get("code", "") or error_body.get("error", {}).get("code", "")
             if error_code == "insufficient_quota":
                 return QuotaExceededError(str(error))
-            return RateLimitError(str(error))
+            return RetryableRateLimitError(str(error), error.response.headers.get("Retry-After"))
         if isinstance(error, openai.APIConnectionError):
             # Transient transport failure (connection reset, read timeout). Map to a quiet
             # retryable error so the caller retries silently instead of spamming error tracking.
@@ -292,7 +311,7 @@ You must respond with valid JSON that matches this schema:
 Return ONLY the JSON object, no other text or markdown formatting."""
 
         enhanced_messages = [{"role": "system", "content": enhanced_system}]
-        enhanced_messages.extend(request.messages)
+        enhanced_messages.extend(convert_attachment_parts(request.messages, self._attachment_block))
 
         create_response = client.chat.completions.create(
             model=request.model,
@@ -380,7 +399,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
             if supports_reasoning:
                 selected_effort: ReasoningEffort | None = None
                 if request.reasoning_level in ("minimal", "low", "medium", "high"):
-                    selected_effort = request.reasoning_level  # type: ignore[assignment]
+                    selected_effort = request.reasoning_level
                 elif reasoning_on:
                     selected_effort = OpenAIConfig.REASONING_EFFORT
                 stream = client.chat.completions.create(
@@ -497,11 +516,14 @@ Return ONLY the JSON object, no other text or markdown formatting."""
     def _get_default_headers(self) -> dict[str, str]:
         return {}
 
+    def _attachment_block(self, part: AttachmentPart) -> dict[str, Any]:
+        return _openai_attachment_block(part)
+
     def _build_messages(self, request: CompletionRequest) -> list[dict]:
         messages = []
         if request.system:
             messages.append({"role": "system", "content": request.system})
-        messages.extend(request.messages)
+        messages.extend(convert_attachment_parts(request.messages, self._attachment_block))
         return messages
 
     def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:
@@ -552,3 +574,12 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         result = handler.convert_to(ToolFormat.OPENAI)
         assert result is not None, "tools must be non-empty when calling _convert_tools"
         return result
+
+
+def _openai_attachment_block(part: AttachmentPart) -> dict[str, Any]:
+    if part.audio_format is not None:
+        return {"type": "input_audio", "input_audio": {"data": part.base64(), "format": part.audio_format}}
+    if part.is_pdf:
+        # The chat API takes a PDF only as inline data, and requires a file name with it.
+        return {"type": "file", "file": {"filename": "attachment.pdf", "file_data": part.data_uri()}}
+    return {"type": "image_url", "image_url": {"url": part.url or part.data_uri()}}

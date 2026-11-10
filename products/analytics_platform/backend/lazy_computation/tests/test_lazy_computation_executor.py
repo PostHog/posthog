@@ -21,9 +21,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
-from posthog.models.event.new_events_schema import new_events_schema_for_request
+from posthog.models.event.new_events_schema import events_read_settings, new_events_schema_for_request
 from posthog.models.instance_setting import override_instance_config
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.settings import CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
     job_channel,
@@ -43,6 +43,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationQuery,
     LazyComputationResult,
     LazyComputationTable,
+    ServedWindow,
     TtlSchedule,
     _build_manual_insert_sql,
     _get_insert_settings,
@@ -1292,6 +1293,50 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
         assert restored_result.ready is True
         assert restored_result.job_ids == [first_job_id]
 
+    @parameterized.expand(
+        [
+            ("not_enforced", False, (2, 23), (2, 27), True, [((2, 23), (2, 27), "band")]),
+            # Floor = ceil_day(Feb 20 12:00 + 48h + 2d) = Feb 25; its cap is Mar 25 - 4d = Mar 21.
+            ("starts_before_the_floor_misses", True, (2, 23), (2, 27), False, []),
+            ("starts_on_the_floor_caps_expiry", True, (2, 25), (2, 27), True, [((2, 25), (2, 27), (3, 21))]),
+            ("recent_window_keeps_band_ttl", True, (3, 10), (3, 12), True, [((3, 10), (3, 12), "band")]),
+            ("whole_range_before_floor_misses", True, (2, 1), (2, 20), False, []),
+        ]
+    )
+    def test_events_retention_bounds_job_ranges_and_expiry(
+        self,
+        _name: str,
+        enforced: bool,
+        start: tuple[int, int],
+        end: tuple[int, int],
+        expected_ready: bool,
+        expected: list[tuple[tuple[int, int], tuple[int, int], tuple[int, int] | str]],
+    ) -> None:
+        now = datetime(2026, 3, 20, 12, tzinfo=UTC)
+        band_ttl = 7 * 24 * 60 * 60
+        self.team.event_retention_months = 1
+        self.team.save()
+
+        def day(month_day: tuple[int, int]) -> datetime:
+            return datetime(2026, *month_day, tzinfo=UTC)
+
+        with override_settings(EVENTS_DATA_RETENTION_ENFORCED=enforced), time_machine.travel(now, tick=False):
+            result = ensure_precomputed(
+                team=self.team,
+                insert_query=self.MANUAL_INSERT_QUERY,
+                time_range_start=day(start),
+                time_range_end=day(end),
+                ttl_seconds=band_ttl,
+            )
+
+        assert result.ready is expected_ready
+        jobs = PreaggregationJob.objects.filter(id__in=result.job_ids).order_by("time_range_start")
+        assert [(j.time_range_start, j.time_range_end, j.expires_at) for j in jobs] == [
+            (day(s), day(e), day(x) if isinstance(x, tuple) else now + timedelta(seconds=band_ttl))
+            for s, e, x in expected
+        ]
+        assert PreaggregationJob.objects.filter(team=self.team).count() == len(expected)
+
     def test_creates_jobs_for_missing_ranges(self):
         # Create job for Jan 1 only
         first_result = ensure_precomputed(
@@ -1951,6 +1996,34 @@ class TestComputationExecutorExecute(BaseTest):
         qi = LazyComputationQuery(query=s, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
         return qi, compute_query_hash(qi)
 
+    def test_retention_cap_expiring_mid_build_returns_a_miss(self) -> None:
+        # Floor = ceil_day(Feb 20 23:59:30 + 48h + 2d) = Feb 25, whose cap (Mar 21 00:00) is 30s ahead of now.
+        now = datetime(2026, 3, 20, 23, 59, 30, tzinfo=UTC)
+        query_info, _ = self._make_query_info()
+        inserts = 0
+
+        with time_machine.travel(now, tick=False) as traveller:
+
+            def insert_crossing_the_cap(_team: object, _job: object) -> int:
+                nonlocal inserts
+                inserts += 1
+                traveller.shift(60)
+                return 1
+
+            result = LazyComputationExecutor(
+                events_retention_months=1, wait_timeout_seconds=5.0, poll_interval_seconds=0.05
+            ).execute(
+                team=self.team,
+                query_info=query_info,
+                start=datetime(2026, 2, 25, tzinfo=UTC),
+                end=datetime(2026, 2, 26, tzinfo=UTC),
+                run_insert=insert_crossing_the_cap,
+            )
+
+        assert result.ready is False
+        assert inserts == 1
+        assert PreaggregationJob.objects.filter(team=self.team).count() == 1
+
     # --- Happy path ---
 
     def test_returns_immediately_when_all_ranges_ready(self):
@@ -1978,8 +2051,12 @@ class TestComputationExecutorExecute(BaseTest):
 
         assert result.ready is True
         assert ready_job.id in result.job_ids
-        # The materialized-at time of the served window is surfaced for the "data as of X" badge.
         assert result.computed_at == computed_at
+        assert result.served_windows == (
+            ServedWindow(
+                start=datetime(2024, 1, 1, tzinfo=UTC), end=datetime(2024, 1, 2, tzinfo=UTC), computed_at=computed_at
+            ),
+        )
 
     def test_inserts_missing_ranges_and_returns_all_job_ids(self):
         query_info, query_hash = self._make_query_info()
@@ -2307,6 +2384,9 @@ class TestComputationExecutorExecute(BaseTest):
         if served:
             assert result.stale is True
             assert result.job_ids == [stale_job.id]
+            assert [(w.start, w.end) for w in result.served_windows] == [
+                (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC))
+            ]
             assert insert_count[0] == 0, "serve-stale must not compute inline"
         else:
             assert result.stale is False
@@ -3513,9 +3593,28 @@ class TestIsNonRetryableError(BaseTest):
         assert is_non_retryable_error(error) is False
 
 
+_INSERT_LOAD_BALANCING_CASES = [
+    (LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED, None),
+    (LazyComputationTable.PREAGGREGATION_RESULTS, "in_order"),
+    (LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.MARKETING_COSTS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_STATS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_STATS_PATHS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_VITALS_PATHS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_STATS_FRUSTRATION_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_GOALS_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED, "in_order"),
+    (LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED, None),
+    (LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED, None),
+]
+
+
 class TestInsertSettings(BaseTest):
     def test_insert_settings_guarantee_read_your_writes(self):
-        settings = _get_insert_settings(self.team.pk)
+        settings = _get_insert_settings(self.team.pk, LazyComputationTable.PREAGGREGATION_RESULTS)
 
         # The executor marks jobs READY the moment the INSERT returns, which is only sound if
         # the distributed write is synchronous. Production profiles default to async, so this
@@ -3525,7 +3624,6 @@ class TestInsertSettings(BaseTest):
         # Quorum breakage (dead replica, stale ZK registration) must fail fast and fall back,
         # not hold the request for ClickHouse's 600s default quorum wait.
         assert settings["insert_quorum_timeout"] == PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS
-        assert settings["load_balancing"] == "in_order"
         assert settings["max_execution_time"] == HOGQL_INCREASED_MAX_EXECUTION_TIME
         assert "readonly" not in settings
 
@@ -3538,8 +3636,33 @@ class TestInsertSettings(BaseTest):
             f"products.analytics_platform.backend.lazy_computation.lazy_computation_executor.PREAGGREGATION_INSERT_QUORUM",
             "auto",
         ):
-            assert _get_insert_settings(self.team.pk)["insert_quorum"] == "auto"
-            assert _get_insert_settings(self.team.pk, read_after_write=False)["insert_quorum"] == 0
+            table = LazyComputationTable.PREAGGREGATION_RESULTS
+            assert _get_insert_settings(self.team.pk, table)["insert_quorum"] == "auto"
+            assert _get_insert_settings(self.team.pk, table, read_after_write=False)["insert_quorum"] == 0
+
+    def test_insert_settings_carry_the_native_read_settings_for_a_switched_team(self):
+        table = LazyComputationTable.PREAGGREGATION_RESULTS
+        if not CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "json_type_escape_dots_in_keys" not in _get_insert_settings(self.team.pk, table)
+        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)):
+            switched = _get_insert_settings(self.team.pk, table)
+        assert switched["json_type_escape_dots_in_keys"] == 1
+        assert switched["output_format_json_escape_forward_slashes"] == 0
+        # The INSERT's SELECT is printed with the job's modifiers, so a per-query switch wins over the team's.
+        forced_on = _get_insert_settings(self.team.pk, table, modifiers=HogQLQueryModifiers(useNewEventsSchema=True))
+        assert forced_on["json_type_escape_dots_in_keys"] == 1
+        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)):
+            forced_off = _get_insert_settings(
+                self.team.pk, table, modifiers=HogQLQueryModifiers(useNewEventsSchema=False)
+            )
+        assert "json_type_escape_dots_in_keys" not in forced_off
+
+    @parameterized.expand(_INSERT_LOAD_BALANCING_CASES)
+    def test_insert_load_balancing_follows_the_read_table(self, table, expected_load_balancing):
+        assert _get_insert_settings(self.team.pk, table).get("load_balancing") == expected_load_balancing
+
+    def test_insert_load_balancing_cases_cover_every_table(self):
+        assert {table for table, _ in _INSERT_LOAD_BALANCING_CASES} == set(LazyComputationTable)
 
 
 class TestInsertSettingsAppliedToInserts(BaseTest):
@@ -3569,6 +3692,13 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
                 "auto",
                 {"max_memory_usage": 7, "max_bytes_before_external_group_by": 3},
             ),
+            # The modifiers switch the SELECT's events table, and the read settings must follow it, not the team.
+            (
+                "modifier_switches_events_table",
+                {"modifiers": HogQLQueryModifiers(useNewEventsSchema=not CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA)},
+                "auto",
+                events_read_settings(not CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA),
+            ),
         ]
     )
     def test_manual_insert_path_passes_insert_settings_to_clickhouse(
@@ -3594,9 +3724,11 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
             )
             expected_settings = _get_insert_settings(
                 self.team.pk,
+                LazyComputationTable.PREAGGREGATION_RESULTS,
                 spill_to_disk=extra_kwargs.get("spill_to_disk", False),
                 read_after_write=extra_kwargs.get("read_after_write", True),
                 overrides=extra_kwargs.get("insert_settings"),
+                modifiers=extra_kwargs.get("modifiers"),
             )
 
         assert result.ready is True
@@ -3661,7 +3793,12 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
             },
         )
         assert isinstance(query, ast.SelectQuery)
-        query_info = LazyComputationQuery(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS)
+        # Read the table the test leg does not read by default, so the settings only match when the INSERT
+        # forwards the job's modifiers instead of asking the team.
+        modifiers = HogQLQueryModifiers(useNewEventsSchema=not CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA)
+        query_info = LazyComputationQuery(
+            query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, modifiers=modifiers
+        )
 
         with patch(
             "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
@@ -3669,7 +3806,11 @@ class TestInsertSettingsAppliedToInserts(BaseTest):
             run_lazy_computation_insert(self.team, job, query_info)
 
         assert mock_execute.call_count == 1
-        assert mock_execute.call_args.kwargs["settings"] == _get_insert_settings(self.team.pk)
+        settings = mock_execute.call_args.kwargs["settings"]
+        assert settings == _get_insert_settings(
+            self.team.pk, LazyComputationTable.PREAGGREGATION_RESULTS, modifiers=modifiers
+        )
+        assert ("json_type_escape_dots_in_keys" in settings) == (not CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA)
 
 
 class TestInsertsReportRowsWritten(BaseTest):

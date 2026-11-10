@@ -80,6 +80,10 @@ const config: StorybookConfig = {
         options: {},
     },
 
+    // Automated runs skip the highlight feature, which scans every element after each DOM change.
+    previewHead: (head) =>
+        `${head}<script>if (navigator.webdriver) { window.__STORYBOOK_HIGHLIGHT_INITIALIZED = true }</script>`,
+
     viteFinal: (viteConfig) =>
         mergeConfig(viteConfig, {
             plugins: [
@@ -147,6 +151,8 @@ const config: StorybookConfig = {
                 },
             },
             build: {
+                // The preload helper's cost grows with the square of the chunk count.
+                modulePreload: false,
                 rollupOptions: {
                     onwarn(warning: Rollup.RollupLog, defaultHandler: (warning: Rollup.RollupLog) => void) {
                         // "use client" directives from RSC-oriented deps (framer-motion, radix)

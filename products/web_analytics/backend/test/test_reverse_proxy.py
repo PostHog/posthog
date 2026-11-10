@@ -24,7 +24,7 @@ _QUERY_PATH = "products.web_analytics.backend.temporal.health_checks.reverse_pro
 def test_detect_maps_rows_to_issues(mock_query: MagicMock, mock_rows: list, expected_teams: set) -> None:
     mock_query.return_value = mock_rows
 
-    result = ReverseProxyCheck().detect([1, 2, 3, 42])
+    result = ReverseProxyCheck().detect_from_events([1, 2, 3, 42])
 
     assert set(result.keys()) == expected_teams
     for team_id in expected_teams:
@@ -39,7 +39,7 @@ def test_detect_judges_over_a_multi_day_window_with_a_minimum_event_floor(mock_q
     # without a floor the check flags a project it has too little browser traffic to judge.
     mock_query.return_value = []
 
-    ReverseProxyCheck().detect([1])
+    ReverseProxyCheck().detect_from_events([1])
 
     _, kwargs = mock_query.call_args
     assert REVERSE_PROXY_LOOKBACK_DAYS > 1

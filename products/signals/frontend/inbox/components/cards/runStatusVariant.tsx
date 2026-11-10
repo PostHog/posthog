@@ -1,30 +1,35 @@
 import clsx from 'clsx'
 
+import { resolveReportRunVariant } from '@posthog/agent-contracts/signal-report-state'
+
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { SignalReportStatus, SignalScoutRunStatus } from '../../types'
 
 export type RunVariant = 'queued' | 'live' | 'completed' | 'failed'
 
+const RUN_VARIANTS: Record<`${SignalScoutRunStatus | SignalReportStatus | TaskRunStatus}`, RunVariant> = {
+    potential: resolveReportRunVariant('potential'),
+    candidate: resolveReportRunVariant('candidate'),
+    in_progress: resolveReportRunVariant('in_progress'),
+    pending_input: resolveReportRunVariant('pending_input'),
+    ready: resolveReportRunVariant('ready'),
+    monitoring: resolveReportRunVariant('monitoring'),
+    closed: resolveReportRunVariant('closed'),
+    resolved: resolveReportRunVariant('resolved'),
+    deleted: resolveReportRunVariant('deleted'),
+    suppressed: resolveReportRunVariant('suppressed'),
+    failed: resolveReportRunVariant('failed'),
+    completed: 'completed',
+    cancelled: 'failed',
+    not_started: 'queued',
+    queued: 'queued',
+}
+
 export function resolveRunVariant(
-    status: SignalScoutRunStatus | SignalReportStatus | TaskRunStatus | null | undefined
+    status: `${SignalScoutRunStatus | SignalReportStatus | TaskRunStatus}` | null | undefined
 ): RunVariant {
-    switch (status) {
-        case 'in_progress':
-        case 'pending_input':
-            return 'live'
-        case 'completed':
-        case 'ready':
-        case 'resolved':
-        case 'deleted':
-        case 'suppressed':
-            return 'completed'
-        case 'failed':
-        case 'cancelled':
-            return 'failed'
-        default:
-            return 'queued'
-    }
+    return status == null ? 'queued' : RUN_VARIANTS[status]
 }
 
 export function isRunLive(status: SignalScoutRunStatus | null): boolean {

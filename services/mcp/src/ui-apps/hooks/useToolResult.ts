@@ -77,6 +77,8 @@ export interface ContainerDimensions {
 export interface UseToolResultReturn<T> {
     /** The parsed tool result data, or null if not yet received */
     data: T | null
+    /** The tool result's `_meta`, or null if not yet received */
+    resultMeta: Record<string, unknown> | null
     /** Whether the app is connected to the host */
     isConnected: boolean
     /** Connection or parsing error, if any */
@@ -186,6 +188,7 @@ export function useToolResult<T = unknown>({
     waitTimeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
 }: UseToolResultOptions): UseToolResultReturn<T> {
     const [data, setData] = useState<T | null>(null)
+    const [resultMeta, setResultMeta] = useState<Record<string, unknown> | null>(null)
     const [parseError, setParseError] = useState<Error | null>(null)
     const [isCancelled, setIsCancelled] = useState(false)
     const [timedOutPhase, setTimedOutPhase] = useState<Exclude<WaitPhase, 'settled'> | null>(null)
@@ -263,6 +266,7 @@ export function useToolResult<T = unknown>({
                     })
 
                     if (parsed !== null) {
+                        setResultMeta(meta ?? null)
                         setData(parsed)
                         setParseError(null)
                     } else {
@@ -369,6 +373,7 @@ export function useToolResult<T = unknown>({
 
     return {
         data,
+        resultMeta,
         isConnected,
         error,
         isCancelled,

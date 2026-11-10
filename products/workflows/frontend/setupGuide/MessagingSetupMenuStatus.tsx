@@ -16,7 +16,8 @@ export function MessagingSetupMenuStatus({ tab }: { tab: MessagingSetupTabKey })
     const isDone = (key: string): boolean => steps.some((step) => step.key === key && step.done)
 
     if (tab === 'channels') {
-        if (isDone('domain')) {
+        const channelsDone = steps.some((step) => step.key === 'domain') ? isDone('domain') : isDone('channel')
+        if (channelsDone) {
             return <IconCheckCircle className="text-success" />
         }
         return (

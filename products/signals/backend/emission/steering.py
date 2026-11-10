@@ -107,7 +107,11 @@ def apply_steering(prompt: str, steering: SourceSteering) -> str:
 async def afetch_source_config(team_id: int, source_product: str, source_type: str) -> dict[str, Any]:
     """The team's ``SignalSourceConfig.config`` blob for one emission source, or ``{}``."""
     config = (
-        await SignalSourceConfig.objects.filter(team_id=team_id, source_product=source_product, source_type=source_type)
+        await SignalSourceConfig.objects.filter(
+            team_id=team_id,
+            source_product=source_product,
+            source_type=SignalSourceConfig.config_source_type(source_product, source_type),
+        )
         .values_list("config", flat=True)
         .afirst()
     )

@@ -12,7 +12,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.core.cache import cache
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -27,8 +29,11 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.oauth import find_oauth_access_token
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.scopes import APIScopeObject
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
@@ -38,7 +43,9 @@ from posthog.temporal.oauth import (
     PosthogMcpScopes,
     create_oauth_access_token_for_user,
 )
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.engineering_analytics.backend.facade.contracts import GitHubTeamMembership, GitHubTeamRoster
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
@@ -51,8 +58,10 @@ from products.signals.backend.models import (
     SignalScoutNote,
     SignalScoutRun,
     SignalScratchpad,
+    SignalSpend,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
+from products.signals.backend.presentation.spend import MonthlyUsageQuerySerializer
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
@@ -63,6 +72,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_skill_names,
     discover_canonical_skills,
 )
+from products.signals.backend.scout_harness.lifecycle_lock import user_holds_scout_lifecycle_claims
 from products.signals.backend.scout_harness.limits import (
     MAX_ENABLED_SCOUTS_PER_TEAM,
     MAX_RUN_NOTE_CHARS,
@@ -71,7 +81,9 @@ from products.signals.backend.scout_harness.limits import (
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import (
+    SearchMemoryQuerySerializer,
     SignalScoutConfigUpdateSerializer,
+    SignalScoutRunSummarySerializer,
     SignalScoutSlackDestinationSerializer,
 )
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
@@ -82,6 +94,7 @@ from products.signals.backend.scout_harness.tools.profile import compute_project
 from products.signals.backend.scout_harness.tools.scratchpad import NOT_IN_USE_WRITES_KEY
 from products.signals.backend.scout_harness.tools.structured_output import STRUCTURED_OUTPUT_COUNT_KEY
 from products.signals.backend.scout_harness.trial_state import initial_trial_state
+from products.signals.backend.spend_reporting import SpendReporting
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
 
@@ -202,7 +215,64 @@ def _make_run(team: Team, *, task_run_status: str | None = None, **overrides) ->
     return SignalScoutRun.objects.create(team=team, **defaults)
 
 
+class TestScoutRunMetadataSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [("absent", {}), ("denied", {"may_read_reports": False}), ("allowed", {"may_read_reports": True})]
+    )
+    def test_report_briefs_require_explicit_permission_context(self, _name: str, context: dict[str, bool]) -> None:
+        metadata = {"triggered_by": "check", "run_note": "Report context", "model": "example-model"}
+        result = SignalScoutRunSummarySerializer(context=context).fields["metadata"].to_representation(metadata)
+        assert ("run_note" in result) is context.get("may_read_reports", False)
+        assert result["model"] == "example-model"
+        assert metadata["run_note"] == "Report context"
+
+
 class TestScoutHarnessRunsAPI(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("scout_only", ["signal_scout:read"], False, False),
+            ("report_scope", ["signal_scout:read", "task:read"], False, True),
+            ("rbac_denied", None, True, False),
+            ("session", None, False, True),
+        ]
+    )
+    def test_history_respects_report_permissions_for_check_briefs(
+        self, _name: str, scopes: list[str] | None, deny_reports: bool, allowed: bool
+    ) -> None:
+        check_run = _make_run(
+            self.team, metadata={"triggered_by": "check", "run_note": "Checkout report: resolution note"}
+        )
+        monitoring_run = _make_run(
+            self.team, metadata={"triggered_by": "monitoring", "run_note": "Monitoring report context"}
+        )
+        manual_run = _make_run(self.team, metadata={"triggered_by": "manual", "run_note": "Ordinary scout steering"})
+        if scopes is not None:
+            raw = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="history", user=self.user, secure_value=hash_key_value(raw), scopes=scopes
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def resource_access(
+            access: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            return False if deny_reports and resource == "task" else real_check(access, resource, required_level)
+
+        with patch.object(
+            UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=resource_access
+        ):
+            for url in [self._list_url(), self._list_url() + "recent-per-scout/", self._detail_url(str(check_run.id))]:
+                response = self.client.get(url)
+                assert response.status_code == status.HTTP_200_OK, response.content
+                rows = response.json() if isinstance(response.json(), list) else [response.json()]
+                by_id = {row["run_id"]: row for row in rows}
+                assert ("run_note" in by_id[str(check_run.id)]["metadata"]) is allowed
+                if str(monitoring_run.id) in by_id:
+                    assert ("run_note" in by_id[str(monitoring_run.id)]["metadata"]) is allowed
+                    assert by_id[str(manual_run.id)]["metadata"]["run_note"] == "Ordinary scout steering"
+
     @parameterized.expand([(False,), (True,)])
     def test_first_report_runs_are_available_through_the_api(self, is_staff: bool) -> None:
         self.user.is_staff = is_staff
@@ -431,8 +501,6 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
 
 # Patch target: the helper is hot-imported into the view module, so patch it there, not at source.
 _FETCH_REPORT_IDS = "products.signals.backend.temporal.signal_queries.fetch_report_ids_for_source_ids"
-_RUN_TOKEN_COSTS_QUERY = "products.signals.backend.scout_harness.run_costs.get_local_task_run_token_costs"
-_SCOUT_COSTS_QUERY = "products.signals.backend.scout_harness.scout_costs.get_local_task_run_token_costs"
 
 
 class TestScoutHarnessEmissionReportsAPI(APIBaseTest):
@@ -601,115 +669,6 @@ class TestScoutHarnessEmissionReportsBatchAPI(APIBaseTest):
         assert [row["finding_id"] for row in response.json()] == ["mine"]
 
 
-class TestScoutHarnessRunTokenCostsAPI(APIBaseTest):
-    def _url(self) -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/runs/token-costs/"
-
-    def test_staff_reads_the_cost_of_every_requested_run(self) -> None:
-        self.user.is_staff = True
-        self.user.save()
-        priced = _make_run(self.team)
-        unpriced = _make_run(self.team)
-        with patch(_RUN_TOKEN_COSTS_QUERY, return_value={str(priced.task_run_id): Decimal("1.25")}):
-            response = self.client.post(
-                self._url(), data={"run_ids": [str(priced.id), str(unpriced.id)]}, format="json"
-            )
-        assert response.status_code == status.HTTP_200_OK
-        body = response.json()
-        assert body["available"] is True
-        costs = {row["run_id"]: row["token_cost_usd"] for row in body["costs"]}
-        # A run with no generations attributed reports null, not 0 — the number the roster showed
-        # for every scout run while the read was keyed on the desktop `ai_product`.
-        assert costs == {str(priced.id): 1.25, str(unpriced.id): None}
-
-    def test_non_staff_is_refused(self) -> None:
-        # Fleet spend is an internal operating number, and the generations sit in a project other
-        # than the one in the path.
-        run = _make_run(self.team)
-        with patch(_RUN_TOKEN_COSTS_QUERY) as query:
-            response = self.client.post(self._url(), data={"run_ids": [str(run.id)]}, format="json")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        query.assert_not_called()
-
-
-class TestScoutHarnessScoutCostsAPI(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        cache.clear()
-
-    def _url(self, query: str = "") -> str:
-        return f"/api/projects/{self.team.id}/signals/scout/runs/costs/{query}"
-
-    def _make_staff(self) -> None:
-        self.user.is_staff = True
-        self.user.save()
-
-    def test_staff_reads_spend_counts_and_reports_per_scout(self) -> None:
-        self._make_staff()
-        priced = _make_run(self.team, emitted_report_ids=["r-1"], edited_report_ids=["r-1", "r-2"])
-        _make_run(self.team)
-        with patch(_SCOUT_COSTS_QUERY, return_value={str(priced.task_run_id): Decimal("1.68")}):
-            response = self.client.get(self._url())
-        assert response.status_code == status.HTTP_200_OK
-        body = response.json()
-        assert body["available"] is True
-        assert body["window_days"] == 7
-        assert body["scouts"] == [
-            {
-                "skill_name": "signals-scout-general",
-                "spend_usd": 1.68,
-                "run_count": 2,
-                # The run that spent nothing is out of the per-run divisor, not priced at zero.
-                "priced_run_count": 1,
-                # `r-1` was filed and then edited by the same run, so it counts once.
-                "reports_touched": 2,
-            }
-        ]
-
-    def test_non_staff_is_refused(self) -> None:
-        # Fleet spend is an internal operating number, and the generations sit in a project other
-        # than the one in the path. Same gate as the per-run cost read.
-        _make_run(self.team)
-        with patch(_SCOUT_COSTS_QUERY) as query:
-            response = self.client.get(self._url())
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        query.assert_not_called()
-
-    def test_child_scoped_api_key_cannot_read_parent_costs(self) -> None:
-        from posthog.models.personal_api_key import PersonalAPIKey
-        from posthog.models.utils import generate_random_token_personal, hash_key_value
-
-        self._make_staff()
-        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
-        raw = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="child-scoped",
-            user=self.user,
-            secure_value=hash_key_value(raw),
-            scopes=["signal_scout:read"],
-            scoped_teams=[child.id],
-        )
-        self.client.logout()
-
-        with patch(_SCOUT_COSTS_QUERY) as query:
-            response = self.client.get(
-                f"/api/projects/{child.id}/signals/scout/runs/costs/",
-                HTTP_AUTHORIZATION=f"Bearer {raw}",
-            )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        query.assert_not_called()
-
-    def test_unsupported_window_is_refused_rather_than_silently_widened(self) -> None:
-        # The parameter exists so a detail page can ask for 30 days later. Until it can, a request
-        # for 30 must not come back as a 7-day number labelled 30.
-        self._make_staff()
-        with patch(_SCOUT_COSTS_QUERY) as query:
-            response = self.client.get(self._url("?window_days=30"))
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        query.assert_not_called()
-
-
 class TestScoutHarnessRecentEmissionsAPI(APIBaseTest):
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/emissions/recent/"
@@ -817,10 +776,16 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         response = self.client.get(self._url(), HTTP_IF_MATCH='"stale"')
         assert response.status_code == status.HTTP_412_PRECONDITION_FAILED
 
-    @parameterized.expand(["emit_tally", "task_run_settles", "total_spend", "report_deleted", "new_run"])
+    @parameterized.expand(
+        ["emit_tally", "task_run_settles", "total_spend", "report_deleted", "new_run", "report_scope", "report_rbac"]
+    )
     def test_a_change_the_summary_shows_moves_the_etag(self, change: str) -> None:
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
-        run = _make_run(self.team, emitted_report_ids=[str(report.id)])
+        run = _make_run(
+            self.team,
+            emitted_report_ids=[str(report.id)],
+            metadata={"triggered_by": "check", "run_note": "Report context"},
+        )
         first = self.client.get(self._url())
 
         if change == "emit_tally":
@@ -835,6 +800,26 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
             run.save(update_fields=["total_spend"])
         elif change == "report_deleted":
             SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.DELETED)
+        elif change == "report_scope":
+            raw = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="history", user=self.user, secure_value=hash_key_value(raw), scopes=["signal_scout:read"]
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+        elif change == "report_rbac":
+            real_check = UserAccessControl.check_access_level_for_resource
+
+            def deny_reports(
+                access: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+            ) -> bool:
+                return resource != "task" and real_check(access, resource, required_level)
+
+            self.enterContext(
+                patch.object(
+                    UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=deny_reports
+                )
+            )
         else:
             _make_run(self.team)
 
@@ -843,6 +828,9 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         assert second["ETag"] != first["ETag"]
         if change == "total_spend":
             assert second.json()[0]["total_spend"] == 16.3456
+        if change in {"report_scope", "report_rbac"}:
+            assert first.json()[0]["metadata"]["run_note"] == "Report context"
+            assert "run_note" not in second.json()[0]["metadata"]
 
 
 class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
@@ -1704,6 +1692,32 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("legacy_task_key", ["signal_scout:write", "task:write"], status.HTTP_200_OK),
+            ("inbox_and_task_key", ["signal_scout:write", "inbox:write", "task:write"], status.HTTP_200_OK),
+            ("inbox_only_key", ["signal_scout:write", "inbox:write"], status.HTTP_403_FORBIDDEN),
+            ("narrow_key", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_adding_an_inbox_tool_accepts_the_legacy_task_scope(
+        self, _name: str, key_scopes: list[str], expected: int
+    ) -> None:
+        self._become_admin()
+        config = self._config()
+        SignalScoutConfig.objects.filter(pk=config.pk).update(allowed_mcp_tools=["insight-get"])
+        raw = self._personal_api_key(key_scopes)
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"allowed_mcp_tools": ["insight-get", "inbox-reports-claim"]},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {raw}",
+            )
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
             ("read", ["insight-get"], []),
             ("write", ["dashboard-create"], ["dashboard:write"]),
             ("empty", [], []),
@@ -1921,6 +1935,44 @@ class TestScoutHarnessConfigLifecycleLockAPI(APIBaseTest):
     def _become_admin(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+
+    def test_batch_lifecycle_claims_preserve_ownership_without_per_scout_queries(self) -> None:
+        other = self._other_member()
+        configs = []
+        for index in range(20):
+            name = f"signals-scout-batch-{index}"
+            source = index % 4
+            config = SignalScoutConfig.objects.create(
+                team=self.team,
+                skill_name=name,
+                lifecycle_locked=True,
+                created_by=self.user if source == 3 else other,
+                enabled_by=self.user if source == 2 else None,
+            )
+            configs.append(config)
+            if source != 3:
+                LLMSkill.objects.create(
+                    team=self.team,
+                    name=name,
+                    description="",
+                    body="",
+                    created_by=None if source == 2 else self.user,
+                    deleted=source == 1,
+                )
+            if source in (1, 2):
+                previous = LLMSkill.objects.create(
+                    team=self.team, name=name, description="", body="", created_by=other, deleted=True
+                )
+                LLMSkill.objects.filter(pk=previous.pk).update(updated_at=timezone.now() - timedelta(days=1))
+
+        with CaptureQueriesContext(connection) as queries:
+            assert user_holds_scout_lifecycle_claims(team=self.team, configs=configs, user=self.user)
+        assert len(queries) < 20
+
+        configs[-1].created_by_id = other.pk
+        assert not user_holds_scout_lifecycle_claims(team=self.team, configs=configs, user=self.user)
+        self._become_admin()
+        assert user_holds_scout_lifecycle_claims(team=self.team, configs=configs, user=self.user)
 
     @parameterized.expand(
         [
@@ -2381,6 +2433,11 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         keys = [row["key"] for row in response.json()]
         assert keys == ["match"]
 
+    def test_search_rejects_text_the_trigram_indexes_cannot_serve(self) -> None:
+        response = self.client.get(self._list_url(), {"text": "ai"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "text"
+
     def test_search_keys_only_blanks_content(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="k1", content="a long body")
         response = self.client.get(f"{self._list_url()}?keys_only=true")
@@ -2619,6 +2676,25 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert NOT_IN_USE_WRITES_KEY not in (sibling_run.metadata or {})
 
 
+class TestSearchMemoryQuerySerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("blank", "", True),
+            ("word", "checkout", True),
+            ("key_prefix", "pattern:impl:posthog/posthog", True),
+            ("three_digits", "404", True),
+            ("non_ascii_word", "café", True),
+            ("two_chars_before_separator", "ai_", True),
+            ("two_chars_after_separator", ":pr", True),
+            ("two_chars", "ai", False),
+            ("short_words_split_by_separators", "a-b_c d", False),
+            ("punctuation_only", "%%%", False),
+        ]
+    )
+    def test_text_needs_a_trigram(self, _name: str, text: str, valid: bool) -> None:
+        assert SearchMemoryQuerySerializer(data={"text": text}).is_valid() is valid
+
+
 class TestScoutHarnessNotesAPI(APIBaseTest):
     # Session auth throughout — unlike the scratchpad, the notes surface is deliberately on the
     # user-grantable `signal_scout` scopes, so any team member's session/PAK can write.
@@ -2706,15 +2782,24 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [row["content"] for row in response.json()] == ["the /checkout spike is expected"]
 
-    def test_list_excludes_expired_notes_by_default(self) -> None:
+    def test_list_filters_notes_by_expiry(self) -> None:
         SignalScoutNote.objects.create(
             team=self.team, content="stale steering", expires_at=timezone.now() - timedelta(days=1)
         )
         SignalScoutNote.objects.create(team=self.team, content="live steering")
+        SignalScoutNote.objects.create(
+            team=self.team, content="time-boxed steering", expires_at=timezone.now() + timedelta(days=1)
+        )
         default = self.client.get(self._list_url())
-        assert {row["content"] for row in default.json()} == {"live steering"}
+        assert {row["content"] for row in default.json()} == {"live steering", "time-boxed steering"}
         with_expired = self.client.get(f"{self._list_url()}?include_expired=true")
-        assert {row["content"] for row in with_expired.json()} == {"live steering", "stale steering"}
+        assert {row["content"] for row in with_expired.json()} == {
+            "live steering",
+            "stale steering",
+            "time-boxed steering",
+        }
+        standing = self.client.get(f"{self._list_url()}?only_without_expiry=true")
+        assert {row["content"] for row in standing.json()} == {"live steering"}
 
     @parameterized.expand(
         [
@@ -2773,6 +2858,107 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         note = SignalScoutNote.objects.get(team=self.team)
         assert note.expires_at is None
         assert note.content == "watch checkout"
+
+    def test_create_with_report_id_names_the_report_and_logs_it_on_the_report(self) -> None:
+        self._make_scout_skill()
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s", status=SignalReport.Status.READY)
+
+        response = self.client.post(
+            self._list_url(),
+            data={
+                "content": "focus on the new checkout flow",
+                "skill_name": "signals-scout-web-analytics",
+                "report_id": str(report.id),
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        note = response.json()
+        assert str(report.id) in note["content"]
+        assert "Checkout 500s" not in note["content"]
+        # The content quotes a report id, so the row has to ride the derived-origin read gate.
+        assert note["origin"] == SignalScoutNote.Origin.REPORT_NOTE
+        listed = self.client.get(self._list_url(), data={"text": str(report.id)})
+        assert [row["id"] for row in listed.json()] == [note["id"]]
+        artefact = SignalReportArtefact.objects.get(
+            report=report, type=SignalReportArtefact.ArtefactType.SCOUT_NOTE_LEFT
+        )
+        assert json.loads(artefact.content) == {
+            "note": "focus on the new checkout flow",
+            "skill_name": "signals-scout-web-analytics",
+            "scout_note_id": note["id"],
+        }
+        assert artefact.created_by_id == self.user.id
+
+    @parameterized.expand(
+        [
+            ("unknown_report", "unknown", ["*"], status.HTTP_400_BAD_REQUEST),
+            ("other_teams_report", "other_team", ["*"], status.HTTP_400_BAD_REQUEST),
+            ("deleted_report", "deleted", ["*"], status.HTTP_400_BAD_REQUEST),
+            (
+                "caller_without_report_read",
+                "own",
+                ["signal_scout:write", "llm_skill:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "caller_without_report_write",
+                "own",
+                ["signal_scout:write", "llm_skill:write", "task:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "caller_with_inbox_write_only",
+                "own",
+                ["signal_scout:write", "llm_skill:write", "inbox:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+        ]
+    )
+    def test_create_with_report_id_writes_nothing_when_refused(
+        self, _name: str, report_kind: str, scopes: list[str], expected_status: int
+    ) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        other = Team.objects.create(organization=self.organization, name="Other")
+        report_id = {
+            "unknown": lambda: str(uuid4()),
+            "other_team": lambda: str(SignalReport.objects.create(team=other, status=SignalReport.Status.READY).id),
+            "deleted": lambda: str(SignalReport.objects.create(team=self.team, status=SignalReport.Status.DELETED).id),
+            "own": lambda: str(SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY).id),
+        }[report_kind]()
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            self._list_url(),
+            data={"content": "focus on the new checkout flow", "report_id": report_id},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+
+        assert response.status_code == expected_status, response.content
+        assert not SignalScoutNote.objects.filter(team=self.team).exists()
+        assert not SignalReportArtefact.objects.filter(type=SignalReportArtefact.ArtefactType.SCOUT_NOTE_LEFT).exists()
+
+    def test_create_with_report_id_rejects_content_too_long_to_carry_the_reference(self) -> None:
+        from products.signals.backend.report_scout_notes import MAX_REPORT_NOTE_TEXT_LENGTH
+
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+
+        response = self.client.post(
+            self._list_url(),
+            data={"content": "x" * (MAX_REPORT_NOTE_TEXT_LENGTH + 1), "report_id": str(report.id)},
+            format="json",
+        )
+
+        # The request serializer owns the shorter cap, so the caller gets a field error instead of
+        # the note layer's cap firing on prose the schema advertised as acceptable.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not SignalScoutNote.objects.filter(team=self.team).exists()
 
     def test_notes_do_not_leak_across_teams(self) -> None:
         # Cross-team rows go through `all_teams`: the fail-closed `objects` manager is pinned
@@ -2837,9 +3023,8 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         # notes instead — writes consult the same `llm_skill` RBAC gate as skill edits.
         # Deny only the `llm_skill` resource: a blanket False would also fail unrelated
         # resource checks in the request cycle and 403 the read path for the wrong reason.
-        from posthog.scopes import APIScopeObject
 
-        from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
 
         note = SignalScoutNote.objects.create(team=self.team, content="pre-existing")
         real_check = UserAccessControl.check_access_level_for_resource
@@ -2888,18 +3073,25 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
     @parameterized.expand(
         [
             # Every report-derived note quotes a report's id, title, and reviewer/reader text, all of
-            # which the report API gates on `task:read`. A scout-only token must not read around that,
+            # which the report API gates on `inbox:read`. A scout-only token must not read around that,
             # so all derived origins are withheld together — a new one must not reopen the gap.
-            ("without_report_read", ["signal_scout:read"], {"steering"}),
+            ("without_report_read", ["signal_scout:read"], {"steering"}, set()),
             (
                 "with_report_read",
+                ["signal_scout:read", "inbox:read"],
+                {"steering", "derived from a dismissal", "derived from feedback"},
+                set(),
+            ),
+            (
+                "with_legacy_task_read",
                 ["signal_scout:read", "task:read"],
                 {"steering", "derived from a dismissal", "derived from feedback"},
+                {"inbox:read"},
             ),
         ]
     )
     def test_list_withholds_derived_notes_from_callers_without_report_read(
-        self, _name: str, scopes: list[str], expected: set[str]
+        self, _name: str, scopes: list[str], expected: set[str], fallback_scopes: set[str]
     ) -> None:
         from posthog.models.personal_api_key import PersonalAPIKey
         from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -2919,10 +3111,17 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
         self.client.logout()
 
-        response = self.client.get(self._list_url(), HTTP_AUTHORIZATION=f"Bearer {raw}")
+        cache.clear()
+        with patch("posthog.permissions.posthoganalytics.capture") as capture:
+            response = self.client.get(self._list_url(), HTTP_AUTHORIZATION=f"Bearer {raw}")
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert {row["content"] for row in response.json()} == expected
+        assert {
+            call.kwargs["properties"]["required_scope"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "api scope fallback used"
+        } == fallback_scopes
 
 
 class TestAgentHarnessProjectProfileAPI(APIBaseTest):
@@ -4022,20 +4221,26 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         [
             ("missing_integration_scope", ["signal_scout:write"], status.HTTP_403_FORBIDDEN, "integration:read"),
             (
-                "missing_task_scope",
+                "missing_inbox_scope",
                 ["signal_scout:write", "integration:read"],
                 status.HTTP_403_FORBIDDEN,
-                "task:read",
+                "inbox:read",
             ),
             (
-                "integration_and_task_scopes",
+                "integration_and_inbox_scopes",
+                ["signal_scout:write", "integration:read", "inbox:read"],
+                status.HTTP_200_OK,
+                None,
+            ),
+            (
+                "integration_and_legacy_task_scopes",
                 ["signal_scout:write", "integration:read", "task:read"],
                 status.HTTP_200_OK,
                 None,
             ),
         ]
     )
-    def test_partial_update_slack_destination_requires_integration_and_task_scopes(
+    def test_partial_update_slack_destination_requires_integration_and_inbox_scopes(
         self, _name: str, scopes: list[str], expected_status: int, expected_missing_scope: str | None
     ) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
@@ -4654,6 +4859,39 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.run_interval_minutes == 120
         assert config.enabled_by_id == self.user.id
 
+    @parameterized.expand(
+        [
+            ("upsert_unattributed", "upsert", False, False, "caller"),
+            ("upsert_attributed", "upsert", True, False, "other"),
+            ("upsert_locked", "upsert", False, True, None),
+            ("partial_update_unattributed", "partial_update", False, False, "caller"),
+            ("partial_update_attributed", "partial_update", True, False, "other"),
+            ("partial_update_locked", "partial_update", False, True, None),
+        ]
+    )
+    def test_enabling_an_already_enabled_scout_records_enabled_by_only_when_unset(
+        self, _name: str, path: str, attributed: bool, locked: bool, expected: str | None
+    ) -> None:
+        self._make_skill("signals-scout-fresh")
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-fresh",
+            enabled_by=other if attributed else None,
+            lifecycle_locked=locked,
+        )
+
+        if path == "upsert":
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-fresh", "enabled": True}, format="json"
+            )
+        else:
+            response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.enabled_by_id == {"caller": self.user.id, "other": other.id, None: None}[expected]
+
     def test_create_upsert_leaves_omitted_fields_untouched(self) -> None:
         self._make_skill("signals-scout-fresh")
         SignalScoutConfig.objects.create(
@@ -5221,9 +5459,8 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
 
     def test_run_with_a_note_requires_skill_editor_access(self) -> None:
         # A note clears the scout-note RBAC bar; triggering a run without one stays on the config write.
-        from posthog.scopes import APIScopeObject
 
-        from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
 
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         real_check = UserAccessControl.check_access_level_for_resource
@@ -5845,6 +6082,7 @@ _LIGHTHOUSE_REPORT = {
 class TestScoutHarnessLighthouseAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(mock_anti_ssrf_dns_lookup())
         # lighthouse-audit requires `signal_scout_internal:write` — session auth is rejected.
         _authenticate_as_scout(self)
 
@@ -6006,3 +6244,310 @@ class TestScoutHarnessLighthouseAPI(APIBaseTest):
         assert refused.status_code == status.HTTP_404_NOT_FOUND
         browserless_for_sibling.assert_not_called()
         assert self._spent(sibling_run) == 0
+
+
+class TestMonthlyUsageQuery(SimpleTestCase):
+    @parameterized.expand(["2026-00", "2026-13", "2026-1", "0000-01", "9999-12", "2026-11-01", "2026-09"])
+    def test_invalid_month(self, month: str) -> None:
+        serializer = MonthlyUsageQuerySerializer(data={"month": month})
+        assert not serializer.is_valid()
+        assert "month" in serializer.errors
+
+
+class TestScoutSpendOverview(APIBaseTest):
+    @parameterized.expand(
+        [
+            (endpoint, scope, report_status)
+            for endpoint in ("scouts", "sources", "report", "monthly", "monthly_query")
+            for scope in ("signal_usage", "signal_scout", "task")
+            for report_status in (
+                [SignalReport.Status.POTENTIAL, SignalReport.Status.SUPPRESSED]
+                if endpoint == "report"
+                else [SignalReport.Status.POTENTIAL]
+            )
+        ]
+    )
+    def test_usage_requires_its_own_scope(self, endpoint: str, scope: str, report_status: str) -> None:
+        report = SignalReport.objects.create(team=self.team, title="Synthetic report", status=report_status)
+        path = {
+            "scouts": "signals/spend/",
+            "sources": "signals/source_spend/",
+            "monthly": "signals/usage/",
+            "monthly_query": "query/",
+            "report": f"signals/reports/{report.id}/spend/",
+        }[endpoint]
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="usage-read",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=[f"{scope}:read", "query:read"] if endpoint == "monthly_query" else [f"{scope}:read"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        with patch("products.signals.backend.spend_reporting.execute_hogql_query") as query:
+            query.return_value.results = []
+            if endpoint == "monthly_query":
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/{path}",
+                    {"query": {"kind": "InboxUsageQuery", "dateRange": {"date_from": "-7d"}}},
+                    format="json",
+                    HTTP_AUTHORIZATION=f"Bearer {raw}",
+                )
+            else:
+                response = self.client.get(f"/api/projects/{self.team.id}/{path}", HTTP_AUTHORIZATION=f"Bearer {raw}")
+        assert response.status_code == (200 if scope == "signal_usage" else 403), response.content
+
+    @time_machine.travel("2026-12-15T12:00:00Z", tick=False)
+    def test_monthly_scout_usage_counts_each_run_once_and_keeps_unsettled_separate(self) -> None:
+        self.client.force_login(self.user)
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save(update_fields=["timezone"])
+        finalized_at = datetime(2026, 12, 1, tzinfo=UTC)
+        report_ids = [str(uuid4()), str(uuid4())]
+        first = _make_run(self.team, emitted_report_ids=report_ids)
+        repeated = _make_run(self.team, emitted_report_ids=report_ids[:1])
+        empty = _make_run(self.team, emitted_report_ids=[])
+        pending = _make_run(self.team)
+        untracked = _make_run(self.team)
+        private = _make_run(self.team, metadata={"scout_trial": {"version": 1}})
+        outside = _make_run(self.team)
+        other_team = Team.objects.create(organization=self.organization)
+        other = _make_run(other_team)
+        for run, amount, completed in [
+            (first, "12.1250", finalized_at),
+            (repeated, "3.0000", finalized_at),
+            (empty, "4.0000", finalized_at),
+            (pending, "1.5000", None),
+            (private, "999.0000", finalized_at),
+            (outside, "999.0000", datetime(2027, 1, 1, tzinfo=UTC)),
+            (other, "999.0000", finalized_at),
+        ]:
+            receipt = SignalSpend.objects.for_team(run.team_id).create(
+                team_id=run.team_id,
+                kind=SignalSpend.Kind.SCOUT_RUN,
+                scout_run=run,
+                task_run_id=run.task_run_id,
+                spend=Decimal(amount),
+                finalized_at=completed,
+                billing_exempt=run == empty,
+            )
+            SignalSpend.objects.for_team(run.team_id).filter(id=receipt.id).update(
+                created_at=datetime(2026, 12, 1, tzinfo=UTC)
+            )
+        SignalScoutRun.objects.for_team(self.team.id).filter(id=untracked.id).update(
+            created_at=datetime(2026, 12, 1, tzinfo=UTC)
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/usage/")
+        assert response.status_code == 200, response.content
+        data = response.json()
+        assert data["period_start"] == "2026-12-01T00:00:00Z"
+        assert data["period_end"] == "2027-01-01T00:00:00Z"
+        assert data["total_credits"] == "19.1250"
+        assert data["exempt_credits"] == "4.0000"
+        assert data["unsettled_credits"] == "1.5000"
+        assert data["untracked_scout_run_count"] == 1
+        assert data["incomplete"] is True
+        assert data["sources"] == []
+        assert data["scouts"] == [
+            {
+                "scout_config_id": str(first.scout_config_id),
+                "skill_name": first.skill_name,
+                "display_name": first.skill_name,
+                "total_credits": "19.1250",
+                "exempt_credits": "4.0000",
+                "run_count": 3,
+                "reports_produced": 2,
+                "incomplete": False,
+            }
+        ]
+        assert Decimal(data["total_credits"]) * Decimal(data["pricing"]["usd_per_credit"]) == Decimal("0.191250")
+        child = Team.objects.create(organization=self.organization, parent_team=self.team)
+        child_response = self.client.get(f"/api/projects/{child.id}/signals/usage/")
+        assert child_response.status_code == 200, child_response.content
+        assert child_response.json()["project_id"] == self.team.id
+        assert child_response.json()["total_credits"] == "19.1250"
+        assert child_response.json()["scouts"] == data["scouts"]
+        query_payload = {
+            "query": {
+                "kind": "InboxUsageQuery",
+                "dateRange": {"date_from": "2026-12-01", "date_to": "2027-01-01", "explicitDate": True},
+            }
+        }
+        query_response = self.client.post(f"/api/projects/{self.team.id}/query/", query_payload, format="json")
+        assert query_response.status_code == 200, query_response.content
+        assert query_response.json()["results"]["total_credits"] == data["total_credits"]
+        assert query_response.json()["is_cached"] is True
+        child_query = self.client.post(f"/api/projects/{child.id}/query/", query_payload, format="json")
+        assert child_query.status_code == 400, child_query.content
+
+        SignalSpend.objects.for_team(self.team.id).filter(scout_run=first).update(spend=Decimal("20.1250"))
+        cached = self.client.get(f"/api/projects/{self.team.id}/signals/usage/").json()
+        assert cached["total_credits"] == data["total_credits"]
+        assert cached["as_of"] == data["as_of"]
+        with time_machine.travel("2026-12-15T12:06:00Z", tick=False):
+            refreshed = self.client.get(f"/api/projects/{self.team.id}/signals/usage/").json()
+        assert refreshed["total_credits"] == "27.1250"
+        with time_machine.travel("2027-01-02T12:00:00Z", tick=False):
+            self.client.force_login(self.user)
+            next_month_response = self.client.get(f"/api/projects/{self.team.id}/signals/usage/")
+        assert next_month_response.status_code == 200, next_month_response.content
+        next_month = next_month_response.json()
+        assert next_month["period_start"] == "2027-01-01T00:00:00Z"
+        assert next_month["total_credits"] == "999.0000"
+
+    @parameterized.expand(
+        [
+            (
+                "exact",
+                {
+                    "date_from": "2026-12-15T12:00:00+01:00",
+                    "date_to": "2026-12-15T12:30:00+01:00",
+                    "explicitDate": True,
+                },
+                "2026-12-15T11:00:00Z",
+                "2026-12-15T11:30:00Z",
+                "2.1250",
+            ),
+            (
+                "exclusive_end",
+                {"date_from": "2026-12-15T10:00:00Z", "date_to": "2026-12-15T11:00:00Z", "explicitDate": True},
+                "2026-12-15T10:00:00Z",
+                "2026-12-15T11:00:00Z",
+                "0",
+            ),
+            (
+                "relative",
+                {"date_from": "-2h", "explicitDate": True},
+                "2026-12-15T10:00:00Z",
+                "2026-12-15T12:00:00Z",
+                "2.1250",
+            ),
+            (
+                "all",
+                {"date_from": "all", "explicitDate": True},
+                "2026-10-01T00:00:00Z",
+                "2026-12-15T12:00:00Z",
+                "2.1250",
+            ),
+            (
+                "clipped_to_available_history",
+                {"date_from": "2026-09-01", "explicitDate": True},
+                "2026-10-01T00:00:00Z",
+                "2026-12-15T12:00:00Z",
+                "2.1250",
+            ),
+        ]
+    )
+    @time_machine.travel("2026-12-15T12:00:00Z", tick=False)
+    def test_usage_query_date_range(
+        self, _name: str, date_range: dict[str, str | bool], start: str, end: str, credits: str
+    ) -> None:
+        self.client.force_login(self.user)
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save(update_fields=["timezone"])
+        run = _make_run(self.team)
+        receipt = SignalSpend.objects.for_team(self.team.id).create(
+            team=self.team,
+            kind=SignalSpend.Kind.SCOUT_RUN,
+            scout_run=run,
+            task_run_id=run.task_run_id,
+            spend=Decimal("2.1250"),
+            finalized_at=datetime(2026, 12, 15, 11, tzinfo=UTC),
+        )
+        SignalSpend.objects.for_team(self.team.id).filter(id=receipt.id).update(
+            created_at=datetime(2026, 11, 1, tzinfo=UTC)
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {"query": {"kind": "InboxUsageQuery", "dateRange": date_range}},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        data = response.json()["results"]
+        assert data["period_start"] == start
+        assert data["period_end"] == end
+        assert data["total_credits"] == credits
+
+    @parameterized.expand(["2026-13", "2026-09"])
+    def test_monthly_usage_rejects_invalid_month(self, month: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/usage/?month={month}")
+        assert response.status_code == 400
+
+    @parameterized.expand([False, True])
+    def test_spend_is_team_scoped_and_excludes_private_and_old_runs(self, child_environment: bool) -> None:
+        run = _make_run(self.team)
+        _make_run(self.team)
+        second_tracked = _make_run(self.team)
+        another_scout = _make_run(self.team, skill_name="signals-scout-errors")
+        private = _make_run(self.team, metadata={"scout_trial": {"version": 1}})
+        old = _make_run(self.team)
+        SignalScoutRun.objects.for_team(self.team.id).filter(id=old.id).update(
+            created_at=timezone.now() - timedelta(days=40)
+        )
+        other_team = Team.objects.create(organization=self.organization)
+        other = _make_run(other_team)
+        for row, amount in [
+            (run, 125.25),
+            (second_tracked, 74.75),
+            (another_scout, 0.375),
+            (private, 999),
+            (old, 999),
+            (other, 999),
+        ]:
+            SignalSpend.objects.for_team(row.team_id).create(
+                team_id=row.team_id,
+                scout_run=row,
+                task_run_id=row.task_run_id,
+                kind="scout_run",
+                spend=amount,
+                finalized_at=timezone.now(),
+            )
+        url_team = (
+            Team.objects.create(organization=self.organization, parent_team=self.team)
+            if child_environment
+            else self.team
+        )
+        response = self.client.get(f"/api/projects/{url_team.id}/signals/spend/")
+        assert response.status_code == 200, response.content
+        assert response.json()["scout_spend"] == {"total_spend": 200.375, "incomplete": True}
+        assert response.json()["scouts"] == [
+            {
+                "skill_name": "signals-scout-errors",
+                "spend": {"total_spend": 0.375, "incomplete": False},
+                "average_spend": 0.375,
+            },
+            {
+                "skill_name": "signals-scout-general",
+                "spend": {"total_spend": 200, "incomplete": True},
+                "average_spend": 100,
+            },
+        ]
+        with self.assertNumQueries(0):
+            cached = SpendReporting(self.team).scouts()
+        assert cached.scout_spend.total_spend == 200.375
+
+    @parameterized.expand(["spend", "usage"])
+    def test_child_scoped_api_key_cannot_read_parent_spend(self, endpoint: str) -> None:
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["signal_usage:read"],
+            scoped_teams=[child.id],
+        )
+        self.client.logout()
+
+        response = self.client.get(f"/api/projects/{child.id}/signals/{endpoint}/", HTTP_AUTHORIZATION=f"Bearer {raw}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand([("empty", False, 0), ("untracked", True, None)])
+    def test_total_without_receipts(self, _name: str, has_run: bool, expected: float | None) -> None:
+        if has_run:
+            _make_run(self.team)
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/spend/")
+        assert response.status_code == 200, response.content
+        assert response.json()["scout_spend"] == {"total_spend": expected, "incomplete": has_run}

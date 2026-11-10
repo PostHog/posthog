@@ -8,7 +8,7 @@ assembled viewset provides at runtime.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -52,7 +52,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_primary_key_columns,
     purge_buffer_prefix,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import SourceKey
 
 logger = structlog.get_logger(__name__)
 
@@ -107,6 +107,7 @@ if TYPE_CHECKING:
             source_id: str,
             source_schemas: list[SourceSchema],
             permission_errors: Mapping[str, str | None] | None = None,
+            only_tables: Collection[str] | None = None,
         ) -> dict | None: ...
 
         def _setup_cdc_resources(
@@ -116,7 +117,7 @@ if TYPE_CHECKING:
         def _validate_source_config_and_credentials(
             self,
             source: AnySource,
-            source_type_model: ExternalDataSourceType,
+            source_type_model: SourceKey,
             payload: dict,
             access_method: str = ExternalDataSource.AccessMethod.WAREHOUSE,
         ) -> tuple[Response | None, Config | None]: ...

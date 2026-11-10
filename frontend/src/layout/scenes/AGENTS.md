@@ -65,7 +65,7 @@ Scenes get a co-located `<Resource>SceneMenuBar` component (`CohortSceneMenuBar`
    ```
 
 Reference implementations: `scenes/cohorts/CohortSceneMenuBar.tsx`,
-`scenes/dashboard/DashboardSceneMenuBar.tsx`, `scenes/notebooks/NotebookSceneMenuBar.tsx`.
+`products/dashboards/frontend/DashboardSceneMenuBar.tsx`, `scenes/notebooks/NotebookSceneMenuBar.tsx`.
 
 ## Before you write menu code, read the skill
 

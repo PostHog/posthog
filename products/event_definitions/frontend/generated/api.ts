@@ -12,6 +12,7 @@ import type {
     BulkUpdateTagsUUIDRequestApi,
     BulkUpdateTagsUUIDResponseApi,
     EnterpriseEventDefinitionApi,
+    EnterpriseEventDefinitionRequestApi,
     EventDefinitionBulkUpdateVerifiedRequestApi,
     EventDefinitionBulkUpdateVerifiedResponseApi,
     EventDefinitionRecordApi,
@@ -76,14 +77,14 @@ export const getEventDefinitionsCreateUrl = (projectId: string) => {
 
 export const eventDefinitionsCreate = async (
     projectId: string,
-    enterpriseEventDefinitionApi: NonReadonly<EnterpriseEventDefinitionApi>,
+    enterpriseEventDefinitionRequestApi: NonReadonly<EnterpriseEventDefinitionRequestApi>,
     options?: RequestInit
 ): Promise<EnterpriseEventDefinitionApi> => {
     return apiMutator<EnterpriseEventDefinitionApi>(getEventDefinitionsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(enterpriseEventDefinitionApi),
+        body: JSON.stringify(enterpriseEventDefinitionRequestApi),
     })
 }
 
@@ -109,14 +110,14 @@ export const getEventDefinitionsUpdateUrl = (projectId: string, id: string) => {
 export const eventDefinitionsUpdate = async (
     projectId: string,
     id: string,
-    enterpriseEventDefinitionApi: NonReadonly<EnterpriseEventDefinitionApi>,
+    enterpriseEventDefinitionRequestApi: NonReadonly<EnterpriseEventDefinitionRequestApi>,
     options?: RequestInit
 ): Promise<EnterpriseEventDefinitionApi> => {
     return apiMutator<EnterpriseEventDefinitionApi>(getEventDefinitionsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(enterpriseEventDefinitionApi),
+        body: JSON.stringify(enterpriseEventDefinitionRequestApi),
     })
 }
 
@@ -161,6 +162,29 @@ export const eventDefinitionsMetricsRetrieve = async (
     return apiMutator<void>(getEventDefinitionsMetricsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getEventDefinitionsStopIngestingCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/event_definitions/${id}/stop_ingesting/`
+}
+
+/**
+ * Drop new events with this name at ingestion, then hide the definition and schedule its delete.
+ *
+ * Adds an exact event name condition to the live event filter of each environment in the
+ * project, because the definition is shared by all of them. This never makes a team's own
+ * filter conditions live: if a filter is in dry run or turned off, or can't take one more
+ * condition, the request fails and nothing changes. Dropped events can't be recovered.
+ */
+export const eventDefinitionsStopIngestingCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EventDefinitionRecordApi> => {
+    return apiMutator<EventDefinitionRecordApi>(getEventDefinitionsStopIngestingCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

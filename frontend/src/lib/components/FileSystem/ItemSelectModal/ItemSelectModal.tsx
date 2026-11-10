@@ -16,7 +16,7 @@ import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimi
 import { cn } from 'lib/utils/css-classes'
 
 import { ProjectTreeLogicProps, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { ScrollableShadows } from '~/lib/components/ScrollableShadows/ScrollableShadows'
+import { ScrollableShadows } from '~/lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { itemSelectModalLogic } from './itemSelectModalLogic'

@@ -235,49 +235,12 @@ const REDSHIFT_COPY_IAM_BATCH_EXPORT = fixture('fixture-redshift-copy-iam', 'Red
             s3_key_prefix: 'rs/copy/',
             region_name: 'us-east-1',
             authorization: 'arn:aws:iam::123:role/rs-copy',
-            bucket_credentials: {
-                aws_access_key_id: 'AKIA-bucket',
-                aws_secret_access_key: 'bucket-secret',
-            },
+            bucket_credentials: 31,
         },
         exclude_events: [],
         include_events: [],
     } as any,
 })
-
-const REDSHIFT_COPY_CREDENTIALS_BATCH_EXPORT = fixture(
-    'fixture-redshift-copy-creds',
-    'Redshift COPY Credentials Export',
-    {
-        type: 'Redshift',
-        config: {
-            user: 'rs-user',
-            password: 'rs-pass',
-            host: 'rs-host',
-            port: 5439,
-            database: 'rs-db',
-            schema: 'public',
-            table_name: 'events',
-            properties_data_type: 'SUPER' as any,
-            mode: 'COPY',
-            copy_inputs: {
-                s3_bucket: 'rs-staging',
-                s3_key_prefix: 'rs/copy/',
-                region_name: 'us-east-1',
-                authorization: {
-                    aws_access_key_id: 'AKIA-auth',
-                    aws_secret_access_key: 'auth-secret',
-                },
-                bucket_credentials: {
-                    aws_access_key_id: 'AKIA-bucket',
-                    aws_secret_access_key: 'bucket-secret',
-                },
-            },
-            exclude_events: [],
-            include_events: [],
-        } as any,
-    }
-)
 
 const HTTP_BATCH_EXPORT = fixture('fixture-http', 'HTTP Export', {
     type: 'HTTP',
@@ -381,6 +344,31 @@ const REDSHIFT_COPY_INTEGRATIONS_BATCH_EXPORT = fixture(
     }
 )
 
+const REDSHIFT_COPY_LEGACY_BATCH_EXPORTS = [
+    { name: 'both', bucketCredentials: {}, authorization: {} },
+    { name: 'bucket', bucketCredentials: {}, authorization: 'arn:aws:iam::000000000000:role/test-copy' },
+    { name: 'authorization', bucketCredentials: S3_STAGING_INTEGRATION.id, authorization: {} },
+    {
+        name: 'unstripped',
+        bucketCredentials: { aws_access_key_id: 'test-bucket-key', aws_secret_access_key: 'test-bucket-secret' },
+        authorization: { aws_access_key_id: 'test-reader-key', aws_secret_access_key: 'test-reader-secret' },
+    },
+].map(({ name, bucketCredentials, authorization }) =>
+    fixture(`fixture-redshift-legacy-${name}`, `Legacy Redshift ${name}`, {
+        ...REDSHIFT_COPY_INTEGRATIONS_BATCH_EXPORT.destination,
+        config: {
+            ...REDSHIFT_COPY_INTEGRATIONS_BATCH_EXPORT.destination.config,
+            copy_inputs: {
+                s3_bucket: 'rs-staging',
+                s3_key_prefix: 'rs/copy/',
+                region_name: 'us-east-1',
+                bucket_credentials: bucketCredentials,
+                authorization,
+            },
+        },
+    } as any)
+)
+
 const HOGQL_BATCH_EXPORT: BatchExportConfiguration = {
     ...fixture('test-hogql-id', 'HogQL Export', { type: 'AwsS3', integration: 31, config: AWS_S3_CONFIG }),
     model: 'hogql',
@@ -403,7 +391,7 @@ const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
     REDSHIFT_INSERT_BATCH_EXPORT,
     REDSHIFT_NO_MODE_BATCH_EXPORT,
     REDSHIFT_COPY_IAM_BATCH_EXPORT,
-    REDSHIFT_COPY_CREDENTIALS_BATCH_EXPORT,
+    ...REDSHIFT_COPY_LEGACY_BATCH_EXPORTS,
     REDSHIFT_COPY_INTEGRATIONS_BATCH_EXPORT,
     HTTP_BATCH_EXPORT,
     DATABRICKS_BATCH_EXPORT,
@@ -841,6 +829,76 @@ describe('batchExportConfigFormLogic', () => {
                     include_events: [],
                 },
             })
+        })
+    })
+
+    describe('legacy Redshift COPY credentials', () => {
+        it.each(REDSHIFT_COPY_LEGACY_BATCH_EXPORTS)('omits stored keys when saving $name', async (fixture) => {
+            await initLogic({ service: null, id: fixture.id })
+            logic.actions.setConfigurationValue('table_name', 'updated_events')
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+                .toFinishAllListeners()
+
+            const config = patchBodiesById[fixture.id].destination.config
+            expect(config.table_name).toBe('updated_events')
+            const storedCopyInputs = (fixture.destination.config as any).copy_inputs
+            const expectedCopyInputs = { ...storedCopyInputs }
+            for (const field of ['bucket_credentials', 'authorization']) {
+                if (typeof expectedCopyInputs[field] === 'object') {
+                    delete expectedCopyInputs[field]
+                }
+            }
+            expect(config.copy_inputs).toEqual(expectedCopyInputs)
+            expect(JSON.stringify(config)).not.toContain('aws_access_key_id')
+            expect(JSON.stringify(config)).not.toContain('aws_secret_access_key')
+            expect(Object.keys(config).filter((key) => key.startsWith('redshift_'))).toEqual([])
+        })
+
+        it.each([
+            { mode: undefined, expectedAuthorization: undefined },
+            { mode: 'SameConnection', expectedAuthorization: S3_STAGING_INTEGRATION.id },
+            { mode: 'DifferentConnection', expectedAuthorization: S3_READER_INTEGRATION.id },
+            { mode: 'IAMRole', expectedAuthorization: 'arn:aws:iam::000000000000:role/test-copy' },
+        ])('replaces selected legacy credentials with $mode', async ({ mode, expectedAuthorization }) => {
+            const fixture = REDSHIFT_COPY_LEGACY_BATCH_EXPORTS[0]
+            await initLogic({ service: null, id: fixture.id })
+            logic.actions.setConfigurationValues({
+                redshift_s3_integration_id: S3_STAGING_INTEGRATION.id,
+                authorization_mode: mode,
+                redshift_authorization_integration_id: S3_READER_INTEGRATION.id,
+                redshift_iam_role: 'arn:aws:iam::000000000000:role/test-copy',
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+                .toFinishAllListeners()
+
+            const copyInputs = patchBodiesById[fixture.id].destination.config.copy_inputs
+            expect(copyInputs).toEqual({
+                s3_bucket: 'rs-staging',
+                s3_key_prefix: 'rs/copy/',
+                region_name: 'us-east-1',
+                bucket_credentials: S3_STAGING_INTEGRATION.id,
+                ...(expectedAuthorization === undefined ? {} : { authorization: expectedAuthorization }),
+            })
+        })
+
+        it('requires a connection when legacy authorization changes to the same connection', async () => {
+            const fixture = REDSHIFT_COPY_LEGACY_BATCH_EXPORTS[0]
+            await initLogic({ service: null, id: fixture.id })
+            logic.actions.setConfigurationValue('authorization_mode', 'SameConnection')
+
+            logic.actions.submitConfiguration()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.configurationErrors.redshift_s3_integration_id).toBe('This field is required')
+            expect(patchBodiesById[fixture.id]).toBeUndefined()
         })
     })
 
@@ -1359,7 +1417,6 @@ describe('batchExportConfigFormLogic', () => {
             { name: 'Snowflake', fixture: SNOWFLAKE_BATCH_EXPORT },
             { name: 'Redshift (INSERT)', fixture: REDSHIFT_INSERT_BATCH_EXPORT },
             { name: 'Redshift (COPY + IAM)', fixture: REDSHIFT_COPY_IAM_BATCH_EXPORT },
-            { name: 'Redshift (COPY + Credentials)', fixture: REDSHIFT_COPY_CREDENTIALS_BATCH_EXPORT },
             { name: 'Redshift (COPY + integrations)', fixture: REDSHIFT_COPY_INTEGRATIONS_BATCH_EXPORT },
             { name: 'HTTP', fixture: HTTP_BATCH_EXPORT },
             { name: 'Databricks', fixture: DATABRICKS_BATCH_EXPORT },

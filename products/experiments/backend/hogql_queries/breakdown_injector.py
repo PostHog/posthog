@@ -7,6 +7,7 @@ from posthog.schema import (
     ExperimentDataWarehouseNode,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentQuantileMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     MultipleBreakdownType,
@@ -29,7 +30,14 @@ class BreakdownInjector:
     def __init__(
         self,
         breakdowns: list[Breakdown],
-        metric: Union[ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentRatioMetric, ExperimentRetentionMetric],
+        metric: Union[
+            ExperimentFunnelMetric,
+            ExperimentMeanMetric,
+            ExperimentRatioMetric,
+            ExperimentRetentionMetric,
+            ExperimentQuantileMetric,
+            None,
+        ] = None,
     ):
         self.breakdowns = breakdowns
         self.metric = metric

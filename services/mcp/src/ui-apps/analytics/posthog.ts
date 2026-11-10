@@ -49,14 +49,14 @@ export function initPostHog(appName: string, appVersion: string): void {
         client.register({
             $mcp_app_name: appName,
             $mcp_app_version: appVersion,
-            $mcp_app_instance_id: newInstanceId(),
+            $mcp_app_instance_id: newId(),
         })
     } catch (error) {
         log('PostHog register failed', error)
     }
 }
 
-function newInstanceId(): string {
+export function newId(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
         return crypto.randomUUID()
     }
@@ -88,6 +88,10 @@ export function identifyUser(distinctId: string, toolName?: string, mcpClientNam
     if (toolName) {
         client.register({ $mcp_tool_name: toolName })
     }
+}
+
+export function isAnalyticsEnabled(): boolean {
+    return client !== null
 }
 
 /**

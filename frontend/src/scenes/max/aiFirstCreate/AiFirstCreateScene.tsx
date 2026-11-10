@@ -5,10 +5,11 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
 import { SuggestionCard } from 'scenes/max/components/SuggestionCard'
 
-import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
+
 import { SidePanelRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import { AiFirstHandoffLogicProps, aiFirstHandoffLogic } from './aiFirstHandoffLogic'

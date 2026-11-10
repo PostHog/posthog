@@ -1,15 +1,12 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
-import { BindLogic, useActions, useValues } from 'kea'
-
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { BindLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { MarketingAnalyticsScene } from 'scenes/marketing-analytics/MarketingAnalyticsScene'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { MarketingAnalyticsFilters } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
-import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -187,6 +184,81 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     },
 ]
 
+const SEARCH_TERM_ROWS: MarketingAnalyticsSearchRow[] = [
+    ['product analytics', 610, 9800, 915, 31],
+    ['open source product analytics', 240, 2100, 312, 14],
+    ['session replay tool', 185, 3900, 370, 6],
+    ['feature flags pricing', 92, 1400, 138, 4.5],
+].map(([keyword, clicks, impressions, cost, conversions]) => ({
+    keyword: keyword as string,
+    platform: 'GoogleAds',
+    matchType: null,
+    currency: 'USD',
+    clicks: clicks as number,
+    impressions: impressions as number,
+    cost: cost as number,
+    conversions: conversions as number,
+    ctr: (clicks as number) / (impressions as number),
+    cpc: (cost as number) / (clicks as number),
+    cpa: (cost as number) / (conversions as number),
+}))
+
+type SearchTermTableStory = 'ready' | 'disabled' | 'syncing' | 'missing'
+
+function searchTermSources(
+    tables: Record<'search_term_stats' | 'performance_max_search_term_stats', SearchTermTableStory>
+): typeof SOURCES {
+    return SOURCES.map((source) =>
+        source.source_type === 'GoogleAds'
+            ? {
+                  ...source,
+                  schemas: [
+                      ...source.schemas,
+                      ...(Object.entries(tables)
+                          .filter(([, state]) => state !== 'missing')
+                          .map(([name, state]) => ({
+                              id: `example-${name}`,
+                              name,
+                              should_sync: state !== 'disabled',
+                              sync_frequency: '24hour',
+                              last_synced_at: state === 'ready' ? '2025-02-14T12:00:00Z' : null,
+                              status: state === 'syncing' ? 'Running' : 'Completed',
+                              table:
+                                  state === 'ready' ? { name: `example_${name}`, hogql_name: `example.${name}` } : null,
+                          })) as typeof source.schemas),
+                  ],
+              }
+            : source
+    )
+}
+
+function searchTermMocks(
+    tables: Record<'search_term_stats' | 'performance_max_search_term_stats', SearchTermTableStory>,
+    channelTypes: string[]
+): Mocks {
+    const sources = searchTermSources(tables)
+    return {
+        get: {
+            '/api/environments/:team_id/external_data_sources/': {
+                results: sources,
+                count: sources.length,
+                next: null,
+                previous: null,
+            },
+        },
+        post: {
+            '/api/environments/:team_id/query/HogQLQuery/': { results: [[channelTypes]] },
+        },
+        patch: {
+            '/api/projects/:team_id/external_data_sources/:id/bulk_update_schemas/': [200, []],
+        },
+    }
+}
+
+const openSearchTerms = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    await userEvent.click(await within(canvasElement).findByText('Search terms', { exact: true }))
+}
+
 const MOCKS: Mocks = {
     delete: { '/api/projects/:team_id/query/:query_id/': [204] },
     get: {
@@ -227,7 +299,9 @@ const MOCKS: Mocks = {
                               keyword: null,
                               matchType: null,
                           }))
-                        : ROWS
+                        : query.breakdown === 'search_term'
+                          ? [...SEARCH_TERM_ROWS, ...ROWS.filter((row) => row.platform === 'GoogleSearchConsole')]
+                          : ROWS
                     )
                         .filter(
                             (row) =>
@@ -326,7 +400,7 @@ const meta: Meta<typeof SearchPerformanceTab> = {
         layout: 'fullscreen',
         mockDate: '2025-02-15T12:00:00Z',
         msw: { mocks: MOCKS },
-        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&date_from=-7d`,
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance&date_from=-7d`,
         featureFlags: [
             FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
             FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS,
@@ -337,11 +411,11 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Connected: Story = {
-    parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=false` },
+    parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance&compare=false` },
 }
 export const Pagination: Story = {
     parameters: {
-        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true`,
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance&compare=true`,
         msw: {
             mocks: {
                 post: {
@@ -396,7 +470,7 @@ export const Pagination: Story = {
     },
 }
 export const Comparison: Story = {
-    parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&compare=true` },
+    parameters: { pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance&compare=true` },
     play: async ({ canvasElement }) => {
         await within(canvasElement).findByText('Google Search Console')
         const table = canvasElement.querySelector('.SearchPerformanceTable .LemonTable__content')!
@@ -447,6 +521,76 @@ export const LandingPages: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByText('Landing pages', { exact: true }))
     },
+}
+export const SearchTerms: Story = {
+    parameters: {
+        msw: {
+            mocks: searchTermMocks({ search_term_stats: 'ready', performance_max_search_term_stats: 'ready' }, [
+                'SEARCH',
+                'PERFORMANCE_MAX',
+            ]),
+        },
+    },
+    play: async (context) => {
+        await openSearchTerms(context)
+        const canvas = within(context.canvasElement)
+        await expect(await canvas.findByText('open source product analytics')).toBeVisible()
+        expect(canvas.queryByText(/Enable/)).toBeNull()
+    },
+}
+export const SearchTermsEnablePerformanceMax: Story = {
+    parameters: {
+        msw: {
+            mocks: searchTermMocks({ search_term_stats: 'ready', performance_max_search_term_stats: 'disabled' }, [
+                'SEARCH',
+                'PERFORMANCE_MAX',
+            ]),
+        },
+    },
+    play: async (context) => {
+        await openSearchTerms(context)
+        const canvas = within(context.canvasElement)
+        await expect(await canvas.findByText(/Enable the Performance Max search terms table/)).toBeVisible()
+        await expect(
+            await canvas.findByRole('button', { name: 'Enable Performance Max search terms table' })
+        ).toBeVisible()
+        await expect(await canvas.findByText('open source product analytics')).toBeVisible()
+    },
+}
+export const SearchTermsSyncing: Story = {
+    parameters: {
+        msw: {
+            mocks: searchTermMocks({ search_term_stats: 'missing', performance_max_search_term_stats: 'syncing' }, [
+                'PERFORMANCE_MAX',
+            ]),
+        },
+    },
+    play: async (context) => {
+        await openSearchTerms(context)
+        await expect(
+            await within(context.canvasElement).findByText(/The Performance Max search terms table is syncing/)
+        ).toBeVisible()
+    },
+}
+export const SearchTermsMissingTable: Story = {
+    parameters: {
+        msw: {
+            mocks: searchTermMocks({ search_term_stats: 'disabled', performance_max_search_term_stats: 'missing' }, [
+                'SEARCH',
+                'PERFORMANCE_MAX',
+            ]),
+        },
+    },
+    play: async (context) => {
+        await openSearchTerms(context)
+        const canvas = within(context.canvasElement)
+        await expect(await canvas.findByText(/Pull new schemas/)).toBeVisible()
+        await expect(await canvas.findByRole('button', { name: 'Enable search terms table' })).toBeVisible()
+    },
+}
+export const SearchTermsNarrow: Story = {
+    ...SearchTermsEnablePerformanceMax,
+    decorators: Narrow.decorators,
 }
 export const OrganicDetail: Story = {
     ...Comparison,
@@ -548,7 +692,13 @@ export const UnavailableSources: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
+        await expect(await canvas.findByText("Some search tables aren't ready")).toBeVisible()
         await expect(await canvas.findByText(/Enable keyword and keyword_stats/)).toBeVisible()
+        for (const header of canvas.getAllByRole('button', { name: /1 connection/ })) {
+            if (header.getAttribute('aria-expanded') === 'false') {
+                await userEvent.click(header)
+            }
+        }
         await expect(await canvas.findByText(/Waiting for the first sync/)).toBeVisible()
         await expect(await canvas.findByText(/out of date/)).toBeVisible()
         expect(canvas.queryByRole('table')).toBeNull()
@@ -699,31 +849,13 @@ export const SourcesError: Story = {
 export const LegacyScene: Story = {
     render: () => <MarketingAnalyticsScene />,
     parameters: {
-        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance`,
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance`,
         featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
-    },
-}
-export const NewDashboardScene: Story = {
-    ...LegacyScene,
-    parameters: {
-        ...LegacyScene.parameters,
-        featureFlags: [
-            FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
-            FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD,
-            FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
-        ],
     },
 }
 export const FlagOff: Story = {
     ...LegacyScene,
     parameters: { ...LegacyScene.parameters, featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING] },
-}
-export const NewDashboardFlagOff: Story = {
-    ...LegacyScene,
-    parameters: {
-        ...LegacyScene.parameters,
-        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
-    },
 }
 
 export const PositionMetrics: Story = {
@@ -816,24 +948,23 @@ export const PostHogConversions: Story = {
             },
         },
     },
-    render: function Render(): JSX.Element {
-        const { includeConversionGoals } = useValues(marketingAnalyticsLogic)
-        const { setAdPerformanceConversionGoals } = useActions(marketingAnalyticsLogic)
-        return (
-            <>
-                <MarketingAnalyticsFilters tabs={<></>} />
-                <LemonSwitch
-                    className="mb-4"
-                    label="Include conversion goals"
-                    checked={includeConversionGoals}
-                    onChange={setAdPerformanceConversionGoals}
-                />
-                <SearchPerformanceTab />
-            </>
-        )
-    },
+    render: (): JSX.Element => (
+        <>
+            <MarketingAnalyticsFilters tabs={<></>} />
+            <SearchPerformanceTab />
+        </>
+    ),
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
+        const toggleConversionGoals = async (): Promise<void> => {
+            await userEvent.click(canvas.getByRole('button', { name: 'Options' }))
+            await userEvent.click(
+                await within(canvasElement.ownerDocument.body).findByRole('switch', {
+                    name: 'Include conversion goals',
+                })
+            )
+            await userEvent.click(canvas.getByRole('button', { name: 'Options' }))
+        }
         await userEvent.click(await canvas.findByRole('button', { name: 'Landing pages' }))
         await userEvent.click(await canvas.findByRole('button', { name: 'Conversions' }))
         teamLogic.actions.loadCurrentTeamSuccess({
@@ -851,12 +982,12 @@ export const PostHogConversions: Story = {
             },
         })
         await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
-        await userEvent.click(canvas.getByRole('switch', { name: 'Include conversion goals' }))
+        await toggleConversionGoals()
         await waitFor(() =>
             expect(canvas.queryByRole('columnheader', { name: /Cost per Purchases/ })).not.toBeInTheDocument()
         )
         await expect(canvas.findByRole('columnheader', { name: /Reported conversions/ })).resolves.toBeVisible()
-        await userEvent.click(canvas.getByRole('switch', { name: 'Include conversion goals' }))
+        await toggleConversionGoals()
         await expect(canvas.findByRole('columnheader', { name: /Cost per Purchases/ })).resolves.toBeVisible()
     },
 }

@@ -10,6 +10,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import {
     API_SCOPES,
+    clampToKeyCreationScopes,
     type ScopeAccessLevel,
     scopeMatchesSearch,
     scopesArrayToObject,
@@ -33,11 +34,14 @@ const GRANTABLE_SCOPES = API_SCOPES.filter((scope) => !scope.unprivilegedExclude
 const readAllScopes = (): string[] =>
     GRANTABLE_SCOPES.filter((s) => !s.disabledActions?.includes('read')).map((s) => `${s.key}:read`)
 
-const fullAccessScopes = (): string[] =>
-    GRANTABLE_SCOPES.map((s) => (s.disabledActions?.includes('write') ? `${s.key}:read` : `${s.key}:write`))
+const fullAccessScopes = (): string[] => clampToKeyCreationScopes(GRANTABLE_SCOPES.map((s) => `${s.key}:write`))
 
 const SCOPE_PRESETS: { value: string; label: string; scopes: () => string[] }[] = [
-    { value: 'tasks', label: 'Tasks only (read and write)', scopes: () => ['task:read', 'task:write'] },
+    {
+        value: 'tasks',
+        label: 'Tasks and inbox (read and write)',
+        scopes: () => ['task:read', 'task:write', 'inbox:read', 'inbox:write'],
+    },
     { value: 'read_only', label: 'Read-only (everything)', scopes: readAllScopes },
     { value: 'full', label: 'Full access', scopes: fullAccessScopes },
 ]
@@ -104,7 +108,7 @@ function PosthogConnectionRow({ integration }: { integration: IntegrationType })
 
 function ConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
     const [region, setRegion] = useState<PosthogConnectRegion>('EU')
-    const [scopes, setScopes] = useState<string[]>(['task:read', 'task:write'])
+    const [scopes, setScopes] = useState<string[]>(['task:read', 'task:write', 'inbox:read', 'inbox:write'])
     const [searchTerm, setSearchTerm] = useState<string>('')
 
     const scopeActions = useMemo(() => scopesArrayToObject(scopes), [scopes])

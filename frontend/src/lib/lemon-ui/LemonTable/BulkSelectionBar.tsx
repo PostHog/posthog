@@ -19,6 +19,13 @@ export function BulkSelectionBar<T extends Record<string, any>, K extends BulkSe
     const isOpen = context.selectedCount > 0
     const [singular, plural] = noun
     const word = context.selectedCount === 1 ? singular : plural
+    const selectionLabel = config.getSelectionLabel?.(context) ?? `${context.selectedCount} ${word} selected`
+    const summary = <span className="text-secondary text-sm">{selectionLabel}</span>
+    const clearButton = (
+        <LemonButton type="secondary" size="small" onClick={context.clearSelection}>
+            Clear
+        </LemonButton>
+    )
 
     const bar = (
         <div
@@ -27,13 +34,11 @@ export function BulkSelectionBar<T extends Record<string, any>, K extends BulkSe
                 config.barClassName
             )}
         >
-            <span className="text-secondary text-sm">
-                {context.selectedCount} {word} selected
-            </span>
-            <LemonButton type="secondary" size="small" onClick={context.clearSelection}>
-                Clear
-            </LemonButton>
+            {config.actionsPlacement !== 'start' && summary}
+            {config.actionsPlacement !== 'start' && clearButton}
             {config.renderActions(context)}
+            {config.actionsPlacement === 'start' && clearButton}
+            {config.actionsPlacement === 'start' && summary}
         </div>
     )
 

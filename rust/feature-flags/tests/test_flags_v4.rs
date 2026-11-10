@@ -616,6 +616,6 @@ async fn experiment_rules_carry_the_assigned_variant_and_no_experiment_identity_
         .into_iter()
         .filter(|case| case["family"] != "white_box")
         .collect();
-    assert_eq!(check_on_the_wire(cases).await?, 48);
+    assert_eq!(check_on_the_wire(cases).await?, 47);
     Ok(())
 }

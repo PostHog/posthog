@@ -89,6 +89,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []
         const canceledResults: CyclotronJobInvocationResult[] = []
+        const hogFlows = await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss(
+            invocations.filter((item) => !item.cancelRequestedAt).map((item) => item.functionId)
+        )
 
         await Promise.all(
             invocations.map(async (item) => {
@@ -103,13 +106,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 }
 
                 const team = await this.deps.teamManager.getTeam(item.teamId)
-                const hogFlow = await this.hogFlowManager.getHogFlow(item.functionId)
+                const hogFlow = hogFlows[item.functionId]
                 if (!hogFlow || !team) {
                     logger.error('⚠️', 'Error finding hog flow', {
                         id: item.functionId,
                     })
 
                     failedInvocations.push(item)
+                    this.invocationResultsService.emailStatusService.queueUnavailableRun(item)
 
                     return
                 }
