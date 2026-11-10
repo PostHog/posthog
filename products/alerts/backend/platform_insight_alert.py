@@ -99,15 +99,18 @@ def investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | Non
     return alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
 
 
-def native_insight_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | None:
-    """An unsaved alert that presents an insight alert with no insight row the way the API shows a
-    row. Its `save` and `delete` raise, because every write goes to the platform. None when there is
-    no such alert or its insight is gone."""
+def native_insight_alert_view(team_id: int, alert_id: UUID) -> PlatformAlertConfigurationView | None:
+    """The team's insight alert with no insight row under `alert_id`, as the platform keeps it, or None."""
     configuration = get_configuration(
         team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id
     )
-    if configuration is None or configuration.legacy_configuration_id is not None:
-        return None
+    return configuration if configuration is not None and configuration.legacy_configuration_id is None else None
+
+
+def presented_alert(configuration: PlatformAlertConfigurationView, *, team_id: int) -> AlertConfiguration | None:
+    """An unsaved alert that presents an insight alert with no insight row the way the API shows a
+    row. Its `save` and `delete` raise, because every write goes to the platform. None when its
+    insight is gone."""
     alert = alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
     if alert is None:
         return None
