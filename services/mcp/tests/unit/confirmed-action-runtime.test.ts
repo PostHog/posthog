@@ -316,6 +316,28 @@ describe('executeConfirmedAction', () => {
         })
     })
 
+    it('refuses a confirmation prepared by a server that did not bind the input schema', async () => {
+        // Minted by the runtime before schema binding, with this file's codec settings. Accepting it
+        // again would let an executor drop arguments a newer build confirmed.
+        const { codec, stash, store } = setup()
+        const preSchemaBindingToken =
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6Ik1DUC1TSUdORUQtU1RBVEUifQ.eyJwYXlsb2FkIjp7ImRpZ2VzdCI6ImRhYjc3ZjY1OTYxMGU3YjU3M2NhYzA5OTdiOGE0YjlmNDg5YzczOTM4ZjVkZGIwNWY5YmEyZjM2ZTQwZTYyOTgifSwic3ViIjoiZGlkLTEiLCJhdWQiOiJlbmZvcmNlLTJmYSIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoxNzAwMDAwMzAwLCJqdGkiOiJub25jZS1maXhlZCJ9.WHqe6xjbxV0JQs51c4f11lPoXjuVuklfg9dDyD279E8'
+        store.set('mcp:signed-state:payload:nonce-fixed', '{"args":{"orgId":"acme"},"scope":null}')
+
+        const outcome = await executeConfirmedAction(makeContext('did-1'), {
+            incomingArgs: { [CONFIRMATION_HASH_ARG]: preSchemaBindingToken, [CONFIRMATION_WORD_ARG]: 'confirm' },
+            purpose: 'enforce-2fa',
+            inputSchema,
+            codec,
+            stash,
+        })
+
+        expect(outcome).toMatchObject({
+            ok: false,
+            result: { content: [{ text: expect.stringContaining('Run the prepare step again') }] },
+        })
+    })
+
     it('refuses on replay of the same hash', async () => {
         const { codec, stash } = setup()
         const hash = await mintToken(codec, stash, 'did-1', 'p', { orgId: 'x' })
