@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { logger } from '~/common/utils/logger'
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { PipelineResultType, dlq, ok } from '~/ingestion/framework/results'
+import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createRecordingTopHog } from '~/tests/helpers/tophog'
 import { EventHeaders } from '~/types'
 
@@ -50,6 +51,7 @@ describe('createParseKafkaMessageStep', () => {
             expect(result).toEqual(
                 ok({
                     message: mockMessage,
+                    eventBytes: expect.any(Number),
                     event: {
                         event: {
                             event: 'test_event',
@@ -90,6 +92,7 @@ describe('createParseKafkaMessageStep', () => {
             expect(result).toEqual(
                 ok({
                     message: mockMessage,
+                    eventBytes: expect.any(Number),
                     event: {
                         event: {
                             event: 'minimal_event',
@@ -126,6 +129,7 @@ describe('createParseKafkaMessageStep', () => {
             expect(result).toEqual(
                 ok({
                     message: mockMessage,
+                    eventBytes: expect.any(Number),
                     event: {
                         event: {
                             event: 'test_event',
@@ -163,6 +167,7 @@ describe('createParseKafkaMessageStep', () => {
             expect(result).toEqual(
                 ok({
                     message: mockMessage,
+                    eventBytes: expect.any(Number),
                     event: {
                         event: {
                             event: 'test_event',
@@ -203,6 +208,7 @@ describe('createParseKafkaMessageStep', () => {
             expect(result).toEqual(
                 ok({
                     message: mockMessage,
+                    eventBytes: expect.any(Number),
                     event: {
                         event: {
                             event: 'test_event',
@@ -222,6 +228,23 @@ describe('createParseKafkaMessageStep', () => {
                     },
                 })
             )
+        })
+    })
+
+    describe('event size', () => {
+        it('measures the data field in UTF-8 bytes, without the envelope or its escaping', async () => {
+            const data = JSON.stringify({
+                event: '$ai_generation',
+                distinct_id: 'user',
+                properties: { $ai_input: 'café "quoted" 😀' },
+            })
+            const message = createTestMessage({
+                value: Buffer.from(JSON.stringify({ data, token: 'test_token', uuid: VALID_UUID })),
+            })
+
+            const result = await step({ message })
+
+            expect(result).toEqual(ok(expect.objectContaining({ eventBytes: 98 })))
         })
     })
 

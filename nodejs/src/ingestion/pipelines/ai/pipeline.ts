@@ -68,6 +68,7 @@ import {
 } from './steps/offload-ai-blobs-step'
 import { createProcessAiEventStep } from './steps/process-ai-event-step'
 import { createSplitAiEventsStep } from './steps/split-ai-events-step'
+import { createStampAiEventBytesStep } from './steps/stamp-ai-event-bytes-step'
 import { createValidateAiEventTokensStep } from './steps/validate-ai-event-tokens'
 
 export interface AiIngestionPipelineConfig {
@@ -241,6 +242,7 @@ export function createAiIngestionPipeline<
             })
             .pipe(createNormalizeEventStep())
             .pipe(createProcessAiEventStep())
+            .pipe(createStampAiEventBytesStep())
             // Blob offload: extract blobs sequentially (cheap, no I/O), then
             // upload them through a fan-out/fan-in stage so per-blob uploads
             // share one concurrency cap across the whole chunk and reuse the
