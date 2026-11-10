@@ -645,8 +645,6 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         responseError,
         queryId,
         pollResponse,
-        hasMoreData,
-        dataLimit,
     } = useValues(dataNodeLogic)
     const { queryCancelled, isChartSettingsPanelOpen } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
@@ -659,8 +657,6 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
     const { skipRecommendation } = useActions(chartRecommendationLogic)
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
-    // The backend reports a limit only when it applied its default row limit to a query without a LIMIT clause.
-    const showRowLimitHint = !!response && !responseError && !responseLoading && hasMoreData && !!dataLimit
     const splitPaneRef = useRef<HTMLDivElement>(null)
     const splitView = !biMode && activeTab === OutputTab.Both
     const splitResizerProps = useMemo<ResizerLogicProps>(
@@ -1003,11 +999,6 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
             <div className="flex flex-wrap justify-between gap-x-4 px-2 border-t">
                 <div className="flex min-h-4 flex-wrap items-center gap-x-4">
                     {response && !responseError ? <LoadPreviewText localResponse={response} /> : null}
-                    {showRowLimitHint ? (
-                        <span className="text-xs text-muted" role="status" data-attr="sql-editor-row-limit">
-                            Add a LIMIT clause to return more rows.
-                        </span>
-                    ) : null}
                 </div>
                 <div className="flex items-center gap-4">
                     <ElapsedTime />
