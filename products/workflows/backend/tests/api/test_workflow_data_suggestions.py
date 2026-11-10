@@ -1,5 +1,6 @@
 from copy import deepcopy
 from io import StringIO
+from typing import TYPE_CHECKING, Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -13,6 +14,9 @@ from django.utils import timezone
 
 from clickhouse_driver.errors import NetworkError
 from parameterized import parameterized
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
 
 from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
@@ -49,7 +53,6 @@ from products.workflows.backend.services.data_suggestions.service import (
     _build_key,
     _build_lock_key,
     _cache_key,
-    _event_build_lock_key,
     _generation_lock_key,
     _to_cache,
     build_caller,
@@ -587,18 +590,28 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
             ("draft", "signed_up")
         ]
 
+    @patch(FLAG, return_value=True)
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_a_batch_that_lost_its_lock_saves_no_draft(self, suggest_ideas: MagicMock, plan_steps: MagicMock) -> None:
+    def test_a_batch_that_lost_its_lock_saves_no_draft(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag: MagicMock
+    ) -> None:
         suggest_ideas.return_value = [_idea("signed_up")]
         plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
-        lock_key = _event_build_lock_key(self.team.id, self.user.id, ("signed_up",))
-        cache.set(lock_key, "newer-run", 60)
+        url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build_for_events/"
+        click = {"events": ["signed_up"]}
+        with patch.object(build_event_workflows, "delay") as queue:
+            newer = self.client.post(url, click, format="json").json()
 
         build_event_workflows(self.team.id, self.user.id, ["signed_up"], "older-run")
+        drafts_after_stale_run = HogFlow.objects.filter(team=self.team).count()
+        while_newer_waits = self.client.post(url, click, format="json").json()
+        build_event_workflows(*queue.call_args.args)
+        done = self.client.post(url, click, format="json").json()
 
-        assert not HogFlow.objects.filter(team=self.team).exists()
-        assert cache.get(lock_key) == "newer-run"
+        assert (newer["status"], while_newer_waits["status"], drafts_after_stale_run) == ("building", "building", 0)
+        assert done["status"] == "ready"
+        assert [str(draft.id) for draft in HogFlow.objects.filter(team=self.team)] == done["workflow_ids"]
 
     @parameterized.expand(
         [
@@ -828,7 +841,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         build = {"suggestion_id": self._list()["suggestions"][0]["id"], "save_draft": True}
         build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
         plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
-        second_clicks: list = []
+        second_clicks: list[_MonkeyPatchedResponse] = []
 
         def plan_while_the_user_clicks_again(**_: object) -> PlannedWorkflow:
             plan_steps.side_effect = None
@@ -839,13 +852,15 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         first = self.client.post(build_url, build, format="json")
 
-        assert second_clicks[0].json() == {
-            "status": "building",
-            "workflow": None,
-            "uses_saved_template": False,
-            "workflow_id": None,
-            "missing_inputs": [],
-        }
+        assert [click.json() for click in second_clicks] == [
+            {
+                "status": "building",
+                "workflow": None,
+                "uses_saved_template": False,
+                "workflow_id": None,
+                "missing_inputs": [],
+            }
+        ]
         assert first.json()["status"] == "ready"
         assert HogFlow.objects.filter(team=self.team).count() == 1
 
@@ -1043,7 +1058,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         self._prepare_ideas(suggest_ideas, plan_steps)
         return WorkflowIdeaModel.objects.for_team(self.team.id).get()
 
-    def _save_premade(self, idea: WorkflowIdeaModel, project: str = "", **kwargs: object):
+    def _save_premade(self, idea: WorkflowIdeaModel, project: str = "", **kwargs: Any) -> "_MonkeyPatchedResponse":
         url = project or f"/api/projects/{self.team.id}"
         body = {"suggestion_id": str(idea.id), "save_draft": True}
         return self.client.post(f"{url}/workflow_data_suggestions/build/", body, format="json", **kwargs)
@@ -1105,11 +1120,21 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_saving_a_premade_idea_keeps_its_plan_and_takes_a_sender_verified_since(
+    def test_saving_a_premade_idea_keeps_its_stored_plan(self, suggest_ideas: MagicMock, plan_steps: MagicMock) -> None:
+        idea = self._premade_idea(suggest_ideas, plan_steps)
+        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Replanned")])
+
+        saved = self._save_premade(idea).json()
+
+        draft = HogFlow.objects.get(team=self.team, id=saved["workflow_id"])
+        assert draft.actions[1]["config"]["inputs"]["email"]["value"]["subject"] == "Welcome"
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_saving_a_premade_idea_takes_a_sender_verified_since(
         self, suggest_ideas: MagicMock, plan_steps: MagicMock
     ) -> None:
         idea = self._premade_idea(suggest_ideas, plan_steps)
-        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Replanned")])
         sender = Integration.objects.create(
             team=self.team, kind="email", config={"email": "hello@example.com", "verified": True}
         )
@@ -1117,8 +1142,7 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         saved = self._save_premade(idea).json()
 
         draft = HogFlow.objects.get(team=self.team, id=saved["workflow_id"])
-        email = draft.actions[1]["config"]["inputs"]["email"]["value"]
-        assert (email["subject"], email["from"]["integrationId"]) == ("Welcome", sender.id)
+        assert draft.actions[1]["config"]["inputs"]["email"]["value"]["from"]["integrationId"] == sender.id
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
