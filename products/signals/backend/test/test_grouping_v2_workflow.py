@@ -20,6 +20,7 @@ from products.signals.backend.temporal.grouping import (
     GenerateEmbeddingOutput,
     GenerateSearchQueriesInput,
     GenerateSearchQueriesOutput,
+    SignalGroupingCompletion,
 )
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.types import (
@@ -38,6 +39,7 @@ class _Recorder:
     def __init__(self) -> None:
         self.reads: list[str] = []
         self.drops: list[CaptureSignalDroppedInput] = []
+        self.completions: list[list[SignalGroupingCompletion]] = []
 
 
 async def _wait_until(predicate: Callable[[], bool], timeout: float = 30.0) -> None:
@@ -53,6 +55,7 @@ async def _drive(recorder: _Recorder, embedding_error: Callable[[], BaseExceptio
         source_type="issue",
         source_id="issue-1",
         description="Checkout crashes",
+        signal_id="signal-1",
     )
 
     @activity.defn(name="read_signals_from_s3_activity")
@@ -76,12 +79,16 @@ async def _drive(recorder: _Recorder, embedding_error: Callable[[], BaseExceptio
     async def fake_drop(input: CaptureSignalDroppedInput) -> None:
         recorder.drops.append(input)
 
+    @activity.defn(name="complete_signal_grouping_activity")
+    async def fake_complete(signals: list[SignalGroupingCompletion]) -> None:
+        recorder.completions.append(signals)
+
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=TASK_QUEUE,
             workflows=[TeamSignalGroupingV2Workflow],
-            activities=[fake_read, fake_type_examples, fake_embedding, fake_queries, fake_drop],
+            activities=[fake_read, fake_type_examples, fake_embedding, fake_queries, fake_drop, fake_complete],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             handle = await env.client.start_workflow(
@@ -125,3 +132,4 @@ async def test_non_retryable_failure_drops_the_batch_without_retrying(monkeypatc
     assert SECOND_BATCH_KEY in recorder.reads
     first_drop = recorder.drops[0]
     assert (first_drop.stage, first_drop.source_id) == ("grouping_prep", "issue-1")
+    assert [completion.signal_id for completion in recorder.completions[0]] == ["signal-1"]

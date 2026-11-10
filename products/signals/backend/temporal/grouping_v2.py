@@ -20,6 +20,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from products.signals.backend.temporal.grouping import (
     TYPE_EXAMPLES_CACHE_TTL,
     FetchSignalTypeExamplesOutput,
+    _complete_signal_batch,
     _process_signal_batch,
 )
 from products.signals.backend.temporal.types import (
@@ -48,6 +49,8 @@ def _is_terminal_batch_error(error: BaseException) -> bool:
 # continue_as_new every iteration, so this is fast), replace this
 # workflow.patched() call with workflow.deprecate_patch() and eventually remove.
 _PATCH_COLLECT_BATCH = "collect-batch-signals-v1"
+
+_PATCH_TERMINAL_BATCH = "terminal-batch-errors-v1"
 
 
 @dataclass(frozen=False)
@@ -251,12 +254,13 @@ class TeamSignalGroupingV2Workflow:
                 batch_size=len(collected.signals),
                 batch_keys=collected.object_keys,
             )
-            if _is_terminal_batch_error(e):
+            if workflow.patched(_PATCH_TERMINAL_BATCH) and _is_terminal_batch_error(e):
                 logger.warning(
                     "Dropping signal batch that can never succeed",
                     team_id=input.team_id,
                     batch_keys=collected.object_keys,
                 )
+                await _complete_signal_batch(collected.signals, {})
             else:
                 # Stash keys back so they're retried after continue_as_new.
                 # Sleep first to avoid hot-looping on deterministic failures.
