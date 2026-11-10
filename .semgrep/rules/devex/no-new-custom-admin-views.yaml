@@ -85,6 +85,101 @@ rules:
           category: maintainability
           subcategory: audit
           confidence: HIGH
+    - id: no-new-admin-url-routes
+      message: |
+          New staff pages go in the PostHog Admin console, not in a view routed under /admin/ in a
+          URLconf. Such a view skips Django admin's staff check unless it adds its own, and staff
+          do not find it from the console. Add a tool or a panel instead; see
+          posthog/admin/console/AGENTS.md. Under /admin/, a URLconf only redirects old paths with
+          MovedToConsole.page_redirect or RedirectView, or includes URL lists.
+          Pre-existing findings are grandfathered; only newly introduced findings block CI.
+      languages: [python]
+      severity: WARNING
+      patterns:
+          - pattern-either:
+                - pattern: path("$ROUTE", $VIEW, ...)
+                - pattern: re_path("$ROUTE", $VIEW, ...)
+          - metavariable-regex:
+                metavariable: $ROUTE
+                regex: ^\^?admin/
+          - metavariable-pattern:
+                metavariable: $VIEW
+                patterns:
+                    - pattern-not: MovedToConsole.page_redirect(...)
+                    - pattern-not: RedirectView.as_view(...)
+                    - pattern-not: include(...)
+                    - pattern-not: $X.urls
+      paths:
+          include:
+              - '**/urls.py'
+          exclude:
+              - posthog/admin/console/**
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+      metadata:
+          category: maintainability
+          subcategory: audit
+          confidence: HIGH
+    - id: no-new-admin-workflow-actions
+      message: |
+          A changelist action stays in Django admin only when it writes fields of the selected rows,
+          shows no page of its own and starts nothing. This action returns a page or a redirect, or
+          starts a task or a workflow, so it is a staff workflow. Make it a PostHog Admin console
+          operation instead; see /extending-the-admin-console.
+          Pre-existing findings are grandfathered; only newly introduced findings block CI.
+      languages: [python]
+      severity: WARNING
+      patterns:
+          - pattern-either:
+                - pattern: |
+                      @admin.action
+                      def $FUNC(...):
+                          $...BODY
+                - pattern: |
+                      @admin.action(...)
+                      def $FUNC(...):
+                          $...BODY
+                - pattern: |
+                      @django.contrib.admin.action
+                      def $FUNC(...):
+                          $...BODY
+                - pattern: |
+                      @django.contrib.admin.action(...)
+                      def $FUNC(...):
+                          $...BODY
+          - metavariable-pattern:
+                metavariable: $...BODY
+                pattern-either:
+                    - pattern: render(...)
+                    - pattern: TemplateResponse(...)
+                    - pattern: redirect(...)
+                    - pattern: FileResponse(...)
+                    - pattern: StreamingHttpResponse(...)
+                    - patterns:
+                          - pattern: $RESPONSE(...)
+                          - metavariable-regex:
+                                metavariable: $RESPONSE
+                                regex: ^HttpResponse
+                    - pattern: $X.delay(...)
+                    - pattern: $X.apply_async(...)
+                    - pattern: $X.start_workflow
+                    - pattern: $X.execute_workflow
+          # Report the name, not the whole function, so editing a grandfathered action keeps the same finding.
+          - focus-metavariable: $FUNC
+      paths:
+          include:
+              - '**/admin.py'
+              - '**/admin/**/*.py'
+          exclude:
+              - posthog/admin/console/**
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+      metadata:
+          category: maintainability
+          subcategory: audit
+          confidence: HIGH
     - id: no-new-custom-admin-templates
       message: |
           Django admin picks up a template under templates/admin/ by its path alone, so this file

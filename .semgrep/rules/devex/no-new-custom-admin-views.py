@@ -1,5 +1,6 @@
 # Test cases for no-new-custom-admin-views.
 # ruff: noqa
+from django.contrib.admin import action
 
 
 class TeamAdmin(admin.ModelAdmin):
@@ -20,8 +21,24 @@ class TeamAdmin(admin.ModelAdmin):
 
 
 urlpatterns = [
-    # ruleid: no-new-custom-admin-views
+    # ruleid: no-new-custom-admin-views, no-new-admin-url-routes
     path("admin/tophog/", admin.site.admin_view(tophog_dashboard_view)),
+    # ruleid: no-new-admin-url-routes
+    path("admin/redisvalues", redis_values_view, name="redis_values"),
+    # ruleid: no-new-admin-url-routes
+    re_path(r"^admin/apikeysearch/$", api_key_search_view),
+    # ok: no-new-admin-url-routes
+    path("admin/tophog/", MovedToConsole.page_redirect("TopHog", "/admin/console/tools/tophog/"), name="tophog"),
+    # ok: no-new-admin-url-routes
+    path("admin", RedirectView.as_view(url="/admin/", permanent=False)),
+    # ok: no-new-admin-url-routes
+    path("admin/old/", RedirectView.as_view(url="/admin/new/", permanent=False)),
+    # ok: no-new-admin-url-routes
+    path("admin/", include("loginas.urls")),
+    # ok: no-new-admin-url-routes
+    path("admin/", admin.site.urls),
+    # ok: no-new-admin-url-routes
+    path("api/admin/stats/", stats_view),
 ]
 
 
@@ -72,3 +89,47 @@ class DeletionRequestAdmin(admin.ModelAdmin):
 # ok: no-new-admin-workflow-hooks
 def save_model(request, obj):
     return obj
+
+
+class CampaignAdmin(admin.ModelAdmin):
+    # ok: no-new-admin-workflow-actions
+    @admin.action(description="Mark selected campaigns inactive")
+    def mark_inactive(self, request, queryset):
+        for campaign in queryset:
+            campaign.active = False
+            campaign.save(update_fields=["active"])
+            self.log_change(request, campaign, "Marked inactive")
+
+    @admin.action(description="Re-sync selected campaigns")
+    # ruleid: no-new-admin-workflow-actions
+    def resync(self, request, queryset):
+        for campaign in queryset:
+            resync_campaign.delay(campaign.pk)
+
+    @admin.action
+    # ruleid: no-new-admin-workflow-actions
+    def export(self, request, queryset):
+        return HttpResponse(build_csv(queryset), content_type="text/csv")
+
+    @action(description="Clone selected campaign")
+    # ruleid: no-new-admin-workflow-actions
+    def clone(self, request, queryset):
+        clone = queryset.first().clone()
+        return HttpResponseRedirect(reverse("admin:growth_campaign_change", args=[clone.pk]))
+
+    @admin.action(description="Revoke all sessions")
+    # ruleid: no-new-admin-workflow-actions
+    def revoke_sessions(self, request, queryset):
+        if request.POST.get("confirm"):
+            return None
+        return TemplateResponse(request, "admin/confirm.html", {})
+
+    @admin.action(description="Backfill selected campaigns")
+    # ruleid: no-new-admin-workflow-actions
+    def backfill(self, request, queryset):
+        async_to_sync(client.start_workflow)("backfill", id="backfill", task_queue="general")
+
+    # ok: no-new-admin-workflow-actions
+    def send_report(self, request, queryset):
+        send_report_task.delay()
+        return redirect("admin:index")
