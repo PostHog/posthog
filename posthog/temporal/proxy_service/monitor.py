@@ -346,6 +346,9 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
         )
     probe_base = f"https://{proxy_record.domain}"
     errors: list[str] = []
+    # Managed proxies share our routing, so with /i/v0 passing, a v1 miss points at our routing or
+    # a capture outage the customer can't act on. It's reported as a warning, not an error.
+    warnings: list[str] = []
 
     # send dummy event to check the proxy is working
     try:
@@ -380,7 +383,7 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
         for path, consequence in CAPTURE_V1_ROUTES:
             v1_error = _check_capture_v1_route(probe_base, path, consequence)
             if v1_error is not None:
-                errors.append(v1_error)
+                warnings.append(v1_error)
 
         # fetch the cert info to see how far away the expiry is - if less than 2 weeks we have a problem.
         # create_connection carries PROXY_LIVE_CHECK_TIMEOUT_S into the connect and the TLS handshake so
@@ -396,7 +399,7 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
         if not verdict.allowed:
             return CheckActivityOutput(
                 errors=[*errors, "Proxy domain does not resolve to a public address"],
-                warnings=[],
+                warnings=warnings,
             )
         chosen_ip = select_pinned_ip(verdict.pinned_ips)
         # An empty set means validation was bypassed (dev mode), so fall back to the hostname.
@@ -457,17 +460,17 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
         # are handled above; this catches the stdlib socket/ssl errors the cert probe can raise.
         return CheckActivityOutput(
             errors=[*errors, f"Failed to fetch proxy certificate: {e.__class__.__name__}"],
-            warnings=[],
+            warnings=warnings,
         )
 
     return CheckActivityOutput(
         errors=errors,
-        warnings=[],
+        warnings=warnings,
     )
 
 
 def _check_capture_v1_route(probe_base: str, path: str, consequence: str) -> str | None:
-    """Return an error if the proxy doesn't forward this capture v1 route, or None if it does.
+    """Return a warning if the proxy doesn't forward this capture v1 route, or None if it does.
 
     Mobile SDK majors (posthog-ios 4, posthog-android 4, posthog-flutter 6) send every event to
     /i/v1/analytics/events (and `captureAi` to /i/v1/ai/events) with no fallback, so a proxy that forwards /i/v0 but not /i/v1 drops
