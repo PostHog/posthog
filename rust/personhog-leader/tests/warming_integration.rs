@@ -848,6 +848,7 @@ async fn the_prune_tick_settles_published_partitions_only() {
         &locks,
         &pools,
         Duration::from_secs(5),
+        &mut personhog_leader::settle::CommitDelay::new(Duration::ZERO),
         |_| false,
     )
     .await;
@@ -870,6 +871,7 @@ async fn the_prune_tick_settles_published_partitions_only() {
         &locks,
         &pools,
         Duration::from_secs(5),
+        &mut personhog_leader::settle::CommitDelay::new(Duration::ZERO),
         |_| false,
     )
     .await;
@@ -928,19 +930,31 @@ async fn the_prune_tick_settles_a_retired_streams_marks_without_offsets() {
     dirty_index.mark(moved_key.clone(), mark_on(CHANGELOG_TOPIC, 0));
 
     // The writer committed on neither topic.
-    tokio::time::timeout(
-        Duration::from_secs(30),
-        personhog_leader::settle::prune_and_settle_tick(
-            &dirty_index,
-            &cache,
-            &locks,
-            &pools,
-            Duration::from_secs(5),
-            |topic| topic == RETIRED_TOPIC,
-        ),
-    )
-    .await
-    .expect("the tick must return once the retired stream is exhausted");
+    let delay = Duration::from_millis(200);
+    let mut commit_delay = personhog_leader::settle::CommitDelay::new(delay);
+    for tick in 0..2 {
+        tokio::time::timeout(
+            Duration::from_secs(30),
+            personhog_leader::settle::prune_and_settle_tick(
+                &dirty_index,
+                &cache,
+                &locks,
+                &pools,
+                Duration::from_secs(5),
+                &mut commit_delay,
+                |topic| topic == RETIRED_TOPIC,
+            ),
+        )
+        .await
+        .expect("the tick must return once the retired stream is exhausted");
+        if tick == 0 {
+            assert!(
+                dirty_index.get(&retired_key).is_some(),
+                "a retired stream's marks also wait out the reader delay"
+            );
+            tokio::time::sleep(delay + Duration::from_millis(100)).await;
+        }
+    }
 
     assert!(dirty_index.get(&retired_key).is_none());
     assert_eq!(
@@ -1009,6 +1023,7 @@ async fn the_prune_tick_drains_a_multi_chunk_death_backlog() {
         &locks,
         &pools,
         Duration::from_secs(5),
+        &mut personhog_leader::settle::CommitDelay::new(Duration::ZERO),
         |_| false,
     )
     .await;
@@ -1186,6 +1201,7 @@ async fn a_restart_warms_the_old_generations_congruent_tail_for_its_keys() {
         &locks,
         &pools,
         Duration::from_secs(5),
+        &mut personhog_leader::settle::CommitDelay::new(Duration::ZERO),
         |_| false,
     )
     .await;

@@ -42,6 +42,7 @@ impl storage::PersonLookup for FailingStorage {
         &self,
         _team_id: i64,
         _person_id: i64,
+        _include_properties: bool,
     ) -> storage::StorageResult<Option<storage::Person>> {
         Err(self.error.clone())
     }
@@ -50,6 +51,7 @@ impl storage::PersonLookup for FailingStorage {
         &self,
         _team_id: i64,
         _uuid: Uuid,
+        _include_properties: bool,
     ) -> storage::StorageResult<Option<storage::Person>> {
         Err(self.error.clone())
     }
@@ -76,6 +78,7 @@ impl storage::PersonLookup for FailingStorage {
         &self,
         _team_id: i64,
         _distinct_id: &str,
+        _include_properties: bool,
     ) -> storage::StorageResult<Option<storage::Person>> {
         Err(self.error.clone())
     }
@@ -477,6 +480,7 @@ impl storage::PersonLookup for SuccessStorage {
         &self,
         _team_id: i64,
         _person_id: i64,
+        _include_properties: bool,
     ) -> storage::StorageResult<Option<storage::Person>> {
         Ok(None)
     }
@@ -485,6 +489,7 @@ impl storage::PersonLookup for SuccessStorage {
         &self,
         _team_id: i64,
         _uuid: Uuid,
+        _include_properties: bool,
     ) -> storage::StorageResult<Option<storage::Person>> {
         Ok(None)
     }
@@ -511,6 +516,7 @@ impl storage::PersonLookup for SuccessStorage {
         &self,
         _team_id: i64,
         _distinct_id: &str,
+        _include_properties: bool,
     ) -> storage::StorageResult<Option<storage::Person>> {
         Ok(None)
     }
@@ -971,6 +977,7 @@ impl storage::PersonLookup for PopulatedStorage {
         &self,
         _team_id: i64,
         _person_id: i64,
+        _include_properties: bool,
     ) -> storage::StorageResult<Option<storage::Person>> {
         Ok(Some(Self::person()))
     }
@@ -979,6 +986,7 @@ impl storage::PersonLookup for PopulatedStorage {
         &self,
         _team_id: i64,
         _uuid: Uuid,
+        _include_properties: bool,
     ) -> storage::StorageResult<Option<storage::Person>> {
         Ok(Some(Self::person()))
     }
@@ -1005,6 +1013,7 @@ impl storage::PersonLookup for PopulatedStorage {
         &self,
         _team_id: i64,
         _distinct_id: &str,
+        _include_properties: bool,
     ) -> storage::StorageResult<Option<storage::Person>> {
         Ok(Some(Self::person()))
     }
@@ -1447,6 +1456,7 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         &self,
         _team_id: i64,
         _person_id: i64,
+        _include_properties: bool,
     ) -> storage::StorageResult<Option<storage::Person>> {
         Ok(None)
     }
@@ -1455,6 +1465,7 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         &self,
         _team_id: i64,
         _uuid: Uuid,
+        _include_properties: bool,
     ) -> storage::StorageResult<Option<storage::Person>> {
         Ok(None)
     }
@@ -1481,6 +1492,7 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         &self,
         _team_id: i64,
         _distinct_id: &str,
+        _include_properties: bool,
     ) -> storage::StorageResult<Option<storage::Person>> {
         Ok(None)
     }

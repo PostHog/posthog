@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use kube::Client;
@@ -10,6 +11,7 @@ use tonic::transport::{Channel, Endpoint};
 use tower::discover::Change;
 use tracing::{info, warn};
 
+use crate::backend::affinity::PodChannels;
 use crate::config::Http2Windows;
 
 const DISCOVERY_CHANNEL_BUFFER: usize = 64;
@@ -34,6 +36,7 @@ pub struct EndpointDiscovery {
     port: u16,
     endpoint_config: EndpointConfig,
     tx: Sender<Change<SocketAddr, Endpoint>>,
+    pods: Arc<PodChannels>,
     ready_tx: watch::Sender<bool>,
     cancel: CancellationToken,
 }
@@ -78,11 +81,16 @@ impl EndpointDiscovery {
             port,
             endpoint_config,
             tx,
+            pods: Arc::default(),
             ready_tx,
             cancel,
         };
 
         (channel, DiscoveryReadiness { rx: ready_rx }, discovery)
+    }
+
+    pub fn pods(&self) -> Arc<PodChannels> {
+        Arc::clone(&self.pods)
     }
 
     /// Constructor for unit tests: accepts a pre-built sender so tests can
@@ -112,6 +120,7 @@ impl EndpointDiscovery {
                 http2_windows: Http2Windows::default(),
             },
             tx,
+            pods: Arc::default(),
             ready_tx,
             cancel: CancellationToken::new(),
         };
@@ -166,6 +175,7 @@ impl EndpointDiscovery {
     ) {
         for addr in desired.difference(active_addrs) {
             let endpoint = self.build_endpoint(*addr);
+            self.pods.insert(*addr, endpoint.clone().connect_lazy());
             if self.tx.send(Change::Insert(*addr, endpoint)).await.is_ok() {
                 metrics::counter!("personhog_router_discovery_updates_total", "action" => "insert")
                     .increment(1);
@@ -173,6 +183,7 @@ impl EndpointDiscovery {
         }
 
         for addr in active_addrs.difference(desired) {
+            self.pods.remove(*addr);
             if self.tx.send(Change::Remove(*addr)).await.is_ok() {
                 metrics::counter!("personhog_router_discovery_updates_total", "action" => "remove")
                     .increment(1);

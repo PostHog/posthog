@@ -544,18 +544,22 @@ async fn build_channel_backend(
                 discovery_handle.shutdown_token(),
             );
 
+            let pods = discovery.pods();
             tokio::spawn(async move {
                 let _guard = discovery_handle.process_scope();
                 discovery.run().await;
             });
 
             (
-                Arc::new(ChannelBackend::new_k8s(
-                    role,
-                    channel,
-                    config.retry_config(),
-                    readiness.clone(),
-                )),
+                Arc::new(
+                    ChannelBackend::new_k8s(
+                        role,
+                        channel,
+                        config.retry_config(),
+                        readiness.clone(),
+                    )
+                    .with_pods(pods),
+                ),
                 Some(readiness),
             )
         }
