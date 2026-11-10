@@ -29,3 +29,12 @@ class TestWizardScanViewSet(APIBaseTest):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
         assert self._post() == status.HTTP_403_FORBIDDEN
+
+    def test_lists_detected_sources(self) -> None:
+        payload = {**self._payload(), "tools": [{"kind": "Stripe", "signals": [{"source": "npm", "name": "stripe"}]}]}
+        self.client.post(f"/api/projects/{self.team.id}/wizard/scans/", payload, format="json")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/wizard/scans/detected_sources/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [source["warehouse_source_type"] for source in response.json()] == ["Stripe"]
