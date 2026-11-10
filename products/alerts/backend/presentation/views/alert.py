@@ -2066,7 +2066,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for check in firing_checks:
                 checks_by_alert.setdefault(str(check.alert_configuration_id), []).append(check)
             for alert in alerts:
-                alert.checks = checks_by_alert.get(str(alert.id), [])
+                alert.checks = checks_by_alert.get(str(alert.id), [])  # type: ignore[attr-defined]
 
         if page is not None:
             serializer = self.get_serializer(alerts, many=True)
