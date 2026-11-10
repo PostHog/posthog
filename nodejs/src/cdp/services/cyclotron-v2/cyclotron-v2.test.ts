@@ -729,8 +729,8 @@ describe('Cyclotron V2', () => {
                     const second = m.createJob({ teamId: 1, queueName: QUEUE })
                     await depth.entered()
 
-                    await waitForExpect(async () => expect(await storedJobs()).toBe(2))
-                    await second
+                    expect(await stillPendingAfter(second, 200)).toBe(false)
+                    expect(await storedJobs()).toBe(2)
                 })
             })
 
