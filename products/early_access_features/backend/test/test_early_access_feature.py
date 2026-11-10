@@ -1270,6 +1270,20 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             REMOTE_ADDR=ip,
         )
 
+    def _expected_sprocket_preview(self, feature, **overrides):
+        return {
+            "id": str(feature.id),
+            "name": "Sprocket",
+            "description": "A fancy new sprocket.",
+            "stage": "beta",
+            "documentationUrl": "",
+            "imageUrl": "",
+            "payload": {},
+            "flagKey": "sprocket",
+            "assignee": None,
+            **overrides,
+        }
+
     @snapshot_postgres_queries
     def test_early_access_features(self):
         create_person(
@@ -1314,19 +1328,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
             self.assertListEqual(
                 response.json()["earlyAccessFeatures"],
-                [
-                    {
-                        "id": str(feature.id),
-                        "name": "Sprocket",
-                        "description": "A fancy new sprocket.",
-                        "stage": "beta",
-                        "documentationUrl": "",
-                        "imageUrl": "",
-                        "payload": {},
-                        "flagKey": "sprocket",
-                        "assignee": None,
-                    }
-                ],
+                [self._expected_sprocket_preview(feature)],
             )
 
     @snapshot_postgres_queries
@@ -1373,19 +1375,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
             self.assertListEqual(
                 response.json()["earlyAccessFeatures"],
-                [
-                    {
-                        "id": str(feature.id),
-                        "name": "Sprocket",
-                        "description": "A fancy new sprocket.",
-                        "stage": "beta",
-                        "documentationUrl": "",
-                        "imageUrl": "",
-                        "payload": {},
-                        "flagKey": "sprocket",
-                        "assignee": None,
-                    }
-                ],
+                [self._expected_sprocket_preview(feature)],
             )
 
     @snapshot_postgres_queries
@@ -1421,19 +1411,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
             self.assertListEqual(
                 response.json()["earlyAccessFeatures"],
-                [
-                    {
-                        "id": str(feature.id),
-                        "name": "Sprocket",
-                        "description": "A fancy new sprocket.",
-                        "stage": "beta",
-                        "documentationUrl": "",
-                        "imageUrl": "",
-                        "payload": {},
-                        "flagKey": "sprocket",
-                        "assignee": None,
-                    }
-                ],
+                [self._expected_sprocket_preview(feature)],
             )
 
     def test_early_access_features_beta_only(self):
@@ -1492,19 +1470,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
             self.assertListEqual(
                 response.json()["earlyAccessFeatures"],
-                [
-                    {
-                        "id": str(feature.id),
-                        "name": "Sprocket",
-                        "description": "A fancy new sprocket.",
-                        "stage": "beta",
-                        "documentationUrl": "",
-                        "imageUrl": "",
-                        "payload": {},
-                        "flagKey": "sprocket",
-                        "assignee": None,
-                    }
-                ],
+                [self._expected_sprocket_preview(feature)],
             )
 
     def test_early_access_features_errors_out_on_random_token(self):
@@ -1589,19 +1555,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
             self.assertListEqual(
                 response.json()["earlyAccessFeatures"],
-                [
-                    {
-                        "id": str(feature.id),
-                        "name": "Sprocket",
-                        "description": "A fancy new sprocket.",
-                        "stage": "beta",
-                        "documentationUrl": "",
-                        "imageUrl": "",
-                        "payload": payload,
-                        "flagKey": "sprocket",
-                        "assignee": None,
-                    }
-                ],
+                [self._expected_sprocket_preview(feature, payload=payload)],
             )
 
     def test_early_access_features_includes_assignee_display_name_in_preview(self):
