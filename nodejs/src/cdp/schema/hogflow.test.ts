@@ -42,6 +42,21 @@ describe('hogflow schema', () => {
         })
     })
 
+    describe('wait_until_time_window', () => {
+        it.each([
+            [['monday'], true],
+            [[], false],
+        ])('day %j → valid=%p', (day, valid) => {
+            const result = HogFlowActionSchema.safeParse({
+                ...commonActionFields,
+                type: 'wait_until_time_window',
+                config: { timezone: 'UTC', day, time: 'any' },
+            })
+
+            expect(result.success).toBe(valid)
+        })
+    })
+
     describe('wait_until_condition events', () => {
         const baseConfig = {
             condition: { filters: {} },
