@@ -45,6 +45,8 @@ class SlackAppWorkFocusWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SlackAppWorkFocusInputs) -> None:
+        if inputs.start_delay_seconds > 0:
+            await workflow.sleep(timedelta(seconds=inputs.start_delay_seconds))
         outcome = await workflow.execute_activity(
             find_slack_app_work_focus_activity,
             inputs,

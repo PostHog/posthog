@@ -307,6 +307,8 @@ class SlackDailyFocus(UUIDModel):
     )
     # NULL while the daily work focus is off. The sweep runs every row whose time has come.
     next_run_at = models.DateTimeField(null=True, blank=True)
+    # The next run reads the messages sent after it, and a changed time never adds a second run on its day.
+    last_run_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

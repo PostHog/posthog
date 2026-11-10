@@ -14,7 +14,7 @@ from django.test import override_settings
 from rest_framework.test import APIClient
 
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneResult
-from posthog.models import Organization
+from posthog.models import Organization, OrganizationMembership
 from posthog.models.integration import Integration
 from posthog.token_bucket import BucketDecision
 
@@ -32,7 +32,7 @@ from products.slack_app.backend.logic.onboarding.work_focus import (
     find_and_send_work_focus,
     work_focus_blocks,
 )
-from products.slack_app.backend.models import SlackDailyFocus, SlackSettings
+from products.slack_app.backend.models import SlackDailyFocus, SlackSettings, SlackUserProfileCache
 from products.slack_app.backend.services.slack_settings import resolve_onboarding
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
@@ -346,9 +346,17 @@ def test_do_it_shows_the_request_and_only_start_runs_it_once(mock_slack_cls: Mag
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("chose_before, turns_on", [(None, True), (False, False)])
+@pytest.mark.parametrize(
+    "chose_before, quiet, turns_on",
+    [
+        (None, False, True),
+        # A quiet search sends no DM, but the link step promised the daily runs, so they still start.
+        (None, True, True),
+        (False, False, False),
+    ],
+)
 def test_the_onboarding_turns_the_daily_work_focus_on_unless_the_person_chose(
-    chose_before: bool | None, turns_on: bool, org_team_user, link_user, slack: dict[str, MagicMock]
+    chose_before: bool | None, quiet: bool, turns_on: bool, org_team_user, link_user, slack: dict[str, MagicMock]
 ) -> None:
     _, team, user = org_team_user
     integration = _install(team)
@@ -358,12 +366,21 @@ def test_the_onboarding_turns_the_daily_work_focus_on_unless_the_person_chose(
             slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID, integration_id=integration.id
         )
 
-    with patch(f"{WORK_FOCUS}.is_slack_app_daily_work_focus_enabled", return_value=True):
-        assert find_and_send_work_focus(integration, SLACK_USER_ID) == "sent"
+    if quiet:
+        slack["ranker"].return_value.decide.side_effect = None
+        slack["ranker"].return_value.decide.return_value = SystemOneResult(model="jev", answers={}, input_tokens=None)
 
+    with patch(f"{WORK_FOCUS}.is_slack_app_daily_work_focus_enabled", return_value=True):
+        outcome = find_and_send_work_focus(integration, SLACK_USER_ID)
+
+    assert resolve_daily_focus(SLACK_TEAM_ID, SLACK_USER_ID).enabled is turns_on
+    if quiet:
+        assert outcome == "nothing_actionable"
+        slack["bot"].chat_postMessage.assert_not_called()
+        return
+    assert outcome == "sent"
     dm = slack["bot"].chat_postMessage.call_args.kwargs
     assert (DAILY_FOCUS_OFF_ACTION_ID in action_ids(dm["blocks"])) is turns_on
-    assert resolve_daily_focus(SLACK_TEAM_ID, SLACK_USER_ID).enabled is turns_on
 
 
 SINCE = datetime(2026, 11, 6, 8, 0, tzinfo=UTC)
@@ -387,6 +404,17 @@ def test_a_daily_run_reads_since_the_last_run_and_sends_once(
     integration = _install(team)
     link_user(user, user_scopes="search:read.public")
     _turn_on_daily(integration)
+    # The sweep claimed Monday's run and scheduled Tuesday's with the cached profile, which has no timezone yet.
+    SlackDailyFocus.objects.update(
+        last_run_at=datetime(2026, 11, 9, 8, 0, tzinfo=UTC), next_run_at=datetime(2026, 11, 10, 8, 0, tzinfo=UTC)
+    )
+    SlackUserProfileCache.objects.create(
+        integration_id=integration.id,
+        slack_user_id=SLACK_USER_ID,
+        tz="",
+        refreshed_at=datetime(2026, 11, 9, 8, 30, tzinfo=UTC),
+    )
+    slack["bot"].users_info.return_value = {"ok": True, "user": {"tz": "America/New_York"}}
 
     with (
         patch(f"{WORK_FOCUS}.is_slack_app_daily_work_focus_enabled", return_value=True),
@@ -404,10 +432,13 @@ def test_a_daily_run_reads_since_the_last_run_and_sends_once(
     blocks = bot_integration.return_value.client.chat_postMessage.call_args.kwargs["blocks"]
     assert action_ids(blocks)[-1] == DAILY_FOCUS_OFF_ACTION_ID
     assert "I read your messages since Friday" in all_block_text(blocks)
+    assert "(America/New_York)" in all_block_text(blocks)
+    # The run fetched the timezone again, so Tuesday's run moves to 09:00 in New York.
+    assert SlackDailyFocus.objects.get().next_run_at == datetime(2026, 11, 10, 14, 0, tzinfo=UTC)
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("reason", ["quiet_day", "turned_off", "flag_off", "out_of_ai_credits"])
+@pytest.mark.parametrize("reason", ["quiet_day", "turned_off", "flag_off", "no_project_access", "out_of_ai_credits"])
 def test_a_daily_run_sends_nothing_on_a_quiet_day_or_when_turned_off(
     reason: str, org_team_user, link_user, slack: dict[str, MagicMock]
 ) -> None:
@@ -418,6 +449,8 @@ def test_a_daily_run_sends_nothing_on_a_quiet_day_or_when_turned_off(
     _turn_on_daily(integration)
     if reason == "turned_off":
         SlackDailyFocus.objects.update(next_run_at=None)
+    if reason == "no_project_access":
+        OrganizationMembership.objects.filter(user=user).delete()
     if reason == "quiet_day":
         slack["ranker"].return_value.decide.side_effect = None
         slack["ranker"].return_value.decide.return_value = SystemOneResult(model="jev", answers={}, input_tokens=None)

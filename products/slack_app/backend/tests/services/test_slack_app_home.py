@@ -752,13 +752,25 @@ class TestDailyFocusControls:
         assert (row is not None) is stored
         assert (row.next_run_at if row else None) == expected_next_run
 
-    def test_a_new_time_moves_the_next_run(self, slack_integration, mock_slack_client, flag_on, link_user):
+    @pytest.mark.parametrize(
+        "last_run_at, expected_next_run",
+        [
+            # Still today, because 14:30 in Prague comes after noon UTC.
+            (datetime(2026, 11, 6, 8, 0, tzinfo=UTC), datetime(2026, 11, 9, 13, 30, tzinfo=UTC)),
+            # Today's 09:00 run already went out, so the new time starts tomorrow, not with a second DM today.
+            (datetime(2026, 11, 9, 8, 0, tzinfo=UTC), datetime(2026, 11, 10, 13, 30, tzinfo=UTC)),
+        ],
+    )
+    def test_a_new_time_moves_the_next_run(
+        self, slack_integration, mock_slack_client, flag_on, link_user, last_run_at, expected_next_run
+    ):
         self._link(slack_integration, link_user, "search:read.public")
         SlackDailyFocus.objects.create(
             slack_workspace_id=SLACK_WORKSPACE_ID,
             slack_user_id="U001",
             integration_id=slack_integration.id,
             next_run_at=datetime(2026, 11, 10, 8, 0, tzinfo=UTC),
+            last_run_at=last_run_at,
         )
 
         with time_machine.travel(datetime(2026, 11, 9, 12, 0, tzinfo=UTC), tick=False):
@@ -766,8 +778,7 @@ class TestDailyFocusControls:
 
         row = SlackDailyFocus.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
         assert row.at == time(14, 30)
-        # Still today, because 14:30 in Prague comes after noon UTC.
-        assert row.next_run_at == datetime(2026, 11, 9, 13, 30, tzinfo=UTC)
+        assert row.next_run_at == expected_next_run
 
     def _link(self, slack_integration, link_user, scopes: str) -> None:
         user = User.objects.create_and_join(slack_integration.team.organization, "daily@example.com", None)

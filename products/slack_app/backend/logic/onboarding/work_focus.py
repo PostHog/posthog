@@ -34,12 +34,13 @@ from products.slack_app.backend.feature_flags import is_slack_app_daily_work_foc
 from products.slack_app.backend.logic.daily_focus import (
     daily_focus_footer_block,
     person_zone,
+    reschedule_daily_focus,
     resolve_daily_focus,
     turn_on_daily_focus,
 )
 from products.slack_app.backend.logic.onboarding.actions import WORK_FOCUS_START_ACTION_ID, WORK_FOCUS_TASK_ACTION_ID
 from products.slack_app.backend.logic.onboarding.checks import has_ai_approval
-from products.slack_app.backend.logic.onboarding.step import read_action_value
+from products.slack_app.backend.logic.onboarding.step import OnboardingContext, read_action_value
 from products.slack_app.backend.services.slack_messages import context_block, section_block
 from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
 from products.slack_app.backend.services.slack_user_oauth import linked_user_token
@@ -58,9 +59,13 @@ SEARCH_LOOKBACK = timedelta(days=30)
 # of the two searches stay at six calls, the most one person's run may take.
 SEARCH_LIMIT = 20
 SEARCH_PAGES = 3
-SEARCH_CALLS = 2 * SEARCH_PAGES
 # A workspace gets about 10 search calls a minute, so a burst of links waits for tokens.
 SEARCH_BUDGET = Budget(burst=10, per_hour=600)
+# A daily run reads one workday, so one page of each search is enough.
+DAILY_SEARCH_PAGES = 1
+DAILY_SEARCH_CALLS = 2 * DAILY_SEARCH_PAGES
+# Daily runs in one workspace start this far apart, so together they stay within its search budget.
+DAILY_RUN_SPACING_SECONDS = 3600 * DAILY_SEARCH_CALLS // SEARCH_BUDGET.per_hour
 MIN_MESSAGES = 5
 # One workday can bring a single message worth acting on.
 DAILY_MIN_MESSAGES = 1
@@ -205,6 +210,9 @@ def find_and_send_daily_focus(integration: WorkspaceIntegration, slack_user_id: 
     daily = resolve_daily_focus(integration.integration_id, slack_user_id)
     if not daily.enabled:
         return "turned_off"
+    # The Slack link outlives an organization membership, and the run spends the project's AI credits.
+    if not OnboardingContext(integration=integration, slack_user_id=slack_user_id).has_project_access:
+        return "no_project_access"
     if not has_ai_approval(integration.team_id):
         return "no_ai_consent"
     if _out_of_ai_credits(integration):
@@ -212,10 +220,11 @@ def find_and_send_daily_focus(integration: WorkspaceIntegration, slack_user_id: 
     # A task started from the DM reads its thread with the bot, so suggestions need the bot's DM scope.
     if SlackIntegration(integration).missing_scopes(frozenset({"im:history"})):
         return "missing_bot_scope"
-    found = _find(integration, slack_user_id, after=since, min_messages=DAILY_MIN_MESSAGES)
+    zone = person_zone(integration, slack_user_id)
+    reschedule_daily_focus(integration, slack_user_id, zone)
+    found = _find(integration, slack_user_id, after=since, min_messages=DAILY_MIN_MESSAGES, pages=DAILY_SEARCH_PAGES)
     if isinstance(found, str):
         return found
-    zone = person_zone(integration, slack_user_id)
     blocks = [
         *work_focus_blocks(integration, found.focus, slack_user_id, privacy=_daily_privacy_line(since, zone)),
         daily_focus_footer_block(integration, daily.at, zone, first=False),
@@ -252,29 +261,33 @@ class _DailyFooter:
     zone: ZoneInfo
 
 
-def _daily_focus_to_turn_on(integration: WorkspaceIntegration, slack_user_id: str) -> _DailyFooter | None:
-    """The onboarding turns the daily work focus on, unless the person already chose."""
+def _daily_focus_footer(integration: WorkspaceIntegration, slack_user_id: str) -> _DailyFooter | None:
+    """The onboarding turns the daily work focus on, unless the person already chose. The footer shows while it is
+    on."""
     if not is_slack_app_daily_work_focus_enabled(integration):
         return None
     daily = resolve_daily_focus(integration.integration_id, slack_user_id)
-    if daily.enabled is not None:
+    if daily.enabled is None:
+        turn_on_daily_focus(integration, slack_user_id, source="onboarding")
+    elif not daily.enabled:
         return None
     return _DailyFooter(at=daily.at, zone=person_zone(integration, slack_user_id))
 
 
 def _find_and_send(integration: WorkspaceIntegration, slack_user_id: str) -> str:
     found = _find(integration, slack_user_id, after=timezone.now() - SEARCH_LOOKBACK, min_messages=MIN_MESSAGES)
+    if found == "no_search_scope":
+        return found
+    # Turned on before anything is sent, as the link step says. A quiet search still leaves the daily runs on, and
+    # a retry after a failed write to the database finds them on and shows the footer.
+    daily = _daily_focus_footer(integration, slack_user_id)
     if isinstance(found, str):
         return found
     blocks = work_focus_blocks(integration, found.focus, slack_user_id)
-    daily = _daily_focus_to_turn_on(integration, slack_user_id)
     if daily is not None:
         blocks.append(daily_focus_footer_block(integration, daily.at, daily.zone, first=True))
     _ready_to_send(integration, slack_user_id)
-    outcome = _post(integration, slack_user_id, found, blocks, mode="onboarding")
-    if outcome == "sent" and daily is not None:
-        turn_on_daily_focus(integration, slack_user_id, source="onboarding")
-    return outcome
+    return _post(integration, slack_user_id, found, blocks, mode="onboarding")
 
 
 @frozen
@@ -284,13 +297,20 @@ class _Found:
     candidate_count: int
 
 
-def _find(integration: WorkspaceIntegration, slack_user_id: str, *, after: datetime, min_messages: int) -> _Found | str:
+def _find(
+    integration: WorkspaceIntegration,
+    slack_user_id: str,
+    *,
+    after: datetime,
+    min_messages: int,
+    pages: int = SEARCH_PAGES,
+) -> _Found | str:
     """The suggestions from the messages sent after ``after``, or the outcome that stops the run."""
     token = linked_user_token(slack_user_id=slack_user_id, slack_team_id=integration.integration_id)
     if token is None or "search:read.public" not in token.scopes:
         return "no_search_scope"
     channel_types = [kind for kind, scope in _CHANNEL_TYPE_SCOPES.items() if scope in token.scopes]
-    messages = _search_messages(integration, token.access_token, slack_user_id, channel_types, after=after)
+    messages = _search_messages(integration, token.access_token, slack_user_id, channel_types, after=after, pages=pages)
     if messages is None:
         raise WorkFocusTransientError("search failed")
     if len(messages) < min_messages:
@@ -352,6 +372,7 @@ def _search_messages(
     channel_types: list[str],
     *,
     after: datetime,
+    pages: int = SEARCH_PAGES,
 ) -> list[_FoundMessage] | None:
     client = SlackWebClient(
         access_token, source="slack_app_work_focus", workspace_id=integration.integration_id, app_id="posthog"
@@ -359,7 +380,8 @@ def _search_messages(
     found: dict[tuple[str, str], _FoundMessage] = {}
     # All calls are reserved at once, so two runs cannot each take one call and both fail on the next one.
     bucket = f"slack_app:work_focus_search:{integration.integration_id}"
-    decision = consume(bucket, SEARCH_BUDGET, cost=SEARCH_CALLS)
+    cost = 2 * pages
+    decision = consume(bucket, SEARCH_BUDGET, cost=cost)
     if isinstance(decision, BucketDecision) and not decision.allowed:
         raise WorkFocusRateLimited
     calls = 0
@@ -367,7 +389,7 @@ def _search_messages(
         # The person's own messages, then the messages that mention them.
         for query in (f"from:<@{slack_user_id}>", f"<@{slack_user_id}>"):
             cursor = ""
-            for _ in range(SEARCH_PAGES):
+            for _ in range(pages):
                 params: dict[str, Any] = {
                     "query": query,
                     "channel_types": ",".join(channel_types),
@@ -396,8 +418,8 @@ def _search_messages(
                 if not cursor:
                     break
     finally:
-        if calls < SEARCH_CALLS:
-            refund(bucket, SEARCH_BUDGET, SEARCH_CALLS - calls)
+        if calls < cost:
+            refund(bucket, SEARCH_BUDGET, cost - calls)
     return list(found.values())
 
 
