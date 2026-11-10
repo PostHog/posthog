@@ -371,9 +371,13 @@ export function SettingsTab(): JSX.Element {
                           teamOnboarded &&
                           warehouseStatus?.connection && <ConnectionDetails connection={warehouseStatus.connection} />}
 
-                    {isTrino && isReady && trinoStatus?.state === 'ready' && <MyHoglakeCredentials />}
-
-                    {isTrino && isReady && trinoStatus?.state === 'ready' && <HoglakeCredentials />}
+                    {/* Hoglake credentials reach only a hoglake catalog: a DuckLake one has nothing behind them. */}
+                    {isTrino && isReady && trinoStatus?.state === 'ready' && warehouseStatus?.trino?.hoglake && (
+                        <>
+                            <MyHoglakeCredentials />
+                            <HoglakeCredentials />
+                        </>
+                    )}
 
                     {isReady && !teamOnboarded && adminRestrictionReason && (
                         <div className="border rounded p-4 space-y-3">

@@ -167,7 +167,7 @@ class ClientRegistrationView(ProvisioningAPIView):
             return
 
         try:
-            key_ids = describe_jwks(app.jwks_uri)
+            key_ids = describe_jwks(app)
         except ClientAssertionError as exc:
             _record(checks, "jwks", False, str(exc))
             return
