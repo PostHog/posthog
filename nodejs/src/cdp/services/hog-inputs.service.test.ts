@@ -11,6 +11,7 @@ import { Hub, Team } from '~/types'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { deadlineAfter } from '../utils/deadline'
 import { classifyHogError } from '../utils/hog-error-classification'
 import { NATIVE_PUSH_TEMPLATE_ID } from '../utils/push-subscription-utils'
 import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
@@ -270,53 +271,123 @@ describe('Hog Inputs', () => {
             ).rejects.toThrow('The verification deadline passed')
         })
 
-        it('runs no hog input whose deadline passes while it waits for its turn on the event loop', async () => {
-            const onlyHog = createHogFunction({
-                ...hogFunction,
-                inputs: { only: { value: 'x', templating: 'hog', bytecode: ['_H', 1, 32, 'x'] } },
-                inputs_schema: [],
-            })
-            const threshold = getEventLoopYieldThresholdMs()
-            await new Promise((resolve) => setTimeout(resolve, 5))
-            configureEventLoopYield(0)
-            jest.useFakeTimers({
-                doNotFake: [
-                    'hrtime',
-                    'nextTick',
-                    'performance',
-                    'queueMicrotask',
-                    'setImmediate',
-                    'clearImmediate',
-                    'setInterval',
-                    'clearInterval',
-                    'Date',
-                ],
-            })
-            const nextTurn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
-            try {
-                const deadline = new AbortController()
-                let outcome: string | undefined
-                void hogInputsService.buildInputs(onlyHog, globals, undefined, undefined, deadline.signal).then(
-                    () => (outcome = 'rendered'),
-                    (error: Error) => (outcome = error.message)
-                )
-                for (let turn = 0; jest.getTimerCount() === 0 && turn < 1000; turn++) {
-                    await nextTurn()
-                }
-                expect(outcome).toBeUndefined()
+        it.each([
+            [
+                'it is aborted',
+                (): { signal: AbortSignal; pass: () => void } => {
+                    const deadline = new AbortController()
+                    return {
+                        signal: deadline.signal,
+                        pass: () =>
+                            deadline.abort(new DOMException('The verification deadline passed', 'TimeoutError')),
+                    }
+                },
+            ],
+            [
+                'the clock passes it before its timer fires',
+                (): { signal: AbortSignal; pass: () => void } => ({
+                    signal: deadlineAfter(60_000),
+                    pass: () => jest.advanceTimersByTime(60_000),
+                }),
+            ],
+        ])(
+            'runs no hog input whose deadline passes while it waits for its turn on the event loop because %s',
+            async (_how, deadlineFor) => {
+                const onlyHog = createHogFunction({
+                    ...hogFunction,
+                    inputs: { only: { value: 'x', templating: 'hog', bytecode: ['_H', 1, 32, 'x'] } },
+                    inputs_schema: [],
+                })
+                const threshold = getEventLoopYieldThresholdMs()
+                await new Promise((resolve) => setTimeout(resolve, 5))
+                configureEventLoopYield(0)
+                jest.useFakeTimers({
+                    doNotFake: [
+                        'hrtime',
+                        'nextTick',
+                        'queueMicrotask',
+                        'setImmediate',
+                        'clearImmediate',
+                        'setInterval',
+                        'clearInterval',
+                        'Date',
+                    ],
+                })
+                const nextTurn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+                try {
+                    const deadline = deadlineFor()
+                    let outcome: unknown
+                    void hogInputsService.buildInputs(onlyHog, globals, undefined, undefined, deadline.signal).then(
+                        () => (outcome = 'rendered'),
+                        (error: unknown) => (outcome = error)
+                    )
+                    for (let turn = 0; jest.getTimerCount() === 0 && turn < 1000; turn++) {
+                        await nextTurn()
+                    }
+                    expect(outcome).toBeUndefined()
 
-                deadline.abort(new DOMException('The verification deadline passed', 'TimeoutError'))
-                for (let turn = 0; outcome === undefined && turn < 1000; turn++) {
-                    jest.runOnlyPendingTimers()
-                    await nextTurn()
-                }
+                    deadline.pass()
+                    for (let turn = 0; outcome === undefined && turn < 1000; turn++) {
+                        jest.runOnlyPendingTimers()
+                        await nextTurn()
+                    }
 
-                expect(outcome).toBe('The verification deadline passed')
-            } finally {
-                jest.useRealTimers()
-                configureEventLoopYield(threshold)
+                    expect(outcome).toMatchObject({ name: 'TimeoutError' })
+                } finally {
+                    jest.useRealTimers()
+                    configureEventLoopYield(threshold)
+                }
             }
-        })
+        )
+
+        it.each([
+            [
+                'the next input',
+                (busy: unknown): HogFunctionType['inputs'] => ({
+                    busy: { value: 'busy', templating: 'hog', bytecode: busy, order: 0 },
+                    quick: { value: '{{ event.event }}', templating: 'liquid', order: 1 },
+                }),
+            ],
+            [
+                'the next leaf of the same input',
+                (busy: unknown, quick: unknown): HogFunctionType['inputs'] => ({
+                    only: { value: 'x', templating: 'hog', bytecode: { busy, quick } },
+                }),
+            ],
+        ])(
+            'starts no render of %s once the clock passes the deadline, before its timer fires',
+            async (_where, inputsFor) => {
+                const deadlineMs = 50
+                const busy = await compileHog(
+                    `while (toUnixTimestampMilli(now()) < event.properties.busy_until) { } return 'done'`
+                )
+                const quick = await compileHog(`return 'quick'`)
+                const busyThenQuick = createHogFunction({
+                    ...hogFunction,
+                    inputs: inputsFor(busy, quick),
+                    inputs_schema: [],
+                })
+                const mockedNow = jest.mocked(Date.now)
+                const fixedNow = mockedNow()
+                mockedNow.mockImplementation(() => performance.timeOrigin + performance.now())
+                try {
+                    const deadline = deadlineAfter(deadlineMs)
+                    const busyPastIt = {
+                        ...globals,
+                        event: {
+                            ...globals.event,
+                            properties: { ...globals.event.properties, busy_until: Date.now() + 3 * deadlineMs },
+                        },
+                    }
+
+                    await expect(
+                        hogInputsService.buildInputs(busyThenQuick, busyPastIt, undefined, undefined, deadline)
+                    ).rejects.toMatchObject({ name: 'TimeoutError' })
+                } finally {
+                    mockedNow.mockReturnValue(fixedNow)
+                }
+            }
+        )
 
         it('should template out liquid inputs', async () => {
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)

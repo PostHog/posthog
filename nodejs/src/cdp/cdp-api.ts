@@ -119,6 +119,7 @@ import {
     sanitizeLogMessage,
 } from './utils'
 import { recordRequestOrigins } from './utils/cdp-fetch'
+import { deadlineAfter } from './utils/deadline'
 import { dualRead, dualWrite } from './utils/dual-store'
 import { isHogLimitError, isHogVMError } from './utils/hog-error-classification'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
@@ -1318,7 +1319,7 @@ export class CdpApi {
     private postTransactionalEmail =
         (schema: z.ZodType<TransactionalEmailRequest, unknown>, tokenClaims: Record<string, string | undefined>) =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
-            const verificationDeadline = AbortSignal.timeout(ATTACHMENT_VERIFICATION_DEADLINE_MS)
+            const verificationDeadline = deadlineAfter(ATTACHMENT_VERIFICATION_DEADLINE_MS)
             const stages = new TransactionalEmailStageTimer()
             const reply = (outcome: TransactionalEmailOutcome, status: number, body: Record<string, unknown>) => {
                 transactionalEmailRequestsTotal.inc({ outcome })
