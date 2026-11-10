@@ -24966,6 +24966,26 @@
             "title": "ErrorTrackingIssueStatus",
             "type": "string"
         },
+        "ErrorTrackingIssueTagFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "description": "Key of the tag definition.",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/ErrorTrackingIssueTagFilterValue",
+                    "description": "The answer to match. `unknown` matches issues where the tagger was unsure or never answered."
+                }
+            },
+            "required": ["key", "value"],
+            "type": "object"
+        },
+        "ErrorTrackingIssueTagFilterValue": {
+            "enum": ["yes", "no", "unknown"],
+            "title": "ErrorTrackingIssueTagFilterValue",
+            "type": "string"
+        },
         "ErrorTrackingOrderBy": {
             "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "severity"],
             "title": "ErrorTrackingOrderBy",
@@ -25073,6 +25093,17 @@
                 "issueId": {
                     "description": "Filter to a specific error tracking issue by ID.",
                     "type": "string"
+                },
+                "issueTag": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueTagFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by the answer to one issue tag. Ignored when issue tags or this tag are off for the project."
                 },
                 "kind": {
                     "const": "ErrorTrackingQuery",

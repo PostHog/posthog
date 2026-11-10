@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 import time_machine
 from posthog.test.base import (
+    BaseTest,
     ClickhouseTestMixin,
     NonAtomicBaseTestKeepIdentities,
     _create_event,
@@ -24,6 +25,8 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     DateRange,
     ErrorTrackingIssueFilter,
+    ErrorTrackingIssueTagFilter,
+    ErrorTrackingIssueTagFilterValue,
     ErrorTrackingQuery,
     ErrorTrackingQueryIssueSeverity,
     ErrorTrackingSimilarIssuesQuery,
@@ -71,16 +74,32 @@ from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     MAX_RECENT_ISSUE_STATES,
     load_recent_issue_states,
 )
+from products.error_tracking.backend.logic import team_flags
+from products.error_tracking.backend.logic.issue_tags import registry
+from products.error_tracking.backend.logic.issue_tags.gate import ISSUE_TAGS_FLAG
+from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueTag,
     override_error_tracking_issue_fingerprint,
     sync_issues_to_clickhouse,
     update_error_tracking_issue_fingerprints,
 )
 from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.property_type import PropertyType
+
+BLOCKS_CHECKOUT = IssueTagDefinition(
+    key="blocks_checkout",
+    label="Blocks checkout",
+    question_version=1,
+    enabled_flag="error-tracking-issue-tag-blocks-checkout",
+    taggers=(),
+)
+OTHER_TAG = IssueTagDefinition(
+    key="other_tag", label="Other tag", question_version=1, enabled_flag=BLOCKS_CHECKOUT.enabled_flag, taggers=()
+)
 
 
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIdentities):
@@ -239,6 +258,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         orderDirection=None,
         status=None,
         severity=None,
+        issueTag=None,
         volumeResolution=1,
         withAggregations=False,
         withFirstEvent=False,
@@ -264,6 +284,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                     orderDirection=orderDirection,
                     status=status,
                     severity=severity,
+                    issueTag=issueTag,
                     volumeResolution=volumeResolution,
                     withFirstEvent=withFirstEvent,
                     withAggregations=withAggregations,
@@ -706,7 +727,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         results = self._calculate(orderBy="first_seen")["results"]
         self.assertEqual([r["id"] for r in results], [self.issue_id_one, self.issue_id_two, self.issue_id_three])
 
-    def _assign_severities(self):
+    def _create_issues_four_and_five(self):
         # `sync_issues_to_clickhouse` stamps rows with the wall clock as their ReplacingMergeTree
         # version, and the test clock is frozen, so two syncs under one frozen instant write the
         # same version and ClickHouse picks between them arbitrarily. Create at the fixture instant.
@@ -723,6 +744,8 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 )
         flush_persons_and_events()
 
+    def _assign_severities(self):
+        self._create_issues_four_and_five()
         severities = {
             self.issue_id_one: ErrorTrackingIssue.Severity.CRITICAL,
             self.issue_id_two: ErrorTrackingIssue.Severity.LOW,
@@ -1256,6 +1279,69 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 "critical": {self.issue_id_one},
             },
         )
+
+    @parameterized.expand(
+        [
+            ("optimized_shape", False, {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag}, True),
+            ("legacy_shape", True, {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag}, True),
+            ("issue_tags_off", False, {BLOCKS_CHECKOUT.enabled_flag}, False),
+            ("tag_off", False, {ISSUE_TAGS_FLAG}, False),
+        ]
+    )
+    @time_machine.travel("2022-01-10T12:11:00", tick=False)
+    def test_issue_tag_filter(self, _name: str, legacy_shape: bool, enabled_flags: set[str], filter_applies: bool):
+        self._create_issues_four_and_five()
+        for issue_id, key, value in (
+            (self.issue_id_one, BLOCKS_CHECKOUT.key, True),
+            (self.issue_id_two, BLOCKS_CHECKOUT.key, False),
+            (self.issue_id_three, BLOCKS_CHECKOUT.key, None),
+            (self.issue_id_four, OTHER_TAG.key, True),
+        ):
+            ErrorTrackingIssueTag.objects.for_team(self.team.pk).create(
+                team=self.team, issue_id=issue_id, key=key, value=value, source="jev", question_version=1
+            )
+        shape_filters: list[ErrorTrackingIssueFilter] = []
+        if legacy_shape:
+            # Matches every issue, so it only forces the legacy shape.
+            shape_filters = [ErrorTrackingIssueFilter(key="status", value=True, operator=PropertyOperator.IS_SET)]
+        filter_group = PropertyGroupFilter(
+            type=FilterLogicalOperator.AND_,
+            values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=shape_filters)],
+        )
+        tag_filters = [(BLOCKS_CHECKOUT.key, value) for value in ErrorTrackingIssueTagFilterValue]
+        tag_filters.append((OTHER_TAG.key, ErrorTrackingIssueTagFilterValue.NO))
+
+        with (
+            mock.patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT, OTHER_TAG)),
+            mock.patch.object(
+                team_flags, "feature_enabled_or_false", side_effect=lambda flag, *_, **__: flag in enabled_flags
+            ),
+        ):
+            by_filter = {
+                f"{key} {value}": {
+                    result["id"]
+                    for result in self._calculate(
+                        filterGroup=filter_group, issueTag=ErrorTrackingIssueTagFilter(key=key, value=value)
+                    )["results"]
+                }
+                for key, value in tag_filters
+            }
+
+        every_issue = {
+            self.issue_id_one,
+            self.issue_id_two,
+            self.issue_id_three,
+            self.issue_id_four,
+            self.issue_id_five,
+        }
+        expected = {
+            "blocks_checkout yes": {self.issue_id_one},
+            "blocks_checkout no": {self.issue_id_two},
+            "blocks_checkout unknown": {self.issue_id_three, self.issue_id_four, self.issue_id_five},
+            # No issue has this answer, so the filter matches nothing.
+            "other_tag no": set(),
+        }
+        self.assertEqual(by_filter, expected if filter_applies else dict.fromkeys(expected, every_issue))
 
     @parameterized.expand(
         [
@@ -1871,6 +1957,50 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         with self.assertRaises(UserAccessControlError):
             runner.validate_query_runner_access(self.user)
+
+
+@mock.patch.object(registry, "ISSUE_TAG_DEFINITIONS", (BLOCKS_CHECKOUT,))
+@mock.patch.object(team_flags, "feature_enabled_or_false", return_value=True)
+class TestIssueTagFilterLookup(BaseTest):
+    def test_a_changed_answer_changes_the_cache_key(self, _flag) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+        tag = ErrorTrackingIssueTag.objects.for_team(self.team.pk).create(
+            team=self.team, issue=issue, key=BLOCKS_CHECKOUT.key, value=True, source="jev", question_version=1
+        )
+        key_before = self._runner(ErrorTrackingIssueTagFilterValue.YES).get_cache_key()
+
+        ErrorTrackingIssueTag.objects.for_team(self.team.pk).filter(pk=tag.pk).update(value=False)
+
+        assert self._runner(ErrorTrackingIssueTagFilterValue.YES).get_cache_key() != key_before
+
+    @mock.patch(
+        "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.MAX_ISSUE_TAG_FILTER_ISSUE_IDS", 1
+    )
+    def test_refuses_a_lookup_with_more_issue_ids_than_the_query_can_carry(self, _flag) -> None:
+        for _ in range(2):
+            ErrorTrackingIssueTag.objects.for_team(self.team.pk).create(
+                team=self.team,
+                issue=ErrorTrackingIssue.objects.create(team=self.team),
+                key=BLOCKS_CHECKOUT.key,
+                value=True,
+                source="jev",
+                question_version=1,
+            )
+
+        with self.assertRaises(ValidationError):
+            self._runner(ErrorTrackingIssueTagFilterValue.UNKNOWN).get_cache_key()
+
+    def _runner(self, value: ErrorTrackingIssueTagFilterValue) -> ErrorTrackingQueryRunner:
+        return ErrorTrackingQueryRunner(
+            team=self.team,
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="-7d"),
+                orderBy="last_seen",
+                volumeResolution=1,
+                issueTag=ErrorTrackingIssueTagFilter(key=BLOCKS_CHECKOUT.key, value=value),
+            ),
+        )
 
 
 class TestSeverityRanking(TestCase):

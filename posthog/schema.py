@@ -120,6 +120,7 @@ from posthog.schema_enums import (
     EntityType as EntityType,
     ErrorTrackingIssueAssigneeType as ErrorTrackingIssueAssigneeType,
     ErrorTrackingIssueStatus as ErrorTrackingIssueStatus,
+    ErrorTrackingIssueTagFilterValue as ErrorTrackingIssueTagFilterValue,
     ErrorTrackingOrderBy as ErrorTrackingOrderBy,
     ErrorTrackingQueryIssueSeverity as ErrorTrackingQueryIssueSeverity,
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
@@ -5725,6 +5726,17 @@ class ErrorTrackingIssueRelease(BaseModel):
     namespace: str | None = None
     total: int
     version: str | None = None
+
+
+class ErrorTrackingIssueTagFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(..., description="Key of the tag definition.")
+    value: ErrorTrackingIssueTagFilterValue = Field(
+        ...,
+        description=("The answer to match. `unknown` matches issues where the tagger was unsure or never answered."),
+    )
 
 
 class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
@@ -33040,6 +33052,12 @@ class ErrorTrackingQuery(BaseModel):
     groupKey: str | None = None
     groupTypeIndex: int | None = None
     issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
+    issueTag: ErrorTrackingIssueTagFilter | None = Field(
+        default=None,
+        description=(
+            "Filter by the answer to one issue tag. Ignored when issue tags or this tag are off for the project."
+        ),
+    )
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")

@@ -4570,6 +4570,16 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     version: integer
 }
 
+/** @title ErrorTrackingIssueTagFilterValue */
+export type ErrorTrackingIssueTagFilterValue = 'yes' | 'no' | 'unknown'
+
+export interface ErrorTrackingIssueTagFilter {
+    /** Key of the tag definition. */
+    key: string
+    /** The answer to match. `unknown` matches issues where the tagger was unsure or never answered. */
+    value: ErrorTrackingIssueTagFilterValue
+}
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     /** Filter to a specific error tracking issue by ID. */
@@ -4584,6 +4594,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     status?: ErrorTrackingQueryStatus
     /** Filter by issue severity. */
     severity?: ErrorTrackingQueryIssueSeverity | null
+    /** Filter by the answer to one issue tag. Ignored when issue tags or this tag are off for the project. */
+    issueTag?: ErrorTrackingIssueTagFilter | null
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     /** Whether to filter out test accounts. */

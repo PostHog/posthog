@@ -1,3 +1,4 @@
+import hashlib
 import datetime
 from functools import cached_property
 from zoneinfo import ZoneInfo
@@ -5,8 +6,14 @@ from zoneinfo import ZoneInfo
 from django.db import OperationalError
 
 import structlog
+from rest_framework.exceptions import ValidationError
 
-from posthog.schema import CachedErrorTrackingQueryResponse, ErrorTrackingQuery, ErrorTrackingQueryResponse
+from posthog.schema import (
+    CachedErrorTrackingQueryResponse,
+    ErrorTrackingIssueTagFilterValue,
+    ErrorTrackingQuery,
+    ErrorTrackingQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -21,7 +28,10 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
-from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
+from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import (
+    ErrorTrackingQueryBuilder,
+    IssueIdFilter,
+)
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
 from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE,
@@ -30,8 +40,20 @@ from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     latest_issue_state_watermark,
     load_recent_issue_states,
 )
+from products.error_tracking.backend.logic.issue_tags.gate import enabled_issue_tag_definitions
+from products.error_tracking.backend.models import ErrorTrackingIssueTag
 
 logger = structlog.get_logger(__name__)
+
+ISSUE_TAG_FILTER_VALUES: dict[ErrorTrackingIssueTagFilterValue, bool | None] = {
+    ErrorTrackingIssueTagFilterValue.YES: True,
+    ErrorTrackingIssueTagFilterValue.NO: False,
+    ErrorTrackingIssueTagFilterValue.UNKNOWN: None,
+}
+
+# The tag filter inlines its issue ids into the query text and into the `hogql` the response returns,
+# so it refuses a lookup above this size instead of sending megabytes to ClickHouse and the browser.
+MAX_ISSUE_TAG_FILTER_ISSUE_IDS = 10_000
 
 
 class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQueryRunner[ErrorTrackingQueryResponse]):
@@ -73,11 +95,39 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
 
     @cached_property
     def _builder(self) -> ErrorTrackingQueryBuilder:
-        return ErrorTrackingQueryBuilder(self.query, self.team, self.date_from, self.date_to)
+        return ErrorTrackingQueryBuilder(
+            self.query, self.team, self.date_from, self.date_to, issue_id_filter=self._issue_tag_filter
+        )
+
+    @cached_property
+    def _issue_tag_filter(self) -> IssueIdFilter | None:
+        tag_filter = self.query.issueTag
+        if tag_filter is None or tag_filter.key not in {
+            definition.key for definition in enabled_issue_tag_definitions(self.team.pk)
+        }:
+            return None
+        value = ISSUE_TAG_FILTER_VALUES[tag_filter.value]
+        tags = ErrorTrackingIssueTag.objects.for_team(self.team.pk).filter(key=tag_filter.key)
+        # Unknown is a null answer or no row at all, and Postgres cannot list the issues without a row,
+        # so it matches every issue outside the yes and no answers.
+        tags = tags.filter(value__isnull=False) if value is None else tags.filter(value=value)
+        issue_ids = [
+            str(issue_id) for issue_id in tags.values_list("issue_id", flat=True)[: MAX_ISSUE_TAG_FILTER_ISSUE_IDS + 1]
+        ]
+        if len(issue_ids) > MAX_ISSUE_TAG_FILTER_ISSUE_IDS:
+            raise ValidationError(
+                "Too many issues are tagged to filter by this tag. Remove the tag filter to load the list."
+            )
+        return IssueIdFilter(issue_ids=tuple(sorted(issue_ids)), negated=value is None)
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
         payload["error_tracking_cache_version"] = self.CACHE_VERSION
+        # The query alone does not change when a tag answer changes, so the matched ids must vary the key.
+        if self._issue_tag_filter is not None:
+            payload["error_tracking_issue_tag_filter"] = hashlib.sha256(
+                repr(self._issue_tag_filter).encode()
+            ).hexdigest()
         # Use a stable marker when the primary read fails so an existing cached result can still load.
         try:
             watermark = latest_issue_state_watermark(self.team.pk)
@@ -149,6 +199,7 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
             self.date_from,
             self.date_to,
             include_recent_issue_state=bool(recent_issue_states),
+            issue_id_filter=self._issue_tag_filter,
         )
         with self.timings.measure("error_tracking_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(

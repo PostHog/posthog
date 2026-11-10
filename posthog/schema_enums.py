@@ -1363,6 +1363,12 @@ class ErrorTrackingIssueStatus(StrEnum):
     SUPPRESSED = "suppressed"
 
 
+class ErrorTrackingIssueTagFilterValue(StrEnum):
+    YES = "yes"
+    NO = "no"
+    UNKNOWN = "unknown"
+
+
 class ErrorTrackingOrderBy(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"

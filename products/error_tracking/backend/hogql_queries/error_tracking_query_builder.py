@@ -17,6 +17,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
@@ -185,6 +186,25 @@ _NULLABILITY_OPERATORS: dict[PropertyOperator, ast.CompareOperationOp] = {
 }
 
 
+@frozen
+class IssueIdFilter:
+    """Issue ids that Postgres resolved for a filter on data that ClickHouse does not hold."""
+
+    issue_ids: tuple[str, ...]
+    # Keep the issues outside `issue_ids` instead of the issues inside it.
+    negated: bool
+
+    def to_expr(self, issue_id: ast.Expr) -> ast.Expr | None:
+        if not self.issue_ids:
+            return None if self.negated else ast.Constant(value=False)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.NotIn if self.negated else ast.CompareOperationOp.In,
+            left=issue_id,
+            # A list constant is one AST node and one query parameter. A tuple of constants adds one of each per id.
+            right=ast.Constant(value=list(self.issue_ids)),
+        )
+
+
 def _comparable_values(raw_value: Any) -> list[str | float | bool]:
     """Keep only the values ClickHouse can compare against an issue field."""
     candidates = raw_value if isinstance(raw_value, list) else [raw_value]
@@ -235,12 +255,14 @@ class ErrorTrackingQueryBuilder:
         date_from: datetime.datetime,
         date_to: datetime.datetime,
         include_recent_issue_state: bool = False,
+        issue_id_filter: IssueIdFilter | None = None,
     ):
         self.query = query
         self.team = team
         self.date_from = date_from
         self.date_to = date_to
         self.include_recent_issue_state = include_recent_issue_state
+        self.issue_id_filter = issue_id_filter
 
     def build_query(self) -> ast.SelectQuery:
         if self._needs_legacy_shape():
@@ -454,6 +476,11 @@ class ErrorTrackingQueryBuilder:
                         right=ast.Constant(value=str(self.query.assignee.id)),
                     )
                 )
+
+        if self.issue_id_filter is not None:
+            issue_id_expr = self.issue_id_filter.to_expr(state_expr("issue_id"))
+            if issue_id_expr is not None:
+                exprs.append(issue_id_expr)
 
         return exprs
 
