@@ -1,7 +1,9 @@
+import json
 import uuid
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from typing import cast
+from urllib.parse import parse_qs, urlsplit
 
 from unittest.mock import patch
 
@@ -20,7 +22,7 @@ PAGE = RagePage(path="/checkout/…", people=12, clicks=340)
 ELEMENT_ITEM = (
     "12 users rage-clicked on /checkout/… in the last 7 days",
     "340 rage clicks · Top element: ‘Pay now’",
-    "/replay/home",
+    r"^/checkout/(?:[0-9a-f-]{8,}|[0-9]+)$",
 )
 ERROR_ITEM = (
     "12 users rage-clicked on /checkout/… in the last 7 days",
@@ -75,8 +77,33 @@ class TestRage(SimpleTestCase):
                 None,
                 ErrorsBeforeRage(0, None, 0),
                 True,
-                [(ELEMENT_ITEM[0], "340 rage clicks", "/replay/home")],
+                [(ELEMENT_ITEM[0], "340 rage clicks", ELEMENT_ITEM[2])],
             ),
+            *[
+                (
+                    f"page path {path}",
+                    True,
+                    RagePage(path=path, people=12, clicks=340),
+                    "Pay now",
+                    ErrorsBeforeRage(0, None, 0),
+                    True,
+                    [
+                        (
+                            f"12 users rage-clicked on {(path or '/')[:40]} in the last 7 days",
+                            ELEMENT_ITEM[1],
+                            pattern,
+                        )
+                    ],
+                )
+                for path, pattern in [
+                    ("/", "^/$"),
+                    ("", "^$"),
+                    ("/checkout", "^/checkout$"),
+                    ("/cart/item.v2+(new)", r"^/cart/item\.v2\+\(new\)$"),
+                    ("/search/a&b#c", r"^/search/a\&b\#c$"),
+                    ("/…/items/…", r"^/(?:[0-9a-f-]{8,}|[0-9]+)/items/(?:[0-9a-f-]{8,}|[0-9]+)$"),
+                ]
+            ],
             ("no page", True, None, None, ErrorsBeforeRage(0, None, 0), True, []),
             (
                 "a person who uses none of the rage products",
@@ -131,4 +158,43 @@ class TestRage(SimpleTestCase):
         ):
             found = registered.find(context)
 
-        self.assertEqual([(c.title, c.detail, c.url) for c in found.items], expected)
+        actual = []
+        for candidate in found.items:
+            destination = candidate.url
+            if urlsplit(destination).path == "/replay/home":
+                filters = json.loads(parse_qs(urlsplit(destination).query)["filters"][0])
+                event = filters["filter_group"]["values"][0]["values"][0]
+                destination = event["properties"][0]["value"]
+                self.assertEqual(
+                    filters,
+                    {
+                        "date_from": "-7d",
+                        "date_to": None,
+                        "filter_group": {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "id": "$rageclick",
+                                            "name": "$rageclick",
+                                            "type": "events",
+                                            "order": 0,
+                                            "properties": [
+                                                {
+                                                    "key": "$pathname",
+                                                    "type": "event",
+                                                    "operator": "regex",
+                                                    "value": destination,
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                    },
+                )
+            actual.append((candidate.title, candidate.detail, destination))
+        self.assertEqual(actual, expected)
