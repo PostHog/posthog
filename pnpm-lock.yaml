@@ -1807,6 +1807,9 @@ importers:
       typescript:
         specifier: 6.0.3
         version: 6.0.3
+      undici:
+        specifier: ^8.12.3
+        version: 8.12.3
 
   ingestion/node/packages/ingestion:
     dependencies:
@@ -2747,6 +2750,9 @@ importers:
       typescript:
         specifier: 6.0.3
         version: 6.0.3
+      undici:
+        specifier: ^8.12.3
+        version: 8.12.3
 
   nodejs/packages/replay-storage:
     dependencies:
@@ -2762,6 +2768,9 @@ importers:
       '@dsnp/parquetjs':
         specifier: ^1.8.7
         version: 1.8.7
+      '@opentelemetry/api':
+        specifier: ^1.9.1
+        version: 1.9.1
       '@posthog/ingestion-common':
         specifier: workspace:*
         version: link:../../../ingestion/node/packages/common
@@ -2790,6 +2799,9 @@ importers:
       '@bufbuild/protoc-gen-es':
         specifier: ^2.11.0
         version: 2.11.0(supports-color@10.2.2)
+      '@opentelemetry/sdk-metrics':
+        specifier: ^2.12.0
+        version: 2.12.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/sdk-trace-node':
         specifier: ^2.0.1
         version: 2.0.1(@opentelemetry/api@1.9.1)
@@ -2853,6 +2865,9 @@ importers:
       typescript:
         specifier: 6.0.3
         version: 6.0.3
+      undici:
+        specifier: ^8.12.3
+        version: 8.12.3
 
   packages/llm-normalizer:
     dependencies:

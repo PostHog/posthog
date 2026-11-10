@@ -63,7 +63,8 @@
         "tsc-alias": "^1.9.6",
         "tsconfig-paths": "^4.2.0",
         "tsx": "^4.23.15",
-        "typescript": "catalog:"
+        "typescript": "catalog:",
+        "undici": "^8.12.3"
     },
     "engines": {
         "node": ">=26 <27"

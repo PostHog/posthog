@@ -32,6 +32,7 @@
         "@aws-sdk/client-kms": "^3.952.0",
         "@aws-sdk/client-s3": "^3.723.0",
         "@dsnp/parquetjs": "^1.8.7",
+        "@opentelemetry/api": "^1.9.1",
         "@posthog/ingestion-common": "workspace:*",
         "@posthog/node-common": "workspace:*",
         "libsodium-wrappers": "^0.8.4",
@@ -43,6 +44,7 @@
     },
     "devDependencies": {
         "@bufbuild/protoc-gen-es": "^2.11.0",
+        "@opentelemetry/sdk-metrics": "^2.12.0",
         "@opentelemetry/sdk-trace-node": "^2.0.1",
         "@trivago/prettier-plugin-sort-imports": "^5.2.2",
         "@types/jest": "^30.0.0",
@@ -63,7 +65,8 @@
         "tsc-alias": "^1.9.6",
         "tsconfig-paths": "^4.2.0",
         "tsx": "^4.23.15",
-        "typescript": "catalog:"
+        "typescript": "catalog:",
+        "undici": "^8.12.3"
     },
     "engines": {
         "node": ">=26 <27"
