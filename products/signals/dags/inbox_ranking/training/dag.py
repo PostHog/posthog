@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import dagster
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from posthog import settings
 from posthog.dataclasses import frozen
@@ -741,55 +741,69 @@ def _auto_promote(
     """Move `served.json` to the newest version of the served recipe that passed the promotion
     gate, when the interval has passed. Returns what the step did.
 
-    The step never fails the publish: a read error skips it for the day and the manifest still
+    The step never fails the publish: an S3 error skips it for the day and the manifest still
     publishes with the current pointer. A first promotion and a recipe switch stay with a person.
     """
     try:
-        pointer = read_served_pointer(client, bucket, prefix)
-        if pointer is None:
-            result = f"no {SERVED_FILE}; the first promotion is inbox_ranking_promote_job"
-        else:
-            decisions = _promotion_decisions(
-                client, bucket, prefix, pointer["model_name"], pointer["model_version"], partition_key
-            )
-            now = datetime.datetime.now(datetime.UTC)
-            interval_days = settings.INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS
-            choice = auto_promotion_candidate(
-                pointer,
-                decisions,
+        result, promotion = _auto_promotion_choice(client, bucket, prefix, partition_key, overrides)
+        if promotion is not None:
+            pointer, metadata, reason, now = promotion
+            write_served_pointer(
+                context,
+                client,
+                bucket,
+                prefix,
+                metadata,
+                reason=reason,
+                previous=pointer,
                 partition_key=partition_key,
-                today=now.date(),
-                interval_days=interval_days,
-                held=overrides.hold_auto_promotion,
+                run_id=run_id,
+                promoted_at=now,
+                auto=True,
             )
-            if choice.model_version is None:
-                result = f"not promoted: {choice.reason}"
-            else:
-                key = model_key(pointer["model_name"], choice.model_version)
-                try:
-                    metadata = promotable_model(client, bucket, prefix, key)
-                except PromotionRefused as error:
-                    result = f"not promoted: {error}"
-                else:
-                    write_served_pointer(
-                        context,
-                        client,
-                        bucket,
-                        prefix,
-                        metadata,
-                        reason=choice.reason,
-                        previous=pointer,
-                        partition_key=partition_key,
-                        run_id=run_id,
-                        promoted_at=now,
-                        auto=True,
-                    )
-                    result = f"promoted {key}"
-    except (ClientError, ValueError, KeyError) as error:
+    # BotoCoreError covers transport failures such as a read timeout, which are not ClientErrors.
+    except (BotoCoreError, ClientError, ValueError, KeyError) as error:
         context.log.warning(f"auto promotion skipped for dt={partition_key}: {error!r}")
         return f"not promoted: {error!r}"
     context.log.info(f"auto promotion for dt={partition_key}: {result}")
     return result
+
+
+def _auto_promotion_choice(
+    client, bucket: str, prefix: str, partition_key: str, overrides: RankingOverrides
+) -> tuple[str, tuple[dict[str, Any], dict[str, Any], str, datetime.datetime] | None]:
+    """What the step does, and when it promotes, the pointer it replaces, the model's metadata, the
+    reason and the promotion time."""
+    pointer = read_served_pointer(client, bucket, prefix)
+    if pointer is None:
+        return f"no {SERVED_FILE}; the first promotion is inbox_ranking_promote_job", None
+    decisions = _promotion_decisions(
+        client, bucket, prefix, pointer["model_name"], pointer["model_version"], partition_key
+    )
+    now = datetime.datetime.now(datetime.UTC)
+    interval_days = settings.INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS
+    choice = auto_promotion_candidate(
+        pointer,
+        decisions,
+        partition_key=partition_key,
+        today=now.date(),
+        interval_days=interval_days,
+        held=overrides.hold_auto_promotion,
+        served_override=overrides.served,
+    )
+    if choice.model_version is None:
+        return f"not promoted: {choice.reason}", None
+    key = model_key(pointer["model_name"], choice.model_version)
+    try:
+        metadata = promotable_model(client, bucket, prefix, key)
+    except PromotionRefused as error:
+        return f"not promoted: {error}", None
+    # The manual promote job does not share this asset's pool, so it can write served.json while
+    # this step reads. Writing from the stale pointer would undo that person's choice, so the step
+    # reads the pointer again and skips when it changed.
+    if read_served_pointer(client, bucket, prefix) != pointer:
+        return f"not promoted: {SERVED_FILE} changed while the step ran", None
+    return f"promoted {key}", (pointer, metadata, choice.reason, now)
 
 
 def _promotion_decisions(

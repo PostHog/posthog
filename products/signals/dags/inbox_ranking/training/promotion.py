@@ -162,6 +162,7 @@ def auto_promotion_candidate(
     today: datetime.date,
     interval_days: int,
     held: bool,
+    served_override: str | None = None,
 ) -> AutoPromotion:
     """The version of the served recipe the daily publish serves next, or None and the reason it
     skips.
@@ -173,11 +174,19 @@ def auto_promotion_candidate(
     it was graded against the served key: after any promotion, an older decision compared the
     candidate with another model. The interval is in calendar days, because the publish runs at
     about the same time each day and an exact 24-hour multiple would slip it by a day.
+
+    A `served` override is a person's no-deploy rollback, so the step waits while one is set. A
+    pointer moved under the override would serve the moment the override expires, in place of the
+    model the person chose.
     """
     if interval_days <= 0:
         return AutoPromotion(model_version=None, reason="auto promotion is off (interval 0)")
     if held:
         return AutoPromotion(model_version=None, reason="auto promotion is held by the overrides payload")
+    if served_override is not None:
+        return AutoPromotion(
+            model_version=None, reason=f"a served override names {served_override}; auto promotion waits for it"
+        )
     promoted_at = pointer.get("promoted_at")
     if not promoted_at:
         return AutoPromotion(model_version=None, reason="served.json has no promoted_at")

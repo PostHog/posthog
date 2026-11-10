@@ -1493,16 +1493,16 @@ def _decision(would_promote: bool, incumbent_key: str | None = _AUTO_SERVED_KEY)
 
 
 @pytest.mark.parametrize(
-    "decisions,today,interval_days,held,expected_version,reason_fragment",
+    "decisions,today,interval_days,pause,expected_version,reason_fragment",
     [
         # 05:00 three calendar days after a 05:02 promotion is under 72 hours, and still due.
-        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 3, False, "2026-08-12", "auto: newest"),
-        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 12), 3, False, None, "promoted 2d ago"),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 3, {}, "2026-08-12", "auto: newest"),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 12), 3, {}, None, "promoted 2d ago"),
         (
             {"2026-08-11": _decision(True), "2026-08-12": _decision(False)},
             datetime.date(2026, 8, 13),
             3,
-            False,
+            {},
             "2026-08-11",
             "auto: newest",
         ),
@@ -1511,16 +1511,24 @@ def _decision(would_promote: bool, incumbent_key: str | None = _AUTO_SERVED_KEY)
             {"2026-08-12": _decision(True, model_key(EMBEDDINGS_MODEL_NAME, "2026-08-01"))},
             datetime.date(2026, 8, 13),
             3,
-            False,
+            {},
             None,
             "graded against",
         ),
         # The run's own partition can still be training when the publish starts.
-        ({"2026-08-13": _decision(True)}, datetime.date(2026, 8, 14), 3, False, None, "no "),
+        ({"2026-08-13": _decision(True)}, datetime.date(2026, 8, 14), 3, {}, None, "no "),
         # A backfilled decision at or before the served version must not move the pointer back.
-        ({"2026-08-10": _decision(True)}, datetime.date(2026, 8, 13), 3, False, None, "no "),
-        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 0, False, None, "off"),
-        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 3, True, None, "held"),
+        ({"2026-08-10": _decision(True)}, datetime.date(2026, 8, 13), 3, {}, None, "no "),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 0, {}, None, "off"),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 3, {"held": True}, None, "held"),
+        (
+            {"2026-08-12": _decision(True)},
+            datetime.date(2026, 8, 13),
+            3,
+            {"served_override": model_key(EMBEDDINGS_MODEL_NAME, "2026-08-01")},
+            None,
+            "served override",
+        ),
     ],
     ids=[
         "newest_passes",
@@ -1531,16 +1539,17 @@ def _decision(would_promote: bool, incumbent_key: str | None = _AUTO_SERVED_KEY)
         "not_newer_than_served",
         "interval_zero",
         "held",
+        "served_override",
     ],
 )
-def test_auto_promotion_candidate(decisions, today, interval_days, held, expected_version, reason_fragment):
+def test_auto_promotion_candidate(decisions, today, interval_days, pause, expected_version, reason_fragment):
     choice = auto_promotion_candidate(
         _AUTO_POINTER,
         decisions,
         partition_key="2026-08-13",
         today=today,
         interval_days=interval_days,
-        held=held,
+        **{"held": False, **pause},
     )
     assert choice.model_version == expected_version
     assert reason_fragment in choice.reason
