@@ -21,7 +21,13 @@ import { asDisplay, asLink } from 'products/persons/frontend/person-utils'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { QuillPinToPlaylistButton } from './QuillPinToPlaylistButton'
 
-export function RecordingTitleBlock({ actions }: { actions?: ReactNode }): JSX.Element {
+export function RecordingTitleBlock({
+    actions,
+    trailingActions,
+}: {
+    actions?: ReactNode
+    trailingActions?: ReactNode
+}): JSX.Element {
     const { logicProps, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { sessionPerson, loading, startTime } = useValues(playerMetaLogic(logicProps))
     const { recordingPropertiesById } = useValues(sessionRecordingsListPropertiesLogic)
@@ -33,6 +39,7 @@ export function RecordingTitleBlock({ actions }: { actions?: ReactNode }): JSX.E
         <div className="ml-auto flex items-center gap-2 flex-wrap" data-attr="watch-panel-title-actions">
             {actions}
             <QuillPinToPlaylistButton />
+            {trailingActions}
         </div>
     )
 
