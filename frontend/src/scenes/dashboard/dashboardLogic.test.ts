@@ -1723,7 +1723,7 @@ describe('dashboardLogic', () => {
                     logic.actions.forceRefreshIfStale()
                     await Promise.resolve()
                     if (forcesRefresh) {
-                        await expectLogic(logic).toDispatchActions(['triggerDashboardRefresh'])
+                        await expectLogic(logic).toDispatchActions([logic.actionCreators.triggerDashboardRefresh(true)])
                     } else {
                         await expectLogic(logic).toNotHaveDispatchedActions(['triggerDashboardRefresh'])
                     }
@@ -2541,12 +2541,15 @@ describe('dashboardLogic', () => {
         })
 
         it.each([
-            ['a dashboard refresh', (): void => logic.actions.triggerDashboardRefresh()],
+            ['a dashboard refresh', (): void => logic.actions.triggerDashboardRefresh(), false],
             [
                 'a single tile refresh',
                 (): void => logic.actions.refreshDashboardItem({ tile: logic.values.insightTiles[0] }),
+                false,
             ],
-        ])('adds the tile request timing to refresh analytics after %s', async (_name, refreshTiles) => {
+            ['a filter change', (): void => logic.actions.setDates('-7d', null), false],
+            ['an automatic stale refresh', (): void => logic.actions.triggerDashboardRefresh(true), true],
+        ])('adds the tile request timing to refresh analytics after %s', async (_name, refreshTiles, isAutomatic) => {
             await expectLogic(logic).toFinishAllListeners()
             const requestId = '11111111-1111-4111-8111-111111111111'
             const refresh = jest
@@ -2580,7 +2583,44 @@ describe('dashboardLogic', () => {
                         http_status: 200,
                     })
                 )
+                const refreshEvents = capture.mock.calls.filter(([event]) =>
+                    ['dashboard refreshed', 'dashboard insight refreshed'].includes(event)
+                )
+                for (const [, properties] of refreshEvents) {
+                    expect(properties?.$update_person_last_seen_at).toBe(isAutomatic ? false : undefined)
+                }
             } finally {
+                refresh.mockRestore()
+            }
+        })
+
+        it.each(['immediate', 'interval'])('skips Last seen for %s automatic refresh telemetry', async (source) => {
+            await expectLogic(logic).toFinishAllListeners()
+            const refresh = jest
+                .spyOn(dashboardUtils, 'getInsightWithRetry')
+                .mockImplementation(async (_teamId, insight) => insight)
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
+            const interval = jest.spyOn(window, 'setInterval')
+
+            try {
+                logic.actions.updateDashboardLastRefresh(source === 'immediate' ? now().subtract(1, 'hour') : now())
+                await expectLogic(logic, () => {
+                    logic.actions.setAutoRefresh(true, 900)
+                    if (source === 'interval') {
+                        const callback = interval.mock.calls.at(-1)![0] as () => void
+                        callback()
+                    }
+                }).toFinishAllListeners()
+
+                for (const event of ['dashboard refreshed', 'dashboard insight refreshed', 'insight refresh time']) {
+                    expect(capture).toHaveBeenCalledWith(
+                        event,
+                        expect.objectContaining({ $update_person_last_seen_at: false })
+                    )
+                }
+            } finally {
+                logic.actions.setAutoRefresh(false, 900)
+                interval.mockRestore()
                 refresh.mockRestore()
             }
         })

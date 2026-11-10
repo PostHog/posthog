@@ -91,6 +91,32 @@ export namespace Schemas {
       updated_at: string | null;
     }
 
+    export interface AEOBrandCreateRequest {
+      /**
+         * The brand's domain or a URL on it, for example 'example.com'. Stored as its registrable domain, so citations on its subdomains count for the brand.
+         * @maxLength 253
+         */
+      domain: string;
+      /**
+         * Brand name as people say it. Guessed from the domain when empty.
+         * @maxLength 200
+         */
+      name?: string;
+      /** What the brand is to the project: 'own' (the project's site, counted as us in citations), 'competitor', 'publisher' or 'unknown'.
+       *
+       * * `own` - Own
+       * * `competitor` - Competitor
+       * * `publisher` - Publisher
+       * * `unknown` - Unknown */
+      kind: BrandKindEnum;
+      /**
+         * Other names for the brand, used to find it in answer text. Names are trimmed, and repeated names are dropped.
+         * @maxItems 20
+         * @items.maxLength 200
+         */
+      aliases?: string[];
+    }
+
     export interface AEOPromptEngineCheck {
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
       engine: string;
@@ -120716,6 +120742,17 @@ export namespace Schemas {
       started_at?: string | null;
     }
 
+    export interface WizardDetectedWarehouseSource {
+      /** The tool's kind in the wizard tool catalog, such as `Stripe`. */
+      kind: string;
+      /** The data warehouse source type that imports this tool's data, such as `Stripe` or `Postgres`. */
+      warehouse_source_type: string;
+      /** When a wizard scan first found the tool. */
+      first_seen_at: string;
+      /** When a wizard scan last found the tool. */
+      last_seen_at: string;
+    }
+
     export interface WizardInstallStart {
       /** ID of the setup run. Pass it to the status endpoint. */
       readonly run_id: string;
@@ -141913,6 +141950,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type WizardScansDetectedSourcesRetrieveParams = {
+    /**
+     * Only return sources a scan found at or after this time, such as the start of a wizard run.
+     */
+    seen_since?: string;
     };
 
     export type WizardSessionsListParams = {

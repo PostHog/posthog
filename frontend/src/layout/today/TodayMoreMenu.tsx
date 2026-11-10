@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { Suspense, useState } from 'react'
 
 import { IconEllipsis, IconExternal, IconWarning } from '@posthog/icons'
 import {
@@ -9,14 +8,10 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@posthog/quill'
-import { PostHogErrorBoundary } from '@posthog/react'
 
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { posthogStatusLogic } from 'lib/components/HelpMenu/posthogStatusLogic'
 import { navSwitchLogic } from 'lib/components/NavSwitch/navSwitchLogic'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { lazyWithRetry } from 'lib/utils/retryImport'
-import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { todayMenuLinkItem } from './todayMenuLinkItem'
@@ -26,18 +21,6 @@ import { todayRailStatusLogic } from './todayRailStatusLogic'
 import { TodayRailTile } from './TodayRailTile'
 import { TodayTabBarTab } from './TodayTabBarTab'
 import { todayTourLogic } from './todayTourLogic'
-
-// Flag-gated, so users without the flag skip the wizard chunk.
-const WizardRunsUnseenDot = lazyWithRetry(() =>
-    import('products/wizard/frontend/views/run-sidebar/WizardRunsUnseenDot').then(({ WizardRunsUnseenDot }) => ({
-        default: WizardRunsUnseenDot,
-    }))
-)
-const WizardRunsMoreMenuItem = lazyWithRetry(() =>
-    import('products/wizard/frontend/views/run-sidebar/WizardRunsMoreMenuItem').then(({ WizardRunsMoreMenuItem }) => ({
-        default: WizardRunsMoreMenuItem,
-    }))
-)
 
 /**
  * The "More" menu, on the rail or in the phone layout's tab bar. The help menu shortcut opens it too.
@@ -49,9 +32,6 @@ export function TodayMoreMenu({ placement = 'rail' }: { placement?: 'rail' | 'ta
     const { statusPageUrl } = useValues(posthogStatusLogic)
     const { statusSeverity, statusText, healthSeverity, healthText, moreSeverity, moreLabel } =
         useValues(todayRailStatusLogic)
-    const wizardUiEnabled = useFeatureFlag('WIZARD_UI_ENABLED')
-    const { currentProjectId } = useValues(projectLogic)
-    const [hasUnseenWizardRuns, setHasUnseenWizardRuns] = useState(false)
     const { switchAvailable } = useValues(navSwitchLogic)
     const { tourActive } = useValues(todayTourLogic)
     const Tile = placement === 'tab-bar' ? TodayTabBarTab : TodayRailTile
@@ -64,31 +44,16 @@ export function TodayMoreMenu({ placement = 'rail' }: { placement?: 'rail' | 'ta
                     <Tile
                         label="More"
                         icon={
-                            <>
-                                {statusSeverity === 'ok' ? (
-                                    <IconEllipsis />
-                                ) : (
-                                    <IconWarning className={SEVERITY_TEXT_CLASS[statusSeverity]} />
-                                )}
-                                {wizardUiEnabled &&
-                                    currentProjectId !== null && (
-                                        // A local boundary keeps a failed wizard chunk from reaching the shell's
-                                        // ChunkLoadErrorBoundary, which reloads the whole app.
-                                        <PostHogErrorBoundary fallback={<></>}>
-                                            <Suspense fallback={null}>
-                                                <WizardRunsUnseenDot
-                                                    projectId={String(currentProjectId)}
-                                                    onUnseenChange={setHasUnseenWizardRuns}
-                                                />
-                                            </Suspense>
-                                        </PostHogErrorBoundary>
-                                    )}
-                            </>
+                            statusSeverity === 'ok' ? (
+                                <IconEllipsis />
+                            ) : (
+                                <IconWarning className={SEVERITY_TEXT_CLASS[statusSeverity]} />
+                            )
                         }
                         active={isHelpMenuOpen}
                         dataAttr="help-menu-button"
                         severity={moreSeverity}
-                        aria-label={hasUnseenWizardRuns ? `${moreLabel}, new Wizard runs` : moreLabel}
+                        aria-label={moreLabel}
                     />
                 }
             />
@@ -116,13 +81,6 @@ export function TodayMoreMenu({ placement = 'rail' }: { placement?: 'rail' | 'ta
                 >
                     Health
                 </DropdownMenuItem>
-                {wizardUiEnabled && currentProjectId !== null && (
-                    <PostHogErrorBoundary fallback={<></>}>
-                        <Suspense fallback={null}>
-                            <WizardRunsMoreMenuItem projectId={String(currentProjectId)} />
-                        </Suspense>
-                    </PostHogErrorBoundary>
-                )}
                 {switchAvailable && <TodayNavSwitchMenuItem />}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
