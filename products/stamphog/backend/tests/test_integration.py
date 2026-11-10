@@ -482,10 +482,6 @@ def test_the_worker_attests_against_the_checks_at_posting_time(
     expect_reason: str,
     expect_lifted: bool,
 ) -> None:
-    # The sandbox approved on the checks that the context fetch saw. A lift must still hold at
-    # posting time, so a result that is gone or unreadable by then refuses the approval. An approval
-    # that needs no lift does not depend on that read. The worker also records whether a lift was
-    # used, because that record decides approval retention.
     repo_config = _repo_config(team.id)
     recorder = stamphog_chain.recorder
     author, head_sha = "devex-dev", "sha104a"
@@ -519,8 +515,6 @@ def test_the_worker_attests_against_the_checks_at_posting_time(
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_retry_checks_an_attested_approval_again_before_posting(team, stamphog_chain: StamphogChain) -> None:
-    # The first attempt attested, then lost the approval post. A deny lift can stop holding between
-    # attempts, so the retry runs the gates again.
     repo_config = _repo_config(team.id)
     recorder = stamphog_chain.recorder
     author, head_sha = "devex-dev", "sha105a"

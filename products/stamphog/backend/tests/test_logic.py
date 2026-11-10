@@ -811,8 +811,7 @@ class CommitGraphqlTests(SimpleTestCase):
         return self._call(response, lambda c: c.get_blame_ranges("acme/widgets", "abc", "src/a.py", timeout=5))
 
     def test_default_branch_blobs_read_a_missing_path_as_absent(self) -> None:
-        # A proof pins a settings file that does not exist as null. The read must answer null for it
-        # and keep the other paths, because one failed read would mark every proof stale.
+        # One failed read would mark every proof stale, so a missing path must not fail the request.
         response = fakes.FakeResponse(200, json_data={"data": {"repository": {"p0": {"oid": "a" * 40}, "p1": None}}})
 
         blobs = self._call(response, lambda c: c.get_default_branch_blob_shas("acme/widgets", ["prover.py", ".npmrc"]))

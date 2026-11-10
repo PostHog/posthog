@@ -967,9 +967,9 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
             return GateAttestation(attested=False, reason="file_list_moved", gates=[])
         context, policy_files = _engine_gate_inputs(run)
         context["files"] = pinned_files
-        # A deny lift depends on a check run, and a newer run of the same check may have failed since
-        # the context fetch. The lift must hold at posting time. Without the check runs nothing is
-        # lifted, so a failed read refuses only the approvals that need a lift.
+        # A newer run of the check behind a deny lift may have failed since the context fetch, so
+        # the check runs are read again. A failed read lifts nothing, which refuses only the
+        # approvals that need a lift.
         try:
             context["check_runs"] = get_check_runs_with_pins(client, repo, run.head_sha)
         except Exception:

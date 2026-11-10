@@ -95,9 +95,7 @@ def test_success_check_lifts_listed_migrations_and_their_sibling_marker() -> Non
         ".stamphog/policy.yml",
         "posthog/api/some.py",
     ]
-    # The marker lists a non-migration path too, which lifts nothing. The ClickHouse migration is
-    # outside the analyzer's scope, so it is not in the marker, and its max_migration.txt is no
-    # sibling of a lifted file.
+    # The analyzer does not read ClickHouse migrations, so the marker names none.
     check = _check(
         files=[
             _MIGRATION,
