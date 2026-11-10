@@ -8,7 +8,7 @@ The answer for a past window does not change, so it is cached per window and sha
 answer is then paid once per change, not on every load of the experiment page. A failed query is cached as
 unknown too, so a scan that is too large for a request runs at most once a day.
 
-The questions keep only the exposure filters that compare a property of the exposure event or of its elements, and
+The questions keep only the exposure filters that compare a property of the exposure event with a fixed value, and
 leave out the filters on persons, cohorts, groups or sessions. The answer for those can depend on what each reader may
 read, and can change as people match them over time. Without them the questions cover more exposures than the results
 count, so "nobody" still holds, and "somebody" can count a change that moved none of the counted users. Any other

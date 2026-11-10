@@ -156,18 +156,17 @@ class TestExposureCriteriaOnTheEvent:
             # (name, filter, kept, can be left out)
             ("event_property", {"key": "plan", "value": "pro", "operator": "exact", "type": "event"}, True, True),
             (
-                "event_absolute_date",
-                {"key": "signup", "value": "2026-01-01", "operator": "is_date_after", "type": "event"},
+                "event_semver",
+                {"key": "$app_version", "value": "2.1.0", "operator": "semver_gte", "type": "event"},
                 True,
                 True,
             ),
-            ("element", {"key": "text", "value": "Buy", "operator": "exact", "type": "element"}, True, True),
             ("person_property", {"key": "plan", "value": "pro", "operator": "exact", "type": "person"}, False, True),
             ("cohort", {"key": "id", "value": 1, "type": "cohort"}, False, True),
             ("session", {"key": "$entry_pathname", "value": "/", "operator": "exact", "type": "session"}, False, True),
             (
-                "event_relative_date",
-                {"key": "signup", "value": "-7d", "operator": "is_date_after", "type": "event"},
+                "event_date",
+                {"key": "signup", "value": "2026-01-01", "operator": "is_date_after", "type": "event"},
                 False,
                 False,
             ),
@@ -183,6 +182,7 @@ class TestExposureCriteriaOnTheEvent:
                 False,
                 False,
             ),
+            ("element", {"key": "text", "value": "Buy", "operator": "exact", "type": "element"}, False, False),
             ("hogql", {"key": "timestamp >= toDateTime('2026-01-01', 'UTC')", "type": "hogql"}, False, False),
             (
                 "event_metadata",

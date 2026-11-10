@@ -11,7 +11,6 @@ from posthog.schema import (
     ActionsNode,
     BehavioralPropertyFilter,
     CohortPropertyFilter,
-    ElementPropertyFilter,
     EventPropertyFilter,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
@@ -26,7 +25,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.property import action_to_expr, is_relative_date, operator_is_negative, property_to_expr
+from posthog.hogql.property import action_to_expr, operator_is_negative, property_to_expr
 from posthog.hogql.utils import map_virtual_properties
 
 from posthog.models.team.team import Team
@@ -430,9 +429,9 @@ def exposure_criteria_on_the_event(
     exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
 ) -> Optional[ExperimentExposureCriteria]:
     """
-    The exposure criteria with only the filters that compare a property of the exposure event or of its elements.
-    HogQL compiles each of them to a read of that one value, so the filter reads nothing but the event. Its match can
-    still depend on the type of the property and the timezone of the team.
+    The exposure criteria with only the filters that compare a property of the exposure event with a fixed value.
+    HogQL compiles each of them to a read of that one property, so the filter reads nothing but the event. Its match
+    can still depend on the type of the property and the timezone of the team.
     """
     criteria = normalize_to_exposure_criteria(exposure_criteria)
     config = criteria.exposure_config if criteria else None
@@ -465,8 +464,8 @@ _FILTERS_ON_WHO = (
     SessionPropertyFilter,
 )
 
-# The operators that compare the value with the filter's own value. The others read team settings, such as the
-# path cleaning rules, or other models, such as cohorts and flags.
+# The operators that compare the property with the filter's own value. The others read team settings, such as the
+# path cleaning rules, read other models, such as cohorts and flags, or parse dates.
 _VALUE_OPERATORS = frozenset(
     {
         PropertyOperator.EXACT,
@@ -485,13 +484,6 @@ _VALUE_OPERATORS = frozenset(
         PropertyOperator.LTE,
         PropertyOperator.IS_SET,
         PropertyOperator.IS_NOT_SET,
-        PropertyOperator.IS_DATE_EXACT,
-        PropertyOperator.IS_DATE_BEFORE,
-        PropertyOperator.IS_DATE_AFTER,
-        PropertyOperator.BETWEEN,
-        PropertyOperator.NOT_BETWEEN,
-        PropertyOperator.MIN,
-        PropertyOperator.MAX,
         PropertyOperator.SEMVER_EQ,
         PropertyOperator.SEMVER_NEQ,
         PropertyOperator.SEMVER_GT,
@@ -501,31 +493,16 @@ _VALUE_OPERATORS = frozenset(
         PropertyOperator.SEMVER_TILDE,
         PropertyOperator.SEMVER_CARET,
         PropertyOperator.SEMVER_WILDCARD,
-        PropertyOperator.ICONTAINS_MULTI,
-        PropertyOperator.NOT_ICONTAINS_MULTI,
     }
 )
 
 
-_DATE_OPERATORS = frozenset(
-    {PropertyOperator.IS_DATE_EXACT, PropertyOperator.IS_DATE_BEFORE, PropertyOperator.IS_DATE_AFTER}
-)
-
-
 def _compares_an_event_value(prop: object) -> bool:
-    if isinstance(prop, ElementPropertyFilter):
-        return True
     if not isinstance(prop, EventPropertyFilter):
         return False
     field = ast.Field(chain=["properties", prop.key])
-    operator = prop.operator or PropertyOperator.EXACT
-    # A virtual property compiles to an expression that can read persons and team settings. A relative date, such as
-    # `-7d`, compiles to a date counted back from the time of the query.
-    return (
-        map_virtual_properties(field) is field
-        and operator in _VALUE_OPERATORS
-        and not (operator in _DATE_OPERATORS and is_relative_date(prop.value))
-    )
+    # A virtual property compiles to an expression that can read persons and team settings.
+    return map_virtual_properties(field) is field and (prop.operator or PropertyOperator.EXACT) in _VALUE_OPERATORS
 
 
 def aggregates_by_group(group_type_index: object) -> bool:
