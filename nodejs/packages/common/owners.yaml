@@ -4,3 +4,6 @@ rules:
     - match:
           - '/src/schema-check/*.test.*'
       owners: team-devex
+    - match:
+          - '/src/usage-ingestion/*.test.*'
+      owners: team-billing
