@@ -38,27 +38,28 @@ def add(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git: Callable[..., str]
 
 class TestLintTestOwners:
     @pytest.mark.parametrize(
-        ("path", "exit_code"),
+        ("path", "exit_code", "status"),
         [
-            pytest.param("gap/test_new.py", 1, id="pytest_file_with_no_owner"),
-            pytest.param("gap/New.test.tsx", 1, id="jest_file_with_no_owner"),
-            pytest.param("owned/test_new.py", 0, id="test_with_an_owner"),
-            pytest.param("gap/new.py", 0, id="file_that_is_not_a_test"),
+            pytest.param("gap/test_new.py", 1, "warning", id="pytest_file_with_no_owner"),
+            pytest.param("gap/New.test.tsx", 1, "warning", id="jest_file_with_no_owner"),
+            pytest.param("owned/test_new.py", 0, "pass", id="test_with_an_owner"),
+            pytest.param("gap/new.py", 0, "pass", id="file_that_is_not_a_test"),
         ],
     )
-    def test_fails_only_on_a_new_test_with_no_owner(
-        self, add: Add, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str, exit_code: int
+    def test_ci_fails_and_preflight_warns_on_a_new_test_with_no_owner(
+        self, add: Add, path: str, exit_code: int, status: str
     ) -> None:
-        summary = tmp_path.parent / f"{tmp_path.name}-summary.md"
-        monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
         add(path)
 
         result = CliRunner().invoke(ownership_lint.cmd_lint_test_owners, ["--against", "HEAD"])
+        outcome = ownership_lint.check_test_owners(
+            Scope(files=[path], changed=[path], merge_base="HEAD", committed_only=False)
+        )
 
         assert result.exit_code == exit_code
         assert (path in result.output) == bool(exit_code)
-        assert summary.exists() == bool(exit_code)
-        assert not exit_code or path in summary.read_text()
+        assert outcome[0] == status
+        assert (path in outcome[1]) == bool(exit_code)
 
     def test_committed_reads_head_and_not_the_working_tree(self, add: Add) -> None:
         add("gap/test_new.py")
@@ -74,37 +75,10 @@ class TestLintTestOwners:
             pytest.param("::error::forged/test_x.py", id="at_the_start_of_the_path"),
         ],
     )
-    def test_a_path_cannot_forge_a_workflow_command(
-        self, add: Add, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str
-    ) -> None:
-        summary = tmp_path.parent / f"{tmp_path.name}-summary.md"
-        monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    def test_a_path_cannot_forge_a_workflow_command(self, add: Add, path: str) -> None:
         add(path)
 
         result = CliRunner().invoke(ownership_lint.cmd_lint_test_owners, ["--against", "HEAD"])
 
         assert result.exit_code == 1
         assert not any(line.startswith("::") for line in result.output.splitlines())
-        assert not any(line.startswith("::") for line in summary.read_text().splitlines())
-
-
-class TestCheckUnownedPaths:
-    @pytest.mark.parametrize(
-        ("path", "status", "named"),
-        [
-            pytest.param(
-                "gap/test_new.py", "warning", "CI fails on a new test with no owner: gap/test_new.py", id="test"
-            ),
-            pytest.param("gap/new.py", "warning", "no owner for gap/new.py", id="file_that_is_not_a_test"),
-            pytest.param("owned/test_new.py", "pass", "every new file has an owner", id="owned"),
-        ],
-    )
-    def test_warns_and_never_blocks(self, add: Add, path: str, status: str, named: str) -> None:
-        add(path)
-
-        outcome = ownership_lint.check_unowned_paths(
-            Scope(files=[path], changed=[path], merge_base="HEAD", committed_only=False)
-        )
-
-        assert outcome[0] == status
-        assert named in outcome[1]
