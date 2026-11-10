@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicAPIBaseTest, _create_event
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -19,8 +20,10 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.facade.clickhouse import INSERT_HOG_INVOCATION_RESULT_SQL
+from products.customer_analytics.backend.logic.account_automations import get_workflow_steps
 from products.customer_analytics.backend.test.factories import create_account
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
@@ -175,6 +178,71 @@ class TestAccountAutomations(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         other_team = Team.objects.create(organization=self.organization)
         response = self.client.get(self.url.replace(f"/{self.team.pk}/", f"/{other_team.pk}/"))
         assert response.status_code == 404
+
+    @parameterized.expand([("proxy", 101, True), ("without_proxy", 2, False)])
+    def test_step_metadata_is_complete_with_and_without_proxy(
+        self, _name: str, workflow_count: int, use_proxy: bool
+    ) -> None:
+        workflows = [
+            create_workflow_for_test(
+                team_id=self.team.pk,
+                name=f"Workflow {index}",
+                actions=[{"id": "wait", "type": "delay", "name": f"Wait {index}"}],
+            )
+            for index in range(workflow_count)
+        ]
+        with override_settings(
+            DEBUG=use_proxy,
+            TEST=use_proxy,
+            CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST=None,
+            CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT=None,
+            CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE=None,
+            CLICKHOUSE_HOGQL_RDSPROXY_READ_USER=None,
+            CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD=None,
+        ):
+            steps = get_workflow_steps(
+                team=self.team,
+                workflow_ids={str(flow.id) for flow in workflows},
+                user_access_control=UserAccessControl(user=self.user, team=self.team),
+            )
+        assert {
+            workflow_id: [(step.action_id, step.action_type, step.name) for step in actions]
+            for workflow_id, actions in steps.items()
+        } == {str(flow.id): [("wait", "delay", f"Wait {index}")] for index, flow in enumerate(workflows)}
+
+    @parameterized.expand([("custom_output", 1000, True), ("at_limit", 196, True), ("overflow", 201, False)])
+    def test_log_evidence_ignores_custom_output_and_omits_overflow(
+        self, kind: str, message_count: int, has_evidence: bool
+    ) -> None:
+        run_id = str(uuid4())
+        self.seed(run_id, status="running", distinct_id=f"account:{self.account.id}")
+        now = timezone.now()
+        messages = [
+            "Executing action a",
+            "Workflow moved to action wait",
+            "Executing action wait",
+            f"Workflow will pause until {(now + timedelta(days=1)).isoformat()}",
+        ] + [("custom output " * 1000 if kind == "custom_output" else "Executing action wait")] * message_count
+        sync_execute(
+            "INSERT INTO log_entries (team_id, log_source, log_source_id, instance_id, timestamp, level, message) VALUES",
+            [
+                (
+                    self.team.pk,
+                    "hog_flow",
+                    str(self.flow.id),
+                    run_id,
+                    now + timedelta(microseconds=index),
+                    "info",
+                    message,
+                )
+                for index, message in enumerate(messages)
+            ],
+        )
+        response = self.client.get(self.url)
+        assert response.status_code == 200, response.content
+        result = response.json()["results"][0]
+        assert (result["last_completed_step_at"] is not None) == has_evidence
+        assert (result["expected_resume_at"] is not None) == (has_evidence and kind == "custom_output")
 
     @parameterized.expand(
         [(0, "example", True), (45, "example", True), (0, None, True), (0, "changed", True), (0, "example", False)]

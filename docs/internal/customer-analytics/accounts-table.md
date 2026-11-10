@@ -9,7 +9,9 @@ Account events and account-audience batch runs appear here.
 Person-triggered product events do not.
 Account events match their stable account ID, including accounts without an external ID or whose external ID has changed.
 Event discovery only considers events referenced by retained runs.
-ClickHouse filters, counts, and paginates runs before returning rows. Workflow step metadata is read in one batch for the page.
+ClickHouse filters, counts, and paginates runs before returning rows.
+Workflow step metadata is read in one batch for the page when the ClickHouse-to-Postgres proxy is configured.
+Without that proxy, the existing Workflows read facade loads each page workflow through Django's database connection.
 
 Rows link to the workflow with an inline status chip.
 Separate columns show the original trigger time, last completed step, and expected resume time for a current delay.
@@ -19,6 +21,8 @@ Run records expire after 30 days and step logs after 90 days.
 Only retained run records can be discovered, so older active runs may be absent too.
 Expected resume times come from retained delay logs and disappear after later execution or completion.
 Completed history can be incomplete, and a date appears as unavailable when retained evidence cannot establish it.
+Only lifecycle log messages contribute to step evidence. Custom output is excluded and returned messages are capped at 256 bytes.
+Runs with more than 200 lifecycle log messages omit completed-step and resume details because their evidence exceeds the summary limit.
 
 The endpoint requires account, workflow, person, and event read scopes.
 It checks account access and returns only workflows the caller can read.

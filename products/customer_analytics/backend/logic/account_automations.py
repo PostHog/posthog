@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from itertools import groupby
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.utils import timezone
 
 from posthog.hogql import ast
@@ -24,14 +25,20 @@ from posthog.schema_enums import ProductKey
 
 from products.customer_analytics.backend.facade.contracts import AccountAutomation
 from products.workflows.backend.facade.api import get_workflow_names
+from products.workflows.backend.facade.contracts import WorkflowAccessDenied, WorkflowNotFound
+from products.workflows.backend.facade.workflows import get_workflow
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
+MAX_RUN_LOG_ENTRIES = 200
+
+
 @frozen
 class AccountRunsQuery:
-    sql: str
+    count_sql: str
+    page_sql: str
     parameters: dict[str, object]
 
 
@@ -169,8 +176,7 @@ def get_account_runs_query(
         context=context,
         dialect="clickhouse",
     )
-    return AccountRunsQuery(
-        sql=f"""WITH candidates AS (
+    sql = f"""WITH candidates AS (
             SELECT function_id, invocation_id FROM hog_invocation_results
             WHERE team_id = %(team_id)s AND function_kind = 'hog_flow'
                 AND function_id IN %(workflow_ids)s AND scheduled_at >= %(after)s
@@ -202,7 +208,10 @@ def get_account_runs_query(
             OR (JSONExtractBool(context, 'accountAudience') AND trigger_event = '$batch_hog_flow_invocation'
                 AND %(has_external_id)s AND latest.6 = %(external_id)s)
             OR latest.4 GLOBAL IN ({event_query})
-        )""",
+        )"""
+    return AccountRunsQuery(
+        count_sql=f"SELECT count() FROM ({sql})",
+        page_sql=f"{sql} ORDER BY triggered_at DESC, invocation_id DESC, function_id DESC LIMIT %(limit)s OFFSET %(offset)s",
         parameters={
             **context.values,
             "team_id": team.pk,
@@ -221,12 +230,45 @@ def get_account_runs_query(
 def get_workflow_steps(
     *, team: Team, workflow_ids: set[str], user_access_control: "UserAccessControl"
 ) -> dict[str, list[WorkflowStep]]:
+    if not workflow_ids:
+        return {}
+    if not (settings.DEBUG or settings.TEST) and not all(
+        (
+            settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST,
+            settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT,
+            settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE,
+            settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_USER,
+            settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD,
+        )
+    ):
+        steps = {}
+        for workflow_id in workflow_ids:
+            try:
+                workflow = get_workflow(
+                    team_id=team.pk,
+                    workflow_id=workflow_id,
+                    user_access_control=user_access_control,
+                    required_level="viewer",
+                )
+            except (WorkflowNotFound, WorkflowAccessDenied):
+                continue
+            steps[workflow_id] = [
+                WorkflowStep(action_id=action["id"], action_type=action["type"], name=action.get("name") or "")
+                for action in workflow.actions
+                if isinstance(action, dict)
+                and isinstance(action.get("id"), str)
+                and isinstance(action.get("type"), str)
+            ]
+        return steps
     response = execute_hogql_query(
         """SELECT id, arrayMap(action -> tuple(JSONExtractString(action, 'id'),
             JSONExtractString(action, 'type'), JSONExtractString(action, 'name')),
-            JSONExtractArrayRaw(actions)) FROM system.hog_flows WHERE id IN {workflow_ids}""",
+            JSONExtractArrayRaw(actions)) FROM system.hog_flows WHERE id IN {workflow_ids} LIMIT {limit}""",
         team=team,
-        placeholders={"workflow_ids": ast.Constant(value=list(workflow_ids))},
+        placeholders={
+            "workflow_ids": ast.Constant(value=list(workflow_ids)),
+            "limit": ast.Constant(value=len(workflow_ids)),
+        },
         user=user_access_control.user,
         user_access_control=user_access_control,
         workload=Workload.ONLINE,
@@ -255,7 +297,7 @@ def list_account_runs(
         return Page(results=[], count=0)
     query = get_account_runs_query(team=team, account_id=account_id, external_id=external_id, workflow_ids=set(names))
     count = sync_execute(
-        f"SELECT count() FROM ({query.sql})",
+        query.count_sql,
         query.parameters,
         workload=Workload.ONLINE,
         team_id=team.pk,
@@ -263,7 +305,7 @@ def list_account_runs(
     if not count or page.offset >= count:
         return Page(results=[], count=count)
     rows = sync_execute(
-        f"{query.sql} ORDER BY triggered_at DESC, invocation_id DESC, function_id DESC LIMIT %(limit)s OFFSET %(offset)s",
+        query.page_sql,
         {**query.parameters, "limit": page.limit, "offset": page.offset},
         workload=Workload.ONLINE,
         team_id=team.pk,
@@ -289,14 +331,25 @@ def list_account_runs(
     if not selected:
         return Page(results=[], count=count)
     logs = sync_execute(
-        """SELECT log_source_id, instance_id, timestamp, message FROM log_entries
+        """SELECT log_source_id, instance_id, timestamp,
+            if(position(message, 'Errored:') > 0 OR positionCaseInsensitive(message, 'skip') > 0
+                OR position(message, 'did not match') > 0 OR position(message, 'would not trigger') > 0,
+                'Errored:', left(message, 256)) AS evidence
+        FROM log_entries
         WHERE team_id = %(team_id)s AND log_source = 'hog_flow'
             AND (log_source_id, instance_id) IN %(run_keys)s
-            AND timestamp >= %(after)s ORDER BY timestamp""",
+            AND timestamp >= %(after)s
+            AND (startsWith(message, 'Executing action ') OR startsWith(message, 'Workflow moved to action ')
+                OR startsWith(message, 'Workflow will pause until ') OR message = 'Workflow completed'
+                OR position(message, 'Errored:') > 0 OR positionCaseInsensitive(message, 'skip') > 0
+                OR position(message, 'did not match') > 0 OR position(message, 'would not trigger') > 0)
+        ORDER BY timestamp DESC, evidence DESC
+        LIMIT %(log_limit)s BY log_source_id, instance_id""",
         {
             "team_id": team.pk,
             "run_keys": [(log_sources[(r.workflow_id, r.invocation_id)], r.invocation_id) for r in selected],
             "after": timezone.now() - timedelta(days=90),
+            "log_limit": MAX_RUN_LOG_ENTRIES + 1,
         },
         workload=Workload.ONLINE,
         team_id=team.pk,
@@ -311,6 +364,10 @@ def list_account_runs(
     for run in selected:
         actions = workflows.get(run.workflow_id, [])
         run_logs = by_run.get((log_sources[(run.workflow_id, run.invocation_id)], run.invocation_id), [])
+        if len(run_logs) > MAX_RUN_LOG_ENTRIES:
+            results.append(run)
+            continue
+        run_logs.reverse()
         completed_step = get_last_completed_step(
             run_logs,
             exit_action_ids={action.action_id for action in actions if action.action_type == "exit"},
