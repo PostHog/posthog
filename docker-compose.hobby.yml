@@ -8,6 +8,9 @@
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
 
+# Long-running services restart on any exit. A Node or Rust service that loses Kafka, Redis or
+# Postgres, for example while an upgrade recreates them, shuts down cleanly with exit code 0, and
+# `on-failure` never restarts a clean exit. `unless-stopped` also brings them back after a reboot.
 x-logging: &default-logging
     driver: json-file
     options:
@@ -50,6 +53,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: db
+        restart: unless-stopped
         image: ${DOCKER_REGISTRY_PREFIX:-}postgres:15.12-alpine
         logging: *default-logging
         volumes:
@@ -59,6 +63,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: redis7
+        restart: unless-stopped
         logging: *default-logging
         volumes:
             - redis7-data:/data
@@ -67,13 +72,14 @@ services:
         extends:
             file: docker-compose.base.yml
             service: valkey
+        restart: unless-stopped
         logging: *default-logging
 
     clickhouse:
         extends:
             file: docker-compose.base.yml
             service: clickhouse
-        restart: on-failure
+        restart: unless-stopped
         logging: *default-logging
         depends_on:
             - kafka
@@ -93,6 +99,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: zookeeper
+        restart: unless-stopped
         logging: *default-logging
         environment:
             ZOO_AUTOPURGE_PURGEINTERVAL: 1
@@ -105,6 +112,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: kafka
+        restart: unless-stopped
         logging: *default-logging
         depends_on:
             - zookeeper
@@ -119,6 +127,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: worker
+        restart: unless-stopped
         logging: *default-logging
         environment:
             # Each Celery pool process loads all of Django. Celery starts one per CPU by default,
@@ -189,6 +198,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: web
+        restart: unless-stopped
         command: /compose/start
         logging: *default-logging
         volumes:
@@ -255,6 +265,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: plugins
+        restart: unless-stopped
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
@@ -298,6 +309,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-general
+        restart: unless-stopped
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
@@ -321,6 +333,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-sessionreplay
+        restart: unless-stopped
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
@@ -340,6 +353,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: recording-api
+        restart: unless-stopped
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
@@ -368,6 +382,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-error-tracking
+        restart: unless-stopped
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
@@ -383,6 +398,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-logs
+        restart: unless-stopped
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
@@ -397,6 +413,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: ingestion-traces
+        restart: unless-stopped
         image: ${REGISTRY_URL}-node:${POSTHOG_NODE_TAG:-latest}
         logging: *default-logging
         environment:
@@ -430,7 +447,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: objectstorage
-        restart: on-failure
+        restart: unless-stopped
         logging: *default-logging
         # The dev/CI bootstrap this replaces also registers an `anonymous` identity with
         # Admin rights. Hobby must not, because Caddy proxies /posthog/* straight to this
@@ -473,7 +490,7 @@ services:
             file: docker-compose.base.yml
             service: seaweedfs
         container_name: '${SEAWEEDFS_DOCKER_NAME:-seaweedfs-main}'
-        restart: on-failure
+        restart: unless-stopped
         logging: *default-logging
         ports:
             - '127.0.0.1:8333:8333' # S3 API
@@ -496,7 +513,7 @@ services:
     browserless:
         # Renders image exports and heatmap screenshots (no browser ships in the PostHog image).
         image: ghcr.io/browserless/chromium:v2.51.2
-        restart: on-failure
+        restart: unless-stopped
         logging: *default-logging
         environment:
             TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
@@ -519,6 +536,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: temporal-sql-visibility
+        restart: unless-stopped
         logging: *default-logging
         ports:
             - '127.0.0.1:7233:7233'
@@ -544,6 +562,7 @@ services:
             db:
                 condition: service_healthy
     temporal-django-worker:
+        restart: unless-stopped
         command: /compose/temporal-django-worker
         extends:
             file: docker-compose.base.yml
@@ -605,6 +624,7 @@ services:
             - personhog-router
 
     capture:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -613,6 +633,7 @@ services:
         logging: *default-logging
 
     capture-ai:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -621,6 +642,7 @@ services:
         logging: *default-logging
 
     capture-logs:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -629,6 +651,7 @@ services:
         logging: *default-logging
 
     replay-capture:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -637,6 +660,7 @@ services:
         logging: *default-logging
 
     property-defs-rs:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -650,6 +674,7 @@ services:
                 condition: service_healthy
 
     property-defs-ai:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -669,6 +694,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: livestream
+        restart: unless-stopped
         logging: *default-logging
         environment:
             - LIVESTREAM_JWT_SECRET=${POSTHOG_SECRET}
@@ -676,6 +702,7 @@ services:
             - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
 
     personhog-replica:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -689,6 +716,7 @@ services:
                 condition: service_healthy
 
     personhog-router:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -699,6 +727,7 @@ services:
             - personhog-replica
 
     personhog-router-leader:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -715,6 +744,7 @@ services:
                 condition: service_started
 
     personhog-leader:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -735,6 +765,7 @@ services:
                 condition: service_completed_successfully
 
     personhog-writer:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -753,6 +784,7 @@ services:
                 condition: service_completed_successfully
 
     personhog-identity:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -777,7 +809,7 @@ services:
             context: ./posthog/rust
             args:
                 BIN: personhog-publisher
-        restart: on-failure
+        restart: unless-stopped
         logging: *default-logging
         environment:
             <<: *personhog-tables
@@ -797,7 +829,7 @@ services:
             context: ./posthog/rust
             args:
                 BIN: personhog-changelog-relay
-        restart: on-failure
+        restart: unless-stopped
         logging: *default-logging
         environment:
             KAFKA_HOSTS: 'kafka:9092'
@@ -813,7 +845,7 @@ services:
 
     etcd:
         image: quay.io/coreos/etcd:v3.6.8
-        restart: on-failure
+        restart: unless-stopped
         logging: *default-logging
         environment:
             ETCD_NAME: etcd0
@@ -869,6 +901,7 @@ services:
                 condition: service_healthy
 
     feature-flags:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -891,6 +924,7 @@ services:
                 condition: service_healthy
 
     hypercache-server:
+        restart: unless-stopped
         build:
             context: ./posthog/rust
         extends:
@@ -963,7 +997,7 @@ services:
             context: ./posthog/rust
             args:
                 BIN: cymbal
-        restart: on-failure
+        restart: unless-stopped
         logging: *default-logging
         volumes:
             - ./share:/share
@@ -1007,7 +1041,7 @@ services:
             context: ./posthog/rust
             args:
                 BIN: cymbal
-        restart: on-failure
+        restart: unless-stopped
         logging: *default-logging
         environment:
             CYMBAL_MODE: resolution
