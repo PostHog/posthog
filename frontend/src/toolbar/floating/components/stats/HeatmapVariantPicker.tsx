@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
+import { LemonSearchableSelect, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { HeatmapVariantFilter } from 'lib/components/heatmaps/heatmapVariantFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -31,14 +31,22 @@ export function HeatmapVariantPicker(): JSX.Element | null {
 
     const sections: LemonSelectSection<string | null>[] = heatmapVariantFlags.map(({ flagKey, variants }) => ({
         title: flagKey,
-        options: variants.map((variantFilter) => ({ label: variantFilter.variant, value: optionKey(variantFilter) })),
+        options: variants.map((variantFilter) => ({
+            label: `${flagKey}: ${variantFilter.variant}`,
+            labelInMenu: variantFilter.variant,
+            value: optionKey(variantFilter),
+        })),
     }))
 
     return (
-        <LemonSelect
+        <LemonSearchableSelect
             size="small"
             dropdownMatchSelectWidth={false}
             data-attr="heatmap-variant-filter"
+            searchPlaceholder="Search flags or variants"
+            searchInputDataAttr="heatmap-variant-filter-search"
+            // Fuse drops matches far into a string, so the variant gets its own key next to the long flag label.
+            searchKeys={['label', 'labelInMenu']}
             tooltip="Heatmap: sessions that were shown this variant. Clickmap: clicks from people in this variant, even if they weren't shown it."
             value={heatmapVariantFilter ? optionKey(heatmapVariantFilter) : null}
             options={[{ options: [{ label: 'All variants', value: null }] }, ...sections]}

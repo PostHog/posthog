@@ -272,6 +272,9 @@ posthog:query-llm-trace
 }
 ```
 
+If the request times out or fails with a connection error, the trace is too large for this tool.
+Break its cost down with the per-trace SQL under "Cost by trace" in `exploring-llm-costs/references/breakdown-patterns.md`, with the time filter set to the same 30 days.
+
 To list the user's traces with `posthog:query-llm-traces-list`, pass the
 `person_uuid` from step 1 as `personId`. Do not pass the `distinct_id`.
 `personId` accepts only a full person UUID, so a `distinct_id` fails the query.
