@@ -200,6 +200,10 @@ services:
             - ./configs/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
             - ./configs/clickhouse/config.d/dev-memory.xml:/etc/clickhouse-server/config.d/dev-memory.xml
             - ./configs/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+            # The pinned schema's materialized views call Django's user-defined functions, whose
+            # executables are too large to pin, so they mount from the checkout.
+            - ../../docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ../../posthog/user_scripts:/var/lib/clickhouse/user_scripts
             - clickhouse-data:/var/lib/clickhouse
         extra_hosts:
             - host.docker.internal:host-gateway
