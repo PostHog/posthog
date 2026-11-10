@@ -797,7 +797,7 @@ def _refresh_sandbox_github(
 
     # Read-only runs use a team installation grant, not the message actor's identity.
     # The periodic credential refresh rotates that grant without widening its permissions.
-    if (state or {}).get("github_read_access") is True:
+    if (state or {}).get("github_read_access") is True or (state or {}).get("github_token_scope"):
         return None
 
     run_id = str(task_run.id)

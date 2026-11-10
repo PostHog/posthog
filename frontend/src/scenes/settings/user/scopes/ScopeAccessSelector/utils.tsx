@@ -2,18 +2,18 @@ import { LemonInputSelectOption, Tooltip } from '@posthog/lemon-ui'
 
 import type { OrganizationOption, TeamOption } from './types'
 
+export const organizationTooltip = (org: OrganizationOption): JSX.Element => (
+    <div>
+        <div className="font-semibold">{org.name}</div>
+        <div className="text-xs whitespace-nowrap">ID: {org.id}</div>
+    </div>
+)
+
 export const createOrganizationOption = (org: OrganizationOption): LemonInputSelectOption<string> => ({
     key: `${org.id}`,
     label: org.name,
     labelComponent: (
-        <Tooltip
-            title={
-                <div>
-                    <div className="font-semibold">{org.name}</div>
-                    <div className="text-xs whitespace-nowrap">ID: {org.id}</div>
-                </div>
-            }
-        >
+        <Tooltip title={organizationTooltip(org)}>
             <span className="flex-1 font-semibold">{org.name}</span>
         </Tooltip>
     ),

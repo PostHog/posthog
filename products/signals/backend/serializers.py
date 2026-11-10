@@ -25,6 +25,7 @@ from posthog.models import Team, User
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
+from products.error_tracking.backend.facade import alerts as error_tracking_alerts
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.anomaly_scores.config import enrolls_team, parse_config, read_payload
@@ -37,6 +38,8 @@ from products.signals.backend.contracts import (
     ALERT_SCOPE_KEY,
     ALERT_SCOPE_SOURCE,
     DEFAULT_NOT_ACTIONABLE_KEY,
+    ISSUE_FILTER_SOURCES,
+    ISSUE_FILTERS_KEY,
     SCOPE_CONFIG_KEYS,
     STEERING_KEY,
     STEERING_MAX_LENGTH,
@@ -224,6 +227,14 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "`linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the "
     "whole Linear workspace, but only issues from those teams become signals. Omit the key or "
     "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. "
+    "The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object "
+    "with a `properties` list of event property filters, the same shape error tracking alert "
+    "filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, "
+    "`assignee`) and the properties of one exception: the first one for a new issue, the "
+    "reopening one, or an example for a spike. Only issues that match become signals. The server "
+    "compiles the filter and ignores any bytecode sent with it. Save the same filter on all three "
+    "error tracking rows with `config_set`, and remove it with `config_remove`. Filters apply to "
+    "future signals only, and they decide which issues are eligible. They are not a spend cap. "
     "The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) "
     "accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the "
     "investigation agent confirmed into signals, `all_firing_alerts` also includes alerts "
@@ -403,6 +414,10 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                 # Stored stripped: emission matches these ids exactly, so a pasted id with a
                 # stray space would select a scope and then read nothing.
                 config[scope_key] = [scope_id.strip() for scope_id in config[scope_key]]
+        if config is not None and ISSUE_FILTERS_KEY in config:
+            config[ISSUE_FILTERS_KEY] = self._compiled_issue_filters(
+                source_product, source_type, config[ISSUE_FILTERS_KEY]
+            )
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
@@ -425,6 +440,22 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                 )
         return attrs
 
+    def _compiled_issue_filters(self, source_product: str | None, source_type: str | None, filters: object) -> dict:
+        if (source_product, source_type) not in ISSUE_FILTER_SOURCES:
+            raise serializers.ValidationError(
+                {"config": f"{ISSUE_FILTERS_KEY} is only supported on error tracking sources"}
+            )
+        get_team = self.context.get("get_team")
+        team = get_team() if get_team else None
+        if team is None:
+            raise serializers.ValidationError({"config": f"{ISSUE_FILTERS_KEY} needs a project to compile against"})
+        if not isinstance(filters, dict):
+            raise serializers.ValidationError({"config": f"{ISSUE_FILTERS_KEY} must be a JSON object"})
+        try:
+            return error_tracking_alerts.compile_signal_source_filters(team.id, filters)
+        except error_tracking_alerts.AlertValidationError as error:
+            raise serializers.ValidationError({"config": str(error)})
+
     def create(self, validated_data: dict) -> SignalSourceConfig:
         if (
             validated_data.get("source_product") == SignalSourceConfig.SourceProduct.SESSION_REPLAY
@@ -434,6 +465,69 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             config.setdefault("sample_rate", DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE)
             validated_data["config"] = config
         return super().create(validated_data)
+
+
+# Wider than the stored limits, so a list over them still reads back as a field error instead of a 400.
+_ALERT_PATTERN_PREVIEW_MAX_COUNT = 100
+_ALERT_PATTERN_PREVIEW_MAX_LENGTH = 1000
+
+
+class AlertPatternPreviewOutcome(TextChoices):
+    PASSED = "passed", "passed"
+    BLOCKED = "blocked", "blocked"
+    NOT_ALLOWED = "not_allowed", "not_allowed"
+
+
+class AlertPatternPreviewRequestSerializer(serializers.Serializer):
+    alert_allow_patterns = serializers.ListField(
+        child=serializers.CharField(max_length=_ALERT_PATTERN_PREVIEW_MAX_LENGTH, trim_whitespace=False),
+        max_length=_ALERT_PATTERN_PREVIEW_MAX_COUNT,
+        required=False,
+        default=list,
+        help_text="Allow patterns to try, as they would be saved in `config.alert_allow_patterns`.",
+    )
+    alert_block_patterns = serializers.ListField(
+        child=serializers.CharField(max_length=_ALERT_PATTERN_PREVIEW_MAX_LENGTH, trim_whitespace=False),
+        max_length=_ALERT_PATTERN_PREVIEW_MAX_COUNT,
+        required=False,
+        default=list,
+        help_text="Block patterns to try, as they would be saved in `config.alert_block_patterns`.",
+    )
+
+
+class AlertPatternPreviewAlertSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The alert's id.")
+    name = serializers.CharField(help_text="The alert's name. Empty when the alert has no name.")
+    insight_name = serializers.CharField(
+        allow_null=True, help_text="The insight's name, or its derived name when it has none."
+    )
+    insight_short_id = serializers.CharField(help_text="Short id of the insight the alert watches.")
+    outcome = serializers.ChoiceField(
+        choices=AlertPatternPreviewOutcome.choices,
+        help_text=(
+            "`passed` when the patterns let the alert through, `blocked` when it matches a block pattern, and "
+            "`not_allowed` when allow patterns are set and it matches none of them."
+        ),
+    )
+
+
+class AlertPatternPreviewResponseSerializer(serializers.Serializer):
+    alert_allow_patterns_error = serializers.CharField(
+        allow_null=True,
+        help_text="Why the allow patterns could not be saved, or null when they are valid.",
+    )
+    alert_block_patterns_error = serializers.CharField(
+        allow_null=True,
+        help_text="Why the block patterns could not be saved, or null when they are valid.",
+    )
+    alerts = AlertPatternPreviewAlertSerializer(
+        many=True,
+        help_text=(
+            "The project's enabled alerts on insights you can view, newest first, each with what the patterns do to "
+            "it. Empty while either pattern list has an error."
+        ),
+    )
+    has_more = serializers.BooleanField(help_text="True when the project has more enabled alerts than `alerts` lists.")
 
 
 # A team overrides the base branch for a handful of its repos; a map larger than this is abuse,
@@ -588,11 +682,12 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
     anomaly_scoring_enabled = serializers.BooleanField(
         required=False,
         help_text=(
-            "Legacy off switch for anomaly scoring. The Product analytics source (analytics / "
-            "anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores "
-            "this project's active trends insights and writes the results as $anomaly_score events, which "
-            "are not billed. True by default. False still stops new scores; events written before stay. "
-            "Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
+            "Whether anomaly scoring runs while the Product analytics source (analytics / anomaly_investigation) "
+            "is on. Scoring checks this project's active trends insights for anomalies and writes the results "
+            "as $anomaly_score events, which are not billed. True by default. False stops new scores and keeps "
+            "alert signals; events written before stay. Turning the source off stops scoring whatever this "
+            "value is, and turning the source on again keeps this value. Turning it on does not enroll a "
+            "project that anomaly_scoring_available reports as not covered."
         ),
     )
     anomaly_scoring_available = serializers.SerializerMethodField(
@@ -2680,8 +2775,8 @@ class SignalReportListSerializer(SignalReportSerializer):
         ranker = self.context.get("inbox_ranker")
         if ranker is None:
             return None
-        score = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score", None)
-        key = inbox_merge_key(ranker, score, getattr(obj, "priority_sort_rank", None))
+        score = None if ranker == "priority" else getattr(obj, f"inbox_ranking_{ranker}_score", None)
+        key = inbox_merge_key(ranker, score, getattr(obj, "inbox_priority_sort_rank", None))
         personal_order: PersonalListOrder | None = self.context.get("personal_order")
         if personal_order is None:
             return key

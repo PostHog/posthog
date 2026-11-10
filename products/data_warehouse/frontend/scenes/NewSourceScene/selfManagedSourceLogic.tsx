@@ -17,7 +17,7 @@ import { AnyPropertyFilter, DataWarehouseCredential, DataWarehouseTable } from '
 import { sourceSceneLogic } from '../SourceScene/SourceScene'
 
 export interface TableLogicProps {
-    /** A UUID or 'new'. */
+    /** The table's UUID. */
     id: string
 }
 
@@ -34,8 +34,8 @@ const NEW_WAREHOUSE_TABLE: DataWarehouseTable = {
     },
 }
 
-// `credential` is null on tables saved without one (the API only enforces credentials on
-// creation via this form), so it must be guarded — reading through it crashed the page.
+// `credential` is null on tables saved without one, such as uploaded files, so it must be guarded:
+// reading through it crashed the page.
 export function selfManagedTableFormErrors({
     name,
     url_pattern,
@@ -143,21 +143,6 @@ export interface selfManagedSourceLogicActions {
     }
     archiveTable: () => {
         value: true
-    }
-    createTable: (tablePayload: any) => any
-    createTableFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    createTableSuccess: (
-        table: DataWarehouseTable,
-        payload?: any
-    ) => {
-        table: DataWarehouseTable
-        payload?: any
     }
     editingTable: (editing: boolean) => {
         editing: boolean
@@ -273,15 +258,7 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
     loaders(({ props }) => ({
         table: {
             loadTable: async () => {
-                if (props.id && props.id !== 'new') {
-                    return await api.dataWarehouseTables.get(props.id)
-                }
-                return { ...NEW_WAREHOUSE_TABLE }
-            },
-            createTable: async (tablePayload) => {
-                return await api.dataWarehouseTables.create({
-                    ...tablePayload,
-                })
+                return await api.dataWarehouseTables.get(props.id)
             },
             updateTable: async (tablePayload) => {
                 return await api.dataWarehouseTables.update(props.id, tablePayload)
@@ -289,21 +266,11 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
         },
     })),
     listeners(({ actions, props }) => ({
-        // initKea leaves a validation 400 from these loaders to this logic, so toast the server message here.
-        createTableFailure: ({ errorObject }) => {
-            if (errorObject?.status === 400) {
-                lemonToast.error(readableErrorMessage(errorObject) ?? 'Could not create the table.')
-            }
-        },
+        // initKea leaves a validation 400 from this loader to this logic, so toast the server message here.
         updateTableFailure: ({ errorObject }) => {
             if (errorObject?.status === 400) {
                 lemonToast.error(readableErrorMessage(errorObject) ?? 'Could not update the table.')
             }
-        },
-        createTableSuccess: async ({ table }) => {
-            lemonToast.success(<>Table {table.name} created</>)
-            actions.loadDatabase()
-            router.actions.replace(urls.sources())
         },
         updateTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} updated</>)
@@ -331,16 +298,12 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
             },
         ],
     }),
-    forms(({ actions, props }) => ({
+    forms(({ actions }) => ({
         table: {
             defaults: { ...NEW_WAREHOUSE_TABLE } as DataWarehouseTable,
             errors: selfManagedTableFormErrors,
             submit: async (tablePayload) => {
-                if (props.id && props.id !== 'new') {
-                    actions.updateTable(tablePayload)
-                } else {
-                    actions.createTable(tablePayload)
-                }
+                actions.updateTable(tablePayload)
             },
         },
     })),

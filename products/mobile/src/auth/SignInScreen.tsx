@@ -1,5 +1,5 @@
 import { getCalendars, getLocales } from 'expo-localization'
-import { useRouter } from 'expo-router'
+import { useLocalSearchParams, useRouter } from 'expo-router'
 import { type ReactElement, useState } from 'react'
 import { ActivityIndicator, Linking, ScrollView, Text, View } from 'react-native'
 
@@ -31,11 +31,13 @@ import {
 } from './regions'
 import { SignInField } from './SignInField'
 import { signInFailureReason } from './signInErrors'
+import { signInReturnParam } from './signInReturn'
 
 export function SignInScreen(): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const router = useRouter()
+    const returnTo = signInReturnParam(useLocalSearchParams<{ next?: string }>().next)
     const insets = useScreenInsets()
     const signIn = useAuthStore((state) => state.signIn)
     const signedOutReason = useAuthStore((state) => state.signedOutReason)
@@ -75,7 +77,8 @@ export function SignInScreen(): ReactElement {
                 track('mobile_demo_ended', { from: 'sign_in' })
             }
             setDemo(false)
-            router.replace(defaultPageHref(settleDefaultPage()))
+            const startPage = defaultPageHref(settleDefaultPage())
+            router.replace(returnTo ?? startPage)
         } catch (caught) {
             // Retrying cannot help when this platform has no OAuth sign-in.
             const retryable = !(caught instanceof OAuthError && caught.kind === 'unsupported')

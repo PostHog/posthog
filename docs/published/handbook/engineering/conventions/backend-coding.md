@@ -13,6 +13,9 @@ Check request timing against browser performance metrics, and inspect child span
 
 Query API responses expose a validated HTTP request UUID through `X-Request-ID` and the `Server-Timing` metric named `request_id`.
 Query analytics include the same UUID as `http_request_id`.
+When server timing is enabled, `pg` and `ch` report cumulative client query time in milliseconds.
+The matching `_max` metrics report the longest query, `_count` metrics count query attempts, and `_slow` metrics count attempts longer than 50 milliseconds.
+Failed queries contribute to these metrics too.
 The browser records response wait, body read, JSON parsing, and available resource phases on existing query outcome events.
 Resource phases require one matching response UUID; missing, ambiguous, or truncated evidence remains explicit.
 Cross-origin resource details also require `Timing-Allow-Origin`.

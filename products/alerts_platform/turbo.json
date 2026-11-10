@@ -6,9 +6,6 @@
                 "backend/facade/**",
                 "backend/presentation/**",
                 "backend/routes.py",
-                "backend/delivery/email.py",
-                "backend/delivery/pagerduty.py",
-                "backend/delivery/team_flags.py",
                 "backend/models/**",
                 "backend/temporal/**",
                 "backend/migrations/**"

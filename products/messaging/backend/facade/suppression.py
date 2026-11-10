@@ -34,6 +34,15 @@ class AddedSuppression:
     created: bool
 
 
+@frozen
+class RemovedSuppressions:
+    removed: list[str]
+    not_found: list[str]
+
+
+ComplaintConfirmationRequired = suppression_service.ComplaintConfirmationRequired
+
+
 def _to_contract(row: MessageSuppression) -> Suppression:
     return Suppression(
         id=row.id,
@@ -61,6 +70,7 @@ def add_manual_suppression(team_id: int, identifier: str, created_by_id: int | N
     return AddedSuppression(suppression=_to_contract(row), created=created)
 
 
-def remove_suppression(team_id: int, identifier: str) -> bool:
-    """Un-suppress `identifier`. Returns False when the team has no row for it."""
-    return suppression_service.remove_suppression(team_id, identifier)
+def remove_suppressions(team_id: int, identifiers: list[str], confirm_complaints: bool) -> RemovedSuppressions:
+    """Un-suppress `identifiers`. Raises `ComplaintConfirmationRequired` for an unconfirmed spam complaint."""
+    removed = suppression_service.remove_suppressions(team_id, identifiers, confirm_complaints)
+    return RemovedSuppressions(removed=removed, not_found=sorted(set(identifiers) - set(removed)))

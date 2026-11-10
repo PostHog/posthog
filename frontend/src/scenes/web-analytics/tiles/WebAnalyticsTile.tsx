@@ -47,6 +47,7 @@ import {
     faviconUrl,
     webStatsBreakdownToPropertyName,
 } from 'scenes/web-analytics/common'
+import { MarketingCostBreakdownWarning } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingCostBreakdownWarning'
 import {
     buildDataTableTileDataNodeLogicProps,
     buildInsightVizTileDataNodeLogicProps,
@@ -921,6 +922,9 @@ export const MarketingAnalyticsTrendTile = ({
                 readOnly={true}
                 context={{ insightProps: { ...insightProps, query } }}
             />
+            {canSplitByCampaign && chartBreakdown === 'campaign' && (
+                <MarketingCostBreakdownWarning insightProps={insightProps} />
+            )}
         </div>
     )
 }

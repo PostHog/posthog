@@ -7,6 +7,7 @@ from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team import Team
 from posthog.models.utils import (
     RootTeamMixin,
@@ -19,7 +20,8 @@ from posthog.utils import generate_short_id
 from posthog.uuidt import uuid7
 
 
-class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
+# nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
+class Notebook(Taggable, FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class Visibility(models.TextChoices):
         INTERNAL = "internal", "internal"
         DEFAULT = "default", "default"

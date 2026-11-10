@@ -12,6 +12,7 @@ import {
     LemonTable,
     LemonTag,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -26,14 +27,52 @@ import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
-import { draftableOpportunity, engineLabel } from './utils'
+import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
+import { draftableOpportunity, engineLabel, promptSearches } from './utils'
 
 const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
     const check = prompt.latest_checks.find((latest) => latest.engine === engine)
     if (!check) {
         return <span className="text-muted whitespace-nowrap">Not checked</span>
     }
-    return <ContentAutopilotCheckResultTag cited={check.cited} checkFailed={check.check_failed} />
+    return (
+        <ContentAutopilotCheckResultTag
+            cited={check.cited}
+            checkFailed={check.check_failed}
+            position={check.target_best_position}
+        />
+    )
+}
+
+const PromptSearchesLine = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element | null => {
+    const { primary, byEngine, distinct } = promptSearches(prompt)
+    if (!primary) {
+        return null
+    }
+    return (
+        <Tooltip
+            title={
+                <div className="flex flex-col gap-1">
+                    {byEngine.map(({ engine, queries }) => (
+                        <div key={engine}>
+                            <div className="font-semibold">{engineLabel(engine)} searched</div>
+                            {queries.map((query) => (
+                                <div key={query}>{query}</div>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            }
+        >
+            <div
+                className="mt-0.5 text-xs text-muted truncate max-w-120"
+                tabIndex={0}
+                data-attr="content-autopilot-prompt-searches"
+            >
+                Searched for "{primary}"{distinct > 1 ? ` +${distinct - 1} more` : ''}
+            </div>
+        </Tooltip>
+    )
 }
 
 export const ContentAutopilotPrompts = (): JSX.Element => {
@@ -125,16 +164,18 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     size="small"
                     data-attr="content-autopilot-prompts-show-archived"
                 />
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<IconPlusSmall />}
-                    className="ml-auto"
-                    onClick={openAddPrompts}
-                    data-attr="content-autopilot-prompts-add"
-                >
-                    Add prompts
-                </LemonButton>
+                <div className="ml-auto flex gap-2">
+                    <ContentAutopilotPromptSuggestButton size="small" />
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        icon={<IconPlusSmall />}
+                        onClick={openAddPrompts}
+                        data-attr="content-autopilot-prompts-add"
+                    >
+                        Add prompts
+                    </LemonButton>
+                </div>
             </div>
 
             {promptsError === 'failed' ? (
@@ -154,9 +195,13 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     <h3 className="m-0">No prompts yet</h3>
                     <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                        Add the questions your customers ask AI assistants. You can also import prompts with the API (
+                        Add the questions your buyers ask AI assistants. Claude can suggest them from your site, or you
+                        can write your own. You can also import prompts with the API (
                         <code>POST /api/projects/:project_id/aeo_prompts/bulk_import/</code>) or the PostHog MCP tools.
                     </p>
+                    <div className="mt-4 flex justify-center">
+                        <ContentAutopilotPromptSuggestButton type="primary" />
+                    </div>
                 </LemonCard>
             ) : (
                 <LemonTable
@@ -193,6 +238,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                     >
                                         {prompt.prompt}
                                     </Link>
+                                    <PromptSearchesLine prompt={prompt} />
                                 </div>
                             ),
                         },

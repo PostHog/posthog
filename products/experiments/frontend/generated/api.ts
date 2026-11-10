@@ -813,7 +813,10 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * `running_but_no_rollout` when 10 or more people got a variant from flag calls without a
  * flag version that are no local evaluation, from an hour after the window starts. When
  * every condition that includes users pins the variant whose key one property holds,
- * `assigned_by_property` replaces `all_conditions_pinned`.
+ * `assigned_by_property` replaces `all_conditions_pinned`. When none of them includes
+ * everyone, so that every other user gets no variant, `closed_to_matched_users` replaces it,
+ * as a warning. A condition without filters, or with only filters that leave users out,
+ * includes everyone.
  *
  * A draft whose flag has no recorded call gets the info `new_flag_no_traffic`. The record
  * is the flag's `last_called_at`, which a periodic task updates, so it trails a call. The

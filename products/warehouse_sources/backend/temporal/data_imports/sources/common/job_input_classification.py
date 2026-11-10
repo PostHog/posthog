@@ -19,7 +19,7 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.facade.contracts import STRIPPED_STORE_KEYS
+from products.warehouse_sources.backend.facade.contracts import DEAD_CREDENTIALS_CLEARED_KEY, STRIPPED_STORE_KEYS
 from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldOauthAccountSelectConfig,
@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.types import SourceKey
 
 RUNTIME_KEY_PREFIXES: tuple[str, ...] = ("cdc_",)
 # Keys that the store itself writes. They are runtime state for every source.
-STORE_RUNTIME_KEYS: frozenset[str] = STRIPPED_STORE_KEYS
+STORE_RUNTIME_KEYS: frozenset[str] = STRIPPED_STORE_KEYS | {DEAD_CREDENTIALS_CLEARED_KEY}
 
 # The only field types that carry `sync_setting`. OAuth, SSH tunnel and file upload fields always hold credentials.
 SYNC_SETTING_FIELD_TYPES = (

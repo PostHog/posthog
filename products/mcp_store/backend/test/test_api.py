@@ -24,6 +24,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.security.url_validation import PinnedUrlVerdict
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 from posthog.test.authentication_checks import covers_authentication
@@ -830,6 +831,7 @@ class TestMCPGatewayServerAPI(APIBaseTest):
 
         assert tools_response.status_code == status.HTTP_200_OK
         assert tools_response.json()["results"][0]["is_destructive"] is True
+        assert tools_response.json()["results"][0]["is_read_only"] is False
         assert tools_response.json()["results"][0]["team_state"] == "do_not_use"
         assert active_response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -3269,6 +3271,49 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             expires_at=timezone.now() + timedelta(seconds=600),
             created_by=created_by if created_by is not None else self.user,
         )
+
+    @parameterized.expand([(allowed, anonymous) for allowed in (False, True) for anonymous in (False, True)])
+    @patch("products.mcp_store.backend.presentation.views.is_dev_mode")
+    @patch("products.mcp_store.backend.presentation.views.MCPOAuthRedirectViewSet._exchange_and_store_tokens")
+    def test_callback_enforces_installation_policy_before_consuming_state(
+        self, allowed: bool, anonymous: bool, exchange: MagicMock, dev_mode: MagicMock
+    ) -> None:
+        dev_mode.return_value = anonymous
+        installation = self._create_installation()
+        state_token = "installation-policy-example"
+        oauth_state = self._create_oauth_state(
+            installation,
+            state_token,
+            install_source="posthog-code" if anonymous else "posthog",
+            posthog_code_callback_url="posthog-code://oauth/callback" if anonymous else "",
+        )
+        other = Organization.objects.create(name="Open example organization")
+        self.user.join(organization=other)
+        self.user.current_organization = other
+        self.user.current_team = None
+        self.user.save(update_fields=["current_organization", "current_team"])
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        installation.refresh_from_db()
+        original_credentials = installation.sensitive_configuration
+        if anonymous:
+            self.client.logout()
+
+        response = self.client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "code": "example-code"},
+            REMOTE_ADDR="203.0.113.7" if allowed else "198.51.100.7",
+        )
+
+        assert response.status_code == (302 if allowed else 403)
+        oauth_state.refresh_from_db()
+        installation.refresh_from_db()
+        assert (oauth_state.consumed_at is not None) == allowed
+        assert installation.sensitive_configuration == original_credentials
+        if allowed:
+            exchange.assert_called_once()
+        else:
+            exchange.assert_not_called()
+            assert response.json()["code"] == "ip_not_allowed"
 
     def test_oauth_redirect_places_callback_query_before_return_fragment(self):
         installation = self._create_installation()

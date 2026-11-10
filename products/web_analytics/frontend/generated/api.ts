@@ -9,16 +9,20 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AEOBrandApi,
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
     AEOPromptSetOverviewApi,
     AEOPromptStatsApi,
+    AEOPromptSuggestRequestApi,
+    AEOPromptSuggestionJobApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
+    AeoBrandsListParams,
     AeoPromptsChecksParams,
     AeoPromptsListParams,
     AeoPromptsOverviewParams,
@@ -52,6 +56,7 @@ import type {
     HeatmapsResponseApi,
     LlmsTxtFetchRequestApi,
     LlmsTxtFetchResponseApi,
+    PaginatedAEOBrandListApi,
     PaginatedAEOPromptCheckListApi,
     PaginatedAEOPromptListApi,
     PaginatedContentAutopilotOpportunityListApi,
@@ -59,6 +64,7 @@ import type {
     PaginatedContentAutopilotRunListApi,
     PaginatedContentAutopilotSiteProfileListApi,
     PaginatedWebAnalyticsFilterPresetListApi,
+    PatchedAEOBrandUpdateRequestApi,
     PatchedAEOPromptUpdateRequestApi,
     PatchedContentAutopilotSiteProfileApi,
     PatchedHeatmapCaptureSettingsRequestApi,
@@ -104,6 +110,74 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getAeoBrandsListUrl = (projectId: string, params?: AeoBrandsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_brands/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_brands/`
+}
+
+/**
+ * Lists the project's brand catalog by domain: the project itself, competitors, publishers and domains nobody has labeled yet. Each daily run adds the domains its answers cited for the first time.
+ * @summary List AEO brands
+ */
+export const aeoBrandsList = async (
+    projectId: string,
+    params?: AeoBrandsListParams,
+    options?: RequestInit
+): Promise<PaginatedAEOBrandListApi> => {
+    return apiMutator<PaginatedAEOBrandListApi>(getAeoBrandsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoBrandsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_brands/${id}/`
+}
+
+/**
+ * Gets one brand from the project's brand catalog.
+ * @summary Get an AEO brand
+ */
+export const aeoBrandsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<AEOBrandApi> => {
+    return apiMutator<AEOBrandApi>(getAeoBrandsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoBrandsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/aeo_brands/${id}/`
+}
+
+/**
+ * Renames, relabels, confirms or ignores a brand, or replaces its other names. The daily run keeps these edits; it only adds newly cited domains.
+ * @summary Update an AEO brand
+ */
+export const aeoBrandsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedAEOBrandUpdateRequestApi?: PatchedAEOBrandUpdateRequestApi,
+    options?: RequestInit
+): Promise<AEOBrandApi> => {
+    return apiMutator<AEOBrandApi>(getAeoBrandsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAEOBrandUpdateRequestApi),
+    })
+}
 
 export const getAeoPromptsListUrl = (projectId: string, params?: AeoPromptsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -209,7 +283,7 @@ export const getAeoPromptsChecksUrl = (projectId: string, id: string, params?: A
 }
 
 /**
- * Lists every check of one prompt, newest first, one page at a time. Filter by engine or by prompt version. Each check has the engine's answer, the URLs it cited, the searches it ran and the prompt version it ran.
+ * Lists every check of one prompt, newest first, one page at a time. Filter by engine, by prompt version, or with since to see only checks from a point in time on. Each check has the engine's answer, the URLs it cited, the searches it ran and the prompt version it ran. Set include_answer_text=false to leave the answers out and page through history with smaller responses.
  * @summary List an AEO prompt's checks
  */
 export const aeoPromptsChecks = async (
@@ -309,6 +383,46 @@ export const aeoPromptsOverview = async (
     options?: RequestInit
 ): Promise<AEOPromptSetOverviewApi> => {
     return apiMutator<AEOPromptSetOverviewApi>(getAeoPromptsOverviewUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoPromptsSuggestUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/suggest/`
+}
+
+/**
+ * Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Returns a pending job right away; poll GET aeo_prompts/suggest/<id>/ until it completes, which takes up to a few minutes.
+ * @summary Suggest AEO prompts
+ */
+export const aeoPromptsSuggest = async (
+    projectId: string,
+    aEOPromptSuggestRequestApi: AEOPromptSuggestRequestApi,
+    options?: RequestInit
+): Promise<AEOPromptSuggestionJobApi> => {
+    return apiMutator<AEOPromptSuggestionJobApi>(getAeoPromptsSuggestUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOPromptSuggestRequestApi),
+    })
+}
+
+export const getAeoPromptsSuggestionRetrieveUrl = (projectId: string, jobId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/suggest/${jobId}/`
+}
+
+/**
+ * Gets a prompt suggestion job started with POST aeo_prompts/suggest/. status is pending while Claude works, then completed with the suggestions or failed with an error. Jobs expire an hour after their last update.
+ * @summary Get AEO prompt suggestions
+ */
+export const aeoPromptsSuggestionRetrieve = async (
+    projectId: string,
+    jobId: string,
+    options?: RequestInit
+): Promise<AEOPromptSuggestionJobApi> => {
+    return apiMutator<AEOPromptSuggestionJobApi>(getAeoPromptsSuggestionRetrieveUrl(projectId, jobId), {
         ...options,
         method: 'GET',
     })
