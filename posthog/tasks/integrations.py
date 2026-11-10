@@ -2,7 +2,7 @@ from celery import Task, shared_task
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
-from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
     FirebaseIntegration,
@@ -43,24 +43,24 @@ def _refresh_due(
 @skip_team_scope_audit
 def refresh_integrations() -> int:
     oauth_kinds = sorted(set(OauthIntegration.supported_kinds) - SWEEP_EXCLUDED_KINDS)
-    for integration in IntegrationManager.kinds(*oauth_kinds, auth_types="any").list_all_teams():
+    for integration in IntegrationManager.kinds(*oauth_kinds, auth_types="any").list_across_teams(CrossTeamFilter()):
         if _refresh_due(integration, OauthIntegration(integration)):
             refresh_integration.delay(integration.id, integration.team_id)
 
     for integration in IntegrationManager.kinds(
         *GoogleCloudIntegration.supported_kinds, auth_types="any"
-    ).list_all_teams():
+    ).list_across_teams(CrossTeamFilter()):
         if _refresh_due(integration, GoogleCloudIntegration(integration)):
             refresh_integration.delay(integration.id, integration.team_id)
 
-    for integration in IntegrationManager.github.any.list_all_teams():
+    for integration in IntegrationManager.github.any.list_across_teams(CrossTeamFilter()):
         github_integration = GitHubIntegration(
             integration, source="integration_token_refresh", priority=Priority.CRITICAL
         )
         if _refresh_due(integration, github_integration):
             refresh_integration.delay(integration.id, integration.team_id)
 
-    for integration in IntegrationManager.firebase.any.list_all_teams():
+    for integration in IntegrationManager.firebase.any.list_across_teams(CrossTeamFilter()):
         if _refresh_due(integration, FirebaseIntegration(integration)):
             refresh_integration.delay(integration.id, integration.team_id)
 

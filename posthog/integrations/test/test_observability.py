@@ -10,7 +10,8 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.integrations import IntegrationManager, IntegrationPatch, observability, register_source_kinds, usages
-from posthog.integrations.accessors import IntegrationReader, OAuthAccessor
+from posthog.integrations.accessors import OAuthAccessor
+from posthog.integrations.backend import DjangoBackend
 from posthog.integrations.contracts import IntegrationInUse, IntegrationNotFound, IntegrationUsage
 from posthog.integrations.enums import AuthType
 from posthog.models import Team
@@ -225,7 +226,7 @@ class TestIntegrationsSdkMetrics(BaseTest):
     def test_async_form_counts_the_same_operation(self) -> None:
         before = _counts("get", "named", "github", "oauth", "not_found")
 
-        with patch.object(IntegrationReader, "_row", side_effect=IntegrationNotFound("missing")):
+        with patch.object(DjangoBackend, "get", side_effect=IntegrationNotFound("missing")):
             with self.assertRaises(IntegrationNotFound):
                 async_to_sync(IntegrationManager.github.oauth.aget)(self.team_id, self.github_id)
 

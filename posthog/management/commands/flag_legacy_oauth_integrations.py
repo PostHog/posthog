@@ -4,7 +4,7 @@ import structlog
 
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
-from posthog.integrations import IntegrationManager
+from posthog.integrations import CrossTeamFilter, IntegrationManager
 from posthog.models.integration import CONFIG_LEGACY_OAUTH_CLIENT, issuing_oauth_client_ids
 
 logger = structlog.get_logger(__name__)
@@ -38,7 +38,7 @@ class Command(BaseCommand):
 
         counts = {"legacy": 0, "current": 0, "unknown": 0}
         accessor = getattr(IntegrationManager, kind.replace("-", "_")).oauth
-        for integration in accessor.list_all_teams():
+        for integration in accessor.list_across_teams(CrossTeamFilter()):
             client_ids = issuing_oauth_client_ids(integration)
             if not client_ids:
                 # No id_token to read, so the refresh path stays the only signal for this row.

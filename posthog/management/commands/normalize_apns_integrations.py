@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationRecord
 from posthog.models.integration.push import apns_integration_id
 
 logger = structlog.get_logger(__name__)
@@ -39,7 +39,7 @@ def sorted_apns_integrations() -> list[IntegrationRecord]:
     # for the bare id a sandbox row still holds, and it would keep the whitespace if it were read
     # first.
     return sorted(
-        IntegrationManager.apns.credentials.list_all_teams(),
+        IntegrationManager.apns.credentials.list_across_teams(CrossTeamFilter()),
         key=lambda integration: apns_environment(integration) != "sandbox",
     )
 
