@@ -577,7 +577,11 @@ describe('sqlEditorLogic', () => {
             }
         )
 
-        it.each(['SELECT explicit', ''])('prefers explicit SQL over a local draft (%s)', async (query) => {
+        it.each([
+            { param: 'q', query: 'SELECT explicit' },
+            { param: 'q', query: '' },
+            { param: 'open_query', query: '' },
+        ])('prefers explicit SQL over a local draft ($param=$query)', async ({ param, query }) => {
             mountEditor()
             await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), {}, { q: 'SELECT 1' }))
                 .toDispatchActions(['createTab', 'setQueryInput'])
@@ -587,7 +591,13 @@ describe('sqlEditorLogic', () => {
             initKeaTests()
             mountEditor()
 
-            await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), {}, { q: query }))
+            await expectLogic(logic, () =>
+                router.actions.push(
+                    urls.sqlEditor(),
+                    param === 'open_query' ? { open_query: query } : {},
+                    param === 'q' ? { q: query } : {}
+                )
+            )
                 .toDispatchActions(['createTab', 'setQueryInput'])
                 .toFinishAllListeners()
                 .toMatchValues({ queryInput: query })
@@ -2205,6 +2215,61 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('Update view', () => {
+        it('confirms a breaking column change and retries with an acknowledgement', async () => {
+            const updateBodies: Record<string, any>[] = []
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        updateBodies.push(body)
+                        if (!body.acknowledge_breaking_changes) {
+                            return [
+                                400,
+                                {
+                                    code: 'breaking_column_change',
+                                    detail: 'This change removes columns that downstream views use.',
+                                    extra: {
+                                        removed_columns: ['legacy_value'],
+                                        affected_views: ['weekly_summary'],
+                                        affected_view_count: 1,
+                                        has_hidden_affected_views: false,
+                                    },
+                                },
+                            ]
+                        }
+                        return [200, MOCK_VIEW]
+                    },
+                },
+            })
+            const open = jest.spyOn(LemonDialog, 'open').mockImplementation((options) => {
+                void options.primaryButton?.onClick?.({} as any)
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.updateView({
+                id: MOCK_VIEW.id,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+                types: [],
+            })
+            await expectLogic(logic).toDispatchActions(['updateView', 'updateViewSuccess']).toFinishAllListeners()
+
+            expect(open).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    title: 'Save breaking changes?',
+                    primaryButton: expect.objectContaining({ children: 'Save anyway', status: 'danger' }),
+                })
+            )
+            expect(updateBodies).toHaveLength(2)
+            expect(updateBodies[0].acknowledge_breaking_changes).toBeUndefined()
+            expect(updateBodies[1].acknowledge_breaking_changes).toBe(true)
+            open.mockRestore()
+        })
+
         it('advances the saved baseline after updating so reverting to the original query re-enables Update view', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
