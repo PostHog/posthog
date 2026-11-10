@@ -2,12 +2,14 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonCollapse, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
+import { OAuthConnectionLogos } from 'lib/components/OAuthConnectionLogos/OAuthConnectionLogos'
 import { OAuthScopeList } from 'lib/components/ScopeAccessRow/OAuthScopeList'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { oauthDeviceAuthorizeLogic } from './oauthDeviceAuthorizeLogic'
@@ -42,6 +44,7 @@ export function OAuthDeviceAuthorize(): JSX.Element {
         scopeSummary,
         keptScopes,
     } = useValues(oauthDeviceAuthorizeLogic)
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
     const {
         setUserCode,
         submitCode,
@@ -58,8 +61,15 @@ export function OAuthDeviceAuthorize(): JSX.Element {
         const approved = decision === 'authorized'
         return (
             <AuthScene notes={approved ? AUTH_NOTES.oauthDevice.approved : AUTH_NOTES.oauthDevice.denied}>
-                <AuthSceneCard>
+                <AuthSceneCard
+                    top={
+                        deviceGrant ? (
+                            <OAuthConnectionLogos appName={deviceGrant.client_name} logoUri={deviceGrant.logo_uri} />
+                        ) : undefined
+                    }
+                >
                     <AuthCardTitle
+                        className=""
                         title={approved ? 'Login approved' : 'Login denied'}
                         sub={
                             approved
@@ -75,7 +85,16 @@ export function OAuthDeviceAuthorize(): JSX.Element {
     if (!deviceGrant) {
         return (
             <AuthScene notes={AUTH_NOTES.oauthDevice.enterCode}>
-                <AuthSceneCard>
+                <AuthSceneCard
+                    top={
+                        pendingConnection?.flow === 'device' ? (
+                            <OAuthConnectionLogos
+                                appName={pendingConnection.clientName}
+                                logoUri={pendingConnection.logoUri}
+                            />
+                        ) : undefined
+                    }
+                >
                     <AuthCardTitle title="Approve a login" sub="Type the code your terminal shows, like BCDF-GHJK." />
                     <form
                         className="flex flex-col gap-4"
@@ -119,7 +138,9 @@ export function OAuthDeviceAuthorize(): JSX.Element {
 
     return (
         <AuthScene notes={AUTH_NOTES.oauthDevice.review}>
-            <AuthSceneCard>
+            <AuthSceneCard
+                top={<OAuthConnectionLogos appName={deviceGrant.client_name} logoUri={deviceGrant.logo_uri} />}
+            >
                 <AuthCardTitle
                     title={
                         isStepUp
