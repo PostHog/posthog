@@ -61,8 +61,7 @@ Use explicit actions for each boundary:
 - `previewDashboardChanges` updates dashboard data only.
 - `saveDashboardChanges` sends one dashboard update with `filters` and `variables`.
 - `discardDashboardChanges` clears the user draft and restores the saved configuration.
-- `saveLayoutChanges` persists layout changes only.
-- `discardLayoutChanges` restores layout changes only.
+- Layout changes have no draft. Each move or resize saves on its own and `undoLayoutChange` takes back the last one. The undo stack lives only in the mounted logic; earlier layouts are not persisted.
 
 Save behavior:
 
@@ -113,13 +112,8 @@ Additional requirements:
 
 ## Layout independence
 
-- Entering layout mode must preserve the dashboard configuration draft.
-- Saving layout must preserve the dashboard configuration draft.
-- Discarding layout must preserve the dashboard configuration draft.
-- Saving dashboard changes must preserve the layout draft.
-- Discarding dashboard changes must preserve the layout draft.
-- Filter and variable controls remain editable during layout editing.
-- Dashboard settings actions remain available during layout editing.
+- A layout autosave or undo must preserve the dashboard configuration draft.
+- Saving or discarding dashboard changes must not move tiles.
 
 ## Other filter boundaries
 
@@ -154,7 +148,7 @@ Use one parameterized Kea logic scenario suite for configuration transitions:
 6. Edit filters and variables from a URL override view. Discard. Confirm that saved state returns.
 7. Edit filters and variables from a URL override view. Save. Confirm that the final state persists.
 8. Above the automatic-preview threshold, preview filters and variables. Confirm that preview changes data only and URL overrides survive reload.
-9. Check the complete layout independence matrix for save and discard actions.
+9. Move a tile while a configuration draft exists. Confirm that the layout saves and the draft stays.
 10. Save without Preview above the threshold. Confirm that all affected tiles refresh with the saved settings.
 11. Edit a SQL variable during or after Preview. Confirm that Preview returns to its idle, enabled state.
 12. Select a SQL variable default with absent and false `isNull`. Confirm no change row and no URL override.
@@ -191,7 +185,7 @@ Use one local dashboard with at least two working insight tiles and three SQL va
 4. Select Preview. Confirm that Preview updates data without saving the draft.
 5. Save combined changes. Confirm both URL parameters clear. Reload and confirm the saved values.
 6. Open with both URL override parameters. Make combined edits. Discard and confirm the original saved values return.
-7. Create both dashboard configuration and layout drafts. Run each save and discard action. Confirm that each draft remains independent.
+7. Create a dashboard configuration draft, then move and undo a tile. Confirm that the draft remains unchanged.
 
 ## Storybook coverage
 
