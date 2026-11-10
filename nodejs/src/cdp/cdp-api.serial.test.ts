@@ -2487,14 +2487,23 @@ describe('CDP API', () => {
             )
 
             it('replays a key an older pod recorded without totals as a send without files', async () => {
-                const sent = await sendKeyedOn('transactional_email/send', { ...body, send: codeSend })
-                const keyHash = createHash('sha256').update(String(keyed.idempotency_key)).digest('hex')
-                const record = `@posthog/idempotency/transactional-email/${team.id}/${keyHash}`
-                await createIdempotencyValkeyPool(hub)!.useClient({ name: 'older-pod-record' }, async (client) => {
-                    const { fingerprint, invocationId, queued } = parseJSON((await client.get(record))!)
-                    const writtenByAnOlderPod = { fingerprint, invocationId, queued }
-                    await client.set(record, JSON.stringify(writtenByAnOlderPod), 'EX', await client.ttl(record))
-                })
+                // An older pod marked a key queued with no totals, the call it made before sends carried files.
+                class KeysOfAnOlderPod extends IdempotencyKeys {
+                    override markQueued(teamId: number, key: string, fingerprint: string, invocationId: string) {
+                        return super.markQueued(teamId, key, fingerprint, invocationId)
+                    }
+                }
+                const keysOfThisHead = api['transactionalEmailIdempotencyKeys']
+                api['transactionalEmailIdempotencyKeys'] = new KeysOfAnOlderPod(
+                    createIdempotencyValkeyPool(hub),
+                    'transactional-email'
+                )
+                let sent: supertest.Response
+                try {
+                    sent = await sendKeyedOn('transactional_email/send', { ...body, send: codeSend })
+                } finally {
+                    api['transactionalEmailIdempotencyKeys'] = keysOfThisHead
+                }
 
                 const replayed = await sendKeyedOn('transactional_email/send', { ...body, send: codeSend })
 
