@@ -505,6 +505,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         isScannerSubmitting,
         experimentContext,
         lastRefinement,
+        goalRefinementLoading,
     } = useValues(logic)
     const refined = useRecentlyRefinedFields(lastRefinement)
     const { freeCreditsAllowance } = useValues(visionQuotaLogic)
@@ -774,7 +775,10 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                     type="primary"
                     onClick={() => submitScanner()}
                     loading={isScannerSubmitting}
-                    disabledReason={saveDisabledReason}
+                    disabledReason={
+                        saveDisabledReason ??
+                        (goalRefinementLoading ? 'Wait for the draft update to finish' : undefined)
+                    }
                     icon={zeroMatchesWarning ? <IconWarning /> : undefined}
                     tooltip={zeroMatchesWarning}
                     data-attr="vision-goal-overview-create"

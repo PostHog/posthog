@@ -2175,6 +2175,7 @@ def refine_scanner_draft(
         # The recordings stay as they are, so the draft keeps the experiment and variants it watched.
         experiment_pin = current_experiment
         variant_pin = tuple((current_scope or {}).get("variants") or ()) if current_experiment is not None else None
+    offers = _filter_offers(grounding)
     revised = _finalize(
         parsed,
         allowed_pages=[p.pathname for p in grounding.pages],
@@ -2188,10 +2189,17 @@ def refine_scanner_draft(
         allowed_experiments=offered_experiments if parsed.revise_recordings else (),
         pinned_experiment=experiment_pin,
         pinned_variants=variant_pin,
-        kept_filters=parsed.revise_recordings and _has_kept_filters(current.query),
+        kept_filters=parsed.revise_recordings and _has_kept_filters(current.query, offers),
     )
     if revised.scanner_type == current.scanner_type:
-        revised = replace(revised, scanner_config={**revised.scanner_config, **_undrafted_settings(current)})
+        revised = replace(
+            revised,
+            scanner_config={
+                **revised.scanner_config,
+                **_undrafted_settings(current),
+                **_unchanged_drafted_settings(current, parsed),
+            },
+        )
     budget_named = False
     budget = monthly_credit_budget
     if (named := parsed.monthly_credit_budget) is not None and named > 0:
@@ -2210,7 +2218,11 @@ def refine_scanner_draft(
     )
     revised = replace(
         revised,
-        query=_merged_recordings_query(current.query, revised.query) if parsed.revise_recordings else current.query,
+        query=(
+            _merged_recordings_query(current.query, revised.query, offers)
+            if parsed.revise_recordings
+            else current.query
+        ),
     )
     if resolve and parsed.revise_recordings:
         revised = _settled_and_costed(
@@ -2248,6 +2260,36 @@ def _undrafted_settings(current: CurrentDraft) -> dict[str, Any]:
     return kept
 
 
+def _slugged_tags(tags: Sequence[str]) -> list[str]:
+    return list(dict.fromkeys(s for t in tags if (s := slugify_tag(t))))
+
+
+def _unchanged_drafted_settings(current: CurrentDraft, parsed: _LlmDraft) -> dict[str, Any]:
+    """The current tags and scale, kept as the person wrote them when the model copied them back.
+
+    The model output goes through the new-draft limits (a tag cap, slugified tags, a default scale), so a
+    copied value comes back changed. Only a real change to the tags or the scale replaces them.
+    """
+    config = current.scanner_config
+    kept: dict[str, Any] = {}
+    tags = config.get("tags")
+    if (
+        current.scanner_type == "classifier"
+        and isinstance(tags, list)
+        and _slugged_tags(parsed.tags) == _slugged_tags(tags)
+    ):
+        kept["tags"] = tags
+    scale = config.get("scale")
+    if (
+        current.scanner_type == "scorer"
+        and isinstance(scale, dict)
+        and (parsed.scale_min, parsed.scale_max, (parsed.scale_label or "").strip())
+        == (scale.get("min"), scale.get("max"), str(scale.get("label") or "").strip())
+    ):
+        kept["scale"] = scale
+    return kept
+
+
 # The query keys `_draft_query` writes. A refine replaces these and keeps the rest of the current filter.
 _DRAFTED_QUERY_KEYS = frozenset({"events", "actions", "operand"})
 
@@ -2257,43 +2299,124 @@ _KEPT_FILTERS_NOTE = (
 )
 
 
-def _is_drafted_property(prop: Any) -> bool:
-    """Whether `_draft_query` writes this property filter: the visited pages or a cohort."""
-    if not isinstance(prop, dict):
+@dataclass(frozen=True, kw_only=True)
+class _FilterOffers:
+    """The filter entries this refine's grounding offered the model, so it could have drafted them.
+
+    A current entry the model was not offered can only come from the person, so a refine keeps it.
+    """
+
+    page_values: frozenset[str] = frozenset()
+    events: frozenset[str] = frozenset()
+    action_ids: frozenset[int] = frozenset()
+    cohort_ids: frozenset[int] = frozenset()
+
+
+def _filter_offers(grounding: _Grounding) -> _FilterOffers:
+    matches = grounding.matches
+    return _FilterOffers(
+        page_values=frozenset(v for page in grounding.pages if (v := _page_filter_regex(page.pathname)) is not None),
+        events=frozenset([*(c.name for c in grounding.candidates), *grounding.dead_events]),
+        action_ids=frozenset(a.action_id for a in matches.actions),
+        cohort_ids=frozenset(c.cohort_id for c in matches.cohorts),
+    )
+
+
+def _is_drafted_page_filter(prop: Any) -> bool:
+    """Whether a property is the regex `visited_page` filter `_draft_query` writes. Other shapes come from the editor."""
+    return (
+        isinstance(prop, dict)
+        and prop.get("type") == "recording"
+        and prop.get("key") == "visited_page"
+        and prop.get("operator") == "regex"
+        and isinstance(prop.get("value"), list)
+    )
+
+
+@dataclass(frozen=True, kw_only=True)
+class _KeptFilters:
+    """The parts of the current filter a refine keeps: what the model was not offered, and what it cannot write."""
+
+    properties: list[Any]
+    page_values: list[str]
+    events: list[dict[str, Any]]
+    actions: list[dict[str, Any]]
+
+
+def _is_offered_cohort(prop: Any, offers: _FilterOffers) -> bool:
+    if not isinstance(prop, dict) or prop.get("type") != "cohort":
         return False
-    return prop.get("type") == "cohort" or (prop.get("type") == "recording" and prop.get("key") == "visited_page")
+    value = prop.get("value")
+    return isinstance(value, int) and value in offers.cohort_ids
 
 
-def _merged_recordings_query(current: dict[str, Any] | None, drafted: dict[str, Any] | None) -> dict[str, Any] | None:
-    """The drafted pages, events, actions and cohorts on top of everything else in the current filter.
+def _kept_filters(current: dict[str, Any], offers: _FilterOffers) -> _KeptFilters:
+    properties: list[Any] = []
+    page_values: list[str] = []
+    for prop in current.get("properties") or []:
+        if _is_drafted_page_filter(prop):
+            page_values.extend(v for v in prop["value"] if v not in offers.page_values)
+        elif not _is_offered_cohort(prop, offers):
+            properties.append(prop)
+    return _KeptFilters(
+        properties=properties,
+        page_values=page_values,
+        events=[e for e in current.get("events") or [] if e.get("id") not in offers.events],
+        actions=[a for a in current.get("actions") or [] if a.get("id") not in offers.action_ids],
+    )
 
-    The model output cannot express a duration filter, the test-account toggle or a date range, so a
-    refine that changes the recordings keeps the ones the person set.
+
+def _with_kept_page_values(drafted: list[Any], kept_values: list[str]) -> list[Any]:
+    """The drafted properties, with the person's own pages added to the drafted page filter (its values OR)."""
+    if not kept_values:
+        return drafted
+    merged: list[Any] = []
+    added = False
+    for prop in drafted:
+        if not added and _is_drafted_page_filter(prop):
+            prop = {**prop, "value": list(dict.fromkeys([*prop["value"], *kept_values]))}
+            added = True
+        merged.append(prop)
+    if not added:
+        merged.append({"type": "recording", "key": "visited_page", "value": kept_values, "operator": "regex"})
+    return merged
+
+
+def _merged_recordings_query(
+    current: dict[str, Any] | None, drafted: dict[str, Any] | None, offers: _FilterOffers
+) -> dict[str, Any] | None:
+    """The drafted filter on top of every current entry the model was not offered.
+
+    The model output cannot express a duration filter, the test-account toggle or a date range, and it never
+    saw a cohort, page, event or action the person picked that the goal and the instruction do not name. A
+    refine that changes the recordings keeps all of those.
     """
     if current is None:
         return drafted
     drafted = drafted or {}
-    merged = {key: value for key, value in current.items() if key not in _DRAFTED_QUERY_KEYS}
-    merged.update({key: value for key, value in drafted.items() if key in _DRAFTED_QUERY_KEYS})
-    current_properties = current.get("properties")
-    kept = (
-        [p for p in current_properties if not _is_drafted_property(p)] if isinstance(current_properties, list) else []
-    )
-    properties = [*kept, *(drafted.get("properties") or [])]
+    kept = _kept_filters(current, offers)
+    merged = {key: value for key, value in current.items() if key not in {*_DRAFTED_QUERY_KEYS, "properties"}}
+    if "operand" in drafted:
+        merged["operand"] = drafted["operand"]
+    for key, kept_items in (("events", kept.events), ("actions", kept.actions)):
+        drafted_items = drafted.get(key) or []
+        drafted_ids = {item.get("id") for item in drafted_items}
+        items = [*drafted_items, *(item for item in kept_items if item.get("id") not in drafted_ids)]
+        if items:
+            merged[key] = items
+    drafted_properties = _with_kept_page_values(drafted.get("properties") or [], kept.page_values)
+    properties = [*kept.properties, *(p for p in drafted_properties if p not in kept.properties)]
     if properties:
         merged["properties"] = properties
-    else:
-        merged.pop("properties", None)
     return merged
 
 
-def _has_kept_filters(query: dict[str, Any] | None) -> bool:
+def _has_kept_filters(query: dict[str, Any] | None, offers: _FilterOffers) -> bool:
     """Whether a refine that changes the recordings keeps conditions of the current filter besides its own."""
     if not query:
         return False
-    properties = query.get("properties")
-    kept = isinstance(properties, list) and any(not _is_drafted_property(p) for p in properties)
-    return kept or bool(query.get("console_log_filters"))
+    kept = _kept_filters(query, offers)
+    return any((kept.properties, kept.page_values, kept.events, kept.actions, query.get("console_log_filters")))
 
 
 def _current_draft_briefing(current: CurrentDraft) -> dict[str, Any]:
