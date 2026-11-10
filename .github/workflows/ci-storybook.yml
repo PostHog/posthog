@@ -37,8 +37,9 @@ env:
     # Chromium shards are sized from the timing manifest, not from a target wall. Each shard
     # pays about a minute of fixed setup (checkout, pnpm restore and install, artifact
     # download), then divides the story time left over by its shard count and two Jest workers.
-    # At 28 shards the median shard spent 8.2 of its 8.8 minutes in the test runner; at 40 the
-    # same story time spread over 40 shards puts the shard wall near 6.4 minutes. The shards run
+    # At 28 shards the median shard spent 5.9 of its 7.8 minutes in the test runner (with slowest
+    # shard around 9 minutes); at 40 the same story time spread over 40 shards puts the median
+    # shard wall near 6.4 minutes (test runner ~4.2 minutes, slowest shard 8.1 minutes). The shards run
     # on GitHub-hosted runners, which are free for this public repository, so the extra shards
     # cost queue slots rather than money.
     #
