@@ -22,7 +22,7 @@ Set them in `parameters.testOptions` on the meta or on a story. A story's keys m
 The runner counts these as loaders: `.Spinner`, `.quill-spinner`, `.LemonSkeleton`, `.LemonTableLoader`, `.Toastify__toast`, `[aria-busy="true"]`, `.SessionRecordingPlayer--buffering`, `.Lettermark--unknown` and `[data-attr="loading-bar"]`.
 
 - A toast counts as a loader. A story that leaves a toast on screen times out.
-- The loader wait checks only the first element that matches. When a story shows more than one loader, wait for content that renders after the last one.
+- The loader wait holds until no loader on the page is visible. On a timeout, the error lists the loaders that still show.
 - `waitForSelector` waits for existence. Pick an element that exists only after the async work is done, such as a row from the mocked data, not a container that renders before the data.
 - For Monaco, wait for `.CodeEditor[data-editor-ready="true"]`. `.monaco-editor` also matches a root that Monaco adds to `<body>` before any editor mounts.
 - A story that shows a loading state on purpose sets `waitForLoadersToDisappear: false` and waits for the loader with `waitForSelector`.
