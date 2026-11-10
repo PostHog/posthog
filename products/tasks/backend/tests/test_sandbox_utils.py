@@ -413,10 +413,10 @@ def test_readonly_token_scopes_repositories_without_widening_permissions(reposit
 def test_scoped_token_is_always_pinned_to_run_repositories(repositories, expected):
     integration = _team_integration()
     with (
-        patch("products.tasks.backend.temporal.process_task.utils.Integration.objects.get"),
+        patch("products.tasks.backend.temporal.process_task.utils.IntegrationManager"),
         patch("products.tasks.backend.temporal.process_task.utils.GitHubIntegration", return_value=integration),
     ):
-        token = get_scoped_github_token(5, repositories, PUSH_SANDBOX_GITHUB_PERMISSIONS)
+        token = get_scoped_github_token(2, 5, repositories, PUSH_SANDBOX_GITHUB_PERMISSIONS)
     if expected:
         assert token == integration.mint_scoped_installation_token.return_value
         integration.mint_scoped_installation_token.assert_called_once_with(
@@ -431,8 +431,8 @@ def test_scoped_token_mint_failure_reaches_the_caller():
     integration = _team_integration()
     integration.mint_scoped_installation_token.side_effect = GitHubRateLimitError("rate limited", retry_after=30)
     with (
-        patch("products.tasks.backend.temporal.process_task.utils.Integration.objects.get"),
+        patch("products.tasks.backend.temporal.process_task.utils.IntegrationManager"),
         patch("products.tasks.backend.temporal.process_task.utils.GitHubIntegration", return_value=integration),
         pytest.raises(GitHubRateLimitError),
     ):
-        get_scoped_github_token(5, ["acme/api"], READONLY_SANDBOX_GITHUB_PERMISSIONS)
+        get_scoped_github_token(2, 5, ["acme/api"], READONLY_SANDBOX_GITHUB_PERMISSIONS)

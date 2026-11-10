@@ -61,6 +61,7 @@ const externalDataDestinationsConnectLink = (): ToolBase<
             query: {
                 destination_type: params.destination_type,
                 integration_kind: params.integration_kind,
+                migration_item_id: params.migration_item_id,
             },
         })
         return result
@@ -120,6 +121,9 @@ const externalDataDestinationsCreate = (): ToolBase<
         }
         if (params.integration !== undefined) {
             body['integration'] = params.integration
+        }
+        if (params.migration_item_id !== undefined) {
+            body['migration_item_id'] = params.migration_item_id
         }
         const result = await context.api.request<Schemas.ExternalDataDestination>({
             method: 'POST',

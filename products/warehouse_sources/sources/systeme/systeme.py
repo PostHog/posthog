@@ -26,8 +26,10 @@ from products.warehouse_sources.sources.systeme.settings import (
     ENDPOINTS,
     FANOUT_PARENTS,
     PAGE_SIZE,
+    PAGINATED_FANOUT_CHILDREN,
     PARTITION_KEYS,
     PERMISSION_ERROR,
+    PRIMARY_KEYS,
 )
 
 
@@ -57,7 +59,8 @@ class SystemePaginator(JSONResponseCursorPaginator):
 
 def validate_credentials(api_key: str, schema_name: str | None = None) -> tuple[bool, str | None]:
     resource_name = schema_name or "contacts"
-    path = schema_for_resource(ENDPOINTS, FANOUT_PARENTS.get(resource_name, resource_name))
+    parent = FANOUT_PARENTS.get(resource_name)
+    path = schema_for_resource(ENDPOINTS, parent[0] if parent else resource_name)
     client = RESTClient(
         base_url=BASE_URL,
         auth=APIKeyAuth(api_key=api_key, name="X-API-Key"),
@@ -92,7 +95,10 @@ def _fanout_resource(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[SystemeResumeConfig],
 ) -> Resource:
-    parent = FANOUT_PARENTS[endpoint]
+    parent, resolve_param = FANOUT_PARENTS[endpoint]
+    child_params: dict[str, Any] = {resolve_param: {"type": "resolve", "resource": parent, "field": "id"}}
+    if endpoint in PAGINATED_FANOUT_CHILDREN:
+        child_params["limit"] = PAGE_SIZE
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
@@ -114,9 +120,10 @@ def _fanout_resource(
             {
                 "name": endpoint,
                 "endpoint": {
-                    # The child collection documents no limit, cursor or order parameter.
+                    # Campaign steps document no limit, cursor or order parameter. Course curriculum
+                    # items have no `id`, so a second page fails on the cursor instead of guessing one.
                     "path": schema_for_resource(ENDPOINTS, endpoint),
-                    "params": {"campaignId": {"type": "resolve", "resource": parent, "field": "id"}},
+                    "params": child_params,
                     "data_selector": "items",
                     "data_selector_required": True,
                 },
@@ -146,7 +153,9 @@ def systeme_source(
     path = schema_for_resource(ENDPOINTS, endpoint)
     if endpoint in FANOUT_PARENTS:
         fanout_resource = _fanout_resource(api_key, endpoint, team_id, job_id, resumable_source_manager)
-        return SourceResponse(name=endpoint, items=lambda: fanout_resource, primary_keys=["id"])
+        return SourceResponse(
+            name=endpoint, items=lambda: fanout_resource, primary_keys=PRIMARY_KEYS.get(endpoint, ["id"])
+        )
 
     params: dict[str, Any] = {"limit": PAGE_SIZE, "order": "desc"}
     if endpoint == "contacts" and should_use_incremental_field and db_incremental_field_last_value is not None:

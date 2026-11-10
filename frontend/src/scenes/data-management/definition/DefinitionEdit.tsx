@@ -45,7 +45,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { tagsModel } from '~/models/tagsModel'
 import { isCoreFilter } from '~/taxonomy/helpers'
 import { AvailableFeature, ObjectMediaPreview } from '~/types'
 
@@ -65,7 +64,6 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
     const { definitionLoading, definitionMissing, isProperty, singular } = useValues(definitionLogicInstance)
     const { editDefinition } = useValues(logic)
     const { saveDefinition } = useActions(logic)
-    const { tags, tagsLoading } = useValues(tagsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { reportMediaPreviewUploaded } = useActions(eventUsageLogic)
@@ -198,11 +196,10 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                                     {({ value, onChange }) => (
                                         <ObjectTags
                                             className="definition-tags"
-                                            saving={definitionLoading || tagsLoading}
+                                            saving={definitionLoading}
                                             tags={value || []}
                                             onChange={(tags) => onChange(tags)}
                                             style={{ marginBottom: 4 }}
-                                            tagsAvailable={tags}
                                         />
                                     )}
                                 </LemonField>
