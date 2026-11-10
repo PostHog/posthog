@@ -1390,6 +1390,9 @@ class TestPersonalAPIKeyAPIAccess(APIBaseTest):
         response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers(self.api_key_value))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["label"], "Test key")
+        self.assertEqual(response.json()["user_distinct_id"], self.user.distinct_id)
+        self.assertEqual(response.json()["current_organization_id"], str(self.user.current_organization_id))
+        self.assertEqual(response.json()["current_team_id"], self.user.current_team_id)
 
         # Should not be allowed to get by ID
         response = self.client.get(

@@ -7,6 +7,7 @@ import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import {
     ErrorCode,
+    findPostHogPermissionError,
     hasTimeoutCause,
     MissingOrganizationContextError,
     MissingProjectContextError,
@@ -15,7 +16,7 @@ import {
 } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
-import type { ApiUser } from '@/schema/api'
+import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type {
     BusinessKnowledgeContent,
     CachedOrg,
@@ -122,6 +123,7 @@ export class StateManager {
                 scoped_organizations: scoped_organizations ?? [],
                 is_impersonated: false,
                 suppress_analytics: false,
+                ...pickOwner(apiKeyResult.data),
             }
         }
 
@@ -173,6 +175,7 @@ export class StateManager {
                 ? { mcp_allowed_tools: introspectionResult.data.mcp_allowed_tools }
                 : {}),
             ...(introspectionResult.data.supports_step_up === true ? { supports_step_up: true } : {}),
+            ...pickOwner(introspectionResult.data),
         }
     }
 
@@ -226,13 +229,45 @@ export class StateManager {
         let _distinctId = await this._cache.get('distinctId')
 
         if (!_distinctId) {
-            const user = await this.getUser()
+            const owner = await this._getOwner()
 
-            await this._cache.set('distinctId', user.distinct_id)
-            _distinctId = user.distinct_id
+            await this._cache.set('distinctId', owner.distinctId)
+            _distinctId = owner.distinctId
         }
 
         return _distinctId
+    }
+
+    /**
+     * The credential's owner, read from the token introspection or `@current` key response, which
+     * need no scope. `/api/users/@me/` needs `user:read`, so it is only a fallback for a backend
+     * that does not return the owner yet.
+     */
+    private async _getOwner(): Promise<CredentialOwner> {
+        const apiKey = await this.getApiKey()
+        if (apiKey.user_distinct_id) {
+            return ownerFromApiKey(apiKey)
+        }
+        try {
+            const user = await this.getUser()
+            return {
+                distinctId: user.distinct_id,
+                organizationId: user.organization?.id ?? null,
+                teamId: user.team?.id ?? null,
+            }
+        } catch (error) {
+            // An OAuth token's key state is cached for the token's life, so a token cached before
+            // the backend returned the owner never sees the new fields. Fetch it again once here.
+            if (!findPostHogPermissionError(error)) {
+                throw error
+            }
+            const fresh = await this._fetchApiKey()
+            if (!fresh.user_distinct_id) {
+                throw error
+            }
+            await this._cache.set('apiKey', fresh)
+            return ownerFromApiKey(fresh)
+        }
     }
 
     private async _getDefaultOrganizationAndProject(): Promise<NonNullable<SessionScopedState['defaultContext']>> {
@@ -266,8 +301,9 @@ export class StateManager {
     }
 
     private async _fetchDefaultOrganizationAndProject(): Promise<NonNullable<SessionScopedState['defaultContext']>> {
-        const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([this.getApiKey(), this.getUser()])
-        const { organization: activeOrganization, team: activeTeam } = user
+        const [{ scoped_organizations, scoped_teams }, owner] = await Promise.all([this.getApiKey(), this._getOwner()])
+        const activeOrganization = owner.organizationId ? { id: owner.organizationId } : null
+        const activeTeam = owner.teamId !== null ? { id: owner.teamId } : null
 
         // Team-scoped key: prefer the active team if the scope allows it,
         // otherwise pick the first scoped team deterministically. The org is
@@ -535,7 +571,8 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            if (!(opts.expectTimeouts && hasTimeoutCause(error))) {
+            // A credential without the scope for this lookup is an expected state, not a fault.
+            if (!(opts.expectTimeouts && hasTimeoutCause(error)) && !findPostHogPermissionError(error)) {
                 this._reportException(error, `get_or_fetch_${opts.name}`)
             }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
@@ -758,5 +795,27 @@ export class StateManager {
             }
             return features.map((f) => f.key).filter((k): k is string => typeof k === 'string')
         })
+    }
+}
+
+type CredentialOwner = { distinctId: string; organizationId: string | null; teamId: number | null }
+
+type OwnerFields = Pick<ApiRedactedPersonalApiKey, 'user_distinct_id' | 'current_organization_id' | 'current_team_id'>
+
+function pickOwner(data: OwnerFields): OwnerFields {
+    return data.user_distinct_id
+        ? {
+              user_distinct_id: data.user_distinct_id,
+              current_organization_id: data.current_organization_id ?? null,
+              current_team_id: data.current_team_id ?? null,
+          }
+        : {}
+}
+
+function ownerFromApiKey(apiKey: OwnerFields): CredentialOwner {
+    return {
+        distinctId: apiKey.user_distinct_id!,
+        organizationId: apiKey.current_organization_id ?? null,
+        teamId: apiKey.current_team_id ?? null,
     }
 }
