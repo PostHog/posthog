@@ -494,11 +494,20 @@ class TestFileSystemAPI(APIBaseTest):
             shortcut=False,
         )
 
-        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{canonical.pk}/")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{canonical.pk}/")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
         self.assertFalse(Dashboard.objects_including_soft_deleted.get(pk=dashboard.pk).deleted)
         self.assertTrue(FileSystem.objects.filter(pk=alias.pk).exists())
+        reads_by_type = [
+            query["sql"]
+            for query in queries.captured_queries
+            if 'FROM "posthog_filesystem"' in query["sql"] and '"posthog_filesystem"."type" =' in query["sql"]
+        ]
+        self.assertTrue(reads_by_type)
+        for sql in reads_by_type:
+            self.assertRegex(sql, r'"posthog_filesystem"\."(ref|id)" (IN|=) ')
 
     def test_unfiled_endpoint_no_content(self):
         """
