@@ -143,6 +143,7 @@ overrides:
   jest-playwright-preset>playwright-core: 1.60.0
   '@smithy/node-http-handler': 4.4.9
   '@smithy/core': 3.24.6
+  '@aws-sdk/credential-provider-ini@3.972.5>@aws-sdk/credential-provider-web-identity': 3.972.5
   rolldown: 1.1.4
   '@tiptap/core': 3.20.6
   '@tiptap/extensions': 3.20.6
@@ -6123,6 +6124,9 @@ importers:
 
   services/credentials-service:
     dependencies:
+      '@aws-sdk/client-kms':
+        specifier: ^3.975.0
+        version: 3.975.0
       '@hono/node-server':
         specifier: ^2.1.5
         version: 2.1.5(hono@4.13.14)
@@ -6144,6 +6148,9 @@ importers:
       prom-client:
         specifier: ^15.1.3
         version: 15.1.3
+      zod:
+        specifier: ^4.6.6
+        version: 4.6.6
     devDependencies:
       '@testcontainers/postgresql':
         specifier: ^12.2.1
@@ -6572,13 +6579,6 @@ packages:
       Deprecated due to Document number parsing bug in JSON, see
         https://github.com/aws/aws-sdk-js-v3/issues/8246. Newer version available.
 
-  '@aws-sdk/core@3.977.5':
-    resolution: {integrity: sha512-O5otOc1c6UZh5HsHAaPdYBcUUR9HL6mtnKqvc8nxN/CKDGUBUpsdh0q8K04Uz/dd1i0TaGyIQuQNqoO7+ad2TQ==}
-    engines: {node: '>=20.0.0'}
-    deprecated: |-
-      Deprecated due to Document number parsing bug in JSON, see
-        https://github.com/aws/aws-sdk-js-v3/issues/8246. Newer version available.
-
   '@aws-sdk/crc64-nvme@3.972.0':
     resolution: {integrity: sha512-ThlLhTqX68jvoIVv+pryOdb5coP1cX1/MaTbB9xkGDCbWbsqQcLqzPxuSoW1DCnAAIacmXCWpzUNOB9pv+xXQw==}
     engines: {node: '>=20.0.0'}
@@ -6641,10 +6641,6 @@ packages:
 
   '@aws-sdk/credential-provider-web-identity@3.972.5':
     resolution: {integrity: sha512-OK3cULuJl6c+RcDZfPpaK5o3deTOnKZbxm7pzhFNGA3fI2hF9yDih17fGRazJzGGWaDVlR9ejZrpDef4DJCEsw==}
-    engines: {node: '>=20.0.0'}
-
-  '@aws-sdk/credential-provider-web-identity@3.972.70':
-    resolution: {integrity: sha512-Ps/f9USafScb6CSQTRPNMzdKL5x5XRwDIRgFvnuFWfClGZe7/fI7iCFqXdxKjc9LBxP28E7iUgNloGgfgw406w==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/dynamodb-codec@3.972.3':
@@ -6755,10 +6751,6 @@ packages:
     resolution: {integrity: sha512-TsWwKzb/2WHafAY0CE7uXgLj0FmnkBTgfioG9HO+7z/zCPcl1+YU+i7dW4o0y+aFxFgxTMG+ExBQpqT/k2ao8g==}
     engines: {node: '>=20.0.0'}
 
-  '@aws-sdk/nested-clients@3.997.40':
-    resolution: {integrity: sha512-hEdHT0PBR4fkGxWhwKG5EtEYKnAM7HKkp0vD10ufk4YcXejH4r4q6G/XhPzjUc6Yxo5kBS2vHg7llj4ViR9VTQ==}
-    engines: {node: '>=20.0.0'}
-
   '@aws-sdk/region-config-resolver@3.806.0':
     resolution: {integrity: sha512-cuv5pX55JOlzKC/iLsB5nZ9eUyVgncim3VhhWHZA/KYPh7rLMjOEfZ+xyaE9uLJXGmzOJboFH7+YdTRdIcOgrg==}
     engines: {node: '>=18.0.0'}
@@ -6781,10 +6773,6 @@ packages:
 
   '@aws-sdk/signature-v4-multi-region@3.985.0':
     resolution: {integrity: sha512-W6hTSOPiSbh4IdTYVxN7xHjpCh0qvfQU1GKGBzGQm0ZEIOaMmWqiDEvFfyGYKmfBvumT8vHKxQRTX0av9omtIg==}
-    engines: {node: '>=20.0.0'}
-
-  '@aws-sdk/signature-v4-multi-region@3.996.43':
-    resolution: {integrity: sha512-lKekx8bLBXSv4O+cslk9Zfnw2XKSkWBs3uWL5QGhH2ZAQfNS7FE0vcSSN2vD/AhxX54ZTywWxR4STThoeOXlBA==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/token-providers@3.806.0':
@@ -25149,6 +25137,9 @@ packages:
   zod@4.3.6:
     resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
 
+  zod@4.6.6:
+    resolution: {integrity: sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA==}
+
   zustand@4.5.6:
     resolution: {integrity: sha512-ibr/n1hBzLLj5Y+yUcU7dYw8p6WnIVzdJbnX+1YpaScvZVF2ziugqHs+LAmHw4lWO9c/zRj+K1ncgWDQuthEdQ==}
     engines: {node: '>=12.7.0'}
@@ -25749,17 +25740,6 @@ snapshots:
       bowser: 2.11.0
       tslib: 2.8.1
 
-  '@aws-sdk/core@3.977.5':
-    dependencies:
-      '@aws-sdk/types': 3.974.2
-      '@aws-sdk/xml-builder': 3.972.37
-      '@aws/lambda-invoke-store': 0.3.0
-      '@smithy/core': 3.24.6
-      '@smithy/signature-v4': 5.6.12
-      '@smithy/types': 4.16.1
-      bowser: 2.11.0
-      tslib: 2.8.1
-
   '@aws-sdk/crc64-nvme@3.972.0':
     dependencies:
       '@smithy/types': 4.16.1
@@ -25833,7 +25813,7 @@ snapshots:
       '@aws-sdk/credential-provider-login': 3.972.5
       '@aws-sdk/credential-provider-process': 3.972.5
       '@aws-sdk/credential-provider-sso': 3.972.5
-      '@aws-sdk/credential-provider-web-identity': 3.972.70
+      '@aws-sdk/credential-provider-web-identity': 3.972.5
       '@aws-sdk/nested-clients': 3.985.0
       '@aws-sdk/types': 3.974.2
       '@smithy/credential-provider-imds': 4.2.8
@@ -25957,15 +25937,6 @@ snapshots:
       tslib: 2.8.1
     transitivePeerDependencies:
       - aws-crt
-
-  '@aws-sdk/credential-provider-web-identity@3.972.70':
-    dependencies:
-      '@aws-sdk/core': 3.977.4
-      '@aws-sdk/nested-clients': 3.997.40
-      '@aws-sdk/types': 3.974.2
-      '@smithy/core': 3.24.6
-      '@smithy/types': 4.16.1
-      tslib: 2.8.1
 
   '@aws-sdk/dynamodb-codec@3.972.3(@aws-sdk/client-dynamodb@3.975.0)':
     dependencies:
@@ -26277,17 +26248,6 @@ snapshots:
     transitivePeerDependencies:
       - aws-crt
 
-  '@aws-sdk/nested-clients@3.997.40':
-    dependencies:
-      '@aws-sdk/core': 3.977.5
-      '@aws-sdk/signature-v4-multi-region': 3.996.43
-      '@aws-sdk/types': 3.974.2
-      '@smithy/core': 3.24.6
-      '@smithy/fetch-http-handler': 5.6.13
-      '@smithy/node-http-handler': 4.4.9
-      '@smithy/types': 4.16.1
-      tslib: 2.8.1
-
   '@aws-sdk/region-config-resolver@3.806.0':
     dependencies:
       '@aws-sdk/types': 3.804.0
@@ -26336,13 +26296,6 @@ snapshots:
       '@aws-sdk/middleware-sdk-s3': 3.972.7
       '@aws-sdk/types': 3.974.2
       '@smithy/protocol-http': 5.3.8
-      '@smithy/signature-v4': 5.6.12
-      '@smithy/types': 4.16.1
-      tslib: 2.8.1
-
-  '@aws-sdk/signature-v4-multi-region@3.996.43':
-    dependencies:
-      '@aws-sdk/types': 3.974.2
       '@smithy/signature-v4': 5.6.12
       '@smithy/types': 4.16.1
       tslib: 2.8.1
@@ -48365,6 +48318,8 @@ snapshots:
   zod@3.25.76: {}
 
   zod@4.3.6: {}
+
+  zod@4.6.6: {}
 
   zustand@4.5.6(@types/react@18.3.31)(immer@9.0.21)(react@18.3.1):
     dependencies:
