@@ -4,6 +4,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
+import { AutomationEmptyState } from '../../setupGuide/AutomationEmptyState'
 import { AutomationSuggestionBanner } from '../../setupGuide/AutomationSuggestionBanner'
 import { MessagingSetupReminderBanner } from '../../setupGuide/MessagingSetupReminderBanner'
 import { workflowLogic } from '../workflowLogic'
@@ -25,6 +26,8 @@ export function WorkflowsListV2(): JSX.Element {
         serverSearchStatus,
         hasHealthFilter,
         metricsLoaded,
+        filteredRows,
+        isUnfilteredAutomationView,
     } = useValues(workflowsListV2Logic)
     const { setValue, loadWorkflows, loadMetrics } = useActions(workflowsListV2Logic)
     const {
@@ -110,6 +113,11 @@ export function WorkflowsListV2(): JSX.Element {
                     <WorkflowFolderToolbar />
                     {(loadFailed && !listLoaded) || browserLoadFailed || metricsFailed ? (
                         renderLoadError()
+                    ) : listLoaded &&
+                      isUnfilteredAutomationView &&
+                      filteredRows.length === 0 &&
+                      serverSearchStatus !== 'pending' ? (
+                        <AutomationEmptyState />
                     ) : (
                         <WorkflowFolderContents />
                     )}
