@@ -107,6 +107,11 @@ For split exports, download every UUID unless the user asked for a specific part
 A `Completed` response also carries `records_completed`, the number of rows the run exported.
 Report it to the user, because the count is otherwise only visible by opening every file.
 
+It also carries `expires_at`, the earliest expiry across the run's files.
+After this time, at least one file can no longer be downloaded, and the export must run again.
+Download every file before then, and tell the user the deadline if they plan to download later.
+`expires_at` is `null` when no file reports an expiry, for example when the run exported no rows.
+
 ### 4. Optionally, cancel a running export
 
 If required by the user, a running export can be cancelled by calling `posthog:file-download-batch-exports-cancel-create` with the returned `id`.
@@ -157,7 +162,7 @@ posthog-persons-<run_id>-<part>.parquet
 - The `hogql` model runs under stricter resource limits than the other models, because user queries are less predictable. If an export fails on memory, execution time, or bytes read, suggest narrowing the query with a WHERE clause instead of retrying it unchanged.
 - The `hogql` model accepts an optional `hogql_modifiers` object. Each modifier in it overrides the project HogQL modifier with the same name for this export only, and the project modifiers apply to all others. Unless the project sets the `convertToProjectTimezone` modifier, `timestamp` columns come out in UTC, so pass `{"convertToProjectTimezone": true}` when the user wants them in the project timezone. Pass the same `hogql_modifiers` to `posthog:file-download-batch-exports-count-rows-create`, so that the count matches the export.
 - A run can briefly report `Running` after completion while file records are being created. Poll again instead of failing immediately.
-- Download URLs are temporary. If a URL expires, call the REST download endpoint again for a fresh redirect.
+- Download URLs are temporary. If a URL expires, call the REST download endpoint again for a fresh redirect. This works only until the run's `expires_at`.
 - Do not send the signed URL to unrelated services unless the user explicitly asks; it grants temporary access to the exported file.
 - If the user wants all parts of a split export, iterate over every UUID in `files`; do not assume part `0` is enough.
 - Large batch exports may take a few minutes or even longer to complete. Suggest to the user that they can speed-up their download by including only certain events or narrowing the date range.

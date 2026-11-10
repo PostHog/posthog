@@ -224,12 +224,21 @@ async def test_file_download_retrieve_returns_files(
         records_completed=1234,
     )
 
+    earliest_expiry = dt.datetime(2026, 1, 8, tzinfo=dt.UTC)
+    expiries = [
+        earliest_expiry + dt.timedelta(hours=2),
+        None,
+        earliest_expiry,
+        earliest_expiry + dt.timedelta(hours=1),
+        earliest_expiry + dt.timedelta(hours=3),
+    ]
     file_downloads = []
-    for index in range(5):
+    for index, expires_at in enumerate(expiries):
         file_download = await BatchExportFileDownload.objects.acreate(
             team=team,
             batch_export_run=run,
             key=f"batch-exports/{index}",
+            expires_at=expires_at,
         )
         file_downloads.append(file_download)
 
@@ -242,6 +251,7 @@ async def test_file_download_retrieve_returns_files(
     assert data["status"] == "Completed", status_response.json()
     assert data["files"] == [str(file_download.id) for file_download in file_downloads]
     assert data["records_completed"] == 1234
+    assert data["expires_at"] == "2026-01-08T00:00:00Z"
 
 
 @pytest.mark.django_db(transaction=True)
@@ -274,6 +284,7 @@ async def test_file_download_retrieve_returns_empty_when_no_data_exported(
     data = status_response.json()
     assert data["status"] == "Completed", status_response.json()
     assert data["files"] == []
+    assert data["expires_at"] is None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -567,7 +578,10 @@ async def test_file_download_list_returns_run_ids_and_statuses(
     await async_client.aforce_login(user)
 
     tied_runs = sorted([completed_run, cancelled_run], key=lambda run: run.id, reverse=True)
-    expected = [{"id": str(run.id), "status": run.status} for run in [*tied_runs, running_run]]
+    expected = [
+        {"id": str(run.id), "status": run.status, "created_at": run.created_at.isoformat().replace("+00:00", "Z")}
+        for run in [*tied_runs, running_run]
+    ]
 
     response = await async_client.get(f"/api/projects/{team.pk}/file_download_batch_exports")
 

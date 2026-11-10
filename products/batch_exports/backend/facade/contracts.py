@@ -245,6 +245,9 @@ class FileDownloadRun:
     ``files`` holds the ids of the downloadable files, in download order. It is None until the
     run completes and its files are ready. A completed run that exported rows reports
     ``Running`` until then, because its files are written after the run completes.
+
+    ``expires_at`` is the earliest expiry of the run's files: after it, at least one file
+    can no longer be downloaded. It is None when no file reports an expiry.
     """
 
     id: UUID
@@ -252,6 +255,7 @@ class FileDownloadRun:
     error: str | None
     files: tuple[UUID, ...] | None
     records_completed: int | None
+    expires_at: dt.datetime | None
 
 
 # The fields a page of runs or backfills can be ordered by, as the API's `ordering` parameter names them.

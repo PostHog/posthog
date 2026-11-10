@@ -286,6 +286,12 @@ class CreateOutputSerializer(serializers.Serializer):
     id = serializers.UUIDField()
 
 
+EXPIRES_AT_HELP_TEXT = (
+    "When the first of this run's files expires. After this time, at least one file can no longer be downloaded. "
+    "Null when no file reports an expiry, for example when the run exported no rows."
+)
+
+
 class ListOutputSerializer(serializers.Serializer):
     """Typed output for view set `list`."""
 
@@ -294,6 +300,7 @@ class ListOutputSerializer(serializers.Serializer):
         choices=BatchExportRunStatus.choices,
         help_text="Current status of the file download batch export run.",
     )
+    created_at = serializers.DateTimeField(help_text="When the file download batch export run was created.")
 
 
 class RetrieveBasicOutputSerializer(serializers.Serializer):
@@ -311,6 +318,7 @@ class RetrieveCompletedOutputSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Number of rows this run exported.",
     )
+    expires_at = serializers.DateTimeField(allow_null=True, help_text=EXPIRES_AT_HELP_TEXT)
 
 
 class RetrieveFailedOutputSerializer(serializers.Serializer):
@@ -452,6 +460,7 @@ class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMix
         if run.files is not None:
             body["files"] = [str(file_id) for file_id in run.files]
             body["records_completed"] = run.records_completed
+            body["expires_at"] = run.expires_at
         if run.error is not None:
             body["error"] = run.error
 

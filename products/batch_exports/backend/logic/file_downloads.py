@@ -87,18 +87,20 @@ def _get_run(team_id: int, run_id: UUID) -> BatchExportRun:
 def _to_file_download_run(batch_export_run: BatchExportRun) -> contracts.FileDownloadRun:
     run_status = batch_export_run.status
     files: tuple[UUID, ...] | None = None
+    expires_at: dt.datetime | None = None
 
     if run_status == BatchExportRun.Status.COMPLETED:
         if batch_export_run.batch_export_on_demand is None:
             raise RuntimeError("Batch export on demand must be defined on this run")
 
-        ids = tuple(
+        rows = list(
             BatchExportFileDownload.objects.filter(
                 batch_export_run=batch_export_run, team=batch_export_run.batch_export_on_demand.team
             )
             .order_by("key")
-            .values_list("id", flat=True)
+            .values_list("id", "expires_at")
         )
+        ids = tuple(file_id for file_id, _ in rows)
 
         has_data = batch_export_run.records_completed is not None and batch_export_run.records_completed > 0
         if not ids and has_data:
@@ -108,6 +110,7 @@ def _to_file_download_run(batch_export_run: BatchExportRun) -> contracts.FileDow
             run_status = BatchExportRun.Status.RUNNING
         else:
             files = ids
+            expires_at = min((file_expires_at for _, file_expires_at in rows if file_expires_at), default=None)
 
     return contracts.FileDownloadRun(
         id=batch_export_run.id,
@@ -115,6 +118,7 @@ def _to_file_download_run(batch_export_run: BatchExportRun) -> contracts.FileDow
         error=batch_export_run.latest_error,
         files=files,
         records_completed=batch_export_run.records_completed,
+        expires_at=expires_at,
     )
 
 
