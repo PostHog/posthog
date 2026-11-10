@@ -2,6 +2,8 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+const LOUD_MISSING_SHARE = 0.1
+
 export interface MissingRecipientEmailBannerProps {
     /** The person property the To field reads. */
     property: string
@@ -21,25 +23,46 @@ export function MissingRecipientEmailBanner({
     }
     const code = <code className="break-words">{property}</code>
     const nobody = audienceSize != null && missing >= audienceSize
+    const fix =
+        property === 'email' ? (
+            <>
+                Set the To field to <code className="whitespace-nowrap">{"{{ person.properties['$email'] }}"}</code> if
+                their address is in <code>$email</code>.
+            </>
+        ) : (
+            <>Set the To field to the property that holds their email address.</>
+        )
+
+    if (nobody) {
+        return (
+            <LemonBanner type="warning">
+                Nobody in this audience has the {code} property, so this email won't reach anyone. {fix}
+            </LemonBanner>
+        )
+    }
+
+    const message = (
+        <>
+            About {humanFriendlyNumber(missing)} people in this audience have no {code} property, so they won't get this
+            email.{' '}
+        </>
+    )
+
+    // A large audience almost always has a few people without an address, so that case gets a quiet note.
+    // The warning banner is for a share large enough to point at a wrong To field or audience.
+    if (audienceSize == null || missing / audienceSize >= LOUD_MISSING_SHARE) {
+        return (
+            <LemonBanner type="warning">
+                {message}
+                {fix}
+            </LemonBanner>
+        )
+    }
 
     return (
-        <LemonBanner type="warning">
-            {nobody ? (
-                <>Nobody in this audience has the {code} property, so this email won't reach anyone. </>
-            ) : (
-                <>
-                    About {humanFriendlyNumber(missing)} people in this audience have no {code} property, so they won't
-                    get this email.{' '}
-                </>
-            )}
-            {property === 'email' ? (
-                <>
-                    Set the To field to <code className="whitespace-nowrap">{"{{ person.properties['$email'] }}"}</code>{' '}
-                    if their address is in <code>$email</code>.
-                </>
-            ) : (
-                <>Set the To field to the property that holds their email address.</>
-            )}
-        </LemonBanner>
+        <div className="text-xs text-secondary">
+            {message}
+            {fix}
+        </div>
     )
 }
