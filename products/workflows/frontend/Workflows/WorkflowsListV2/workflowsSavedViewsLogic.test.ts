@@ -856,6 +856,13 @@ describe('workflowsSavedViewsLogic', () => {
             [eventTrigger],
         ],
         [
+            'a folder opened on a view-only link',
+            viewOnlyLink,
+            { filters: [{ facet: 'in', value: 'Archive', negated: false }], text: '' },
+            { filters: [{ facet: 'in', value: 'Archive', negated: false }, status('active')], text: '' },
+            [],
+        ],
+        [
             'a filter on a link that carries additions',
             linkWithAdditions,
             { filters: [status('active'), eventTrigger, adaOwns], text: '' },

@@ -51,6 +51,7 @@ import {
     normalizeViewColumns,
     savedViewChanges,
     savedViewFailureMessage,
+    isFolderScope,
     withoutFolderScope,
     workflowViewState,
     workflowViewValue,
@@ -887,8 +888,15 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     actions.setAddedFilters(edited.filters.filter((filter) => !baselineKeys.has(pillKey(filter))))
                     actions.setAddedText(null)
                     actions.applyView(view)
-                    if (edited.text !== viewOnlyLink.baseline.text) {
-                        actions.setValue({ ...values.value, text: edited.text })
+                    // The folder is where the person is, not part of the view, so applying the view would leave it.
+                    const folder = edited.filters.find(isFolderScope)
+                    if (folder || edited.text !== viewOnlyLink.baseline.text) {
+                        actions.setValue({
+                            filters: folder
+                                ? [folder, ...values.value.filters.filter((filter) => !isFolderScope(filter))]
+                                : values.value.filters,
+                            text: edited.text !== viewOnlyLink.baseline.text ? edited.text : values.value.text,
+                        })
                     }
                     keepColumnsChangedWhileViewsLoaded(columnsChangedWhileViewsLoaded)
                     return
