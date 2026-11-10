@@ -1,5 +1,9 @@
 from datetime import timedelta
 
+# The daily calculation leaves out an experiment this many days after launch. It matches
+# `EXPERIMENT_RECALCULATION_MAX_AGE_DAYS`, which lives in the Temporal package that this module must not import.
+DAILY_CALCULATION_DAYS = 60
+
 # A new experiment often has no exposure in its first hours, so the zero exposures finding waits as long as the
 # experiments scout does.
 ZERO_EXPOSURES_GRACE_HOURS = 24

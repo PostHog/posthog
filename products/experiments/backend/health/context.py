@@ -579,6 +579,8 @@ class HealthContext:
     # None while the experiment has not ended.
     ended_at: datetime | None
     is_paused: bool
+    # Whether the experiment can stop enrolling users while it keeps measuring, by the rule the freeze action enforces.
+    can_freeze_exposure: bool
     archived: bool
     team_timezone: str
     flag: FlagState | None
@@ -1127,6 +1129,7 @@ def load_health_context(
         has_ended=experiment.is_stopped,
         ended_at=experiment.end_date if experiment.is_stopped else None,
         is_paused=experiment.is_paused,
+        can_freeze_exposure=experiment.can_freeze_exposure,
         archived=experiment.archived,
         team_timezone=experiment.team.timezone,
         flag=_load_flag_state(experiment),

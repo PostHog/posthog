@@ -21,6 +21,7 @@ RUNNING_CONTEXT = HealthContext(
     has_ended=False,
     ended_at=None,
     is_paused=False,
+    can_freeze_exposure=False,
     archived=False,
     team_timezone="Europe/Berlin",
     flag=None,

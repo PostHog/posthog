@@ -2368,6 +2368,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `early_significance` - Early Significance
  * * `metrics_not_matured` - Metrics Not Matured
  * * `flag_shared` - Flag Shared
+ * * `stale_experiment` - Stale Experiment
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2399,6 +2400,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     EarlySignificance: 'early_significance',
     MetricsNotMatured: 'metrics_not_matured',
     FlagShared: 'flag_shared',
+    StaleExperiment: 'stale_experiment',
 } as const
 
 /**
@@ -2424,6 +2426,8 @@ export const ExperimentHealthFindingSeverityEnumApi = {
  * * `add_secondary_metric` - Add Secondary Metric
  * * `edit_exposure_criteria` - Edit Exposure Criteria
  * * `edit_release_conditions` - Edit Release Conditions
+ * * `end_experiment` - End Experiment
+ * * `freeze_exposure` - Freeze Exposure
  */
 export type ExperimentHealthFindingActionKindEnumApi =
     (typeof ExperimentHealthFindingActionKindEnumApi)[keyof typeof ExperimentHealthFindingActionKindEnumApi]
@@ -2437,6 +2441,8 @@ export const ExperimentHealthFindingActionKindEnumApi = {
     AddSecondaryMetric: 'add_secondary_metric',
     EditExposureCriteria: 'edit_exposure_criteria',
     EditReleaseConditions: 'edit_release_conditions',
+    EndExperiment: 'end_experiment',
+    FreezeExposure: 'freeze_exposure',
 } as const
 
 /**
@@ -2458,6 +2464,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
  * * `exposure_filters` - Exposure Filters
  * * `early_significance` - Early Significance
  * * `metrics_not_matured` - Metrics Not Matured
+ * * `stale_experiment` - Stale Experiment
  * * `zero_exposures` - Zero Exposures
  * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
  * * `srm` - Srm
@@ -2487,6 +2494,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     ExposureFilters: 'exposure_filters',
     EarlySignificance: 'early_significance',
     MetricsNotMatured: 'metrics_not_matured',
+    StaleExperiment: 'stale_experiment',
     ZeroExposures: 'zero_exposures',
     TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     Srm: 'srm',
@@ -2528,7 +2536,8 @@ export interface ExperimentHealthFindingApi {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
-     * * `flag_shared` - Flag Shared */
+     * * `flag_shared` - Flag Shared
+     * * `stale_experiment` - Stale Experiment */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -2579,6 +2588,7 @@ export interface ExperimentHealthFindingApi {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `stale_experiment` - Stale Experiment
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
@@ -2775,6 +2785,7 @@ export interface ExperimentHealthCheckResultApi {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `stale_experiment` - Stale Experiment
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm

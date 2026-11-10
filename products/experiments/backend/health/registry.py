@@ -65,6 +65,7 @@ from products.experiments.backend.health.checks.srm import (
     srm,
     srm_values,
 )
+from products.experiments.backend.health.checks.stale_experiment import stale_experiment
 from products.experiments.backend.health.checks.unserved_variants import (
     UNSERVED_MINIMUM_COUNT,
     UNSERVED_SHARE_THRESHOLD,
@@ -73,7 +74,7 @@ from products.experiments.backend.health.checks.unserved_variants import (
 )
 from products.experiments.backend.health.checks.zero_exposures import zero_exposures, zero_exposures_values
 from products.experiments.backend.health.context import HealthContext
-from products.experiments.backend.health.delays import ZERO_EXPOSURES_GRACE_HOURS
+from products.experiments.backend.health.delays import DAILY_CALCULATION_DAYS, ZERO_EXPOSURES_GRACE_HOURS
 from products.experiments.backend.health.skips import CheckOutcome, CheckSkip, CheckValues
 
 
@@ -261,6 +262,16 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         ),
         run=metrics_not_matured,
         read=metrics_not_matured_values,
+    ),
+    HealthCheck(
+        key=ExperimentHealthCheckKey.STALE_EXPERIMENT,
+        name=f"Experiment running past {DAILY_CALCULATION_DAYS} days",
+        description=(
+            f"Checks how long the experiment has run. PostHog calculates results every day for the first "
+            f"{DAILY_CALCULATION_DAYS} days only, so after that the chart of results over time and significance "
+            "notifications stop updating."
+        ),
+        run=stale_experiment,
     ),
 )
 
