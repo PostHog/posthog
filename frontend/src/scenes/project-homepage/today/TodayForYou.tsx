@@ -6,6 +6,7 @@ import { Button, Skeleton } from '@posthog/quill'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { TodayAiRow } from './TodayAiRow'
 import { TodayForYouEmpty } from './TodayForYouEmpty'
 import { type TodayForYouRow } from './todayForYouRows'
 import { TodayGitHubRow } from './TodayGitHubRow'
@@ -76,6 +77,7 @@ export function TodayForYou(): JSX.Element | null {
                 !forYouFailedNote && <TodayForYouEmpty />
             ) : (
                 <>
+                    <TodayAiRow />
                     {fixCount > 0 ? <TodayGitHubRow fixCount={fixCount} /> : null}
                     <ol className="TodayRows">{forYouVisibleRows.map(renderRow)}</ol>
                 </>

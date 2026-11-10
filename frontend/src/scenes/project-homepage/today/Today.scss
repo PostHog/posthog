@@ -338,52 +338,7 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
 }
 
-.TodaySetupRow__steps {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 6px;
-    padding: 0;
-    margin: 6px 0 0;
-    list-style: none;
-}
-
-.TodaySetupRow__step {
-    display: inline-flex;
-    gap: 4px;
-    align-items: center;
-    padding: 2px 8px 2px 6px;
-    font-size: 12px;
-    line-height: 18px;
-    color: var(--today-muted);
-    border: 1px solid var(--today-line);
-    border-radius: 999px;
-
-    &[data-state='next'] {
-        color: var(--today-ink);
-        border-color: var(--today-focus-border);
-    }
-
-    &[data-state='done'] {
-        color: var(--today-faint);
-        text-decoration: line-through;
-    }
-
-    &[data-state='skipped'] {
-        color: var(--today-faint);
-        border-style: dashed;
-    }
-}
-
-.TodaySetupRow__stepIcon {
-    width: 13px;
-    height: 13px;
-
-    [data-state='done'] > & {
-        color: var(--success-foreground);
-    }
-}
-
-.TodayGitHubRow__actions {
+.TodayPromptRow__actions {
     gap: 4px;
 }
 
@@ -412,79 +367,6 @@ html[data-today-transition]::view-transition-new(root) {
     button {
         color: var(--today-ink);
     }
-}
-
-.TodaySetupRow__open {
-    padding: 0;
-    font: inherit;
-    text-align: start;
-    cursor: pointer;
-    background: none;
-    border: 0;
-}
-
-.TodayGetStarted {
-    gap: 8px;
-}
-
-.TodayGetStarted__todo {
-    width: 16px;
-    height: 16px;
-    color: var(--subtle-foreground);
-}
-
-.TodayGetStarted__done {
-    width: 16px;
-    height: 16px;
-    color: var(--success-foreground);
-}
-
-.TodayGetStarted__installFooter {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 12px;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: 8px;
-}
-
-.TodayGetStarted__waiting {
-    display: inline-flex;
-    gap: 6px;
-    align-items: center;
-    font-size: 12px;
-    color: var(--muted-foreground);
-}
-
-.TodayGetStarted__manual {
-    font-size: 12px;
-}
-
-.TodayGetStarted__doneTitle {
-    color: var(--muted-foreground);
-    text-decoration: line-through;
-}
-
-.TodayWizardCommand {
-    display: flex;
-    gap: 4px;
-    align-items: center;
-    max-width: 100%;
-    padding: 4px 4px 4px 10px;
-    margin-top: 6px;
-    background: var(--muted);
-    border-radius: 6px;
-}
-
-.TodayWizardCommand__code {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--foreground);
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .TodayHome__noteLink {

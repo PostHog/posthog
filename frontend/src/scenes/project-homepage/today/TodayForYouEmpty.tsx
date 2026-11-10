@@ -1,30 +1,17 @@
 import { useValues } from 'kea'
 
 import { IconCheckCircle } from '@posthog/icons'
-import { Button, IconStack, IconStackItem, Skeleton } from '@posthog/quill'
+import { Button, IconStack, IconStackItem } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { todayGetStartedLogic } from './todayGetStartedLogic'
-import { TodaySetupRow } from './TodaySetupRow'
+import { TodayAiRow } from './TodayAiRow'
+import { todayPromptsLogic } from './todayPromptsLogic'
+import { TodaySelfDrivingStatus } from './TodaySelfDrivingStatus'
 import { TodayWatchedNote } from './TodayWatchedNote'
 
-export function TodayForYouEmpty(): JSX.Element {
-    const { stepsReady, allDone, hidden } = useValues(todayGetStartedLogic)
-    const showGuide = !allDone && !hidden
-
-    if (!stepsReady && !hidden) {
-        return <Skeleton className="h-12 w-full" />
-    }
-    if (showGuide) {
-        return (
-            <>
-                <TodaySetupRow />
-                <TodayWatchedNote text="Nothing else needs you today." />
-            </>
-        )
-    }
+function QuietRow(): JSX.Element {
     return (
         <ol className="TodayRows" data-attr="today-for-you-empty">
             <li className="TodayRow">
@@ -50,4 +37,18 @@ export function TodayForYouEmpty(): JSX.Element {
             </li>
         </ol>
     )
+}
+
+export function TodayForYouEmpty(): JSX.Element {
+    const { aiEnabled } = useValues(todayPromptsLogic)
+
+    if (!aiEnabled) {
+        return (
+            <>
+                <TodayAiRow />
+                <QuietRow />
+            </>
+        )
+    }
+    return <TodaySelfDrivingStatus fallback={<QuietRow />} />
 }

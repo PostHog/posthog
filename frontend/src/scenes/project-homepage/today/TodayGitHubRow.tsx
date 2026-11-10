@@ -1,38 +1,37 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGithub } from '@posthog/icons'
-import { Button, IconStack, IconStackItem } from '@posthog/quill'
+import { Button } from '@posthog/quill'
 
-import { todayGetStartedLogic } from './todayGetStartedLogic'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
+
+import { TodayPromptRow } from './TodayPromptRow'
+import { todayPromptsLogic } from './todayPromptsLogic'
 
 export function TodayGitHubRow({ fixCount }: { fixCount: number }): JSX.Element | null {
-    const { githubConnected, integrationsLoading, githubDismissed, aiEnabled } = useValues(todayGetStartedLogic)
-    const { stepActed } = useActions(todayGetStartedLogic)
+    const { aiEnabled, githubConnected, integrationsLoading, githubDismissed } = useValues(todayPromptsLogic)
+    const { dismissPrompt } = useActions(todayPromptsLogic)
 
     if (!aiEnabled || integrationsLoading || githubConnected || githubDismissed) {
         return null
     }
     return (
-        <ol className="TodayRows">
-            <li className="TodayRow TodayGitHubRow" data-attr="today-github-row">
-                <IconStack className="TodayRow__icons">
-                    <IconStackItem>
-                        <IconGithub />
-                    </IconStackItem>
-                </IconStack>
-                <div className="min-w-0">
-                    <span className="TodayRow__title">Connect GitHub to get pull requests</span>
-                    <p className="TodayRow__meta">
-                        {fixCount === 1
-                            ? '1 report below has a fix PostHog can open as a pull request.'
-                            : `${fixCount} reports below have fixes PostHog can open as pull requests.`}
-                    </p>
-                </div>
-                <div className="TodayRow__end TodayGitHubRow__actions">
+        <TodayPromptRow
+            icon={{ glyph: <IconGithub /> }}
+            title="Connect GitHub to get pull requests"
+            meta={
+                fixCount === 1
+                    ? '1 report below has a fix PostHog can open as a pull request.'
+                    : `${fixCount} reports below have fixes PostHog can open as pull requests.`
+            }
+            dataAttr="today-github-row"
+            actions={
+                <>
                     <Button
                         size="sm"
                         variant="link-muted"
-                        onClick={() => stepActed('github', 'skip')}
+                        onClick={() => dismissPrompt('github')}
                         data-attr="today-github-row-dismiss"
                     >
                         Not now
@@ -40,14 +39,14 @@ export function TodayGitHubRow({ fixCount }: { fixCount: number }): JSX.Element 
                     <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => stepActed('github', 'connect')}
+                        render={<LinkPrimitive to={urls.settings('project-integrations')} />}
                         data-attr="today-github-row-connect"
                     >
                         <IconGithub />
                         Connect GitHub
                     </Button>
-                </div>
-            </li>
-        </ol>
+                </>
+            }
+        />
     )
 }
