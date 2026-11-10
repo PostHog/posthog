@@ -4,6 +4,7 @@ import time
 import errno
 import threading
 
+from django.conf import settings
 from django.dispatch import receiver
 
 import structlog
@@ -211,6 +212,8 @@ def _celery_team_id_prerun_receiver(task_id=None, task=None, args=None, kwargs=N
 
 @worker_init.connect
 def freeze_objects_before_pool_forks(**kwargs) -> None:
+    if not settings.GC_FREEZE_BEFORE_POOL_FORK:
+        return
     # Celery sends worker_init after it imports the task modules and before the prefork pool forks
     # its children, so the frozen objects include the tasks. Children that the pool forks again
     # later, for example after --max-tasks-per-child, inherit the same frozen objects. The garbage

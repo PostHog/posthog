@@ -5,6 +5,8 @@ import threading
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import posthoganalytics
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -20,13 +22,15 @@ from posthog.tasks.tasks import clickhouse_errors_count
 
 
 class TestFreezeBeforePoolForks(TestCase):
-    def test_freezes_the_objects_the_pool_will_inherit(self) -> None:
+    @parameterized.expand([(True,), (False,)])
+    def test_freezes_the_objects_the_pool_will_inherit_only_when_enabled(self, enabled: bool) -> None:
         gc.unfreeze()
         self.addCleanup(gc.unfreeze)
 
-        freeze_objects_before_pool_forks()
+        with override_settings(GC_FREEZE_BEFORE_POOL_FORK=enabled):
+            freeze_objects_before_pool_forks()
 
-        self.assertGreater(gc.get_freeze_count(), 0)
+        self.assertEqual(gc.get_freeze_count() > 0, enabled)
 
 
 class TestWorkerShutdownFlushesAnalyticsMetrics(TestCase):
