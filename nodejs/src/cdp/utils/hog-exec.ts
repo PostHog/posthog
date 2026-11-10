@@ -40,7 +40,7 @@ function withinDeadline(options: ExecOptions | undefined, signal: AbortSignal | 
     if (remainingMs === undefined) {
         return options
     }
-    return { ...options, timeout: Math.min(options?.timeout ?? DEFAULT_TIMEOUT_MS, Math.max(1, remainingMs)) }
+    return { ...options, timeout: Math.min(options?.timeout ?? DEFAULT_TIMEOUT_MS, Math.ceil(remainingMs) + 1) }
 }
 
 export function execHogImmediate(

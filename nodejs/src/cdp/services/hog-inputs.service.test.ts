@@ -430,6 +430,44 @@ describe('Hog Inputs', () => {
             }
         })
 
+        it('fails a hog render that the deadline cuts short with the deadline error on a clock that reads whole milliseconds', async () => {
+            const deadlineMs = 200
+            const busy = await compileHog(
+                `while (toUnixTimestampMilli(now()) < event.properties.busy_until) { } return 'done'`
+            )
+            const onlyBusy = createHogFunction({
+                ...hogFunction,
+                inputs: { busy: { value: 'busy', templating: 'hog', bytecode: busy } },
+                inputs_schema: [],
+            })
+            let now = 0.5
+            const clock = jest.spyOn(performance, 'now').mockImplementation(() => now)
+            const mockedNow = jest.mocked(Date.now)
+            const fixedNow = mockedNow()
+            mockedNow.mockImplementation(() => {
+                now += 0.001
+                return Math.floor(now)
+            })
+            try {
+                const deadline = deadlineAfter(deadlineMs)
+                now = 0.9
+                const busyLong = {
+                    ...globals,
+                    event: {
+                        ...globals.event,
+                        properties: { ...globals.event.properties, busy_until: 10 * deadlineMs },
+                    },
+                }
+
+                await expect(
+                    hogInputsService.buildInputs(onlyBusy, busyLong, undefined, undefined, deadline)
+                ).rejects.toMatchObject({ name: 'TimeoutError' })
+            } finally {
+                mockedNow.mockReturnValue(fixedNow)
+                clock.mockRestore()
+            }
+        })
+
         it('should template out liquid inputs', async () => {
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
             expect(inputs.liquid_templated).toMatchInlineSnapshot(`"event: "test""`)
