@@ -3,16 +3,18 @@ import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
 import { IconDatabase, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonInput, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import type { ExternalDataSourceType } from '~/types'
 
 import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import { wizardDetectedSourcesLogic } from 'products/wizard/frontend/logics/wizardDetectedSourcesLogic'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
 import { AvailableSourcesError, NewSourcesWizard } from '../../scenes/NewSourceScene/NewSourceScene'
 import { sourceWizardLogic } from '../../scenes/NewSourceScene/sourceWizardLogic'
 import { DataWarehouseWizardBlock } from './DataWarehouseWizardBlock'
+import { inlineSourceGrid } from './inlineSourceGrid'
 import { SourceIcon } from './SourceIcon'
 
 export type InlineSourceSetupView = 'selection' | 'connecting'
@@ -20,6 +22,7 @@ export type InlineSourceSetupView = 'selection' | 'connecting'
 interface SourceItem {
     id: ExternalDataSourceType
     label: string
+    detected: boolean
 }
 
 export interface InlineSourceSetupProps {
@@ -58,6 +61,7 @@ function InternalInlineSourceSetup({
     onFormSuccess,
 }: InternalInlineSourceSetupProps): JSX.Element {
     const { connectors } = useValues(sourceWizardLogic)
+    const { detectedSourceTypes } = useValues(wizardDetectedSourcesLogic)
     const { searchParams, location } = useValues(router)
     const { replace } = useActions(router)
 
@@ -86,24 +90,18 @@ function InternalInlineSourceSetup({
         replace(location.pathname, restParams)
         // oxlint-disable-next-line react-hooks/exhaustive-deps
     }, [])
-    const featuredSources = availableConnectors.filter((c: SourceConfigResponseApi) => c.featured)
-    const hiddenSources = availableConnectors.filter((c: SourceConfigResponseApi) => !c.featured)
+    const isSearching = searchQuery.trim().length > 0
+    const { shown, hiddenCount } = inlineSourceGrid({
+        connectors: availableConnectors,
+        detectedTypes: detectedSourceTypes,
+        featuredOnly: !expanded,
+        query: searchQuery,
+    })
 
-    const trimmedQuery = searchQuery.trim().toLowerCase()
-    const isSearching = trimmedQuery.length > 0
-    // While searching, match across every source — the featured/expand split only applies
-    // to the default (unsearched) view.
-    const sourcesToShow = isSearching
-        ? availableConnectors.filter((c: SourceConfigResponseApi) =>
-              (c.label ?? c.name).toLowerCase().includes(trimmedQuery)
-          )
-        : expanded
-          ? availableConnectors
-          : featuredSources
-
-    const sourceItems: SourceItem[] = sourcesToShow.map((source: SourceConfigResponseApi) => ({
+    const sourceItems: SourceItem[] = shown.map((source: SourceConfigResponseApi) => ({
         id: source.name,
         label: source.label ?? source.name,
+        detected: detectedSourceTypes.has(source.name),
     }))
 
     const effectiveTitle = title ?? `Choose from ${availableConnectors.length} sources`
@@ -138,14 +136,23 @@ function InternalInlineSourceSetup({
                         {sourceItems.length > 0 ? (
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                                 {sourceItems.map((source) => (
-                                    <div
+                                    <button
                                         key={source.id}
-                                        className="flex items-center gap-3 p-3 rounded-lg border border-border bg-bg-light cursor-pointer"
+                                        type="button"
+                                        className="flex items-center gap-3 p-3 rounded-lg border border-border bg-bg-light cursor-pointer text-left"
                                         onClick={() => onSourceSelect(source.id)}
+                                        data-attr={source.detected ? 'inline-source-detected' : undefined}
                                     >
                                         <SourceIcon type={source.id} size="small" disableTooltip />
-                                        <span className="font-medium text-sm">{source.label}</span>
-                                    </div>
+                                        <span className="flex min-w-0 flex-col items-start gap-1">
+                                            <span className="font-medium text-sm">{source.label}</span>
+                                            {source.detected && (
+                                                <LemonTag type="success" size="small">
+                                                    Found in your code
+                                                </LemonTag>
+                                            )}
+                                        </span>
+                                    </button>
                                 ))}
                             </div>
                         ) : (
@@ -154,7 +161,7 @@ function InternalInlineSourceSetup({
                             </p>
                         )}
 
-                        {!isSearching && featured && !expanded && hiddenSources.length > 0 && (
+                        {!isSearching && featured && !expanded && hiddenCount > 0 && (
                             <div className="flex justify-center pt-2">
                                 <LemonButton
                                     type="secondary"
@@ -162,8 +169,8 @@ function InternalInlineSourceSetup({
                                     onClick={() => setExpanded(true)}
                                     size="small"
                                 >
-                                    Show {hiddenSources.length} more source
-                                    {hiddenSources.length !== 1 ? 's' : ''}
+                                    Show {hiddenCount} more source
+                                    {hiddenCount !== 1 ? 's' : ''}
                                 </LemonButton>
                             </div>
                         )}

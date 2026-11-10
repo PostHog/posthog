@@ -14,12 +14,18 @@ import {
 } from 'kea'
 import posthog from 'posthog-js'
 
-import type { WizardRunApi } from '../../generated/api.schemas'
+import type { WizardDetectedWarehouseSourceApi, WizardRunApi } from '../../generated/api.schemas'
 import { wizardRunIsActive } from '../../lib/wizardRunDisplay'
+import { wizardDetectedSourcesLogic } from '../../logics/wizardDetectedSourcesLogic'
 import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
 
+export type WizardRailState = 'idle' | 'running' | 'completed' | 'failed'
+
 // pinned: analytics property values, renaming breaks dashboards
-export type WizardRunStateLocation = 'navbar_sidebar' | 'today_more_menu'
+export type WizardRunStateLocation = 'navbar_sidebar' | 'today_rail'
+
+// A cloud run reports its codebase scan shortly after it starts, so the sources show up while it runs.
+const DETECTED_SOURCES_REFRESH_MS = 30_000
 
 interface WizardRunSidebarProps {
     projectId: string
@@ -31,11 +37,16 @@ export interface wizardRunSidebarLogicValues {
     dismissedRunIds: string[]
     visibleRuns: WizardRunApi[]
     runsSeenAt: string | null
-    hasUnseenRuns: boolean
+    detectedSources: WizardDetectedWarehouseSourceApi[] | null
+    runDetectedSources: WizardDetectedWarehouseSourceApi[]
+    railState: WizardRailState
 }
 
 export interface wizardRunSidebarLogicActions {
     clickState: (location: WizardRunStateLocation) => { location: WizardRunStateLocation }
+    clickDetectedSource: (sourceType: string) => { sourceType: string }
+    loadDetectedSources: () => void
+    refreshDetectedSources: () => { value: true }
     dismissRuns: (runIds: string[]) => { runIds: string[] }
     markRunsSeen: () => { seenAt: string }
     syncWatchedRuns: () => { value: true }
@@ -53,11 +64,18 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
     key(({ projectId, userId }) => `${projectId}.${userId}`),
     path((key) => ['products', 'wizard', 'wizardRunSidebarLogic', key]),
     connect(({ projectId }: WizardRunSidebarProps) => ({
-        values: [wizardRunSyncLogic({ projectId }), ['userRuns']],
-        actions: [wizardRunSyncLogic({ projectId }), ['watchRuns']],
+        values: [wizardRunSyncLogic({ projectId }), ['userRuns'], wizardDetectedSourcesLogic, ['detectedSources']],
+        actions: [
+            wizardRunSyncLogic({ projectId }),
+            ['watchRuns'],
+            wizardDetectedSourcesLogic,
+            ['loadDetectedSources'],
+        ],
     })),
     actions({
         clickState: (location: WizardRunStateLocation) => ({ location }),
+        clickDetectedSource: (sourceType: string) => ({ sourceType }),
+        refreshDetectedSources: true,
         dismissRuns: (runIds: string[]) => ({ runIds }),
         markRunsSeen: () => ({ seenAt: new Date().toISOString() }),
         syncWatchedRuns: true,
@@ -76,10 +94,36 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
         ],
     })),
     selectors({
-        hasUnseenRuns: [
-            (s) => [s.userRuns, s.runsSeenAt],
-            (runs: WizardRunApi[], seenAt: string | null): boolean =>
-                runs.some((run) => seenAt === null || (run.finished_at ?? run.created_at) > seenAt),
+        railState: [
+            (s) => [s.visibleRuns, s.runsSeenAt],
+            (runs: WizardRunApi[], seenAt: string | null): WizardRailState => {
+                if (runs.some(wizardRunIsActive)) {
+                    return 'running'
+                }
+                const latestUnseen = runs
+                    .filter((run) => run.finished_at && (seenAt === null || run.finished_at > seenAt))
+                    .sort((a, b) => (b.finished_at ?? '').localeCompare(a.finished_at ?? ''))[0]
+                if (latestUnseen?.status === 'failed') {
+                    return 'failed'
+                }
+                return latestUnseen?.status === 'completed' ? 'completed' : 'idle'
+            },
+        ],
+        runDetectedSources: [
+            (s) => [s.detectedSources, s.visibleRuns],
+            (
+                sources: WizardDetectedWarehouseSourceApi[] | null,
+                runs: WizardRunApi[]
+            ): WizardDetectedWarehouseSourceApi[] => {
+                if (!sources || runs.length === 0) {
+                    return []
+                }
+                const earliestRun = runs.reduce(
+                    (earliest, run) => (run.created_at < earliest ? run.created_at : earliest),
+                    runs[0].created_at
+                )
+                return sources.filter((source) => source.last_seen_at >= earliestRun)
+            },
         ],
         visibleRuns: [
             (s) => [s.userRuns, s.dismissedRunIds],
@@ -91,23 +135,46 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
             },
         ],
     }),
-    listeners(({ actions, values, props: { projectId } }) => ({
-        [wizardRunSyncLogic({ projectId }).actionTypes.runsLoaded]: () => actions.syncWatchedRuns(),
-        [wizardRunSyncLogic({ projectId }).actionTypes.runUpdated]: () => actions.syncWatchedRuns(),
+    listeners(({ actions, values, cache, props: { projectId } }) => ({
+        [wizardRunSyncLogic({ projectId }).actionTypes.runsLoaded]: () => {
+            actions.syncWatchedRuns()
+            actions.refreshDetectedSources()
+        },
+        [wizardRunSyncLogic({ projectId }).actionTypes.runUpdated]: () => {
+            actions.syncWatchedRuns()
+            actions.refreshDetectedSources()
+        },
+        refreshDetectedSources: () => {
+            const now = Date.now()
+            if (
+                !values.visibleRuns.some(wizardRunIsActive) ||
+                now - (cache.detectedSourcesLoadedAt ?? 0) < DETECTED_SOURCES_REFRESH_MS
+            ) {
+                return
+            }
+            cache.detectedSourcesLoadedAt = now
+            actions.loadDetectedSources()
+        },
+        clickDetectedSource: ({ sourceType }) => {
+            posthog.capture('wizard detected source clicked', {
+                event_source: 'wizard_ui',
+                project_id: projectId,
+                source_type: sourceType,
+                detected_source_count: values.runDetectedSources.length,
+            })
+        },
         syncWatchedRuns: () =>
             actions.watchRuns(
                 'sidebar',
                 values.visibleRuns.map((run) => run.id)
             ),
         clickState: ({ location }) => {
-            // The More menu ignores sidebar dismissals, so count the runs it displays.
-            const runs = location === 'today_more_menu' ? values.userRuns : values.visibleRuns
             posthog.capture('wizard sidebar state clicked', {
                 event_source: 'wizard_ui',
                 project_id: projectId,
                 location,
-                run_count: runs.length,
-                active_run_count: runs.filter(wizardRunIsActive).length,
+                run_count: values.visibleRuns.length,
+                active_run_count: values.visibleRuns.filter(wizardRunIsActive).length,
             })
         },
         dismissRuns: ({ runIds }) => {

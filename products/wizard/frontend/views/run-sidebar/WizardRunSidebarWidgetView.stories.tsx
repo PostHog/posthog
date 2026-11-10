@@ -146,6 +146,27 @@ export const MultipleRunsMenuOpen: Story = {
     },
 }
 
+export const DetectedSourcesMenuOpen: Story = {
+    args: {
+        detectedSources: [
+            {
+                kind: 'Stripe',
+                warehouse_source_type: 'Stripe',
+                first_seen_at: '2026-09-23T10:01:00Z',
+                last_seen_at: '2026-09-23T10:01:00Z',
+            },
+            {
+                kind: 'Postgres',
+                warehouse_source_type: 'Postgres',
+                first_seen_at: '2026-09-23T10:01:00Z',
+                last_seen_at: '2026-09-23T10:01:00Z',
+            },
+        ],
+        onDetectedSourceClick: () => {},
+        initialMenuOpen: true,
+    },
+}
+
 export const Completed: Story = {
     args: { runs: [{ ...baseRun, status: 'completed', finished_at: '2026-09-23T10:03:00Z' }] },
 }

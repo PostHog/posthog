@@ -1,0 +1,59 @@
+// While a run is active the hog keeps casting and an arc circles the button, so the run reads as in progress
+// from anywhere in the app.
+
+.WizardRailButton__hog--working {
+    transform-origin: 50% 85%;
+    animation: WizardRailButton-cast 1.6s ease-in-out infinite;
+}
+
+.WizardRailButton__ring {
+    animation: WizardRailButton-spin 1.2s linear infinite;
+}
+
+.WizardRailButton__ringTrack,
+.WizardRailButton__ringArc {
+    fill: none;
+    stroke-width: 2;
+}
+
+.WizardRailButton__ringTrack {
+    stroke: var(--border);
+}
+
+.WizardRailButton__ringArc {
+    stroke: var(--primary);
+
+    // A quarter of the circumference (2 * pi * 18.5).
+    stroke-dasharray: 29 117.2;
+    stroke-linecap: round;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .WizardRailButton__hog--working,
+    .WizardRailButton__ring {
+        animation: none;
+    }
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes WizardRailButton-cast {
+    0%,
+    100% {
+        transform: rotate(0deg);
+    }
+
+    25% {
+        transform: rotate(-8deg);
+    }
+
+    60% {
+        transform: rotate(5deg);
+    }
+}
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes WizardRailButton-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
