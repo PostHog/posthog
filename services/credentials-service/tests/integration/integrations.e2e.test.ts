@@ -176,7 +176,7 @@ beforeAll(async () => {
     kms = new LocalKms([randomBytes(32)])
     app = buildApp(kms)
     for (const level of ['debug', 'info', 'warn', 'error'] as const) {
-        vi.spyOn(logger, level).mockImplementation((event, fields) => {
+        vi.spyOn(logger, level).mockImplementation((event: string, fields?: Record<string, unknown>) => {
             logLines.push(JSON.stringify({ event, fields }))
         })
     }
@@ -1147,7 +1147,7 @@ describe('changes', () => {
         ])
     })
 
-    it('returns a secret only when it changed after the cursor, and tombstones for deletes', async () => {
+    it('returns the current secret on every live row, and tombstones for deletes', async () => {
         const a = await create({ integration_id: 'a' }, { team: TEAM_A })
         const b = await create({ integration_id: 'b' }, { team: TEAM_A })
         const c = await create({ integration_id: 'c' }, { team: TEAM_A })
@@ -1165,8 +1165,10 @@ describe('changes', () => {
         const second = await changes(`?since=${first.json.next}`)
         const byId = Object.fromEntries(second.json.results.map((item: any) => [item.record.id, item]))
         expect(Object.keys(byId).sort()).toEqual([a.id, b.id, c.id, deleted.id].sort())
-        // Config only: the reader already holds the secret.
-        expect(byId[a.id]).toMatchObject({ secret: null, deleted: false })
+        expect(byId[a.id]).toMatchObject({
+            secret: { access_token: ACCESS_TOKEN, refresh_token: REFRESH_TOKEN, client_secret: CLIENT_SECRET },
+            deleted: false,
+        })
         expect(byId[a.id].record.config.region).toBe('eu')
         expect(byId[b.id].secret).toEqual({
             access_token: 'fake-rotated-token',
@@ -1279,6 +1281,7 @@ describe('changes', () => {
     it('answers kms_unavailable when the key service is down, so the poller retries', async () => {
         await create()
         class DownKms implements Kms {
+            readonly provider = 'local'
             async generateDataKey(): Promise<never> {
                 throw new KmsError('unavailable', 'KMS did not answer')
             }

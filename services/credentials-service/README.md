@@ -352,9 +352,10 @@ Web-only routes (the web deployment is the only one whose policy holds these ops
   It is idempotent: after a failure, call it again.
 - `GET /v1/integrations/changes` is the one read that returns secrets. It exists for the Django reverse sync during the migration.
   Each item has `record`, `deleted`, `updated_at`, `secret`, `secret_unreadable_keys` and `secret_error`.
-  `secret` is the whole decrypted blob, `refresh_token` and `client_secret` included, for a row whose secret changed at or after `since`.
-  It is `null` when the secret did not change since `since`, and `{}` when the row has no secret or is deleted.
-  A secret that cannot be opened gives `secret_error: "unreadable_secret"` for that row and does not stop the page.
+  `secret` is the current decrypted blob, `refresh_token` and `client_secret` included, for every live row on the page.
+  A secret that changed before `since` can sit on a row that changed again after it, so the feed never leaves it out.
+  It is `{}` when the row has no secret or is deleted.
+  A secret that cannot be opened gives `secret: null` and `secret_error: "unreadable_secret"` for that row and does not stop the page.
   The service writes the audit rows (with the secret key names) before it builds the response, and sends `Cache-Control: no-store`.
   Take `next` from each page as the `since` of the next call. `next` equals `since` when nothing changed.
   `kind` (repeats) and `limit` (1 to 500, default 100) also work. A token that names kinds sees only those kinds.
@@ -362,7 +363,7 @@ Web-only routes (the web deployment is the only one whose policy holds these ops
 - The feed orders by `(updated_at, id)` and uses the `integrations_updated_at_id` index.
   `updated_at` is the start time of the writing transaction, so a row can commit after a newer row.
   The feed therefore holds back changes younger than 30 seconds, so a reader never moves its cursor past a row that is not visible yet.
-  This is safe while no write transaction lasts 30 seconds.
+  This is safe while no write transaction lasts 30 seconds. The by-external-id writes roll back after 20 seconds to keep that true.
 
 Errors are `{error: {code, message, details}}`:
 

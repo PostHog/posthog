@@ -34,14 +34,7 @@ import {
     softDeleteIntegration,
     updateIntegration,
 } from '../db/integrations'
-import {
-    type StoredSecret,
-    deleteSecret,
-    deleteSecrets,
-    getSecrets,
-    getSecretsChangedSince,
-    putSecret,
-} from '../db/secrets'
+import { type StoredSecret, deleteSecret, deleteSecrets, getSecrets, getSecretsOf, putSecret } from '../db/secrets'
 import { withTransaction } from '../db/transaction'
 import { logger } from '../lib/logging'
 import { type AuditActor, type AuditEntry, type AuditQueue, insertAuditRows } from './audit'
@@ -63,6 +56,9 @@ const DECRYPT_CONCURRENCY = 16
 const OWNER_DELETE_BATCH = 500
 // See `listChangedIntegrations`: the longest write transaction the change feed can wait out.
 const DEFAULT_CHANGES_SETTLE_SECONDS = 30
+// A cross-team write locks every matched row and may call KMS for each. It rolls back once it
+// runs this long, so it commits well inside the settle window and the change feed cannot skip it.
+const CROSS_TEAM_WRITE_DEADLINE_MS = 20_000
 const IDEMPOTENT_CREATE = 'create'
 // The text form Postgres prints for a timestamptz, as the list cursor carries it.
 const CURSOR_TIMESTAMP = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2}){0,2}$/
@@ -92,11 +88,11 @@ export interface ChangeItem {
     record: IntegrationRecordJson
     deleted: boolean
     updated_at: string
-    /** Null when the secret did not change since the cursor. `{}` when the row has no secret. */
+    /** The current blob. `{}` when the row has no secret or is deleted. Null only with `secret_error`. */
     secret: JsonObject | null
     /** Keys of a migrated blob that could not be decrypted. They are not in `secret`. */
     secret_unreadable_keys: string[]
-    /** Set when the secret changed but cannot be opened. */
+    /** Set when the secret cannot be opened. */
     secret_error: 'unreadable_secret' | null
 }
 
@@ -126,6 +122,15 @@ function owner(caller: Caller): IntegrationOwner {
         throw new IntegrationApiError('forbidden_op', 'this operation needs a token with an owner')
     }
     return tokenOwner
+}
+
+function crossTeamWriteDeadline(): () => void {
+    const deadline = Date.now() + CROSS_TEAM_WRITE_DEADLINE_MS
+    return () => {
+        if (Date.now() > deadline) {
+            throw new Error(`cross-team write ran past ${CROSS_TEAM_WRITE_DEADLINE_MS} ms and was rolled back`)
+        }
+    }
 }
 
 function isEmpty(value: object): boolean {
@@ -616,11 +621,13 @@ export class IntegrationsService {
         body: PatchBody,
         sourceRows: SourceRows
     ): Promise<{ matched: number; updated: number }> {
+        const checkDeadline = crossTeamWriteDeadline()
         return withTransaction(this.deps.pool, async (tx) => {
             const rows = await lockIntegrationsByExternalId(tx, target.kind, target.externalId, sourceRows)
             const entries: AuditEntry[] = []
             let updated = 0
             for (const row of rows) {
+                checkDeadline()
                 const applied = await this.applyPatch(tx, row, body)
                 if (applied === null) {
                     entries.push(this.auditEntry(caller, 'write_by_external_id', row, 'unchanged'))
@@ -634,6 +641,7 @@ export class IntegrationsService {
                 )
             }
             await insertAuditRows(tx, entries)
+            checkDeadline()
             return { matched: rows.length, updated }
         })
     }
@@ -644,10 +652,12 @@ export class IntegrationsService {
         target: ExternalIdTarget,
         sourceRows: SourceRows
     ): Promise<{ deleted: number }> {
+        const checkDeadline = crossTeamWriteDeadline()
         return withTransaction(this.deps.pool, async (tx) => {
             const rows = await lockIntegrationsByExternalId(tx, target.kind, target.externalId, sourceRows)
             const entries: AuditEntry[] = []
             for (const row of rows) {
+                checkDeadline()
                 const deleted = await softDeleteIntegration(
                     tx,
                     { type: row.ownerType, id: row.ownerId },
@@ -663,6 +673,7 @@ export class IntegrationsService {
                 rows.map((row) => row.id)
             )
             await insertAuditRows(tx, entries)
+            checkDeadline()
             return { deleted: rows.length }
         })
     }
@@ -710,7 +721,7 @@ export class IntegrationsService {
     /**
      * The rows of every team that changed after `since`, oldest change first, deleted rows included.
      * Unlike every other read, it returns decrypted secrets: the whole blob, `refresh_token` and
-     * `client_secret` too, for each row whose secret changed since `since`. The Django reverse sync
+     * `client_secret` too, for each live row on the page. The Django reverse sync
      * needs the refreshed tokens, and only it may call this (the web deployment). The audit rows
      * are written before the response is built, so a page that cannot be audited is not returned.
      */
@@ -724,7 +735,9 @@ export class IntegrationsService {
             settleSeconds: this.deps.changesSettleSeconds ?? DEFAULT_CHANGES_SETTLE_SECONDS,
         })
         const live = changed.filter(({ row }) => row.deletedAt === null).map(({ row }) => row.id)
-        const secrets = await getSecretsChangedSince(this.deps.pool, live, after?.updatedAt ?? null)
+        // Every live row carries its current secret. A secret that changed before the cursor can sit
+        // on a row that changed again after it, so the reader cannot tell from the cursor alone.
+        const secrets = await getSecretsOf(this.deps.pool, live)
 
         const outcomes = new Map<string, Awaited<ReturnType<IntegrationsService['changeSecret']>>>()
         await forEachLimit(changed, DECRYPT_CONCURRENCY, async ({ row }) => {
@@ -763,17 +776,11 @@ export class IntegrationsService {
 
     private async changeSecret(
         row: IntegrationRow,
-        secrets: Awaited<ReturnType<typeof getSecretsChangedSince>>
+        secrets: Map<string, StoredSecret>
     ): Promise<Pick<ChangeItem, 'secret' | 'secret_unreadable_keys' | 'secret_error'>> {
-        if (row.deletedAt !== null) {
-            return { secret: {}, secret_unreadable_keys: [], secret_error: null }
-        }
-        if (!secrets.present.has(row.id)) {
-            return { secret: {}, secret_unreadable_keys: [], secret_error: null }
-        }
-        const stored = secrets.changed.get(row.id)
+        const stored = row.deletedAt === null ? secrets.get(row.id) : undefined
         if (!stored) {
-            return { secret: null, secret_unreadable_keys: [], secret_error: null }
+            return { secret: {}, secret_unreadable_keys: [], secret_error: null }
         }
         try {
             return {

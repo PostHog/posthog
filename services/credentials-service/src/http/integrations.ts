@@ -45,8 +45,9 @@ type Env = {
     }
 }
 
-function caller(c: Context<Env>): Caller {
-    const auth = c.get('integrationAuth')
+function caller(c: Context): Caller {
+    const auth: Env['Variables']['integrationAuth'] = c.get('integrationAuth')
+    const requestId: string = c.get('requestId')
     return {
         auth,
         actor: {
@@ -54,13 +55,13 @@ function caller(c: Context<Env>): Caller {
             caller: auth.caller,
             userId: auth.userId,
             jti: auth.jti,
-            requestId: c.get('requestId'),
+            requestId,
         },
     }
 }
 
-function body(c: Context<Env>): unknown {
-    const value = c.get('body')
+function body(c: Context): unknown {
+    const value: unknown = c.get('body')
     if (value === NOT_JSON) {
         throw new IntegrationApiError('validation', 'the body must be JSON')
     }

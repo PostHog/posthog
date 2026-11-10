@@ -96,7 +96,7 @@ describe('integrations queries', () => {
         await db.query('ANALYZE integrations')
         const plan = await db.query(
             `EXPLAIN SELECT id FROM integrations
-             WHERE owner_type = 'team' AND updated_at <= clock_timestamp() - interval '30 seconds'
+             WHERE owner_type = 'team' AND updated_at <= statement_timestamp() - interval '30 seconds'
                AND (updated_at, id) > (now() - interval '1 hour', gen_random_uuid())
              ORDER BY updated_at, id LIMIT 100`
         )

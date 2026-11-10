@@ -104,41 +104,23 @@ export async function deleteSecrets(db: Queryable, integrationIds: readonly stri
     await query(db, 'DELETE FROM integration_secrets WHERE integration_id = ANY($1::uuid[])', [integrationIds])
 }
 
-export interface SecretsSince {
-    /** Rows whose secret changed at or after the position. */
-    changed: Map<string, StoredSecret>
-    /** Rows that have a secret now, changed or not. A live row that is absent has none. */
-    present: Set<string>
-}
-
 /**
- * The secrets of the given rows, whatever their owner, that changed at or after `since` (a
- * timestamp text, or null for all). Only the change feed may call it: it does not bind an owner.
+ * The current secrets of the given rows, whatever their owner. A row without a secret is absent.
+ * Only the change feed may call it: it does not bind an owner.
  */
-export async function getSecretsChangedSince(
+export async function getSecretsOf(
     db: Queryable,
-    integrationIds: readonly string[],
-    since: string | null
-): Promise<SecretsSince> {
+    integrationIds: readonly string[]
+): Promise<Map<string, StoredSecret>> {
     if (integrationIds.length === 0) {
-        return { changed: new Map(), present: new Set() }
+        return new Map()
     }
-    const [changed, present] = await Promise.all([
-        query<DbSecretRow>(
-            db,
-            `SELECT integration_id, key_id, wrapped_dek, ciphertext, nonce, enc_version, legacy_unreadable_keys
-             FROM integration_secrets
-             WHERE integration_id = ANY($1::uuid[]) AND ($2::timestamptz IS NULL OR updated_at >= $2::timestamptz)`,
-            [integrationIds, since]
-        ),
-        query<{ integration_id: string }>(
-            db,
-            'SELECT integration_id FROM integration_secrets WHERE integration_id = ANY($1::uuid[])',
-            [integrationIds]
-        ),
-    ])
-    return {
-        changed: new Map(changed.rows.map((row) => [row.integration_id, toStoredSecret(row)])),
-        present: new Set(present.rows.map((row) => row.integration_id)),
-    }
+    const result = await query<DbSecretRow>(
+        db,
+        `SELECT integration_id, key_id, wrapped_dek, ciphertext, nonce, enc_version, legacy_unreadable_keys
+         FROM integration_secrets
+         WHERE integration_id = ANY($1::uuid[])`,
+        [integrationIds]
+    )
+    return new Map(result.rows.map((row) => [row.integration_id, toStoredSecret(row)]))
 }
