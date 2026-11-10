@@ -270,11 +270,17 @@ class TaskProcessingContext:
         value = (self.state or {}).get("model")
         if not isinstance(value, str):
             return None
-        if self.origin_product == Task.OriginProduct.POSTHOG_AI and not model_allowed_by_product_pin(
-            "posthog_ai", value
-        ):
+        if self._bills_posthog_ai and not model_allowed_by_product_pin("posthog_ai", value):
             return None
         return value
+
+    @property
+    def _bills_posthog_ai(self) -> bool:
+        if self.origin_product == Task.OriginProduct.POSTHOG_AI:
+            return True
+        if self.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT):
+            return (self.state or {}).get("billing_product") == "posthog_ai"
+        return False
 
     @property
     def reasoning_effort(self) -> str | None:
