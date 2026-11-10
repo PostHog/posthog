@@ -1062,7 +1062,7 @@ def process_social_invite_signup(
         except Exception as e:
             capture_exception(e)
             message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
-            raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
+            raise AuthFailed(backend, message)
 
         if is_delegation:
             strategy.session_set("next", DELEGATED_ONBOARDING_NEXT)
@@ -1125,7 +1125,7 @@ def process_social_domain_jit_provisioning_signup(
                     except Exception as e:
                         capture_exception(e)
                         message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
-                        raise ValidationError(message, code="unknown", params={"source": "social_create_user"})
+                        raise AuthFailed(backend, message)
 
                     if is_delegation:
                         strategy.session_set("next", DELEGATED_ONBOARDING_NEXT)
