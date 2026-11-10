@@ -1412,6 +1412,11 @@ describe('Cyclotron V2', () => {
             )
         })
 
+        it('keeps accepting a long fixed poll delay when backoff is off', async () => {
+            const worker = createWorker(QUEUE, { pollDelayMs: 20_000, heartbeatTimeoutMs: 30_000 })
+            await worker.disconnect()
+        })
+
         // Both dequeue paths bump transition_count for the whole batch in one UPDATE, so an
         // unclamped increment on a saturated row aborts the statement and stops every job on
         // the queue, not just the saturated one. 'email' selects the fair path, a separate

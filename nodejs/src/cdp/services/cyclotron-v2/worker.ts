@@ -266,7 +266,7 @@ export class CyclotronV2Worker {
 
     private assertBackOffFitsHeartbeat(): void {
         const longestSleepWithinHeartbeatMs = this.heartbeatTimeoutMs / 2
-        if (this.pollDelayMaxMs > longestSleepWithinHeartbeatMs) {
+        if (this.pollDelayMaxMs > this.pollDelayMs && this.pollDelayMaxMs > longestSleepWithinHeartbeatMs) {
             throw new Error(
                 `pollDelayMaxMs (${this.pollDelayMaxMs}) must be at most half of heartbeatTimeoutMs (${this.heartbeatTimeoutMs})`
             )
