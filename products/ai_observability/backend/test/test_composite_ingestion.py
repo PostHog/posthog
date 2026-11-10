@@ -145,6 +145,37 @@ class TestCompositeIngestion(TestCase):
             with self.assertRaises(OfflineEvaluationValidationError):
                 self.ingestion.upload(self.experiment.id, UploadSubmission(items=[self.item], results=[result]))
 
+    @parameterized.expand([('["good", "good"]', "error"), ('["good", "bad"]', "ok")])
+    def test_categorical_output_counts_each_item_once(self, categories: str, expected_status: str) -> None:
+        composite = ScoreDefinition.objects.create(
+            team=self.team, name="Categories", kind="categorical", calculation="composite"
+        )
+        version = composite.create_new_version(
+            config={"selection_mode": "multiple", "options": [{"key": "good"}, {"key": "bad"}]},
+            composition={
+                "expression": f'{categories} if correct else ["bad"]',
+                "inputs": [{"alias": "correct", "scorer_version_id": str(self.input_version.id)}],
+            },
+            created_by=None,
+        )
+        self.ingestion.upload(
+            self.experiment.id,
+            UploadSubmission(
+                items=[self.item],
+                results=[self.source_result, replace(self.request, scorer_version_id=version.id)],
+            ),
+        )
+        result = OfflineEvaluationResult.objects.for_team(self.team.id).get(scorer_version=version)
+        self.assertEqual(result.status, expected_status)
+        self.assertEqual(result.error_code, "composite_formula_error" if expected_status == "error" else None)
+        summary = (
+            OfflineEvaluationReadService(team_id=self.team.id, user_access_control=None, can_read_scores=True)
+            .list_summaries(self.experiment.id, OfflineReadQuery(scorer_version_ids=(version.id,)))
+            .results[0]
+        )
+        self.assertTrue(all(category.count <= 1 for category in summary.categories))
+        self.assertEqual(summary.status_counts.ok, int(expected_status == "ok"))
+
     def test_changed_input_conflicts_and_does_not_recompute(self) -> None:
         self.ingestion.upload(
             self.experiment.id, UploadSubmission(items=[self.item], results=[self.source_result, self.request])

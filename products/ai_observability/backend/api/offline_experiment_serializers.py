@@ -278,7 +278,6 @@ class ResultSubmissionSerializer(_StrictDataclassSerializer[ResultSubmission]):
     scorer_version_id = _UUIDField(help_text="Exact UUID of an existing scorer version in this project.")
     calculate = serializers.BooleanField(
         required=False,
-        default=False,
         help_text="Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate; all pinned input results must already exist for this item or be in this request. For reported scorers, omit this flag or set false and supply the result.",
     )
     status = serializers.ChoiceField(

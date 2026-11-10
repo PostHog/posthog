@@ -4743,6 +4743,8 @@ export interface CompositeInputReadApi {
     kind: ScoreDefinitionKindEnumApi
     /** Pinned input version number. */
     version: number
+    /** Scoring rules of the pinned input version. */
+    readonly config: ScoreDefinitionConfigApi
     /**
      * Current input version. Updating requires a new composite version.
      * @nullable

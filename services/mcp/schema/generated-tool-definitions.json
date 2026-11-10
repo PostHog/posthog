@@ -10240,7 +10240,9 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "ai-observability-composite-validation",
+        "feature_flag_behavior": "enable"
     },
     "llma-score-definition-version-get": {
         "description": "Retrieve an exact immutable scorer version by definition id and version_id UUID. Its pinned config determines how historical offline scores pass or fail; the current scorer configuration may differ.",

@@ -72,6 +72,7 @@ describe('scorer editor', () => {
             version: 1,
             latest_version_id: 'source-v2',
             latest_version: 2,
+            config: { passing_rule: { operator: 'gte' as const, threshold: 0.8 } },
         }
         const existing: ScoreDefinitionApi = {
             ...definition,

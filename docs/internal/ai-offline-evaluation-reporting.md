@@ -427,6 +427,7 @@ The example averages a Boolean input and a categorical predicate into a numeric 
 Replace these placeholder UUIDs with exact input versions in the same environment.
 Input values retain their raw meaning: `number(True)` is 1 and `number(False)` is 0, irrespective of the input's passing rule.
 Categorical inputs are lists of category keys; use membership tests such as `"good" in relevance`.
+Categorical outputs must contain distinct keys. Duplicate keys produce `composite_formula_error` and are excluded from category rates.
 A categorical formula can return a key or list of keys, such as `"good" if correct else "bad"`.
 
 Request calculation independently for each item by uploading `item_id`, `scorer_version_id`, and `calculate: true`, without a value or result metadata.
@@ -452,6 +453,7 @@ The interpreter supports no arbitrary code, attribute access, indexing, loops, o
 The scorer editor shows dependent composites before source changes. Input rows show pinned and latest versions with an explicit update action.
 The dependent composite list supports search and tag filters across all matches, displays up to 50 results in a scrollable area, and shows the matching count when more results are available.
 The API exposes `input_scorers`, `dependent_composite_count`, and list filters `calculation` and `input_definition_id` for the same workflow.
+Each input includes its pinned version's configuration so the editor can restore default formulas without using newer scoring rules.
 New source versions never update composites automatically.
 
 The editor starts new composites with a formula that follows their output type: an average for numeric outputs, all inputs passing for Boolean outputs, or a passing/failing category for categorical outputs.
@@ -462,6 +464,8 @@ Input scorer selection supports search and tag filters, and version lists load a
 **Validate formula** calls `POST /api/projects/{team_id}/llm_analytics/score_definitions/validate_composition/` with `kind` and `composition`.
 This read-scoped operation checks formula syntax, input access and output type without creating a scorer or version. Runtime values and output bounds remain checked when results are calculated.
 The MCP tool `llma-score-definition-validate` exposes the same validation with `llm_analytics:read` scope.
+It is gated by `ai-observability-composite-validation`. Enable this flag only after the backend validation route is deployed in every target environment; MCP and Django deploy independently.
+MCP preserves omission of `calculate` on reported uploads so they remain compatible with the previous backend during rollout.
 MCP agents can create and version composites through the scorer tools, then request per-item calculations through `llma-offline-experiment-upload` with `calculate: true`.
 
 SDK integrations must send `calculate: true` in composite result declarations.

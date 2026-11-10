@@ -28105,6 +28105,50 @@ export namespace Schemas {
       Boolean: 'boolean',
     } as const;
 
+    /**
+     * * `gte` - At or above
+     * * `lte` - At or below
+     */
+    export type NumericScorePassingRuleSerializerOperatorEnum = typeof NumericScorePassingRuleSerializerOperatorEnum[keyof typeof NumericScorePassingRuleSerializerOperatorEnum];
+
+
+    export const NumericScorePassingRuleSerializerOperatorEnum = {
+      Gte: 'gte',
+      Lte: 'lte',
+    } as const;
+
+    export interface NumericScorePassingRule {
+      /** Pass at or above (gte), or at or below (lte), the threshold.
+       *
+       * * `gte` - At or above
+       * * `lte` - At or below */
+      operator: NumericScorePassingRuleSerializerOperatorEnum;
+      /** Finite passing threshold within any configured score bounds. */
+      threshold: number;
+    }
+
+    export interface NumericScoreDefinitionConfig {
+      /**
+         * Optional inclusive minimum score.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Optional inclusive maximum score.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Optional increment step for numeric input, for example 1 or 0.5.
+         * @nullable
+         */
+      step?: number | null;
+      /** Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+      passing_rule?: NumericScorePassingRule | null;
+    }
+
+    export type ScoreDefinitionConfig = CategoricalScoreDefinitionConfig | NumericScoreDefinitionConfig | BooleanScoreDefinitionConfig;
+
     export interface CompositeInputRead {
       /** Input name in the formula. */
       alias: string;
@@ -28122,6 +28166,8 @@ export namespace Schemas {
       kind: ScoreDefinitionKindEnum;
       /** Pinned input version number. */
       version: number;
+      /** Scoring rules of the pinned input version. */
+      readonly config: ScoreDefinitionConfig;
       /**
          * Current input version. Updating requires a new composite version.
          * @nullable
@@ -70644,48 +70690,6 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
-    /**
-     * * `gte` - At or above
-     * * `lte` - At or below
-     */
-    export type NumericScorePassingRuleSerializerOperatorEnum = typeof NumericScorePassingRuleSerializerOperatorEnum[keyof typeof NumericScorePassingRuleSerializerOperatorEnum];
-
-
-    export const NumericScorePassingRuleSerializerOperatorEnum = {
-      Gte: 'gte',
-      Lte: 'lte',
-    } as const;
-
-    export interface NumericScorePassingRule {
-      /** Pass at or above (gte), or at or below (lte), the threshold.
-       *
-       * * `gte` - At or above
-       * * `lte` - At or below */
-      operator: NumericScorePassingRuleSerializerOperatorEnum;
-      /** Finite passing threshold within any configured score bounds. */
-      threshold: number;
-    }
-
-    export interface NumericScoreDefinitionConfig {
-      /**
-         * Optional inclusive minimum score.
-         * @nullable
-         */
-      min?: number | null;
-      /**
-         * Optional inclusive maximum score.
-         * @nullable
-         */
-      max?: number | null;
-      /**
-         * Optional increment step for numeric input, for example 1 or 0.5.
-         * @nullable
-         */
-      step?: number | null;
-      /** Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
-      passing_rule?: NumericScorePassingRule | null;
-    }
-
     export interface OAuthRedirectResponse {
       redirect_url: string;
     }
@@ -71280,8 +71284,6 @@ export namespace Schemas {
       Reported: 'reported',
       Composite: 'composite',
     } as const;
-
-    export type ScoreDefinitionConfig = CategoricalScoreDefinitionConfig | NumericScoreDefinitionConfig | BooleanScoreDefinitionConfig;
 
     export interface OfflineScorerVersionRead {
       /** Reported or computed from other item scores.

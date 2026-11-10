@@ -3,6 +3,9 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
@@ -41,6 +44,7 @@ class TestCompositeScorers(APIBaseTest):
         self.assertEqual(source["dependent_composite_count"], 1)
         dependent = self.client.get(f"{self.endpoint}{composite['id']}/").data
         self.assertEqual(dependent["input_scorers"][0]["scorer_version_id"], str(self.version.id))
+        self.assertEqual(dependent["input_scorers"][0]["config"], {"true_is_failure": False})
         self.assertEqual(dependent["input_scorers"][0]["latest_version_id"], str(latest.id))
         listing = self.client.get(self.endpoint, {"input_definition_id": str(self.source.id)}).data
         self.assertEqual([item["id"] for item in listing["results"]], [composite["id"]])
@@ -50,10 +54,40 @@ class TestCompositeScorers(APIBaseTest):
         response = self.client.post(f"{self.endpoint}{composite['id']}/new_version/", updated, format="json")
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(response.data["current_version"], 2)
+        self.assertEqual(response.data["input_scorers"][0]["config"], {"true_is_failure": True})
         historical = self.client.get(
             f"{self.endpoint}{composite['id']}/versions/{composite['current_version_id']}/"
         ).data
         self.assertEqual(historical["composition"], self.payload["composition"])
+
+    def test_save_query_count_does_not_grow_with_composite_inputs(self) -> None:
+        inputs = []
+        for index in range(16):
+            source = ScoreDefinition.objects.create(team=self.team, name=f"Input {index}", kind="boolean")
+            version = source.create_new_version(config={"true_is_failure": False}, created_by=self.user)
+            inputs.append({"alias": f"input{index}", "scorer_version_id": str(version.id)})
+        counts: dict[int, list[int]] = {}
+        for input_count in (1, 16):
+            payload = {
+                **self.payload,
+                "composition": {
+                    "expression": " + ".join(f"number({item['alias']})" for item in inputs[:input_count]),
+                    "inputs": inputs[:input_count],
+                },
+            }
+            with CaptureQueriesContext(connection) as create_queries:
+                response = self.client.post(self.endpoint, payload, format="json")
+            self.assertEqual(response.status_code, 201, response.data)
+            self.assertEqual(len(response.data["input_scorers"]), input_count)
+            with CaptureQueriesContext(connection) as version_queries:
+                updated = self.client.post(
+                    f"{self.endpoint}{response.data['id']}/new_version/", {**payload, "base_version": 1}, format="json"
+                )
+            self.assertEqual(updated.status_code, 200, updated.data)
+            self.assertEqual(len(updated.data["input_scorers"]), input_count)
+            counts[input_count] = [len(create_queries), len(version_queries)]
+        self.assertLessEqual(counts[16][0], counts[1][0])
+        self.assertLessEqual(counts[16][1], counts[1][1])
 
     @parameterized.expand(
         [("numeric", "number(correct)"), ("boolean", "not correct"), ("categorical", '"good" if correct else "bad"')]

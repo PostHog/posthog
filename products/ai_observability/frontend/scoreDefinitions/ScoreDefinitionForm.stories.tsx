@@ -120,6 +120,7 @@ export const CompositeWithNewerInput: Story = {
                     version: 1,
                     latest_version_id: '00000000-0000-4000-8000-000000000003',
                     latest_version: 2,
+                    config: { true_is_failure: false },
                 },
                 {
                     alias: 'relevance',
@@ -130,6 +131,13 @@ export const CompositeWithNewerInput: Story = {
                     version: 1,
                     latest_version_id: '00000000-0000-4000-8000-000000000005',
                     latest_version: 1,
+                    config: {
+                        options: [
+                            { key: 'good', label: 'Good' },
+                            { key: 'bad', label: 'Bad' },
+                        ],
+                        passing_rule: { categories: ['good'] },
+                    },
                 },
             ],
         },

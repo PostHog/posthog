@@ -20,7 +20,7 @@ export interface ScoreDefinitionDraft {
     calculation: 'reported' | 'composite'
     expression: string
     expressionIsCustom: boolean
-    inputs: (CompositeInputReadApi & { config?: ScoreDefinitionConfig })[]
+    inputs: CompositeInputReadApi[]
     name: string
     shortName: string
     description: string

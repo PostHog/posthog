@@ -4,7 +4,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, F, Prefetch, Q, QuerySet
+from django.db.models import Count, F, Prefetch, Q, QuerySet, prefetch_related_objects
 
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
@@ -54,6 +54,9 @@ class CompositeInputReadSerializer(serializers.Serializer):
         source="input_version.definition.kind", choices=ScoreDefinition.Kind.choices, help_text="Input value kind."
     )
     version = serializers.IntegerField(source="input_version.version", help_text="Pinned input version number.")
+    config = ScoreDefinitionConfigField(
+        source="input_version.config", read_only=True, help_text="Scoring rules of the pinned input version."
+    )
     latest_version_id = serializers.UUIDField(
         source="input_version.definition.current_version_id",
         allow_null=True,
@@ -401,6 +404,14 @@ class ScoreDefinitionViewSet(
     filterset_class = ScoreDefinitionFilter
     http_method_names = ["get", "post", "patch", "head", "options"]
 
+    def _input_prefetch(self) -> Prefetch:
+        return Prefetch(
+            "current_version__inputs",
+            queryset=ScoreDefinitionInput.objects.for_team(self.team_id, canonical=True)
+            .select_related("input_version__definition__current_version")
+            .order_by("alias"),
+        )
+
     def safely_get_queryset(
         self, queryset: QuerySet[ScoreDefinition, ScoreDefinition]
     ) -> QuerySet[ScoreDefinition, ScoreDefinition]:
@@ -414,14 +425,7 @@ class ScoreDefinitionViewSet(
                 | Q(current_version__in=CompositeScorers.accessible_versions(accessible, team_id=self.team_id))
             )
             .select_related("current_version", "created_by", "updated_by")
-            .prefetch_related(
-                Prefetch(
-                    "current_version__inputs",
-                    queryset=ScoreDefinitionInput.objects.for_team(self.team_id, canonical=True)
-                    .select_related("input_version__definition__current_version")
-                    .order_by("alias"),
-                )
-            )
+            .prefetch_related(self._input_prefetch())
             .annotate(
                 dependent_composite_count=Count(
                     "versions__dependents__composite_version__definition",
@@ -615,6 +619,7 @@ class ScoreDefinitionViewSet(
             request=request,
         )
 
+        prefetch_related_objects([definition], self._input_prefetch())
         return Response(self.get_serializer(definition).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
@@ -721,4 +726,5 @@ class ScoreDefinitionViewSet(
             request=request,
         )
 
+        prefetch_related_objects([definition], self._input_prefetch())
         return Response(self.get_serializer(definition).data, status=status.HTTP_200_OK)

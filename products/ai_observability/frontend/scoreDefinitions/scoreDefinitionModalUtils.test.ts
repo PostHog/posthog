@@ -1,4 +1,5 @@
 import type { ScoreDefinitionApi, ScoreDefinitionConfigApi } from '../generated/api.schemas'
+import { defaultCompositeExpression, updateScorerDraft } from './compositeFormulaDefaults'
 import { buildConfigFromDraft, createDraft, validateDraft } from './scoreDefinitionModalUtils'
 
 const definition: ScoreDefinitionApi = {
@@ -24,6 +25,46 @@ const definition: ScoreDefinitionApi = {
 }
 
 describe('scorer form configuration', () => {
+    it.each<{ kind: ScoreDefinitionApi['kind']; config: ScoreDefinitionConfigApi; expected: string }>([
+        { kind: 'boolean', config: { true_is_failure: true }, expected: '(not quality)' },
+        {
+            kind: 'categorical',
+            config: {
+                options: [
+                    { key: 'good', label: 'Good' },
+                    { key: 'bad', label: 'Bad' },
+                ],
+                passing_rule: { categories: ['good'] },
+            },
+            expected: '(("good" in quality) and not ("bad" in quality))',
+        },
+    ])('restores default formulas from a saved $kind input', ({ kind, config, expected }) => {
+        const draft = createDraft('metadata', {
+            ...definition,
+            calculation: 'composite',
+            composition: {
+                expression: 'False',
+                inputs: [{ alias: 'quality', scorer_version_id: 'source-v1' }],
+            },
+            input_scorers: [
+                {
+                    alias: 'quality',
+                    name: 'Quality',
+                    definition_id: 'source',
+                    scorer_version_id: 'source-v1',
+                    version: 1,
+                    latest_version_id: 'source-v2',
+                    latest_version: 2,
+                    kind,
+                    config,
+                },
+            ],
+        })
+        expect(draft.expression).toBe('False')
+        expect(defaultCompositeExpression(draft)).toBe(expected)
+        expect(updateScorerDraft(draft, 'expressionIsCustom', false).expression).toBe(expected)
+    })
+
     it.each([
         ['single', [], 'Choose at least one passing category.'],
         ['single', ['missing'], 'Choose passing categories from the configured options.'],

@@ -107,8 +107,10 @@ class CompositeFormula:
                     previous = current
                 return FormulaType.BOOLEAN
             case ast.IfExp(test=test, body=body, orelse=otherwise):
-                if infer(test) == FormulaType.BOOLEAN and infer(body) == infer(otherwise):
-                    return infer(body)
+                condition_type = infer(test)
+                result_type = infer(body)
+                if condition_type == FormulaType.BOOLEAN and result_type == infer(otherwise):
+                    return result_type
                 raise CompositeFormulaError("A conditional needs a Boolean condition and matching result types.")
             case ast.Call(func=ast.Name(id=name), args=args, keywords=[]) if name in {"number", "min", "max", "abs"}:
                 types = [infer(arg) for arg in args]

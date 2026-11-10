@@ -1,8 +1,16 @@
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.ai_observability.backend.composite_formula import CompositeFormula, CompositeFormulaError, FormulaValue
+from products.ai_observability.backend.composite_formula import (
+    MAX_FORMULA_DEPTH,
+    MAX_FORMULA_NODES,
+    CompositeFormula,
+    CompositeFormulaError,
+    FormulaValue,
+)
 
 
 class TestCompositeFormula(SimpleTestCase):
@@ -64,3 +72,12 @@ class TestCompositeFormula(SimpleTestCase):
         for inputs, output in [({"x": "numeric", "y": "numeric"}, "numeric"), ({"x": "numeric"}, "boolean")]:
             with self.assertRaises(CompositeFormulaError):
                 CompositeFormula.parse("x", inputs, output)
+
+    def test_nested_conditionals_have_bounded_validation_work(self) -> None:
+        expression = "x"
+        for _ in range(MAX_FORMULA_DEPTH):
+            expression = f"({expression} if True else 0)"
+        with patch.object(CompositeFormula, "_infer", autospec=True, side_effect=CompositeFormula._infer) as infer:
+            formula = CompositeFormula.parse(expression, {"x": "numeric"}, "numeric")
+        self.assertLessEqual(infer.call_count, MAX_FORMULA_NODES)
+        self.assertEqual(formula.evaluate({"x": 3.0}), 3.0)

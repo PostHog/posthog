@@ -546,7 +546,6 @@ export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemApplicati
 
 export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax = 1000
 
-export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemCalculateDefault = false
 export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemStatusDefault = `ok`
 export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemValueThreeItemMax = 128
 
@@ -651,7 +650,7 @@ export const AiObservabilityOfflineExperimentsUploadCreateBody = () => zod.objec
                 scorer_version_id: zod.string().describe('Exact UUID of an existing scorer version in this project.'),
                 calculate: zod
                     .boolean()
-                    .default(aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemCalculateDefault)
+                    .optional()
                     .describe(
                         "Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate; all pinned input results must already exist for this item or be in this request. For reported scorers, omit this flag or set false and supply the result."
                     ),

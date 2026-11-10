@@ -27,7 +27,10 @@ function createContext(response: unknown): { context: Context; request: ReturnTy
 async function getTool(context: Context, name: string): Promise<Tool> {
     const tools = await getToolsFromContext(context, {
         tools: [name],
-        featureFlags: { 'ai-observability-offline-evaluations': true },
+        featureFlags: {
+            'ai-observability-offline-evaluations': true,
+            'ai-observability-composite-validation': true,
+        },
     })
     return tools.find((tool) => tool.name === name)!
 }
@@ -69,10 +72,7 @@ describe('offline evaluation MCP tools', () => {
             path: `/api/projects/17/ai_observability/offline_experiments/${experimentId}/upload/`,
             body: {
                 items,
-                results: [
-                    { ...results[0], calculate: false },
-                    { ...results[1], status: 'ok' },
-                ],
+                results: [results[0], { ...results[1], status: 'ok' }],
             },
         })
         expect(

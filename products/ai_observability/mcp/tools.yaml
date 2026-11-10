@@ -1705,6 +1705,8 @@ tools:
     llma-score-definition-validate:
         operation: llm_analytics_score_definitions_validate_composition_create
         enabled: true
+        feature_flag: ai-observability-composite-validation
+        feature_flag_behavior: enable
         scopes:
             - llm_analytics:read
         annotations:
