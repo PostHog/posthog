@@ -390,20 +390,40 @@ class TestAdminConsoleMovedUrls(SimpleTestCase):
 
     def test_a_contribution_that_raises_drops_only_its_own_moved_urls(self) -> None:
         registry = ConsoleRegistry()
+        # Each fake module runs with its own __name__, as a real console.py would, so the registry sees who declared what.
+        sources = {
+            "products.shared.backend.console": (
+                'registry.register_moved_page(old_path="admin/shared/", title="Shared", url="/admin/console/tools/shared/")'
+            ),
+            "products.broken.backend.console": (
+                'import_module("products.shared.backend.console")\n'
+                'registry.register_moved_page(old_path="admin/broken/", title="Broken", url="/admin/console/tools/broken/")\n'
+                'raise RuntimeError("a console.py raised")'
+            ),
+            "products.working.backend.console": (
+                'registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/report/")'
+            ),
+        }
+        imported: set[str] = set()
 
         def import_contribution(module_name: str) -> None:
-            if module_name == "products.broken.backend.console":
-                registry.register_moved_page(
-                    old_path="admin/broken/", title="Broken", url="/admin/console/tools/broken/"
-                )
-                raise RuntimeError("a console.py raised")
-            registry.register_moved_page(old_path="admin/report/", title="Report", url="/admin/console/tools/report/")
+            if module_name in imported:
+                return
+            imported.add(module_name)
+            exec(
+                sources[module_name],
+                {"__name__": module_name, "registry": registry, "import_module": import_contribution},
+            )
 
         with (
             patch.object(
                 registry,
                 "contribution_modules",
-                return_value=["products.broken.backend.console", "products.working.backend.console"],
+                return_value=[
+                    "products.broken.backend.console",
+                    "products.shared.backend.console",
+                    "products.working.backend.console",
+                ],
             ),
             patch("posthog.admin.console.registry.importlib.import_module", side_effect=import_contribution),
             capture_logs() as logs,
@@ -411,7 +431,8 @@ class TestAdminConsoleMovedUrls(SimpleTestCase):
             urlconf = URLResolver(RegexPattern(r"^/"), moved_url_patterns(registry))
 
         assert urlconf.resolve("/admin/report/").route == "admin/report/"
-        assert [moved.old_path for moved in registry.moved()] == ["admin/report/"]
+        # The broken module imported the shared one before raising: the shared declaration stays, the broken one goes.
+        assert sorted(moved.old_path for moved in registry.moved()) == ["admin/report/", "admin/shared/"]
         assert [(log["event"], log["module"]) for log in logs] == [
             ("admin_console_contribution_failed", "products.broken.backend.console")
         ]

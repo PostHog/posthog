@@ -1,4 +1,5 @@
 import re
+import sys
 import pkgutil
 import importlib
 from pathlib import Path
@@ -36,6 +37,11 @@ def _qualified_name(declared: object) -> str | None:
     return f"{getattr(declared, '__module__', '')}.{getattr(declared, '__qualname__', '')}"
 
 
+def _caller_module() -> str:
+    # The module that called register_moved_action or register_moved_page: two frames up from here.
+    return sys._getframe(2).f_globals.get("__name__", "")
+
+
 def _same_declaration(existing: object, new: object) -> bool:
     # A contribution module that raised during discover() runs again on the next call, which registers new class and
     # function objects for the same declarations. Comparing names instead of identity lets that retry raise the
@@ -56,6 +62,8 @@ class ConsoleRegistry:
         self._panels: dict[str, dict[str, type[Panel]]] = {record: {} for record in RECORD_TYPES}
         self._tools: dict[str, type[ConsoleTool]] = {}
         self._moved: dict[str, MovedAction | MovedPage] = {}
+        # The module that declared each moved URL, so a module that fails during discover() loses only its own.
+        self._moved_modules: dict[str, str] = {}
         self._discovered = False
 
     def register_panel(self, panel_class: type[Panel]) -> type[Panel]:
@@ -104,7 +112,7 @@ class ConsoleRegistry:
         tool_class = self._tools.get(key)
         return tool_class() if tool_class else None
 
-    def _register_moved(self, moved: MovedAction | MovedPage) -> None:
+    def _register_moved(self, moved: MovedAction | MovedPage, module: str) -> None:
         # Every console route sits under /admin/, so AdminOAuth2Middleware adds its Google step-up to old URLs too.
         if not moved.old_path.startswith("admin/") or moved.old_path.startswith("admin/console/"):
             raise ValueError(f"Moved URL {moved.old_path!r} must be an old Django admin path under admin/")
@@ -112,6 +120,7 @@ class ConsoleRegistry:
         if existing is not None and not _same_declaration(existing, moved):
             raise ValueError(f"Moved URL {moved.old_path!r} is already registered")
         self._moved[moved.old_path] = moved
+        self._moved_modules[moved.old_path] = module
 
     def register_moved_action(
         self, *, old_path: str, record: str, target: str, resolver: MovedRecordResolver | None = None
@@ -121,13 +130,15 @@ class ConsoleRegistry:
             raise ValueError(f"Unknown console record type {record!r} for moved URL {old_path!r}")
         if resolver is None and not PK_PARAMETER.search(old_path):
             raise ValueError(f"Moved URL {old_path!r} needs a <pk> path parameter, or a resolver that finds the record")
-        self._register_moved(MovedAction(old_path=old_path, record=record, target=target, resolver=resolver))
+        self._register_moved(
+            MovedAction(old_path=old_path, record=record, target=target, resolver=resolver), _caller_module()
+        )
 
     def register_moved_page(self, *, old_path: str, title: str, url: str) -> None:
         """Redirect the old URL of a Django admin page to the console page that replaced it."""
         if not url.startswith("/admin/console/"):
             raise ValueError(f"Moved URL {old_path!r} must lead to a console page, not {url!r}")
-        self._register_moved(MovedPage(old_path=old_path, title=title, url=url))
+        self._register_moved(MovedPage(old_path=old_path, title=title, url=url), _caller_module())
 
     def moved(self) -> list[MovedAction | MovedPage]:
         self.discover()
@@ -157,19 +168,28 @@ class ConsoleRegistry:
     def discover(self) -> None:
         if self._discovered:
             return
-        # Each module imports on its own, so one that raises drops only its own panels, tools and moved URLs. What it
-        # registered before raising is rolled back, so no half-built panel reaches a record page. It stays out until
-        # the process restarts, and the error log names it.
+        # Each module imports on its own, so one that raises drops only its own panels, tools and moved URLs, including
+        # any it registered before raising, so no half-built panel reaches a record page. It stays out until the
+        # process restarts, and the error log names it.
         for module_name in self.contribution_modules():
-            panels = {record: dict(panels) for record, panels in self._panels.items()}
-            tools = dict(self._tools)
-            moved = dict(self._moved)
             try:
                 importlib.import_module(module_name)
             except Exception:
                 logger.exception("admin_console_contribution_failed", module=module_name)
-                self._panels, self._tools, self._moved = panels, tools, moved
+                self._forget_module(module_name)
         self._discovered = True
+
+    def _forget_module(self, module_name: str) -> None:
+        # Only what the failed module declared itself goes. A healthy module it imported on the way stays registered,
+        # because Python keeps that import and discover() would not register it again.
+        for panels in self._panels.values():
+            for key in [key for key, panel_class in panels.items() if panel_class.__module__ == module_name]:
+                del panels[key]
+        for key in [key for key, tool_class in self._tools.items() if tool_class.__module__ == module_name]:
+            del self._tools[key]
+        for old_path in [path for path, module in self._moved_modules.items() if module == module_name]:
+            del self._moved[old_path]
+            del self._moved_modules[old_path]
 
 
 console = ConsoleRegistry()
