@@ -142,10 +142,8 @@ class Scratch:
     target: str
     head: str
 
-    def seed(self, dbname: str, migrations: list[str] | None) -> None:
+    def seed(self, dbname: str, migrations: list[str]) -> None:
         self.server.create_database(dbname)
-        if migrations is None:
-            return
         with self.server.connect(dbname) as connection:
             connection.execute("CREATE TABLE django_migrations (id serial PRIMARY KEY, app text, name text)")
             for name in migrations:
@@ -206,7 +204,7 @@ def test_prime_test_database_clones_the_template_unless_the_database_fits_the_ch
     scratch: Scratch, tmp_path: Path, start: list[str] | None, busy: bool, outcome: PrimeOutcome, ledger: set[str]
 ) -> None:
     scratch.build_template(scratch.head, [APPLIED, PENDING], tmp_path)
-    if start is not None or busy:
+    if start is not None:
         scratch.seed(scratch.target, start)
 
     if busy:
