@@ -6,6 +6,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { MessageRole, ThreadMessage } from '../types'
 import { MessagePartView } from './MessagePartView'
+import { ShowMore } from './ShowMore'
 
 const ROLE_COLORS: Record<MessageRole, string> = {
     system: 'text-warning',
@@ -26,9 +27,10 @@ function previewText(message: ThreadMessage): string | null {
 export interface MessageBlockProps {
     message: ThreadMessage
     defaultOpen: boolean
+    highlightQuery?: string | null
 }
 
-export function MessageBlock({ message, defaultOpen }: MessageBlockProps): JSX.Element {
+export function MessageBlock({ message, defaultOpen, highlightQuery = null }: MessageBlockProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(defaultOpen)
     // Search results can arrive after the message mounts, and a message that matches them opens.
     useEffect(() => {
@@ -58,11 +60,11 @@ export function MessageBlock({ message, defaultOpen }: MessageBlockProps): JSX.E
                 {preview ? <span className="min-w-0 truncate text-xs text-secondary">{preview}</span> : null}
             </button>
             {isOpen ? (
-                <div className="flex flex-col gap-2 px-3 py-2 text-sm">
+                <ShowMore highlightQuery={highlightQuery} className="px-3 py-2 text-sm">
                     {message.parts.map((part, index) => (
-                        <MessagePartView key={index} part={part} />
+                        <MessagePartView key={index} part={part} highlightQuery={highlightQuery} />
                     ))}
-                </div>
+                </ShowMore>
             ) : null}
         </section>
     )

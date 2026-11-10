@@ -24,7 +24,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
@@ -127,7 +127,7 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
     def _create_test_action_goal(self, action: Action, goal_id: str, goal_name: str) -> ConversionGoalFilter2:
         return ConversionGoalFilter2(
             kind="ActionsNode",
-            id=action.pk,
+            id=action.id,
             conversion_goal_id=goal_id,
             conversion_goal_name=goal_name,
             math=BaseMathType.TOTAL,

@@ -10,7 +10,8 @@ Every hook connects through the tasks facade so no model class crosses the produ
   path too, so a chat can never fork back into LangGraph after it has been continued as a task.
 - When tasks are read: a user without the sandbox runtime does not see the copies of their chats. The
   copy is written for everyone so the switch is instant later, but until then their chats are chats.
-- After a turn completes: the end-of-turn suggestion is queued (``turn_suggestions/dispatch.py``).
+- After a turn completes: the end-of-turn suggestion is queued (``turn_suggestions/dispatch.py``), and so
+  are the suggested replies the composer offers (``reply_suggestions/dispatch.py``).
 """
 
 import logging
@@ -23,6 +24,7 @@ from asgiref.sync import async_to_sync
 from posthog.models import Team, User
 
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.posthog_ai.backend.reply_suggestions.dispatch import enqueue_reply_suggestions_on_turn_completed
 from products.posthog_ai.backend.turn_suggestions.dispatch import enqueue_turn_suggestion_on_turn_completed
 from products.tasks.backend.facade.task_run_signals import (
     TaskOriginProduct,
@@ -63,6 +65,9 @@ def connect() -> None:
     )
     connect_task_run_turn_completed(
         enqueue_turn_suggestion_on_turn_completed, dispatch_uid="posthog_ai_turn_suggestion_on_turn_completed"
+    )
+    connect_task_run_turn_completed(
+        enqueue_reply_suggestions_on_turn_completed, dispatch_uid="posthog_ai_reply_suggestions_on_turn_completed"
     )
 
 

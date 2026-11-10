@@ -6,6 +6,7 @@ outside the product, so they return views rather than rows and never change one.
 
 from collections.abc import Collection, Sequence
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from django.db.models import Case, Exists, Max, OuterRef, Prefetch, QuerySet, Subquery, Value, When
@@ -82,6 +83,8 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
         alerts=tuple(instance_view(alert, configuration) for alert in configuration.alerts.all()),
         labels=configuration.labels,
         annotations=configuration.annotations,
+        created_by_id=configuration.created_by_id,
+        first_enabled_at=configuration.first_enabled_at,
     )
 
 
@@ -125,6 +128,56 @@ def list_configurations(
         configurations=tuple(_configuration_view(row) for row in readable[offset : offset + limit]),
         total=readable.count(),
     )
+
+
+def native_configuration_keys(
+    *, team_id: int, source_kind: str, created_by_uuid: UUID | None = None
+) -> tuple[tuple[datetime, UUID], ...]:
+    """`(created_at, id)` of every configuration of a kind with no source row, newest first, without
+    loading the rest of each row. With `created_by_uuid`, only the ones that user created."""
+    rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        source_kind=source_kind, legacy_configuration_id__isnull=True
+    )
+    if created_by_uuid is not None:
+        rows = rows.filter(created_by__uuid=created_by_uuid)
+    return tuple(rows.order_by("-created_at", "-id").values_list("created_at", "id"))
+
+
+def native_configuration_ids(
+    *, team_id: int, source_kind: str, source_config_key: str, values: Collection[Any]
+) -> tuple[UUID, ...]:
+    """Ids of the team's configurations of a kind with no source row whose `source_config[key]` is one of `values`."""
+    return tuple(
+        PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
+        .filter(
+            source_kind=source_kind,
+            legacy_configuration_id__isnull=True,
+            **{f"source_config__{source_config_key}__in": list(values)},
+        )
+        .values_list("id", flat=True)
+    )
+
+
+def count_configurations(
+    *,
+    team_id: int,
+    source_kind: str,
+    native_only: bool = False,
+    enabled_only: bool = False,
+    check_interval_minutes: int | None = None,
+) -> int:
+    """How many alerts of a kind a team has on the platform, whoever owns them. With `native_only`, only
+    the ones with no source row."""
+    configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        source_kind=source_kind
+    )
+    if native_only:
+        configurations = configurations.filter(legacy_configuration_id__isnull=True)
+    if enabled_only:
+        configurations = configurations.filter(enabled=True)
+    if check_interval_minutes is not None:
+        configurations = configurations.filter(check_interval_minutes=check_interval_minutes)
+    return configurations.count()
 
 
 def get_configuration(

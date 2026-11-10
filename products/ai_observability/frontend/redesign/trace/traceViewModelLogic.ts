@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
@@ -49,6 +48,7 @@ import {
     MatchDirection,
     NodeDetailTab,
     NodeLoad,
+    RawLoad,
     StepFeedback,
     SummaryItemKind,
     SummaryModeState,
@@ -69,7 +69,6 @@ export interface TraceViewModelLogicProps {
 export interface traceViewModelLogicValues {
     summaryConsentGiven: boolean // aiConsentLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
-    currentTeamId: number | null // teamLogic
     clusters: TraceClusterApi[] | null // traceClustersLogic
     traceFeedback: TraceFeedbackApi | null // traceFeedbackLogic
     traceFeedbackFailed: boolean // traceFeedbackLogic
@@ -96,6 +95,7 @@ export interface traceViewModelLogicValues {
     nodeIdsByAlias: Record<string, string> // traceViewLogic
     nodes: Record<string, NodeLoad> // traceViewLogic
     personLabel: string | null // traceViewLogic
+    rawNodes: Record<string, RawLoad> // traceViewLogic
     sessionId: string | null // traceViewLogic
     status: TraceViewStatus // traceViewLogic
     summary: TraceSummaryBarProps | null // traceViewLogic
@@ -125,10 +125,13 @@ export interface traceViewModelLogicValues {
     highlightQuery: string | null
     matchStepCount: number
     matchingNodeIds: ReadonlySet<string> | null
+    nodeIdToRead: string | null
+    rawNodeIdToRead: string | null
     readySearchResults: TraceSearchResultsApi | null
     searchBox: TraceSearchBoxData
     selectedNodeId: string
     selectedNodeLoad: NodeLoad
+    selectedRaw: RawLoad | undefined
     selectedStepFeedback: StepFeedback | null
     selectedTreeNode: TraceNodeApi | null
     shownSelectedNodeId: string | null
@@ -178,6 +181,9 @@ export interface traceViewModelLogicActions {
     ) => {
         nodeId: string
         trigger: import('./types').NodeLoadTrigger
+    } // traceViewLogic
+    loadRawNode: (nodeId: string) => {
+        nodeId: string
     } // traceViewLogic
     loadTraceSuccess: (
         trace: TraceApi,
@@ -248,8 +254,15 @@ export interface traceViewModelLogicMeta {
             nodeIdsByAlias: Record<string, string>,
             traceId: string
         ) => string
+        nodeIdToRead: (status: TraceViewStatus, requestedStepId: string | null, selectedNodeId: string) => string | null
         selectedTreeNode: (tree: TraceNodeApi[], selectedNodeId: string) => TraceNodeApi | null
         selectedNodeLoad: (selectedNodeId: string, nodes: Record<string, NodeLoad>) => NodeLoad
+        selectedRaw: (selectedNodeId: string, rawNodes: Record<string, RawLoad>) => RawLoad | undefined
+        rawNodeIdToRead: (
+            detailTab: NodeDetailTab,
+            nodeIdToRead: string | null,
+            createdAt: string | null
+        ) => string | null
         threadNodeLoad: (threadNodeIds: string[], nodes: Record<string, NodeLoad>) => NodeLoad | null
         header: (traceName: string, traceHasError: boolean) => Pick<TraceHeaderProps, 'hasError' | 'name'>
         detailData: (
@@ -258,7 +271,6 @@ export interface traceViewModelLogicMeta {
             tree: TraceNodeApi[],
             evaluationResults: TraceEvaluationResultsApi | null,
             evaluationResultsFailed: boolean,
-            currentTeamId: number | null,
             personLabel: string | null,
             createdAt: string | null,
             sessionId: string | null
@@ -266,7 +278,7 @@ export interface traceViewModelLogicMeta {
         datasetsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         datasetItemSource: (
             datasetsEnabled: boolean,
-            selectedNodeLoad: NodeLoad,
+            selectedRaw: RawLoad | undefined,
             createdAt: string | null,
             traceId: string
         ) => ReturnType<typeof toDatasetItemSource>
@@ -274,7 +286,6 @@ export interface traceViewModelLogicMeta {
             status: TraceViewStatus,
             threadNodeLoad: NodeLoad | null,
             createdAt: string | null,
-            currentTeamId: number | null,
             traceId: string
         ) => ConversationState
         clustersChip: (clusters: TraceClusterApi[] | null) => TraceClustersChipProps | null
@@ -342,6 +353,7 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
                 'traceHasError',
                 'personLabel',
                 'nodes',
+                'rawNodes',
                 'threadNodeIds',
                 'createdAt',
                 'sessionId',
@@ -353,8 +365,6 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
             ],
             traceViewHostLogic({ hostId: props.hostId }),
             ['mode', 'detailTab', 'requestedStepId', 'requestedTraceId', 'openingMode', 'seedQuery'],
-            teamLogic,
-            ['currentTeamId'],
             featureFlagLogic,
             ['featureFlags'],
             traceClustersLogic({ traceId: props.traceId }),
@@ -379,7 +389,7 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
             traceViewHostLogic({ hostId: props.hostId }),
             ['setMode as setHostMode', 'setDetailTab as setHostDetailTab', 'requestStep', 'publishQuery'],
             traceViewLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
-            ['loadNode', 'loadTraceSuccess'],
+            ['loadNode', 'loadRawNode', 'loadTraceSuccess'],
             traceClustersLogic({ traceId: props.traceId }),
             ['loadClusters'],
             traceFeedbackLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
@@ -450,6 +460,12 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
                 return nodeIdsByAlias[requestedStepId] ?? traceId
             },
         ],
+        // Until the trace names its default step, only a step the URL asks for is worth reading.
+        nodeIdToRead: [
+            (s) => [s.status, s.requestedStepId, s.selectedNodeId],
+            (status: TraceViewStatus, requestedStepId: string | null, selectedNodeId: string): string | null =>
+                status === 'ready' || requestedStepId ? selectedNodeId : null,
+        ],
         selectedTreeNode: [
             (s) => [s.tree, s.selectedNodeId],
             (tree: TraceNodeApi[], selectedNodeId: string): TraceNodeApi | null => findTreeNode(tree, selectedNodeId),
@@ -458,6 +474,17 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
         selectedNodeLoad: [
             (s) => [s.selectedNodeId, s.nodes],
             (selectedNodeId: string, nodes: Record<string, NodeLoad>): NodeLoad => nodes[selectedNodeId] ?? LOADING,
+        ],
+        selectedRaw: [
+            (s) => [s.selectedNodeId, s.rawNodes],
+            (selectedNodeId: string, rawNodes: Record<string, RawLoad>): RawLoad | undefined =>
+                rawNodes[selectedNodeId],
+        ],
+        // The raw read waits for the trace's timestamp, which it sends as a hint to find steps past the ai_events retention.
+        rawNodeIdToRead: [
+            (s) => [s.detailTab, s.nodeIdToRead, s.createdAt],
+            (detailTab: NodeDetailTab, nodeIdToRead: string | null, createdAt: string | null): string | null =>
+                detailTab === 'raw' && createdAt ? nodeIdToRead : null,
         ],
         threadNodeLoad: [
             (s) => [s.threadNodeIds, s.nodes],
@@ -478,7 +505,6 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
                 s.tree,
                 s.evaluationResults,
                 s.evaluationResultsFailed,
-                s.currentTeamId,
                 s.personLabel,
                 s.createdAt,
                 s.sessionId,
@@ -489,7 +515,6 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
                 tree: TraceNodeApi[],
                 evaluationResults: TraceEvaluationResultsApi | null,
                 evaluationResultsFailed: boolean,
-                teamId: number | null,
                 person: string | null,
                 createdAt: string | null,
                 sessionId: string | null
@@ -501,7 +526,6 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
                           tree,
                           evaluationResults: evaluationResults?.results ?? null,
                           evaluationResultsFailed,
-                          teamId,
                           person,
                           trace: { createdAt, sessionId },
                       })
@@ -512,28 +536,27 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS],
         ],
         datasetItemSource: [
-            (s, p) => [s.datasetsEnabled, s.selectedNodeLoad, s.createdAt, p.traceId],
+            (s, p) => [s.datasetsEnabled, s.selectedRaw, s.createdAt, p.traceId],
             (
                 datasetsEnabled: boolean,
-                load: NodeLoad,
+                raw: RawLoad | undefined,
                 createdAt: string | null,
                 traceId: string
             ): ReturnType<typeof toDatasetItemSource> =>
-                datasetsEnabled && createdAt ? toDatasetItemSource({ traceId, createdAt, load }) : null,
+                datasetsEnabled && createdAt ? toDatasetItemSource({ traceId, createdAt, raw }) : null,
         ],
         thread: [
-            (s, p) => [s.status, s.threadNodeLoad, s.createdAt, s.currentTeamId, p.traceId],
+            (s, p) => [s.status, s.threadNodeLoad, s.createdAt, p.traceId],
             (
                 status: TraceViewStatus,
                 load: NodeLoad | null,
                 createdAt: string | null,
-                teamId: number | null,
                 traceId: string
             ): ConversationState => {
                 if (status !== 'ready' || !createdAt) {
                     return { status: 'loading' }
                 }
-                return toThread({ traceId, createdAt, load, teamId })
+                return toThread({ traceId, createdAt, load })
             },
         ],
         clustersChip: [
@@ -637,11 +660,14 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => {
-        // The click's read starts before the selection moves, so the selectedNodeId subscription's navigation read
+        // The click's read starts before the selection moves, so the nodeIdToRead subscription's navigation read
         // for the same id is deduped and the load event reports a click. Selecting the node that is already
         // selected changes no value and the subscription does not fire, so this read also retries a failed node.
         const select = ({ id }: { id: string }): void => {
             actions.loadNode(id, 'selection')
+            if (values.detailTab === 'raw' || values.rawNodes[id]?.status === 'error') {
+                actions.loadRawNode(id)
+            }
             actions.requestStep(id, props.traceId)
         }
         const captureFeedbackViewed = (entry: FeedbackEntry | 'tab'): void => {
@@ -715,12 +741,23 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
         }
     }),
     subscriptions(({ actions, props, values }) => ({
-        selectedNodeId: (selectedNodeId: string) => {
+        nodeIdToRead: (nodeIdToRead: string | null) => {
             // A drawer requests the next trace's step before this view unmounts. That step is not a node of this trace.
-            if (values.requestedTraceId !== null && values.requestedTraceId !== props.traceId) {
+            if (
+                nodeIdToRead === null ||
+                (values.requestedTraceId !== null && values.requestedTraceId !== props.traceId)
+            ) {
                 return
             }
-            actions.loadNode(selectedNodeId, 'navigation')
+            actions.loadNode(nodeIdToRead, 'navigation')
+        },
+        rawNodeIdToRead: (rawNodeIdToRead: string | null) => {
+            if (rawNodeIdToRead === null) {
+                return
+            }
+            if (values.requestedTraceId === null || values.requestedTraceId === props.traceId) {
+                actions.loadRawNode(rawNodeIdToRead)
+            }
         },
         mode: (mode: TraceMode) => {
             if (mode === 'summary' && !values.summaryIsOpen) {

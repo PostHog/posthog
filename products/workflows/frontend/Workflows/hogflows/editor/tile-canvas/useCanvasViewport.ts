@@ -40,6 +40,11 @@ function useViewportFollowsResize(wrapperRef: RefObject<HTMLDivElement>): void {
         let previous = sizeOf(wrapper)
         const observer = new ResizeObserver(() => {
             const next = sizeOf(wrapper)
+            // A canvas that briefly collapses to no width shows nothing, so measuring from it would move the steps out
+            // of view for good. The next real size compares against the last real size instead.
+            if (next.width === 0 || next.height === 0) {
+                return
+            }
             if (next.width === previous.width && next.height === previous.height) {
                 return
             }

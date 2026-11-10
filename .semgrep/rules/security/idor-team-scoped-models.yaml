@@ -67,7 +67,7 @@ rules:
                               |AccountTrackRuleRun
                               |AccountView
                               |Action
-                              |ActionSelectorMatchChange
+                              |AEOBrand
                               |AEOCitationCheck
                               |AEOPrompt
                               |AEOPromptVersion
@@ -147,6 +147,7 @@ rules:
                               |DAG
                               |TodayHighlights
                               |TodayPulsePins
+                              |UserInterfaceFragment
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
@@ -199,6 +200,7 @@ rules:
                               |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingIssueSummary
+                              |ErrorTrackingIssueTag
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -225,6 +227,7 @@ rules:
                               |ExternalDataSource
                               |ExternalDataSourceDestination
                               |FeatureFlag
+                              |FeatureFlagCodeAnalysis
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
@@ -261,6 +264,7 @@ rules:
                               |HogFunctionRevision
                               |Hook
                               |Insight
+                              |InsightExplanation
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
@@ -313,6 +317,7 @@ rules:
                               |RelationshipProposal
                               |MCPAnalyticsSubmission
                               |MCPAuditEvent
+                              |MCPCustomHarness
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
@@ -403,6 +408,7 @@ rules:
                               |SharingConfiguration
                               |SignalEmissionRecord
                               |SignalFirstReportNotification
+                              |SignalRatedUsage
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
@@ -427,9 +433,11 @@ rules:
                               |SignalScoutEmission
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
+                              |SignalScoutPendingTrigger
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |SignalTrialGrant
                               |LegacySignalSpend
 
                               |AnomalyScoringState
@@ -452,6 +460,8 @@ rules:
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
                               |AlertDestination
+                              |AlertReceiver
+                              |AlertRoute
                               |SupabaseAuthEmailConfig
                               |Survey
                               |SurveyResponseArchive
@@ -506,6 +516,8 @@ rules:
                               |WikiPageProposal
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
+                              |WarehouseMigration
+                              |WarehouseMigrationItem
                               |WarehouseSuggestion
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
@@ -585,7 +597,6 @@ rules:
                         |AccountTrackRuleRun
                         |AccountView
                         |Action
-                        |ActionSelectorMatchChange
                         |AgentApplication
                         |AgentArtifact
                         |AgentIdentityCredential
@@ -662,6 +673,7 @@ rules:
                         |DAG
                         |TodayHighlights
                         |TodayPulsePins
+                        |UserInterfaceFragment
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
@@ -714,6 +726,7 @@ rules:
                         |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingIssueSummary
+                        |ErrorTrackingIssueTag
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -737,6 +750,7 @@ rules:
                         |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
                         |FeatureFlag
+                        |FeatureFlagCodeAnalysis
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
@@ -773,6 +787,7 @@ rules:
                         |HogFunctionRevision
                         |Hook
                         |Insight
+                        |InsightExplanation
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
@@ -819,6 +834,7 @@ rules:
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
                         |MCPAuditEvent
+                        |MCPCustomHarness
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
@@ -908,6 +924,7 @@ rules:
                         |SharingConfiguration
                         |SignalEmissionRecord
                         |SignalFirstReportNotification
+                        |SignalRatedUsage
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
@@ -932,9 +949,11 @@ rules:
                         |SignalScoutEmission
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
+                        |SignalScoutPendingTrigger
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |SignalTrialGrant
                         |LegacySignalSpend
 
                         |AnomalyScoringState
@@ -957,6 +976,8 @@ rules:
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
                         |AlertDestination
+                        |AlertReceiver
+                        |AlertRoute
                         |SupabaseAuthEmailConfig
                         |Survey
                         |SurveyResponseArchive
@@ -1010,6 +1031,8 @@ rules:
                         |WikiPageProposal
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
+                        |WarehouseMigration
+                        |WarehouseMigrationItem
                         |WarehouseSuggestion
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
@@ -1304,6 +1327,7 @@ rules:
                         |TeamDataQualityConfig
                         |TeamDataWarehouseConfig
                         |TeamDefaultEvaluationContext
+                        |TeamEventsPlanDeletion
                         |TeamEventsRetentionConfig
                         |TeamEventVolume
                         |TeamExperimentsConfig
@@ -1409,6 +1433,7 @@ rules:
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
+                              |OrganizationIPRestrictions
                               |OrganizationEventsRetentionConfig
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
@@ -1492,6 +1517,7 @@ rules:
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
+                        |OrganizationIPRestrictions
                         |OrganizationEventsRetentionConfig
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration

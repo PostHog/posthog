@@ -6,6 +6,12 @@
 **Code review** is the name of the in-app page and its nav entry only.
 **ReviewHog** is the internal codename. Code, logs, metric names, keys, and developer docs use it.
 An `@posthog review` comment starts a Standard review, and `@posthog review --deep` starts a Deep review. No label starts a review.
+The comment is the primary GitHub-side trigger.
+Requesting the `posthog-review` GitHub team as a reviewer is an optional shortcut (`review_team_requests.py`, trigger source `review_request`).
+It takes no options: it starts a Standard review, or a Deep review once the pull request has a published Deep review.
+The team has no members, and ReviewHog removes its request afterwards, so requesting it again asks for the next review.
+GitHub offers the team in the reviewer picker only on repositories it can access, so each repository needs that access granted.
+The shortcut is internal until an explicit per-repository or per-installation opt-in exists, because the team slug matches on every installation.
 
 The UI and the text PostHog Review posts use the user-facing names. Code, API values, and stored data use the internal names.
 

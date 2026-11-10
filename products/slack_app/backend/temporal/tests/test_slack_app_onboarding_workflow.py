@@ -31,7 +31,7 @@ def _message(kind: str, ts: str | None = None) -> SlackAppOnboardingMessage:
         blocks=[],
         ts=ts,
         step="model" if kind == "step" else None,
-        root_status="1 of 3 steps done" if kind == "root" else None,
+        root_status="1/3 done" if kind == "root" else None,
         summarizes_step=kind == "step" and ts is not None,
     )
 
@@ -71,7 +71,11 @@ class _Slack:
                 self.failing_posts -= 1
                 raise ApplicationError("slack down")
 
-        return [plan, edit, post]
+        @activity.defn(name="remind_slack_app_onboarding_activity")
+        async def remind(_: SlackAppOnboardingInputs) -> None:
+            self.calls.append("remind")
+
+        return [plan, edit, post, remind]
 
 
 @pytest.fixture
@@ -142,8 +146,8 @@ async def _run(
             [FIRST_STEP_PLAN],
             0,
             0,
-            ["plan", "post:step"],
-            id="without a refresh for a week the run ends",
+            ["plan", "post:step", "remind"],
+            id="without a refresh it reminds once after a day, then ends",
         ),
     ],
 )
@@ -169,9 +173,9 @@ async def test_each_activity_names_the_message_it_sends_in_the_history(env: Work
     summaries = await _run(env, slack, refreshes=2)
 
     assert summaries == [
-        *["plan", "post top message: 1 of 3 steps done", "plan", "post model: show step"],
-        *["plan", "edit model: shrink to one line", "edit top message: 1 of 3 steps done", "post model: show step"],
-        *["plan", "edit top message: 1 of 3 steps done", "post ready message"],
+        *["plan", "post top message: 1/3 done", "plan", "post model: show step"],
+        *["plan", "edit model: shrink to one line", "edit top message: 1/3 done", "post model: show step"],
+        *["plan", "edit top message: 1/3 done", "post ready message"],
     ]
 
 
@@ -183,6 +187,6 @@ async def test_a_delayed_start_waits_before_its_first_plan(env: WorkflowEnvironm
     started_at = await env.get_current_time()
     summaries = await _run(env, slack, refreshes=0, inputs=delayed)
 
-    assert slack.calls == ["plan", "post:step"]
-    assert summaries == ["plan", "post model: show step"]
+    assert slack.calls == ["plan", "post:step", "remind"]
+    assert summaries == ["plan", "post model: show step", "remind"]
     assert await env.get_current_time() - started_at >= timedelta(seconds=300)

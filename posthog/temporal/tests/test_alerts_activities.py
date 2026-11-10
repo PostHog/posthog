@@ -95,6 +95,7 @@ from products.alerts.backend.facade.api import (
     LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
+from products.alerts.backend.insight_alert_state_machine import FIRING_NOT_RENOTIFIED_KEY
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus, Threshold
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
@@ -1173,6 +1174,35 @@ class TestEvaluateAlert:
             await alert.arefresh_from_db()
             assert check.notification_sent_at is not None
             assert alert.last_notified_at == check.notification_sent_at
+
+    @pytest.mark.parametrize("already_firing", [False, True])
+    async def test_ai_detector_alert_notifies_and_investigates_only_the_first_firing_check(
+        self, ateam, already_firing: bool
+    ) -> None:
+        alert = await _create_alert(
+            ateam,
+            state=AlertState.FIRING if already_firing else AlertState.NOT_FIRING,
+            detector_config={"type": "llm"},
+        )
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(
+            investigation_agent_enabled=True, investigation_gates_notifications=True
+        )
+
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            return_value=AlertEvaluationResult(value=100.0, breaches=["anomalous point"]),
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert,
+                EvaluateAlertActivityInputs(alert_id=str(alert.id), uses_llm_detector=True, team_id=ateam.id),
+            )
+
+        assert result.new_state == AlertState.FIRING
+        assert result.should_notify is not already_firing
+        assert result.should_start_investigation is not already_firing
+        assert result.should_gate_notification is not already_firing
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert ((check.triggered_metadata or {}).get(FIRING_NOT_RENOTIFIED_KEY) is True) is already_firing
 
     async def test_evaluate_errored_when_permanent_exception(self, alert) -> None:
         with patch(

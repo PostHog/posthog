@@ -56,7 +56,7 @@ describe('NotebookMenu', () => {
     beforeEach(async () => {
         localStorage.clear()
         initKeaTests()
-        jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
+        jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
 
         logic = notebookLogic({ shortId: SHORT_ID, cachedNotebook: legacyNotebook })
         logic.mount()

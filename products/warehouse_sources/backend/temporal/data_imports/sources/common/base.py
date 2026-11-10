@@ -619,6 +619,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """Check for legacy OAuth tokens without network calls."""
         return False
 
+    def legacy_oauth_keys(self) -> tuple[str, ...]:
+        return ()
+
     def adopt_legacy_oauth(self, job_inputs: Mapping[str, Any]) -> LegacyOAuthGrant | None:
         """Prepare a grant for storage. This method can make network calls and raise LegacyOAuthGrantUnusable.
 
@@ -661,11 +664,6 @@ class _BaseSource(ABC, Generic[ConfigType]):
         (Custom's ``auth_oauth2_integration_id``, GitHub's legacy ``repository``). Given both the
         incoming and existing inputs so a source can gate on context. Default: none."""
         return []
-
-    # Feature flag a team must have before the API lets it discover tables for or create a source of
-    # this type. `SourceConfig.featureFlag` only hides the source in the UI, so a source that must
-    # not be reachable through the API without the flag sets this as well.
-    requires_team_feature_flag: str | None = None
 
     # Top-level ``job_inputs`` keys that hold server-written runtime state, such as a pointer to an
     # uploaded file. They are neither credentials nor settings a person picks, so they stay in

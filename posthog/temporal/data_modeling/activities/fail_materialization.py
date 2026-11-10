@@ -10,6 +10,7 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
+from products.data_modeling.backend.facade.api import update_node_type
 from products.data_modeling.backend.facade.models import (
     TERMINAL_JOB_STATUSES,
     DataModelingJob,
@@ -17,6 +18,7 @@ from products.data_modeling.backend.facade.models import (
     DataModelingJobStatus,
     DataWarehouseSavedQuery,
     Node,
+    NodeType,
 )
 
 from ..metrics import get_node_suspended_metric
@@ -96,6 +98,7 @@ def _get_saved_query_for_job(job: DataModelingJob) -> DataWarehouseSavedQuery | 
 @database_sync_to_async_pool
 def _revert_materialization_on_unknown_table(job: DataModelingJob, saved_query: DataWarehouseSavedQuery) -> None:
     saved_query.revert_materialization()
+    update_node_type(saved_query, NodeType.VIEW)
     # we can use this specific language in the error to add these jobs to the daily email digest later
     job.error = (
         f"This materialized view has been reverted to a view because it referenced an unknown table. Error: {job.error}"

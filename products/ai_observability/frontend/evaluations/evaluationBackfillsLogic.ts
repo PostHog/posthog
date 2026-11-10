@@ -547,7 +547,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                         actions.requestEstimate()
                     }
                 } catch (error) {
-                    const message = backfillErrorMessage(error, 'Couldn’t load backfills. Try again.')
+                    const message = backfillErrorMessage(error, "Couldn't load backfills. Try again.")
                     actions.loadBackfillsFailure(message)
                     if (!background) {
                         // A poll fails on its own in the background, where the inline error is enough.
@@ -608,7 +608,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                 } catch (error) {
                     breakpoint()
                     // No toast: the count reruns on every edit, and `estimateError` shows inline.
-                    actions.requestEstimateFailure(backfillErrorMessage(error, 'Couldn’t count this range. Try again.'))
+                    actions.requestEstimateFailure(backfillErrorMessage(error, "Couldn't count this range. Try again."))
                 }
             },
             createBackfill: async () => {
@@ -634,7 +634,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                     lemonToast.success('Backfill started', { autoClose: 15000 })
                     actions.loadBackfills()
                 } catch (error) {
-                    lemonToast.error(backfillErrorMessage(error, 'Couldn’t start the backfill. Try again.'))
+                    lemonToast.error(backfillErrorMessage(error, "Couldn't start the backfill. Try again."))
                     // A concurrent backfill can be the cause (only one may run at a time), so refresh
                     // the table to show it.
                     actions.loadBackfills(true)
@@ -650,7 +650,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                         actions.loadBackfills(true)
                     }
                 } catch (error) {
-                    lemonToast.error(backfillErrorMessage(error, 'Couldn’t cancel the backfill. Try again.'))
+                    lemonToast.error(backfillErrorMessage(error, "Couldn't cancel the backfill. Try again."))
                 } finally {
                     actions.transitionBackfillDone(id)
                 }
@@ -689,7 +689,7 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
                     cache.recountWhenIdle = true
                     lemonToast.success('Retry started. Existing results will be kept.')
                 } catch (error) {
-                    lemonToast.error(backfillErrorMessage(error, 'Couldn’t retry this backfill. Try again.'))
+                    lemonToast.error(backfillErrorMessage(error, "Couldn't retry this backfill. Try again."))
                 } finally {
                     cache.retryingBackfill = false
                     actions.transitionBackfillDone(id)

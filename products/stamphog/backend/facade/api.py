@@ -9,6 +9,7 @@ dataclasses. Never return ORM instances or import DRF.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
+from datetime import datetime
 from typing import Any, TypeVar, overload
 from uuid import UUID
 
@@ -22,6 +23,8 @@ import structlog
 from ..logic.installations import reset_unverified_review_policy
 from ..logic.review_trigger import derive_review_trigger
 from ..logic.reviewer import parse_reviewer_output
+from ..logic.routing.claims import is_stale_claim
+from ..logic.routing.fork_labels import fork_labels
 from ..logic.routing.owners_file import owners_file_status
 from ..logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from ..models import (
@@ -50,6 +53,7 @@ from .enums import (
     RoutingOwnerOutcome,
     RoutingOwnerReason,
     RoutingScope,
+    RoutingStatus,
 )
 
 logger = structlog.get_logger(__name__)
@@ -101,8 +105,44 @@ def _repo_config_to_dto(obj: StamphogRepoConfig) -> contracts.RepoConfigDTO:
         review_mode=obj.review_mode,
         trigger_label=obj.trigger_label,
         routing_mode=obj.routing_mode,
+        routing_fork_labels=fork_labels(obj),
         created_at=obj.created_at,
         updated_at=obj.updated_at,
+    )
+
+
+def _record_time(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _routing_to_dto(record: object) -> contracts.PullRequestRoutingDTO | None:
+    """An allowlist of the routing record's scalars. The plan, the pins and the comment stay internal."""
+    if not isinstance(record, dict):
+        return None
+    try:
+        status = RoutingStatus(str(record.get("status")))
+        mode = RoutingMode(str(record.get("mode")))
+        scope = RoutingScope(record["scope"]) if record.get("scope") else None
+    except ValueError:
+        return None
+    claimed = status in (RoutingStatus.ROUTING, RoutingStatus.REQUESTED)
+    return contracts.PullRequestRoutingDTO(
+        status=status,
+        head_sha=str(record.get("head_sha") or ""),
+        mode=mode,
+        trigger=str(record.get("trigger") or ""),
+        scope=scope,
+        claim_expired=claimed and is_stale_claim(record),
+        waiting_since=_record_time(record.get("waiting_since")),
+        claimed_at=_record_time(record.get("claimed_at")),
+        routed_at=_record_time(record.get("routed_at")),
+        full_routed_head=str(record.get("full_routed_head") or ""),
+        pinned_routed_head=str(record.get("pinned_routed_head") or ""),
     )
 
 
@@ -124,6 +164,8 @@ def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
         merge_commit_sha=obj.merge_commit_sha,
         merged_at=obj.merged_at,
         posted_comment_id=obj.posted_comment_id,
+        routing_mode=RoutingMode(obj.repo_config.routing_mode),
+        routing=_routing_to_dto(obj.routing),
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
@@ -380,6 +422,7 @@ def create_repo_config(
     review_mode: str | None = None,
     trigger_label: str | None = None,
     routing_mode: str | None = None,
+    routing_fork_labels: dict[str, str] | None = None,
 ) -> contracts.RepoConfigDTO:
     """Create a repo config, refusing a repository another team already owns.
 
@@ -396,6 +439,8 @@ def create_repo_config(
         fields["trigger_label"] = trigger_label
     if routing_mode is not None:
         fields["routing_mode"] = routing_mode
+    if routing_fork_labels is not None:
+        fields["routing_fork_labels"] = routing_fork_labels
     # unique_stamphog_installation_repo backs this at the DB level, so a race that slips past the
     # read still fails closed on the create below and surfaces as the same domain error.
     try:
@@ -645,6 +690,8 @@ def _routing_owner_to_dto(row: RoutingRunOwner, *, with_files: bool) -> contract
                 status=file["status"],
                 additions=file["additions"],
                 deletions=file["deletions"],
+                # Runs recorded before the field have no entry.
+                owners_source=file.get("owners_source"),
             )
             for file in (row.files if with_files else [])
         ],
@@ -694,10 +741,16 @@ def list_routing_runs(
     repository: str | None = None,
     pr_number: int | None = None,
     owner: str | None = None,
+    outcome: RoutingOwnerOutcome | None = None,
+    reason: RoutingOwnerReason | None = None,
+    head_sha: str | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
 ) -> LazyDTOList[contracts.RoutingRunDTO]:
     """The team's reviewer routing runs, newest first, each with its decision for every owner but no file lists.
 
     `owner` keeps the runs that decided about that owner, as owners.yaml spells it (`team-devex`, `@alice`).
+    `outcome` and `reason` keep the runs where one owner row has them, the same row as `owner` when it is set.
     `team_id` must be canonical, as every view passes it, so the reads skip the team lookup.
     """
     # Run ids are uuid7, so the id breaks a created_at tie in time order and a page boundary never splits a tie.
@@ -706,9 +759,22 @@ def list_routing_runs(
         qs = qs.filter(pull_request__repo_config__repository=repository)
     if pr_number is not None:
         qs = qs.filter(pull_request__pr_number=pr_number)
-    if owner:
-        # A subquery on the owners table, so the (team_id, owner) index answers it.
-        owners = RoutingRunOwner.objects.for_team(team_id, canonical=True).filter(owner=owner)
+    if head_sha:
+        qs = qs.filter(head_sha=head_sha)
+    if created_after is not None:
+        qs = qs.filter(created_at__gte=created_after)
+    if created_before is not None:
+        qs = qs.filter(created_at__lt=created_before)
+    if owner or outcome or reason:
+        # One subquery on the owners table, so a run that cut one owner and requested another never
+        # matches `owner` plus `outcome` across two rows. The (team_id, owner) index answers `owner`.
+        owners = RoutingRunOwner.objects.for_team(team_id, canonical=True)
+        if owner:
+            owners = owners.filter(owner=owner)
+        if outcome:
+            owners = owners.filter(outcome=outcome)
+        if reason:
+            owners = owners.filter(reason=reason)
         qs = qs.filter(id__in=owners.values("run_id"))
     return LazyDTOList(qs, _routing_run_to_dto)
 

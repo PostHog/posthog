@@ -339,3 +339,141 @@ class TestFanOut:
             {"syncId": "s1", "modelId": "m1", "subscriptionId": "sub1"},
             {"syncId": "s2", "modelId": "m1", "subscriptionId": "sub1"},
         ]
+
+    def test_event_volume_flattens_each_source_series_across_pages(self) -> None:
+        with time_machine.travel(dt.datetime(2026, 3, 15, 10, 30, tzinfo=dt.UTC), tick=False):
+            result = _driver().run(
+                "event_volume",
+                [
+                    _page(
+                        {
+                            "data": {
+                                "result": [
+                                    {
+                                        "source": {"id": "src1", "name": "Web", "slug": "web"},
+                                        "total": 7,
+                                        "series": [
+                                            {"time": "2026-02-15T00:00:00Z", "count": 3},
+                                            {"time": "2026-02-16T00:00:00Z", "count": 4},
+                                        ],
+                                    }
+                                ],
+                                "pagination": {"next": "vol2"},
+                            }
+                        }
+                    ),
+                    _page(
+                        {
+                            "data": {
+                                "result": [
+                                    {"source": {"id": "src2"}, "series": [{"time": "2026-02-15T00:00:00Z", "count": 1}]}
+                                ]
+                            }
+                        }
+                    ),
+                ],
+            )
+
+        assert result.paths == ["/events/volume", "/events/volume"]
+        first = result.requests[0]
+        assert (first.param("granularity"), first.param("groupBy")) == ("DAY", "source")
+        assert (first.param("startTime"), first.param("endTime")) == (
+            "2026-02-15T00:00:00.000Z",
+            "2026-03-15T00:00:00.000Z",
+        )
+        assert result.params("pagination[cursor]") == [None, "vol2"]
+        assert result.requests[1].param("startTime") == "2026-02-15T00:00:00.000Z"
+        assert result.rows == [
+            {"sourceId": "src1", "sourceName": "Web", "sourceSlug": "web", "time": "2026-02-15T00:00:00Z", "count": 3},
+            {"sourceId": "src1", "sourceName": "Web", "sourceSlug": "web", "time": "2026-02-16T00:00:00Z", "count": 4},
+            {"sourceId": "src2", "sourceName": None, "sourceSlug": None, "time": "2026-02-15T00:00:00Z", "count": 1},
+        ]
+
+    @parameterized.expand(
+        [
+            ("workspace", "workspace_mtu_usage", "/usage/mtu/daily", "dailyWorkspaceMTUUsage", {}),
+            (
+                "per_source",
+                "source_mtu_usage",
+                "/usage/mtu/sources/daily",
+                "dailyPerSourceMTUUsage",
+                {"sourceId": "s1"},
+            ),
+        ]
+    )
+    def test_mtu_usage_reads_the_current_and_previous_usage_month(
+        self, _name: str, endpoint: str, path: str, key: str, extra: dict[str, Any]
+    ) -> None:
+        snapshot = {"periodStart": 1, "periodEnd": 2, "identified": "5", "timestamp": "2026-01-02T00:00:00Z", **extra}
+        with time_machine.travel(dt.datetime(2026, 1, 15, tzinfo=dt.UTC), tick=False):
+            result = _driver().run(endpoint, [_list(key, [snapshot]), _list(key, [snapshot], "next"), _list(key, [])])
+
+        assert result.paths == [path, path, path]
+        assert result.params("period") == ["2025-12-01", "2026-01-01", "2026-01-01"]
+        assert result.params("pagination[cursor]") == [None, None, "next"]
+        assert result.rows == [snapshot, snapshot]
+
+    def test_warehouse_syncs_read_every_warehouse(self) -> None:
+        report = {"sourceId": "src1", "start": "2026-03-01T00:00:00Z", "status": "SUCCESS", "count": 10}
+        result = _driver().run(
+            "warehouse_syncs",
+            [
+                _list("warehouses", [{"id": "wh_b"}, {"id": "wh_a", "settings": {"password": "secret"}}]),
+                _list("reports", [report], "reports2"),
+                _list("reports", []),
+                _list("reports", [{**report, "sourceId": "src2"}]),
+            ],
+        )
+
+        assert result.paths == [
+            "/warehouses",
+            "/warehouses/wh_a/syncs",
+            "/warehouses/wh_a/syncs",
+            "/warehouses/wh_b/syncs",
+        ]
+        assert result.params("pagination[cursor]") == [None, None, "reports2", None]
+        assert result.rows == [{**report, "warehouseId": "wh_a"}, {**report, "sourceId": "src2", "warehouseId": "wh_b"}]
+
+    def test_delivery_overview_reads_each_stage_and_skips_reverse_etl(self) -> None:
+        def respond(request: Any) -> ScriptedResponse:
+            listings = {
+                "/sources": _list("sources", [{"id": "src1"}, {"id": "retl_src"}]),
+                "/destinations": _list(
+                    "destinations", [{"id": "d1", "sourceId": "src1"}, {"id": "d_retl", "sourceId": "retl_src"}]
+                ),
+                "/reverse-etl-models": _list("models", [{"id": "m1", "sourceId": "retl_src"}]),
+            }
+            if request.path in listings:
+                return listings[request.path]
+            point = {"time": "2026-03-01T00:00:00Z", "count": 2}
+            return _page({"data": {"total": 2, "dataset": [{"total": 2, "series": [point]}], "pagination": {}}})
+
+        with time_machine.travel(dt.datetime(2026, 3, 15, 10, 30, tzinfo=dt.UTC), tick=False):
+            result = _driver().run("delivery_overview", respond)
+
+        metric_requests = [request for request in result.requests if request.path.startswith("/delivery-overview/")]
+        assert sorted(
+            (request.path, request.param("sourceId"), request.param("destinationConfigId"))
+            for request in metric_requests
+        ) == [
+            ("/delivery-overview/failed-delivery", "src1", "d1"),
+            ("/delivery-overview/failed-on-ingest", "src1", None),
+            ("/delivery-overview/filtered-at-destination", "src1", "d1"),
+            ("/delivery-overview/filtered-at-source", "src1", None),
+            ("/delivery-overview/successful-delivery", "src1", "d1"),
+            ("/delivery-overview/successfully-received", "src1", None),
+        ]
+        assert {(request.param("granularity"), request.param("startTime")) for request in metric_requests} == {
+            ("DAY", "2026-02-15T00:00:00.000Z")
+        }
+        assert sorted((row["stage"], row["destinationId"]) for row in result.rows) == [
+            ("failed-delivery", "d1"),
+            ("failed-on-ingest", ""),
+            ("filtered-at-destination", "d1"),
+            ("filtered-at-source", ""),
+            ("successful-delivery", "d1"),
+            ("successfully-received", ""),
+        ]
+        assert {(row["sourceId"], row["time"], row["count"]) for row in result.rows} == {
+            ("src1", "2026-03-01T00:00:00Z", 2)
+        }

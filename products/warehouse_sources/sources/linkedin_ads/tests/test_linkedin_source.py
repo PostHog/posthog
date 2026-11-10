@@ -45,6 +45,9 @@ class TestLinkedInAdsSource:
             "The token used in the request has expired",
             "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration.",
             'LinkedIn API error (401): {"status":401,"serviceErrorCode":65608,"code":"RESTRICTED_MEMBER","message":"Member is restricted"}',
+            # A rejected access token (invalid, malformed, or no longer accepted) — distinct from
+            # REVOKED_ACCESS_TOKEN and RESTRICTED_MEMBER above.
+            'LinkedIn API error (401): {"status":401,"code":"AUTHENTICATION_FAILED","message":"Could not authenticate"}',
             # Integration.DoesNotExist when the OAuth integration row was deleted/disconnected.
             "Integration matching query does not exist.",
             # A sunset version header (see `deprecated_versions`) — happens on every call under that

@@ -40,7 +40,7 @@ describe('tileEligibility', () => {
         [{ kind: 'text', kindLabel: 'Text', seriesCount: 0 }, 'number', 'Text card'],
         [{ hasBreakdown: true, seriesCount: 2 }, 'number', 'Has a breakdown'],
         [{ seriesCount: 2 }, 'number', 'Has 2 series'],
-        [{ kindLabel: 'Pie' }, 'chart', 'Not a chart over time'],
+        [{ kindLabel: 'Pie' }, 'chart', 'This visualization cannot be pinned as a chart yet'],
     ])('names the reason for %o in %s mode', (overrides, mode, reason) => {
         expect(tileLimitReason(tile({ tileId: 9, ...overrides }), mode)).toBe(reason)
     })

@@ -119,7 +119,7 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # signals side (the signals-side `code_review` artefact is API-deletable; this row is the durable
     # link). Filled once, never overwritten by later turns from another trigger.
     signal_report_id = models.UUIDField(null=True, blank=True)
-    # Which trigger created this report ("stamphog" / "inbox" / "manual" / "ui" / "comment", or "label" from
+    # Which trigger created this report ("stamphog" / "inbox" / "manual" / "ui" / "comment" / "review_request", or "label" from
     # before labels stopped starting reviews); stamped on create only.
     trigger_source = models.CharField(max_length=20, default="manual")
     # The reviewer arm, chosen once at creation from the report's tier (see `REVIEW_ARMS_BY_TIER`)

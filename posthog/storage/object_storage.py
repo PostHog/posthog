@@ -1,5 +1,6 @@
 import abc
 import threading
+from collections.abc import Iterator
 from typing import IO, Any, Optional, Union
 from urllib.parse import urlparse
 
@@ -69,6 +70,11 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def list_object_summaries(self, bucket: str, prefix: str) -> list[StoredObjectSummary]:
         """Every object under `prefix`: empty for an empty prefix, ObjectStorageError on failure."""
+        pass
+
+    @abc.abstractmethod
+    def iter_keys(self, bucket: str, prefix: str, *, page_size: int = 1000) -> Iterator[str]:
+        """Yield every key under the prefix, one listing page at a time. Raises ObjectStorageError on any failure."""
         pass
 
     @abc.abstractmethod
@@ -153,6 +159,10 @@ class UnavailableStorage(ObjectStorageClient):
         pass
 
     def list_object_summaries(self, bucket: str, prefix: str) -> list[StoredObjectSummary]:
+        raise ObjectStorageError("object storage is unavailable")
+
+    def iter_keys(self, bucket: str, prefix: str, *, page_size: int = 1000) -> Iterator[str]:
+        # This raises instead of yielding nothing, because an empty listing tells the caller that the prefix holds no keys.
         raise ObjectStorageError("object storage is unavailable")
 
     def read(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[str]:
@@ -320,6 +330,19 @@ class ObjectStorage(ObjectStorageClient):
             logger.exception("object_storage.list_object_summaries_failed", bucket=bucket, prefix=prefix, error=e)
             capture_exception(e)
             raise ObjectStorageError("list_objects failed") from e
+
+    def iter_keys(self, bucket: str, prefix: str, *, page_size: int = 1000) -> Iterator[str]:
+        pages = self.aws_client.get_paginator("list_objects_v2").paginate(
+            Bucket=bucket, Prefix=prefix, PaginationConfig={"PageSize": page_size}
+        )
+        try:
+            for page in pages:
+                for obj in page.get("Contents", []):
+                    yield obj["Key"]
+        except Exception as e:
+            logger.exception("object_storage.iter_keys_failed", bucket=bucket, prefix=prefix, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("list failed") from e
 
     def read(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[str]:
         object_bytes = self.read_bytes(bucket, key, missing_ok=missing_ok)
@@ -633,6 +656,12 @@ def list_objects(prefix: str, bucket: str | None = None) -> Optional[list[str]]:
 
 def list_object_summaries(prefix: str, bucket: str | None = None) -> list[StoredObjectSummary]:
     return object_storage_client().list_object_summaries(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
+
+
+def iter_keys(prefix: str, bucket: str | None = None, *, page_size: int = 1000) -> Iterator[str]:
+    return object_storage_client().iter_keys(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix, page_size=page_size
+    )
 
 
 def copy_objects(source_prefix: str, target_prefix: str) -> int:

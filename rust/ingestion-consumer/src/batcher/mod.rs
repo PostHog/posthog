@@ -17,6 +17,8 @@
 
 mod drains;
 mod driver;
+#[cfg(test)]
+mod fleet_tests;
 pub mod governor;
 pub mod in_flight;
 pub mod key_queues;
