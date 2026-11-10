@@ -40,6 +40,7 @@ import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { UnexpectedNeverError, isNotNil } from 'lib/utils/guards'
 import { hogql } from 'lib/utils/hogql'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
@@ -3286,7 +3287,11 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             } else if (productTab === ProductTab.LIVE) {
                 return urls.webAnalyticsLive()
             } else if (productTab === ProductTab.CONTENT_AUTOPILOT) {
-                return urls.webAnalyticsContentAutopilot()
+                // A prompt page keeps its own path, so a shared header control doesn't close the prompt.
+                const path = removeProjectIdIfPresent(router.values.location.pathname)
+                return path.startsWith(`${urls.webAnalyticsContentAutopilot()}/prompts/`)
+                    ? path
+                    : urls.webAnalyticsContentAutopilot()
             } else if (productTab === ProductTab.BOT_ANALYTICS) {
                 // Bot tab maintains its own filter state in `botAnalyticsLogic`, so we serialize
                 // those filters here instead of `rawWebAnalyticsFilters` (which only describes the
@@ -3741,6 +3746,10 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             },
             '/web/agents': (_, searchParams) => {
                 toAction({ productTab: ProductTab.AGENTS }, searchParams)
+            },
+            // The prompt detail page belongs to the AI visibility tab; the prompt detail logic opens the prompt.
+            '/web/content-autopilot/prompts/:promptId': (_, searchParams) => {
+                toAction({ productTab: ProductTab.CONTENT_AUTOPILOT }, searchParams)
             },
             '/web/:productTab': toAction,
         }

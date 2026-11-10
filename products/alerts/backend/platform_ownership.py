@@ -29,7 +29,8 @@ from products.alerts.backend.platform_cutover import (
     has_begun_cutover,
     in_an_environment,
 )
-from products.alerts.backend.platform_source_cycle import interval_of, platform_upsert_of
+from products.alerts.backend.platform_insight_alert import insight_row_settings, interval_of
+from products.alerts.backend.platform_source_cycle import platform_upsert_of
 from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_copy, update_owned_copy
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
@@ -194,12 +195,8 @@ def _write_insight_row(alert: AlertConfiguration, edit: PlatformAlertConfigurati
             "enabled",
             "An AI detector alert can't be turned back on through this API. Turn it on in the insight's alert settings.",
         )
-    for key, stored in (
-        ("config", alert.config),
-        ("skip_weekend", bool(alert.skip_weekend)),
-        ("evaluation_delay_intervals", alert.evaluation_delay_intervals),
-    ):
-        # Insight checks these against the insight's query, so only the insight API may change them.
+    for key, stored in insight_row_settings(alert).items():
+        # Insight checks these against the insight's query or its model spend, so only the insight API may change them.
         if key in edit.source_config and edit.source_config[key] != stored:
             raise InvalidPlatformAlertEdit(
                 "source_config", f"{key} can't change through this API. Change it in the insight's alert settings."

@@ -19,10 +19,18 @@ Environment (all default empty — the runner is a no-op until configured):
 | `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines. |
 | `EXA_API_KEY`                              | Enables the Exa engine.                                        |
 | `AEO_CITATION_TEAM_IDS`                    | Comma-separated team ids the scheduled runner covers.          |
-| `AEO_TARGET_DOMAINS`                       | Domains counted as "us" in citations (default `posthog.com`).  |
 | `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                        |
 
 The scheduled task is additionally gated per team by the `aeo-citation-tracking` feature flag.
+
+Each project decides which domains count as "us" through its own brands: the rows of its brand catalog with kind `own` that nobody ignored.
+Add one before the first run, with `POST /api/projects/<id>/aeo_brands/` (`{"domain": "example.com", "kind": "own"}`) or the `aeo-brands-create` MCP tool.
+A project without an own brand is skipped by the runner (`aeo_citation_run_no_own_brand`), so it records no checks and makes no paid engine calls.
+Each check stores `own_domains_key`, a hash of the own domains it was computed against.
+Adding an own brand, or any kind or status edit, queues a recompute about a minute later.
+The recompute rewrites `cited`, `target_urls` and `target_best_position` of the checks whose key is stale, and clears their brand sentiment so the next sentiment run scores them for the current brand.
+The sentiment run only scores, and only writes, checks that carry the current key.
+Each citation run ends with the same reconcile, which repairs checks recorded while the own domains changed and any recompute that failed to queue or finish.
 
 ## Usage
 
@@ -125,8 +133,9 @@ WHERE $channel_type = 'AI' AND $entry_pathname = '/docs/session-replay'
 
 ## Brand catalog
 
-`posthog_aeo_brand` holds one row per registrable domain the engines cite: the project itself (`own`, from `AEO_TARGET_DOMAINS`), competitors, publishers such as review and community sites, and domains nobody has labeled yet (`unknown`, status `suggested`).
+`posthog_aeo_brand` holds one row per registrable domain the engines cite: the project itself (`own`, added by a person), competitors, publishers such as review and community sites, and domains nobody has labeled yet (`unknown`, status `suggested`).
 After each daily run, `sync_brands_from_run` in `catalog.py` adds every domain the run's answers cited that the catalog does not have yet. It makes no external calls.
+A newly cited domain is only ever labeled `publisher` or `unknown`; a domain becomes `own` only when a person adds or relabels it.
 It only inserts, so a rename, a new label or an ignored brand survives every run. How often a brand is cited is computed from the checks when it is read, not stored on the brand.
 People review the catalog over the API (`/api/projects/<id>/aeo_brands/`) or the `aeo-brands-*` MCP tools.
 

@@ -62,8 +62,8 @@ That gives `my-story-viewports--medium--light` and so on. `frontend/src/scenes/d
 
 You don't need to add waits for any of this. Knowing the order helps when a story times out or flakes.
 
-1. It loads the story and waits for `load`. In CI it also waits for network idle.
-2. The `storybook-test-runner` body class turns off transitions and animations, pins the end state of a few animations, and hides scrollbars and decorative overlays. A component opts in to more with `.storybook-test-runner &` in its styles.
+1. Before the story renders, it sets the `storybook-test-runner` body class and the class for the story's layout. The body class turns off transitions and animations, pins the end state of a few animations, and hides scrollbars and decorative overlays. A component opts in to more with `.storybook-test-runner &` in its styles. The story renders without scrollbars from the start, because Chromium can keep a scroll container's old height when scrollbars are hidden after layout.
+2. It renders the story and waits for `load`. In CI it also waits for network idle.
 3. It makes hidden `content-visibility` content visible, fires a resize, and waits 300 ms for resize observers.
 4. It runs the loader wait and `waitForSelector`.
 5. For each theme, it sets `body[theme]` and the color scheme, then:
@@ -74,6 +74,7 @@ You don't need to add waits for any of this. Knowing the order helps when a stor
    - waits 1 more second;
    - waits until no quill chart canvas is still painting.
 6. It captures the target. A component snapshot grows to include a popover or a tooltip that overflows the root.
+7. It waits 100 ms, waits for chart paint and animations again, and captures again. It keeps the capture when two in a row match. After four captures it keeps the last one and logs the story as still changing.
 
 An iframe that loads `/embedded/` or `/shared/` gets a fixed placeholder page, so a shared dashboard or embed never loads the real app inside the story.
 
