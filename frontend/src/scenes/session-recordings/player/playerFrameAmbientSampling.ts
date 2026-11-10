@@ -12,6 +12,11 @@ const THUMBNAIL_WIDTH = 16
 const MAX_BACKGROUND_IMAGES = 200
 const MAX_BACKGROUND_IMAGE_LENGTH = 4096
 const FETCHABLE_PROTOCOLS = ['https:', 'http:', 'data:', 'blob:']
+const MAX_IMAGE_LOADS_PER_SAMPLE = 4
+const MAX_DECODED_PIXELS = 4096 * 4096
+const MAX_STACK_DEPTH = 8
+const FRAME_BACKGROUND: Rgba = [255, 255, 255, 255]
+const BLEND_TIME_CONSTANT_MS = 1500
 const THUMBNAIL_HEIGHT = 32
 
 export type Rgba = [number, number, number, number]
@@ -61,36 +66,33 @@ export class AmbientFrameSampler {
     onBackgroundImageLoad: (() => void) | null = null
     // Canvases repaint without a DOM mutation, so a frame that shows one needs sampling again.
     sawCanvas = false
+    private imageLoadsThisSample = 0
 
     sample(doc: Document, recording: PlayerFrameDimensions): AmbientGrid | null {
         const view = doc.defaultView
-        if (!view) {
+        if (!view || !doc.body?.hasChildNodes()) {
             return null
         }
         this.canvasesThisSample.clear()
         this.elementColorsThisSample.clear()
         this.sawCanvas = false
+        this.imageLoadsThisSample = 0
         const { columns, rows } = gridSize(recording)
         const fallback = this.documentColor(doc, view)
         const pixels = new Uint8ClampedArray(columns * rows * 4)
-        let found = false
         for (let row = 0; row < rows; row++) {
             for (let column = 0; column < columns; column++) {
                 const x = edgeAligned(column, columns, recording.width)
                 const y = edgeAligned(row, rows, recording.height)
-                const color = this.colorAt(doc, view, x, y) ?? fallback
-                if (color) {
-                    found = true
-                    pixels.set(color, (row * columns + column) * 4)
-                }
+                pixels.set(this.colorAt(doc, view, x, y) ?? fallback, (row * columns + column) * 4)
             }
         }
-        return found ? { columns, rows, pixels } : null
+        return { columns, rows, pixels }
     }
 
     // Checks every stacked element, because a transparent overlay hides the painted element below from its ancestors.
     private colorAt(doc: Document, view: Window & typeof globalThis, x: number, y: number): Rgba | null {
-        for (const element of doc.elementsFromPoint(x, y)) {
+        for (const element of doc.elementsFromPoint(x, y).slice(0, MAX_STACK_DEPTH)) {
             const pixel =
                 element instanceof view.HTMLImageElement
                     ? this.pixelAt(element, this.imagePixels(element), x, y)
@@ -116,14 +118,14 @@ export class AmbientFrameSampler {
         return this.elementColorsThisSample.get(element) ?? null
     }
 
-    private documentColor(doc: Document, view: Window): Rgba | null {
+    private documentColor(doc: Document, view: Window): Rgba {
         for (const element of [doc.body, doc.documentElement]) {
             const color = element ? opaque(parseCssColor(view.getComputedStyle(element).backgroundColor)) : null
             if (color) {
                 return color
             }
         }
-        return null
+        return FRAME_BACKGROUND
     }
 
     private backgroundImageColor(backgroundImage: string, view: Window & typeof globalThis): Rgba | null {
@@ -134,13 +136,12 @@ export class AmbientFrameSampler {
         if (cached !== undefined) {
             return cached
         }
-        if (this.backgroundImages.size >= MAX_BACKGROUND_IMAGES) {
-            this.backgroundImages.clear()
-        }
-        if (backgroundImage.length > MAX_BACKGROUND_IMAGE_LENGTH) {
+        if (
+            this.backgroundImages.size >= MAX_BACKGROUND_IMAGES ||
+            backgroundImage.length > MAX_BACKGROUND_IMAGE_LENGTH
+        ) {
             return null
         }
-        this.backgroundImages.set(backgroundImage, null)
         const url = backgroundImage.match(/url\(["']?([^"')]+)["']?\)/)?.[1]
         if (!url) {
             const gradient = averageColor(
@@ -150,10 +151,16 @@ export class AmbientFrameSampler {
             return gradient
         }
         // Computed styles resolve recorded URLs to absolute ones, so a relative URL here would only hit the app origin.
+        if (this.imageLoadsThisSample >= MAX_IMAGE_LOADS_PER_SAMPLE) {
+            return null
+        }
+        this.backgroundImages.set(backgroundImage, null)
         if (URL.canParse(url) && FETCHABLE_PROTOCOLS.includes(new URL(url).protocol)) {
+            this.imageLoadsThisSample++
             // The recorded document's own policy admits any image, and the app's would report every one.
             const image = new view.Image()
             image.crossOrigin = 'anonymous'
+            image.referrerPolicy = 'no-referrer'
             image.onload = () => {
                 const pixels = this.draw(image)
                 this.backgroundImages.set(backgroundImage, pixels ? averageColor(rgbaPixels(pixels).map(opaque)) : null)
@@ -196,6 +203,13 @@ export class AmbientFrameSampler {
     }
 
     private draw(source: HTMLImageElement | HTMLCanvasElement): Uint8ClampedArray | null {
+        const [width, height] =
+            source instanceof HTMLCanvasElement || source.tagName === 'CANVAS'
+                ? [(source as HTMLCanvasElement).width, (source as HTMLCanvasElement).height]
+                : [(source as HTMLImageElement).naturalWidth, (source as HTMLImageElement).naturalHeight]
+        if (width * height > MAX_DECODED_PIXELS) {
+            return null
+        }
         this.scratch ??= document.createElement('canvas')
         this.scratch.width = THUMBNAIL_WIDTH
         this.scratch.height = THUMBNAIL_HEIGHT
@@ -249,22 +263,44 @@ export function extendGrid(grid: AmbientGrid, recording: Rect, area: Rect): { gr
     }
 }
 
-export function sameLayer(
-    a: { grid: AmbientGrid; area: Rect } | null,
-    b: { grid: AmbientGrid; area: Rect } | null
-): boolean {
-    if (!a || !b) {
-        return a === b
+export class AmbientBlend {
+    private current: Float32Array | null = null
+    private target: Uint8ClampedArray | null = null
+    columns = 0
+    rows = 0
+
+    setTarget(grid: AmbientGrid): boolean {
+        this.target = grid.pixels
+        if (this.current && grid.columns === this.columns && grid.rows === this.rows) {
+            return false
+        }
+        this.columns = grid.columns
+        this.rows = grid.rows
+        this.current = Float32Array.from(grid.pixels)
+        return true
     }
-    return (
-        a.area.left === b.area.left &&
-        a.area.top === b.area.top &&
-        a.area.width === b.area.width &&
-        a.area.height === b.area.height &&
-        a.grid.columns === b.grid.columns &&
-        a.grid.rows === b.grid.rows &&
-        a.grid.pixels.every((value, index) => value === b.grid.pixels[index])
-    )
+
+    step(elapsedMs: number): boolean {
+        if (!this.current || !this.target) {
+            return true
+        }
+        const fraction = 1 - Math.exp(-Math.max(elapsedMs, 0) / BLEND_TIME_CONSTANT_MS)
+        let settled = true
+        for (let index = 0; index < this.current.length; index++) {
+            const next = this.current[index] + (this.target[index] - this.current[index]) * fraction
+            if (Math.abs(this.target[index] - next) < 0.5) {
+                this.current[index] = this.target[index]
+            } else {
+                this.current[index] = next
+                settled = false
+            }
+        }
+        return settled
+    }
+
+    pixels(): Uint8ClampedArray<ArrayBuffer> {
+        return Uint8ClampedArray.from(this.current ?? [])
+    }
 }
 
 export function averageColor(colors: (Rgba | null)[]): Rgba | null {

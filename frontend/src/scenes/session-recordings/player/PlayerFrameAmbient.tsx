@@ -1,18 +1,19 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { EventType, Handler, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 import { useEffect, useRef } from 'react'
 
 import {
+    AmbientBlend,
     AmbientFrameSampler,
-    AmbientGrid,
     Rect,
     extendGrid,
     isBoxed,
-    sameLayer,
 } from 'scenes/session-recordings/player/playerFrameAmbientSampling'
+import { getPlayerFrameScale } from 'scenes/session-recordings/player/playerFrameScaling'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-const CHECK_INTERVAL_MS = 500
+const CHECK_INTERVAL_MS = 1000
 // Stylesheet changes replay through the CSSOM, which the mutation observer cannot see.
 const STYLESHEET_SOURCES = [
     IncrementalSource.StyleSheetRule,
@@ -21,57 +22,47 @@ const STYLESHEET_SOURCES = [
 ]
 const OVERHANG = 0.1
 
-interface AmbientLayer {
-    grid: AmbientGrid
-    area: Rect
-}
-
 export function PlayerFrameAmbient(): JSX.Element | null {
-    const { player, showAmbientBackground } = useValues(sessionRecordingPlayerLogic)
-    const firstCanvas = useRef<HTMLCanvasElement | null>(null)
-    const secondCanvas = useRef<HTMLCanvasElement | null>(null)
+    const { player, showAmbientBackground, maskingWindow } = useValues(sessionRecordingPlayerLogic)
+    const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
     useEffect(() => {
         const replayer = player?.replayer
-        const first = firstCanvas.current
-        const second = secondCanvas.current
-        if (!showAmbientBackground || !replayer || !first || !second) {
+        const canvas = canvasRef.current
+        const context = canvas?.getContext('2d')
+        if (!showAmbientBackground || !replayer || !canvas || !context) {
             return
         }
-        const canvases = [first, second]
         const sampler = new AmbientFrameSampler()
-        let activeCanvas = 0
-        let current: AmbientLayer | null = null
+        const blend = new AmbientBlend()
         let dirty = true
         let observedDocument: Document | null = null
         let lastLayout = ''
+        let animationFrame = 0
+        let lastFrameTime = 0
         const markDirty = (): void => {
             dirty = true
         }
         const observer = new MutationObserver(markDirty)
 
-        const show = (next: AmbientLayer | null): void => {
-            if (sameLayer(next, current)) {
-                return
-            }
-            current = next
-            const incoming = canvases[1 - activeCanvas]
-            if (next) {
-                Object.assign(incoming.style, {
-                    left: `${next.area.left}px`,
-                    top: `${next.area.top}px`,
-                    width: `${next.area.width}px`,
-                    height: `${next.area.height}px`,
-                })
-                incoming.width = next.grid.columns
-                incoming.height = next.grid.rows
-                incoming
-                    .getContext('2d')
-                    ?.putImageData(new ImageData(next.grid.pixels, next.grid.columns, next.grid.rows), 0, 0)
-            }
-            incoming.style.opacity = next ? '1' : '0'
-            canvases[activeCanvas].style.opacity = '0'
-            activeCanvas = 1 - activeCanvas
+        const paint = (): void => {
+            context.putImageData(new ImageData(blend.pixels(), blend.columns, blend.rows), 0, 0)
+        }
+
+        const animate = (time: number): void => {
+            const settled = blend.step(time - lastFrameTime)
+            lastFrameTime = time
+            paint()
+            animationFrame = settled ? 0 : requestAnimationFrame(animate)
+        }
+
+        const placeCanvas = (area: Rect): void => {
+            Object.assign(canvas.style, {
+                left: `${area.left}px`,
+                top: `${area.top}px`,
+                width: `${area.width}px`,
+                height: `${area.height}px`,
+            })
         }
 
         const observe = (recordedDocument: Document): void => {
@@ -99,20 +90,29 @@ export function PlayerFrameAmbient(): JSX.Element | null {
             const iframe = replayer.iframe
             const recordedDocument = iframe?.contentDocument
             const recording = { width: Number(iframe?.width), height: Number(iframe?.height) }
-            if (document.hidden || !recordedDocument || !recording.width || !recording.height) {
+            const container = replayer.wrapper.ownerDocument.body.getBoundingClientRect()
+            if (
+                document.hidden ||
+                !recordedDocument ||
+                !(recording.width >= 1 && recording.height >= 1) ||
+                !(container.width >= 1 && container.height >= 1)
+            ) {
                 return
             }
             observe(recordedDocument)
-            const container = replayer.wrapper.ownerDocument.body.getBoundingClientRect()
-            const scaled = replayer.wrapper.getBoundingClientRect()
-            const layout = [
-                container.width,
-                container.height,
-                scaled.left,
-                scaled.top,
-                scaled.width,
-                scaled.height,
-            ].join()
+            // Computed as PlayerFrame does, because the wrapper's measured size lags until its scale applies.
+            const { scale } = getPlayerFrameScale(container, recording)
+            const scaled = {
+                width: recording.width * scale,
+                height: recording.height * scale,
+                left: (container.width - recording.width * scale) / 2,
+                top: (container.height - recording.height * scale) / 2,
+            }
+            if (!isBoxed(container, scaled)) {
+                canvas.style.opacity = '0'
+                return
+            }
+            const layout = [container.width, container.height, recording.width, recording.height].join()
             if (layout !== lastLayout) {
                 lastLayout = layout
                 dirty = true
@@ -120,30 +120,29 @@ export function PlayerFrameAmbient(): JSX.Element | null {
             if (!dirty) {
                 return
             }
-            const sampled = isBoxed(container, scaled) ? sampler.sample(recordedDocument, recording) : null
-            dirty = sampler.sawCanvas
+            // A document mid-rebuild samples as nothing, so the last colors stay up until a real sample replaces them.
+            const sampled = sampler.sample(recordedDocument, recording)
             if (!sampled) {
-                show(null)
                 return
             }
+            dirty = sampler.sawCanvas
             const overhang = { x: container.width * OVERHANG, y: container.height * OVERHANG }
-            show(
-                extendGrid(
-                    sampled,
-                    {
-                        left: scaled.left - container.left,
-                        top: scaled.top - container.top,
-                        width: scaled.width,
-                        height: scaled.height,
-                    },
-                    {
-                        left: -overhang.x,
-                        top: -overhang.y,
-                        width: container.width + 2 * overhang.x,
-                        height: container.height + 2 * overhang.y,
-                    }
-                )
-            )
+            const extended = extendGrid(sampled, scaled, {
+                left: -overhang.x,
+                top: -overhang.y,
+                width: container.width + 2 * overhang.x,
+                height: container.height + 2 * overhang.y,
+            })
+            placeCanvas(extended.area)
+            if (blend.setTarget(extended.grid)) {
+                canvas.width = blend.columns
+                canvas.height = blend.rows
+                paint()
+            } else if (!animationFrame) {
+                lastFrameTime = performance.now()
+                animationFrame = requestAnimationFrame(animate)
+            }
+            canvas.style.opacity = '1'
         }
 
         const markDirtyOnStyleChange = (event: eventWithTime): void => {
@@ -151,17 +150,24 @@ export function PlayerFrameAmbient(): JSX.Element | null {
                 dirty = true
             }
         }
+        const sampleAfterRebuild = (): void => {
+            dirty = true
+            update()
+        }
         replayer.on('event-cast', markDirtyOnStyleChange as Handler)
+        replayer.on('fullsnapshot-rebuilded', sampleAfterRebuild as Handler)
         sampler.onBackgroundImageLoad = markDirty
         update()
         const interval = setInterval(update, CHECK_INTERVAL_MS)
+        // The canvas keeps its colors on cleanup, because the player is rebuilt several times while a recording loads.
         return () => {
             clearInterval(interval)
+            cancelAnimationFrame(animationFrame)
             replayer.off('event-cast', markDirtyOnStyleChange as Handler)
+            replayer.off('fullsnapshot-rebuilded', sampleAfterRebuild as Handler)
             observer.disconnect()
             observedDocument?.removeEventListener('scroll', markDirty, true)
             observedDocument?.removeEventListener('load', markDirty, true)
-            canvases.forEach((canvas) => canvas.style.setProperty('opacity', '0'))
         }
     }, [player, showAmbientBackground])
 
@@ -169,10 +175,13 @@ export function PlayerFrameAmbient(): JSX.Element | null {
         return null
     }
 
+    // Hidden rather than unmounted while the window is masked, so the colors are still there when it lifts.
     return (
         <div className="PlayerFrame__ambient" aria-hidden>
-            <canvas ref={firstCanvas} className="PlayerFrame__ambient-layer" />
-            <canvas ref={secondCanvas} className="PlayerFrame__ambient-layer" />
+            <canvas
+                ref={canvasRef}
+                className={clsx('PlayerFrame__ambient-layer', maskingWindow && 'PlayerFrame__ambient-layer--hidden')}
+            />
         </div>
     )
 }
