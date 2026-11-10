@@ -233,7 +233,12 @@ export async function resolveCredentials(
         })
         const query = loginQuery(runtime, options)
         const { choice, record } = chooseLogin(settings, query)
-        const login = record && (await readLogin(runtime, settings, record))
+        // Another hog process can move the secret to another item, as a renewal does with a login
+        // filed under its host alone, after settings.json was read. settings.json then names the new item.
+        const login =
+            record &&
+            ((await readLogin(runtime, settings, record)) ??
+                (await readLogin(runtime, await readSettings(runtime), record)))
         if (login) {
             // Before a renewal, so hog never renews a key it then refuses to send.
             checkConfigHost(login.key.host)

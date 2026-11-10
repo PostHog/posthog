@@ -1,4 +1,4 @@
-import { strFromU8, unzipSync } from 'fflate'
+import { strFromU8, type UnzipFileFilter, unzipSync } from 'fflate'
 import { parse as parseYaml } from 'yaml'
 
 export const PRODUCT_SKILL_ARCHIVE_URL =
@@ -388,25 +388,34 @@ function sortByName(skills: SkillDefinition[]): SkillDefinition[] {
     return skills.sort((left, right) => left.name.localeCompare(right.name))
 }
 
-function parseSkillArchive(bytes: Uint8Array): SkillDefinition[] {
+export function withinExtractionLimits(error: string): UnzipFileFilter {
     let fileCount = 0
     let totalUncompressedBytes = 0
+    return (file) => {
+        if (file.name.endsWith('/')) {
+            return false
+        }
+        fileCount += 1
+        totalUncompressedBytes += file.originalSize
+        if (
+            fileCount > MAX_ARCHIVE_FILES ||
+            file.originalSize > MAX_ARCHIVE_FILE_BYTES ||
+            totalUncompressedBytes > MAX_ARCHIVE_UNCOMPRESSED_BYTES
+        ) {
+            throw new Error(error)
+        }
+        return true
+    }
+}
+
+function parseSkillArchive(bytes: Uint8Array): SkillDefinition[] {
+    const withinLimits = withinExtractionLimits('Skill archive exceeds the extraction limit')
     const archive = unzipSync(bytes, {
         filter: (file) => {
-            if (file.name.endsWith('/')) {
-                return false
+            if (!file.name.endsWith('/')) {
+                validateArchivePath(file.name)
             }
-            validateArchivePath(file.name)
-            fileCount += 1
-            totalUncompressedBytes += file.originalSize
-            if (
-                fileCount > MAX_ARCHIVE_FILES ||
-                file.originalSize > MAX_ARCHIVE_FILE_BYTES ||
-                totalUncompressedBytes > MAX_ARCHIVE_UNCOMPRESSED_BYTES
-            ) {
-                throw new Error('Skill archive exceeds the extraction limit')
-            }
-            return true
+            return withinLimits(file)
         },
     })
     const filesByDirectory = new Map<string, SkillFile[]>()

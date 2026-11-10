@@ -18,8 +18,9 @@ const LoginRecordBaseSchema = z.object({
     // The host the login was made for, with the path a self-hosted PostHog sits under. Logins are
     // keyed by origin, so a posthog.json path on the same origin can't send one elsewhere.
     host: HostSchema,
-    // Set on a file login that replaced a keychain login while the keychain was unusable, so the old
-    // keychain item can still be there. Logout tries to remove it.
+    // Set when a keychain item of an earlier login can still be there: a file login replaced a keychain
+    // login while the keychain was unusable, or the keychain refused to remove the earlier item. Logout
+    // tries to remove it.
     keychainLeftover: z.boolean().optional(),
     // Epoch milliseconds of the `hog auth login` that saved it. Renewals keep it. Without a project in
     // posthog.json or HOG_PROJECT_ID, commands use the host's login with the latest one.

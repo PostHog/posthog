@@ -1,8 +1,9 @@
-import { refuseInCi, runApproval, type PendingResult } from '@/core/approval'
+import { clearPending, refuseInCi, runApproval, type PendingResult } from '@/core/approval'
 import type { Context } from '@/core/context'
 import { HogError } from '@/core/errors'
 import type { AccessKey } from '@/posthog/access-key'
 import { stepUpRequired } from '@/posthog/api'
+import type { LoginTarget } from '@/posthog/credential-store/item-name'
 import { CI_CREDENTIALS_HINT } from '@/posthog/credentials'
 import type { Credentials } from '@/posthog/credentials'
 import { sameHost } from '@/posthog/host'
@@ -24,20 +25,28 @@ export type StepUpResult =
           replacedRevoked: boolean | null
       }
 
-export async function finishStepUp(ctx: Context, approved: OAuthLogin): Promise<StepUpResult> {
-    // The login the folder uses, read without its secret, so `hog auth add --wait` doesn't open the
-    // keychain or renew a login it is about to replace.
-    const expected = await ctx
-        .loginQuery()
-        .then(async (query) => chooseLogin(await readSettings(ctx.runtime), query).record)
-        .catch(() => undefined)
+// `startedFor` is the login the step-up asked scopes for. Without it, the login the folder uses counts,
+// read without its secret, so `hog auth add --wait` doesn't open the keychain or renew a login it is
+// about to replace.
+export async function finishStepUp(
+    ctx: Context,
+    approved: OAuthLogin,
+    startedFor?: LoginTarget
+): Promise<StepUpResult> {
+    const expected =
+        startedFor ??
+        (await ctx
+            .loginQuery()
+            .then(async (query) => chooseLogin(await readSettings(ctx.runtime), query).record)
+            .catch(() => undefined))
     // The approval asked for this login's scopes. Saving it as another project's login would replace
     // the scopes that login has, so hog revokes it instead.
     if (expected && sameHost(expected.host, approved.host) && expected.projectId !== approved.projectId) {
-        await approved.logout(ctx.runtime)
+        // PostHog has redeemed the device code, so a retry must start a new approval.
+        await Promise.all([approved.logout(ctx.runtime), clearPending(ctx.runtime, ADD_COMMAND)])
         throw new HogError(
             'step_up_other_project',
-            `PostHog approved the scopes for project ${approved.projectId}, and this folder uses project ${expected.projectId}, so hog didn't save them.`,
+            `PostHog approved the scopes for project ${approved.projectId}, and hog asked for them for project ${expected.projectId}, so hog didn't save them.`,
             `Run the same \`hog auth add\` command again, and pick project ${expected.projectId} on the approval page.`
         )
     }
@@ -116,9 +125,15 @@ export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<S
         }
     }
     refuseInCi(ctx, ADD_COMMAND, `${CI_CREDENTIALS_HINT} Either way, ask for the scopes the job needs.`)
-    const flow = loginFlow(ctx.runtime, key.host, [...held, ...added], { command: ADD_COMMAND, requiredScopes: added })
+    const flow = loginFlow(ctx.runtime, key.host, [...held, ...added], {
+        command: ADD_COMMAND,
+        requiredScopes: added,
+        projectId: key.projectId,
+    })
     const result = await runApproval(ctx, flow)
-    return result.status === 'pending' ? { ...result, host: key.host } : finishStepUp(ctx, result.value)
+    return result.status === 'pending'
+        ? { ...result, host: key.host }
+        : finishStepUp(ctx, result.value, { host: key.host, projectId: key.projectId })
 }
 
 // Only a login knows its scopes without asking PostHog, so a personal API key meets the 403 instead.
