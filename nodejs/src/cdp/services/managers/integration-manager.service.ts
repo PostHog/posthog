@@ -28,6 +28,18 @@ export class IntegrationManagerService {
         return (await this.lazyLoader.get(id.toString())) ?? null
     }
 
+    public async getCheckingPrimaryOnMiss(id: IntegrationType['id']): Promise<IntegrationType | null> {
+        const cached = await this.get(id)
+        if (cached) {
+            return cached
+        }
+        const fromPrimary = (await this.fetchIntegrations([id.toString()], PostgresUse.COMMON_WRITE))[id] ?? null
+        if (fromPrimary) {
+            this.lazyLoader.markForRefresh(id.toString())
+        }
+        return fromPrimary
+    }
+
     public async getMany(ids: IntegrationType['id'][]): Promise<Record<IntegrationType['id'], IntegrationType | null>> {
         return await this.lazyLoader.getMany(ids.map((id) => id.toString()))
     }
@@ -36,11 +48,14 @@ export class IntegrationManagerService {
         this.lazyLoader.markForRefresh(integrationIds.map((id) => id.toString()))
     }
 
-    private async fetchIntegrations(ids: string[]): Promise<Record<string, IntegrationType | undefined>> {
+    private async fetchIntegrations(
+        ids: string[],
+        use: PostgresUse = PostgresUse.COMMON_READ
+    ): Promise<Record<string, IntegrationType | undefined>> {
         logger.info('[IntegrationManager]', 'Fetching integrations', { ids })
 
         const response = await this.postgres.query<IntegrationType>(
-            PostgresUse.COMMON_READ,
+            use,
             `SELECT id, team_id, kind, config, sensitive_config FROM posthog_integration WHERE id = ANY($1)`,
             [ids],
             'fetchIntegrations'

@@ -46,8 +46,7 @@ export async function refuseSandboxCodeSend(
         teamId,
         recipient,
         tenantName,
-        now = new Date(),
-    }: { enabled: boolean; teamId: number; recipient: string; tenantName: string; now?: Date }
+    }: { enabled: boolean; teamId: number; recipient: string; tenantName: string }
 ): Promise<SandboxCodeSendRefusal | null> {
     if (!enabled) {
         return 'sandbox_sender_unavailable'
@@ -65,6 +64,6 @@ export async function refuseSandboxCodeSend(
                 return null
         }
     }
-    const tenant = admitTenant(authorization.tenant, now)
+    const tenant = admitTenant(authorization.tenant, new Date())
     return !tenant.ok && tenant.reason === 'tenant_paused' ? 'sandbox_sender_unavailable' : null
 }

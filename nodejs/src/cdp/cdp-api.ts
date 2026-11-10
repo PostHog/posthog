@@ -51,7 +51,7 @@ import { HogFlowManagerService } from './services/hogflows/hogflow-manager.servi
 import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './services/hogflows/hogflow-sensitivity'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
-import { IdempotencyKeys, SenderKind } from './services/hogflows/idempotency-keys'
+import { ChangedFingerprint, IdempotencyKeys, SenderKind } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
     AcceptedSend,
@@ -186,25 +186,28 @@ const transactionalEmailFingerprint = (
     hogFlowId: string,
     { to, distinct_id, variables }: TransactionalEmailRequest,
     send: AcceptedSend | undefined
-): string => {
+): string | ChangedFingerprint => {
     const templateRequest = [hogFlowId, to, distinct_id, variables]
-    return IdempotencyKeys.fingerprint(
-        send ? [...templateRequest, ACCEPTED_SEND_FINGERPRINT_MARKER, withSenderTheCallerChose(send)] : templateRequest
-    )
+    if (!send) {
+        return IdempotencyKeys.fingerprint(templateRequest)
+    }
+    const { from, ...rest } = send
+    const withSender = (sender: CallerChosenSender | undefined): string =>
+        IdempotencyKeys.fingerprint([...templateRequest, ACCEPTED_SEND_FINGERPRINT_MARKER, { ...rest, from: sender }])
+    return { current: withSender(senderTheCallerChose(from)), previous: withSender(senderBeforeSandboxSends(from)) }
 }
 
 type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
 
-const withSenderTheCallerChose = ({
-    from,
-    ...send
-}: AcceptedSend): Omit<AcceptedSend, 'from'> & { from?: CallerChosenSender } => ({
-    ...send,
-    from: senderTheCallerChose(from),
-})
-
 const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | undefined =>
     from?.email || from?.name ? { email: from.email, name: from.name } : undefined
+
+const senderBeforeSandboxSends = (from: AcceptedSend['from']): CallerChosenSender | undefined => {
+    if (!from) {
+        return undefined
+    }
+    return from.email ? { email: from.email, name: from.name } : { integrationId: from.integrationId, name: from.name }
+}
 
 export class CdpApi {
     private hogExecutorAsync: HogExecutorAsyncService
@@ -1312,7 +1315,7 @@ export class CdpApi {
                 const teamLookup = this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
                 const hogFlowLookup = this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id)
                 const senderLookup = send?.from
-                    ? this.deps.integrationManager.get(send.from.integrationId)
+                    ? this.deps.integrationManager.getCheckingPrimaryOnMiss(send.from.integrationId)
                     : Promise.resolve(null)
                 // A missing team returns before the other lookups are awaited, so their failures must not go unhandled.
                 hogFlowLookup.catch(() => undefined)

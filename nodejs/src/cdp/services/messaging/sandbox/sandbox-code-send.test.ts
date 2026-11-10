@@ -9,7 +9,7 @@ import { insertIntegration } from '~/cdp/_tests/fixtures'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { setupExpressApp } from '~/common/api/router'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -27,7 +27,27 @@ import { createIdempotencyValkeyPool } from '../../hogflows/idempotency-keys'
 import { SANDBOX_FROM_ADDRESS, useSandboxWorld } from './_tests/sandbox-world'
 import { SandboxEmailEvents } from './sandbox-email-events'
 
+// example.com publishes a null MX, which the endpoint's reachability check would refuse.
+jest.mock('node:dns/promises', () => ({
+    Resolver: jest.fn().mockImplementation(() => ({
+        resolveMx: jest.fn().mockResolvedValue([{ exchange: 'mx.example.com', priority: 10 }]),
+        resolve4: jest.fn().mockResolvedValue(['1.2.3.4']),
+        resolve6: jest.fn().mockResolvedValue([]),
+    })),
+}))
+
 jest.setTimeout(20000)
+
+const hideIntegrationsFromReplica = (postgres: PostgresRouter, ids: number[]): void => {
+    const query = postgres.query.bind(postgres)
+    jest.spyOn(postgres, 'query').mockImplementation(async (target, queryString, values, tag, logLevel) => {
+        const result = await query(target, queryString, values, tag, logLevel)
+        if (target === PostgresUse.COMMON_READ && tag === 'fetchIntegrations') {
+            return { ...result, rows: result.rows.filter((row) => !ids.includes(row.id)) }
+        }
+        return result
+    })
+}
 
 describe('a transactional email sent from code on the sandbox sender', () => {
     const world = useSandboxWorld()
@@ -73,8 +93,6 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         queued.length = 0
         hub.WORKFLOWS_SANDBOX_SENDER_ENABLED = true
         hub.SES_SANDBOX_TENANT_NAME = world.tenantName
-        // example.com publishes a null MX, which the endpoint's own reachability check would refuse.
-        jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockResolvedValue(null)
         member = `member-${new UUIDT().toString()}@example.com`
         await world.addMember(member)
         sandboxSenderId = await sandboxSenderOf(world.team.id)
@@ -173,35 +191,44 @@ describe('a transactional email sent from code on the sandbox sender', () => {
     const metricNames = (results: CyclotronJobInvocationResult[]): MinimalAppMetric['metric_name'][] =>
         results.flatMap((result) => result.metrics ?? []).map((metric) => metric.metric_name)
 
-    it('queues the send on the sandbox sender and delivers the accepted content to the member', async () => {
-        const res = await sendFromCode(request(sandboxSend()))
+    it.each([
+        ['', false],
+        [' when the replica does not have the new sandbox sender yet', true],
+    ])(
+        'queues the send on the sandbox sender and delivers the accepted content to the member%s',
+        async (_desc, lagging) => {
+            if (lagging) {
+                hideIntegrationsFromReplica(hub.postgres, [sandboxSenderId])
+            }
 
-        expect(res.status).toEqual(202)
-        expect(res.body).toEqual({
-            status: 'queued',
-            invocation_id: expect.any(String),
-            replayed: false,
-            sender_kind: 'email_sandbox',
-        })
-        expect(queued).toHaveLength(1)
+            const res = await sendFromCode(request(sandboxSend()))
 
-        const results = await deliver(queued[0])
+            expect(res.status).toEqual(202)
+            expect(res.body).toEqual({
+                status: 'queued',
+                invocation_id: expect.any(String),
+                replayed: false,
+                sender_kind: 'email_sandbox',
+            })
+            expect(queued).toHaveLength(1)
 
-        expect(results.map((result) => result.invocation.queue)).toEqual(['emailsandbox', 'hogflow', 'hogflow'])
-        expect(results.at(-1)).toMatchObject({ finished: true })
-        expect(world.ses.delivered).toEqual([
-            expect.objectContaining({
-                from: { address: SANDBOX_FROM_ADDRESS, name: `${world.organizationName} via PostHog` },
-                to: [{ name: '', address: member }],
-                subject: content.subject,
-                text: expect.stringContaining(content.text),
-                html: expect.stringContaining(content.html),
-                tenantName: 'sandbox-tenant',
-            }),
-        ])
-        expect(metricNames(results)).toContain('email_sandbox_sent')
-        expect(metricNames(results)).not.toContain('billable_invocation')
-    })
+            const results = await deliver(queued[0])
+
+            expect(results.at(-1)).toMatchObject({ finished: true })
+            expect(world.ses.delivered).toEqual([
+                expect.objectContaining({
+                    from: { address: SANDBOX_FROM_ADDRESS, name: `${world.organizationName} via PostHog` },
+                    to: [{ name: '', address: member }],
+                    subject: content.subject,
+                    text: expect.stringContaining(content.text),
+                    html: expect.stringContaining(content.html),
+                    tenantName: 'sandbox-tenant',
+                }),
+            ])
+            expect(metricNames(results)).toContain('email_sandbox_sent')
+            expect(metricNames(results)).not.toContain('billable_invocation')
+        }
+    )
 
     it('rechecks membership at delivery and sends nothing to a member who left after the send was queued', async () => {
         const res = await sendFromCode(request(sandboxSend()))

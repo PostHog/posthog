@@ -123,7 +123,29 @@ export type IdempotencyReservation =
 
 export type SenderKind = 'email_sandbox'
 
-type StoredKey = { fingerprint: string; invocationId: string; queued: boolean; senderKind?: SenderKind }
+// A request whose fingerprint shape changed carries both shapes. Pods still on the previous version
+// compare only `fingerprint`, so it keeps the previous shape until no such pod or stored key is left.
+export type ChangedFingerprint = { current: string; previous: string }
+
+type Fingerprint = string | ChangedFingerprint
+
+type StoredKey = {
+    fingerprint: string
+    currentFingerprint?: string
+    invocationId: string
+    queued: boolean
+    senderKind?: SenderKind
+}
+
+const storedFingerprint = (fingerprint: Fingerprint): Pick<StoredKey, 'fingerprint' | 'currentFingerprint'> =>
+    typeof fingerprint === 'string'
+        ? { fingerprint }
+        : { fingerprint: fingerprint.previous, currentFingerprint: fingerprint.current }
+
+const sameRequest = (stored: StoredKey, fingerprint: Fingerprint): boolean =>
+    typeof fingerprint === 'string'
+        ? stored.fingerprint === fingerprint
+        : stored.fingerprint === fingerprint.previous || stored.currentFingerprint === fingerprint.current
 
 type PendingCompletion = { redisKey: string; value: StoredKey; expiresAt: number }
 
@@ -156,7 +178,7 @@ export class IdempotencyKeys {
     async reserve(
         teamId: number,
         key: string,
-        fingerprint: string,
+        fingerprint: Fingerprint,
         invocationId: string
     ): Promise<IdempotencyReservation> {
         const reservation = await this.reserveInStore(teamId, key, fingerprint, invocationId)
@@ -167,14 +189,14 @@ export class IdempotencyKeys {
     private async reserveInStore(
         teamId: number,
         key: string,
-        fingerprint: string,
+        fingerprint: Fingerprint,
         invocationId: string
     ): Promise<IdempotencyReservation> {
         const valkey = this.valkey
         if (!valkey) {
             return { status: 'unavailable' }
         }
-        const value: StoredKey = { fingerprint, invocationId, queued: false }
+        const value: StoredKey = { ...storedFingerprint(fingerprint), invocationId, queued: false }
         let existing: string | null
         try {
             // SET ... NX GET sets the key when absent and returns the existing value when present.
@@ -199,7 +221,7 @@ export class IdempotencyKeys {
             return { status: 'reserved' }
         }
         const stored = parseJSON(existing) as StoredKey
-        if (stored.fingerprint !== fingerprint) {
+        if (!sameRequest(stored, fingerprint)) {
             return { status: 'conflict' }
         }
         if (!stored.queued) {
@@ -215,13 +237,18 @@ export class IdempotencyKeys {
     async markQueued(
         teamId: number,
         key: string,
-        fingerprint: string,
+        fingerprint: Fingerprint,
         invocationId: string,
         senderKind?: SenderKind
     ): Promise<void> {
         const completion: PendingCompletion = {
             redisKey: this.redisKey(teamId, key),
-            value: { fingerprint, invocationId, queued: true, ...(senderKind ? { senderKind } : {}) },
+            value: {
+                ...storedFingerprint(fingerprint),
+                invocationId,
+                queued: true,
+                ...(senderKind ? { senderKind } : {}),
+            },
             expiresAt: Date.now() + QUEUED_TTL_SECONDS * 1000,
         }
         for (let attempt = 1; attempt <= MARK_QUEUED_INLINE_ATTEMPTS; attempt++) {
