@@ -6,6 +6,7 @@ import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracki
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { CardFault, FaultList, FaultRule, SesStatusAnswer, ruleOf } from './faults'
+import { problemsOf } from './problems'
 import {
     ConfigurationSets,
     SEND_EMAIL_PATH,
@@ -100,8 +101,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     const addCardFault = (body: unknown): Reply => {
         const parsed = CardFault.safeParse(body)
         if (!parsed.success) {
-            const problems = parsed.error.issues.map((issue) => `${issue.path.join('.') || 'fault'}: ${issue.message}`)
-            return { status: 400, body: { problems } }
+            return { status: 400, body: { problems: problemsOf(parsed.error, 'fault') } }
         }
         return { status: 201, body: { id: faults.add(ruleOf(parsed.data)) } }
     }

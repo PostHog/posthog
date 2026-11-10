@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { TRACKING_CODE_HEADER_NAME } from '~/cdp/services/messaging/helpers/tracking-code'
 
 import { SesStatusAnswer } from './faults'
+import { problemsOf } from './problems'
 
 export const SEND_EMAIL_PATH = '/v2/email/outbound-emails'
 export const UNIT_EMAIL_DOMAIN = 'www.example.com'
@@ -72,8 +73,13 @@ function configurationSetOf(
 export function readSendEmail(body: unknown, configurationSets: ConfigurationSets | undefined): SesRequest {
     const parsed = SendEmailRequest.safeParse(body)
     if (!parsed.success) {
-        const problems = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-        return { error: { status: 400, type: 'BadRequestException', message: problems.join('; ') } }
+        return {
+            error: {
+                status: 400,
+                type: 'BadRequestException',
+                message: problemsOf(parsed.error, 'request').join('; '),
+            },
+        }
     }
     const request = parsed.data
     const configurationSet = configurationSetOf(request.ConfigurationSetName, configurationSets)

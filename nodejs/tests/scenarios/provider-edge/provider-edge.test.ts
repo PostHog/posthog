@@ -109,26 +109,27 @@ describe('provider edge', () => {
         })
     })
 
-    it.each([
+    const subject = { Simple: { Subject: { Data: 'Hello' } } }
+
+    it.each<[string, object | null, string]>([
         [
             'an address list that is not a list',
-            { FromEmailAddress: 'flows@www.example.com', Destination: { ToAddresses: ALICE } },
+            { FromEmailAddress: 'flows@www.example.com', Destination: { ToAddresses: ALICE }, Content: subject },
             'Destination.ToAddresses',
         ],
         [
             'a null body part',
-            { FromEmailAddress: 'flows@www.example.com', Content: { Simple: { Body: { Text: null } } } },
+            {
+                FromEmailAddress: 'flows@www.example.com',
+                Destination: { ToAddresses: [ALICE] },
+                Content: { Simple: { Subject: { Data: 'Hello' }, Body: { Text: null } } },
+            },
             'Content.Simple.Body.Text',
         ],
-        ['no sender', {}, 'FromEmailAddress'],
-    ])('records a send with %s as a 400 naming the field', async (_name, request, field) => {
-        const body = {
-            Destination: { ToAddresses: [ALICE] },
-            ...request,
-            Content: { Simple: { Subject: { Data: 'Hello' }, ...(request as any).Content?.Simple } },
-        }
-
-        const { status } = await call('POST', '/v2/email/outbound-emails', body)
+        ['no sender', { Destination: { ToAddresses: [ALICE] }, Content: subject }, 'FromEmailAddress'],
+        ['a body that is not an object', null, 'request'],
+    ])('records a send with %s as a 400 naming the field', async (_name, body, field) => {
+        const { status } = await call('POST', '/v2/email/outbound-emails', body as object)
 
         expect(status).toBe(400)
         expect((await truth()).records).toEqual([
