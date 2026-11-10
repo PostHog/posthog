@@ -200,7 +200,7 @@ class TestRealtimeCohortTeamAccessCommand(BaseTest):
             },
         )
         Cohort.objects.filter(id=env_listed_cohort.id).update(condition_type=None)
-        Cohort.objects.create(
+        held_cohort = Cohort.objects.create(
             team=held,
             filters={
                 "properties": {
@@ -218,6 +218,7 @@ class TestRealtimeCohortTeamAccessCommand(BaseTest):
                 }
             },
         )
+        Cohort.objects.filter(id=held_cohort.id).update(last_backfill_events_at=datetime(2026, 1, 1, tzinfo=UTC))
         RealtimeCohortTeamAccess.objects.create(
             team=serving, level=RealtimeCohortLevel.SERVING, purpose=RealtimeCohortAccessPurpose.BETA
         )
@@ -233,6 +234,7 @@ class TestRealtimeCohortTeamAccessCommand(BaseTest):
         output = out.getvalue()
         assert f"Team {self.team.pk}: refused, On REALTIME_COHORT_TEAM_ALLOWLIST: {self.team.pk}" in output
         assert f"Team {serving.pk}: already serving" in output
+        assert f"Team {held.pk}: processing\n  Cleared old readiness stamps: 1 cohorts\n" in output
         assert Cohort.objects.get(id=env_listed_cohort.id).condition_type is None
         assert [self._access(team.pk).level for team in (held, serving, enabled)] == [
             RealtimeCohortLevel.PROCESSING,

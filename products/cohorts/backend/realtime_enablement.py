@@ -3,6 +3,7 @@ from datetime import datetime
 from uuid import UUID
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q
 
 import structlog
@@ -11,6 +12,7 @@ from posthog.cohort_resave import CohortResaveStats, resave_team_cohorts, termin
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
+from products.cohorts.backend.backfill.finalize import refresh_readiness_caches
 from products.cohorts.backend.backfill.pinning import pin_behavioral_run
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
 from products.cohorts.backend.backfill.runs import (
@@ -84,6 +86,7 @@ class CohortRefusal:
 
 @frozen
 class TeamEnablement:
+    cleared_stamps: int
     resave: CohortResaveStats
     refused_cohorts: tuple[CohortRefusal, ...]
     behavioral: RunOutcome
@@ -103,9 +106,9 @@ def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpos
     """Put the team at `processing` with its cohorts ready for the pipeline, create its two team
     backfill runs, and promote it to `serving` only when neither run was refused.
 
-    Raises ``ValueError`` before it writes anything for a team the grant refuses, when an operator
-    attestation is missing, or when a first call finds readiness stamps. A call after a refusal keeps
-    the runs earlier calls created.
+    Raises ``ValueError`` before it writes anything for a team the grant refuses, or when an operator
+    attestation is missing. A first call clears the readiness stamps on the team's cohorts. A call
+    after a refusal keeps the runs earlier calls created.
     """
     row = grantable_access_rows([team_id], purpose, RealtimeCohortTeamAccess.objects.all()).get(team_id)
     # The steps below go through `processing`, which would hide a serving team's realtime state.
@@ -116,24 +119,25 @@ def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpos
     if missing:
         raise ValueError(f"Missing operator attestations: {', '.join(missing)}")
     if row is None:
-        # A team with no row was stamped by a run from a time the env list named it, or by the legacy
-        # calculation workflow, whose stamp the flags service also accepts. Nothing maintains that
-        # membership, and `serving` would route flags to it before the new runs seed.
-        stamped = list(
-            Cohort.objects.filter(
-                Q(last_backfill_events_at__isnull=False)
-                | Q(last_backfill_person_properties_at__isnull=False)
-                | Q(last_realtime_cohort_calculation_at__isnull=False),
-                team_id=team_id,
-            )
-            .order_by("id")
-            .values_list("id", flat=True)
+        # Written by the legacy calculation workflow, or by runs from a time the env list named the team.
+        # Nothing has maintained that membership since, and `serving` routes flags to it. Deleted cohorts
+        # too, because an undelete keeps the stamps. Before the grant, because from `processing` on the
+        # team's own runs stamp its cohorts.
+        cleared_stamps = Cohort.objects.filter(
+            Q(last_backfill_events_at__isnull=False)
+            | Q(last_backfill_person_properties_at__isnull=False)
+            | Q(last_realtime_cohort_calculation_at__isnull=False),
+            team_id=team_id,
+        ).update(
+            last_backfill_events_at=None,
+            last_backfill_person_properties_at=None,
+            last_realtime_cohort_calculation_at=None,
         )
-        if stamped:
-            raise ValueError(
-                "Cohorts stamped ready before the grant, by a pipeline that stopped maintaining them: "
-                f"{', '.join(str(cohort_id) for cohort_id in stamped)}"
-            )
+        # The update fires no save signal, and the resave rebuilds the flags cache only for the cohorts it
+        # changes. Queued even when nothing was cleared, so a rerun after a failed dispatch queues it again.
+        transaction.on_commit(lambda: refresh_readiness_caches(team_id))
+    else:
+        cleared_stamps = 0
 
     team = Team.objects.get(id=team_id)
     with termination_unwinds() as coalesce_rebuilds:
@@ -158,6 +162,7 @@ def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpos
         cohorts, CohortBackfillKind.PERSON_PROPERTY, person_backfill_ineligibility_reason
     )
     enablement = TeamEnablement(
+        cleared_stamps=cleared_stamps,
         resave=resave,
         refused_cohorts=(*behavioral_refusals, *person_refusals),
         behavioral=_team_run(
