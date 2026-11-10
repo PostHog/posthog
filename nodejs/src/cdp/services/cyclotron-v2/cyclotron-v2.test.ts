@@ -1527,6 +1527,41 @@ describe('Cyclotron V2', () => {
                     getBatchLimit
                 )
 
+            const tokenBucket = (capacity: number) => {
+                let tokens = capacity
+                return {
+                    take: (requested: number): Promise<CyclotronV2BatchLimit> => {
+                        const granted = Math.min(requested, tokens)
+                        tokens -= granted
+                        return Promise.resolve({ limit: granted })
+                    },
+                    tokens: () => tokens,
+                }
+            }
+
+            async function firstBatchWithTokensLeft(
+                worker: CyclotronV2RateLimitedWorker,
+                bucket: ReturnType<typeof tokenBucket>
+            ): Promise<{ jobs: number; tokensLeft: number }> {
+                let timer: ReturnType<typeof setTimeout> | undefined
+                try {
+                    return await new Promise((resolve, reject) => {
+                        timer = setTimeout(() => reject(new Error('the worker dequeued no batch')), 2000)
+                        worker
+                            .connect((batch) => {
+                                if (batch.length > 0) {
+                                    resolve({ jobs: batch.length, tokensLeft: bucket.tokens() })
+                                }
+                                return Promise.resolve()
+                            })
+                            .catch(reject)
+                    })
+                } finally {
+                    clearTimeout(timer)
+                    await worker.disconnect()
+                }
+            }
+
             it('clamps the batch to the granted limit', async () => {
                 await manager.bulkCreateJobs(Array.from({ length: 10 }, () => ({ teamId: 1, queueName: QUEUE })))
 
@@ -1642,49 +1677,33 @@ describe('Cyclotron V2', () => {
             it.each([
                 ['one priority class', [0, 0, 0]],
                 ['several priority classes', [2, 0, 1]],
-            ])('passes the visible row count to the limiter hook across %s', async (_label, priorities) => {
-                // Sparse-traffic regression guard. 3 ready rows + batchMaxSize=100
-                // → hook must be asked for 3 tokens, not 100. Without pre-sizing,
-                // a single trickle of jobs would drain the full bucket per send.
+            ])('takes only as many tokens as rows are due across %s', async (_label, priorities) => {
                 await manager.bulkCreateJobs([
                     ...priorities.map((priority) => ({ teamId: 1, queueName: QUEUE, priority })),
                     { teamId: 1, queueName: QUEUE, priority: -1, scheduled: new Date(Date.now() + 60_000) },
                 ])
+                const bucket = tokenBucket(100)
 
-                const requestedHistory: number[] = []
-                const worker = createRateLimitedWorker((requested) => {
-                    requestedHistory.push(requested)
-                    return Promise.resolve({ limit: requested })
-                })
+                const firstBatch = await firstBatchWithTokensLeft(createRateLimitedWorker(bucket.take), bucket)
 
-                await dequeueOneBatch(worker)
-
-                // First (and only relevant) call: 3 rows visible → 3 requested.
-                expect(requestedHistory[0]).toBe(3)
+                expect(firstBatch).toEqual({ jobs: 3, tokensLeft: 97 })
             })
 
             it.each([
                 ['one priority class', () => 0],
                 ['several priority classes', (i: number) => i % 3],
-            ])('caps the visible row count at batchMaxSize across %s', async (_label, priorityOf) => {
-                // Backlog of 10 rows with batchMaxSize=4 should ask for 4
-                // (the batch ceiling), not 10.
+            ])('takes no more tokens than batchMaxSize across %s', async (_label, priorityOf) => {
                 await manager.bulkCreateJobs(
                     Array.from({ length: 10 }, (_, i) => ({ teamId: 1, queueName: QUEUE, priority: priorityOf(i) }))
                 )
+                const bucket = tokenBucket(100)
 
-                const requestedHistory: number[] = []
-                const worker = createRateLimitedWorker(
-                    (requested) => {
-                        requestedHistory.push(requested)
-                        return Promise.resolve({ limit: requested })
-                    },
-                    { batchMaxSize: 4 }
+                const firstBatch = await firstBatchWithTokensLeft(
+                    createRateLimitedWorker(bucket.take, { batchMaxSize: 4 }),
+                    bucket
                 )
 
-                await dequeueOneBatch(worker)
-
-                expect(requestedHistory[0]).toBe(4)
+                expect(firstBatch).toEqual({ jobs: 4, tokensLeft: 96 })
             })
         })
 
@@ -1897,8 +1916,6 @@ describe('Cyclotron V2', () => {
             for (const priority of [0, 1, 2]) {
                 await manager.createJob({ teamId: 1, queueName: QUEUE, priority, scheduled })
             }
-            // The trigger parks the first worker's claim after its row locks are taken, so the
-            // second worker polls while those locks are held.
             const heldWorker = 'cyclotron-held-claim'
             const claimLock = 4242
             await assertPool.query(`
@@ -1971,7 +1988,6 @@ describe('Cyclotron V2', () => {
     })
 
     describe('polling cost with a backlog scheduled for later', () => {
-        // Only these tests touch this copy of the table, so its I/O counters hold what one operation read.
         const PROBE_SCHEMA = 'polling_cost_probe'
         const BACKLOG_QUEUE = 'future-backlog'
         const BACKLOG_ROWS = 20_000
@@ -1984,8 +2000,7 @@ describe('Cyclotron V2', () => {
             return `${DB_URL}?application_name=${applicationName}&options=${encodeURIComponent(options)}`
         }
 
-        // A backend flushes its I/O counters as it exits, before it leaves pg_stat_activity.
-        async function untilSessionsExit(applicationName: string): Promise<void> {
+        async function untilSessionStatsFlushed(applicationName: string): Promise<void> {
             await waitForExpect(async () => expect(await backendsNamed(applicationName)).toBe(0), 2000, 10)
         }
 
@@ -2018,7 +2033,7 @@ describe('Cyclotron V2', () => {
             } finally {
                 await client.end()
             }
-            await untilSessionsExit(applicationName)
+            await untilSessionStatsFlushed(applicationName)
         }
 
         beforeAll(async () => {
@@ -2060,14 +2075,13 @@ describe('Cyclotron V2', () => {
             return { polled, markPolled }
         }
 
-        // Only parameterized statements get a generic plan; the depth checks send plain SQL text.
-        // The rate-limited worker consults its hook only when a job is due, so that case
-        // seeds one due job and reads the hook call as the end of its poll.
+        const PARAMETERIZED_SQL_PLANS: PlanMode[] = ['custom', 'generic']
+        const PLAIN_SQL_PLANS: PlanMode[] = ['custom']
         const operations: [string, number, PlanMode[], (dbUrl: string) => Promise<void>][] = [
             [
                 'the worker dequeue',
                 0,
-                ['custom', 'generic'],
+                PARAMETERIZED_SQL_PLANS,
                 async (dbUrl) => {
                     const { polled, markPolled } = pollSignal()
                     await pollOnce(createWorker(BACKLOG_QUEUE, { pool: { dbUrl } }), polled, () =>
@@ -2078,7 +2092,7 @@ describe('Cyclotron V2', () => {
             [
                 'the rate-limited worker count',
                 1,
-                ['custom', 'generic'],
+                PARAMETERIZED_SQL_PLANS,
                 async (dbUrl) => {
                     const { polled, markPolled } = pollSignal()
                     const worker = new CyclotronV2RateLimitedWorker(
@@ -2094,7 +2108,7 @@ describe('Cyclotron V2', () => {
             [
                 'the manager depth check',
                 0,
-                ['custom'],
+                PLAIN_SQL_PLANS,
                 async (dbUrl) => {
                     const depthChecked = createManager({ pool: { dbUrl }, depthLimit: 0 })
                     try {
@@ -2109,7 +2123,7 @@ describe('Cyclotron V2', () => {
             [
                 'the janitor depth gauges',
                 0,
-                ['custom'],
+                PLAIN_SQL_PLANS,
                 async (dbUrl) => {
                     const janitor = createJanitor({ pool: { dbUrl } })
                     try {
@@ -2128,7 +2142,7 @@ describe('Cyclotron V2', () => {
             const applicationName = 'polling-cost-operation'
             const before = await buffersTouched()
             await operation(sessionUrl(applicationName, mode))
-            await untilSessionsExit(applicationName)
+            await untilSessionStatsFlushed(applicationName)
             return (await buffersTouched()) - before
         }
 
