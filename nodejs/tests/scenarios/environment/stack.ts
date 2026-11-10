@@ -84,6 +84,10 @@ export async function startStack(repoRoot: string, stateDir: string, env: NodeJS
     }
 }
 
+export async function syncTemplates(repoRoot: string, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
+    await hogli(repoRoot, ['dev:sync-hog-templates'], path.join(stateDir, 'hogli.log'), env)
+}
+
 export async function withPostgres<T>(run: (client: Client) => Promise<T>): Promise<T> {
     const client = new Client({
         connectionString: STACK.postgresUrl,
@@ -164,7 +168,7 @@ async function pingKafka(): Promise<void> {
     await new Promise((resolve) => producer.disconnect(resolve))
 }
 
-async function expectOk(url: string): Promise<void> {
+export async function expectOk(url: string): Promise<void> {
     const { status } = await internalFetch(url, { timeoutMs: PROBE_TIMEOUT_MS })
     if (status !== 200) {
         throw new Error(`${url} answered ${status}`)
