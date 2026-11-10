@@ -68,6 +68,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.replay_vision.backend.api.cloud_only import ReplayVisionCloudOnly
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
@@ -2382,6 +2383,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     """CRUD for Replay Vision scanners."""
 
     scope_object = "replay_scanner"
+    permission_classes = [ReplayVisionCloudOnly]
     # Custom actions must be listed explicitly or personal-API-key callers 403 silently.
     scope_object_read_actions = [
         "list",
