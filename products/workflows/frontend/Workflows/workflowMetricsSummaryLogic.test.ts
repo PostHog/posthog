@@ -489,6 +489,7 @@ describe('workflowMetricsSummaryLogic', () => {
             rows: [
                 { instanceId: 'email-1', metricName: 'email_sent', count: 100 },
                 { instanceId: 'email-1', metricName: 'email_sandbox_sent', count: 5 },
+                { instanceId: 'email-1', metricName: 'email_sandbox_delivered', count: 5 },
                 { instanceId: 'email-1', metricName: 'email_blocked', count: 4 },
                 { instanceId: 'email-1', metricName: 'email_bounced', count: 3 },
                 { instanceId: 'email-1', metricName: 'email_bounced_hard', count: 2 },

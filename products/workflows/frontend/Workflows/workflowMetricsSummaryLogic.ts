@@ -1454,6 +1454,14 @@ export function channelSentLabel({ hasEmail, hasPush }: { hasEmail: boolean; has
     return hasEmail && hasPush ? 'Messages sent' : hasPush ? 'Push notifications sent' : 'Emails sent'
 }
 
+type EmailTotals = Partial<Record<EmailMetricName, number>>
+
+// Fallback to sent - bounced when email_delivered wasn't collected. Spam complaints are
+// feedback-loop reports recipients send after delivery, so they are not subtracted here.
+function deliveredCount(totals: EmailTotals): number {
+    return totals.email_delivered ?? Math.max(0, (totals.email_sent ?? 0) - (totals.email_bounced ?? 0))
+}
+
 export function buildEmailMetricRows(
     emailActions: { id: string; name: string }[],
     emailTotalsByActionId: Record<string, Partial<Record<EmailMetricName, number>>>
@@ -1468,9 +1476,7 @@ export function buildEmailMetricRows(
         return {
             id: action.id,
             email: action.name,
-            // Fallback to sent - bounced when email_delivered wasn't collected. Spam complaints are
-            // feedback-loop reports recipients send after delivery, so they are not subtracted here.
-            delivered: totals.email_delivered ?? Math.max(0, sent - bounced),
+            delivered: deliveredCount(totals),
             sent,
             opened: count('email_opened'),
             linkClicked: count('email_link_clicked'),
@@ -1506,10 +1512,8 @@ export function buildPushMetricRows(
     })
 }
 
-function mapEmailMetricsToActions(
-    totalsResponse: AppMetricsTotalsResponse
-): Record<string, Partial<Record<EmailMetricName, number>>> {
-    const result: Record<string, Partial<Record<EmailMetricName, number>>> = {}
+function mapEmailMetricsToActions(totalsResponse: AppMetricsTotalsResponse): Record<string, EmailTotals> {
+    const bySender: Record<string, { own: EmailTotals; sandbox: EmailTotals }> = {}
 
     Object.values(totalsResponse).forEach(({ total, breakdowns }) => {
         const [instanceId, recordedName] = breakdowns
@@ -1518,11 +1522,28 @@ function mapEmailMetricsToActions(
             return
         }
 
-        result[instanceId] = result[instanceId] || {}
-        result[instanceId][metricName] = (result[instanceId][metricName] ?? 0) + total
+        bySender[instanceId] = bySender[instanceId] || { own: {}, sandbox: {} }
+        const totals = bySender[instanceId][recordedName in SANDBOX_EMAIL_METRICS ? 'sandbox' : 'own']
+        totals[metricName] = (totals[metricName] ?? 0) + total
     })
 
-    return result
+    return Object.fromEntries(
+        Object.entries(bySender).map(([instanceId, senders]) => [
+            instanceId,
+            combineSenders(senders.own, senders.sandbox),
+        ])
+    )
+}
+
+function combineSenders(...senders: EmailTotals[]): EmailTotals {
+    const combined: EmailTotals = {}
+    senders.forEach((totals) =>
+        Object.entries(totals).forEach(([name, value]) => {
+            combined[name as EmailMetricName] = (combined[name as EmailMetricName] ?? 0) + (value ?? 0)
+        })
+    )
+    combined.email_delivered = senders.reduce((sum, totals) => sum + deliveredCount(totals), 0)
+    return combined
 }
 
 function isEmailMetric(metricName: string): metricName is EmailMetricName {
