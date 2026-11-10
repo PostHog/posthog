@@ -83,6 +83,10 @@ const workspaceHandlers = ({
             ],
         },
         post: {
+            '/api/projects/:team_id/aeo_prompts/create_dashboard/': () => [
+                201,
+                { id: 1, name: 'AI visibility weekly' },
+            ],
             '/api/projects/:team_id/web_analytics_content_autopilot_opportunities/refresh/': () => [200, opportunities],
             '/api/projects/:team_id/web_analytics_content_autopilot_profiles/discover/': () => [
                 200,
