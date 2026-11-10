@@ -48,8 +48,7 @@ class BlueshiftEndpointConfig:
 
 
 BLUESHIFT_ENDPOINTS: dict[str, BlueshiftEndpointConfig] = {
-    # Full refresh only: the list takes no sort param, and `created_after` would miss status
-    # changes.
+    # Full refresh only: the list takes no sort param, and `created_after` would miss status changes.
     "campaigns": BlueshiftEndpointConfig(
         name="campaigns",
         path="/api/v2/campaigns.json",

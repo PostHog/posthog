@@ -46,7 +46,6 @@ logger = structlog.get_logger(__name__)
 
 STATS_REQUEST_TIMEOUT = 120
 _ISO_UTC = "%Y-%m-%dT%H:%M:%S.000Z"
-# Every table of a source shares one account rate limit, which Blueshift does not document.
 MAX_STATS_RETRY_ATTEMPTS = 8
 MAX_STATS_RETRY_WAIT_SECONDS = 60
 
@@ -296,7 +295,6 @@ def _is_nonzero(value: Any) -> bool:
 
 
 def _has_activity(campaign: dict[str, Any]) -> bool:
-    # The daily summary lists every campaign of the account, mostly with all counters at zero.
     statistics = campaign.get("statistics")
     if not isinstance(statistics, dict):
         return True
