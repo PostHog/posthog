@@ -817,7 +817,8 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 "temporary_properties JSON, properties_null_keys Array(String), "
                 "temporary_properties_null_keys Array(String), person_properties_null_keys Array(String)) ENGINE = Memory"
             )
-            # The null-key columns hold what the cleaner records for fields the SDK sent as null.
+            # The null-key columns hold what the cleaner records for fields the SDK sent as null. The export leaves
+            # those fields out of every document it rebuilds.
             row = {
                 "uuid": str(uuid7()),
                 "person_id": str(uuid7()),
@@ -894,22 +895,20 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
             assert rows[0]["named_true"] == "true"
             exported_properties = json.loads(rows[0]["properties"])
             assert exported_properties["$browser"] == "Firefox"
-            assert exported_properties["$set"] == {"email": "buyer@example.com", "phone": None}
+            assert exported_properties["$set"] == {"email": "buyer@example.com"}
             assert "$feature_flags" not in exported_properties
             assert exported_properties["$feature/some-feature"] is True
             assert exported_properties["$feature/named-false"] == "false"
             assert exported_properties["$feature/named-true"] == "true"
             assert exported_properties["$active_feature_flags"] == ["named-false", "named-true", "some-feature"]
-            assert {key: exported_properties[key] for key in ("coupon", "cart", "$feature/retired-flag")} == {
-                "coupon": None,
-                "cart": {"items": 2, "note": None},
-                "$feature/retired-flag": None,
-            }
-            assert json.loads(rows[0]["person_properties"]) == {"email": "buyer@example.com", "nickname": None}
-            assert json.loads(rows[0]["set"]) == {"email": "buyer@example.com", "phone": None}
-            assert json.loads(rows[0]["set_once"]) == {"referrer": None}
+            assert exported_properties["cart"] == {"items": 2}
+            assert "coupon" not in exported_properties
+            assert "$feature/retired-flag" not in exported_properties
+            assert json.loads(rows[0]["person_properties"]) == {"email": "buyer@example.com"}
+            assert json.loads(rows[0]["set"]) == {"email": "buyer@example.com"}
+            assert rows[0]["set_once"] is None
             assert json.loads(rows[0]["unset"]) == ["old_property"]
-            assert json.loads(rows[0]["group_set"]) == {"owner": None}
+            assert rows[0]["group_set"] is None
             assert rows[0]["_inserted_at"] == dt.datetime(2024, 1, 1, 12, tzinfo=dt.UTC)
     finally:
         await clickhouse_client.execute_query(f"DROP DATABASE {database}")

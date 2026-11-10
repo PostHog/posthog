@@ -876,6 +876,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     error={getDashboardWidgetFetchDisplayError(runResult?.error ?? refreshState?.error)}
                     loading={!!refreshState?.loading}
                     lastFetchedAt={refreshState?.fetchedAt}
+                    dashboardFilters={effectiveEditBarFilters}
                     onRefresh={tileActions.refreshWidget}
                     onRefreshWidgetData={scheduleRefreshDashboardWidgets}
                     onApplyWidgetIssueMetadataChange={onWidgetIssueMetadataChange}
