@@ -104,8 +104,11 @@ _KEY_FLOAT_DIGITS = 12
 _DEFAULT_EXPOSURE_EVENT_IN_KEY = "$default_exposure_event"
 
 # Fields of a stored metric definition that do not describe what the metric computes: its identity, its
-# display name, the stored key itself, and an experiment-level setting that some stored definitions carry.
-_NON_ANALYTICAL_METRIC_FIELDS = frozenset({"uuid", "name", "kind", "fingerprint", "only_count_matured_users"})
+# display name, how results show its value, the stored key itself, and an experiment-level setting that some
+# stored definitions carry.
+_NON_ANALYTICAL_METRIC_FIELDS = frozenset(
+    {"uuid", "name", "kind", "fingerprint", "only_count_matured_users", "value_format"}
+)
 
 
 def _strip_empty_breakdowns(metric: dict[str, Any]) -> None:

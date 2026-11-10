@@ -20,6 +20,7 @@ const meta: Meta<ExportedData> = {
         detailed: false,
     },
     parameters: {
+        layout: 'fullscreen',
         testOptions: {
             snapshotBrowsers: ['chromium'],
         },
@@ -29,7 +30,6 @@ const meta: Meta<ExportedData> = {
     tags: [], // Omit 'autodocs', as it's broken with Exporter
     render: (props) => {
         useEffect(() => {
-            document.body.className = ''
             document.documentElement.className = `export-type-${props.type}`
         }, [props.type])
         return (

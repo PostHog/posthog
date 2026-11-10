@@ -349,6 +349,33 @@ export namespace Schemas {
         table_name: string;
         uses_history_table?: (boolean | null) | undefined;
     };
+    export type WarehouseSuggestionNoteKind = "materialize" | "unmaterialize";
+    export type WarehouseSuggestionNote = {
+        /**
+         * Whether this user can edit the view, which accepting the suggestion needs.
+         */
+        can_act: boolean;
+        /**
+         * The suggestion id to pass to `warehouse-suggestions-get`, `-accept-prepare` or `-dismiss`.
+         */
+        id: string;
+        /**
+         * What the suggestion proposes.
+         */
+        kind: WarehouseSuggestionNoteKind;
+        /**
+         * Plain-language note for the person, with the next step.
+         */
+        message: string;
+        /**
+         * Absolute link to the view's page in Models.
+         */
+        url: string;
+        /**
+         * The view's current name.
+         */
+        view_name: string;
+    };
     export type DataWarehouseSyncWarning = {
         data_is_current?: (boolean | null) | undefined;
         /**
@@ -404,6 +431,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -452,6 +482,9 @@ export namespace Schemas {
         types: Array<string>;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -722,6 +755,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -2049,6 +2085,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -2672,6 +2711,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -2849,6 +2891,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -3045,6 +3090,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -3217,6 +3265,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -3279,6 +3330,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -3388,6 +3442,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -3623,6 +3680,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -3715,6 +3775,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -3969,6 +4032,15 @@ export namespace Schemas {
         unit: ExperimentWarehouseNativeUnitBinding;
         version?: (number | null) | undefined;
     };
+    export type ExperimentMetricValueFormatType =
+        | "currency"
+        | "duration"
+        | "duration_ms"
+        | "percentage"
+        | "percentage_scaled";
+    export type ExperimentMetricValueFormat = {
+        type: ExperimentMetricValueFormatType;
+    };
     export type ExperimentMeanMetric = {
         breakdownFilter?: (BreakdownFilter | null) | undefined;
         conversion_window?: (number | null) | undefined;
@@ -3993,6 +4065,7 @@ export namespace Schemas {
         threshold?: (number | null) | undefined;
         upper_bound_percentile?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentFunnelMetric = {
@@ -4016,6 +4089,7 @@ export namespace Schemas {
         series: Array<EventsNode | ActionsNode | ExperimentDataWarehouseNode>;
         sharedMetricId?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentMetricOutlierHandling = Partial<{
@@ -4054,6 +4128,7 @@ export namespace Schemas {
         response?: (Record<string, unknown> | null) | undefined;
         sharedMetricId?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentExposureNode = Partial<{
@@ -4090,6 +4165,7 @@ export namespace Schemas {
             | ExperimentExposureNode;
         start_handling: StartHandling;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentQuantileMetric = {
@@ -4115,6 +4191,7 @@ export namespace Schemas {
          */
         source: EventsNode | ActionsNode;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type PrecomputationMode = "precomputed" | "direct";
@@ -4448,6 +4525,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -6906,6 +6986,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -6937,6 +7020,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -6967,6 +7053,9 @@ export namespace Schemas {
         types: Array<string>;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7000,6 +7089,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   DataWarehouseSyncWarning | AccessControlFilterWarning
@@ -7028,6 +7120,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7063,6 +7158,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -7091,6 +7189,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -7117,6 +7218,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7151,6 +7255,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7189,6 +7296,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -7215,6 +7325,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7245,6 +7358,9 @@ export namespace Schemas {
         types: Array<string>;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7286,6 +7402,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -7311,6 +7430,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7454,6 +7576,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -7503,6 +7628,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7578,6 +7706,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -7604,6 +7735,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7636,6 +7770,9 @@ export namespace Schemas {
         types: Array<string>;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7679,6 +7816,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7814,6 +7954,9 @@ export namespace Schemas {
         types: Array<string>;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -7994,6 +8137,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8037,6 +8183,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -8100,6 +8249,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -8169,6 +8321,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -8278,6 +8433,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8354,6 +8512,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8394,6 +8555,9 @@ export namespace Schemas {
         types: Array<string>;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -8550,6 +8714,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8619,6 +8786,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -8707,6 +8877,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8770,6 +8943,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8805,6 +8981,9 @@ export namespace Schemas {
         timings?: (Array<QueryTiming> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -8877,6 +9056,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8941,6 +9123,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   | DataWarehouseSyncWarning
@@ -8992,6 +9177,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -10146,6 +10334,7 @@ export namespace Schemas {
         threshold?: (number | null) | undefined;
         upper_bound_percentile?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
     };
     /**
      * List wrapper for OpenAPI schema generation — the field stores an array of metrics.
@@ -11608,7 +11797,7 @@ export namespace Schemas {
          */
         drop_history_table?: boolean | undefined;
         /**
-         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table`, a name means the history table was kept, for example because a sync started meanwhile.
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table` to stop writing history, a name means the history table was kept, for example because a sync started meanwhile. An update that adds a mask with `drop_history_table` keeps the table and its access rules, and deletes only its contents.
          */
         registered_history_table_name: string | null;
         /**
