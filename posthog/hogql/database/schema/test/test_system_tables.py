@@ -2172,6 +2172,8 @@ class TestSystemDefinitionTables(NonAtomicBaseTest):
 
         assert sorted(response.results, key=str) == [("plan", "person", None), ("tier", "group", 0)]
         assert metadata.results == [("Readable",), ("Readable",)]
+        # The metadata query filters by the ids of the hidden definitions, not by a read of every definition
+        assert "posthog_propertydefinition" not in (metadata.clickhouse or "")
 
 
 class TestSystemAccountsLazyJoins(NonAtomicBaseTest):

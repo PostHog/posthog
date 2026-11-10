@@ -42,6 +42,7 @@ from posthog.hogql.database.schema.information_schema import information_schema_
 from posthog.hogql.database.schema.tagged_items import TaggedItemsTable
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.constants import AvailableFeature
 from posthog.ph_client import feature_enabled_or_false
@@ -4184,14 +4185,42 @@ _DEFINITION_METADATA_FLAGS = ("verified", "hidden")
 class _PropertyDefinitionMetadataTable(PostgresTable):
     """Hides the metadata of the properties that property-level access control hides.
 
-    The check reads `system.property_definitions` again, so it applies only when the caller has
-    restrictions.
+    It looks up the ids of the hidden definitions by name, so it reads only those few rows, not every
+    definition of the team.
     """
 
     def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
         if context is None or not context.restricted_properties:
             return []
-        return [parse_expr("definition_id IN (SELECT id FROM system.property_definitions)")]
+        if context.team_id is None:
+            return [ast.Constant(value=False)]
+        if context.restricted_property_definition_ids is None:
+            context.restricted_property_definition_ids = _restricted_property_definition_ids(
+                context.team_id, context.restricted_properties
+            )
+        if not context.restricted_property_definition_ids:
+            return []
+        return [
+            parse_expr(
+                "toString(definition_id) NOT IN {ids}",
+                {"ids": ast.Constant(value=sorted(context.restricted_property_definition_ids), is_sensitive=True)},
+            )
+        ]
+
+
+def _restricted_property_definition_ids(team_id: int, restricted: set[RestrictedProperty]) -> frozenset[str]:
+    from django.db.models import Q  # noqa: PLC0415 — keeps the ORM off this module's import path
+
+    from products.event_definitions.backend.models import PropertyDefinition  # noqa: PLC0415
+
+    matches = Q()
+    for prop in restricted:
+        match = Q(name=prop.name, type=prop.property_type)
+        if prop.group_type_index is not None:
+            match &= Q(group_type_index=prop.group_type_index)
+        matches |= match
+    definition_ids = PropertyDefinition.objects.filter(matches, team_id=team_id).values_list("id", flat=True)
+    return frozenset(str(definition_id) for definition_id in definition_ids)
 
 
 def _definition_metadata_table(

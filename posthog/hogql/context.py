@@ -161,6 +161,9 @@ class HogQLContext:
     # that the current user is denied access to. Populated before type resolution so that
     # FieldType.get_child() can raise QueryError for restricted properties.
     restricted_properties: Optional[set[RestrictedProperty]] = None
+    # Per-query cache of the ids of the property definitions that `restricted_properties` hides, loaded
+    # when a query reads `system._property_definition_metadata`.
+    restricted_property_definition_ids: Optional[frozenset[str]] = field(default=None, compare=False, repr=False)
 
     # Per-query cache of CTE synthetic tables, keyed by id() of the CTE's SelectQueryType. Value pins a
     # strong ref to the keyed type so its id can't be reused while cached; lookups verify identity.
