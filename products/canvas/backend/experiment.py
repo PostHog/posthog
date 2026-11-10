@@ -17,7 +17,18 @@ CANVAS_EXPERIMENT_FLAG = "canvas-experiment"
 # hosted generation and agent paths are closed to them. Only session callers are restricted:
 # MCP clients, PostHog Desktop, scouts, sandboxes and workload tokens never use a session.
 EXPERIMENT_SESSION_BLOCKED_ACTIONS = frozenset(
-    {"create", "publish", "edit", "draft", "publish_layout", "patch_layout", "request_fix", "request_agent"}
+    {
+        "create",
+        "publish",
+        "edit",
+        "draft",
+        "promote",
+        "revert",
+        "publish_layout",
+        "patch_layout",
+        "request_fix",
+        "request_agent",
+    }
 )
 # Linking a generation task is how the web app starts a hosted generation or a hosted edit run.
 EXPERIMENT_SESSION_BLOCKED_UPDATE_FIELDS = frozenset({"generation_task_id"})

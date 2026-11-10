@@ -1119,6 +1119,8 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
             ("publish", "post", "publish/", {"project": None}, status.HTTP_403_FORBIDDEN),
             ("edit", "post", "edit/", {}, status.HTTP_403_FORBIDDEN),
             ("draft", "post", "draft/", {}, status.HTTP_403_FORBIDDEN),
+            ("promote", "post", "promote/", {}, status.HTTP_403_FORBIDDEN),
+            ("revert", "post", "revert/", {}, status.HTTP_403_FORBIDDEN),
             ("layout_publish", "post", "layout/publish/", {}, status.HTTP_403_FORBIDDEN),
             ("request_fix", "post", "request_fix/", {"build_id": str(uuid4())}, status.HTTP_403_FORBIDDEN),
             ("request_agent", "post", "request_agent/", {"prompt": "Make it blue."}, status.HTTP_403_FORBIDDEN),
