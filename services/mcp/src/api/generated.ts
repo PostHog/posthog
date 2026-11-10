@@ -107458,6 +107458,18 @@ export namespace Schemas {
      */
     export type SendEmailMessageData = {[key: string]: unknown};
 
+    /**
+     * What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events but doesn't track clicks, because links in an email such as a password reset can carry a login token. Turn on `clicks` only when the email's links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body.
+     */
+    export type SendEmailTracking = boolean | {
+      /** Whether PostHog adds its open pixel to the email. Defaults to true. */
+      opens?: boolean;
+      /** Whether the email's links go through a redirect that counts clicks. Defaults to false. Needs `opens`. A link with `data-ph-no-track` keeps its own address. */
+      clicks?: boolean;
+      /** Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. Defaults to true. */
+      engagement?: boolean;
+    };
+
     export interface SendEmail {
       /** Email address of the recipient. */
       to: string;
@@ -107498,10 +107510,13 @@ export namespace Schemas {
          * @nullable
          */
       attachments?: EmailAttachment[] | null;
-      /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
+      /**
+         * Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned engagement capture off captures nothing, whatever the send says.
+         * @deprecated
+         */
       capture_engagement?: boolean;
-      /** Whether PostHog tracks opens and clicks of the email your code rendered. Defaults to true. With false, the email goes out without PostHog's open pixel, so PostHog can't count its opens. PostHog doesn't track clicks on emails sent from code, so their links are never rewritten either way. Independent of `capture_engagement`, which decides whether engagement events are captured on the recipient's person. */
-      track_opens_and_clicks?: boolean;
+      /** What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events but doesn't track clicks, because links in an email such as a password reset can carry a login token. Turn on `clicks` only when the email's links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body. */
+      tracking?: SendEmailTracking;
       /**
          * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
          * @maxLength 1024

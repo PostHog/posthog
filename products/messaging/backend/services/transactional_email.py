@@ -29,6 +29,7 @@ from products.messaging.backend.facade.contracts import (
     ContentTooLarge,
     DeliveryUnavailable,
     EmailAttachment,
+    EmailTracking,
     FieldNotAccepted,
     IdempotencyKeyInFlight,
     IdempotencyKeyReused,
@@ -559,7 +560,7 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
             {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
         ),
         "from": _without_empty(_code_send_sender(team_id, email.sender)),
-        "tracking": _accepted_tracking(email),
+        "tracking": _accepted_tracking(email.tracking),
     }
     if email.reply_to:
         accepted["replyTo"] = list(email.reply_to)
@@ -572,12 +573,13 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
     return accepted
 
 
-def _accepted_tracking(email: CodeEmail) -> dict[str, bool]:
-    tracking = {"captureEngagement": email.capture_engagement}
-    # Only an untracked send names the field, so a default send keeps the shape every pipeline version accepts.
-    if not email.track_opens_and_clicks:
-        tracking["trackOpensAndClicks"] = False
-    return tracking
+def _accepted_tracking(tracking: EmailTracking) -> dict[str, bool]:
+    accepted = {"captureEngagement": tracking.engagement}
+    if not tracking.opens:
+        accepted["opens"] = False
+    if tracking.clicks:
+        accepted["clicks"] = True
+    return accepted
 
 
 def _accepted_attachment(attachment: EmailAttachment) -> dict[str, str]:
@@ -669,23 +671,20 @@ def _queue(
     return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))
 
 
-_SEND_FIELD_OF_PIPELINE_KEY = {"trackOpensAndClicks": "track_opens_and_clicks"}
-
-
 def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
     try:
         issues = json.loads(error or "")
     except ValueError:
         return None
     for issue in issues if isinstance(issues, list) else []:
-        if (
-            isinstance(issue, dict)
-            and issue.get("code") == "unrecognized_keys"
-            and issue.get("path") in (["send"], ["send", "tracking"])
-        ):
+        if not isinstance(issue, dict) or issue.get("code") != "unrecognized_keys":
+            continue
+        if issue.get("path") == ["send", "tracking"]:
+            return "tracking"
+        if issue.get("path") == ["send"]:
             keys = issue.get("keys")
             if isinstance(keys, list) and keys and isinstance(keys[0], str):
-                return _SEND_FIELD_OF_PIPELINE_KEY.get(keys[0], keys[0])
+                return keys[0]
     return None
 
 

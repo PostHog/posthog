@@ -668,21 +668,24 @@ class TestTransactionalEmail(APIBaseTest):
                     "tracking": {"captureEngagement": False},
                 },
             ),
-            (
-                "without_open_and_click_tracking",
-                {"track_opens_and_clicks": False},
-                {
-                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
-                    "tracking": {"captureEngagement": True, "trackOpensAndClicks": False},
-                },
-            ),
-            (
-                "with_open_and_click_tracking",
-                {"track_opens_and_clicks": True},
-                {
-                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
-                    "tracking": {"captureEngagement": True},
-                },
+            *(
+                (
+                    f"tracking_{name}",
+                    {"tracking": tracking},
+                    {
+                        "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
+                        "tracking": sent_tracking,
+                    },
+                )
+                for name, tracking, sent_tracking in (
+                    ("off", False, {"captureEngagement": False, "opens": False}),
+                    ("on", True, {"captureEngagement": True, "clicks": True}),
+                    ("empty", {}, {"captureEngagement": True}),
+                    ("clicks_on", {"clicks": True}, {"captureEngagement": True, "clicks": True}),
+                    ("opens_off", {"opens": False}, {"captureEngagement": True, "opens": False}),
+                    ("engagement_off", {"engagement": False}, {"captureEngagement": False}),
+                    ("all_named", {"opens": True, "clicks": False, "engagement": True}, {"captureEngagement": True}),
+                )
             ),
             (
                 "text_only",
@@ -735,18 +738,33 @@ class TestTransactionalEmail(APIBaseTest):
         sent = {**sent, "from": {**sent.get("from", {}), "integrationId": newer_default.id}}
         assert json.loads(mock_post.call_args.kwargs["data"])["send"] == sent
         reported = capture.call_args.kwargs["properties"]
-        assert reported["track_opens_and_clicks"] == fields.get("track_opens_and_clicks", True)
+        assert (reported["tracking_opens"], reported["tracking_clicks"], reported["tracking_engagement"]) == (
+            "opens" not in sent["tracking"],
+            "clicks" in sent["tracking"],
+            sent["tracking"]["captureEngagement"],
+        )
 
-    def test_a_form_encoded_code_send_without_the_field_keeps_open_and_click_tracking(self, mock_post, _flag, capture):
+    @parameterized.expand(
+        [
+            ("omitted", {}, {}, (True, False)),
+            ("false", {"tracking": "false"}, {"opens": False}, (False, False)),
+            ("true", {"tracking": "true"}, {"clicks": True}, (True, True)),
+        ]
+    )
+    def test_a_form_encoded_code_send_reads_tracking_as_sent(
+        self, mock_post, _flag, capture, _name, fields, sent_kinds, reported_kinds
+    ):
         self._cdp_accepts(mock_post)
 
         response = self._psak_client(["hog_flow:write"]).post(
-            self.send_email_url, self._code_send(), format="multipart"
+            self.send_email_url, self._code_send(**fields), format="multipart"
         )
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert "trackOpensAndClicks" not in json.loads(mock_post.call_args.kwargs["data"])["send"]["tracking"]
-        assert capture.call_args.kwargs["properties"]["track_opens_and_clicks"] is True
+        sent_tracking = json.loads(mock_post.call_args.kwargs["data"])["send"]["tracking"]
+        assert {kind: on for kind, on in sent_tracking.items() if kind != "captureEngagement"} == sent_kinds
+        reported = capture.call_args.kwargs["properties"]
+        assert (reported["tracking_opens"], reported["tracking_clicks"]) == reported_kinds
 
     @parameterized.expand(
         [
@@ -768,6 +786,11 @@ class TestTransactionalEmail(APIBaseTest):
                 {"bcc": ["audit@example.com", "{{person.properties.email}}@example.com"]},
                 None,
             ),
+            ("clicks_without_opens", {"tracking": {"opens": False, "clicks": True}}, "tracking"),
+            ("tracking_kind_this_server_lacks", {"tracking": {"pixel": False}}, "tracking"),
+            ("tracking_that_is_not_a_boolean", {"tracking": "sometimes"}, "tracking"),
+            ("tracking_kind_that_is_not_a_boolean", {"tracking": {"clicks": "sometimes"}}, "tracking"),
+            ("tracking_beside_capture_engagement", {"tracking": True, "capture_engagement": True}, "tracking"),
             ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "scheduled_at"),
             ("empty_key_beside_a_field_this_server_lacks", {"": "", "scheduled_at": "2026-11-01T09:00:00Z"}, None),
             ("html_over_5_mib_in_utf8", {"html": "é" * (5 * 1024 * 1024 // 2 + 1)}, "html"),
@@ -811,7 +834,7 @@ class TestTransactionalEmail(APIBaseTest):
     @parameterized.expand(
         [
             ("subject", "Hi", "validation_error"),
-            ("track_opens_and_clicks", False, "validation_error"),
+            ("tracking", False, "validation_error"),
             ("cc", "copy@example.com", "invalid_request"),
             ("bcc", ["audit@example.com"], "invalid_request"),
             ("attachments", [{"filename": "notes.txt", "content": "aGk="}], "invalid_request"),
@@ -964,14 +987,7 @@ class TestTransactionalEmail(APIBaseTest):
                 "attachments",
                 (1, 4),
             ),
-            (
-                "untracked",
-                {"track_opens_and_clicks": False},
-                "trackOpensAndClicks",
-                ["send", "tracking"],
-                "track_opens_and_clicks",
-                (0, 0),
-            ),
+            ("untracked", {"tracking": False}, "opens", ["send", "tracking"], "tracking", (0, 0)),
         ]
     )
     def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(

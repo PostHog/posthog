@@ -23,6 +23,7 @@ from drf_spectacular.utils import (
     OpenApiResponse,
     extend_schema,
     extend_schema_field,
+    extend_schema_serializer,
     extend_schema_view,
 )
 from rest_framework import exceptions, serializers, status, viewsets
@@ -33,7 +34,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
-from posthog.api.fields import OmittableBooleanField
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ResponseDeclaration, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -76,6 +76,7 @@ from products.messaging.backend.facade.transactional_email import (
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
+    EmailTracking,
     FieldNotAccepted,
     QueuedEmail,
     TransactionalEmailError,
@@ -96,6 +97,7 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     CODE_SEND_EXTRA_FIELDS,
     AddressListField,
     AttachmentListField,
+    EmailTrackingField,
     attachment_size,
     field_not_accepted_refusal,
     template_send_refusal,
@@ -471,12 +473,13 @@ CODE_SEND_FIELDS = (
     "from",
     "reply_to",
     "capture_engagement",
-    "track_opens_and_clicks",
+    "tracking",
     *CODE_SEND_EXTRA_FIELDS,
 )
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
 
 
+@extend_schema_serializer(deprecate_fields=["capture_engagement"])
 class SendEmailSerializer(TransactionalEmailMessageSerializer):
     template_id = serializers.UUIDField(
         required=False,
@@ -548,16 +551,21 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     )
     capture_engagement = serializers.BooleanField(
         required=False,
-        help_text="Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code "
-        "rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned "
+        help_text="Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, "
+        "clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. "
+        "Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned "
         "engagement capture off captures nothing, whatever the send says.",
     )
-    track_opens_and_clicks = OmittableBooleanField(
+    tracking = EmailTrackingField(
         required=False,
-        help_text="Whether PostHog tracks opens and clicks of the email your code rendered. Defaults to true. With "
-        "false, the email goes out without PostHog's open pixel, so PostHog can't count its opens. PostHog doesn't "
-        "track clicks on emails sent from code, so their links are never rewritten either way. Independent of "
-        "`capture_engagement`, which decides whether engagement events are captured on the recipient's person.",
+        help_text="What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures "
+        "engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object "
+        "sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks "
+        "opens and captures engagement events but doesn't track clicks, because links in an email such as a "
+        "password reset can carry a login token. Turn on `clicks` only when the email's links are safe to send "
+        "through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs "
+        "open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send "
+        "says. The object form needs a JSON body.",
     )
 
     def to_internal_value(self, data: Any) -> Any:
@@ -609,6 +617,13 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         if unknown is not None:
             raise serializers.ValidationError(
                 {unknown: "PostHog doesn't take this field, so it doesn't send the email without it."}
+            )
+        if "tracking" in sent and "capture_engagement" in sent:
+            raise serializers.ValidationError(
+                {
+                    "tracking": "Send either `tracking` or `capture_engagement`. `capture_engagement` is deprecated, "
+                    "so set `tracking.engagement` instead."
+                }
             )
         if "message_data" in sent:
             raise serializers.ValidationError(
@@ -1407,8 +1422,9 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             text=data.get("text", ""),
             sender=data.get("from"),
             reply_to=tuple(data.get("reply_to", ())),
-            capture_engagement=data.get("capture_engagement", True),
-            track_opens_and_clicks=data.get("track_opens_and_clicks", True),
+            tracking=data["tracking"]
+            if "tracking" in data
+            else EmailTracking(engagement=data.get("capture_engagement", True)),
             cc=tuple(data.get("cc") or ()),
             bcc=tuple(data.get("bcc") or ()),
             attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
@@ -1422,7 +1438,12 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 distinct_id=_distinct_id(data),
                 idempotency_key=idempotency_key,
             ),
-            usage_properties={"addressed_by": "template_key", "track_opens_and_clicks": email.track_opens_and_clicks},
+            usage_properties={
+                "addressed_by": "template_key",
+                "tracking_opens": email.tracking.opens,
+                "tracking_clicks": email.tracking.clicks,
+                "tracking_engagement": email.tracking.engagement,
+            },
             unavailable=UnconfirmedEmailSend,
         )
 
