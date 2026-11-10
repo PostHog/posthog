@@ -1117,13 +1117,6 @@ export class EmailService {
         }
     }
 
-    // The tracked and untracked configuration sets share the same delivery/bounce/complaint event
-    // destination (suppression and the Metrics tab depend on those events); they differ only in
-    // ESP-level open/click tracking.
-    private resolveConfigurationSetName(trackingEnabled: boolean): string {
-        return trackingEnabled ? this.sesConfig.sesTrackedConfigurationSet : this.sesConfig.sesUntrackedConfigurationSet
-    }
-
     private resolveFromSender(
         integration: IntegrationType,
         from: CyclotronInvocationQueueParametersEmailType['from'],
@@ -1302,7 +1295,12 @@ export class EmailService {
                     },
                 },
             },
-            ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled),
+            // The tracked and untracked configuration sets share the same delivery/bounce/complaint event
+            // destination (suppression and the Metrics tab depend on those events); they differ only in
+            // ESP-level open/click tracking.
+            ConfigurationSetName: trackingEnabled
+                ? this.sesConfig.sesTrackedConfigurationSet
+                : this.sesConfig.sesUntrackedConfigurationSet,
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [
