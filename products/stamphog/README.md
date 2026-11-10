@@ -198,7 +198,7 @@ A comment names the cut owners and why.
 
 - `off` (the default): never.
 - `always`: when a PR opens ready for review or is marked ready. It never reads or waits for a verdict, and it routes bot and fork PRs too. Each head routes once, so a draft marked ready right after it opened is not routed twice.
-- `fallback`: owners are requested only when stamphog does not approve. If stamphog will not review the head (reviews disabled, a draft, bot or untrusted author, or label mode without the trigger label), routing runs at once, like `always`. Otherwise the head waits for the verdict:
+- `fallback`: owners are requested only when stamphog does not approve. If stamphog will not review the head (reviews disabled, a draft, a bot the policy does not name, an untrusted author, or label mode without the trigger label), routing runs at once, like `always`. Otherwise the head waits for the verdict:
   - An approval requests only the pinned owners of that head that no earlier routing of the PR requested, and says so in the comment. When there are none, it requests nobody.
   - A WAIT keeps waiting, because stamphog reviews again later. A WAIT on a head that was not waiting starts waiting there.
   - Any other outcome (refused, escalate, gated, failed) routes in full.
@@ -270,7 +270,7 @@ How the engine handles a stacked checkout: [`packages/pr-approval-agent/README.m
 
 **Self-driving inbox PRs** are the one non-webhook entry.
 When a self-driving Inbox implementation run opens its bot-authored draft PR, review_hog's inbox receiver calls the `queue_inbox_pr_review` facade, gated by the assigned reviewers' per-user `stamphog_review_inbox_prs` toggles, and the initial review runs while the PR is still a draft so the verdict is ready at Inbox triage time.
-Later pushes re-review through the normal webhook path via a positively identified carve-out, and every other bot author stays refused at every layer.
+Later pushes re-review through the normal webhook path via a positively identified carve-out, and every other bot author stays refused at every layer unless the policy names it under `bot_authors`.
 See [AGENTS.md](AGENTS.md) for the carve-out's invariants.
 
 ## Security model
