@@ -89,7 +89,7 @@ export function decodeFile(text: string): Uint8Array {
 function changedFiles(
     folder: string,
     inputs: Record<string, string | Uint8Array>,
-    options: { full: boolean; randomIds: boolean }
+    options: { full: boolean; randomIds: boolean; schemaConfig: boolean }
 ): Record<string, string | null> {
     const before: Record<string, string> = {}
     for (const [path, contents] of Object.entries(inputs)) {
@@ -101,6 +101,9 @@ function changedFiles(
         if (before[path] !== after[path]) {
             changed[path] = after[path] ?? null
         }
+    }
+    if (options.schemaConfig && changed['posthog.json']) {
+        changed['posthog.json'] = schemaConfig(changed['posthog.json'])
     }
     if (options.full) {
         return changed
@@ -116,6 +119,26 @@ function changedFiles(
                 : `sha512:${createHash('sha512').update(text).digest('hex')}`,
         ])
     )
+}
+
+// The CLIs write posthog.json in their own format: hog keeps the file's other keys and adds `$schema` and a
+// final newline, and posthog-cli writes keys in HashMap order. Each also stamps its own `updated_at`. So the
+// file is compared by its content, with sorted keys, and only the generated module byte for byte.
+function schemaConfig(text: string): string {
+    const sorted = (value: unknown): unknown =>
+        value && typeof value === 'object' && !Array.isArray(value)
+            ? Object.fromEntries(
+                  Object.keys(value)
+                      .filter((key) => key !== '$schema')
+                      .sort()
+                      .map((key) => [
+                          key,
+                          key === 'updated_at' ? '<time>' : sorted((value as Record<string, unknown>)[key]),
+                      ])
+              )
+            : value
+    const config = readJson(strictUtf8.decode(decodeFile(text)), z.record(z.string(), z.unknown()))
+    return `utf8:${JSON.stringify(sorted(config), null, 2)}`
 }
 
 function snapshot(folder: string): Record<string, string> {
@@ -190,6 +213,7 @@ export async function runScenario(scenario: ParityScenario, cli: { rust: string 
                       files: changedFiles(folder, inputs, {
                           full: scenario.fullSnapshot === true,
                           randomIds: scenario.randomIds === true,
+                          schemaConfig: scenario.schemaConfig === true,
                       }),
                   }
                 : {}),

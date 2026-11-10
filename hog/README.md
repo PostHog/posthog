@@ -35,7 +35,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog endpoints list`, `get`, `open`       | List your endpoints a page at a time, show one, or open it in PostHog.                                                  |
 | `hog endpoints run [name]`                | Runs an endpoint, or the query in a local file with `--file`. `--var name=value` sets variables.                        |
 | `hog endpoints pull`, `diff`, `push`      | Keep endpoints as YAML files: pull them, see how they differ, and push changes. `diff` exits with code 1 on drift.      |
-| `hog schema pull`                         | Generates a typed SDK (TypeScript, Go or Python) from your event definitions, and records it in `posthog.json`.         |
+| `hog schema pull`                         | Generates a typed SDK (TypeScript, Go, Python) or TypeScript types from your events, and records it in `posthog.json`.  |
 | `hog schema status`                       | Checks each generated SDK against PostHog. Exits with code 1 when one is missing or out of date.                        |
 | `hog config check`, `hog config schema`   | Check `posthog.json` against its schema, or print the schema.                                                           |
 | `hog commands`                            | Lists every command, its arguments, options and scopes.                                                                 |

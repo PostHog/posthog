@@ -5,7 +5,7 @@ import type { LoadedConfig } from '@/core/config'
 import type { Context } from '@/core/context'
 import { absolutePath } from '@/core/paths'
 
-export const LANGUAGES = ['typescript', 'golang', 'python'] as const
+export const LANGUAGES = ['typescript', 'typescript_types', 'golang', 'python'] as const
 export type Language = (typeof LANGUAGES)[number]
 
 interface LanguageInfo {
@@ -23,6 +23,14 @@ export const LANGUAGE_INFO: Record<Language, LanguageInfo> = {
             `Import PostHog from the generated module: import posthog from './${file}'`,
             "Known events get autocomplete and type checks: posthog.capture('event_name', { property: 'value' })",
             "captureRaw() skips the type checks: posthog.captureRaw('dynamic_event_name', { whatever: 'data' })",
+        ],
+    },
+    typescript_types: {
+        name: 'TypeScript (types only)',
+        defaultFile: 'posthog-events.ts',
+        nextSteps: (file) => [
+            `Import the event types, with no SDK dependency: import type { EventName, EventProperties } from './${file}'`,
+            'Use them to type the calls to any PostHog SDK, such as posthog-react-native: function track<K extends EventName>(event: K, properties: EventProperties<K>) { posthog.capture(event, properties) }',
         ],
     },
     golang: {

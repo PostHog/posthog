@@ -130,6 +130,10 @@ export function startFakeServer(scenario: Scenario): FakeServer {
             const base = `http://127.0.0.1:${server.port}`
             let match: RegExpMatchArray | null
 
+            // hog reads event definitions through /api/environments/ and posthog-cli through /api/projects/.
+            if ((match = path.match(/^\/api\/(?:projects|environments)\/\d+\/event_definitions\/(\w+)$/))) {
+                return respond(json(200, eventDefinitions(match[1]!)))
+            }
             if ((match = path.match(/^\/api\/projects\/\d+\/error_tracking\/releases\/hash\/(.+)$/))) {
                 const release = releases.get(match[1]!)
                 return respond(
@@ -256,6 +260,15 @@ export function startFakeServer(scenario: Scenario): FakeServer {
             objects.push(...stored)
         },
         stop: () => server.stop(true),
+    }
+}
+
+// Non-ASCII names and no final newline, so a CLI that re-encodes or reformats the module fails.
+function eventDefinitions(language: string): { content: string; event_count: number; schema_hash: string } {
+    return {
+        content: `/**\n * GENERATED FILE - DO NOT EDIT\n * Language: ${language}\n */\nexport type EventName = "sign up" | "café ☕"\n// end`,
+        event_count: 2,
+        schema_hash: `hash-${language}`,
     }
 }
 

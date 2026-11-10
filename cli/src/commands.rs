@@ -269,6 +269,9 @@ pub enum SchemaCommand {
         /// Output path for generated definitions (stored in posthog.json for future runs)
         #[arg(short, long)]
         output: Option<String>,
+        /// Language to generate. Without it, the CLI asks which one
+        #[arg(short, long)]
+        language: Option<crate::experimental::schema::Language>,
     },
     /// Show current schema sync status
     Status,
@@ -563,8 +566,8 @@ impl Cli {
                     }
                 },
                 ExpCommand::Schema { cmd } => match cmd {
-                    SchemaCommand::Pull { output } => {
-                        crate::experimental::schema::pull(self.host, output)?;
+                    SchemaCommand::Pull { output, language } => {
+                        crate::experimental::schema::pull(self.host, output, language)?;
                     }
                     SchemaCommand::Status => {
                         crate::experimental::schema::status()?;
