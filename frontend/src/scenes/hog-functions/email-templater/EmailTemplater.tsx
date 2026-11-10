@@ -1263,7 +1263,8 @@ export function EmailTemplater({
 }): JSX.Element {
     return (
         <BindLogic logic={emailTemplaterLogic} props={props}>
-            <div className="flex flex-col flex-1">
+            {/* The new editor fits the page, so the email and its style panel scroll on their own. Short windows scroll the page instead. */}
+            <div className="flex flex-col flex-1 has-[[data-attr=email-document-editor]]:min-h-[38rem]">
                 {props.layout === 'inline' ? (
                     <EmailTemplaterInline />
                 ) : (

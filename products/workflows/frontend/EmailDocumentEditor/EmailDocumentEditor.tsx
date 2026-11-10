@@ -187,6 +187,9 @@ export function EmailDocumentEditor(): JSX.Element {
     const editorProps = useMemo<EditorOptions['editorProps']>(
         () => ({
             attributes: { 'data-attr': 'email-editor-canvas', 'aria-label': 'Email content', spellcheck: 'true' },
+            // The canvas scrolls on its own, so keep the line being typed clear of its edges.
+            scrollThreshold: 48,
+            scrollMargin: 48,
             handleDOMEvents: {
                 // Browsers empty the label's span when dictation, autocomplete or an IME replaces all of its text,
                 // and the editor then reads that back as a deletion.
