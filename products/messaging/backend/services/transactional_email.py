@@ -28,6 +28,7 @@ from posthog.plugins.plugin_server_api import (
 
 from products.messaging.backend.facade.contracts import (
     AttachmentNotUploaded,
+    AttachmentsRefused,
     AttachmentUploadRequest,
     AttachmentUploadSlot,
     AttachmentUploadTarget,
@@ -185,6 +186,28 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
         InvalidRequest,
         "The email pipeline couldn't accept a field of this email, so it wasn't sent. Check the addresses and "
         "fields, then send it again.",
+    ),
+}
+
+FILES_REFUSALS: dict[str, tuple[str, str, str]] = {
+    "workflow_shape_not_supported": (
+        "This email's workflow can't send files, so PostHog didn't send the email.",
+        "A send with files needs a workflow with a trigger, one transactional email step, then an exit.",
+        "Send files through a workflow that has a trigger, then one transactional email step, then an exit, or "
+        "send this email without files.",
+    ),
+    "workflow_can_wait": (
+        "This email's workflow can hold a send, so PostHog didn't send the email with its files.",
+        "A step or a sending rate limit in this workflow can hold the send, so its files could expire before the "
+        "email goes out.",
+        "Send files through a workflow whose transactional email step follows the trigger directly and has no "
+        "sending rate limit, or send this email without files.",
+    ),
+    "email_render_limit_exceeded": (
+        "PostHog couldn't check the size of this email with its files, so it didn't send it.",
+        "Rendering this email's template went over a limit on time or length, so the size of the email with its "
+        "files couldn't be checked.",
+        "Simplify the email's template, or send this email without files.",
     ),
 }
 
@@ -681,16 +704,28 @@ def _queue(
 
 
 def _attachment_refusal(refusal_code: str | None, answer: dict[str, Any]) -> TransactionalEmailError | None:
-    if refusal_code not in {"attachment_not_uploaded", "message_too_large"}:
+    sha256 = answer.get("sha256") if isinstance(answer.get("sha256"), str) else None
+    error: TransactionalEmailError
+    if refusal_code == "field_not_accepted":
+        error = FieldNotAccepted("attachments")
+    elif refusal_code == "attachment_not_uploaded":
+        error = AttachmentNotUploaded(sha256)
+    elif refusal_code == "message_too_large":
+        error = MessageTooLarge(sha256)
+    elif refusal_code is not None and refusal_code in FILES_REFUSALS:
+        message, why, fix = FILES_REFUSALS[refusal_code]
+        error = AttachmentsRefused(
+            refusal_code, message, why=_explanation(answer, "reason") or why, fix=_explanation(answer, "fix") or fix
+        )
+    else:
         return None
-    sha256 = answer.get("sha256")
-    error = (
-        AttachmentNotUploaded(sha256 if isinstance(sha256, str) else None)
-        if refusal_code == "attachment_not_uploaded"
-        else MessageTooLarge(sha256 if isinstance(sha256, str) else None)
-    )
     error.attachment_bytes = _attachment_bytes(answer)
     return error
+
+
+def _explanation(answer: dict[str, Any], key: str) -> str | None:
+    value = answer.get(key)
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def _attachment_bytes(answer: dict[str, Any]) -> int | None:

@@ -2,6 +2,7 @@
 
 from products.messaging.backend.facade.contracts import (
     AttachmentNotUploaded,
+    AttachmentsRefused,
     AttachmentUploadRequest,
     AttachmentUploadSlot,
     AttachmentUploadStatus,
@@ -44,6 +45,7 @@ __all__ = [
     "SENDER_ADDRESS_MAX_LENGTH",
     "SENDER_ADDRESS_PATTERN",
     "AttachmentNotUploaded",
+    "AttachmentsRefused",
     "AttachmentUploadRequest",
     "AttachmentUploadSlot",
     "AttachmentUploadStatus",

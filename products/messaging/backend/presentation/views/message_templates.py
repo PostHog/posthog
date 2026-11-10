@@ -71,6 +71,7 @@ from products.messaging.backend.facade.transactional_email import (
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
     AttachmentNotUploaded,
+    AttachmentsRefused,
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
@@ -927,6 +928,8 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
                 outcome["attachment_bytes"] = e.attachment_bytes
             if isinstance(e, AttachmentNotUploaded | MessageTooLarge):
                 raise refused_attachment(e, attachments) from None
+            if isinstance(e, AttachmentsRefused):
+                raise ExplainedRefusal(str(e), code=e.code, attr=e.attr, why=e.why, fix=e.fix) from None
             raise TransactionalEmailRejected(e)
         except DeliveryUnavailable:
             outcome["outcome"] = "unavailable"

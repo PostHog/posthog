@@ -137,6 +137,14 @@ class UploadQuotaExceeded(TransactionalEmailError):
     code = "upload_quota_exceeded"
 
 
+class AttachmentsRefused(TransactionalEmailError):
+    attr = "attachments"
+
+    def __init__(self, code: str, message: str, *, why: str, fix: str) -> None:
+        super().__init__(message)
+        self.code, self.why, self.fix = code, why, fix
+
+
 @frozen
 class AttachmentUploadRequest:
     sha256: str

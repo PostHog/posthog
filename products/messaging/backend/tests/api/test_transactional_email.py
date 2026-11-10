@@ -995,6 +995,46 @@ class TestTransactionalEmail(APIBaseTest):
                 "attachments",
                 "40 MB after Base64 encoding, about 29 MB of files",
             ),
+            (
+                "files_off_for_this_project",
+                400,
+                {"error": "field_not_accepted"},
+                "field_not_accepted",
+                "attachments",
+                "without this field",
+            ),
+            (
+                "a_workflow_that_can_wait",
+                400,
+                {"error": "workflow_can_wait", "reason": "A step can hold the send.", "fix": "Drop the delay."},
+                "workflow_can_wait",
+                "attachments",
+                "Drop the delay.",
+            ),
+            (
+                "a_workflow_that_can_wait_explained_by_posthog",
+                400,
+                {"error": "workflow_can_wait"},
+                "workflow_can_wait",
+                "attachments",
+                "without files",
+            ),
+            (
+                "a_workflow_shape_that_cannot_send_files",
+                400,
+                {"error": "workflow_shape_not_supported", "reason": "It branches.", "fix": "Use one email step."},
+                "workflow_shape_not_supported",
+                "attachments",
+                "Use one email step.",
+            ),
+            (
+                "a_template_too_heavy_to_measure",
+                400,
+                {"error": "email_render_limit_exceeded", "reason": "It ran too long.", "fix": "Simplify it."},
+                "email_render_limit_exceeded",
+                "attachments",
+                "Simplify it.",
+            ),
         ]
     )
     def test_a_file_the_pipeline_refuses_is_named_with_a_reason_and_a_fix(
