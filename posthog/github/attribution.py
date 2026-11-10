@@ -3,7 +3,6 @@ from social_django.models import UserSocialAuth
 
 from posthog.github.metrics import GitHubWebhookAttributionOutcome, observe_github_webhook_attribution
 from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
-from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -21,7 +20,7 @@ _ATTRIBUTION_STATEMENT_TIMEOUT_MS = 800
 # Models the org-member resolver reads. ReplicaRouter only sends a model to the replica when
 # that model is named in READ_REPLICA_OPT_IN, so the set of aliases the lookup can touch is
 # knowable up front.
-_ATTRIBUTION_MODELS = (Team, User, OrganizationMembership, UserSocialAuth, UserIntegration, Integration)
+_ATTRIBUTION_MODELS = (Team, User, OrganizationMembership, UserSocialAuth, UserIntegration)
 
 
 def _resolve_github_login_distinct_id(login: str | None, team_id: int) -> str | None:
