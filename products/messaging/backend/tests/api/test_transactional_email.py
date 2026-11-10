@@ -2060,30 +2060,39 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
         self.client = APIClient()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
 
-    def _insert_and_commit_once_the_send_waits(self, inserted: threading.Event) -> None:
+    def _insert_and_commit_once_the_send_waits(self, inserted: threading.Event, app: dict[str, Any]) -> None:
         try:
             with transaction.atomic():
-                MessageCategory.objects.create(
+                app["category_id"] = MessageCategory.objects.create(
                     team=self.team, key="newsletter", name="Made in the app", category_type="marketing"
-                )
+                ).id
                 inserted.set()
-                for _ in range(600):
-                    with connection.cursor() as cursor:
-                        cursor.execute(
-                            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
-                            "AND wait_event_type = 'Lock' AND query ILIKE 'INSERT INTO \"posthog_messagecategory\"%%'"
-                        )
-                        if cursor.fetchone()[0]:
-                            return
-                    time.sleep(0.05)
+                app["send_waited"] = self._send_waits_on_the_insert()
+        except Exception as error:
+            app["error"] = error
         finally:
             inserted.set()
             connection.close()
 
+    def _send_waits_on_the_insert(self) -> bool:
+        for _ in range(600):
+            with connection.cursor() as cursor:
+                # Postgres keeps one activity snapshot per transaction, and this loop runs inside the app's.
+                cursor.execute("SELECT pg_stat_clear_snapshot()")
+                cursor.execute(
+                    "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() "
+                    "AND wait_event_type = 'Lock' AND query ILIKE 'INSERT INTO \"posthog_messagecategory\"%%'"
+                )
+                if cursor.fetchone()[0]:
+                    return True
+            time.sleep(0.05)
+        return False
+
     def test_a_key_the_app_creates_while_the_send_inserts_it_is_the_one_used(self, mock_post, _flag, _capture):
         inserted = threading.Event()
-        app = threading.Thread(target=self._insert_and_commit_once_the_send_waits, args=(inserted,))
-        app.start()
+        app: dict[str, Any] = {}
+        worker = threading.Thread(target=self._insert_and_commit_once_the_send_waits, args=(inserted, app))
+        worker.start()
         assert inserted.wait(timeout=30)
 
         response = self.client.post(
@@ -2097,9 +2106,12 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             },
             format="json",
         )
-        app.join(timeout=30)
+        worker.join(timeout=30)
 
+        assert not worker.is_alive()
+        assert "error" not in app, app.get("error")
+        assert app["send_waited"], "the send never waited on the app's insert, so the two did not race"
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        made_in_the_app = MessageCategory.objects.get(team=self.team, key="newsletter")
         sent = json.loads(mock_post.call_args.kwargs["data"])["send"]
-        assert sent["messageCategory"] == {"id": str(made_in_the_app.id), "type": "marketing"}
+        assert sent["messageCategory"] == {"id": str(app["category_id"]), "type": "marketing"}
+        assert MessageCategory.objects.filter(team=self.team, key="newsletter").count() == 1
