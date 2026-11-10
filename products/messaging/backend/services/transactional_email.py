@@ -715,6 +715,8 @@ def prepare_attachment_uploads(team: Team, files: Sequence[AttachmentUploadReque
             status_code=response.status_code,
             refusal_code=refusal_code,
         )
+    if refusal_code == "invalid_request":
+        raise InvalidRequest("The email pipeline refused this file list.")
     raise DeliveryUnavailable()
 
 

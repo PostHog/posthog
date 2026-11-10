@@ -132,6 +132,13 @@ class TestAttachmentUploads(APIBaseTest):
                 "upload_quota_exceeded",
                 None,
             ),
+            (
+                "a_file_list_the_pipeline_finds_invalid",
+                _cdp_answers(400, {"error": "invalid_request", "detail": "One sha256 is listed with two sizes"}),
+                400,
+                "invalid_request",
+                "files",
+            ),
             ("storage_down", _cdp_answers(503, {"error": "delivery_unavailable"}), 503, "delivery_unavailable", None),
             ("pipeline_unreachable", {"side_effect": requests.ConnectTimeout()}, 503, "delivery_unavailable", None),
             (
@@ -204,6 +211,14 @@ class TestAttachmentUploads(APIBaseTest):
                 "files__0__name",
                 1,
                 1,
+            ),
+            (
+                "one_hash_with_two_sizes",
+                {"files": [{"sha256": INVOICE, "size": 1}, {"sha256": INVOICE, "size": 2}]},
+                "invalid_request",
+                "files__1__size",
+                2,
+                3,
             ),
             ("a_list_instead_of_an_object", [{"sha256": INVOICE, "size": 1}], "invalid_request", None, None, None),
         ]
