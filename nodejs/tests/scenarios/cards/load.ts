@@ -15,12 +15,7 @@ export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
 export const ROLE_RESTART_BACKOFF_MS = 2000
 const JANITOR_STALL_BACKOFF_FIRST_RETRY_SPREAD_MS = 5000
 const STALLING_VALVES = ['role.kill', 'role.freeze', 'pg.drop_connections']
-const PROCESS_ENV_SETTINGS = [
-    'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD',
-    'HOG_BYTECODE_CACHE_REQUIRED',
-    'HOG_BYTECODE_CACHE_REWRITE',
-    'SES_ALLOWED_SNS_TOPIC_ARNS',
-]
+const PROCESS_ENV_SETTINGS = ['HOG_BYTECODE_CACHE_REQUIRED', 'HOG_BYTECODE_CACHE_REWRITE']
 
 export type LoadedCard = { card: Card; profile: Profile; cardHash: string; profileHash: string }
 

@@ -1,15 +1,15 @@
 import { execFile, spawn } from 'child_process'
-import { closeSync, openSync } from 'fs'
+import { createHash } from 'crypto'
+import { closeSync, openSync, realpathSync } from 'fs'
 import Redis from 'ioredis'
+import net from 'net'
 import path from 'path'
 import { Client } from 'pg'
-import { setTimeout as sleep } from 'timers/promises'
 import { promisify } from 'util'
 
-import { getDefaultCdpConfig } from '~/cdp/config'
 import { internalFetch } from '~/common/utils/request'
 
-import { ConsumerGroup, Role, RoleSpec } from './roles'
+import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec } from './roles'
 
 const PROBE_TIMEOUT_MS = 2000
 
@@ -21,19 +21,7 @@ export const STACK = {
     sesRateLimiterValkey: { host: '127.0.0.1', port: 6390 },
     personhogReadinessUrl: 'http://127.0.0.1:9101/_readiness',
     kafkaContainer: 'posthog-kafka-1',
-    eventsConsumerGroup: getDefaultCdpConfig().CDP_EVENTS_CONSUMER_GROUP_ID,
     templates: ['template-email', 'template-webhook'],
-}
-
-export async function poll<T>(probe: () => Promise<T | undefined>, timeoutMs: number): Promise<T | undefined> {
-    const deadline = Date.now() + timeoutMs
-    for (;;) {
-        const found = await probe()
-        if (found !== undefined || Date.now() >= deadline) {
-            return found
-        }
-        await sleep(1000)
-    }
 }
 
 async function hogli(repoRoot: string, args: string[], logFile: string, env: NodeJS.ProcessEnv): Promise<void> {
@@ -49,23 +37,69 @@ async function hogli(repoRoot: string, args: string[], logFile: string, env: Nod
     }
 }
 
+function realOrResolved(dir: string): string {
+    try {
+        return realpathSync(dir)
+    } catch {
+        return path.resolve(dir)
+    }
+}
+
+export function phrocsSocketPath(dir: string): string {
+    return `/tmp/phrocs-${createHash('sha256').update(realOrResolved(dir)).digest('hex').slice(0, 8)}.sock`
+}
+
+export function stackIsLive(repoRoot: string): Promise<boolean> {
+    return new Promise((resolve) => {
+        const socket = net.connect(phrocsSocketPath(repoRoot))
+        const settle = (live: boolean): void => {
+            socket.destroy()
+            resolve(live)
+        }
+        socket.setTimeout(PROBE_TIMEOUT_MS, () => settle(false))
+        socket.once('connect', () => settle(true))
+        socket.once('error', () => settle(false))
+    })
+}
+
+export function stackCommands(config: string, live: boolean): string[][] {
+    const launch = [
+        ['dev:generate', '--with', 'workflows', '--without', 'nodejs'],
+        ['up', '-d', '--custom', config],
+    ]
+    return [...(live ? [] : launch), ['wait']]
+}
+
 export async function startStack(repoRoot: string, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
     const config = path.join(stateDir, 'mprocs.yaml')
     const logFile = path.join(stateDir, 'hogli.log')
     const hogliEnv = { ...env, HOGLI_MPROCS_PATH: config, HOGLI_SKIP_ZOMBIE_CHECK: '1' }
-    await hogli(repoRoot, ['dev:generate', '--with', 'workflows', '--without', 'nodejs'], logFile, hogliEnv)
-    await hogli(repoRoot, ['up', '-d', '--custom', config], logFile, hogliEnv)
-    await hogli(repoRoot, ['wait'], logFile, hogliEnv)
+    for (const args of stackCommands(config, await stackIsLive(repoRoot))) {
+        await hogli(repoRoot, args, logFile, hogliEnv)
+    }
+}
+
+export async function syncTemplates(repoRoot: string, stateDir: string, env: NodeJS.ProcessEnv): Promise<void> {
+    await hogli(repoRoot, ['dev:sync-hog-templates'], path.join(stateDir, 'hogli.log'), env)
 }
 
 export async function withPostgres<T>(
     run: (client: Client) => Promise<T>,
     connectionString = STACK.postgresUrl
 ): Promise<T> {
-    const client = new Client({ connectionString, connectionTimeoutMillis: PROBE_TIMEOUT_MS })
+    const client = new Client({
+        connectionString,
+        connectionTimeoutMillis: PROBE_TIMEOUT_MS,
+        query_timeout: PROBE_TIMEOUT_MS,
+        statement_timeout: PROBE_TIMEOUT_MS,
+    })
     try {
         await client.connect()
         return await run(client)
+    } catch (error) {
+        throw new Error(`Postgres at ${new URL(connectionString).host} failed: ${(error as Error).message}`, {
+            cause: error,
+        })
     } finally {
         await client.end().catch(() => undefined)
     }
@@ -78,7 +112,7 @@ export async function missingTemplates(): Promise<string[]> {
             [STACK.templates]
         )
         return rows.map((row) => row.template_id)
-    }).catch((): string[] => [])
+    })
     return STACK.templates.filter((template) => !present.includes(template))
 }
 
@@ -148,8 +182,8 @@ export async function deleteUnfinishedJobs(cyclotronUrl: string): Promise<void> 
 
 export async function rolesNotReady(specs: RoleSpec[]): Promise<Role[]> {
     const results = await Promise.all(
-        specs.map(({ role, port }) =>
-            expectOk(`http://127.0.0.1:${port}/_health`).then(
+        specs.map(({ role }) =>
+            expectOk(`http://127.0.0.1:${ROLE_PORTS[role]}/_health`).then(
                 () => null,
                 () => role
             )
@@ -158,12 +192,14 @@ export async function rolesNotReady(specs: RoleSpec[]): Promise<Role[]> {
     return results.filter((role): role is Role => role !== null)
 }
 
-async function pingRedis({ host, port }: { host: string; port: number }): Promise<void> {
+export async function pingRedis({ host, port }: { host: string; port: number }): Promise<void> {
     const redis = new Redis({
         host,
         port,
         lazyConnect: true,
         connectTimeout: PROBE_TIMEOUT_MS,
+        commandTimeout: PROBE_TIMEOUT_MS,
+        enableReadyCheck: false,
         maxRetriesPerRequest: 0,
         enableOfflineQueue: false,
         retryStrategy: () => null,
@@ -185,7 +221,7 @@ async function pingKafka(): Promise<void> {
     await new Promise((resolve) => producer.disconnect(resolve))
 }
 
-async function expectOk(url: string): Promise<void> {
+export async function expectOk(url: string): Promise<void> {
     const { status } = await internalFetch(url, { timeoutMs: PROBE_TIMEOUT_MS })
     if (status !== 200) {
         throw new Error(`${url} answered ${status}`)
