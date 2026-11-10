@@ -1,4 +1,5 @@
 import datetime
+import dataclasses
 from contextlib import nullcontext
 from typing import Any, cast
 from uuid import uuid4
@@ -2037,8 +2038,8 @@ class TestQuotaLimiting(BaseTest):
             result = update_all_orgs_billing_quotas()
 
             assert result.quota_limited_orgs["llm_events"] == {str(self.organization.id): 1612137599}
-            quota_result = QuotaLimitingResult(**result.stats)
-            assert (quota_result.ai_overage_teams, quota_result.ai_overage_mb) == (1, 3)
+            assert (result.stats["ai_overage_teams"], result.stats["ai_overage_mb"]) == (1, 3)
+            assert result.stats.keys() <= {field.name for field in dataclasses.fields(QuotaLimitingResult)}
 
     @parameterized.expand(
         [
