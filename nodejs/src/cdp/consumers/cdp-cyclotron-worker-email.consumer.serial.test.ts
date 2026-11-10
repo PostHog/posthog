@@ -21,6 +21,7 @@ import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { CyclotronV2Manager } from '~/cdp/services/cyclotron-v2'
 import { createHogFlowInvocation } from '~/cdp/services/hogflows/hogflow-executor.service'
+import { HogFlowManagerService } from '~/cdp/services/hogflows/hogflow-manager.service'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { CONSUMER_STOP_DEADLINE_MS } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { LONGEST_WAIT_FOR_ROOM_MS } from '~/cdp/services/messaging/attachment-horizon'
@@ -100,6 +101,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     let integration: { id: number }
     let template: { template_id: string }
     let backToRealClock: () => void = () => undefined
+    let workflowLookupSpy: jest.SpyInstance | undefined
 
     const roomFor = (sends: number): InFlightLimits => ({
         budgetBytes: sends * estimateSend(invoice.metadata.sizeBytes).reservedBytes,
@@ -163,6 +165,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
 
     afterEach(async () => {
         backToRealClock()
+        workflowLookupSpy?.mockRestore()
+        workflowLookupSpy = undefined
         cyclotron.releaseAll()
         bucket.release('refuse')
         await Promise.all(workers.map((worker) => worker.stop()))
@@ -405,11 +409,30 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     )
 
     it.each([
-        { send: 'an admitted send with files', write: 'result', room: 1, marker: completes, after: 'completed' },
-        { send: 'a deferred send with files', write: 'deferral', room: 0, marker: defers, after: 'available' },
-    ])('renews the lease of $send while its $write write waits', async ({ room, marker, after }) => {
+        {
+            send: 'an admitted send with files',
+            wait: 'its result write',
+            room: 1,
+            hold: (id: string) => cyclotron.hold(writeOf(completes, id)),
+            after: 'completed',
+        },
+        {
+            send: 'a deferred send with files',
+            wait: 'its deferral write',
+            room: 0,
+            hold: (id: string) => cyclotron.hold(writeOf(defers, id)),
+            after: 'available',
+        },
+        {
+            send: 'a send with files',
+            wait: 'the workflow lookup before admission',
+            room: 1,
+            hold: () => holdWorkflowLookup(),
+            after: 'completed',
+        },
+    ])('renews the lease of $send while $wait waits', async ({ room, hold, after }) => {
         const send = transactionalSend([invoice.metadata])
-        const held = cyclotron.hold(writeOf(marker, send.id))
+        const held = hold(send.id)
         await enqueue(send)
         await startWorker(roomFor(room))
 
@@ -607,6 +630,26 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         })
     })
 
+    function holdWorkflowLookup(): Promise<{ release: () => void }> {
+        const lookup = HogFlowManagerService.prototype.getHogFlowsCheckingPrimaryOnMiss
+        return new Promise((held) => {
+            workflowLookupSpy = jest
+                .spyOn(HogFlowManagerService.prototype, 'getHogFlowsCheckingPrimaryOnMiss')
+                .mockImplementationOnce(function (this: HogFlowManagerService, ids) {
+                    return new Promise((resolve) => held({ release: () => resolve(lookup.call(this, ids)) }))
+                })
+        })
+    }
+
+    const failWorkflowLookups = (): void => {
+        const lookup = HogFlowManagerService.prototype.getHogFlowsCheckingPrimaryOnMiss
+        workflowLookupSpy = jest
+            .spyOn(HogFlowManagerService.prototype, 'getHogFlowsCheckingPrimaryOnMiss')
+            .mockImplementation(function (this: HogFlowManagerService, ids) {
+                return ids.length > 0 ? Promise.reject(new Error('workflow lookup failed')) : lookup.call(this, ids)
+            })
+    }
+
     const waitedTooLong = (): Partial<CyclotronJobInvocation> => ({
         queueMetadata: { attachmentDeferrals: 40, attachmentDueAt: Date.now() - LONGEST_WAIT_FOR_ROOM_MS },
     })
@@ -617,6 +660,15 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             room: null,
             overrides: () => ({ queueScheduledAt: DateTime.now().plus({ hours: 1 }) }),
             cancel: true,
+            status: 'canceled',
+            emailStatus: { status: 'failed', reason: 'canceled', sendingDomain: '' },
+        },
+        {
+            send: 'a canceled send with files while workflow lookups fail',
+            room: 1,
+            overrides: () => ({ queueScheduledAt: DateTime.now().plus({ hours: 1 }) }),
+            cancel: true,
+            lookupsFail: true,
             status: 'canceled',
             emailStatus: { status: 'failed', reason: 'canceled', sendingDomain: '' },
         },
@@ -636,20 +688,34 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             status: 'failed',
             emailStatus: { status: 'failed', reason: 'attachment_wait_expired', sendingDomain: '' },
         },
-    ])('ends $send, instead of deferring it', async ({ room, overrides, cancel, status, emailStatus }) => {
-        const [id] = await enqueue(transactionalSend([invoice.metadata], overrides()))
-        if (cancel) {
-            const manager = new CyclotronV2Manager({ pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! } })
-            await manager.connect()
-            await manager.cancelJobs({ teamId: team.id, functionId: hogFlow.id, jobIds: [id] })
-            await manager.disconnect()
-        }
-        await startWorker(room === null ? null : roomFor(room))
+    ] as {
+        send: string
+        room: number | null
+        overrides: () => Partial<CyclotronJobInvocation>
+        cancel: boolean
+        lookupsFail?: boolean
+        status: string
+        emailStatus: EmailStatus
+    }[])(
+        'ends $send, instead of deferring it',
+        async ({ room, overrides, cancel, lookupsFail, status, emailStatus }) => {
+            const [id] = await enqueue(transactionalSend([invoice.metadata], overrides()))
+            if (lookupsFail) {
+                failWorkflowLookups()
+            }
+            if (cancel) {
+                const manager = new CyclotronV2Manager({ pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! } })
+                await manager.connect()
+                await manager.cancelJobs({ teamId: team.id, functionId: hogFlow.id, jobIds: [id] })
+                await manager.disconnect()
+            }
+            await startWorker(room === null ? null : roomFor(room))
 
-        expect(await ended(id)).toBe(status)
-        await waitForExpect(() => expect(emailStatusOf(id)).toEqual(emailStatus))
-        expect(delivered()).toEqual([])
-    })
+            expect(await ended(id)).toBe(status)
+            await waitForExpect(() => expect(emailStatusOf(id)).toEqual(emailStatus))
+            expect(delivered()).toEqual([])
+        }
+    )
 
     it.each([
         {
