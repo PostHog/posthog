@@ -3,7 +3,7 @@ import { ReactNode } from 'react'
 import { LemonTabs } from '@posthog/lemon-ui'
 
 import type { TraceNodeApi } from '../../../generated/api.schemas'
-import { EvalsState, MessagesOpening, NodeContent, NodeDetailTab, NodeProperties } from '../types'
+import { EvalsState, MessagesOpening, NodeContent, NodeDetailTab, NodeProperties, RawLoad } from '../types'
 import { EvalResultList } from './EvalResultList'
 import { NodeContentGate } from './NodeContentGate'
 import { NodeDetailHeader } from './NodeDetailHeader'
@@ -21,7 +21,7 @@ export interface NodeDetailProps {
     error: string | null
     properties: NodeProperties
     evals: EvalsState
-    raw: Record<string, unknown> | null
+    raw: RawLoad | undefined
     onViewInThread: (() => void) | null
     messagesOpening: MessagesOpening
     onMessagesOpeningChange: (opening: MessagesOpening) => void
@@ -82,11 +82,7 @@ export function NodeDetail(props: NodeDetailProps): JSX.Element {
                         key: 'raw',
                         label: 'Raw',
                         'data-attr': 'trace-view-detail-tab-raw',
-                        content: (
-                            <NodeContentGate content={props.content}>
-                                {() => <NodeRawTab raw={props.raw} />}
-                            </NodeContentGate>
-                        ),
+                        content: <NodeRawTab raw={props.raw} />,
                     },
                 ]}
             />
