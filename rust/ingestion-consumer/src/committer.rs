@@ -47,22 +47,48 @@ pub(crate) enum CommitError {
 }
 
 impl CommitError {
-    /// A broker answers a commit with `ConsumerCommit`. Any other error comes
-    /// from the client, and the same offsets would fail again.
+    /// Group membership, the coordinator and the network recover on their own.
+    /// Any other error fails again for the same offsets.
     fn is_retriable(&self) -> bool {
-        matches!(self, Self::Kafka(KafkaError::ConsumerCommit(_)))
+        let Self::Kafka(KafkaError::ConsumerCommit(code)) = self else {
+            return false;
+        };
+        matches!(
+            code,
+            RDKafkaErrorCode::StaleMemberEpoch
+                | RDKafkaErrorCode::FencedMemberEpoch
+                | RDKafkaErrorCode::UnknownMemberId
+                | RDKafkaErrorCode::IllegalGeneration
+                | RDKafkaErrorCode::RebalanceInProgress
+                | RDKafkaErrorCode::NotCoordinator
+                | RDKafkaErrorCode::CoordinatorNotAvailable
+                | RDKafkaErrorCode::CoordinatorLoadInProgress
+                | RDKafkaErrorCode::WaitingForCoordinator
+                | RDKafkaErrorCode::BrokerTransportFailure
+                | RDKafkaErrorCode::NetworkException
+                | RDKafkaErrorCode::RequestTimedOut
+                | RDKafkaErrorCode::OperationTimedOut
+        )
     }
 
     fn kind(&self) -> &'static str {
         match self {
             Self::Kafka(KafkaError::ConsumerCommit(code)) => match code {
                 RDKafkaErrorCode::StaleMemberEpoch => "stale_member_epoch",
+                RDKafkaErrorCode::FencedMemberEpoch => "fenced_member_epoch",
                 RDKafkaErrorCode::UnknownMemberId => "unknown_member_id",
                 RDKafkaErrorCode::IllegalGeneration => "illegal_generation",
                 RDKafkaErrorCode::RebalanceInProgress => "rebalance_in_progress",
                 RDKafkaErrorCode::NotCoordinator
                 | RDKafkaErrorCode::CoordinatorNotAvailable
-                | RDKafkaErrorCode::BrokerTransportFailure => "coordinator",
+                | RDKafkaErrorCode::CoordinatorLoadInProgress
+                | RDKafkaErrorCode::WaitingForCoordinator => "coordinator",
+                RDKafkaErrorCode::BrokerTransportFailure | RDKafkaErrorCode::NetworkException => {
+                    "network"
+                }
+                RDKafkaErrorCode::RequestTimedOut | RDKafkaErrorCode::OperationTimedOut => {
+                    "timeout"
+                }
                 _ => "other",
             },
             Self::Kafka(_) => "client",
@@ -291,9 +317,14 @@ mod tests {
 
     enum Reply {
         Accept,
-        Reject,
-        ClientError,
+        Fail(KafkaError),
         Hold(mpsc::Receiver<Reply>),
+    }
+
+    fn stale_member_epoch() -> Reply {
+        Reply::Fail(KafkaError::ConsumerCommit(
+            RDKafkaErrorCode::StaleMemberEpoch,
+        ))
     }
 
     struct FakeClient {
@@ -309,7 +340,7 @@ mod tests {
             let _ = self.started.send(());
             let mut reply = self.replies.lock().unwrap().pop_front().unwrap_or(
                 if self.reject_once_replies_run_out {
-                    Reply::Reject
+                    stale_member_epoch()
                 } else {
                     Reply::Accept
                 },
@@ -319,12 +350,7 @@ mod tests {
             }
             match reply {
                 Reply::Accept => Ok(()),
-                Reply::Reject => Err(KafkaError::ConsumerCommit(
-                    RDKafkaErrorCode::StaleMemberEpoch,
-                )),
-                Reply::ClientError => Err(KafkaError::SetPartitionOffset(
-                    RDKafkaErrorCode::InvalidArgument,
-                )),
+                Reply::Fail(error) => Err(error),
                 Reply::Hold(_) => unreachable!(),
             }
         }
@@ -422,7 +448,7 @@ mod tests {
         fixture.wait_for_a_commit_to_start().await;
 
         fixture.committer.submit(&offsets(&[(0, 2)]));
-        release.send(Reply::Reject).unwrap();
+        release.send(stale_member_epoch()).unwrap();
 
         assert!(fixture.committer.flush_all(FLUSH).await);
         assert_eq!(
@@ -459,18 +485,20 @@ mod tests {
         assert!(fixture.committer.flush(&[p(0)], FLUSH).await);
     }
 
+    #[rstest::rstest]
+    #[case::client_error(KafkaError::SetPartitionOffset(RDKafkaErrorCode::InvalidArgument))]
+    #[case::permanent_broker_error(KafkaError::ConsumerCommit(
+        RDKafkaErrorCode::GroupAuthorizationFailed
+    ))]
     #[tokio::test]
-    async fn a_client_error_stops_the_committer() {
-        let fixture = Fixture::with_replies(vec![Reply::ClientError]);
+    async fn an_error_retrying_cannot_fix_stops_the_committer(#[case] error: KafkaError) {
+        let fixture = Fixture::with_replies(vec![Reply::Fail(error.clone())]);
         fixture.committer.submit(&offsets(&[(0, 1)]));
 
         let stop_reason = tokio::time::timeout(FLUSH, fixture.committer.stopped())
             .await
             .expect("the committer stops");
-        assert!(matches!(
-            stop_reason,
-            CommitError::Kafka(KafkaError::SetPartitionOffset(_))
-        ));
+        assert!(matches!(stop_reason, CommitError::Kafka(err) if err == error));
         fixture.committer.submit(&offsets(&[(0, 2)]));
         assert!(!fixture.committer.flush_all(FLUSH).await);
         assert_eq!(fixture.calls(), vec![offsets(&[(0, 1)])]);
@@ -487,7 +515,7 @@ mod tests {
         calls: vec![offsets(&[(0, 1), (1, 1)])],
     })]
     #[case::in_flight_commit_rejected(ForgetCase {
-        in_flight_reply: Reply::Reject,
+        in_flight_reply: stale_member_epoch(),
         calls: vec![offsets(&[(0, 1), (1, 1)]), offsets(&[(1, 1)])],
     })]
     #[tokio::test]
