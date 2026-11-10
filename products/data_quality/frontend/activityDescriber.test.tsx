@@ -51,6 +51,20 @@ describe('dataQualityCheckActivityDescriber', () => {
         expect(textOf(result.description)).toContain('changed the severity from error to warning')
     })
 
+    it('keeps an update that only changed the check type', () => {
+        const result = dataQualityCheckActivityDescriber(
+            logItem({
+                detail: {
+                    merge: null,
+                    trigger: null,
+                    name: 'orders_customer_id_not_null',
+                    changes: [change(ActivityScope.DATA_QUALITY_CHECK, 'check_type', 'not_null', 'unique')],
+                },
+            })
+        )
+        expect(textOf(result.description)).toContain('changed the check type from not_null to unique')
+    })
+
     it('hides an update that only touched fields the runner writes', () => {
         const result = dataQualityCheckActivityDescriber(
             logItem({

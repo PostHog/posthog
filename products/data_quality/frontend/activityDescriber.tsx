@@ -59,6 +59,7 @@ const CHECK_CHANGES: Record<string, (change: ActivityChange) => ChangeMapping | 
         summary: ['Changed the severity'],
     }),
     enabled: (change) => simple(change.after ? 'turned the check on' : 'turned the check off'),
+    check_type: (change) => changed('check type', change),
     column_name: (change) => changed('column', change),
     config: () => simple('changed the configuration'),
     tags: () => simple('changed the tags'),
