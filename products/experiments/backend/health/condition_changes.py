@@ -87,7 +87,7 @@ class OverrideChanges:
 @frozen
 class LoweredRollout:
     condition_number: int
-    variant: str | None
+    # The highest rollout before a lowering, so the users this condition no longer serves are the ones it served then.
     before: float
     after: float
     lowered_at: datetime
@@ -179,9 +179,7 @@ def conditions_net_effect(
         for index, condition_id in enumerate(followed.end_ids)
         if condition_id in start_index
     }
-    lowered = _net_lowered_rollouts(
-        dict(zip(followed.start_ids, first.before)), now_ids, now, numbers, followed.lowered_at
-    )
+    lowered = _net_lowered_rollouts(now_ids, now, numbers, followed.lowerings)
     shape = _shape(first.before, last.after, net_pairs)
     if shape is None:
         if lowered:
@@ -220,33 +218,30 @@ def conditions_net_effect(
     )
 
 
+@frozen
+class _Lowering:
+    peak: float
+    lowered_at: datetime
+    # The condition right after the last lowering.
+    condition: ReleaseCondition
+
+
 def _net_lowered_rollouts(
-    start: Mapping[int, ReleaseCondition],
-    now_ids: tuple[int, ...],
-    now: ReleaseConditions,
-    numbers: Mapping[int, int],
-    lowered_at: Mapping[int, datetime],
+    now_ids: tuple[int, ...], now: ReleaseConditions, numbers: Mapping[int, int], lowerings: Mapping[int, _Lowering]
 ) -> tuple[LoweredRollout, ...]:
-    lowered = []
-    for condition_id, condition in zip(now_ids, now):
-        old = start.get(condition_id)
-        if (
-            old is None
-            or condition_id not in lowered_at
-            or condition.variant != old.variant
-            or not _lowers_rollout(old, condition)
-        ):
-            continue
-        lowered.append(
-            LoweredRollout(
-                condition_number=numbers[condition_id],
-                variant=condition.variant,
-                before=old.rollout,
-                after=condition.rollout,
-                lowered_at=lowered_at[condition_id],
-            )
+    return tuple(
+        LoweredRollout(
+            condition_number=numbers[condition_id],
+            before=lowering.peak,
+            after=condition.rollout,
+            lowered_at=lowering.lowered_at,
         )
-    return tuple(lowered)
+        for condition_id, condition in zip(now_ids, now)
+        if (lowering := lowerings.get(condition_id)) is not None
+        and condition.criteria == lowering.condition.criteria
+        and condition.variant == lowering.condition.variant
+        and condition.rollout < lowering.peak
+    )
 
 
 def _lowered_rollouts(before: ReleaseConditions, after: ReleaseConditions, pairs: Mapping[int, int]) -> bool:
@@ -271,7 +266,7 @@ class _Followed:
     start_ids: tuple[int, ...]
     end_ids: tuple[int, ...]
     variant_changes: tuple[_VariantChange, ...]
-    lowered_at: Mapping[int, datetime]
+    lowerings: Mapping[int, _Lowering]
 
 
 def _follow(changes: Sequence[ConditionsChange]) -> _Followed:
@@ -279,7 +274,7 @@ def _follow(changes: Sequence[ConditionsChange]) -> _Followed:
     start_ids = tuple(next(new_ids) for _ in changes[0].before)
     conditions, ids = changes[0].before, start_ids
     variant_changes = []
-    lowered_at: dict[int, datetime] = {}
+    lowerings: dict[int, _Lowering] = {}
     for change in changes:
         # A save that changes only what this module ignores, such as a higher rollout, is not a change, and neither is
         # an exposure freeze. A change can then start from other conditions than the ones the change before it ended
@@ -300,15 +295,16 @@ def _follow(changes: Sequence[ConditionsChange]) -> _Followed:
                         before_audience=_audience(old) if old is not None else None,
                     )
                 )
-        lowered_at.update(
-            {
-                condition_id: change.changed_at
-                for condition_id, new in after.items()
-                if (old := before.get(condition_id)) is not None and _lowers_rollout(old, new)
-            }
-        )
+        for condition_id, new in after.items():
+            old = before.get(condition_id)
+            if old is None or not _lowers_rollout(old, new):
+                continue
+            # A higher rollout is no change, so the condition before a lowering shows any raise since the last one.
+            earlier = lowerings.get(condition_id)
+            peak = old.rollout if earlier is None else max(earlier.peak, old.rollout)
+            lowerings[condition_id] = _Lowering(peak=peak, lowered_at=change.changed_at, condition=new)
         conditions, ids = change.after, after_ids
-    return _Followed(start_ids=start_ids, end_ids=ids, variant_changes=tuple(variant_changes), lowered_at=lowered_at)
+    return _Followed(start_ids=start_ids, end_ids=ids, variant_changes=tuple(variant_changes), lowerings=lowerings)
 
 
 def _rejoin(followed: _Followed, start: ReleaseConditions, end: ReleaseConditions) -> _Followed:
@@ -329,9 +325,8 @@ def _rejoin(followed: _Followed, start: ReleaseConditions, end: ReleaseCondition
             replace(change, condition_id=joined.get(change.condition_id, change.condition_id))
             for change in followed.variant_changes
         ),
-        lowered_at={
-            joined.get(condition_id, condition_id): changed_at
-            for condition_id, changed_at in followed.lowered_at.items()
+        lowerings={
+            joined.get(condition_id, condition_id): lowering for condition_id, lowering in followed.lowerings.items()
         },
     )
 

@@ -202,7 +202,6 @@ class FlagState:
     variants: tuple[FlagVariant, ...]
     # The release conditions that can serve a request, in evaluation order.
     reachable_conditions: tuple[ReachableCondition, ...]
-    early_exit: bool = False
     saved_at: datetime | None = None
 
 
@@ -671,7 +670,6 @@ def parse_flag_state(
             _reachable_condition(index + 1, conditions[index], variant_keys, aggregation_group_type_index)
             for index in reachable
         ),
-        early_exit=early_exit,
         saved_at=saved_at,
     )
 

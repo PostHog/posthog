@@ -154,6 +154,21 @@ class TestConditionChanges(TestCase):
 
         self.assertEqual(effect.shape if effect else None, expected)
 
+    def test_rollout_lowered_after_a_raise_counts_from_the_raise(self) -> None:
+        effect = conditions_net_effect(
+            [
+                _change([_condition(PRO, rollout=20)], [_condition(PRO, rollout=10)]),
+                _change([_condition(PRO, rollout=100)], [_condition(PRO, rollout=50)], minutes=17),
+            ],
+            current=None,
+        )
+
+        assert effect is not None
+        self.assertEqual(
+            [(rollout.condition_number, rollout.before, rollout.after) for rollout in effect.lowered_rollouts],
+            [(1, 100, 50)],
+        )
+
     def test_conditions_set_back_are_reverted(self) -> None:
         effect = conditions_net_effect(
             [
