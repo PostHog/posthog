@@ -26,8 +26,6 @@ export function WorkflowsListV2(): JSX.Element {
         serverSearchStatus,
         hasHealthFilter,
         metricsLoaded,
-        filteredRows,
-        isUnfilteredAutomationView,
     } = useValues(workflowsListV2Logic)
     const { setValue, loadWorkflows, loadMetrics } = useActions(workflowsListV2Logic)
     const {
@@ -37,7 +35,7 @@ export function WorkflowsListV2(): JSX.Element {
         folderSearchItems,
         folderMatchesText,
         displayedValue,
-        folderDraft,
+        showsAutomationSetup,
     } = useValues(workflowFoldersLogic)
 
     useOnMountEffect(() => {
@@ -47,13 +45,6 @@ export function WorkflowsListV2(): JSX.Element {
 
     const { loadBrowser } = useActions(workflowFoldersLogic)
     const metricsFailed = listLoaded && hasHealthFilter && !metricsLoaded && !metricsLoading
-    // The folder contents hold the inline name field of a new folder, so an open draft keeps them on screen.
-    const showsAutomationSetup =
-        listLoaded &&
-        !folderDraft &&
-        isUnfilteredAutomationView &&
-        filteredRows.length === 0 &&
-        serverSearchStatus !== 'pending'
     const renderLoadError = (): JSX.Element => {
         if (browserLoadFailed) {
             return (

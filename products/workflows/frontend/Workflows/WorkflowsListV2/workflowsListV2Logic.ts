@@ -205,6 +205,7 @@ export interface workflowsListV2LogicValues {
     filesByRef: Record<string, FileSystemEntry>
     filteredRows: WorkflowListRow[]
     hasHealthFilter: boolean
+    hasNoAutomations: boolean
     isUnfilteredAutomationView: boolean
     listLoaded: boolean
     loadErrorDetail: string | null
@@ -342,6 +343,12 @@ export interface workflowsListV2LogicMeta {
         hasHealthFilter: (value: FacetSearchValue) => boolean
         metricsLoaded: (metrics: WorkflowStatsRowApi[] | null) => boolean
         isUnfilteredAutomationView: (value: FacetSearchValue) => boolean
+        hasNoAutomations: (
+            listLoaded: boolean,
+            isUnfilteredAutomationView: boolean,
+            filteredRows: WorkflowListRow[],
+            serverSearchStatus: ServerSearchStatus
+        ) => boolean
         templateTypeFilter: (value: FacetSearchValue) => WorkflowTemplateTypeFilter
         rows: (workflows: HogFlowListSummaryApi[] | null, metrics: WorkflowStatsRowApi[] | null) => WorkflowListRow[]
         listLoaded: (workflows: HogFlowListSummaryApi[] | null) => boolean
@@ -551,6 +558,19 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 value.filters[0].facet === 'kind' &&
                 value.filters[0].value === 'automation' &&
                 !value.filters[0].negated,
+        ],
+        hasNoAutomations: [
+            (s) => [s.listLoaded, s.isUnfilteredAutomationView, s.filteredRows, s.serverSearchStatus],
+            (
+                listLoaded: boolean,
+                isUnfilteredAutomationView: boolean,
+                filteredRows: WorkflowListRow[],
+                serverSearchStatus: ServerSearchStatus
+            ): boolean =>
+                listLoaded &&
+                isUnfilteredAutomationView &&
+                filteredRows.length === 0 &&
+                serverSearchStatus !== 'pending',
         ],
         templateTypeFilter: [
             (s) => [s.value],

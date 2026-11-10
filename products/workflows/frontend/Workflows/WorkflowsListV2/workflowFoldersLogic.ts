@@ -56,6 +56,7 @@ export interface workflowFoldersLogicValues {
     currentTeamId: number | null // teamLogic
     facets: FacetDefinition<WorkflowListRow>[] // workflowsListV2Logic
     filesByRef: Record<string, FileSystemEntry> // workflowsListV2Logic
+    hasNoAutomations: boolean // workflowsListV2Logic
     matchesText: MatchesText<WorkflowListRow> // workflowsListV2Logic
     rows: WorkflowListRow[] // workflowsListV2Logic
     value: FacetSearchValue // workflowsListV2Logic
@@ -99,6 +100,7 @@ export interface workflowFoldersLogicValues {
     selectableFiles: Record<string, FileSystemEntry>
     selectedFileIds: string[]
     selectedFiles: FileSystemEntry[]
+    showsAutomationSetup: boolean
     takenFolderPaths: string[] | null
 }
 
@@ -247,6 +249,7 @@ export interface workflowFoldersLogicMeta {
             matchesText: MatchesText<WorkflowListRow>
         ) => WorkflowListRow[]
         hasActiveQuery: (value: FacetSearchValue) => boolean
+        showsAutomationSetup: (hasNoAutomations: any, folderDraft: WorkflowFolderDraft | null) => boolean
         matchingTemplates: (
             folderSearchItems: WorkflowFolderFileRow[],
             value: FacetSearchValue,
@@ -443,7 +446,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
     connect({
         values: [
             workflowsListV2Logic,
-            ['value', 'rows', 'facets', 'matchesText', 'filesByRef'],
+            ['value', 'rows', 'facets', 'matchesText', 'filesByRef', 'hasNoAutomations'],
             projectTreeDataLogic,
             ['savedItems', 'folders', 'folderStates'],
             teamLogic,
@@ -699,6 +702,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             (s) => [s.value],
             (value: FacetSearchValue): boolean =>
                 !!value.text.trim() || value.filters.some((filter) => filter.facet !== 'in' || filter.negated),
+        ],
+        // The folder contents hold the inline name field of a new folder, so an open draft keeps them on screen.
+        showsAutomationSetup: [
+            (s) => [s.hasNoAutomations, s.folderDraft],
+            (hasNoAutomations: boolean, folderDraft: WorkflowFolderDraft | null): boolean =>
+                hasNoAutomations && !folderDraft,
         ],
         matchingTemplates: [
             (s) => [s.folderSearchItems, s.value, s.folderFacets, s.folderMatchesText],
