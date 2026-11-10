@@ -613,6 +613,32 @@ class TestProgressiveHighlights(BaseTest):
             ),
         )
 
+    def test_a_computation_that_published_nothing_early_still_lists_its_numbers(self) -> None:
+        row = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="no-progress", pins_key="pins"
+        )
+        highlights.finalize(
+            FinalizeHighlightsInputs(
+                team_id=self.team.id,
+                highlights_id=str(row.id),
+                results=[
+                    HighlightSourceResult(
+                        source_name="routine",
+                        found=FOUND.dump_json(HighlightFindings(pulse=(metric("routine"),))).decode(),
+                        failed=False,
+                    )
+                ],
+                pins=[PinnedNumber(key="insight:p")],
+                pinned=PINNED_METRICS.dump_json([metric("insight:p")]).decode(),
+            )
+        )
+        row.refresh_from_db()
+
+        self.assertEqual(
+            [(slot.key, slot.status) for slot in HIGHLIGHTS.validate_python(row.content).pulse_slots or []],
+            [("insight:p", PulseSlotStatus.READY), ("routine", PulseSlotStatus.READY)],
+        )
+
     @parameterized.expand([(False,), (True,)])
     def test_a_failed_pins_step_marks_the_row_for_a_retry(self, pins_failed: bool) -> None:
         row = TodayHighlights.objects.for_team(self.team.id).create(

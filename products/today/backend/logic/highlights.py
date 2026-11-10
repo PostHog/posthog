@@ -370,10 +370,8 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
             **{metric.key: metric for metric in PINNED_METRICS.validate_json(inputs.pinned)},
         },
     )
-    if "_pulse_sources" in row.content:
-        highlights = _pulse_content(
-            highlights, progress, _HIGHLIGHTS.validate_python(row.content).pulse_slots or [], complete=True
-        )
+    previous_slots = _HIGHLIGHTS.validate_python(row.content).pulse_slots if "_pulse_sources" in row.content else []
+    highlights = _pulse_content(highlights, progress, previous_slots or [], complete=True)
     failed = [result for result in inputs.results if result.failed]
     usable = bool(highlights.items or highlights.pulse)
     row.status = (
