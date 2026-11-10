@@ -954,31 +954,39 @@ describe('workflowsSavedViewsLogic', () => {
         expect(workflowsListV2Logic.values.shownColumns).toEqual(['health'])
     })
 
-    it('opens the explicit state of a newer link to the same view once the views load', async () => {
-        let release: () => void = () => {}
-        const pending = new Promise<void>((resolve) => {
-            release = resolve
-        })
-        useMocks({
-            get: {
-                '/api/projects/:team_id/workflow_views/': async () => {
-                    await pending
-                    return [200, paginated(storedViews)]
+    it.each([
+        ['no edit', (): void => {}],
+        ['filters changed', (): void => workflowsListV2Logic.actions.setValue({ filters: [eventTrigger], text: '' })],
+        ['columns changed', (): void => workflowsListV2Logic.actions.setVisibleColumns(['owner'])],
+    ])(
+        'opens the explicit state of a newer link to the same view once the views load, with %s before it',
+        async (_, change) => {
+            let release: () => void = () => {}
+            const pending = new Promise<void>((resolve) => {
+                release = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/workflow_views/': async () => {
+                        await pending
+                        return [200, paginated(storedViews)]
+                    },
                 },
-            },
-        })
-        router.actions.push(urls.workflows(), viewOnlyLink)
-        logic = workflowsSavedViewsLogic()
-        logic.mount()
+            })
+            router.actions.push(urls.workflows(), viewOnlyLink)
+            logic = workflowsSavedViewsLogic()
+            logic.mount()
 
-        router.actions.push(urls.workflows(), { view: VIEW_ID, q: '', text: '', columns: 'trigger' })
-        release()
-        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+            change()
+            router.actions.push(urls.workflows(), { view: VIEW_ID, q: '', text: '', columns: 'trigger' })
+            release()
+            await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
 
-        expect(logic.values.activeViewId).toEqual(VIEW_ID)
-        expect(workflowsListV2Logic.values.value).toEqual({ filters: [], text: '' })
-        expect(workflowsListV2Logic.values.shownColumns).toEqual(['trigger'])
-    })
+            expect(logic.values.activeViewId).toEqual(VIEW_ID)
+            expect(workflowsListV2Logic.values.value).toEqual({ filters: [], text: '' })
+            expect(workflowsListV2Logic.values.shownColumns).toEqual(['trigger'])
+        }
+    )
 
     it.each([
         ['a view-only link', viewOnlyLink],
