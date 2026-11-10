@@ -2,7 +2,9 @@ import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -14,7 +16,9 @@ import {
     decodeIdSegment,
     makeEvaluationResults,
     makeFeedback,
+    makeMessage,
     makeNodeDetail,
+    makeRawNode,
     makeTraceCluster,
     makeTraceResource,
 } from './adapter/testFixtures'
@@ -27,6 +31,7 @@ jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), 
 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
+const RAW_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/raw/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
 const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
 const CREATED_AT = '2026-09-01T10:15:00Z'
@@ -37,11 +42,28 @@ const HOST_ID = 'test-host'
 
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
-    properties: {
-        $ai_input: [{ role: 'user', content: 'Why did my invoice go up?' }],
-        $ai_output_choices: [{ role: 'assistant', content: 'Two seats were added.' }],
+    content: {
+        input: {
+            kind: 'messages',
+            messages: [
+                makeMessage({
+                    id: 'gen-2-in-0',
+                    role: 'user',
+                    parts: [{ kind: 'text', text: 'Why did my invoice go up?' }],
+                }),
+            ],
+        },
+        output: {
+            kind: 'messages',
+            messages: [
+                makeMessage({
+                    id: 'gen-2-out-0',
+                    role: 'assistant',
+                    parts: [{ kind: 'text', text: 'Two seats were added.' }],
+                }),
+            ],
+        },
     },
-    ioKeys: { input: '$ai_input', output: '$ai_output_choices' },
 })
 
 interface HostState {
@@ -56,6 +78,8 @@ describe('traceViewModelLogic', () => {
     let traceResource: TraceApi
     let traceGate: Promise<void>
     let nodeRequests: string[]
+    let rawRequests: string[]
+    let failingRawNodeId: string | null
     let failingNodeId: string | null
     let clusterRequests: string[]
     let clustersStatus: number
@@ -85,6 +109,8 @@ describe('traceViewModelLogic', () => {
         traceResource = makeTraceResource({ nodeIdsByAlias: { 'sdk-gen-1': 'gen-1' } })
         traceGate = Promise.resolve()
         nodeRequests = []
+        rawRequests = []
+        failingRawNodeId = null
         failingNodeId = null
         clusterRequests = []
         clustersStatus = 200
@@ -127,6 +153,22 @@ describe('traceViewModelLogic', () => {
                               },
                           ]
                         : [searchStatus, { detail: 'Search timed out.' }],
+                [RAW_URL]: ({ params }) => {
+                    const nodeId = decodeIdSegment(String(params.node_id))
+                    rawRequests.push(nodeId)
+                    if (nodeId === failingRawNodeId) {
+                        failingRawNodeId = null
+                        return [500, { detail: 'Server error.' }]
+                    }
+                    return [
+                        200,
+                        makeRawNode({
+                            id: nodeId,
+                            properties: { $ai_input: 'hi', plan: 'pro' },
+                            ioKeys: { input: '$ai_input' },
+                        }),
+                    ]
+                },
                 [NODE_URL]: ({ params }) => {
                     const nodeId = decodeIdSegment(String(params.node_id))
                     nodeRequests.push(nodeId)
@@ -304,10 +346,8 @@ describe('traceViewModelLogic', () => {
                     status: 'ready',
                     turns: [
                         expect.objectContaining({
-                            messages: [
-                                expect.objectContaining({ role: 'user' }),
-                                expect.objectContaining({ role: 'assistant' }),
-                            ],
+                            input: { kind: 'messages', messages: [expect.objectContaining({ role: 'user' })] },
+                            output: { kind: 'messages', messages: [expect.objectContaining({ role: 'assistant' })] },
                         }),
                     ],
                 }),
@@ -326,7 +366,7 @@ describe('traceViewModelLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(nodeRequests.filter((nodeId) => nodeId === 'span-1')).toHaveLength(2)
-            expect(logic.values.detailData?.content.kind).toBe('io')
+            expect(logic.values.detailData?.content.kind).toBe('loaded')
         }
     )
 
@@ -551,6 +591,65 @@ describe('traceViewModelLogic', () => {
         await expectLogic(summary).toDispatchActions([summary.actionCreators.openSummary('tab'), 'loadSummarySuccess'])
         expect(summary.values.isOpen).toBe(true)
         expect(summaryRequests).toBe(0)
+    })
+
+    it('reads the raw event of the selected step when the Raw tab opens and again when the step changes', async () => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(rawRequests).toEqual([])
+
+        logic.actions.setDetailTab('raw')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectNode('span-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(rawRequests).toEqual(['trace-1', 'span-1'])
+        expect(logic.values.selectedRaw).toMatchObject({ status: 'ready' })
+    })
+
+    it('keeps the step detail when only its raw read changes', async () => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        const { detailData } = logic.values
+
+        logic.actions.setDetailTab('raw')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectedRaw).toMatchObject({ status: 'ready' })
+        expect(logic.values.detailData).toBe(detailData)
+    })
+
+    it('reads a failed raw event again when the same step is selected again', async () => {
+        silenceKeaLoadersErrors()
+        failingRawNodeId = 'span-1'
+        mountAt({ requestedStepId: 'span-1' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadRawNode('span-1')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.rawNodes['span-1']).toMatchObject({ status: 'error' })
+
+        logic.actions.selectNode('span-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(rawRequests).toEqual(['span-1', 'span-1'])
+        expect(logic.values.rawNodes['span-1']).toMatchObject({ status: 'ready' })
+    })
+
+    it('offers no dataset item until the raw read of the selected step arrives', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true })
+        mountAt({ requestedStepId: 'span-1' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.datasetItemSource).toBeNull()
+
+        logic.actions.loadRawNode('span-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.datasetItemSource).toMatchObject({
+            sourceId: 'span-1',
+            input: 'hi',
+            metadata: { plan: 'pro' },
+        })
     })
 
     it('keeps mode and step tab when the trace changes', async () => {
