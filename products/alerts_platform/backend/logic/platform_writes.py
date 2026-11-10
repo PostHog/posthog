@@ -238,19 +238,20 @@ def create_configuration(
         raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
     validated = _validated(source_kind, None, edit, team_id=team_id)
     if spec.native is not None and (spec.creates_natively(team_id) if natively is None else natively):
+        check_interval_minutes = _native_check_interval(spec.native, validated)
         with transaction.atomic():
             _admit(
                 team_id=team_id,
                 source_kind=source_kind,
                 current=None,
                 edit=validated,
-                check_interval_minutes=spec.native.check_interval_minutes,
+                check_interval_minutes=check_interval_minutes,
             )
             configuration = platform_lifecycle.create_native_configuration(
                 team_id=team_id,
                 source_kind=source_kind,
                 edit=validated,
-                check_interval_minutes=spec.native.check_interval_minutes,
+                check_interval_minutes=check_interval_minutes,
                 destinations_owner=PlatformAlertOwner.PLATFORM
                 if spec.native.platform_destinations
                 else PlatformAlertOwner.SOURCE,
@@ -261,6 +262,8 @@ def create_configuration(
         if spec.create is None:
             # A native kind whose creates are switched off.
             raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
+        if validated.check_interval_minutes is not None:
+            raise InvalidPlatformAlertEdit("check_interval_minutes", f"A {source_kind} alert sets its own cadence.")
         configuration = _create_through_source(team_id, source_kind, spec.create, validated, created_by_id)
 
     view = platform_reads.get_configuration(
@@ -268,6 +271,18 @@ def create_configuration(
     )
     assert view is not None
     return view
+
+
+def _native_check_interval(native: NativeAlertLifecycle, edit: PlatformAlertConfigurationEdit) -> int:
+    requested = edit.check_interval_minutes
+    if requested is None:
+        return native.check_interval_minutes
+    if native.check_intervals is None:
+        raise InvalidPlatformAlertEdit("check_interval_minutes", "Alerts of this type have one fixed cadence.")
+    if requested not in native.check_intervals:
+        allowed = ", ".join(str(minutes) for minutes in sorted(native.check_intervals))
+        raise InvalidPlatformAlertEdit("check_interval_minutes", f"Must be one of: {allowed}.")
+    return requested
 
 
 def _create_through_source(

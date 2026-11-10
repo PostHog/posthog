@@ -1,9 +1,12 @@
 import json
+from contextlib import nullcontext
 from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
@@ -35,12 +38,26 @@ from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.platform_native_cleanup import NativeCleanupInputs, delete_native_alert, native_alert_ids
+from products.alerts.backend.platform_source_config_schema import INSIGHT_SOURCE_CONFIG
 from products.alerts.backend.presentation.views.alert import AlertSerializer
-from products.alerts_platform.backend.facade import testing as platform_testing
+from products.alerts_platform.backend.facade import (
+    api as platform_api,
+    testing as platform_testing,
+)
 from products.alerts_platform.backend.facade.api import list_configurations
-from products.alerts_platform.backend.facade.contracts import AlertDelivery
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDelivery,
+    Grouping,
+    PlatformAlertConfigurationEdit,
+    PlatformAlertCreateRefused,
+    SourceKind,
+)
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
+from products.alerts_platform.backend.facade.scheduling import (
+    REAL_TIME_CADENCE_MINUTES,
+    CalendarInterval,
+    alert_check_offset,
+)
 from products.cdp.backend.facade.models import HogFunction
 from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -2936,6 +2953,55 @@ class TestAlertRealTimeInterval(TrendsInsightAPITest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "limit of 1 real-time alerts" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("real_time_past_the_limit", REAL_TIME_CADENCE_MINUTES, False),
+            ("hourly", 60, True),
+        ]
+    )
+    def test_a_create_with_no_insight_row_is_admitted_at_its_own_cadence(
+        self, _name: str, check_interval_minutes: int, created: bool
+    ) -> None:
+        self._enable_real_time_alerts(limit=1)
+        first = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+        assert INSIGHT_SOURCE_CONFIG.native is not None
+        creating = replace(INSIGHT_SOURCE_CONFIG, native=replace(INSIGHT_SOURCE_CONFIG.native, creates=True))
+        edit = PlatformAlertConfigurationEdit(
+            name="native",
+            enabled=True,
+            source_config={
+                "insight_id": self.insight["id"],
+                "condition": {
+                    "threshold": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"lower": 0}},
+                    "comparison": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                },
+            },
+            grouping=Grouping(),
+            schedule_restriction=None,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            cooldown_minutes=0,
+            check_interval_minutes=check_interval_minutes,
+        )
+
+        with (
+            mock.patch("products.alerts_platform.backend.logic.source_configs.spec", return_value=creating),
+            team_scope(self.team.id),
+            nullcontext() if created else pytest.raises(PlatformAlertCreateRefused, match="limit of 1 real-time"),
+        ):
+            platform_api.create_configuration(
+                team_id=self.team.id,
+                source_kind=SourceKind.INSIGHT,
+                edit=edit,
+                created_by_id=self.user.id,
+                natively=True,
+            )
+
+        page = list_configurations(team_id=self.team.id, source_kinds=["insight"], limit=10, offset=0)
+        native = [view for view in page.configurations if view.legacy_configuration_id is None]
+        assert [view.check_interval_minutes for view in native] == ([check_interval_minutes] if created else [])
 
     @parameterized.expand(
         [
