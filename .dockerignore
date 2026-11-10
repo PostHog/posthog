@@ -76,6 +76,7 @@ services/agent-*/.next
 !rust
 !ingestion/rust
 !ingestion/node/packages/common
+!ingestion/node/packages/ingestion
 !ingestion/node/packages/ai-research/src/pipelines/ml-mirror-image-scrub-sidecar
 !share/GeoLite2-City.mmdb
 !staticfiles

@@ -53,6 +53,7 @@ COPY ./common/replay-shared/package.json ./common/replay-shared/
 COPY ./common/replay-headless/package.json ./common/replay-headless/
 COPY ./nodejs/packages/common/ ./nodejs/packages/common/
 COPY ./ingestion/node/packages/common/ ./ingestion/node/packages/common/
+COPY ./ingestion/node/packages/ingestion/ ./ingestion/node/packages/ingestion/
 COPY ./nodejs/packages/replay-storage/ ./nodejs/packages/replay-storage/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -182,6 +183,9 @@ COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/common/no
 COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/common/dist /code/ingestion/node/packages/common/dist
 COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/common/package.json /code/ingestion/node/packages/common/package.json
 COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/common/node_modules /code/ingestion/node/packages/common/node_modules
+COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/ingestion/dist /code/ingestion/node/packages/ingestion/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/ingestion/package.json /code/ingestion/node/packages/ingestion/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/ingestion/node_modules /code/ingestion/node/packages/ingestion/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/replay-storage/dist /code/nodejs/packages/replay-storage/dist
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/replay-storage/package.json /code/nodejs/packages/replay-storage/package.json
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/packages/replay-storage/node_modules /code/nodejs/packages/replay-storage/node_modules

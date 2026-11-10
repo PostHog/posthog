@@ -1,8 +1,10 @@
 // NOTE: Keep these as ~ imports as we can validate the build output this way
+import { createIngestionServer } from '@posthog/ingestion/create-server'
 import { PluginServerMode } from '@posthog/node-common/config'
 import { initMetrics } from '@posthog/node-common/metrics/otel-metrics'
 import { NodeServer } from '@posthog/node-common/servers/base-server'
 import { initTracing } from '@posthog/node-common/tracing/otel'
+import { initSuperProperties } from '@posthog/node-common/utils/posthog'
 
 import { defaultConfig } from '~/common/config/config'
 import { PluginServer } from '~/server'
@@ -12,8 +14,13 @@ import { IngestionTracesServer } from '~/servers/ingestion-traces-server'
 import { PushApiServer } from '~/servers/push-api-server'
 import { RecordingApiServer } from '~/servers/recording-api-server'
 
-// The event, session replay, error tracking, metrics and AI research modes run from @posthog/ingestion.
 function createServer(): NodeServer {
+    // This image keeps running the ingestion modes until charts moves those deployments to ingestion-node.
+    const ingestionServer = createIngestionServer(defaultConfig.PLUGIN_SERVER_MODE)
+    if (ingestionServer) {
+        return ingestionServer
+    }
+
     switch (defaultConfig.PLUGIN_SERVER_MODE) {
         case PluginServerMode.recording_api:
             return new RecordingApiServer()
@@ -38,5 +45,6 @@ function createServer(): NodeServer {
 
 initTracing()
 initMetrics()
+initSuperProperties()
 const server = createServer()
 void server.start()
