@@ -7,12 +7,15 @@ engines add to their searches beyond the prompt, which point at content the proj
 from __future__ import annotations
 
 import re
+import json
+import hashlib
 import datetime as dt
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import connection, transaction
 from django.utils import timezone
@@ -164,9 +167,29 @@ _KEYWORD_REPORT_SQL = """
 """
 
 
+# Checks run at most a few times a day, so a report a few minutes old loses nothing, and the scan over a
+# month of answers stays off most page views.
+KEYWORD_REPORT_CACHE_SECONDS = 10 * 60
+
+
 def get_keyword_report(team_id: int, *, target_domains: list[str], timezone_name: str, days: int) -> KeywordReport:
     window = _window(timezone_name, days)
     keywords = list(AEOKeyword.objects.for_team(team_id).order_by("keyword").values_list("keyword", flat=True))
+    # The key carries the keyword list and the window's last day, so adding or removing a keyword, or a new day,
+    # misses the cache instead of serving a stale report.
+    fingerprint = hashlib.sha256(json.dumps([sorted(target_domains), keywords]).encode()).hexdigest()
+    cache_key = f"aeo_keyword_report:{team_id}:{days}:{timezone_name}:{window.window_to.isoformat()}:{fingerprint}"
+    cached = cache.get(cache_key)
+    if isinstance(cached, KeywordReport):
+        return cached
+    report = _build_keyword_report(team_id, window, keywords, target_domains=target_domains, days=days)
+    cache.set(cache_key, report, KEYWORD_REPORT_CACHE_SECONDS)
+    return report
+
+
+def _build_keyword_report(
+    team_id: int, window: _Window, keywords: list[str], *, target_domains: list[str], days: int
+) -> KeywordReport:
     answers = (
         AEOCitationCheck.objects.for_team(team_id)
         .filter(created_at__gte=window.start, created_at__lt=window.until, check_failed=False)
