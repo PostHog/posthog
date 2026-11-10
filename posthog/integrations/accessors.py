@@ -17,6 +17,7 @@ The accessors hold the scope rules and send the storage work to `current_backend
 
 import re
 import builtins
+import dataclasses
 from collections.abc import Iterable, Mapping
 from typing import ClassVar, Literal
 
@@ -33,6 +34,7 @@ from posthog.integrations.catalogue import KINDS
 from posthog.integrations.contracts import (
     SOURCE_MARKER_CONFIG_KEY,
     ConfigValue,
+    CrossTeamFilter,
     IntegrationInUse,
     IntegrationNotFound,
     IntegrationPatch,
@@ -61,15 +63,52 @@ _SCALAR_TYPES = (str, int, float, bool, type(None))
 AuthTypes = AuthType | frozenset[AuthType] | Literal["default"]
 
 
+# `where_iexact` can name one nested key, such as `account.name`.
+_MAX_IEXACT_PATH_DEPTH = 2
+
+
+def _checked_config_key(key: object) -> str:
+    if not isinstance(key, str) or not _CONFIG_KEY.match(key) or "__" in key or key in RESERVED_CONFIG_KEYS:
+        raise UnsupportedIntegrationFilter(f"Cannot filter integrations on the config key {key!r}")
+    return key
+
+
 def _checked_where(where: Mapping[str, ConfigValue] | None) -> dict[str, ConfigValue]:
     checked: dict[str, ConfigValue] = {}
     for key, value in (where or {}).items():
-        if not isinstance(key, str) or not _CONFIG_KEY.match(key) or "__" in key or key in RESERVED_CONFIG_KEYS:
-            raise UnsupportedIntegrationFilter(f"Cannot filter integrations on the config key {key!r}")
+        _checked_config_key(key)
         if not isinstance(value, _SCALAR_TYPES):
             raise UnsupportedIntegrationFilter(f"Cannot compare the config key {key!r} with a {type(value).__name__}")
         checked[key] = value
     return checked
+
+
+def _checked_where_in(where_in: Mapping[str, tuple[object, ...]]) -> None:
+    for key, values in where_in.items():
+        _checked_config_key(key)
+        # Django drops None from an `IN` list, so a None would match nothing in one backend only.
+        bad = [value for value in values if value is None or not isinstance(value, _SCALAR_TYPES)]
+        if bad:
+            raise UnsupportedIntegrationFilter(f"Cannot compare the config key {key!r} with {bad[0]!r}")
+
+
+def _checked_where_iexact(where_iexact: Mapping[str, object]) -> None:
+    for path, text in where_iexact.items():
+        segments = path.split(".") if isinstance(path, str) else [path]
+        if len(segments) > _MAX_IEXACT_PATH_DEPTH:
+            raise UnsupportedIntegrationFilter(f"Cannot filter integrations on the config path {path!r}")
+        for segment in segments:
+            _checked_config_key(segment)
+        if not isinstance(text, str):
+            raise UnsupportedIntegrationFilter(f"Cannot compare the config path {path!r} with a {type(text).__name__}")
+
+
+def _checked_cross_team_filter(cross_team_filter: CrossTeamFilter) -> CrossTeamFilter:
+    _checked_where_in(cross_team_filter.where_in)
+    _checked_where_iexact(cross_team_filter.where_iexact)
+    if cross_team_filter.has_config_key is not None:
+        _checked_config_key(cross_team_filter.has_config_key)
+    return dataclasses.replace(cross_team_filter, where=_checked_where(cross_team_filter.where))
 
 
 def _checked_config_keys(keys: Iterable[str]) -> None:
@@ -242,6 +281,18 @@ class IntegrationReader:
         """True when a row of any team has this external id."""
         scope = self._cross_team_scope("exists_by_external_id")
         return self._backend.exists(scope, RowFilter(external_id=external_id))
+
+    @instrumented("list_across_teams", rows="returned")
+    def list_across_teams(self, cross_team_filter: CrossTeamFilter) -> builtins.list[IntegrationRecord]:
+        """The rows of every team that match the filter, ordered by id. Oldest first unless `newest_first`.
+
+        Only for sweeps, admin commands and reads for an organization. Request code that reads one team
+        uses `list`. In the credentials service, only the web, Celery and Temporal deployments can call
+        it, and the service audits each row that it returns. Raises `ValueError` on
+        `IntegrationManager.any`, because the result would mix providers.
+        """
+        scope = self._cross_team_scope("list_across_teams")
+        return self._backend.list_across_teams(scope, _checked_cross_team_filter(cross_team_filter))
 
     @instrumented("usages")
     def usages(self, team_id: int, id: int) -> builtins.list[IntegrationUsage]:
@@ -503,8 +554,8 @@ class OAuthAccessor(AuthAccessor):
         worker stored.
 
         Pass `stale_access_token` to refresh also when that token is still the stored access token,
-        for example after the provider refused it. When the row has another token, the row comes back
-        without a refresh. A refresh that fails does not raise: the row comes back with `errors` set.
+        for example after the provider refused it. An empty string matches a row without an access
+        token. When the row has another token, the row comes back without a refresh. A refresh that fails does not raise: the row comes back with `errors` set.
         Raises `ValueError` when the kind has no OAuth token refresh.
         """
         if self._kind not in OauthIntegration.supported_kinds:

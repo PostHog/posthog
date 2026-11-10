@@ -148,7 +148,7 @@
             ]),
           }),
         }),
-        'bytecode_contract': '2c9c13700371fbf9',
+        'bytecode_contract': '3e27c521a9196793',
         'order': 1,
         'value': dict({
           'data': dict({
@@ -178,7 +178,7 @@
           32,
           'hooks/standard/1234/abcd',
         ]),
-        'bytecode_contract': '2c9c13700371fbf9',
+        'bytecode_contract': '3e27c521a9196793',
         'order': 0,
         'value': 'hooks/standard/1234/abcd',
       }),
