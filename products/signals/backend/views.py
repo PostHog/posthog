@@ -233,6 +233,7 @@ from products.signals.backend.report_merge import (
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
 from products.signals.backend.report_monitoring_attempts import complete_implementation
+from products.signals.backend.report_monitoring_summary import ReportMonitoringSummary, monitoring_summaries
 from products.signals.backend.report_plan import report_plan
 from products.signals.backend.report_priority import latest_priority_rank, update_report_priority
 from products.signals.backend.report_read_state import (
@@ -3624,6 +3625,15 @@ class SignalReportViewSet(
                     channel_id=live_channel_ids.get(str(report.id)),
                 )
         claims = get_active_claims(team_id=self.team_id, report_ids=report_ids)
+        monitoring_summaries_map: dict[str, ReportMonitoringSummary] = {}
+        if self._report_monitoring_enabled:
+            with tracer.start_as_current_span("signals.reports.list.fetch_monitoring_summaries"):
+                monitoring_summaries_map = monitoring_summaries(
+                    reports,
+                    team_id=self.team_id,
+                    now=timezone.now(),
+                    may_read_values=ReportMetricAccessPolicy(request=self.request, team=self.team).may_read_snapshot,
+                )
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
@@ -3633,6 +3643,7 @@ class SignalReportViewSet(
                 team_id=self.team_id, report_ids=report_ids
             ),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
+            "monitoring_summaries_map": monitoring_summaries_map,
             "inbox_ranker": self._base_inbox_ranker,
             "personal_order": self._personal_order,
             "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),

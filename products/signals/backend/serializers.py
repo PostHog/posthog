@@ -74,12 +74,19 @@ from products.signals.backend.report_checks import (
     MAX_CHECK_SOAK_HOURS,
     MAX_CHECK_TITLE_LENGTH,
     MIN_CHECK_INTERVAL_MINUTES,
+    CheckComparison,
     CheckConfigValidationError,
     MetricThresholdReplacementConfig,
+    MonitoringMetricConfig,
     parse_check_config,
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
+from products.signals.backend.report_monitoring_summary import (
+    MonitoringLeadCheck,
+    MonitoringSummaryState,
+    ReportMonitoringSummary,
+)
 from products.signals.backend.report_search import (
     DEFAULT_LIMIT as REPORT_SEARCH_DEFAULT_LIMIT,
     MAX_LIMIT as REPORT_SEARCH_MAX_LIMIT,
@@ -1490,6 +1497,108 @@ class ReportMetricListSerializer(ReportMetricSerializer):
     """
 
     query = None  # type: ignore[assignment]  # removes the inherited field from the list projection
+    interval = serializers.SerializerMethodField(
+        help_text=(
+            "Bucket size of `series`: `minute`, `hour`, `day`, `week`, or `month`. The last bucket is the one "
+            "that contains `value_at`, in the project's timezone. Null when the stored query names no interval."
+        )
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_interval(self, instance: Mapping[str, object]) -> str | None:
+        query = instance.get("query")
+        source = query.get("source") if isinstance(query, Mapping) else None
+        interval = source.get("interval") if isinstance(source, Mapping) else None
+        return interval if isinstance(interval, str) else None
+
+
+class MonitoringReadingSerializer(serializers.Serializer):
+    measured_at = serializers.DateTimeField(help_text="When this interim reading was measured.")
+    matches = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether the reading met the target at that point in the window. Null when the measurement failed.",
+    )
+    observed_value = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Value measured from Monitoring start to `measured_at`. Null when the measurement failed or this "
+            "viewer may not read the check's data."
+        ),
+    )
+    threshold = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Target the reading was compared with, scaled to elapsed time when the check scales linearly. "
+            "Null for a `between` target or a failed measurement."
+        ),
+    )
+
+
+class MonitoringLeadCheckSerializer(serializers.Serializer):
+    check_id = serializers.UUIDField(help_text="The follow-up check this summary is drawn from.")
+    title = serializers.CharField(help_text="The check's short label.")
+    metric_id = serializers.CharField(
+        allow_null=True,
+        help_text="The report metric the check measures, matching `metrics[].metric_id`, when it names one.",
+    )
+    metric_kind = serializers.ChoiceField(
+        choices=REPORT_METRIC_KINDS,
+        allow_null=True,
+        help_text="What the measured value means, when the check names it.",
+    )
+    value_format = serializers.ChoiceField(
+        choices=REPORT_METRIC_VALUE_FORMATS,
+        allow_null=True,
+        help_text="How to format measured values, matching a report metric's `value_format`.",
+    )
+    unit = serializers.CharField(allow_null=True, help_text="Optional value suffix, such as `users`.")
+    comparison = serializers.SerializerMethodField(
+        help_text="What the measured value must satisfy over the reference period."
+    )
+    monitoring = serializers.SerializerMethodField(
+        help_text="The target's reference period and whether it scales with elapsed time."
+    )
+    baseline_value = serializers.FloatField(
+        allow_null=True,
+        help_text="The value before the fix, over `monitoring.baseline_period_minutes`. Null when absent or redacted.",
+    )
+    ends_at = serializers.DateTimeField(help_text="End of this check's observation window.")
+    next_measurement_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the next interim reading is scheduled, if one falls inside the window."
+    )
+    readings = MonitoringReadingSerializer(
+        many=True, help_text="Interim readings in this Monitoring period, oldest first."
+    )
+
+    @extend_schema_field(CheckComparison)  # type: ignore[arg-type]
+    def get_comparison(self, lead: MonitoringLeadCheck) -> dict[str, object]:
+        return lead.comparison.model_dump(mode="json")
+
+    @extend_schema_field(MonitoringMetricConfig)  # type: ignore[arg-type]
+    def get_monitoring(self, lead: MonitoringLeadCheck) -> dict[str, object]:
+        return lead.monitoring.model_dump(mode="json")
+
+
+class ReportMonitoringSummarySerializer(serializers.Serializer):
+    state = serializers.ChoiceField(
+        choices=MonitoringSummaryState.choices,
+        help_text=(
+            "Where the Monitoring period stands. `not_on_track`: a check's latest interim reading misses its target. "
+            "`awaiting_reading`: a metric check has no interim reading yet. `on_track`: every metric check's latest "
+            "reading meets its target. `final_check_only`: no metric check takes interim readings, so the outcome "
+            "waits for the final checks. `window_ended`: every observation window has ended and final verification "
+            "is due or running."
+        ),
+    )
+    started_at = serializers.DateTimeField(help_text="When this Monitoring period started.")
+    ends_at = serializers.DateTimeField(help_text="When the last open check's observation window ends.")
+    lead_check = MonitoringLeadCheckSerializer(
+        allow_null=True,
+        help_text=(
+            "The metric check that best stands for the report: the first one off track, otherwise the first metric "
+            "check. Null when no metric check takes interim readings."
+        ),
+    )
 
 
 class ReportSourceSuggestionSerializer(serializers.Serializer):
@@ -2882,10 +2991,30 @@ class SignalReportListSerializer(SignalReportSerializer):
             "Null when the language model did not rank the report, and for every other ranker."
         ),
     )
+    monitoring_summary = serializers.SerializerMethodField(
+        help_text=(
+            "Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring "
+            "with open follow-up checks."
+        ),
+    )
 
     class Meta(SignalReportSerializer.Meta):
-        fields = [*SignalReportSerializer.Meta.fields, "inbox_merge_key", "personal_tier", "personal_reason"]
+        fields = [
+            *SignalReportSerializer.Meta.fields,
+            "inbox_merge_key",
+            "personal_tier",
+            "personal_reason",
+            "monitoring_summary",
+        ]
         read_only_fields = fields
+
+    @extend_schema_field(ReportMonitoringSummarySerializer(allow_null=True))
+    def get_monitoring_summary(self, obj: SignalReport) -> dict[str, object] | None:
+        summaries: dict[str, ReportMonitoringSummary] = self.context.get("monitoring_summaries_map", {})
+        summary = summaries.get(str(obj.id))
+        if summary is None or not self._monitoring_enabled(obj):
+            return None
+        return dict(ReportMonitoringSummarySerializer(summary).data)
 
     def get_inbox_merge_key(self, obj: SignalReport) -> float | None:
         ranker = self.context.get("inbox_ranker")

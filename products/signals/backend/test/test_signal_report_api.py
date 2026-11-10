@@ -46,6 +46,7 @@ from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.signals.backend.artefact_schemas import (
     ChannelAssignment,
+    CheckObservation,
     Dismissal,
     NoteArtefact,
     PriorityAssessment,
@@ -78,6 +79,7 @@ from products.signals.backend.models import (
 from products.signals.backend.personal_ranking.candidates import recommended_order
 from products.signals.backend.ranking.cache import refresh_report_ranking_cache
 from products.signals.backend.report_assignments import create_claim
+from products.signals.backend.report_checks import CheckComparison
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
@@ -1553,6 +1555,56 @@ class TestSignalReportListAPI(APIBaseTest):
 
         monitoring.refresh_from_db()
         assert monitoring.status == SignalReport.Status.MONITORING
+
+    @parameterized.expand([("enabled", True), ("disabled", False)])
+    def test_list_rows_summarize_monitoring_only_when_enabled(self, _name: str, enabled: bool) -> None:
+        started_at = timezone.now() - timedelta(days=1)
+        report = self._create_report(status=SignalReport.Status.MONITORING, monitoring_started_at=started_at)
+        check = SignalReportCheck.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            report=report,
+            title="Errors stay low",
+            kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+            config={
+                "metric_id": "errors",
+                "comparison": {"operator": "lte", "value": 70},
+                "monitoring": {"reference_period_minutes": 10080, "threshold_scaling": "linear"},
+            },
+            soak_minutes=7 * 1440,
+            status=SignalReportCheck.Status.ACTIVE,
+            next_run_at=timezone.now() + timedelta(hours=6),
+            expires_at=timezone.now() + timedelta(days=30),
+            measurement_start_at=started_at,
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
+            content=CheckObservation(
+                explanation="",
+                check_id=str(check.id),
+                title=check.title,
+                monitoring_started_at=started_at,
+                measured_at=started_at + timedelta(hours=12),
+                comparison=CheckComparison(operator="lte", value=5),
+                observed_value=8,
+                matches=False,
+            ).model_dump_json(),
+        )
+
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=enabled):
+            response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        [row] = [row for row in response.json()["results"] if row["id"] == str(report.id)]
+        summary = row["monitoring_summary"]
+        if not enabled:
+            assert summary is None
+            return
+        assert summary["state"] == "not_on_track"
+        assert summary["ends_at"] == (started_at + timedelta(days=7)).isoformat().replace("+00:00", "Z")
+        assert summary["lead_check"]["check_id"] == str(check.id)
+        assert [reading["matches"] for reading in summary["lead_check"]["readings"]] == [False]
 
     def test_monitoring_reads_do_not_evaluate_missing_flags_remotely(self) -> None:
         report = self._create_report(status=SignalReport.Status.MONITORING)
