@@ -37,6 +37,7 @@ from products.alerts.backend.judge import (
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     EarlierFlag,
 )
+from products.alerts.backend.llm_detector_limits import count_enabled_llm_alerts
 from products.alerts.backend.models.alert import (
     AlertCheck,
     AlertConfiguration,
@@ -650,6 +651,24 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         assert read(self._copy()) == expected
         assert not AlertConfiguration.objects.filter(team=self.team).exists()
+
+    @parameterized.expand([("counted", False, 1), ("left_out_of_its_own_edit", True, 0)])
+    def test_the_ai_detector_cap_counts_an_ai_alert_insight_keeps_no_row_for(
+        self, _name: str, editing_it: bool, expected: int
+    ) -> None:
+        self._forget_the_insight_row()
+        with team_scope(self.team.id):
+            stored_config = self._copy().source_config
+            platform_testing.set_source_config(
+                self.copy_id,
+                {**stored_config, "condition": {**stored_config["condition"], "detector": {"type": "llm"}}},
+            )
+
+        count = count_enabled_llm_alerts(
+            team_id=self.team.id, exclude_alert_id=str(self.copy_id) if editing_it else None
+        )
+
+        assert count == expected
 
     def test_turning_on_a_real_time_alert_insight_keeps_no_row_for_does_not_count_it_against_itself(self) -> None:
         self.organization.available_product_features = [
