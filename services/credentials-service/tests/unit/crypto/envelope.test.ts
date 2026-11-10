@@ -73,7 +73,11 @@ function flipByte(buffer: Buffer, index: number): Buffer {
 
 async function counterValue(counter: typeof kmsCallsTotal, labels: Record<string, string>): Promise<number> {
     const metric = await counter.get()
-    return metric.values.find((v) => Object.entries(labels).every(([k, val]) => v.labels[k] === val))?.value ?? 0
+    return (
+        metric.values.find((v) =>
+            Object.entries(labels).every(([k, val]) => (v.labels as Record<string, unknown>)[k] === val)
+        )?.value ?? 0
+    )
 }
 
 describe.each(PROVIDERS)('Envelope with %s KMS', (_name, makeKms) => {
@@ -221,6 +225,8 @@ describe('Envelope input checks', () => {
         ['an array blob', ['a'], {}],
         ['a non-finite number', { ttl: Number.POSITIVE_INFINITY }, {}],
         ['an undefined value', { token: undefined }, {}],
+        // oxlint-disable-next-line no-sparse-arrays
+        ['a sparse array', { scopes: ['a', , 'b'] }, {}],
         ['an empty owner id', SECRET, { ownerId: '' }],
         ['an empty kind', SECRET, { kind: '' }],
     ])('refuses to seal %s before it calls KMS', async (_label, secret, change) => {

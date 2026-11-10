@@ -130,7 +130,9 @@ describe('kmsClientConfig', () => {
             connectionTimeout: 2000,
             requestTimeout: 2000,
             throwOnRequestTimeout: true,
+            socketTimeout: 2000,
         })
+        expect(agentOf(config).maxSockets).toBe(50)
     })
 
     // The pods carry HTTPS_PROXY for the egress proxy. An agent without proxyEnv ignores it.

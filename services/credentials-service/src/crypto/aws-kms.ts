@@ -11,8 +11,10 @@ import type { AwsKmsConfig } from '../lib/config'
 import { kmsEncryptionContext } from './canonical'
 import { type DataKey, type EncryptionContext, type Kms, KmsError, type WrappedDataKey } from './types'
 
-/** Per attempt, for the connection and for the request. */
+/** Per attempt, for the connection, the response headers and each gap while reading the body. */
 const KMS_TIMEOUT_MS = 2_000
+/** Smithy's own default, which a custom agent would otherwise drop for Infinity. */
+const KMS_MAX_SOCKETS = 50
 /** One attempt and two retries. */
 const KMS_MAX_ATTEMPTS = 3
 
@@ -37,7 +39,7 @@ export function kmsClientConfig(config: AwsKmsConfig): KMSClientConfig {
     // The pods carry HTTP_PROXY/HTTPS_PROXY for the egress proxy. An agent built without
     // `proxyEnv` never reads them, even under NODE_USE_ENV_PROXY, so KMS traffic goes direct
     // unless a proxy is set for KMS on purpose.
-    const agentOptions: ProxyAwareAgentOptions = { keepAlive: true }
+    const agentOptions: ProxyAwareAgentOptions = { keepAlive: true, maxSockets: KMS_MAX_SOCKETS }
     if (config.proxyUrl) {
         agentOptions.proxyEnv = { HTTPS_PROXY: config.proxyUrl }
     }
@@ -48,6 +50,8 @@ export function kmsClientConfig(config: AwsKmsConfig): KMSClientConfig {
             connectionTimeout: KMS_TIMEOUT_MS,
             requestTimeout: KMS_TIMEOUT_MS,
             throwOnRequestTimeout: true,
+            // requestTimeout stops at the response headers. This one also covers a stalled body.
+            socketTimeout: KMS_TIMEOUT_MS,
         },
     }
     if (config.region) {

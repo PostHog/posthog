@@ -19,7 +19,15 @@ export function canonicalJson(value: JsonValue): string {
         return JSON.stringify(value)
     }
     if (Array.isArray(value)) {
-        return `[${value.map(canonicalJson).join(',')}]`
+        const items: string[] = []
+        for (let i = 0; i < value.length; i++) {
+            // map() skips holes and join() leaves them empty, which is not valid JSON.
+            if (!(i in value)) {
+                throw new TypeError('canonical JSON cannot encode a sparse array')
+            }
+            items.push(canonicalJson(value[i] as JsonValue))
+        }
+        return `[${items.join(',')}]`
     }
     if (typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
         const keys = Object.keys(value).sort()
