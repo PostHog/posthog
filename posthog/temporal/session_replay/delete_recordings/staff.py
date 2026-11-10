@@ -133,8 +133,9 @@ def normalize_date_filter(value: str) -> str:
     if re.fullmatch(r"-?\d+", value):
         raise ValueError(f"{value!r} has no unit")
     # Only the units posthog.utils.get_delta_mapping_for handles; it is case-sensitive ("m" is months, "M" minutes)
-    # and returns no delta for any other unit, which would move the cutoff to now.
-    if re.fullmatch(r"-?\d*[hdwmMsqy](Start|End)?", value):
+    # and returns no delta for any other unit, or for a unit without a number, which would move the cutoff to now.
+    # Without a number only a Start or End of h, d, w, m, q or y moves the date, such as "mStart" for this month.
+    if re.fullmatch(r"-?\d+[hdwmMsqy](Start|End)?|[hdwmqy](Start|End)", value):
         return value
     try:
         isoparser.isoparse(value)

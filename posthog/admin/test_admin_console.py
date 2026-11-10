@@ -1049,6 +1049,14 @@ class TestAdminConsoleViews(BaseTest):
                 None,
             ),
             (
+                "filters_with_a_date_unit_without_a_number",
+                "delete-by-filters",
+                {"date_to": "w", "dry_run": "on"},
+                None,
+                None,
+                None,
+            ),
+            (
                 "filters_with_a_date_that_is_not_one",
                 "delete-by-filters",
                 {"date_to": "yesterday", "dry_run": "on"},
