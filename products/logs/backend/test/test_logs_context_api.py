@@ -100,6 +100,7 @@ class TestContextHelpers(TestCase):
         [
             ("whitespace_value_is_quoted", "first second third", 'password="first second third"'),
             ("separator_value_is_quoted", "abc;def", 'password="abc;def"'),
+            ("nested_assignment_is_quoted", "authorization:INVENTEDtoken", 'password="authorization:INVENTEDtoken"'),
             (
                 "split_url_token_is_dropped",
                 "x" * 100 + " postgres://service:INVENTEDsecret1111@example.com/db",
