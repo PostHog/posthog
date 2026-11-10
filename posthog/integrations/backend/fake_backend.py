@@ -153,6 +153,21 @@ class FakeBackend:
             return False
         if row_filter.external_id is not None and record.integration_id != row_filter.external_id:
             return False
+        if row_filter.account_name is not None:
+            account = record.config.get("account")
+            name = account.get("name") if isinstance(account, Mapping) else None
+            if not isinstance(name, str) or name.lower() != row_filter.account_name.lower():
+                return False
+        if row_filter.created_by_ids is not None and record.created_by_id not in row_filter.created_by_ids:
+            return False
+        if any(record.config.get(key) is None for key in row_filter.config_present):
+            return False
+        for key, values in row_filter.config_in.items():
+            stored = record.config.get(key)
+            if not isinstance(stored, str) or stored not in values:
+                return False
+        if row_filter.exclude_team_id is not None and record.team_id == row_filter.exclude_team_id:
+            return False
         return all(
             key in record.config and _same_value(record.config[key], value) for key, value in row_filter.where.items()
         )
@@ -204,10 +219,14 @@ class FakeBackend:
         return self._copy(rows[0]) if rows else None
 
     def list(
-        self, scope: RowScope, row_filter: RowFilter, *, newest_first: bool = False
+        self, scope: RowScope, row_filter: RowFilter, *, newest_first: bool = False, limit: int | None = None
     ) -> builtins.list[IntegrationRecord]:
         rows = self._selected(scope, row_filter)
-        return [self._copy(record) for record in (reversed(rows) if newest_first else rows)]
+        ordered = builtins.list(reversed(rows)) if newest_first else rows
+        return [self._copy(record) for record in (ordered if limit is None else ordered[:limit])]
+
+    def team_ids(self, scope: RowScope, row_filter: RowFilter) -> builtins.list[int]:
+        return sorted({record.team_id for record in self._selected(scope, row_filter)})
 
     def exists(self, scope: RowScope, row_filter: RowFilter) -> bool:
         return bool(self._selected(scope, row_filter))

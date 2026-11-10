@@ -1195,7 +1195,7 @@ def _candidate_user_ids_for_org_and_logins(org_id: str, logins_lower: frozenset[
         ).values_list("user_id", flat=True)
     )
     member_ids = list(OrganizationMembership.objects.filter(organization_id=org_id).values_list("user_id", flat=True))
-    for row in IntegrationManager.github.any.list_by_creators(member_ids, config_key=_CONNECTING_LOGIN_KEY):
+    for row in IntegrationManager.github.oauth.list_by_creators(member_ids, config_key=_CONNECTING_LOGIN_KEY):
         login = row.config.get(_CONNECTING_LOGIN_KEY)
         if row.created_by_id is not None and isinstance(login, str) and login.lower() in logins_lower:
             candidates.add(row.created_by_id)
@@ -1238,7 +1238,7 @@ def with_team_github_logins(users: Iterable[User]) -> list[User]:
     """Load the users and attach the GitHub integrations that `User.get_github_login()` falls back to."""
     loaded = list(users)
     rows_by_creator: dict[int, list[IntegrationRecord]] = defaultdict(list)
-    for row in IntegrationManager.github.any.list_by_creators(
+    for row in IntegrationManager.github.oauth.list_by_creators(
         [user.id for user in loaded], config_key=_CONNECTING_LOGIN_KEY
     ):
         if row.created_by_id is not None:

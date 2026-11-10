@@ -72,6 +72,11 @@ def _checked_where(where: Mapping[str, ConfigValue] | None) -> dict[str, ConfigV
     return checked
 
 
+def _checked_config_key(key: str) -> None:
+    if not isinstance(key, str) or not _CONFIG_KEY.match(key) or "__" in key or key in RESERVED_CONFIG_KEYS:
+        raise UnsupportedIntegrationFilter(f"Cannot read the config key {key!r}")
+
+
 def _checked_config_keys(keys: Iterable[str]) -> None:
     reserved = sorted(RESERVED_CONFIG_KEYS.intersection(keys))
     if reserved:
@@ -320,6 +325,58 @@ class IntegrationReader:
 
     async def adelete(self, team_id: int, id: int, *, ignore_usages: bool = False) -> None:
         await database_sync_to_async(self.delete)(team_id, id, ignore_usages=ignore_usages)
+
+    @instrumented("list_by_account_name", rows="returned")
+    def list_by_account_name(
+        self, account_name: str, *, team_ids: Iterable[int] | None = None, limit: int | None = None
+    ) -> builtins.list[IntegrationRecord]:
+        """Rows whose `config["account"]["name"]` equals this name, ignoring case, newest first.
+
+        Pass `team_ids` to read only the rows of these teams, and `limit` to read at most that many
+        rows. Raises `ValueError` on `IntegrationManager.any`.
+        """
+        scope = self._cross_team_scope("list_by_account_name")
+        row_filter = RowFilter(team_ids=None if team_ids is None else tuple(team_ids), account_name=account_name)
+        return self._backend.list(scope, row_filter, newest_first=True, limit=limit)
+
+    @instrumented("list_by_creators", rows="returned")
+    def list_by_creators(self, created_by_ids: Iterable[int], *, config_key: str) -> builtins.list[IntegrationRecord]:
+        """Rows of every team that these users created and that have a non-null value under `config[config_key]`.
+
+        Oldest first. Raises `ValueError` on `IntegrationManager.any`.
+        """
+        _checked_config_key(config_key)
+        scope = self._cross_team_scope("list_by_creators")
+        row_filter = RowFilter(created_by_ids=tuple(created_by_ids), config_present=(config_key,))
+        return self._backend.list(scope, row_filter)
+
+    @instrumented("list_across_teams", rows="returned")
+    def list_across_teams(
+        self,
+        *,
+        where: Mapping[str, ConfigValue] | None = None,
+        config_in: Mapping[str, Iterable[str]] | None = None,
+        exclude_team_id: int | None = None,
+    ) -> builtins.list[IntegrationRecord]:
+        """Rows of every team whose config matches, ordered by team and id. For support commands and sweeps.
+
+        `where` compares config keys for equality. `config_in` needs a config key to hold one of the listed strings.
+        Raises `ValueError` on `IntegrationManager.any`.
+        """
+        scope = self._cross_team_scope("list_across_teams")
+        checked_in: dict[str, tuple[str, ...]] = {}
+        for key, values in (config_in or {}).items():
+            _checked_config_key(key)
+            checked_in[key] = tuple(values)
+        row_filter = RowFilter(where=_checked_where(where), config_in=checked_in, exclude_team_id=exclude_team_id)
+        rows = self._backend.list(scope, row_filter)
+        return sorted(rows, key=lambda row: (row.team_id, row.id))
+
+    @instrumented("team_ids_across_teams")
+    def team_ids_across_teams(self, *, where: Mapping[str, ConfigValue]) -> builtins.list[int]:
+        """The sorted ids of the teams that have a row whose config matches. Raises `ValueError` on `IntegrationManager.any`."""
+        scope = self._cross_team_scope("team_ids_across_teams")
+        return self._backend.team_ids(scope, RowFilter(where=_checked_where(where)))
 
 
 class AuthAccessor(IntegrationReader):

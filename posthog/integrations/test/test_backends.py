@@ -77,14 +77,24 @@ class TestBackendsBehaveTheSame(BaseTest):
         *,
         team: Team | None = None,
         sensitive_config: dict[str, Any] | None = None,
+        created_by_id: int | None = None,
     ) -> int:
         team_id = (team or self.team).id
         if self.fake is not None:
             return self.fake.seed(
-                team_id=team_id, kind=kind, external_id=name, config=config, sensitive_config=sensitive_config
+                team_id=team_id,
+                kind=kind,
+                external_id=name,
+                config=config,
+                sensitive_config=sensitive_config,
+                created_by_id=created_by_id,
             ).id
         row = Integration.objects._with_auth(ANY).create(
-            team_id=team_id, kind=kind, integration_id=name, sensitive_config=sensitive_config or {}
+            team_id=team_id,
+            kind=kind,
+            integration_id=name,
+            sensitive_config=sensitive_config or {},
+            created_by_id=created_by_id,
         )
         Integration._base_manager.filter(id=row.id).update(config=config)
         return row.id
@@ -127,6 +137,46 @@ class TestBackendsBehaveTheSame(BaseTest):
 
         assert self._names(rows) == expected
         assert self._names(accessor().list(self.team.id, newest_first=True)) == expected[::-1]
+
+    def test_list_by_account_name_ignores_case_and_reads_newest_first(self) -> None:
+        newer = self._seed("other_octo", "github", {"account": {"name": "OCTO"}}, team=self.other_team)
+        self._seed("token_octo", "github", {"auth_type": "token", "account": {"name": "octo"}})
+
+        accessor = IntegrationManager.github.oauth
+        assert [row.id for row in accessor.list_by_account_name("Octo")] == [newer, self.ids["github_oauth"]]
+        assert [row.id for row in accessor.list_by_account_name("octo", limit=1)] == [newer]
+        assert [row.id for row in accessor.list_by_account_name("octo", team_ids=[self.team.id])] == [
+            self.ids["github_oauth"]
+        ]
+        assert accessor.list_by_account_name("octo", team_ids=[]) == []
+
+    def test_list_by_creators_skips_missing_and_null_values(self) -> None:
+        with_login = self._seed("with_login", "github", {"login": "x"}, created_by_id=self.user.id)
+        self._seed("null_login", "github", {"login": None}, created_by_id=self.user.id)
+        self._seed("no_login", "github", {}, created_by_id=self.user.id)
+        self._seed("no_creator", "github", {"login": "y"})
+
+        rows = IntegrationManager.github.oauth.list_by_creators([self.user.id], config_key="login")
+
+        assert [row.id for row in rows] == [with_login]
+        assert IntegrationManager.github.oauth.list_by_creators([], config_key="login") == []
+
+    def test_cross_team_config_reads(self) -> None:
+        a = self._seed("a", "email", {"provider": "ses", "domain": "one.example.com"}, team=self.other_team)
+        b = self._seed("b", "email", {"provider": "ses", "domain": "two.example.com"})
+        self._seed("c", "email", {"provider": "other", "domain": "one.example.com"})
+
+        accessor = IntegrationManager.email.any
+        rows = accessor.list_across_teams(where={"provider": "ses"})
+        assert [row.id for row in rows] == [row.id for row in sorted(rows, key=lambda row: (row.team_id, row.id))]
+        assert {row.id for row in rows} == {a, b}
+        assert [row.id for row in accessor.list_across_teams(config_in={"domain": ["two.example.com"]})] == [b]
+        assert accessor.list_across_teams(config_in={"domain": []}) == []
+        assert [
+            row.id for row in accessor.list_across_teams(where={"provider": "ses"}, exclude_team_id=self.team.id)
+        ] == [a]
+        assert accessor.team_ids_across_teams(where={"provider": "ses"}) == sorted([self.team.id, self.other_team.id])
+        assert accessor.team_ids_across_teams(where={"provider": "nope"}) == []
 
     @parameterized.expand(
         [

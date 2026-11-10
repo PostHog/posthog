@@ -58,6 +58,16 @@ class RowFilter:
     external_id: str | None = None
     # Config keys compared with these values for equality, the JSON type included.
     where: Mapping[str, ConfigValue] = dataclasses.field(default_factory=dict)
+    # `config["account"]["name"]` equals this string, ignoring case.
+    account_name: str | None = None
+    # The rows that one of these users created. An empty tuple selects no row.
+    created_by_ids: tuple[int, ...] | None = None
+    # Config keys that must hold a value other than JSON null.
+    config_present: tuple[str, ...] = ()
+    # Config keys that must hold one of these strings. An empty tuple selects no row.
+    config_in: Mapping[str, tuple[str, ...]] = dataclasses.field(default_factory=dict)
+    # Leaves out the rows of this team.
+    exclude_team_id: int | None = None
 
     def __post_init__(self) -> None:
         if self.team_id is not None and self.team_ids is not None:
@@ -100,8 +110,14 @@ class StorageBackend(Protocol):
         ...
 
     def list(
-        self, scope: RowScope, row_filter: RowFilter, *, newest_first: bool = False
-    ) -> builtins.list[IntegrationRecord]: ...
+        self, scope: RowScope, row_filter: RowFilter, *, newest_first: bool = False, limit: int | None = None
+    ) -> builtins.list[IntegrationRecord]:
+        """`limit` returns at most that many rows, the first ones in the order."""
+        ...
+
+    def team_ids(self, scope: RowScope, row_filter: RowFilter) -> builtins.list[int]:
+        """The sorted, distinct ids of the teams that have a row that matches."""
+        ...
 
     def exists(self, scope: RowScope, row_filter: RowFilter) -> bool: ...
 

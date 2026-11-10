@@ -112,6 +112,18 @@ class DjangoBackend:
         else:
             rows = _rows().filter(_scope_q(scope))
         rows = rows.filter(_where_q(row_filter.where))
+        if row_filter.account_name is not None:
+            rows = rows.filter(config__account__name__iexact=row_filter.account_name)
+        if row_filter.created_by_ids is not None:
+            rows = rows.filter(created_by_id__in=builtins.list(row_filter.created_by_ids))
+        for key in row_filter.config_present:
+            # nosemgrep: orm-field-injection - the accessor checks that the key is one JSON key segment
+            rows = rows.filter(config__has_key=key).exclude(**{f"config__{key}__exact": None})
+        for key, values in row_filter.config_in.items():
+            # nosemgrep: orm-field-injection - the accessor checks that the key is one JSON key segment, and `__in` fixes the lookup
+            rows = rows.filter(**{f"config__{key}__in": builtins.list(values)})
+        if row_filter.exclude_team_id is not None:
+            rows = rows.exclude(team_id=row_filter.exclude_team_id)
         return rows if row_filter.external_id is None else rows.filter(integration_id=row_filter.external_id)
 
     def _row(self, scope: RowScope, team_id: int, id: int, *, lock: bool = False) -> Integration:
@@ -131,10 +143,15 @@ class DjangoBackend:
         return self._selected(scope, row_filter).order_by("created_at", "id").first()
 
     def list(
-        self, scope: RowScope, row_filter: RowFilter, *, newest_first: bool = False
+        self, scope: RowScope, row_filter: RowFilter, *, newest_first: bool = False, limit: int | None = None
     ) -> builtins.list[IntegrationRecord]:
         order = ("-created_at", "-id") if newest_first else ("created_at", "id")
-        return builtins.list(self._selected(scope, row_filter).order_by(*order))
+        rows = self._selected(scope, row_filter).order_by(*order)
+        return builtins.list(rows if limit is None else rows[:limit])
+
+    def team_ids(self, scope: RowScope, row_filter: RowFilter) -> builtins.list[int]:
+        rows = self._selected(scope, row_filter).order_by("team_id")
+        return builtins.list(rows.values_list("team_id", flat=True).distinct())
 
     def exists(self, scope: RowScope, row_filter: RowFilter) -> bool:
         return self._selected(scope, row_filter).exists()
