@@ -26,8 +26,9 @@ fi
 
 BASE_SHA="$1"
 REPEAT_COUNT="${2:-3}"
-# Bounds the warn-only phase so it fits the job time budget next to the blocking phase.
+# Bound the warn-only phase so it fits the job time budget next to the blocking phase.
 MAX_AFFECTED_FILES=10
+AFFECTED_PHASE_SECONDS=900
 
 if ! [[ "$REPEAT_COUNT" =~ ^[0-9]+$ ]] || [ "$REPEAT_COUNT" -lt 1 ]; then
     echo "Error: repeat_count must be a positive integer" >&2
@@ -107,8 +108,9 @@ set_patterns() {
 }
 
 # Returns non-zero when the run fails, so callers decide whether that blocks.
+# An optional fourth argument stops the run after that many seconds, with exit code 124.
 run_stories() {
-    local browser="$1" run_name="$2" snapshot_flag="$3"
+    local browser="$1" run_name="$2" snapshot_flag="$3" time_limit="${4:-0}"
     echo "=== $run_name ==="
 
     # Run test-storybook directly (tests a pre-built storybook dist served over http-server).
@@ -117,18 +119,22 @@ run_stories() {
     # the main runner's testMatch doesn't cover. Those are verified by their own
     # CI, so finding no matching tests here is not a failure.
     # Keep STORYBOOK_SKIP_TAGS in sync with the visual-regression shards in ci-storybook.yml.
-    if STORYBOOK_SKIP_TAGS="test-skip,test-skip-${browser}" \
-        pnpm --filter=@posthog/storybook exec test-storybook \
+    # timeout with a duration of 0 never stops the command.
+    local status=0
+    STORYBOOK_SKIP_TAGS="test-skip,test-skip-${browser}" \
+        timeout --kill-after=30 "$time_limit" pnpm --filter=@posthog/storybook exec test-storybook \
         "$snapshot_flag" --no-index-json --maxWorkers=1 \
         --browsers "$browser" \
-        -- "${pattern_args[@]}" --passWithNoTests 2>&1 | tee "/tmp/storybook-verify-${run_name}.log"; then
+        -- "${pattern_args[@]}" --passWithNoTests 2>&1 | tee "/tmp/storybook-verify-${run_name}.log" || status=$?
+    if [ "$status" -eq 0 ]; then
         echo "$run_name passed"
-        echo ""
-        return 0
+    elif [ "$status" -eq 124 ]; then
+        echo "$run_name stopped after ${time_limit}s"
+    else
+        echo "$run_name failed"
     fi
-    echo "$run_name failed"
     echo ""
-    return 1
+    return "$status"
 }
 
 declare -a failed_runs=()
@@ -180,15 +186,29 @@ if [ ${#affected_to_check[@]} -gt 0 ]; then
 
     # The first run writes the pictures the second run compares against. A failure in
     # the first run is a render error, which the visual-regression shards already report.
-    if run_stories chromium affected-run-1 --updateSnapshot \
-        && ! run_stories chromium affected-run-2 --ci; then
-        message="A story affected by this PR rendered two different pictures in two runs. The story file is unchanged, so this may be an existing flake on master. The affected-run-2 log in this job names the story."
-        echo "::warning title=Unstable story affected by this PR::$message"
-        {
-            echo "### Unstable story affected by this PR"
-            echo ""
-            echo "$message"
-        } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+    # Both runs share one time budget. A run that hits it ends the phase without a verdict.
+    phase_start=$SECONDS
+    affected_status=0
+    run_stories chromium affected-run-1 --updateSnapshot "$AFFECTED_PHASE_SECONDS" || affected_status=$?
+    if [ "$affected_status" -eq 0 ]; then
+        remaining=$((AFFECTED_PHASE_SECONDS - (SECONDS - phase_start)))
+        if [ "$remaining" -lt 1 ]; then
+            affected_status=124
+        else
+            run_stories chromium affected-run-2 --ci "$remaining" || affected_status=$?
+            if [ "$affected_status" -ne 0 ] && [ "$affected_status" -ne 124 ]; then
+                message="A story affected by this PR rendered two different pictures in two runs. The story file is unchanged, so this may be an existing flake on master. The affected-run-2 log in this job names the story."
+                echo "::warning title=Unstable story affected by this PR::$message"
+                {
+                    echo "### Unstable story affected by this PR"
+                    echo ""
+                    echo "$message"
+                } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            fi
+        fi
+    fi
+    if [ "$affected_status" -eq 124 ]; then
+        echo "::notice title=Affected stories not fully checked::The check of unchanged affected stories stopped at its ${AFFECTED_PHASE_SECONDS}s budget."
     fi
 fi
 
