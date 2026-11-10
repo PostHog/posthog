@@ -21,6 +21,7 @@ from products.cohorts.backend.backfill.runs import (
     check_person_run_preconditions,
     create_person_team_backfill_run,
     create_team_backfill_run,
+    judge_team_cohorts,
     person_backfill_ineligibility_reason,
 )
 from products.cohorts.backend.backfill.sizing import estimate_behavioral_scan_events
@@ -103,6 +104,31 @@ class AlreadyServing:
     pass
 
 
+def check_enablement(team_id: int, *, purpose: RealtimeCohortAccessPurpose) -> AlreadyServing | None:
+    """Raises ``ValueError`` when `enable_realtime_cohorts` would refuse the team before it writes anything."""
+    row = grantable_access_rows([team_id], purpose, RealtimeCohortTeamAccess.objects.all()).get(team_id)
+    # Enabling goes through `processing`, which would hide a serving team's realtime state.
+    if row is not None and row.level == RealtimeCohortLevel.SERVING:
+        return AlreadyServing()
+    # Without them neither team run can be created, so the team would only sit at `processing`.
+    _, missing = check_person_run_preconditions()
+    if missing:
+        raise ValueError(f"Missing operator attestations: {', '.join(missing)}")
+    if row is None:
+        old_runs = list(
+            CohortBackfillRun.objects.for_team(team_id)
+            .filter(status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES)
+            .values_list("id", flat=True)
+        )
+        if old_runs:
+            raise ValueError(
+                "Active backfill runs from before the grant, which can stamp the cohorts after enable clears them: "
+                f"{', '.join(str(run_id) for run_id in old_runs)}. Cancel them with manage_cohort_backfill_runs "
+                "terminalize --run-id, then run enable again."
+            )
+    return None
+
+
 def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpose) -> TeamEnablement | AlreadyServing:
     """Put the team at `processing` with its cohorts ready for the pipeline, create its two team
     backfill runs, and promote it to `serving` only when neither run was refused.
@@ -111,15 +137,10 @@ def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpos
     attestation is missing, or when a first call finds an active backfill run. A first call clears the
     readiness stamps on the team's cohorts. A call after a refusal keeps the runs earlier calls created.
     """
-    row = grantable_access_rows([team_id], purpose, RealtimeCohortTeamAccess.objects.all()).get(team_id)
-    # The steps below go through `processing`, which would hide a serving team's realtime state.
-    if row is not None and row.level == RealtimeCohortLevel.SERVING:
-        return AlreadyServing()
-    # Without them neither team run can be created, so the team would only sit at `processing`.
-    _, missing = check_person_run_preconditions()
-    if missing:
-        raise ValueError(f"Missing operator attestations: {', '.join(missing)}")
-    cleared_stamps = _clear_unmaintained_stamps(team_id) if row is None else 0
+    if (serving := check_enablement(team_id, purpose=purpose)) is not None:
+        return serving
+    has_row = RealtimeCohortTeamAccess.objects.filter(team_id=team_id).exists()
+    cleared_stamps = 0 if has_row else _clear_unmaintained_stamps(team_id)
 
     team = Team.objects.get(id=team_id)
     with termination_unwinds() as coalesce_rebuilds:
@@ -152,7 +173,9 @@ def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpos
             CohortBackfillKind.BEHAVIORAL,
             behavioral_cohorts,
             granted_at,
-            lambda: _create_behavioral_team_run(team, behavioral_cohorts),
+            lambda: create_behavioral_team_run(
+                team_id, max_events_per_day=settings.BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY
+            ),
         ),
         person=_team_run(
             team_id,
@@ -174,17 +197,6 @@ def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpos
 
 
 def _clear_unmaintained_stamps(team_id: int) -> int:
-    old_runs = list(
-        CohortBackfillRun.objects.for_team(team_id)
-        .filter(status__in=ACTIVE_COHORT_BACKFILL_RUN_STATUSES)
-        .values_list("id", flat=True)
-    )
-    if old_runs:
-        raise ValueError(
-            "Active backfill runs from before the grant, which can stamp the cohorts after enable clears them: "
-            f"{', '.join(str(run_id) for run_id in old_runs)}. Cancel them with manage_cohort_backfill_runs "
-            "terminalize --run-id, then run enable again."
-        )
     # These stamps come from the legacy calculation workflow, or from runs that ran while the env list
     # named the team. Nothing has maintained that membership since, and `serving` routes flags to it.
     # The clear includes deleted cohorts, because an undelete keeps the stamps. It runs before the
@@ -262,23 +274,73 @@ def _team_run(
         return RunRefused(reason=str(error))
 
 
-def _create_behavioral_team_run(team: Team, eligible: list[Cohort]) -> CohortBackfillRun:
+def create_behavioral_team_run(
+    team_id: int,
+    *,
+    cohort_ids: list[int] | None = None,
+    max_events_per_day: int,
+    created_by_id: int | None = None,
+) -> CohortBackfillRun:
     """`create_team_backfill_run` behind the scan limit of `create_cohort_backfill_run`, refusing with
-    ``ValueError`` like the person creator."""
-    max_events_per_day = settings.BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY
-    if not max_events_per_day:
-        return create_team_backfill_run(team.id, CohortBackfillTrigger.TEAM_ENABLEMENT)
-    pinned = pin_behavioral_run(eligible, team)
-    estimate = estimate_behavioral_scan_events(
-        team.id,
-        pinned["event_names"],
-        flag_calls_table=pinned["flag_calls_table"],
-        max_events_per_day=max_events_per_day,
-    )
-    if estimate.over_limit:
-        raise ValueError(
-            f"The run would scan {estimate.peak_day_events} events on its busiest day ({estimate.peak_day}), "
-            f"above the limit of {estimate.max_events_per_day}. Accept the volume with create_cohort_backfill_run "
-            "--max-scan-events-per-day, then run enable again."
+    ``ValueError`` like the person creator. A limit of 0 skips the scan estimate."""
+    scan_estimate = None
+    if max_events_per_day:
+        eligible = [
+            cohort
+            for cohort, reason in judge_team_cohorts(team_id, cohort_ids, behavioral_backfill_ineligibility_reason)
+            if reason is None
+        ]
+        pinned = pin_behavioral_run(eligible, Team.objects.get(id=team_id))
+        scan_estimate = estimate_behavioral_scan_events(
+            team_id,
+            pinned["event_names"],
+            flag_calls_table=pinned["flag_calls_table"],
+            max_events_per_day=max_events_per_day,
         )
-    return create_team_backfill_run(team.id, CohortBackfillTrigger.TEAM_ENABLEMENT, scan_estimate=estimate)
+        if scan_estimate.over_limit:
+            raise ValueError(
+                f"The run would scan {scan_estimate.peak_day_events} events on its busiest day "
+                f"({scan_estimate.peak_day}), above the limit of {scan_estimate.max_events_per_day}. "
+                "To accept the volume, start a behavioral backfill that skips the scan limit."
+            )
+    return create_team_backfill_run(
+        team_id, CohortBackfillTrigger.TEAM_ENABLEMENT, cohort_ids, created_by_id, scan_estimate=scan_estimate
+    )
+
+
+def describe_enablement(team_id: int, enablement: TeamEnablement) -> list[str]:
+    level = RealtimeCohortLevel.SERVING if enablement.promoted else RealtimeCohortLevel.PROCESSING
+    resave = enablement.resave
+    resave_line = (
+        f"  Resave: {resave.total} cohorts, {resave.changed} changed, {resave.errors} errors, "
+        f"{resave.validation_errors} validation errors"
+    )
+    if resave.rebuild_dispatch_failed:
+        resave_line += ", flags cache rebuild not enqueued"
+    return [
+        f"Team {team_id}: {level}",
+        *(
+            [f"  Cleared old readiness stamps: {enablement.cleared_stamps} cohorts"]
+            if enablement.cleared_stamps
+            else []
+        ),
+        resave_line,
+        *(
+            f"  Not backfilled: cohort {refusal.cohort_id}, {refusal.kind}, {refusal.reason}"
+            for refusal in enablement.refused_cohorts
+        ),
+        f"  Behavioral run: {_run_outcome(enablement.behavioral)}",
+        f"  Person run: {_run_outcome(enablement.person)}",
+    ]
+
+
+def _run_outcome(outcome: RunOutcome) -> str:
+    match outcome:
+        case RunCreated(run_id=run_id):
+            return f"created {run_id}"
+        case RunAlreadyCreated(run_id=run_id):
+            return f"already created {run_id}"
+        case NothingToBackfill():
+            return "nothing to backfill"
+        case RunRefused(reason=reason):
+            return f"refused, {reason}"
