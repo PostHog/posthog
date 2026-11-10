@@ -526,6 +526,124 @@ export class WorkerIngestServer {
         await Promise.race([this.pumpTask, sleep(5_000)])
     }
 
+    /**
+     * Takes no more work: new streams are refused, parked admissions abort,
+     * and each stream ends after its last ack. The streams in `failStreams`
+     * fail at once.
+     */
+    private beginDrain(failStreams: Set<number> = new Set()): void {
+        this.draining = true
+        this.drainAbort.abort()
+        for (const stream of this.streams.values()) {
+            if (failStreams.has(stream.id)) {
+                stream.acks.fail(new ConnectError('sub-batch stuck, worker shutting down', Code.Unavailable))
+            } else {
+                stream.readerDone = true
+                this.maybeFinish(stream)
+            }
+        }
+    }
+
+    /**
+     * Resolves `true` once every stream sent its last ack and every session
+     * closed, or `false` at the deadline. A batch whose stream died is not
+     * waited for: its ack has nowhere to go.
+     */
+    private async waitDrained(deadline: number): Promise<boolean> {
+        while (this.streams.size > 0 && Date.now() < deadline && !this.fatalError) {
+            await sleep(10)
+        }
+        // http2's close() waits for every session to end and consumers hold
+        // theirs open, so send GOAWAY: a session then closes once its streams
+        // have flushed.
+        const sessionsClosed = [...this.sessions].map(
+            (session) => new Promise<void>((resolve) => (session.closed ? resolve() : session.once('close', resolve)))
+        )
+        for (const session of this.sessions) {
+            session.close()
+        }
+        let timer: NodeJS.Timeout | undefined
+        const flushed = await Promise.race([
+            Promise.all(sessionsClosed).then(() => true),
+            new Promise<boolean>((resolve) => {
+                timer = setTimeout(() => resolve(false), Math.max(0, deadline - Date.now()))
+            }),
+        ])
+        clearTimeout(timer)
+        return flushed && this.streams.size === 0
+    }
+
+    private checkStuck(): void {
+        const now = Date.now()
+        let oldestAcceptedAt = now
+        for (const batch of this.acceptedBatches.values()) {
+            oldestAcceptedAt = Math.min(oldestAcceptedAt, batch.accounting.acceptedAt)
+        }
+        grpcOldestInFlightAge.set((now - oldestAcceptedAt) / 1000)
+        if (this.stuckBatchTimeoutMs <= 0 || this.fatalError || this.draining) {
+            return
+        }
+        const stuck = [...this.acceptedBatches].filter(
+            ([, batch]) => now - batch.accounting.acceptedAt > this.stuckBatchTimeoutMs
+        )
+        if (stuck.length > 0) {
+            this.startStuckShutdown(stuck, now)
+        }
+    }
+
+    /**
+     * A stuck sub-batch holds its slot until the process exits, so the worker
+     * leaves the pool, lets the other sub-batches settle and ack, and then
+     * hands the exit to the owner. To fail every stream at once would make
+     * consumers replay healthy work.
+     */
+    private startStuckShutdown(stuck: [string, FedBatch][], now: number): void {
+        grpcStuckBatches.inc()
+        const error = new Error(
+            `${stuck.length} sub-batch(es) in flight past the ${this.stuckBatchTimeoutMs}ms stuck-batch deadline`
+        )
+        for (const [key, batch] of stuck) {
+            logger.error('🧊', 'WorkerIngest sub-batch stuck', {
+                key,
+                inFlightMs: now - batch.accounting.acceptedAt,
+                consumerId: batch.consumerId,
+                streamEpoch: batch.streamEpoch,
+                assignmentEpoch: batch.assignmentEpoch,
+                ...aggregateKafkaDebugContexts(batch.messages),
+                streamOpen: this.streams.has(batch.streamId),
+            })
+        }
+
+        this.deps.onStuck?.(error)
+        // The consumer resolves acks in seq order, so no ack behind a stuck sub-batch would resolve.
+        this.beginDrain(new Set(stuck.map(([, batch]) => batch.streamId)))
+        logger.error('🧊', 'WorkerIngest stuck-batch shutdown: draining', {
+            error: error.message,
+            stuckBatches: stuck.length,
+            fedBatches: this.acceptedBatches.size,
+            openStreams: this.streams.size,
+            drainTimeoutMs: this.stuckDrainTimeoutMs,
+        })
+        void this.runStuckDrain(error)
+    }
+
+    private async runStuckDrain(error: Error): Promise<void> {
+        const drained = await this.waitDrained(Date.now() + this.stuckDrainTimeoutMs)
+        if (this.fatalError) {
+            // The fatal path already failed the streams and told the owner.
+            return
+        }
+        this.stuckDrainDone = true
+        const outcome = drained ? 'drained' : 'timeout'
+        logger.error('🧊', `WorkerIngest stuck-batch shutdown: ${outcome}, exiting`, {
+            error: error.message,
+            fedBatches: this.acceptedBatches.size,
+            openStreams: this.streams.size,
+            openSessions: this.sessions.size,
+        })
+        this.deps.onStuckDrained?.(error)
+    }
+
     /** Open stream count, exposed for tests. */
     get streamCount(): number {
         return this.streams.size
@@ -677,124 +795,6 @@ export class WorkerIngestServer {
         }
         stream.readerDone = true
         this.maybeFinish(stream)
-    }
-
-    private checkStuck(): void {
-        const now = Date.now()
-        let oldestAcceptedAt = now
-        for (const batch of this.acceptedBatches.values()) {
-            oldestAcceptedAt = Math.min(oldestAcceptedAt, batch.accounting.acceptedAt)
-        }
-        grpcOldestInFlightAge.set((now - oldestAcceptedAt) / 1000)
-        if (this.stuckBatchTimeoutMs <= 0 || this.fatalError || this.draining) {
-            return
-        }
-        const stuck = [...this.acceptedBatches].filter(
-            ([, batch]) => now - batch.accounting.acceptedAt > this.stuckBatchTimeoutMs
-        )
-        if (stuck.length > 0) {
-            this.startStuckShutdown(stuck, now)
-        }
-    }
-
-    /**
-     * A stuck sub-batch holds its slot until the process exits, so the worker
-     * leaves the pool, lets the other sub-batches settle and ack, and then
-     * hands the exit to the owner. To fail every stream at once would make
-     * consumers replay healthy work.
-     */
-    private startStuckShutdown(stuck: [string, FedBatch][], now: number): void {
-        grpcStuckBatches.inc()
-        const error = new Error(
-            `${stuck.length} sub-batch(es) in flight past the ${this.stuckBatchTimeoutMs}ms stuck-batch deadline`
-        )
-        for (const [key, batch] of stuck) {
-            logger.error('🧊', 'WorkerIngest sub-batch stuck', {
-                key,
-                inFlightMs: now - batch.accounting.acceptedAt,
-                consumerId: batch.consumerId,
-                streamEpoch: batch.streamEpoch,
-                assignmentEpoch: batch.assignmentEpoch,
-                ...aggregateKafkaDebugContexts(batch.messages),
-                streamOpen: this.streams.has(batch.streamId),
-            })
-        }
-
-        this.deps.onStuck?.(error)
-        // The consumer resolves acks in seq order, so no ack behind a stuck sub-batch would resolve.
-        this.beginDrain(new Set(stuck.map(([, batch]) => batch.streamId)))
-        logger.error('🧊', 'WorkerIngest stuck-batch shutdown: draining', {
-            error: error.message,
-            stuckBatches: stuck.length,
-            fedBatches: this.acceptedBatches.size,
-            openStreams: this.streams.size,
-            drainTimeoutMs: this.stuckDrainTimeoutMs,
-        })
-        void this.runStuckDrain(error)
-    }
-
-    private async runStuckDrain(error: Error): Promise<void> {
-        const drained = await this.waitDrained(Date.now() + this.stuckDrainTimeoutMs)
-        if (this.fatalError) {
-            // The fatal path already failed the streams and told the owner.
-            return
-        }
-        this.stuckDrainDone = true
-        const outcome = drained ? 'drained' : 'timeout'
-        logger.error('🧊', `WorkerIngest stuck-batch shutdown: ${outcome}, exiting`, {
-            error: error.message,
-            fedBatches: this.acceptedBatches.size,
-            openStreams: this.streams.size,
-            openSessions: this.sessions.size,
-        })
-        this.deps.onStuckDrained?.(error)
-    }
-
-    /**
-     * Takes no more work: new streams are refused, parked admissions abort,
-     * and each stream ends after its last ack. The streams in `failStreams`
-     * fail at once.
-     */
-    private beginDrain(failStreams: Set<number> = new Set()): void {
-        this.draining = true
-        this.drainAbort.abort()
-        for (const stream of this.streams.values()) {
-            if (failStreams.has(stream.id)) {
-                stream.acks.fail(new ConnectError('sub-batch stuck, worker shutting down', Code.Unavailable))
-            } else {
-                stream.readerDone = true
-                this.maybeFinish(stream)
-            }
-        }
-    }
-
-    /**
-     * Resolves `true` once every stream sent its last ack and every session
-     * closed, or `false` at the deadline. A batch whose stream died is not
-     * waited for: its ack has nowhere to go.
-     */
-    private async waitDrained(deadline: number): Promise<boolean> {
-        while (this.streams.size > 0 && Date.now() < deadline && !this.fatalError) {
-            await sleep(10)
-        }
-        // http2's close() waits for every session to end and consumers hold
-        // theirs open, so send GOAWAY: a session then closes once its streams
-        // have flushed.
-        const sessionsClosed = [...this.sessions].map(
-            (session) => new Promise<void>((resolve) => (session.closed ? resolve() : session.once('close', resolve)))
-        )
-        for (const session of this.sessions) {
-            session.close()
-        }
-        let timer: NodeJS.Timeout | undefined
-        const flushed = await Promise.race([
-            Promise.all(sessionsClosed).then(() => true),
-            new Promise<boolean>((resolve) => {
-                timer = setTimeout(() => resolve(false), Math.max(0, deadline - Date.now()))
-            }),
-        ])
-        clearTimeout(timer)
-        return flushed && this.streams.size === 0
     }
 
     /**
