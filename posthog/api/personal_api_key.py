@@ -14,6 +14,7 @@ from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.helpers.dev_api_key import get_local_dev_api_key_value
+from posthog.ip_restrictions import enforce_credential_ip_restrictions
 from posthog.models import PersonalAPIKey, User
 from posthog.models.oauth import has_live_third_party_oauth_access
 from posthog.models.personal_api_key import LEGACY_HASH_PREFIX, max_personal_api_keys_for_user
@@ -226,6 +227,9 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
                 f"You can only have {limit} personal API keys. Remove an existing key before creating a new one."
             )
         try:
+            enforce_credential_ip_restrictions(
+                request, validated_data.get("scoped_organizations"), validated_data.get("scoped_teams")
+            )
             minted = mint_personal_api_key(
                 user,
                 label=validated_data["label"],
@@ -261,6 +265,15 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             user.credentials_reviewed_at = timezone.now()
             user.save(update_fields=["credentials_reviewed_at"])
         return personal_api_key
+
+    def update(self, instance: PersonalAPIKey, validated_data: dict) -> PersonalAPIKey:
+        if {"scopes", "scoped_teams", "scoped_organizations", "expires_at"}.intersection(validated_data):
+            enforce_credential_ip_restrictions(
+                self.context["request"],
+                validated_data.get("scoped_organizations", instance.scoped_organizations),
+                validated_data.get("scoped_teams", instance.scoped_teams),
+            )
+        return super().update(instance, validated_data)
 
     def roll(
         self,
@@ -327,6 +340,7 @@ class PersonalApiKeySelfAccessPermission(BasePermission):
 
 @extend_schema(extensions={"x-product": "core"})
 class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
+    _ip_restrictions_use_view_scope = frozenset({"create", "update", "partial_update", "roll"})
     lookup_field = "id"
     serializer_class = PersonalAPIKeySerializer
     permission_classes = [IsAuthenticated, TimeSensitiveActionPermission, PersonalApiKeySelfAccessPermission]
@@ -353,6 +367,7 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True, url_path="roll")
     def roll(self, request, *args, **kwargs):
         instance = self.get_object()
+        enforce_credential_ip_restrictions(request, instance.scoped_organizations, instance.scoped_teams)
         roll_serializer = PersonalAPIKeyRollSerializer(data=request.data)
         roll_serializer.is_valid(raise_exception=True)
         serializer = cast(PersonalAPIKeySerializer, self.get_serializer(instance))
