@@ -1,5 +1,7 @@
+from collections.abc import Callable
 from copy import deepcopy
 from io import StringIO
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import time_machine
@@ -46,6 +48,7 @@ from products.workflows.backend.services.data_suggestions.planner import (
     PlannedWorkflow,
     StepsContext,
     WorkflowIdea,
+    WorkflowIdeas,
 )
 from products.workflows.backend.services.data_suggestions.service import (
     FAILURE_CACHE_TTL_SECONDS,
@@ -74,6 +77,26 @@ SERVICE = "products.workflows.backend.services.data_suggestions.service"
 EVENT_VOLUME = "products.workflows.backend.services.data_suggestions.event_volume"
 VIEW = "products.workflows.backend.presentation.views.workflow_data_suggestions"
 FLAG = f"{VIEW}.posthoganalytics.feature_enabled"
+LLM = "products.workflows.backend.services.data_suggestions.llm"
+
+
+class _RecordingModel:
+    def __init__(self, answers: dict[str, WorkflowIdeas | PlannedWorkflow]) -> None:
+        self.answers = answers
+        self.requests: list[tuple[str, str]] = []
+        self.while_answering: Callable[[str], None] = lambda _feature: None
+
+    def __call__(self, **settings: Any) -> SimpleNamespace:
+        feature = settings["posthog_properties"]["ai_feature"]
+        schema = settings["model_kwargs"]["output_config"]["format"]["schema"]["title"]
+
+        def invoke(_messages: object, config: object = None) -> SimpleNamespace:
+            self.requests.append((feature, schema))
+            self.while_answering(feature)
+            answer = self.answers[feature].model_dump_json()
+            return SimpleNamespace(content=[{"type": "thinking", "thinking": ""}, {"type": "text", "text": answer}])
+
+        return SimpleNamespace(invoke=invoke)
 
 
 def _idea(trigger_event: str) -> WorkflowIdea:
@@ -591,13 +614,16 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         ]
 
     @patch(FLAG, return_value=True)
-    @patch(f"{SERVICE}.plan_steps")
-    @patch(f"{SERVICE}.suggest_ideas")
-    def test_a_batch_that_lost_its_lock_saves_no_draft(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag: MagicMock
-    ) -> None:
-        suggest_ideas.return_value = [_idea("signed_up")]
-        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+    def test_a_batch_that_lost_its_lock_asks_the_model_nothing_and_saves_no_draft(self, _flag: MagicMock) -> None:
+        model = _RecordingModel(
+            {
+                "destination_workflow_ideas": WorkflowIdeas(ideas=[_idea("signed_up")]),
+                "destination_workflow_steps": PlannedWorkflow(
+                    first_step="welcome", steps=[_email_step("welcome", "Welcome")]
+                ),
+            }
+        )
+        patch(f"{LLM}.MaxChatAnthropic", model).start()
         url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build_for_events/"
         click = {"events": ["signed_up"]}
         with patch.object(build_event_workflows, "delay") as queue:
@@ -605,13 +631,19 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         build_event_workflows(self.team.id, self.user.id, ["signed_up"], "older-run")
         drafts_after_stale_run = HogFlow.objects.filter(team=self.team).count()
+        requests_after_stale_run = list(model.requests)
         while_newer_waits = self.client.post(url, click, format="json").json()
         build_event_workflows(*queue.call_args.args)
         done = self.client.post(url, click, format="json").json()
 
         assert (newer["status"], while_newer_waits["status"], drafts_after_stale_run) == ("building", "building", 0)
+        assert requests_after_stale_run == []
         assert done["status"] == "ready"
         assert [str(draft.id) for draft in HogFlow.objects.filter(team=self.team)] == done["workflow_ids"]
+        assert model.requests == [
+            ("destination_workflow_ideas", "WorkflowIdeas"),
+            ("destination_workflow_steps", "PlannedWorkflow"),
+        ]
 
     @parameterized.expand(
         [
@@ -832,23 +864,26 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert email["html"] == "<p>Saved</p>"
         assert "text" not in email
 
-    @patch(f"{SERVICE}.plan_steps")
-    @patch(f"{SERVICE}.suggest_ideas")
-    def test_a_second_build_of_the_same_suggestion_waits_for_the_first(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock
-    ) -> None:
-        suggest_ideas.return_value = [_idea("trial_started")]
+    def test_a_second_build_of_the_same_suggestion_waits_for_the_first(self) -> None:
+        model = _RecordingModel(
+            {
+                "data_suggestion_ideas": WorkflowIdeas(ideas=[_idea("trial_started")]),
+                "data_suggestion_steps": PlannedWorkflow(
+                    first_step="welcome", steps=[_email_step("welcome", "Welcome")]
+                ),
+            }
+        )
+        patch(f"{LLM}.MaxChatAnthropic", model).start()
         build = {"suggestion_id": self._list()["suggestions"][0]["id"], "save_draft": True}
         build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
-        plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
         second_clicks: list[_MonkeyPatchedResponse] = []
 
-        def plan_while_the_user_clicks_again(**_: object) -> PlannedWorkflow:
-            plan_steps.side_effect = None
-            second_clicks.append(self.client.post(build_url, build, format="json"))
-            return plan_steps.return_value
+        def click_again_while_the_first_build_plans(feature: str) -> None:
+            if feature == "data_suggestion_steps":
+                model.while_answering = lambda _feature: None
+                second_clicks.append(self.client.post(build_url, build, format="json"))
 
-        plan_steps.side_effect = plan_while_the_user_clicks_again
+        model.while_answering = click_again_while_the_first_build_plans
 
         first = self.client.post(build_url, build, format="json")
 
@@ -863,6 +898,10 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         ]
         assert first.json()["status"] == "ready"
         assert HogFlow.objects.filter(team=self.team).count() == 1
+        assert model.requests == [
+            ("data_suggestion_ideas", "WorkflowIdeas"),
+            ("data_suggestion_steps", "PlannedWorkflow"),
+        ]
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
