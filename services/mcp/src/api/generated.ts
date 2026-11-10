@@ -34567,6 +34567,8 @@ export namespace Schemas {
          * @nullable
          */
       soft_update?: boolean | null;
+      /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+      acknowledge_breaking_changes?: boolean;
       /** @nullable */
       readonly is_materialized: boolean | null;
       /** Where this SavedQuery is created.
@@ -34889,6 +34891,8 @@ export namespace Schemas {
 
     export interface DatabaseSchemaField {
       chain?: (string | number)[] | null;
+      /** Short description of the column, when the HogQL schema defines one. */
+      description?: string | null;
       fields?: string[] | null;
       hogql_value: string;
       id?: string | null;
@@ -34919,6 +34923,8 @@ export namespace Schemas {
     export interface DatabaseSchemaBatchExportTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaBatchExportTableFields;
       id: string;
       name: string;
@@ -34949,6 +34955,8 @@ export namespace Schemas {
     export interface DatabaseSchemaDataWarehouseTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaDataWarehouseTableFields;
       /** Absent for a dual-mode source's virtual tables, which have no synced S3 backing. */
       format?: string | null;
@@ -34969,6 +34977,8 @@ export namespace Schemas {
     export interface DatabaseSchemaEndpointTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaEndpointTableFields;
       id: string;
       name: string;
@@ -34995,6 +35005,8 @@ export namespace Schemas {
     export interface DatabaseSchemaManagedViewTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaManagedViewTableFields;
       id: string;
       kind: DatabaseSchemaManagedViewTableKind;
@@ -35010,6 +35022,8 @@ export namespace Schemas {
     export interface DatabaseSchemaMaterializedViewTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaMaterializedViewTableFields;
       id: string;
       last_run_at?: string | null;
@@ -35025,6 +35039,8 @@ export namespace Schemas {
     export interface DatabaseSchemaPostHogTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaPostHogTableFields;
       id: string;
       name: string;
@@ -35037,6 +35053,8 @@ export namespace Schemas {
     export interface DatabaseSchemaSystemTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaSystemTableFields;
       id: string;
       name: string;
@@ -35049,6 +35067,8 @@ export namespace Schemas {
     export interface DatabaseSchemaViewTable {
       /** Present only when the table or view carries a settled data catalog certification. */
       certification?: DatabaseSchemaTableCertification | null;
+      /** Short description of the table, when the HogQL schema defines one. */
+      description?: string | null;
       fields: DatabaseSchemaViewTableFields;
       id: string;
       name: string;
@@ -45229,7 +45249,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -46780,7 +46800,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
+      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
       query: unknown;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -48228,7 +48248,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -54085,7 +54105,7 @@ export namespace Schemas {
       /** Key metrics of the project from its settings. */
       pulse: HighlightMetric[];
       /**
-         * Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null for clients using complete results.
+         * Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null only in results stored before every computation listed its numbers.
          * @nullable
          */
       pulse_slots?: PulseSlot[] | null;
@@ -76075,7 +76095,7 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalRef {
       readonly id: string;
-      readonly integration: SessionRecordingExternalReferenceIntegration;
+      readonly integration: SessionRecordingExternalReferenceIntegration | null;
       integration_id: number;
       config: unknown;
       session_recording_id: string;
@@ -83810,6 +83830,8 @@ export namespace Schemas {
          * @nullable
          */
       soft_update?: boolean | null;
+      /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+      acknowledge_breaking_changes?: boolean;
       /** @nullable */
       readonly is_materialized?: boolean | null;
       /** Where this SavedQuery is created.
@@ -84825,7 +84847,7 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
-      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
+      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns are not supported), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
       query?: unknown;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
@@ -84909,7 +84931,7 @@ export namespace Schemas {
       type?: ExperimentTypeEnum | null;
       /** Exposure configuration including filter test accounts and custom exposure events. */
       exposure_criteria?: ExperimentApiExposureCriteria | null;
-      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns and sequential testing are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), 'quantile' (set source to an EventsNode or ActionsNode with math_property, the numeric property to measure, and quantile, the level in [0.01, 0.99], for example 0.9 for p90; breakdowns are not supported), or 'retention' (set start_event and completion_event; pass start_event {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
       metrics?: _ExperimentApiMetricsList | null;
       /** Secondary metrics for additional measurements. Same format as primary metrics. */
       metrics_secondary?: _ExperimentApiMetricsList | null;
@@ -89965,7 +89987,7 @@ export namespace Schemas {
      */
     export interface PatchedSessionRecordingExternalRef {
       readonly id?: string;
-      readonly integration?: SessionRecordingExternalReferenceIntegration;
+      readonly integration?: SessionRecordingExternalReferenceIntegration | null;
       integration_id?: number;
       config?: unknown;
       session_recording_id?: string;
@@ -112902,6 +112924,26 @@ export namespace Schemas {
     }
 
     /**
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     */
+    export type WarehouseSuggestionSurfaceEnum = typeof WarehouseSuggestionSurfaceEnum[keyof typeof WarehouseSuggestionSurfaceEnum];
+
+
+    export const WarehouseSuggestionSurfaceEnum = {
+      Models: 'models',
+      Catalog: 'catalog',
+    } as const;
+
+    export interface SurfaceMoreWarehouseSuggestions {
+      /** Page to show more suggestions on. Only the kinds that page shows are picked.
+       *
+       * * `models` - Models
+       * * `catalog` - Data catalog */
+      surface: WarehouseSuggestionSurfaceEnum;
+    }
+
+    /**
      * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
      */
     export type SurveyGlobalStatsResponseStats = { [key: string]: unknown };
@@ -117013,6 +117055,28 @@ export namespace Schemas {
       git: TraceGit | null;
     }
 
+    export type TraceAttachmentMediaType = typeof TraceAttachmentMediaType[keyof typeof TraceAttachmentMediaType];
+
+
+    export const TraceAttachmentMediaType = {
+      Image: 'image',
+      Audio: 'audio',
+      Video: 'video',
+      File: 'file',
+    } as const;
+
+    export interface TraceAttachmentPart {
+      kind: 'attachment';
+      /** The kind of media, which decides how it is shown. */
+      mediaType: TraceAttachmentMediaType;
+      /** The file name, or the content item's type for an item that is not known media. Null otherwise. */
+      name: string | null;
+      /** The MIME type, such as `image/png`, or null when it is not known. */
+      mimeType: string | null;
+      /** A URL that loads the media: a link or data URI from the event, a project blob URL for offloaded media, or a data URI built from base64 data. Null when the media cannot be shown or was redacted. */
+      url: string | null;
+    }
+
     export interface TraceAvailability {
       /** Requested trace IDs readable from AI events or the shared events table. */
       available_trace_ids: string[];
@@ -117139,14 +117203,6 @@ export namespace Schemas {
       detail: string;
     }
 
-    export interface TraceNodeMetadata {
-      provider: string | null;
-      temperature: number | null;
-      sessionId: string | null;
-      promptName: string | null;
-      promptVersion: number | null;
-    }
-
     export interface TraceNodeIOKeys {
       input: string | null;
       output: string | null;
@@ -117168,11 +117224,11 @@ export namespace Schemas {
       ioKeys: TraceNodeIOKeys;
     }
 
-    export interface TraceNodeDetail {
+    export interface TraceNodeRaw {
+      /** The node id: the event's uuid, or the trace id for the root node. */
       id: string;
       kind: TraceNodeKindEnum;
-      error: string | null;
-      metadata: TraceNodeMetadata;
+      /** The node's event as ingested, or null for a root node whose trace has no `$ai_trace` event. */
       event: TraceNodeEvent | null;
     }
 
@@ -117181,8 +117237,8 @@ export namespace Schemas {
       trace: Trace;
       /** True when the trace has more events than an export reads. The file then holds the earliest events only, and leaves out the later steps. */
       truncated: boolean;
-      /** Every node with its event properties as ingested, inputs and outputs included: the root first, then the tree in pre-order. */
-      nodes: TraceNodeDetail[];
+      /** Every node with its event as ingested: the root first, then the tree in pre-order. */
+      nodes: TraceNodeRaw[];
     }
 
     export interface TraceFeedbackScore {
@@ -117301,6 +117357,93 @@ export namespace Schemas {
       comment: string | null;
       /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
       scores: TraceHumanReviewScore[];
+    }
+
+    export interface TraceJsonSide {
+      kind: 'json';
+      /** The side's value as captured, for a side that is not a conversation or that could not be normalized. */
+      value: unknown;
+    }
+
+    export type TraceMessageRoleEnum = typeof TraceMessageRoleEnum[keyof typeof TraceMessageRoleEnum];
+
+
+    export const TraceMessageRoleEnum = {
+      System: 'system',
+      User: 'user',
+      Assistant: 'assistant',
+      Tool: 'tool',
+    } as const;
+
+    export interface TraceTextPart {
+      kind: 'text';
+      /** The text of the message, as captured. */
+      text: string;
+    }
+
+    export interface TraceThinkingPart {
+      kind: 'thinking';
+      /** The model's reasoning text. */
+      text: string;
+    }
+
+    export interface TraceToolCallPart {
+      kind: 'toolCall';
+      /** The name of the called tool, or an empty string when the event has none. */
+      name: string;
+      /** The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured. */
+      args: unknown;
+      /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser. Null when no tool message answers the call. */
+      result: unknown;
+    }
+
+    export interface TraceMessage {
+      /** An id that is unique within the node, made of the node id, the side and a position. */
+      id: string;
+      role: TraceMessageRoleEnum;
+      /** The message's text, reasoning, tool calls and attachments, in order. */
+      parts: (TraceTextPart | TraceThinkingPart | TraceToolCallPart | TraceAttachmentPart)[];
+      /** Whether the message is a tool message, or holds only reasoning and tool calls. */
+      isInternal: boolean;
+      /** The id of the node whose input or output holds this message, or null when it is not known. */
+      sourceNodeId: string | null;
+    }
+
+    export interface TraceMessagesSide {
+      kind: 'messages';
+      /** The conversation, normalized from the provider's format by the built-in parsers and the project's custom parsers. */
+      messages: TraceMessage[];
+    }
+
+    export interface TraceNodeContent {
+      /** The node's input, as messages or as JSON. */
+      input: TraceMessagesSide | TraceJsonSide;
+      /** The node's output, as messages or as JSON. */
+      output: TraceMessagesSide | TraceJsonSide;
+    }
+
+    export interface TraceNodeMetadata {
+      provider: string | null;
+      temperature: number | null;
+      sessionId: string | null;
+      promptName: string | null;
+      promptVersion: number | null;
+    }
+
+    export interface TraceNodeDetailEvent {
+      name: string;
+      uuid: string;
+      timestamp: string;
+    }
+
+    export interface TraceNodeDetail {
+      id: string;
+      kind: TraceNodeKindEnum;
+      error: string | null;
+      metadata: TraceNodeMetadata;
+      event: TraceNodeDetailEvent | null;
+      /** The node's input and output, ready to render. */
+      content: TraceNodeContent;
     }
 
     export interface TracePullRequest {
@@ -119130,6 +119273,15 @@ export namespace Schemas {
          * @nullable
          */
       refreshed_at: string | null;
+      /** Suggestions waiting to be shown on the requested surface that you can read and act on. 0 without a surface, or while new suggestions are paused or off. */
+      waiting: number;
+      /** Whether a surface_more call would show at least one waiting suggestion now. False while the open limits are full. */
+      can_show_more: boolean;
+    }
+
+    export interface WarehouseSuggestionSurfaceMoreResult {
+      /** How many waiting suggestions this call showed. 0 when none could be shown. */
+      surfaced: number;
     }
 
     /**
@@ -126523,6 +126675,13 @@ export namespace Schemas {
     };
 
     export type AiObservabilityTracesNodesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesNodesRawRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
@@ -141034,6 +141193,14 @@ export namespace Schemas {
      * Only return suggestions about the view or table with this ID.
      */
     subject_id?: string;
+    /**
+     * Only return the kinds of suggestions this page shows. models: materialize, stop materializing and view deprecations. catalog: certify and deprecate.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsListSurface;
     };
 
     export type WarehouseSuggestionsListKind = typeof WarehouseSuggestionsListKind[keyof typeof WarehouseSuggestionsListKind];
@@ -141055,6 +141222,14 @@ export namespace Schemas {
       Dismissed: 'dismissed',
       Expired: 'expired',
       AutoResolved: 'auto_resolved',
+    } as const;
+
+    export type WarehouseSuggestionsListSurface = typeof WarehouseSuggestionsListSurface[keyof typeof WarehouseSuggestionsListSurface];
+
+
+    export const WarehouseSuggestionsListSurface = {
+      Models: 'models',
+      Catalog: 'catalog',
     } as const;
 
     export type WarehouseSuggestionsAcceptCreateParams = {
@@ -141091,6 +141266,25 @@ export namespace Schemas {
 
 
     export const WarehouseSuggestionsDismissCreateSurface = {
+      Models: 'models',
+      Catalog: 'catalog',
+    } as const;
+
+    export type WarehouseSuggestionsStatusRetrieveParams = {
+    /**
+     * Page to count waiting suggestions for. Without it, waiting is 0 and can_show_more is false.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsStatusRetrieveSurface;
+    };
+
+    export type WarehouseSuggestionsStatusRetrieveSurface = typeof WarehouseSuggestionsStatusRetrieveSurface[keyof typeof WarehouseSuggestionsStatusRetrieveSurface];
+
+
+    export const WarehouseSuggestionsStatusRetrieveSurface = {
       Models: 'models',
       Catalog: 'catalog',
     } as const;
