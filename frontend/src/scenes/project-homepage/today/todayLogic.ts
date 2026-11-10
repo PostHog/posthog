@@ -944,7 +944,7 @@ export const todayLogic = kea<todayLogicType>([
         }
     }),
     afterMount(({ actions, values, cache }) => {
-        // `now` defaults to the time the module loaded, so set it before anything reads the time.
+        // `now` defaults to the time the module loaded, so set it before anything reads the hour.
         actions.tick()
         const useSampleData = parseSampleParam(router.values.searchParams.sample)
         if (useSampleData !== null && useSampleData !== values.useSampleData) {
