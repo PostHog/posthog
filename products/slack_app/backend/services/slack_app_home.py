@@ -31,6 +31,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.slack.formatting import escape_slack_mrkdwn
+from posthog.templatetags.posthog_assets import absolute_asset_url
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
@@ -46,7 +47,6 @@ from products.slack_app.backend.services.model_catalogue import (
     RUNTIME_ADAPTER_DISPLAY_NAMES,
     ModelChoice,
     available_model_choices,
-    describe_run_model,
     display_name_for_model,
     group_by_runtime,
     label_for,
@@ -62,7 +62,6 @@ from products.slack_app.backend.services.slack_app_home_stats import (
     OUTCOME_RUNNING,
     STATS_MAX_TASKS,
     STATS_WINDOW_OPTIONS,
-    ModelUsage,
     StatsState,
     build_stats_state,
     coerce_window_days,
@@ -168,12 +167,12 @@ TASKS_FILTER_ALL = "all"
 # we surface on the card. Kept here so the renderer and resolver stay in sync.
 TASKS_STATUS_OPTIONS: tuple[tuple[str, str], ...] = (
     (TASKS_FILTER_ALL, "All statuses"),
-    ("in_progress", "[>] In progress"),
-    ("completed", "[x] Done"),
-    ("failed", "[!] Failed"),
-    ("cancelled", "[-] Canceled"),
-    ("queued", "[.] Queued"),
-    ("not_started", "[ ] Not started"),
+    ("in_progress", "In progress"),
+    ("completed", "Done"),
+    ("failed", "Failed"),
+    ("cancelled", "Canceled"),
+    ("queued", "Queued"),
+    ("not_started", "Not started"),
 )
 
 EDIT_MODAL_PERSONAL_CALLBACK_ID = "slack_app_ai_prefs:personal"
@@ -480,95 +479,92 @@ def render_home_view(
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
     run_defaults = run_defaults or RunDefaultsState()
-    blocks: list[dict] = []
-
-    blocks.extend(_header_blocks())
-
-    # Nothing below the fold means anything to someone who can't reach a project: the
-    # cards are scoped to one, and mentioning @PostHog won't work either. Say so once
-    # and stop, rather than drawing empty cards that read as "you have no tasks yet".
+    blocks = _header_blocks()
     if not has_project_access:
         blocks.append({"type": "divider"})
         blocks.extend(_no_project_access_blocks(account_settings_url))
         return {"type": "home", "callback_id": HOME_CALLBACK_ID, "blocks": blocks}
 
-    # Section 1 — workspace activity: aggregates across everyone's Slack-started work,
-    # rather than the calling user's own. Admin-only, and first because it's the reason
-    # an admin opens the tab at all — the settings below are set once and rarely revisited.
-    if stats_state is not None:
-        blocks.append({"type": "divider"})
-        blocks.extend(_stats_section_blocks(stats_state))
-
-    # Section 2 — project routing. Personal pick on top; admins get an
-    # editable workspace default below, others see it as read-only context.
-    blocks.append({"type": "divider"})
-    blocks.append({"type": "header", "text": {"type": "plain_text", "text": "Project and model"}})
+    blocks.append(_home_heading("Project and model", "folder-cog"))
     if project_state and project_state.has_anything_to_show:
         blocks.extend(_project_section_blocks(project_state, is_admin=is_admin))
-
-    # Section 3 — AI model settings: which model handles those mentions.
-    # Headline shows the resolved central default (and its source), with the
-    # personal editor underneath.
     blocks.extend(_active_model_blocks(run_defaults))
     blocks.extend(_personal_section_blocks(run_defaults))
-    # `None` means no PostHog user is linked to this viewer.
     if auto_model_choice is not None:
         blocks.extend(_auto_model_choice_blocks(auto_model_choice))
-    # A connected plan is described under Multiplayer, because people who join spend it too.
-    if own_plan is not None and not own_plan.connected:
-        blocks.extend(_own_plan_blocks(own_plan))
 
-    # Section 4 — thread follow-ups: whether replies other people leave in the
-    # threads you started reach PostHog on their own.
-    uses_own_plan = bool(own_plan and own_plan.connected)
     reply_blocks: list[dict] = []
     if untagged_followup_mode is not None:
         reply_blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
-
     if untagged_question_mode is not None:
         reply_blocks.extend(_untagged_questions_section_blocks(untagged_question_mode))
-
-    if thread_join_mode is not None or uses_own_plan:
-        reply_blocks.extend(_multiplayer_section_blocks(thread_join_mode, uses_own_plan=uses_own_plan))
+    if thread_join_mode is not None:
+        reply_blocks.extend(_multiplayer_section_blocks(thread_join_mode))
     if feature_tips_enabled is not None:
         reply_blocks.extend(_feature_tips_section_blocks(feature_tips_enabled))
     if reply_blocks:
-        blocks.append({"type": "divider"})
-        blocks.append({"type": "header", "text": {"type": "plain_text", "text": "Reply settings"}})
-        blocks.extend(reply_blocks)
+        blocks.extend([{"type": "divider"}, _home_heading("Reply settings", "messages-square"), *reply_blocks])
 
-    # Section 5 — channel welcome: a workspace setting, so only admins see it.
-    if is_admin and channel_welcome_mode is not None:
-        blocks.append({"type": "divider"})
-        blocks.extend(_channel_welcome_section_blocks(channel_welcome_mode))
+    accounts = _linked_accounts_section_blocks(account_state, github_state, own_plan)
+    if accounts:
+        blocks.extend([{"type": "divider"}, *accounts])
 
-    # Section 6 — linked accounts: PostHog and GitHub side by side, shown
-    # before Tasks so the connect prompts are visible while the Tasks list
-    # is still empty. The PostHog half is flag-gated.
-    if (account_state and account_state.enabled) or github_state is not None:
-        blocks.append({"type": "divider"})
-        blocks.extend(_linked_accounts_section_blocks(account_state, github_state))
+    if is_admin:
+        blocks.extend(_workspace_blocks(project_state, channel_welcome_mode, stats_state))
 
-    # Section 6a — interview invitation. `interview_invite` is the section block.
+    if tasks_state is not None:
+        blocks.extend([{"type": "divider"}, *_tasks_section_blocks(tasks_state)])
     if interview_invite is not None:
-        blocks.append({"type": "divider"})
-        blocks.append(_section_title("Talk to the team"))
+        blocks.extend([{"type": "divider"}, _home_heading("Talk to the team", "coffee")])
         invite_block = dict(interview_invite)
         invite_button = invite_block.pop("accessory", None)
         blocks.append(invite_block)
         if invite_button:
+            invite_button = {key: value for key, value in invite_button.items() if key != "style"}
             blocks.append({"type": "actions", "elements": [invite_button]})
 
-    # Section 7 — your tasks: a quiet list of tasks the calling user
-    # started via @PostHog mentions, so they can see status without
-    # the bot pinging the activity feed for every transition.
-    if tasks_state is not None:
-        blocks.append({"type": "divider"})
-        blocks.extend(_tasks_section_blocks(tasks_state))
-
-    blocks.extend(_footer_blocks())
-
+    excess = max(0, len(blocks) - 100)
+    for index in range(len(blocks) - 1, -1, -1):
+        if excess and blocks[index]["type"] == "divider":
+            blocks.pop(index)
+            excess -= 1
     return {"type": "home", "callback_id": HOME_CALLBACK_ID, "blocks": blocks}
+
+
+def _workspace_blocks(
+    project_state: ProjectState | None,
+    channel_welcome_mode: ChannelWelcomeMode | None,
+    stats_state: StatsState | None,
+) -> list[dict]:
+    settings_blocks: list[dict] = []
+    if project_state and project_state.has_anything_to_show:
+        settings_blocks.extend(_project_section_blocks(project_state, is_admin=True, workspace_only=True))
+    if channel_welcome_mode is not None:
+        settings_blocks.extend(_channel_welcome_section_blocks(channel_welcome_mode))
+    blocks: list[dict] = []
+    if settings_blocks:
+        blocks.extend(
+            [
+                {"type": "divider"},
+                _home_heading("Workspace settings", "shield-check"),
+                {
+                    "type": "context",
+                    "elements": [{"type": "mrkdwn", "text": "Only workspace admins can change these settings."}],
+                },
+                *settings_blocks,
+            ]
+        )
+    if stats_state is not None:
+        blocks.extend([{"type": "divider"}, *_stats_section_blocks(stats_state)])
+    return blocks
+
+
+def _home_image(name: str, alt_text: str) -> dict:
+    return {"type": "image", "image_url": absolute_asset_url(f"slack_app/home/v1/{name}.png"), "alt_text": alt_text}
+
+
+def _home_heading(title: str, icon: str) -> dict:
+    return {"type": "context", "elements": [_home_image(icon, title), {"type": "mrkdwn", "text": f"*{title}*"}]}
 
 
 def _section_title(title: str, subtitle: str | None = None) -> dict:
@@ -576,11 +572,6 @@ def _section_title(title: str, subtitle: str | None = None) -> dict:
     if subtitle:
         text += f"\n{subtitle}"
     return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
-
-
-def _subsection_label(text: str) -> dict:
-    """Bold mrkdwn line in a `context` block — smaller than a section title."""
-    return {"type": "context", "elements": [{"type": "mrkdwn", "text": f"*{text}*"}]}
 
 
 def _refreshed_at_blocks(epoch: int) -> list[dict]:
@@ -631,7 +622,10 @@ def _static_select(
 def _header_blocks() -> list[dict]:
     return [
         {"type": "header", "text": {"type": "plain_text", "text": "PostHog in Slack"}},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": "Settings for your work with @PostHog."}]},
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": "Manage your projects, replies, and connected accounts."}],
+        },
     ]
 
 
@@ -703,10 +697,11 @@ def _active_model_blocks(run_defaults: RunDefaultsState) -> list[dict]:
     project), else Slack's own floor.
     """
     if run_defaults.applies:
-        headline = (
-            f"{describe_run_model(run_defaults.model, run_defaults.reasoning_effort)}"
-            f" · {label_for(run_defaults.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES)}"
-        )
+        parts = [display_name_for_model(run_defaults.model)]
+        if run_defaults.reasoning_effort:
+            parts.append(f"{label_for(run_defaults.reasoning_effort, REASONING_EFFORT_DISPLAY_NAMES)} reasoning")
+        parts.append(label_for(run_defaults.runtime_adapter, RUNTIME_ADAPTER_DISPLAY_NAMES))
+        headline = " · ".join(parts)
         source_label = run_defaults.source_label
     else:
         headline = display_name_for_model(SLACK_DEFAULT_MODEL)
@@ -727,7 +722,7 @@ def _active_model_blocks(run_defaults: RunDefaultsState) -> list[dict]:
     return blocks
 
 
-def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict]:
+def _project_section_blocks(state: ProjectState, *, is_admin: bool, workspace_only: bool = False) -> list[dict]:
     """Render the project-routing card.
 
     Personal dropdown for the calling user; workspace dropdown for admins.
@@ -741,7 +736,7 @@ def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict
 
     blocks: list[dict] = []
 
-    if options:
+    if options and not workspace_only:
         personal_select: dict[str, Any] = {
             "type": "static_select",
             "action_id": ACTION_SET_PROJECT_PERSONAL,
@@ -772,7 +767,7 @@ def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict
         )
         blocks.append({"type": "actions", "elements": personal_actions})
 
-    if is_admin and options:
+    if workspace_only and options:
         workspace_select: dict[str, Any] = {
             "type": "static_select",
             "action_id": ACTION_SET_PROJECT_WORKSPACE,
@@ -786,7 +781,8 @@ def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "*Workspace project (admin)*\nDefault for people without a personal choice.",
+                    "text": f"*Default project*\n{escape_slack_mrkdwn(state.workspace_team_label or 'Not set')}\n"
+                    "Used when a person has not selected a project.",
                 },
             }
         )
@@ -798,15 +794,20 @@ def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict
                 {
                     "type": "context",
                     "elements": [
-                        {"type": "mrkdwn", "text": f"Currently set to _{state.workspace_team_label}_ (no access)"}
+                        {
+                            "type": "mrkdwn",
+                            "text": f"Currently set to _{escape_slack_mrkdwn(state.workspace_team_label)}_ (no access)",
+                        }
                     ],
                 }
             )
-    elif state.workspace_team_label:
+    elif state.workspace_team_label and (workspace_only or not is_admin):
         blocks.append(
             {
                 "type": "context",
-                "elements": [{"type": "mrkdwn", "text": f"Workspace default: {state.workspace_team_label}"}],
+                "elements": [
+                    {"type": "mrkdwn", "text": f"Workspace default: {escape_slack_mrkdwn(state.workspace_team_label)}"}
+                ],
             }
         )
 
@@ -816,31 +817,38 @@ def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict
 def _linked_accounts_section_blocks(
     account_state: AccountState | None,
     github_state: GitHubState | None,
+    own_plan: OwnPlanState | None = None,
 ) -> list[dict]:
-    """Render the linked-accounts card: one row per account.
-
-    The PostHog row only appears when `is_slack_app_oauth_enabled` returned
-    True; the GitHub row is independent of that gate.
-    """
     rows: list[dict] = []
-
     if account_state and account_state.enabled:
-        rows.extend(_account_row(_posthog_account_text(account_state), _posthog_account_button(account_state)))
-
+        rows.extend(
+            _account_row(
+                _posthog_account_text(account_state),
+                _posthog_account_button(account_state),
+                connected=bool(account_state.linked_email),
+            )
+        )
     if github_state is not None:
-        rows.extend(_account_row(_github_account_text(github_state), _github_account_button(github_state)))
+        rows.extend(
+            _account_row(
+                _github_account_text(github_state),
+                _github_account_button(github_state),
+                connected=github_state.credentials_usable and bool(github_state.accounts),
+            )
+        )
+    if own_plan is not None:
+        rows.extend(_own_plan_blocks(own_plan))
+    return [_home_heading("Linked accounts", "user-round"), *rows] if rows else []
 
-    if not rows:
-        return []
 
-    return [
-        {"type": "header", "text": {"type": "plain_text", "text": "Linked accounts"}},
-        *rows,
+def _account_row(text: str, button: dict | None, *, connected: bool) -> list[dict]:
+    title, _, detail = text.partition("\n")
+    elements = [_home_image("todo_done", "Connected")] if connected else []
+    elements.append({"type": "mrkdwn", "text": detail})
+    blocks: list[dict] = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": title}},
+        {"type": "context", "elements": elements},
     ]
-
-
-def _account_row(text: str, button: dict | None) -> list[dict]:
-    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
     if button:
         blocks.append({"type": "actions", "elements": [button]})
     return blocks
@@ -848,7 +856,7 @@ def _account_row(text: str, button: dict | None) -> list[dict]:
 
 def _posthog_account_text(account_state: AccountState) -> str:
     if account_state.linked_email:
-        return f"*PostHog*\nConnected as {account_state.linked_email}"
+        return f"*PostHog*\nConnected as {escape_slack_mrkdwn(account_state.linked_email)}"
     return "*PostHog*\nNot connected. Link your Slack identity so @PostHog knows it's you without matching on email."
 
 
@@ -985,12 +993,19 @@ def _feature_tips_section_blocks(enabled: bool) -> list[dict]:
 
 
 def _own_plan_blocks(state: OwnPlanState) -> list[dict]:
-    """The prompt to connect a ChatGPT plan, for a viewer who has not connected one."""
-    text = f"<{state.settings_url}|Connect your ChatGPT plan> in PostHog to use it for Codex tasks you start here."
-    return [
-        _subsection_label("ChatGPT plan"),
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]},
-    ]
+    blocks = [_section_title("ChatGPT plan")]
+    if state.connected:
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [_home_image("todo_done", "Connected"), {"type": "mrkdwn", "text": "Connected"}],
+            }
+        )
+        text = "Your Codex tasks use your ChatGPT plan, also when other people join your thread."
+    else:
+        text = f"<{state.settings_url}|Connect your ChatGPT plan> in PostHog to use it for Codex tasks you start here."
+    blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": text}]})
+    return blocks
 
 
 UNTAGGED_FOLLOWUP_MODE_LABELS: dict[str, str] = {
@@ -1061,40 +1076,32 @@ def _untagged_questions_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
     )
 
 
-def _multiplayer_section_blocks(mode: ThreadJoinMode | None, *, uses_own_plan: bool) -> list[dict]:
-    """Who may join the threads you started, and whose plan pays when they do.
-
-    ``mode`` is `None` when the join setting is not offered to this viewer.
-    """
-    row = _section_title("Multiplayer", "When others mention @PostHog in threads you start.")
-    blocks: list[dict] = [row]
-    if mode is not None:
-        select = _static_select(
-            action_id=ACTION_SET_THREAD_JOIN_MODE,
-            placeholder="Choose who can join",
-            pairs=ThreadJoinMode.choices,
-            selected=mode.value,
-        )
-        blocks.append({"type": "actions", "elements": [select]})
-    if uses_own_plan:
-        blocks.append(_subsection_label("ChatGPT plan"))
-        blocks.append(
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": "Your Codex tasks use your ChatGPT plan, also when other people join your thread.",
-                    }
-                ],
-            }
-        )
-    return blocks
+def _multiplayer_section_blocks(mode: ThreadJoinMode | None) -> list[dict]:
+    if mode is None:
+        return []
+    labels = {
+        ThreadJoinMode.ASK_PER_PERSON: "Ask for each person",
+        ThreadJoinMode.ASK_PER_THREAD: "Ask once per thread",
+    }
+    return [
+        _section_title("Who can join your threads", "When other people mention @PostHog in a thread you started."),
+        {
+            "type": "actions",
+            "elements": [
+                _static_select(
+                    action_id=ACTION_SET_THREAD_JOIN_MODE,
+                    placeholder="Choose who can join",
+                    pairs=((value, labels.get(value, label)) for value, label in ThreadJoinMode.choices),
+                    selected=mode.value,
+                )
+            ],
+        },
+    ]
 
 
 CHANNEL_WELCOME_MODE_LABELS: dict[str, str] = {
     ChannelWelcomeMode.CHANNEL: "Post it in the channel",
-    ChannelWelcomeMode.INVITER: "Show it only to the person who added me",
+    ChannelWelcomeMode.INVITER: "Only the inviter",
     ChannelWelcomeMode.OFF: "Don't send it",
 }
 
@@ -1102,12 +1109,11 @@ CHANNEL_WELCOME_MODE_LABELS: dict[str, str] = {
 def _channel_welcome_section_blocks(mode: ChannelWelcomeMode) -> list[dict]:
     """Admin picker for where the welcome goes when someone adds the app to a channel."""
     return [
-        {"type": "header", "text": {"type": "plain_text", "text": "Workspace settings"}},
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "*Channel welcome (admin)*\nWhere to send the welcome when someone adds PostHog to a channel.",
+                "text": "*Channel welcome*\nWhere PostHog sends a welcome when added to a channel.",
             },
         },
         {
@@ -1124,18 +1130,14 @@ def _channel_welcome_section_blocks(mode: ChannelWelcomeMode) -> list[dict]:
     ]
 
 
-def _footer_blocks() -> list[dict]:
-    return []
-
-
 _TASK_STATUS_LABELS: dict[str, str] = dict(TASKS_STATUS_OPTIONS)
-_TASK_STATUS_COLORS: dict[str, str] = {
-    "in_progress": "blue",
-    "completed": "green",
-    "failed": "red",
-    "cancelled": "gray",
-    "queued": "yellow",
-    "not_started": "gray",
+_TASK_STATUS_IMAGES: dict[str, str] = {
+    "in_progress": "todo_doing",
+    "completed": "todo_done",
+    "failed": "todo_cancel",
+    "cancelled": "todo_cancel",
+    "queued": "todo",
+    "not_started": "todo",
 }
 
 
@@ -1146,7 +1148,7 @@ def _tasks_section_blocks(state: TasksState) -> list[dict]:
     section block (linked title + muted meta line), and a Prev/Next strip
     paginates across pages.
     """
-    blocks: list[dict] = [_section_title("Tasks", "Tasks you started by mentioning @PostHog.")]
+    blocks: list[dict] = [_home_heading("Tasks", "list-checks")]
 
     if state.has_any_tasks:
         blocks.append(_tasks_controls_block(state))
@@ -1173,53 +1175,34 @@ def _tasks_section_blocks(state: TasksState) -> list[dict]:
 
 
 def _task_item_block(item: TaskItem) -> list[dict]:
+    blocks: list[dict] = [_section_title(escape_slack_mrkdwn(item.title))]
     status_label = _TASK_STATUS_LABELS.get(item.status or "", "")
-    title_target = item.thread_url or item.posthog_url
-    title_line = f"*<{title_target}|{item.title}>*" if title_target else f"*{item.title}*"
-
-    meta_parts: list[str] = []
-    if item.repository:
-        meta_parts.append(f"`{item.repository}`")
-    if item.posthog_url:
-        meta_parts.append(f"<{item.posthog_url}|View on web>")
-    if item.desktop_url:
-        meta_parts.append(f"<{item.desktop_url}|View on desktop>")
-    if item.pr_url:
-        meta_parts.append(f"<{item.pr_url}|PR>")
+    status_parts = [status_label] if status_label else []
     if item.updated_at_label:
-        meta_parts.append(f"_Updated {item.updated_at_label}_")
-
-    sub_rows: list[str] = []
+        status_parts.append(f"Updated {item.updated_at_label}")
+    if status_parts:
+        elements = (
+            [_home_image(_TASK_STATUS_IMAGES[item.status], status_label)] if item.status in _TASK_STATUS_IMAGES else []
+        )
+        elements.append({"type": "mrkdwn", "text": " · ".join(status_parts)})
+        blocks.append({"type": "context", "elements": elements})
     if item.error_message:
-        err = " ".join(item.error_message.strip().split())
-        sub_rows.append(f"`{err}`")
-    if meta_parts:
-        sub_rows.append(" · ".join(meta_parts))
-
-    blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": title_line}}]
-    if status_label:
         blocks.append(
             {
-                "type": "rich_text",
+                "type": "context",
                 "elements": [
-                    {
-                        "type": "rich_text_section",
-                        "elements": [
-                            {
-                                "type": "tag",
-                                "text": status_label,
-                                "color": _TASK_STATUS_COLORS.get(item.status or "", "gray"),
-                            }
-                        ],
-                    }
+                    {"type": "plain_text", "text": " ".join(item.error_message.split())[:2000], "emoji": False}
                 ],
             }
         )
-    if sub_rows:
-        # Slack caps context elements at 75 chars of plain text but allows
-        # much longer mrkdwn — a single mrkdwn element holds the whole stack
-        # with a paragraph break between rows.
-        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "\n\n".join(sub_rows)}]})
+    links: list[dict] = []
+    if item.repository:
+        links.append({"type": "mrkdwn", "text": escape_slack_mrkdwn(item.repository)})
+    for url, label in ((item.thread_url, "Thread"), (item.posthog_url, "Open task"), (item.pr_url, "View PR")):
+        if url:
+            links.append({"type": "mrkdwn", "text": f"<{url}|{label}>"})
+    if links:
+        blocks.append({"type": "context", "elements": links})
     return blocks
 
 
@@ -1304,60 +1287,40 @@ def _tasks_controls_block(state: TasksState) -> dict:
     return {"type": "actions", "block_id": BLOCK_TASKS_CONTROLS, "elements": elements}
 
 
-# Display caps for the stats card. These live with the renderer rather than the resolver
-# because they describe what gets drawn, not what the workspace did.
-#
-# Charts are drawn as text. Block Kit does have a native `data_visualization` block, but
-# `views.publish` rejects it on the App Home surface with "Unsupported block type" — note
-# that `blocks.validate` accepts it, so the schema check is not proof a surface takes it.
 _STATS_MAX_BREAKDOWN_ROWS = 6
-# Breakdown labels and bars share a half-width column, so both are tighter than the
-# full-width sparkline row above them.
-_STATS_COLUMN_LABEL_CHARS = 14
-_STATS_BAR_WIDTH = 8
-# Slack renders `section.fields` in two columns and rejects more than 10 cells.
-_STATS_MAX_FIELDS = 10
 
-# Eight levels of block-fill, so a sparkline reads as a shape rather than a row of dots.
-_SPARK_LEVELS = "▁▂▃▄▅▆▇█"
 
-_OUTCOME_TASK_STATUSES: dict[str, str] = {
-    OUTCOME_DONE: "completed",
-    OUTCOME_FAILED: "failed",
-    OUTCOME_CANCELLED: "cancelled",
-    OUTCOME_RUNNING: "in_progress",
-}
+def _stats_table(headers: Sequence[str], rows: Sequence[Sequence[str]], *, center: bool = False) -> dict:
+    return {
+        "type": "table",
+        "column_settings": [
+            {"is_wrapped": True, "align": "center" if center else ("left" if index == 0 else "right")}
+            for index in range(len(headers))
+        ],
+        "rows": [[{"type": "raw_text", "text": value} for value in row] for row in [headers, *rows]],
+    }
 
 
 def _stats_section_blocks(state: StatsState) -> list[dict]:
-    """Render the workspace-activity card: a KPI grid, two text charts, a leaderboard."""
     blocks: list[dict] = [
-        _section_title(
-            "Workspace activity",
-            "What your team shipped with @PostHog. Only workspace admins see this.",
-        ),
+        _home_heading("Workspace activity", "chart-no-axes-combined"),
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": "Visible to workspace admins. Activity for the selected period."}],
+        },
         _stats_controls_block(state),
     ]
-
     if not state.has_data:
-        blocks.append(
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": "_Nobody has started a task from Slack in this window._"},
-            }
-        )
+        blocks.append(_section_title("No activity yet", "Nobody has started a task from Slack in this window."))
         return blocks
-
     blocks.append(_stats_headline_block(state))
-    blocks.extend(
-        block
-        for block in (
-            _stats_outcomes_block(state),
-            _stats_trend_block(state),
-            _stats_breakdowns_block(state),
-        )
-        if block
-    )
+    for title, block in (
+        ("Tasks by status", _stats_outcomes_block(state)),
+        ("Pull requests by week" if state.window_days > 20 else "Pull requests by day", _stats_trend_block(state)),
+    ):
+        if block:
+            blocks.extend([_section_title(title), block])
+    blocks.extend(_stats_breakdowns_blocks(state))
     blocks.extend(_stats_footnote_blocks(state))
     return blocks
 
@@ -1384,20 +1347,16 @@ def _stats_controls_block(state: StatsState) -> dict:
 
 
 def _stats_headline_block(state: StatsState) -> dict:
-    merge_rate = state.merge_rate_percent
-    cells = [
-        ("Tasks", str(state.tasks_started)),
-        ("Opened a PR", str(state.tasks_with_pr)),
-        ("Merged", str(state.tasks_merged)),
-        ("Merge rate", "—" if merge_rate is None else f"{merge_rate}%"),
-        ("Median run", _format_duration(state.median_cycle_seconds)),
-        ("People", str(state.active_people)),
-    ]
-    # `fields` lays out in two columns, so six KPIs cost three rows instead of the six
-    # lines a stack of sections would take. Slack caps this at 10 cells.
+    merge_rate = "Not available" if state.merge_rate_percent is None else f"{state.merge_rate_percent}%"
     return {
         "type": "section",
-        "fields": [{"type": "mrkdwn", "text": f"*{label}*\n{value}"} for label, value in cells[:_STATS_MAX_FIELDS]],
+        "text": {
+            "type": "mrkdwn",
+            "text": (
+                f"*{state.tasks_merged} PRs merged* from *{state.tasks_with_pr} opened* · {merge_rate} merge rate\n"
+                f"{state.tasks_started} tasks · {state.active_people} people · {_format_duration(state.median_cycle_seconds)} median run"
+            ),
+        },
     }
 
 
@@ -1419,118 +1378,54 @@ def _format_duration(seconds: int | None) -> str:
 def _stats_outcomes_block(state: StatsState) -> dict | None:
     if not state.outcomes:
         return None
-    elements: list[dict[str, str]] = []
-    for outcome in state.outcomes:
-        status = _OUTCOME_TASK_STATUSES.get(outcome.label, "")
-        if elements:
-            elements.append({"type": "text", "text": " "})
-        elements.append(
-            {
-                "type": "tag",
-                "text": f"{_TASK_STATUS_LABELS.get(status, outcome.label)}: {outcome.value}",
-                "color": _TASK_STATUS_COLORS.get(status, "gray"),
-            }
-        )
-    return {"type": "rich_text", "elements": [{"type": "rich_text_section", "elements": elements}]}
+    counts = {outcome.label: str(outcome.value) for outcome in state.outcomes}
+    order = (OUTCOME_DONE, OUTCOME_RUNNING, OUTCOME_FAILED, OUTCOME_CANCELLED)
+    return _stats_table(
+        ["Done", "In progress", "Failed", "Canceled"], [[counts.get(label, "0") for label in order]], center=True
+    )
 
 
 def _stats_trend_block(state: StatsState) -> dict | None:
-    """PRs opened vs merged per bucket, as two sparklines on one line.
-
-    Skipped when the window produced no PRs — a flat line of minima is noise.
-    """
-    buckets = state.trend
-    if not buckets or not state.tasks_with_pr:
+    if not state.trend or not state.tasks_with_pr:
         return None
-
-    # One shared peak so the two lines are read against each other, not each rescaled.
-    peak = max(max(b.opened, b.merged) for b in buckets)
-    opened = _sparkline([b.opened for b in buckets], peak)
-    merged = _sparkline([b.merged for b in buckets], peak)
-    span = f"{buckets[0].label} → {buckets[-1].label}"
-    return {
-        "type": "context",
-        "elements": [
-            {
-                "type": "mrkdwn",
-                "text": f"*PRs* `{opened}` opened · `{merged}` merged   _{span}_",
-            }
-        ],
-    }
+    period = "Week" if state.window_days > 20 else "Day"
+    return _stats_table(
+        [period, "PRs opened", "PRs merged"],
+        [[bucket.label, str(bucket.opened), str(bucket.merged)] for bucket in state.trend],
+    )
 
 
-def _stats_breakdowns_block(state: StatsState) -> dict | None:
-    """Models and people side by side.
-
-    `section.fields` is Block Kit's only two-column layout, so the two breakdowns share
-    one block instead of stacking. Each column is fenced: the counts only line up under a
-    monospace font, and proportional text leaves them ragged.
-    """
-    columns = [column for column in (_stats_models_column(state), _stats_people_column(state)) if column]
-    if not columns:
-        return None
-    return {"type": "section", "fields": [{"type": "mrkdwn", "text": column} for column in columns]}
-
-
-def _stats_models_column(state: StatsState) -> str | None:
-    """Share of runs per model, with the long tail folded into "Other"."""
-    if not state.models:
-        return None
-
-    fits = len(state.models) <= _STATS_MAX_BREAKDOWN_ROWS
-    head = state.models if fits else state.models[: _STATS_MAX_BREAKDOWN_ROWS - 1]
-    tail = () if fits else state.models[_STATS_MAX_BREAKDOWN_ROWS - 1 :]
-
-    rows = [(_stats_model_label(usage), usage.value) for usage in head if usage.value > 0]
-    other = sum(usage.value for usage in tail)
-    if other > 0:
-        rows.append(("Other", other))
-    if not rows:
-        return None
-
-    peak = max(value for _, value in rows)
-    width = max(len(label) for label, _ in rows)
-    lines = "\n".join(f"{label:<{width}} {_bar(value, peak)} {value:>3}" for label, value in rows)
-    return f"*Models*\n```\n{lines}\n```"
-
-
-def _stats_people_column(state: StatsState) -> str | None:
-    """Leaderboard as text: who started how many, and how many of those merged."""
-    people = state.people[:_STATS_MAX_BREAKDOWN_ROWS]
-    if not people:
-        return None
-
-    names = [_truncate(person.name, _STATS_COLUMN_LABEL_CHARS) for person in people]
-    width = max(len(name) for name in names)
-    lines = "\n".join(f"{name:<{width}} {person.tasks:>3} {person.merged:>4}" for name, person in zip(names, people))
-    return f"*Most active* _tasks · merged_\n```\n{lines}\n```"
-
-
-def _truncate(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[: limit - 1] + "…"
-
-
-def _sparkline(values: list[int], peak: int) -> str:
-    """Render counts as block-fill characters, scaled against `peak`."""
-    if peak <= 0:
-        return _SPARK_LEVELS[0] * len(values)
-    top = len(_SPARK_LEVELS) - 1
-    return "".join(_SPARK_LEVELS[min(top, value * top // peak)] for value in values)
-
-
-def _bar(value: int, peak: int, width: int = _STATS_BAR_WIDTH) -> str:
-    """Fixed-width bar. Any non-zero value keeps at least one filled cell, so a small
-    count reads as present rather than absent."""
-    if peak <= 0 or value <= 0:
-        return "░" * width
-    filled = min(width, max(1, round(value * width / peak)))
-    return "█" * filled + "░" * (width - filled)
-
-
-def _stats_model_label(usage: ModelUsage) -> str:
-    """Display label for a model, truncated so the bar column stays aligned."""
-    label = display_name_for_model(usage.model)
-    return _truncate(label, _STATS_COLUMN_LABEL_CHARS)
+def _stats_breakdowns_blocks(state: StatsState) -> list[dict]:
+    blocks: list[dict] = []
+    if state.models:
+        head = (
+            state.models
+            if len(state.models) <= _STATS_MAX_BREAKDOWN_ROWS
+            else state.models[: _STATS_MAX_BREAKDOWN_ROWS - 1]
+        )
+        tail = state.models[len(head) :]
+        rows = [(display_name_for_model(usage.model)[:250], usage.value) for usage in head if usage.value > 0]
+        if other := sum(usage.value for usage in tail):
+            rows.append(("Other", other))
+        if rows:
+            text = "\n".join(
+                f"{escape_slack_mrkdwn(label)} · {value} {'task' if value == 1 else 'tasks'}" for label, value in rows
+            )
+            blocks.append(_section_title("Models", text))
+    if state.people:
+        blocks.extend(
+            [
+                _section_title("Task activity by person"),
+                _stats_table(
+                    ["Person", "Tasks", "PRs merged"],
+                    [
+                        [person.name[:250], str(person.tasks), str(person.merged)]
+                        for person in state.people[:_STATS_MAX_BREAKDOWN_ROWS]
+                    ],
+                ),
+            ]
+        )
+    return blocks
 
 
 def _stats_footnote_blocks(state: StatsState) -> list[dict]:
