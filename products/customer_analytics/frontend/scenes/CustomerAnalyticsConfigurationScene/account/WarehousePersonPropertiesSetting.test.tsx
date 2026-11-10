@@ -105,10 +105,9 @@ describe('WarehousePersonPropertiesSetting', () => {
     const isDisabled = (dataAttr: string): boolean =>
         document.querySelector(`[data-attr="${dataAttr}"]`)!.getAttribute('aria-disabled') === 'true'
 
-    beforeEach(() => {
-        previousAppContext = window.POSTHOG_APP_CONTEXT
+    const mockDefinitions = (definitions: CustomPropertyDefinitionApi[]): void => {
         ;(useValues as jest.Mock).mockReturnValue({
-            definitions: [propertyDefinition],
+            definitions,
             definitionsInitialLoading: false,
             triggeringSourceIds: [],
             runsBySourceId: {},
@@ -118,6 +117,11 @@ describe('WarehousePersonPropertiesSetting', () => {
             runsLoadingBySourceId: {},
             runsLoadFailedBySourceId: {},
         })
+    }
+
+    beforeEach(() => {
+        previousAppContext = window.POSTHOG_APP_CONTEXT
+        mockDefinitions([propertyDefinition])
         ;(useActions as jest.Mock).mockReturnValue({
             openCreateModal: jest.fn(),
             openEditModal: jest.fn(),
@@ -139,6 +143,27 @@ describe('WarehousePersonPropertiesSetting', () => {
 
         expect(screen.getByText('Synced')).toHaveAttribute('data-base-ui-tooltip-trigger')
         expect(screen.getByTestId('tz-label-2026-01-01T00:00:00Z').closest('[data-base-ui-tooltip-trigger]')).toBeNull()
+    })
+
+    it("links a view-backed source to its model page and shows the view's next sync", () => {
+        const viewSource: CustomPropertySourceApi = {
+            ...source,
+            saved_query: 'view-1',
+            external_data_schema: null,
+            external_data_source: null,
+            table_name: 'personalization_cohort_members',
+            saved_query_name: 'personalization_cohort_members',
+            next_sync_at: '2026-01-02T00:00:00Z',
+        }
+        mockDefinitions([{ ...propertyDefinition, source: viewSource }])
+
+        render(<WarehousePersonPropertiesSetting />)
+
+        expect(screen.getByText('personalization_cohort_members').closest('a')).toHaveAttribute(
+            'href',
+            '/models/view-1/materialization?lookup=saved_query'
+        )
+        expect(screen.getByTestId('tz-label-2026-01-02T00:00:00Z')).toBeInTheDocument()
     })
 
     test.each([

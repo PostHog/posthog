@@ -340,7 +340,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                 z.literal('any'),
                 z.literal('weekday'),
                 z.literal('weekend'),
-                z.array(z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])),
+                z
+                    .array(z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']))
+                    .min(1, 'Choose at least one day'),
             ]),
             // time can be "any", or a time range [start, end]
             time: z.union([
@@ -365,7 +367,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_email'),
         config: z.object({
-            message_category_id: z.string().optional(),
+            message_category_id: z.string().nullish(),
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
             // When false, no open pixel is injected, links are not rewritten, and the send uses the
             // untracked SES configuration set. Absent/true means tracked. Keep in sync with

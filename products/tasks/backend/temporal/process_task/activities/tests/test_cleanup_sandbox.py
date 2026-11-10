@@ -1,8 +1,8 @@
 import os
 import time
 import uuid
-import threading
-from contextlib import nullcontext
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext, suppress
 from datetime import timedelta
 
 import pytest
@@ -12,6 +12,7 @@ from django.db import OperationalError
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
+from modal.exception import NotFoundError
 from pytest_mock import MockerFixture
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
@@ -419,25 +420,31 @@ class TestCleanupSandboxActivity:
             metadata={"test_tag": test_tag},
         )
 
-        sandbox = Sandbox.create(config)
-        sandbox_id = sandbox.id
+        command = None
+        output = None
+        try:
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                try:
+                    with Sandbox.create(config) as sandbox:
+                        sandbox_id = sandbox.id
+                        command = sandbox.execute_stream("echo started; exec sleep 30", timeout_seconds=60)
+                        output = iter(command.iter_stdout())
+                        assert executor.submit(next, output).result(timeout=10).strip() == "started"
 
-        def run_long_command():
-            try:
-                sandbox.execute("sleep 30", timeout_seconds=60)
-            except Exception:
-                pass
+                        assert Sandbox.get_by_id(sandbox_id).is_running()
 
-        long_task = threading.Thread(target=run_long_command)
-        long_task.start()
+                        input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
+                        async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
-        time.sleep(5)
-
-        assert Sandbox.get_by_id(sandbox_id).is_running()
-
-        input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
-        async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
-
-        long_task.join(timeout=5)
-
-        assert_sandbox_shutdown(sandbox_id)
+                        assert_sandbox_shutdown(sandbox_id)
+                finally:
+                    # Reap before joining the reader, even if sandbox destruction fails.
+                    if command is not None:
+                        # Modal removes the process handle when the sandbox shuts down.
+                        with suppress(NotFoundError):
+                            command.wait()
+        finally:
+            if output is not None:
+                with suppress(NotFoundError):
+                    for _ in output:
+                        pass
