@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockRun = vi.hoisted(() => vi.fn());
 const mockTakeOver = vi.hoisted(() => vi.fn());
 const mockCheckPrerequisites = vi.hoisted(() => vi.fn());
+const mockTrackAction = vi.hoisted(() => vi.fn());
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxCloudTaskRunner", () => ({
   useInboxCloudTaskRunner: () => ({
@@ -57,6 +58,7 @@ function setup() {
       reportTitle: "Checkout fails",
       cloudRepository: "posthog/posthog",
       claim: teammateClaim,
+      trackAction: mockTrackAction,
     }),
   );
 }
@@ -66,6 +68,7 @@ describe("useCreatePrReport", () => {
     mockRun.mockReset().mockResolvedValue(true);
     mockTakeOver.mockReset();
     mockCheckPrerequisites.mockReset().mockReturnValue(true);
+    mockTrackAction.mockReset();
   });
 
   // Starting on a teammate's claim without the takeover fails the run, or moves
@@ -98,6 +101,37 @@ describe("useCreatePrReport", () => {
         claimId: "claim-robin",
       });
       expect(mockRun).toHaveBeenCalledTimes(takeOverFails ? 0 : 1);
+    },
+  );
+
+  // Counting create_pr when the dialog opens would count a cancelled dialog as a started run.
+  it.each([
+    { button: "Take over and implement", confirmed: true },
+    { button: "Cancel", confirmed: false },
+  ])(
+    "counts create_pr only after the claim dialog is confirmed ($button)",
+    async ({ button, confirmed }) => {
+      mockTakeOver.mockResolvedValue({});
+      const { result } = setup();
+
+      await act(() => result.current.createPrReport());
+      render(result.current.claimDialog);
+      await act(async () => {
+        fireEvent.click(screen.getByText(button));
+      });
+
+      expect(mockTrackAction).toHaveBeenCalledWith("claim_dialog", {
+        claim_step: "take_over",
+        starts_run: true,
+        confirmed,
+      });
+      expect(
+        mockTrackAction.mock.calls.filter(([action]) => action === "create_pr"),
+      ).toEqual(
+        confirmed
+          ? [["create_pr", { has_feedback: false, claim_step: "take_over" }]]
+          : [],
+      );
     },
   );
 

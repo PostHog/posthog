@@ -16,6 +16,7 @@ import {
   type InboxCloudTaskInputContext,
   useInboxCloudTaskRunner,
 } from "@posthog/ui/features/inbox/hooks/useInboxCloudTaskRunner";
+import type { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import { useSignalTeamConfig } from "@posthog/ui/features/inbox/hooks/useSignalTeamConfig";
 import { useTakeOverReportClaim } from "@posthog/ui/features/inbox/hooks/useTakeOverReportClaim";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -37,6 +38,11 @@ interface UseCreatePrReportOptions {
   triageId?: string;
   /** Fires after the implementation task starts successfully. */
   onTaskCreated?: (task: Task) => void;
+  /**
+   * Records `create_pr` when a run actually starts, and the outcome of a claim
+   * dialog, so a cancelled dialog does not count as a started run.
+   */
+  trackAction?: ReturnType<typeof useReportActionTracker>;
 }
 
 interface UseCreatePrReportReturn {
@@ -74,6 +80,7 @@ export function useCreatePrReport({
   surface = "detail_pane",
   triageId,
   onTaskCreated,
+  trackAction,
 }: UseCreatePrReportOptions): UseCreatePrReportReturn {
   const { data: currentUser } = useMeQuery();
   const takeOver = useTakeOverReportClaim();
@@ -173,11 +180,18 @@ export function useCreatePrReport({
   });
 
   const start = useCallback(
-    async (feedback?: string) => {
+    async (
+      feedback: string | undefined,
+      claimStep: "start" | "take_over" | "confirm_own_agent",
+    ) => {
       feedbackRef.current = feedback?.trim() || undefined;
+      trackAction?.("create_pr", {
+        has_feedback: !!feedbackRef.current,
+        claim_step: claimStep,
+      });
       await run();
     },
-    [run],
+    [run, trackAction],
   );
 
   const createPrReport = useCallback(
@@ -188,7 +202,7 @@ export function useCreatePrReport({
         return;
       }
       if (step.kind === "start") {
-        await start(feedback);
+        await start(feedback, "start");
         return;
       }
       // A takeover moves the claim and notifies the holder, so it must not
@@ -199,8 +213,20 @@ export function useCreatePrReport({
     [claim, currentUser?.uuid, start, checkPrerequisites],
   );
 
+  const trackDialog = useCallback(
+    (step: ImplementClaimDialogStep, confirmed: boolean) => {
+      trackAction?.("claim_dialog", {
+        claim_step: step.kind,
+        starts_run: true,
+        confirmed,
+      });
+    },
+    [trackAction],
+  );
+
   const confirmPending = useCallback(async () => {
     if (!pending) return;
+    trackDialog(pending.step, true);
     if (pending.step.kind === "take_over") {
       try {
         await takeOver.mutateAsync({
@@ -218,15 +244,18 @@ export function useCreatePrReport({
       }
     }
     setPending(null);
-    await start(pending.feedback);
-  }, [pending, reportId, start, takeOver]);
+    await start(pending.feedback, pending.step.kind);
+  }, [pending, reportId, start, takeOver, trackDialog]);
 
   const claimDialog = pending ? (
     <ImplementClaimDialog
       step={pending.step}
       isSubmitting={takeOver.isPending}
       onConfirm={() => void confirmPending()}
-      onCancel={() => setPending(null)}
+      onCancel={() => {
+        trackDialog(pending.step, false);
+        setPending(null);
+      }}
     />
   ) : null;
 
