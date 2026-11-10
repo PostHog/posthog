@@ -1,4 +1,5 @@
 import time
+import asyncio
 import time as clock
 from time import sleep as pause
 from asyncio import sleep as async_sleep
@@ -18,6 +19,13 @@ def test_waits():
 def test_clock_reference():
     # ok: no-fixed-sleeps-in-tests
     return time.sleep
+
+
+async def test_async_waits():
+    # ruleid: no-fixed-sleeps-in-tests
+    await asyncio.sleep(0.1)
+    # ruleid: no-fixed-sleeps-in-tests
+    await async_sleep(delay)
 
 
 async def test_cooperative_yield():

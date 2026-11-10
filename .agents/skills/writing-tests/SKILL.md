@@ -172,12 +172,13 @@ Escalating to the next rung is the last resort, not the default.
     Do not assume a debounce, `setTimeout`, kea breakpoint, or fast mock will still be
     pending on the next line. Test setup may shorten internal delays without changing
     production behavior.
-- **No new `time.sleep` calls in test code.** The `no-fixed-sleeps-in-tests` Semgrep rule blocks new calls in CI, including import aliases and calls with `noqa` comments. Existing calls use Semgrep's PR baseline. When elapsed time is the behavior under test, explain why next to a specific `# nosemgrep: no-fixed-sleeps-in-tests` exemption.
+- **No new `time.sleep` or non-zero `asyncio.sleep` calls in test code.** The `no-fixed-sleeps-in-tests` Semgrep rule blocks new calls in CI, including import aliases and calls with `noqa` comments. Existing calls use Semgrep's PR baseline. When elapsed time is the behavior under test, explain why next to a specific `# nosemgrep: no-fixed-sleeps-in-tests` exemption.
   A fixed delay does not prove another operation finished.
   Replace the sleep with the control that matches the wait:
   - `time.time()` or `datetime.now()`: `time_machine.travel(..., tick=False)`, then `traveller.shift(...)`.
   - `time.monotonic()`: time-machine does not patch it. Patch the clock where the code reads it.
   - Another thread or process: `threading.Event`, a future, `thread.join()`, or the process's output stream. Use `posthog.test.waiting.wait_until` when the dependency only exposes a condition to poll.
+  - A fake that must block until cancelled or timed out: `await asyncio.Event().wait()`.
   - Something that must not happen: `assert not event.wait(timeout=...)`.
   - Order between two writes: set each timestamp yourself.
 - **An absolute date in a test is a time bomb until you pin the clock.**
