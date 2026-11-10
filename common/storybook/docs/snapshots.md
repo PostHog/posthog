@@ -74,6 +74,7 @@ You don't need to add waits for any of this. Knowing the order helps when a stor
    - waits 1 more second;
    - waits until no quill chart canvas is still painting.
 6. It captures the target. A component snapshot grows to include a popover or a tooltip that overflows the root.
+7. It waits 100 ms, waits for chart paint and animations again, and captures again. It keeps the capture when two in a row match. After four captures it keeps the last one and logs the story as still changing.
 
 An iframe that loads `/embedded/` or `/shared/` gets a fixed placeholder page, so a shared dashboard or embed never loads the real app inside the story.
 
