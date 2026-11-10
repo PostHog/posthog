@@ -1280,10 +1280,13 @@ async fn raw_proxy_bounds_a_read_pinned_to_a_pod_that_never_answers() {
     // Accepts connections and never speaks, as a wedged pod would.
     let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let silent_addr = silent.local_addr().unwrap();
+    let accepted = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let accepts = Arc::clone(&accepted);
     tokio::spawn(async move {
         let mut held = Vec::new();
         loop {
             let (stream, _) = silent.accept().await.unwrap();
+            accepts.fetch_add(1, Ordering::SeqCst);
             held.push(stream);
         }
     });
@@ -1319,6 +1322,10 @@ async fn raw_proxy_bounds_a_read_pinned_to_a_pod_that_never_answers() {
             started.elapsed()
         );
     }
+    assert!(
+        accepted.load(Ordering::SeqCst) > 0,
+        "no read was pinned to the silent pod, so nothing was proven"
+    );
 }
 
 #[tokio::test]
