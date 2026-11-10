@@ -1,5 +1,6 @@
 import json
 import ipaddress
+from urllib.parse import urlparse
 
 import pytest
 import time_machine
@@ -19,6 +20,7 @@ from posthog.temporal.proxy_service.cloudflare import (
     CustomHostnameStatus,
 )
 from posthog.temporal.proxy_service.monitor import (
+    CAPTURE_V1_PROBE_TIMEOUT_S,
     PROXY_LIVE_CHECK_TIMEOUT_S,
     CheckActivityInput,
     _check_cloudflare_certificate_status,
@@ -35,6 +37,23 @@ def _capture_v1_rejection() -> Mock:
 
 def _non_capture_response(status_code: int) -> Mock:
     return Mock(status_code=status_code, json=Mock(side_effect=ValueError("not JSON")))
+
+
+def _respond_by_path(v0: object, analytics: object = None, ai: object = None):
+    """A `requests.post` side effect keyed by path, since the two v1 probes run in parallel."""
+    by_path = {
+        "/i/v0/e/": v0,
+        "/i/v1/analytics/events": analytics or _capture_v1_rejection(),
+        "/i/v1/ai/events": ai or _capture_v1_rejection(),
+    }
+
+    def respond(url: str, **_kwargs):
+        outcome = by_path[urlparse(url).path]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    return respond
 
 
 def _serve_cert(mock_ssl_context: Mock, not_after: str) -> None:
@@ -82,7 +101,7 @@ class TestCheckProxyIsLive(TestCase):
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.raise_for_status.return_value = None
-        mock_post.side_effect = [mock_response, _capture_v1_rejection(), _capture_v1_rejection()]
+        mock_post.side_effect = _respond_by_path(mock_response)
 
         # Mock the raw socket the cert fetch opens so no real network connection is made
         mock_create_connection.return_value = MagicMock()
@@ -104,7 +123,7 @@ class TestCheckProxyIsLive(TestCase):
         # Verify the request was made correctly. allow_redirects=False is a security boundary:
         # the domain is org-admin-controlled, so following redirects would enable SSRF to
         # internal targets (see check_proxy_is_live). timeout stops a malicious domain hanging us.
-        self.assertEqual(
+        self.assertCountEqual(
             mock_post.call_args_list,
             [
                 call(
@@ -118,14 +137,14 @@ class TestCheckProxyIsLive(TestCase):
                     f"https://{self.proxy_record.domain}/i/v1/analytics/events",
                     headers={"Content-Type": "application/json"},
                     data="{}",
-                    timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
+                    timeout=CAPTURE_V1_PROBE_TIMEOUT_S,
                     allow_redirects=False,
                 ),
                 call(
                     f"https://{self.proxy_record.domain}/i/v1/ai/events",
                     headers={"Content-Type": "application/json"},
                     data="{}",
-                    timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
+                    timeout=CAPTURE_V1_PROBE_TIMEOUT_S,
                     allow_redirects=False,
                 ),
             ],
@@ -154,11 +173,9 @@ class TestCheckProxyIsLive(TestCase):
         self, _name, v1_response, reason, mock_get_record, mock_post, mock_ssl_context, mock_create_connection
     ):
         mock_get_record.return_value = self.proxy_record
-        mock_post.side_effect = [
-            Mock(status_code=200, raise_for_status=Mock(return_value=None)),
-            v1_response,
-            _capture_v1_rejection(),
-        ]
+        mock_post.side_effect = _respond_by_path(
+            Mock(status_code=200, raise_for_status=Mock(return_value=None)), analytics=v1_response
+        )
         mock_create_connection.return_value = MagicMock()
         _serve_cert(mock_ssl_context, not_after="Jan 25 10:00:00 2024 GMT")
 
@@ -180,11 +197,9 @@ class TestCheckProxyIsLive(TestCase):
         self, mock_get_record, mock_post, mock_ssl_context, mock_create_connection
     ):
         mock_get_record.return_value = self.proxy_record
-        mock_post.side_effect = [
-            Mock(status_code=200, raise_for_status=Mock(return_value=None)),
-            _capture_v1_rejection(),
-            _non_capture_response(404),
-        ]
+        mock_post.side_effect = _respond_by_path(
+            Mock(status_code=200, raise_for_status=Mock(return_value=None)), ai=_non_capture_response(404)
+        )
         mock_create_connection.return_value = MagicMock()
         _serve_cert(mock_ssl_context, not_after="Feb  5 10:00:00 2024 GMT")
 
@@ -270,11 +285,7 @@ class TestCheckProxyIsLive(TestCase):
         self, mock_get_record, mock_post, mock_ssl_context, mock_create_connection, mock_validate
     ):
         mock_get_record.return_value = self.proxy_record
-        mock_post.side_effect = [
-            Mock(status_code=200, raise_for_status=Mock(return_value=None)),
-            _capture_v1_rejection(),
-            _capture_v1_rejection(),
-        ]
+        mock_post.side_effect = _respond_by_path(Mock(status_code=200, raise_for_status=Mock(return_value=None)))
         mock_validate.return_value = PinnedUrlVerdict(
             allowed=True, reason=None, pinned_ips={ipaddress.ip_address("203.0.113.7")}
         )
@@ -306,11 +317,7 @@ class TestCheckProxyIsLive(TestCase):
         self, mock_get_record, mock_post, mock_create_connection, mock_validate
     ):
         mock_get_record.return_value = self.proxy_record
-        mock_post.side_effect = [
-            Mock(status_code=200, raise_for_status=Mock(return_value=None)),
-            _capture_v1_rejection(),
-            _capture_v1_rejection(),
-        ]
+        mock_post.side_effect = _respond_by_path(Mock(status_code=200, raise_for_status=Mock(return_value=None)))
         mock_validate.return_value = PinnedUrlVerdict(allowed=False, reason="private address", pinned_ips=set())
 
         result = await check_proxy_is_live(self.input)
@@ -370,7 +377,7 @@ class TestCheckProxyIsLive(TestCase):
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.raise_for_status.return_value = None
-        mock_post.side_effect = [mock_response, _capture_v1_rejection(), _capture_v1_rejection()]
+        mock_post.side_effect = _respond_by_path(mock_response)
 
         # Mock the raw socket the cert fetch opens so no real network connection is made
         mock_create_connection.return_value = MagicMock()

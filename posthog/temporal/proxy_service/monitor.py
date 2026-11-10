@@ -6,6 +6,7 @@ import typing as t
 import asyncio
 import datetime as dt
 import ipaddress
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import grpc.aio
@@ -60,6 +61,11 @@ PROXY_LIVE_CHECK_TIMEOUT_S = 5.0
 # The `error` code capture v1 returns for a request with no Authorization header.
 CAPTURE_V1_MISSING_AUTHORIZATION = "missing_authorization"
 
+# (connect, read) for each capture v1 probe. `requests` applies a bare number to the connect and to
+# each socket read separately, so a tuple keeps the worst case explicit. Capture answers this probe
+# with one small JSON body, so one read covers it.
+CAPTURE_V1_PROBE_TIMEOUT_S = (3.0, 5.0)
+
 # Capture v1 routes the mobile SDK majors send to, each with the reason a missing route matters.
 # `captureAi` has its own route, served by a separate capture deployment, so a proxy can forward
 # one and not the other.
@@ -87,7 +93,9 @@ CLOUDFLARE_IPS_TIMEOUT_S = 3.0
 # Each check must outlast the network calls it makes, or Temporal kills it first and the run
 # reports an opaque timeout instead of the problem the check found. Worst cases:
 #   check_dns                 two lookups plus the Cloudflare address list = 13s
-#   check_proxy_is_live       three POSTs plus the socket connect and TLS handshake = 20s
+#   check_proxy_is_live       the /i/v0 POST (5s connect + 5s read), the two v1 POSTs in parallel
+#                             (3s connect + 5s read), then the socket connect and TLS handshake
+#                             (5s each) = 28s
 #   check_certificate_status  one Cloudflare API call, or one call to the legacy provisioner = 8s
 CHECK_START_TO_CLOSE = dt.timedelta(seconds=30)
 
@@ -380,10 +388,10 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
 
         # A missing v1 route doesn't stop the certificate check below, so an expiring certificate
         # is still reported alongside it.
-        for path, consequence in CAPTURE_V1_ROUTES:
-            v1_error = _check_capture_v1_route(probe_base, path, consequence)
-            if v1_error is not None:
-                warnings.append(v1_error)
+        # In parallel, so the two probes share one timeout budget instead of adding up.
+        with ThreadPoolExecutor(max_workers=len(CAPTURE_V1_ROUTES)) as pool:
+            v1_warnings = pool.map(lambda route: _check_capture_v1_route(probe_base, *route), CAPTURE_V1_ROUTES)
+        warnings.extend(w for w in v1_warnings if w is not None)
 
         # fetch the cert info to see how far away the expiry is - if less than 2 weeks we have a problem.
         # create_connection carries PROXY_LIVE_CHECK_TIMEOUT_S into the connect and the TLS handshake so
@@ -484,7 +492,7 @@ def _check_capture_v1_route(probe_base: str, path: str, consequence: str) -> str
             f"{probe_base}{path}",
             headers={"Content-Type": "application/json"},
             data="{}",
-            timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
+            timeout=CAPTURE_V1_PROBE_TIMEOUT_S,
             allow_redirects=False,
         )
     except requests.exceptions.RequestException as e:
