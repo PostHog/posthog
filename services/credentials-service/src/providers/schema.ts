@@ -8,6 +8,7 @@
 import { z } from 'zod'
 
 import { AUTHORIZE_PLACEHOLDERS } from './authorize'
+import { applyOverrides, type SpecContext } from './overrides'
 
 export const AUTH_TYPES = ['oauth', 'token', 'credentials'] as const
 
@@ -226,8 +227,26 @@ export const providerSpecSchema = z
         }
         if (spec.authorize) {
             checkAuthorize(spec.authorize, issue)
+            // Overrides merge into the base, so check every authorize block a context can produce.
+            for (const context of overrideContexts(spec)) {
+                const merged = applyOverrides(spec, context).authorize
+                if (merged) {
+                    const where = `override ${JSON.stringify(context)}`
+                    checkAuthorize(merged, (message, path) => issue(`${where}: ${message}`, ['overrides', ...path]))
+                }
+            }
         }
     })
+
+function overrideContexts(spec: ProviderSpec): SpecContext[] {
+    const environments = Object.keys(spec.overrides?.environment ?? {})
+    const regions = Object.keys(spec.overrides?.region ?? {})
+    return [
+        ...environments.map((environment) => ({ environment })),
+        ...regions.map((region) => ({ region })),
+        ...environments.flatMap((environment) => regions.map((region) => ({ environment, region }))),
+    ]
+}
 
 function checkAuthorize(
     authorize: z.infer<typeof authorizeSchema>,

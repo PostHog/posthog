@@ -135,4 +135,13 @@ describe('provider specs', () => {
         expect(eu.authorize?.url).toBe(VALID.authorize?.url)
         expect(applyOverrides(spec, { region: 'US' })).toEqual(spec)
     })
+
+    it.each([
+        ['a non-https url', { url: 'http://example.com/authorize' }, 'must be an https URL'],
+        ['params without state', { params: [['client_id', '{client_id}']] }, 'custom `params` must send `{state}`'],
+        ['an undeclared url placeholder', { url: 'https://{host}/authorize' }, 'must name the same values'],
+    ] as const)('rejects an authorize override with %s', (_, authorize, message) => {
+        const found = issues({ ...VALID, overrides: { environment: { dev: { authorize } } } })
+        expect(found.join('\n')).toContain(message)
+    })
 })
