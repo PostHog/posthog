@@ -1624,7 +1624,7 @@ importers:
         version: 11.5.3
       luxon:
         specifier: ^3.4.4
-        version: 3.7.2
+        version: 3.5.0
       node-rdkafka:
         specifier: ^3.6.1
         version: 3.6.1
@@ -1643,7 +1643,7 @@ importers:
         version: 2.11.0(supports-color@10.2.2)
       '@opentelemetry/sdk-trace-node':
         specifier: ^2.0.1
-        version: 2.7.1(@opentelemetry/api@1.9.1)
+        version: 2.0.1(@opentelemetry/api@1.9.1)
       '@trivago/prettier-plugin-sort-imports':
         specifier: ^5.2.2
         version: 5.2.2(prettier@3.6.2)(supports-color@10.2.2)
@@ -1673,7 +1673,7 @@ importers:
         version: 16.0.0(patch_hash=b78c8d985264045675ad1405ea3773eb504f97e0725f24ed35bd348f66d41811)
       node-fetch:
         specifier: ^2.6.1
-        version: 2.7.0(encoding@0.1.13)
+        version: 2.6.9(encoding@0.1.13)
       oxlint:
         specifier: 1.78.0
         version: 1.78.0(oxlint-tsgolint@7.0.2005)
@@ -1887,13 +1887,13 @@ importers:
         version: 11.5.3
       luxon:
         specifier: ^3.4.4
-        version: 3.7.2
+        version: 3.5.0
       lz4:
         specifier: ^0.6.5
         version: 0.6.5
       node-fetch:
         specifier: ^2.6.1
-        version: 2.7.0(encoding@0.1.13)
+        version: 2.6.9(encoding@0.1.13)
       node-rdkafka:
         specifier: ^3.6.1
         version: 3.6.1
@@ -1930,7 +1930,7 @@ importers:
         version: 2.12.0(@opentelemetry/api@1.9.1)
       '@opentelemetry/sdk-trace-node':
         specifier: ^2.0.1
-        version: 2.7.1(@opentelemetry/api@1.9.1)
+        version: 2.0.1(@opentelemetry/api@1.9.1)
       '@trivago/prettier-plugin-sort-imports':
         specifier: ^5.2.2
         version: 5.2.2(prettier@3.6.2)(supports-color@10.2.2)

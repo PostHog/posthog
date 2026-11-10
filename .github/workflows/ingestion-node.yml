@@ -119,12 +119,14 @@ jobs:
             - uses: ./.github/actions/setup-sccache
             - name: Build the dependencies
               run: bin/turbo --filter=@posthog/ingestion --filter=@posthog/ingestion-ai-research prepare
+            - name: Check that shared runtime dependencies resolve to one version
+              run: node ingestion/ci/bin/check-single-dependency-versions.mjs
             - name: Typecheck
-              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion-common --filter=@posthog/replay-storage --filter=@posthog/ingestion --filter=@posthog/ingestion-ai-research typescript:check
+              run: pnpm --filter=@posthog/node-common --filter=@posthog/hog-engine --filter=@posthog/ingestion-common --filter=@posthog/replay-storage --filter=@posthog/ingestion --filter=@posthog/ingestion-ai-research typescript:check
             - name: Lint
-              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion-common --filter=@posthog/replay-storage --filter=@posthog/ingestion --filter=@posthog/ingestion-ai-research lint
+              run: pnpm --filter=@posthog/node-common --filter=@posthog/hog-engine --filter=@posthog/ingestion-common --filter=@posthog/replay-storage --filter=@posthog/ingestion --filter=@posthog/ingestion-ai-research lint
             - name: Check formatting
-              run: pnpm --filter=@posthog/node-common --filter=@posthog/ingestion-common --filter=@posthog/replay-storage --filter=@posthog/ingestion --filter=@posthog/ingestion-ai-research format:check
+              run: pnpm --filter=@posthog/node-common --filter=@posthog/hog-engine --filter=@posthog/ingestion-common --filter=@posthog/replay-storage --filter=@posthog/ingestion --filter=@posthog/ingestion-ai-research format:check
 
     test:
         name: Test (${{ matrix.package }}, ${{ matrix.lane }} ${{ matrix.shard }}/${{ matrix.shard_count }})
