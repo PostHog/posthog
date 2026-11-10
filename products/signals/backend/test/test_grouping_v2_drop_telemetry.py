@@ -26,7 +26,7 @@ ROUNDS = 3
 
 
 def _signal(source_id: str) -> EmitSignalInputs:
-    # A source match skips the type-example and query-generation steps, so the embedding is the first activity.
+    # A source match skips the type-example and query-generation steps, so the embedding is the first batch activity.
     return EmitSignalInputs(
         team_id=1,
         source_product="error_tracking",
@@ -45,15 +45,16 @@ BATCHES = {
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ai_approved", [True, False])
 @pytest.mark.parametrize(
-    "pending_keys,failed_rounds_by_batch_key",
+    "pending_keys,failed_rounds_by_batch_key,failed_consent_attempts",
     [
-        (["batch-a"], {}),
-        (["batch-a", "batch-b"], {"batch-a": 2}),
+        (["batch-a"], {}, 0),
+        (["batch-a", "batch-b"], {"batch-a": 2}, 3),
     ],
 )
 async def test_failed_batch_retries_report_each_attempt(
-    pending_keys: list[str], failed_rounds_by_batch_key: dict[str, int]
+    pending_keys: list[str], failed_rounds_by_batch_key: dict[str, int], failed_consent_attempts: int, ai_approved: bool
 ) -> None:
     expected_drops = sorted(
         (signal.source_id, failed_rounds_by_batch_key.get(key, 0) + round_index + 1)
@@ -63,10 +64,23 @@ async def test_failed_batch_retries_report_each_attempt(
     )
     last_attempt = dict(expected_drops)
     drops: list[tuple[str, int | None]] = []
+    read_keys: list[str] = []
+    discarded_keys: list[str] = []
     rounds_done = asyncio.Event()
+
+    @activity.defn(name="check_signals_ai_consent_activity")
+    async def fake_consent(_team_id: int) -> bool:
+        if activity.info().attempt <= failed_consent_attempts:
+            raise ApplicationError("Consent database unavailable")
+        return ai_approved
+
+    @activity.defn(name="discard_signal_batches_activity")
+    async def fake_discard(object_keys: list[str]) -> None:
+        discarded_keys.extend(object_keys)
 
     @activity.defn(name="read_signals_from_s3_activity")
     async def fake_read(input: ReadSignalsFromS3Input) -> ReadSignalsFromS3Output:
+        read_keys.append(input.object_key)
         return ReadSignalsFromS3Output(signals=BATCHES[input.object_key])
 
     @activity.defn(name="get_embedding_activity")
@@ -84,7 +98,7 @@ async def test_failed_batch_retries_report_each_attempt(
             env.client,
             task_queue=TASK_QUEUE,
             workflows=[TeamSignalGroupingV2Workflow],
-            activities=[fake_read, fake_embedding, fake_capture],
+            activities=[fake_consent, fake_discard, fake_read, fake_embedding, fake_capture],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             handle = await env.client.start_workflow(
@@ -96,7 +110,15 @@ async def test_failed_batch_retries_report_each_attempt(
                 ),
                 id=f"grouping-v2-{uuid.uuid4()}",
                 task_queue=TASK_QUEUE,
+                execution_timeout=timedelta(minutes=15),
             )
+            if not ai_approved:
+                await asyncio.wait_for(handle.result(), timeout=10)
+                assert read_keys == []
+                assert discarded_keys == pending_keys
+                assert drops == []
+                return
+
             # The time-skipping server only skips time while the client waits on it, so step the clock
             # past the retry backoff and the batch-collection timeout until the rounds finish.
             for _ in range(60):
@@ -109,3 +131,4 @@ async def test_failed_batch_retries_report_each_attempt(
 
     # The workflow keeps retrying until it is terminated, so ignore any round that started after the last checked one.
     assert sorted(drop for drop in drops if drop[1] is None or drop[1] <= last_attempt[drop[0]]) == expected_drops
+    assert discarded_keys == []

@@ -19,6 +19,7 @@ import type {
     AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
+    AiObservabilityTracesNodesRawRetrieveParams,
     AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesPullRequestRetrieveParams,
     AiObservabilityTracesRetrieveParams,
@@ -172,6 +173,7 @@ import type {
     TraceExportFileApi,
     TraceFeedbackApi,
     TraceNodeDetailApi,
+    TraceNodeRawApi,
     TracePullRequestLookupApi,
     TraceReviewApi,
     TraceReviewCreateApi,
@@ -899,7 +901,7 @@ export const getAiObservabilityTracesNodesRetrieveUrl = (
 }
 
 /**
- * One node of a trace: its event properties as ingested, the keys that hold its input, output and tools, its error and its metadata.
+ * One node of a trace: its input and output ready to render, its event name, uuid and timestamp, its error and its metadata. The raw event properties are on the `raw` read.
  */
 export const aiObservabilityTracesNodesRetrieve = async (
     projectId: string,
@@ -909,6 +911,43 @@ export const aiObservabilityTracesNodesRetrieve = async (
     options?: RequestInit
 ): Promise<TraceNodeDetailApi> => {
     return apiMutator<TraceNodeDetailApi>(getAiObservabilityTracesNodesRetrieveUrl(projectId, id, nodeId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesNodesRawRetrieveUrl = (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesRawRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/raw/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/raw/`
+}
+
+/**
+ * One node of a trace as ingested: its event properties and the keys that hold its input, output and tools, with nothing normalized.
+ */
+export const aiObservabilityTracesNodesRawRetrieve = async (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesRawRetrieveParams,
+    options?: RequestInit
+): Promise<TraceNodeRawApi> => {
+    return apiMutator<TraceNodeRawApi>(getAiObservabilityTracesNodesRawRetrieveUrl(projectId, id, nodeId, params), {
         ...options,
         method: 'GET',
     })

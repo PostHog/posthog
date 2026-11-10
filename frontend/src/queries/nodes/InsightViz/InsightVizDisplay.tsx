@@ -440,7 +440,7 @@ export function InsightVizDisplay({
             case InsightType.FUNNELS:
                 return (
                     <Funnel
-                        context={context}
+                        context={viewContext}
                         inCardView={embedded}
                         inSharedMode={inSharedMode}
                         showPersonsModal={!inSharedMode}
@@ -582,7 +582,11 @@ export function InsightVizDisplay({
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
     const showsDataChecks = !!context?.showDataChecks && !inSharedMode
-    const showsExplainChart = explainChartEnabled && !embedded && !inSharedMode && activeView === InsightType.TRENDS
+    const showsExplainChart =
+        explainChartEnabled &&
+        !embedded &&
+        !inSharedMode &&
+        (activeView === InsightType.TRENDS || activeView === InsightType.FUNNELS)
     const chart = showsExplainChart ? (
         <Suspense fallback={renderActiveView()}>
             <InsightExplainChart

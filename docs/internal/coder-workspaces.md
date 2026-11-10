@@ -181,6 +181,7 @@ Common secrets include `CLAUDE_CODE_OAUTH_TOKEN` and `GH_TOKEN`.
 ## Auth model
 
 - Laptop to workspace access uses `coder ssh` and `coder config-ssh` (configured automatically during setup)
+- SSH to a stopped devbox fails with "workspace must be started" instead of starting it. Run `hogli devbox:start` first. Tools that reconnect in the background, such as Herdr and editors, would otherwise queue a new build on every retry.
 - Git inside the workspace should use HTTPS via Coder external auth — do not set up SSH Git inside the workspace
 - Claude auth is stored as a Coder user secret named `CLAUDE_CODE_OAUTH_TOKEN` (requires Coder 2.33+). Run `hogli devbox:setup --configure-claude` to set or replace it.
 

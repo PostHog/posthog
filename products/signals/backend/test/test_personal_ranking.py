@@ -360,7 +360,7 @@ class TestInputParts(SimpleTestCase):
 
         assert (
             input_hash(candidates, config=CONFIG, limit=25, activity_summary_version=7, focus="checkout")
-            == "56ca92d793ebd4a4b653252143f7834e0b7c13813ddb91e580cc2a875802dbdf"
+            == "3d3077866e85c6b1868f952a33a297762db56b2abc2978e2e68bdcf4811c4baf"
         )
 
     @parameterized.expand(
@@ -503,11 +503,17 @@ class TestPrompt(SimpleTestCase):
         assert "p" * 100 in message and "p" * 101 not in message
         assert "- Checkout (mode build, strength strong, last seen 2026-10-29)" in message
 
-    def test_system_prompt_states_the_tier_caps(self) -> None:
-        prompt = system_prompt(PersonalRankingConfig(top_max=3, worth_a_look_max=7), limit=25)
+    def test_system_prompt_states_the_tier_and_reason_caps(self) -> None:
+        prompt = system_prompt(
+            PersonalRankingConfig(
+                top_max=3, worth_a_look_max=7, reason_limits=ReasonLimits(top=90, worth_a_look=60, later=30)
+            ),
+            limit=25,
+        )
 
         assert '"top" for at most 3 reports' in prompt
         assert '"worth_a_look" for at most 7 other' in prompt
+        assert 'At most 90 characters for "top", 60 for "worth_a_look", 30 for "later".' in prompt
 
 
 class TestConfig(SimpleTestCase):
@@ -585,9 +591,11 @@ class TestConfig(SimpleTestCase):
                         "skip_team_ids": [1, True, "2"],
                         "self_driving_organization_percentage": 101,
                         "max_pairs_per_tick": 10_000,
-                        "max_concurrency": 100,
+                        "max_concurrency": 1000,
                         "max_tick_builds_per_day": -1,
                         "max_org_share": 2,
+                        "overdue_after_minutes": -1,
+                        "time_budget_share": 2,
                     },
                     "max_builds_per_day": 100_000,
                 },
@@ -598,12 +606,13 @@ class TestConfig(SimpleTestCase):
                         organization_ids=("org",),
                         skip_team_ids=(1,),
                         max_pairs_per_tick=2000,
-                        max_concurrency=50,
+                        max_concurrency=100,
+                        time_budget_share=0.85,
                     ),
                 ),
             ),
             (
-                "enabled_tick_raises_freshness_and_leaves_a_shared_reserve",
+                "enabled_tick_raises_freshness_and_overdue_age_and_leaves_a_shared_reserve",
                 {
                     "max_builds_per_day": 100,
                     "tick": {"enabled": True, "target_interval_minutes": 180, "max_tick_builds_per_day": 100},
@@ -612,7 +621,10 @@ class TestConfig(SimpleTestCase):
                     max_builds_per_day=100,
                     freshness_minutes=180,
                     tick=PersonalRankingTickConfig(
-                        enabled=True, target_interval_minutes=180, max_tick_builds_per_day=80
+                        enabled=True,
+                        target_interval_minutes=180,
+                        overdue_after_minutes=360,
+                        max_tick_builds_per_day=80,
                     ),
                 ),
             ),
@@ -791,7 +803,7 @@ class TestBuildPersonalRanking(BaseTest):
         ]
     )
     def test_model_failure_falls_back_to_model_order(self, _name: str, outcome: Any, fallback_reason: str) -> None:
-        self._setup_reports()
+        reports = self._setup_reports()
         if outcome == "not_approved":
             self.organization.is_ai_data_processing_approved = False
             self.organization.save(update_fields=["is_ai_data_processing_approved"])
@@ -811,7 +823,11 @@ class TestBuildPersonalRanking(BaseTest):
         assert {entry.ranked_by for entry in build.entries} == {"model"}
         row = PersonalInboxRanking.objects.for_team(self.team.id).get()
         assert row.fallback_reason == fallback_reason
-        assert len(row.result["ranked"]) == 3
+        assert {entry["report_id"]: entry["reason"] for entry in row.result["ranked"]} == {
+            str(reports["waiting"].id): "Waiting on your input.",
+            str(reports["reviewing"].id): "Kept in inbox order.",
+            str(reports["claimed"].id): "You claimed this report.",
+        }
         model_called = not isinstance(outcome, str)
         assert self.capture.call_args.kwargs["properties"]["model_called"] is model_called
         if not model_called:
