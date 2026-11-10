@@ -4919,6 +4919,7 @@ def _validate_merge_keys(field: str, items: Any) -> None:
 
 
 class HogFlowListSummarySerializer(HogFlowSummarySerializer):
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
     type = serializers.ChoiceField(
         source="workflow_type",
         choices=HogFlowType.choices,
