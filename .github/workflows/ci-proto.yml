@@ -25,6 +25,7 @@ jobs:
         name: Determine need to run proto checks
         outputs:
             proto: ${{ steps.filter.outcome == 'success' && steps.filter.outputs.proto || 'true' }}
+            python_stubs: ${{ steps.filter.outcome == 'success' && steps.filter.outputs.python_stubs || 'true' }}
         steps:
             - name: Check push baseline
               id: baseline
@@ -80,6 +81,7 @@ jobs:
                       proto:
                         - '*'
                         - 'proto/**'
+                        - 'ingestion/proto/**'
                         - 'packages/**'
                         - 'common/**'
                         - 'rust/**'
@@ -88,6 +90,12 @@ jobs:
                         - 'nodejs/**'
                         - 'patches/**'
                         - '.github/actions/**'
+                        - '.github/workflows/ci-proto.yml'
+                      python_stubs:
+                        - 'packages/personhog-proto/**'
+                        - 'bin/generate_personhog_proto.sh'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
                         - '.github/workflows/ci-proto.yml'
             - name: Capture proto selection to DevEx PostHog
               if: >-
@@ -128,7 +136,9 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
-                  sparse-checkout: proto
+                  sparse-checkout: |
+                      proto
+                      ingestion/proto
                   sparse-checkout-cone-mode: false
 
             - name: Install buf
@@ -138,7 +148,9 @@ jobs:
                   version: '1.50.0'
 
             - name: Lint protos
-              run: buf lint proto/
+              run: |
+                  buf lint proto/
+                  buf lint ingestion/proto/
 
             - name: Check out the compatibility baseline
               if: ${{ !cancelled() }}
@@ -147,18 +159,26 @@ jobs:
                   ref: master
                   path: .proto-baseline
                   fetch-depth: 1
-                  sparse-checkout: proto
+                  sparse-checkout: |
+                      proto
+                      ingestion/proto
                   sparse-checkout-cone-mode: false
                   persist-credentials: false
 
             - name: Check for breaking changes
               if: ${{ !cancelled() }}
-              run: buf breaking proto/ --against .proto-baseline/proto/
+              run: |
+                  buf breaking proto/ --against .proto-baseline/proto/
+                  if [ -d .proto-baseline/ingestion/proto ]; then
+                      buf breaking ingestion/proto/ --against .proto-baseline/ingestion/proto/
+                  fi
 
+    # The Django stubs are pinned to the proto commit packages/personhog-proto/PROTO_SOURCE.json
+    # records, so this runs for changes to the stubs and the generator, not for proto changes.
     python-codegen:
-        name: Check Python proto stubs are up to date (depot-ubuntu-22.04-4)
+        name: Check Python proto stubs match their pinned source (depot-ubuntu-22.04-4)
         needs: changes
-        if: needs.changes.outputs.proto == 'true'
+        if: needs.changes.outputs.python_stubs == 'true'
         runs-on: depot-ubuntu-22.04-4
         timeout-minutes: 10
 
@@ -171,7 +191,6 @@ jobs:
                       bin/generate_personhog_proto.sh
                       packages/owners-yaml
                       packages/personhog-proto
-                      proto
                       pyproject.toml
                       tools/hogli
                       uv.lock
@@ -208,8 +227,8 @@ jobs:
                   git add -N packages/personhog-proto/
                   if ! git diff --exit-code packages/personhog-proto/; then
                     echo ""
-                    echo "ERROR: Generated Python proto stubs are out of date."
-                    echo "Run 'bash bin/generate_personhog_proto.sh' and commit the result."
+                    echo "ERROR: Generated Python proto stubs do not match the proto commit PROTO_SOURCE.json records."
+                    echo "Run 'bash bin/generate_personhog_proto.sh' (or '--bump' to move the pin) and commit the result."
                     exit 1
                   fi
                   echo "Generated Python proto stubs are up to date."
