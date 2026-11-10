@@ -151,7 +151,7 @@ class TestRunIssueTaggers(BaseTest):
         with patch(DECIDE, return_value=_decision({"cause_in_trace": NoulAnswer(probability=0.9)})) as decide:
             result = run_issue_taggers(self.team.id, issue.id, lambda team: EVENT_PROPERTIES)
 
-        assert result == (TaggerRun(source=Source.JEV, stored=("cause_in_trace",)),)
+        assert result == (TaggerRun(source=Source.JEV),)
         assert decide.call_args.args[0].state == (
             "TypeError: cart is undefined\nsubmitOrder in src/checkout/cart.ts line 42\nLevel: error"
         )
@@ -211,7 +211,7 @@ class TestRunIssueTaggers(BaseTest):
 
         assert result == (
             TaggerRun(source=NEW_TAGGER, error=error),
-            TaggerRun(source=Source.JEV, stored=("cause_in_trace",)),
+            TaggerRun(source=Source.JEV),
         )
         assert ErrorTrackingIssueTag.objects.for_team(self.team.id).get(issue=issue).value is False
 
@@ -232,26 +232,53 @@ class TestRunIssueTaggers(BaseTest):
 class TestTagIssueCreatedActivity(BaseTest):
     @parameterized.expand(
         [
-            ("rate_limited", None, DecisionGatewayError(429, "rate limited"), ApplicationError, "jev", "unavailable"),
-            ("gateway_down", None, DecisionGatewayError(503, "unavailable"), ApplicationError, "jev", "unavailable"),
-            ("unreachable", None, DecisionGatewayUnreachableError("timeout"), ApplicationError, "jev", "unavailable"),
-            ("tagger_bug", None, ValueError("malformed answer"), ValueError, "jev", "failed"),
-            ("rejected", None, DecisionGatewayError(422, "bad request"), None, "jev", "gateway_rejected"),
-            ("decisions_off", None, DecisionsDisabledError(1), None, "jev", "decisions_unavailable"),
-            ("event_missing", IssueCreatedEventNotFoundError("gone"), None, None, "none", "event_missing"),
+            ("rate_limited", DecisionGatewayError(429, "rate limited"), ApplicationError, "unavailable"),
+            ("gateway_down", DecisionGatewayError(503, "unavailable"), ApplicationError, "unavailable"),
+            ("unreachable", DecisionGatewayUnreachableError("timeout"), ApplicationError, "unavailable"),
+            ("tagger_bug", ValueError("malformed answer"), ValueError, "failed"),
+            ("rejected", DecisionGatewayError(422, "bad request"), None, "gateway_rejected"),
+            ("decisions_off", DecisionsDisabledError(1), None, "decisions_unavailable"),
         ]
     )
     def test_retries_a_transient_failure_or_a_bug_and_skips_the_rest(
-        self,
-        _name: str,
-        fetch_error: Exception | None,
-        decide_error: Exception | None,
-        raises: type[Exception] | None,
-        tagger: str,
-        outcome: str,
+        self, _name: str, decide_error: Exception, raises: type[Exception] | None, outcome: str
     ) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
-        inputs = IssueCreatedWorkflowInputs(
+
+        with (
+            patch(f"{ACTIVITIES}.fetch_event_properties", return_value=EVENT_PROPERTIES),
+            patch(DECIDE, side_effect=decide_error),
+            patch(f"{ACTIVITIES}.ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES") as outcomes,
+        ):
+            if raises is None:
+                tag_issue_created_activity(self._inputs(issue))
+            else:
+                with self.assertRaises(raises) as raised:
+                    tag_issue_created_activity(self._inputs(issue))
+                if isinstance(raised.exception, ApplicationError):
+                    assert raised.exception.type == ISSUE_TAGS_UNAVAILABLE_ERROR_TYPE
+                    assert not raised.exception.non_retryable
+                    assert is_expected_activity_failure(raised.exception)
+
+        outcomes.labels.assert_called_once_with(tagger="jev", outcome=outcome)
+        outcomes.labels.return_value.inc.assert_called_once_with()
+        assert not ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=issue).exists()
+
+    def test_skips_without_a_retry_when_the_exception_event_is_missing(self) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team)
+
+        with (
+            patch(f"{ACTIVITIES}.fetch_event_properties", side_effect=IssueCreatedEventNotFoundError("gone")),
+            patch(DECIDE) as decide,
+            patch(f"{ACTIVITIES}.ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES") as outcomes,
+        ):
+            tag_issue_created_activity(self._inputs(issue))
+
+        outcomes.labels.assert_called_once_with(tagger="none", outcome="event_missing")
+        decide.assert_not_called()
+
+    def _inputs(self, issue: ErrorTrackingIssue) -> IssueCreatedWorkflowInputs:
+        return IssueCreatedWorkflowInputs(
             notification_id=str(uuid.uuid4()),
             team_id=self.team.id,
             issue_id=str(issue.id),
@@ -262,22 +289,3 @@ class TestTagIssueCreatedActivity(BaseTest):
             event_uuid=str(uuid.uuid4()),
             event_timestamp="2026-07-21T12:00:00Z",
         )
-
-        with (
-            patch(f"{ACTIVITIES}.fetch_event_properties", return_value=EVENT_PROPERTIES, side_effect=fetch_error),
-            patch(DECIDE, side_effect=decide_error),
-            patch(f"{ACTIVITIES}.ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES") as outcomes,
-        ):
-            if raises is None:
-                tag_issue_created_activity(inputs)
-            else:
-                with self.assertRaises(raises) as raised:
-                    tag_issue_created_activity(inputs)
-                if isinstance(raised.exception, ApplicationError):
-                    assert raised.exception.type == ISSUE_TAGS_UNAVAILABLE_ERROR_TYPE
-                    assert not raised.exception.non_retryable
-                    assert is_expected_activity_failure(raised.exception)
-
-        outcomes.labels.assert_called_once_with(tagger=tagger, outcome=outcome)
-        outcomes.labels.return_value.inc.assert_called_once_with()
-        assert not ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=issue).exists()

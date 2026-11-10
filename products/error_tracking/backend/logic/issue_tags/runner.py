@@ -8,7 +8,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.error_tracking.backend.logic.issue_tags import registry
-from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
+from products.error_tracking.backend.logic.issue_tags.gate import ISSUE_TAGS_FLAG, issue_tags_enabled
 from products.error_tracking.backend.logic.issue_tags.registry import IssueTagDefinition
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagContext, Tagger
 from products.error_tracking.backend.logic.issue_tags.taggers.jev import JevTagger
@@ -35,7 +35,6 @@ class IssueTaggingSkipReason(StrEnum):
 @frozen
 class TaggerRun:
     source: ErrorTrackingIssueTag.Source
-    stored: tuple[str, ...] = ()
     error: Exception | None = None
 
 
@@ -71,11 +70,10 @@ def run_issue_taggers(
 
 
 def _applicable_taggers(team_id: int) -> list[tuple[Tagger, tuple[IssueTagDefinition, ...]]]:
-    enabled = [
-        definition
-        for definition in registry.ISSUE_TAG_DEFINITIONS
-        if team_flag_enabled(definition.enabled_flag, team_id)
-    ]
+    # The caller checked ISSUE_TAGS_FLAG already, so only a tag with its own rollout flag costs another evaluation.
+    rollout_flags = {definition.enabled_flag for definition in registry.ISSUE_TAG_DEFINITIONS} - {ISSUE_TAGS_FLAG}
+    flag_on = {flag: team_flag_enabled(flag, team_id) for flag in rollout_flags} | {ISSUE_TAGS_FLAG: True}
+    enabled = [definition for definition in registry.ISSUE_TAG_DEFINITIONS if flag_on[definition.enabled_flag]]
     applicable = []
     for tagger in TAGGERS:
         definitions = tuple(
@@ -106,4 +104,4 @@ def _run_tagger(context: TagContext, tagger: Tagger, definitions: tuple[IssueTag
         answered=sorted(answers),
         stored=list(stored),
     )
-    return TaggerRun(source=tagger.source, stored=stored)
+    return TaggerRun(source=tagger.source)
