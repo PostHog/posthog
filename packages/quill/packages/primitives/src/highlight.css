@@ -44,9 +44,11 @@
     }
 
     /* Colors — decorative only, no semantic meaning. Background is a pale tint, text the same hue at full strength. */
+
+    /* Orange is the brand color, so it matches the primary button. */
     .quill-highlight--color-orange {
-        --quill-highlight-background: oklch(0.92 0.05 45deg);
-        --quill-highlight-foreground: oklch(0.56 0.17 42deg);
+        --quill-highlight-background: color-mix(in oklab, var(--primary) 20%, var(--background));
+        --quill-highlight-foreground: var(--primary);
     }
 
     .quill-highlight--color-red {
@@ -72,11 +74,6 @@
     .quill-highlight--color-purple {
         --quill-highlight-background: oklch(0.88 0.07 305deg);
         --quill-highlight-foreground: oklch(0.47 0.2 305deg);
-    }
-
-    :is(.dark, [theme='dark']) .quill-highlight--color-orange {
-        --quill-highlight-background: oklch(0.38 0.09 45deg / 70%);
-        --quill-highlight-foreground: oklch(0.85 0.1 50deg);
     }
 
     :is(.dark, [theme='dark']) .quill-highlight--color-red {
