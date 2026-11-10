@@ -31777,6 +31777,30 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface DashboardActivitySummary {
+      /**
+         * When the dashboard was last changed, from its activity log. Null if never logged.
+         * @nullable
+         */
+      last_edited_at: string | null;
+      /** Who made the last logged change. */
+      last_edited_by: UserBasic | null;
+      /**
+         * Client that made the last logged change, e.g. 'mcp'. Null for the web app.
+         * @nullable
+         */
+      last_edited_client: string | null;
+      /**
+         * When someone other than the requesting user last opened the dashboard in the app. Programmatic reads (API, MCP, subscriptions) do not count.
+         * @nullable
+         */
+      last_viewed_by_others_at: string | null;
+      /** Who that last viewer was. */
+      last_viewed_by_others_user: UserBasic | null;
+      /** Number of people, including the requesting user, who opened the dashboard in the app in the last 30 days. */
+      recent_viewer_count: number;
+    }
+
     /**
      * Serializer mixin that handles tags for objects.
      */
@@ -128300,6 +128324,18 @@ export namespace Schemas {
 
 
     export const DashboardsDestroyFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsActivitySummaryRetrieveParams = {
+    format?: DashboardsActivitySummaryRetrieveFormat;
+    };
+
+    export type DashboardsActivitySummaryRetrieveFormat = typeof DashboardsActivitySummaryRetrieveFormat[keyof typeof DashboardsActivitySummaryRetrieveFormat];
+
+
+    export const DashboardsActivitySummaryRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
