@@ -639,7 +639,9 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             ;(await lostRunFails).drop()
 
             await waitForExpect(async () => expect(await loopErrors()).toBe(1), callsCannotOutlast + 5_000, 50)
-            expect((await jobRow(send.id)).status).not.toBe('running')
+            // The retry it writes falls due while the wait for its call runs, so the worker can already be running
+            // the send again. Only its state shows the write.
+            expect((await jobRow(send.id)).queueMetadata?.attachmentLoadRetries).toBe(1)
             expect(await metric('cdp_email_attachments_sends_in_flight')).toBe(1)
         })
     })
