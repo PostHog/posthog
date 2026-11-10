@@ -1,4 +1,4 @@
-import { runner, type MigrationDirection } from 'node-pg-migrate'
+import { runner, type RunnerOption } from 'node-pg-migrate'
 
 import { logger } from '../lib/logging'
 
@@ -6,6 +6,10 @@ import { logger } from '../lib/logging'
 export const MIGRATIONS_DIR = 'migrations'
 
 export const MIGRATIONS_TABLE = 'pgmigrations'
+
+const CONNECTION_TIMEOUT_MS = 10_000
+
+type MigrationDirection = RunnerOption['direction']
 
 export interface MigrateOptions {
     databaseUrl: string
@@ -18,7 +22,12 @@ export interface MigrateOptions {
 /** Applies or reverts the SQL migrations. Returns the names of the migrations it ran. */
 export async function runMigrations(options: MigrateOptions): Promise<string[]> {
     const ran = await runner({
-        databaseUrl: options.databaseUrl,
+        // Queries stay unbounded: the advisory lock wait and a long migration are both legitimate.
+        databaseUrl: {
+            connectionString: options.databaseUrl,
+            connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
+            keepAlive: true,
+        },
         dir: options.dir ?? MIGRATIONS_DIR,
         direction: options.direction,
         count: options.count ?? (options.direction === 'up' ? Infinity : 1),

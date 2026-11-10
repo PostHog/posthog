@@ -6,6 +6,8 @@ import { logger } from '../lib/logging'
 const CONNECTION_TIMEOUT_MS = 5_000
 const STATEMENT_TIMEOUT_MS = 10_000
 const IDLE_TIMEOUT_MS = 30_000
+// Client-side, so a connection that stops responding fails the query and is discarded.
+const QUERY_TIMEOUT_MS = STATEMENT_TIMEOUT_MS + 5_000
 
 export function createPool(config: DatabaseConfig): Pool {
     const pool = new Pool({
@@ -14,6 +16,7 @@ export function createPool(config: DatabaseConfig): Pool {
         connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
         idleTimeoutMillis: IDLE_TIMEOUT_MS,
         statement_timeout: STATEMENT_TIMEOUT_MS,
+        query_timeout: QUERY_TIMEOUT_MS,
         application_name: 'credentials-service',
     })
     // An idle client that loses its connection emits 'error' on the pool. With no listener,
