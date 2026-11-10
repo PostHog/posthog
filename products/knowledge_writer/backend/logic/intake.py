@@ -43,6 +43,21 @@ def parse_verdict(payload: object) -> AdapterVerdict:
 
 def submit(payload: object, *, team_id: int) -> IntakeOutcome:
     verdict = parse_verdict(payload)
+    outcome = intake_outcome(verdict, team_id=team_id)
+    logger.info(
+        "knowledge_writer_intake_outcome",
+        source=verdict.source,
+        subject_id=verdict.subject_id,
+        team_id=team_id,
+        failure_reason=verdict.failure_reason,
+        dedupe_id=verdict.request.dedupe_id if verdict.request else None,
+        status=outcome.status,
+        task_id=str(outcome.task_id) if outcome.task_id else None,
+    )
+    return outcome
+
+
+def intake_outcome(verdict: AdapterVerdict, *, team_id: int) -> IntakeOutcome:
     writer = writer_settings()
     if writer is None or writer.team_id != team_id:
         return IntakeOutcome(status="unconfigured")

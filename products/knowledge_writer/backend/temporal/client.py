@@ -29,6 +29,7 @@ def start_publish(task_run_id: UUID, *, team_id: int) -> None:
 
 async def start_publish_workflow(task_run_id: UUID, *, team_id: int) -> None:
     client = await async_connect()
+    log_context = {"task_run_id": str(task_run_id), "team_id": team_id}
     try:
         await client.start_workflow(
             PublishWorkflow.run,
@@ -39,7 +40,9 @@ async def start_publish_workflow(task_run_id: UUID, *, team_id: int) -> None:
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
         )
     except WorkflowAlreadyStartedError:
+        logger.info("knowledge_writer_publish_already_ran", **log_context)
         return
+    logger.info("knowledge_writer_publish_requested", **log_context)
 
 
 def merge_check_workflow_id(commit_sha: str) -> str:
