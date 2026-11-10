@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.facade.contracts import (
     HistoryTableDropRefusedError,
     UndecryptedConfigError,
 )
+from products.warehouse_sources.backend.facade.incremental_field_model import recommend_incremental_fields
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
@@ -3260,6 +3261,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
+        recommend_incremental_fields([schema], team=self.team)
 
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.

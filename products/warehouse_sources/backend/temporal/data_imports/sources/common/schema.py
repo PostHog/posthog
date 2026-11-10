@@ -99,6 +99,10 @@ def _change_tracking_tier(field: IncrementalField) -> int:
     return 0
 
 
+def tracks_updates(field: IncrementalField) -> bool:
+    return _change_tracking_tier(field) == 2
+
+
 def _rank_score(field: IncrementalField) -> int:
     """Higher is better. Each criterion outweighs all the criteria after it."""
     return (

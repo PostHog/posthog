@@ -1,0 +1,234 @@
+"""Ask the decision model which incremental field to recommend when the column names leave it open.
+
+`rank_incremental_fields` settles a table that has a column which changes on update. A table without
+one (only `id` and `created_at`, a name such as `event_ts`, or names in another language) gets a guess
+from the name rules. For those tables the decision model reads the table and column names, never row
+values, and picks the column most likely to change on every write. A failed, refused or unsure answer
+keeps the rule-based order.
+"""
+
+import json
+import hashlib
+from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING
+
+from django.core.cache import cache
+
+import structlog
+
+from posthog.exceptions_capture import capture_exception
+from posthog.llm.gateway_client import team_distinct_id
+from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL
+from posthog.llm.system_one import (
+    ChoiceAnswer,
+    ChoiceQuestion,
+    JsonValue,
+    Question,
+    SystemOneNotConfigured,
+    SystemOneRequestFailed,
+)
+from posthog.llm.system_one_client import (
+    GATEWAY_MAX_CHOICE_OPTIONS,
+    GATEWAY_MAX_QUESTIONS,
+    SystemOneClient,
+    build_system_one_client,
+    system_one_configured,
+)
+from posthog.ph_client import feature_enabled_or_false
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema, tracks_updates
+from products.warehouse_sources.backend.types import IncrementalField
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
+logger = structlog.get_logger(__name__)
+
+FEATURE_FLAG = "warehouse-incremental-field-model"
+AI_PRODUCT = "warehouse_sources"
+MODEL = DEFAULT_DECISION_MODEL
+PROMPT_VERSION = 1
+# Both endpoints block a person's screen, so a late answer is worth less than the rule-based one.
+TIMEOUT_SECONDS = 3.0
+MIN_CONFIDENCE = 0.6
+MAX_REQUESTS = 4
+CACHE_TTL_SECONDS = 24 * 60 * 60
+# Keyed per team: one team's table names must never answer for another team.
+CACHE_KEY_PREFIX = "warehouse_incremental_field_model"
+
+MODEL_PICK_NOTE = "Picked by AI from the table and column names."
+
+_INSTRUCTIONS = (
+    "state.tables.{table_id} is a database table and its columns that can be the cursor of an incremental sync. "
+    "An incremental sync reads only the rows whose cursor value is greater than the last value it read. "
+    "Pick the column whose value changes every time a row is inserted or updated, so that edited rows sync again. "
+    "When two columns are equally likely, pick the indexed one that is never empty."
+)
+
+
+def recommend_incremental_fields(schemas: Sequence[SourceSchema], *, team: "Team") -> None:
+    """Move the model's confident pick to the front of each open table's `incremental_fields`."""
+    try:
+        _recommend(schemas, team)
+    except Exception as error:
+        # The rule-based order is a complete answer, so a failure here must not fail the endpoint.
+        capture_exception(error, {"team_id": team.pk})
+
+
+def _recommend(schemas: Sequence[SourceSchema], team: "Team") -> None:
+    pending = [schema for schema in schemas if _is_open(schema)][: MAX_REQUESTS * GATEWAY_MAX_QUESTIONS]
+    if not pending or not _model_allowed(team):
+        return
+
+    picks: dict[int, str] = {}
+    uncached: list[tuple[int, str]] = []
+    for index, schema in enumerate(pending):
+        key = _cache_key(team.pk, schema)
+        cached = _cache_get(key)
+        if cached is None:
+            uncached.append((index, key))
+        elif cached:
+            picks[index] = cached
+
+    if uncached:
+        client = build_system_one_client(
+            model=MODEL,
+            ai_product=AI_PRODUCT,
+            distinct_id=team_distinct_id(team.pk),
+            timeout=TIMEOUT_SECONDS,
+            privacy_mode=True,
+        )
+        batches = [
+            uncached[start : start + GATEWAY_MAX_QUESTIONS] for start in range(0, len(uncached), GATEWAY_MAX_QUESTIONS)
+        ]
+        with ThreadPoolExecutor(max_workers=len(batches)) as executor:
+            answered = executor.map(
+                lambda batch: _ask(client, [(index, pending[index]) for index, _ in batch]), batches
+            )
+            for batch, answers in zip(batches, answered):
+                if answers is None:
+                    continue
+                for index, key in batch:
+                    field_name = answers.get(index, "")
+                    _cache_set(key, field_name)
+                    if field_name:
+                        picks[index] = field_name
+
+    changed = sum(_apply_pick(pending[index], field_name) for index, field_name in picks.items())
+    logger.info(
+        "incremental_field_model_applied",
+        team_id=team.pk,
+        open_tables=len(pending),
+        asked=len(uncached),
+        picked=len(picks),
+        changed=changed,
+    )
+
+
+def _candidates(schema: SourceSchema) -> list[IncrementalField]:
+    # Only ranked fields carry `recommended`, so a synthetic cursor such as xmin is never offered.
+    return [field for field in schema.incremental_fields if "recommended" in field][:GATEWAY_MAX_CHOICE_OPTIONS]
+
+
+def _is_open(schema: SourceSchema) -> bool:
+    candidates = _candidates(schema)
+    return len(candidates) >= 2 and not tracks_updates(candidates[0])
+
+
+def _model_allowed(team: "Team") -> bool:
+    if team.organization.is_ai_data_processing_approved is not True or not system_one_configured():
+        return False
+    organization_id = str(team.organization_id)
+    return feature_enabled_or_false(
+        FEATURE_FLAG,
+        organization_id,
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        send_feature_flag_events=False,
+    )
+
+
+def _table_state(schema: SourceSchema) -> dict[str, JsonValue]:
+    return {
+        "table": schema.name,
+        "columns": [
+            {
+                "option": f"c{position}",
+                "name": field["field"],
+                "type": str(field.get("field_type") or field["type"]),
+                "indexed": field.get("is_indexed", True),
+                "nullable": field.get("nullable", False),
+            }
+            for position, field in enumerate(_candidates(schema))
+        ],
+    }
+
+
+def _ask(client: SystemOneClient, tables: list[tuple[int, SourceSchema]]) -> Mapping[int, str] | None:
+    """The confident pick per table index, or None when the request failed. An unsure table maps to ''."""
+    state: dict[str, JsonValue] = {"tables": {f"t{index}": _table_state(schema) for index, schema in tables}}
+    questions: dict[str, Question] = {
+        f"t{index}": ChoiceQuestion(
+            instructions=_INSTRUCTIONS.format(table_id=f"t{index}"),
+            criteria={
+                f"c{position}": f"The column with option c{position} in state.tables.t{index}.columns"
+                for position in range(len(_candidates(schema)))
+            },
+        )
+        for index, schema in tables
+    }
+    try:
+        result = client.decide(state=state, questions=questions)
+    except (SystemOneRequestFailed, SystemOneNotConfigured) as error:
+        logger.warning("incremental_field_model_failed", error_type=type(error).__name__)
+        return None
+
+    picks: dict[int, str] = {}
+    for index, schema in tables:
+        answer = result.answers.get(f"t{index}")
+        candidates = _candidates(schema)
+        picks[index] = ""
+        if isinstance(answer, ChoiceAnswer) and answer.confidence >= MIN_CONFIDENCE:
+            position = answer.choice.removeprefix("c")
+            if position.isdigit() and int(position) < len(candidates):
+                picks[index] = candidates[int(position)]["field"]
+    return picks
+
+
+def _apply_pick(schema: SourceSchema, field_name: str) -> bool:
+    fields = schema.incremental_fields
+    chosen = next((field for field in fields if field["field"] == field_name and "recommended" in field), None)
+    if chosen is None or chosen is fields[0]:
+        return False
+    rest: list[IncrementalField] = [
+        {**field, "recommended": False} if "recommended" in field else field for field in fields if field is not chosen
+    ]
+    schema.incremental_fields = [
+        {**chosen, "recommended": True, "notes": [MODEL_PICK_NOTE, *chosen.get("notes", [])]},
+        *rest,
+    ]
+    return True
+
+
+def _cache_key(team_id: int, schema: SourceSchema) -> str:
+    digest = hashlib.sha256(
+        json.dumps([MODEL, PROMPT_VERSION, MIN_CONFIDENCE, _table_state(schema)], sort_keys=True).encode()
+    ).hexdigest()
+    return f"{CACHE_KEY_PREFIX}:{team_id}:{digest}"
+
+
+def _cache_get(key: str) -> str | None:
+    try:
+        cached = cache.get(key)
+    except Exception:
+        logger.warning("incremental_field_model_cache_read_failed", exc_info=True)
+        return None
+    return cached if isinstance(cached, str) else None
+
+
+def _cache_set(key: str, field_name: str) -> None:
+    try:
+        cache.set(key, field_name, CACHE_TTL_SECONDS)
+    except Exception:
+        logger.warning("incremental_field_model_cache_write_failed", exc_info=True)
