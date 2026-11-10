@@ -148,17 +148,21 @@
     /*
      * The ledge under the button is two-tone: a mid shade of the brand color for its side,
      * closed off by the same dark edge that draws the border.
+     * `--quill-button-lift` is the height of that side; a press lowers it.
      */
     .quill-button--variant-primary {
         --quill-button-edge: color-mix(in oklab, var(--primary) 70%, black);
         --quill-button-side: color-mix(in oklab, var(--primary) 84%, black);
-        --quill-button-primary-ledge: 0 2px 0 0 var(--quill-button-side), 0 3px 0 0 var(--quill-button-edge);
+        --quill-button-lift: 2px;
+        --quill-button-ledge:
+            0 var(--quill-button-lift) 0 0 var(--quill-button-side),
+            0 calc(var(--quill-button-lift) + 1px) 0 0 var(--quill-button-edge);
 
         position: relative;
         color: var(--primary-foreground);
         background-color: var(--primary);
         border-color: var(--quill-button-edge);
-        box-shadow: var(--quill-button-primary-ledge);
+        box-shadow: var(--quill-button-ledge);
         translate: 0 -1px;
     }
 
@@ -173,13 +177,14 @@
     .quill-button--variant-primary:focus-visible {
         border-color: var(--quill-button-edge);
         box-shadow:
-            var(--quill-button-primary-ledge),
+            var(--quill-button-ledge),
             0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
     }
 
+    /* Extend the hit area over the ledge, so a click on it still presses the button. */
     .quill-button--variant-primary::after {
         position: absolute;
-        top: 3px;
+        top: calc(var(--quill-button-lift) + 1px);
         bottom: 0;
         left: 0;
         width: 100%;
@@ -192,9 +197,8 @@
     }
 
     .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):active {
-        box-shadow:
-            0 1px 0 0 var(--quill-button-side),
-            0 2px 0 0 var(--quill-button-edge);
+        --quill-button-lift: 1px;
+
         translate: 0 0;
     }
 
