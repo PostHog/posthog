@@ -207,12 +207,14 @@ Reach for ClickHouse, the Node serial lane, or a browser only when the regressio
 ### Node (Jest, `nodejs/`)
 
 - **Drive the consumer or service entry point the way production does.**
-  Build the hub with `createHub` against the Postgres, Kafka, Redis, and ClickHouse that CI starts for every Node test job.
+  Give it the real dependencies its behavior reads or writes, from the Postgres, Kafka, Redis, and ClickHouse that CI starts for every Node test job.
+  Build the hub with `createHub` when the entry point takes a hub; otherwise construct the service with only those dependencies, such as a `PostgresRouter`.
 - **Assert what a boundary recorded:** the request `mockFetch` received (`tests/helpers/mocks/request.mock.ts`), the message `mockProducerObserver` saw (`tests/helpers/mocks/producer.mock.ts`), the mail `MailDevAPI` reads from maildev, or the job row in Postgres.
   A spy on an executor or a service method is a change detector.
-- **Keep case matrices in parallel-lane files.**
-  A `*.serial.test.ts` file runs with `--runInBand` in the serial lane, so every case in it adds straight to CI time.
-  Put a case there, or in an e2e file, only when it covers a flow across services that no lower rung can see.
+- **Keep case matrices out of the serial lane.**
+  A `*.serial.test.ts` file runs with `--runInBand`, so every case in it adds straight to CI time.
+  A test belongs there when it shares infrastructure it can't isolate (see [.agents/code-style.md](../../code-style.md)) or covers a flow across services that no lower rung can see.
+  Its case matrix still goes on a lower rung.
 
 ### Frontend (Jest)
 
