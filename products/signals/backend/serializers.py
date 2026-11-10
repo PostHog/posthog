@@ -2284,6 +2284,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
     assignee = serializers.SerializerMethodField(
         help_text="Current user, internal task, or external agent claim owner. Null when unclaimed.",
     )
+    implementation_in_flight = serializers.SerializerMethodField(
+        help_text=(
+            "Whether an implementation run for this report is still working. A new implementation run "
+            "cannot start until it settles."
+        ),
+    )
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
     )
@@ -2369,6 +2375,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "source_issues",
             "work_state",
             "assignee",
+            "implementation_in_flight",
             "refund",
             "refund_ineligibility_reason",
             "billing_exempt_reason",
@@ -2752,6 +2759,15 @@ class SignalReportSerializer(serializers.ModelSerializer):
         assignment = self._get_assignment(obj)
         return "working" if assignment is not None and assignment.actor_kind else "unclaimed"
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_implementation_in_flight(self, obj: SignalReport) -> bool:
+        from products.signals.backend.task_run_artefacts import implementation_in_flight_report_ids
+
+        in_flight = self.context.get("implementation_in_flight_ids")
+        if in_flight is None:
+            in_flight = implementation_in_flight_report_ids(team_id=obj.team_id, report_ids=[str(obj.id)])
+        return str(obj.id) in in_flight
+
     @extend_schema_field(SignalReportAssigneeSerializer(allow_null=True))
     def get_assignee(self, obj: SignalReport) -> dict | None:
         assignment = self._get_assignment(obj)
@@ -2856,14 +2872,14 @@ class SignalReportListSerializer(SignalReportSerializer):
     )
     personal_tier = serializers.SerializerMethodField(
         help_text=(
-            "The tier your personal ranking gave this report, for sort=personal. Null when the language model "
-            "did not rank the report, and for every other sort."
+            "The tier your personal ranking gave this report, when the list response's ranker is personal. Null "
+            "when the language model did not rank the report, and for every other ranker."
         ),
     )
     personal_reason = serializers.SerializerMethodField(
         help_text=(
-            "Why your personal ranking put this report where it is, for sort=personal. Null when the language "
-            "model did not rank the report, and for every other sort."
+            "Why your personal ranking put this report where it is, when the list response's ranker is personal. "
+            "Null when the language model did not rank the report, and for every other ranker."
         ),
     )
 
@@ -2929,7 +2945,8 @@ class SignalReportListQuerySerializer(SignalReportFilterQuerySerializer):
     ranking_id = serializers.UUIDField(
         required=False,
         help_text=(
-            "For sort=personal: the ranking_id of the first page. Pass it on later pages, so a new personal "
+            "For sort=personal, and for sort=recommended when its ranker is personal: the ranking_id of the "
+            "first page. Pass it on later pages, so a new personal "
             "ranking does not reorder them. When that ranking no longer exists, the latest one applies."
         ),
     )

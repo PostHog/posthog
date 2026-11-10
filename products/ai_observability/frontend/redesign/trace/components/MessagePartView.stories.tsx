@@ -33,7 +33,12 @@ export const Thinking: Story = {
 }
 export const ToolCall: Story = {
     args: {
-        part: { kind: 'toolCall', name: 'lookup_invoice', args: { month: '2026-08' }, result: { total_usd: 180 } },
+        part: {
+            kind: 'toolCall',
+            name: 'lookup_invoice',
+            args: { month: '2026-08' },
+            result: { total_usd: 180 },
+        },
     },
 }
 export const ToolCallMultilineArgs: Story = {
@@ -66,17 +71,6 @@ export const ToolCallLongResultFolded: Story = { args: { part: longResultPart },
 export const ToolCallLongResultOpenWraps: Story = {
     args: { part: longResultPart, highlightQuery: '2026-09' },
     decorators: [withWidth(420)],
-}
-export const ToolCallError: Story = {
-    args: {
-        part: {
-            kind: 'toolCall',
-            name: 'lookup_invoice',
-            args: { month: '2026-08' },
-            result: 'Timeout',
-            isError: true,
-        },
-    },
 }
 export const Attachments: Story = {
     render: () => (

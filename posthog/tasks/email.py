@@ -452,7 +452,11 @@ def check_invite_email_suppression(invite_id: str) -> None:
         capture(
             distinct_id=str(invite.created_by.distinct_id) if invite.created_by else f"invite_{invite_id}",
             event="invite email suppressed",
-            properties={"invite_id": invite_id, "is_setup_delegation": invite.is_setup_delegation},
+            properties={
+                "invite_id": invite_id,
+                "is_setup_delegation": invite.is_setup_delegation,
+                "$update_person_last_seen_at": False,
+            },
             groups={"organization": str(invite.organization_id)},
         )
 
@@ -712,6 +716,7 @@ def send_email_verification_code(user_id: int, code: str, target_email: str | No
         capture(
             distinct_id=str(user.distinct_id),
             event="verification code sent",
+            properties={"$update_person_last_seen_at": False},
             groups={"organization": str(user.current_organization.id)} if user.current_organization else None,
         )
 
@@ -740,6 +745,7 @@ def send_code_based_verification(user_id: int, code: str) -> None:
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="login verification code sent",
+        properties={"$update_person_last_seen_at": False},
         groups={"organization": str(user.current_organization.id)} if user.current_organization else None,
     )
 
@@ -1547,7 +1553,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         run_at = (job.last_run_at if job else None) or sq.last_run_at
         # `is_materialized` stays True after a pause, so read the cadence and the table instead.
         # Pausing clears the cadence and keeps the table; reverting clears both.
-        if qid in declared_targets or sq.sync_frequency_interval is not None:
+        if qid in declared_targets:
             schedule = "scheduled"
         elif sq.table_id is not None:
             schedule = "paused"
@@ -1797,6 +1803,7 @@ def send_wizard_pr_ready_email(run_id: str) -> None:
             distinct_id=str(user.distinct_id),
             event="wizard pr ready email sent",
             properties={
+                "$update_person_last_seen_at": False,
                 "task_id": str(context.task_id),
                 "run_id": str(context.run_id),
                 "team_id": context.team_id,
@@ -2053,6 +2060,7 @@ def login_from_new_device_notification(
         distinct_id=str(user.distinct_id),
         event="login notification sent",
         properties={
+            "$update_person_last_seen_at": False,
             "ip_address": ip_address,
             "geoip_country": country,
             "geoip_city": city,

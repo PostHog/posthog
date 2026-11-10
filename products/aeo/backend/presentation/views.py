@@ -24,6 +24,7 @@ from products.aeo.backend.facade.api import (
     MAX_SEARCH_PROMPTS,
     MAX_STATS_WORDS,
     archive_prompt,
+    create_brand,
     get_brand,
     get_prompt,
     get_prompt_set_overview,
@@ -42,6 +43,7 @@ from products.aeo.backend.facade.api import (
 )
 from products.aeo.backend.facade.contracts import (
     AEO_CITATION_TRACKING_FLAG,
+    BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
     MAX_RANKED_COMPETITORS,
     MAX_RANKED_DOMAINS,
@@ -49,6 +51,8 @@ from products.aeo.backend.facade.contracts import (
     PROMPT_TOPIC_MAX_LENGTH,
     PROMPT_VERSION_DESCRIPTION_MAX_LENGTH,
     Brand,
+    BrandCreate,
+    BrandCreateError,
     BrandKind,
     BrandNotFoundError,
     BrandStatus,
@@ -861,6 +865,29 @@ class AEOBrandListQuerySerializer(serializers.Serializer):
     )
 
 
+class AEOBrandCreateRequestSerializer(serializers.Serializer):
+    domain = serializers.CharField(
+        max_length=BRAND_DOMAIN_MAX_LENGTH,
+        help_text="The brand's domain or a URL on it, for example 'example.com'. Stored as its registrable domain, so citations on its subdomains count for the brand.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=BRAND_NAME_MAX_LENGTH,
+        help_text="Brand name as people say it. Guessed from the domain when empty.",
+    )
+    kind = serializers.ChoiceField(
+        choices=BrandKind.choices,
+        help_text="What the brand is to the project: 'own' (the project's site, counted as us in citations), 'competitor', 'publisher' or 'unknown'.",
+    )
+    aliases = serializers.ListField(
+        child=serializers.CharField(max_length=BRAND_NAME_MAX_LENGTH, help_text="One other name for the brand."),
+        required=False,
+        max_length=MAX_BRAND_ALIASES,
+        help_text="Other names for the brand, used to find it in answer text. Names are trimmed, and repeated names are dropped.",
+    )
+
+
 class AEOBrandUpdateRequestSerializer(serializers.Serializer):
     name = serializers.CharField(
         required=False, max_length=BRAND_NAME_MAX_LENGTH, help_text="Brand name as people say it."
@@ -1163,7 +1190,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
 class AEOBrandViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
     scope_object_read_actions = ["list", "retrieve"]
-    scope_object_write_actions = ["partial_update"]
+    scope_object_write_actions = ["create", "partial_update"]
     pagination_class = PrecountedLimitOffsetPagination
 
     @validated_request(
@@ -1199,6 +1226,28 @@ class AEOBrandViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             return Response(AEOBrandSerializer(get_brand(self.team_id, pk)).data)
         except BrandNotFoundError:
             raise NotFound()
+
+    @validated_request(
+        request_serializer=AEOBrandCreateRequestSerializer,
+        operation_id="aeo_brands_create",
+        summary="Add an AEO brand",
+        description="Adds a brand to the project's brand catalog by domain, confirmed. Add the project's own site with kind 'own' before the first daily run: only own brands count as the project in citations and mentions, and the run skips a project without one. Returns 400 when the catalog already has the domain; update that brand instead.",
+        responses={201: OpenApiResponse(response=AEOBrandSerializer)},
+        tags=["web_analytics"],
+    )
+    def create(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        data = request.validated_data
+        new = BrandCreate(
+            domain=data["domain"],
+            kind=BrandKind(data["kind"]),
+            name=data.get("name") or None,
+            aliases=tuple(data.get("aliases", [])),
+        )
+        try:
+            brand = create_brand(self.team_id, new)
+        except BrandCreateError as error:
+            raise ValidationError({"domain": str(error)})
+        return Response(AEOBrandSerializer(brand).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
         request_serializer=AEOBrandUpdateRequestSerializer,

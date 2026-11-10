@@ -1,6 +1,6 @@
-# RGL edit-mode resize preview under tile content
+# RGL resize preview under tile content
 
-In dashboard **edit mode**, dragging a tile resize handle shows the orange preview **under** the tile body instead of on top. View mode is unaffected — this is CSS/DOM glue in the dashboard scene fighting react-grid-layout, not stored layout JSON.
+On a dashboard you can edit, dragging a tile resize handle shows the orange preview **under** the tile body instead of on top. Read-only dashboards are unaffected — this is CSS/DOM glue in the dashboard scene fighting react-grid-layout, not stored layout JSON.
 
 ## How PostHog wires RGL
 
@@ -77,5 +77,5 @@ In `DashboardItems.scss`:
 ## Verify
 
 1. Dashboard with mixed tile types (insight + text + button/widget if present).
-2. Edit mode (E). Resize from the SE handle on each type.
+2. Open it as an editor at desktop width (tiles are always resizable there). Resize from the SE handle on each type.
 3. Orange preview renders on top of tile content, aligned to the gray grid.

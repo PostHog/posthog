@@ -152,6 +152,7 @@ class TestScheduledRecalculationActivities(BaseTest):
         assert [c.experiment_id for c in discovery.candidates] == [self.experiment.id]
         capture.assert_called_once()
         assert capture.call_args.kwargs["event"] == SKIPPED_EVENT
+        assert capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
         assert capture.call_args.kwargs["properties"]["experiment_id"] == skipped.id
         assert capture.call_args.kwargs["properties"]["reason"] == reason
         assert capture.call_args.kwargs["properties"]["hour"] == 12

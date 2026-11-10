@@ -419,14 +419,15 @@ class PlatformHandback:
 
 @frozen
 class PlatformAlertRuntime:
-    """Where an alert the platform owns stands, and how it splits into instances, for a source whose
-    API still shows the alert."""
+    """Where an alert the platform owns stands, and the settings only its copy stores, for a source
+    whose API still shows the alert."""
 
     state: PlatformAlertState
     last_notified_at: datetime | None
     consecutive_failures: int
     next_check_at: datetime | None
     grouping: Grouping
+    labels: dict[str, str]
 
 
 @frozen
@@ -505,6 +506,56 @@ class PlatformCheckEventPage:
 
     events: tuple[PlatformCheckEvent, ...]
     total: int
+
+
+class ControlChangeKind(StrEnum):
+    """A change a person made to an alert the platform owns, recorded in its history beside the checks.
+
+    Stored in the history row's `kind` column, but not an `AlertEventKind`: nothing is announced for
+    it, and every reader of checks leaves it out.
+    """
+
+    ENABLE = "enable"
+    DISABLE = "disable"
+    SNOOZE = "snooze"
+    UNSNOOZE = "unsnooze"
+    RESET = "reset"
+    CONFIG_CHANGE = "config_change"
+
+
+@frozen
+class PlatformControlChange:
+    """One control-plane change of an alert the platform owns, with its state either side of it.
+
+    The states are the whole alert's as a source shows it, so a snooze in force reads as SNOOZED.
+    """
+
+    occurred_at: datetime
+    evaluation_key: str
+    kind: ControlChangeKind
+    previous_state: PlatformAlertState
+    state: PlatformAlertState
+
+
+@frozen
+class PlatformControlChangePage:
+    """The newest control-plane changes of an alert, how many there are in all, and when the oldest
+    one still kept happened, of any kind, or None when there is none."""
+
+    changes: tuple[PlatformControlChange, ...]
+    total: int
+    oldest_at: datetime | None
+
+
+@frozen
+class PlatformControlHistory:
+    """An alert's control-plane changes in one window, oldest first, with what a timeline needs from
+    before it: when the oldest kept change of any kind happened, and the newest enable or disable
+    before the window, or None when there is none."""
+
+    changes: tuple[PlatformControlChange, ...]
+    oldest_at: datetime
+    toggle_before: ControlChangeKind | None
 
 
 class SkipReason(StrEnum):
@@ -980,6 +1031,21 @@ class PlatformAlertSnapshot:
     last_notified_at: datetime | None
     snooze_until: datetime | None
     labels: dict[str, str] = field(default_factory=dict)
+
+
+@frozen
+class NativeConfigurationMatch:
+    """One alert of a kind with no source row, as a source's list filters, sorts and pages it beside
+    its own rows before it reads the page with `list_configurations`."""
+
+    id: UUID
+    created_at: datetime
+    created_by_id: int | None
+    source_config: dict[str, Any]
+    # Set when the list was searched: whether the name contains the term, and the trigram rank
+    # that orders matches, on the same scale a source's own searched rows have.
+    is_exact: bool | None = None
+    search_score: float | None = None
 
 
 @frozen

@@ -1,0 +1,540 @@
+import { combineUrl } from 'kea-router'
+
+import { pluralize } from 'lib/utils/strings'
+import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { urls } from 'scenes/urls'
+
+import {
+    DataWarehouseSavedQueryOrigin,
+    type DatabaseSchemaDataWarehouseTable,
+    type DatabaseSchemaManagedViewTable,
+    type DatabaseSchemaTable,
+    type DatabaseSchemaViewTable,
+} from '~/queries/schema/schema-general'
+import type { DataModelingNode } from '~/types'
+
+import {
+    AttentionRow,
+    MaterializationProblem,
+    buildAttentionRow,
+    isFailingCheck,
+    problemNode,
+} from 'products/data_modeling/frontend/modelsOverviewLogic'
+import {
+    ISSUE_KIND_ORDER,
+    ISSUE_LABELS,
+    type IssueKind,
+    REFRESHING_LABEL,
+} from 'products/data_modeling/frontend/overviewIssueCopy'
+import type { DataQualitySubjectRef } from 'products/data_quality/frontend/checksApi'
+import {
+    type DataQualitySubjectHealthApi,
+    SubjectTypeEnumApi,
+} from 'products/data_quality/frontend/generated/api.schemas'
+import { type SubjectGroup, subjectKeyOf } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
+
+import type { CertificationTargetType } from './certificationsLogic'
+import type { DataCatalogCertificationApi } from './generated/api.schemas'
+
+export type TableKind = 'posthog' | 'source' | 'self_managed' | 'view' | 'materialized_view'
+export type TableScope = 'all' | 'attention'
+export type TrustFilter = 'any' | 'certified' | 'proposed' | 'deprecated' | 'none'
+export type ChecksFilter = 'any' | 'with' | 'without'
+
+export interface TablesFilters {
+    kind: TableKind | 'any'
+    problem: IssueKind | 'any'
+    trust: TrustFilter
+    checks: ChecksFilter
+}
+
+export const DEFAULT_TABLES_FILTERS: TablesFilters = { kind: 'any', problem: 'any', trust: 'any', checks: 'any' }
+
+export const TABLES_FILTER_PARAM = 'filter'
+export const TABLES_SEARCH_PARAM = 'table'
+export const PROPOSED_TABLES_FILTER = 'proposed'
+export const DATA_QUALITY_TAB = 'data-quality'
+
+export function dataQualityUrl(tableName: string): string {
+    return combineUrl(urls.dataCatalog(DATA_QUALITY_TAB), { [TABLES_SEARCH_PARAM]: tableName }).url
+}
+
+export const KIND_LABELS: Record<TableKind, string> = {
+    posthog: 'PostHog',
+    source: 'Source table',
+    self_managed: 'Self-managed',
+    view: 'View',
+    materialized_view: 'Materialized view',
+}
+
+const MANAGED_VIEW_ORIGIN = 'Managed view'
+
+const UNLISTED_KINDS: Partial<Record<string, TableKind>> = {
+    [SubjectTypeEnumApi.PosthogTable]: 'posthog',
+    [SubjectTypeEnumApi.Table]: 'source',
+    [SubjectTypeEnumApi.View]: 'view',
+}
+
+export interface CertificationTarget {
+    targetType: CertificationTargetType
+    targetId: string
+}
+
+export interface CheckCounts {
+    total: number
+    failing: number
+}
+
+export interface Freshness {
+    state: string | null
+    timeLabel: string | null
+    time: string | null
+}
+
+const RUNNING_STATUS = 'Running'
+const FAILED_STATUS = 'Failed'
+
+const LIVE_LABELS: Partial<Record<TableKind, string>> = {
+    posthog: 'Live',
+    view: 'Live (runs on read)',
+    self_managed: 'Queried in place',
+}
+
+const NEVER_REFRESHED_LABELS: Partial<Record<TableKind, string>> = {
+    source: 'Not synced yet',
+    materialized_view: 'Never run',
+}
+
+export interface CatalogTableRow {
+    key: string
+    name: string
+    kind: TableKind
+    subtitle: string
+    subject: DataQualitySubjectRef | null
+    checkGroup: SubjectGroup | null
+    checkCounts: CheckCounts
+    attention: AttentionRow
+    problems: IssueKind[]
+    savedQuery: DataWarehouseSavedQuerySummary | null
+    certification: DataCatalogCertificationApi | null
+    certificationTarget: CertificationTarget | null
+    refreshedAt: string | null
+    refreshing: boolean
+    freshness: Freshness
+    detailUrl: string | null
+}
+
+export type ChecksSubject = Pick<
+    CatalogTableRow,
+    'key' | 'name' | 'detailUrl' | 'subject' | 'checkGroup' | 'checkCounts'
+>
+
+export function checksSubjectOf(group: SubjectGroup): ChecksSubject {
+    return {
+        key: group.subjectKey,
+        name: group.subjectName,
+        detailUrl: group.detailUrl,
+        subject: group.subjectUuid ? { subjectType: group.subjectType, subjectId: group.subjectUuid } : null,
+        checkGroup: group,
+        checkCounts: { total: group.checksTotal, failing: group.checksFailing },
+    }
+}
+
+export interface CatalogTableSources {
+    posthogTables: DatabaseSchemaTable[]
+    dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+    views: DatabaseSchemaViewTable[]
+    managedViews: DatabaseSchemaManagedViewTable[]
+    savedQueries: DataWarehouseSavedQuerySummary[]
+    checkGroups: SubjectGroup[]
+    healthBySubjectKey: Record<string, DataQualitySubjectHealthApi>
+    certifications: DataCatalogCertificationApi[]
+    nodes: DataModelingNode[]
+    materializationProblems: MaterializationProblem[]
+    refreshRequests: Record<string, number>
+    posthogTableSubjectIds: Record<string, string>
+}
+
+type RowBase = Omit<
+    CatalogTableRow,
+    'attention' | 'problems' | 'certification' | 'subtitle' | 'checkCounts' | 'refreshing' | 'freshness'
+> & {
+    origin: string
+    node: DataModelingNode | null
+    syncStatus?: string
+}
+
+function certificationKey(certification: DataCatalogCertificationApi): string | null {
+    if (certification.table) {
+        return `${SubjectTypeEnumApi.Table}:${certification.table}`
+    }
+    if (certification.saved_query) {
+        return `${SubjectTypeEnumApi.View}:${certification.saved_query}`
+    }
+    return null
+}
+
+function sourceTableDetailUrl(table: DatabaseSchemaDataWarehouseTable): string {
+    if (table.source && table.schema) {
+        return urls.dataWarehouseSourceSchema(table.source.id, table.schema.id)
+    }
+    return urls.dataWarehouseSource(`self-managed-${table.id}`)
+}
+
+function subtitleFor(origin: string, node: DataModelingNode | null): string {
+    const downstreamCount = node?.downstream_count ?? 0
+    return downstreamCount > 0 ? `${origin} · feeds ${pluralize(downstreamCount, 'model')}` : origin
+}
+
+function freshnessFor(
+    kind: TableKind,
+    refreshedAt: string | null,
+    attention: AttentionRow,
+    refreshing: boolean,
+    syncFailed: boolean
+): Freshness {
+    const liveLabel = LIVE_LABELS[kind]
+    if (liveLabel) {
+        return { state: liveLabel, timeLabel: null, time: null }
+    }
+    if (refreshing) {
+        return { state: REFRESHING_LABEL, timeLabel: null, time: refreshedAt }
+    }
+    const { since } = attention
+    if (since?.kind === 'behind') {
+        return { state: since.label, timeLabel: null, time: refreshedAt }
+    }
+    if (attention.issueKinds.includes('failed') && since) {
+        return { state: ISSUE_LABELS.failed, timeLabel: since.label, time: since.time }
+    }
+    if (syncFailed) {
+        return { state: ISSUE_LABELS.failed, timeLabel: null, time: refreshedAt }
+    }
+    return refreshedAt
+        ? { state: null, timeLabel: null, time: refreshedAt }
+        : { state: NEVER_REFRESHED_LABELS[kind] ?? null, timeLabel: null, time: null }
+}
+
+function attentionRank(row: CatalogTableRow): number {
+    const [firstProblem] = row.problems
+    return firstProblem ? ISSUE_KIND_ORDER.indexOf(firstProblem) : ISSUE_KIND_ORDER.length
+}
+
+export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTableRow[] {
+    const groupsByKey = new Map(sources.checkGroups.map((group) => [group.subjectKey, group]))
+    const certificationsByKey = new Map<string, DataCatalogCertificationApi>()
+    for (const certification of sources.certifications) {
+        const key = certificationKey(certification)
+        if (key) {
+            certificationsByKey.set(key, certification)
+        }
+    }
+    const savedQueriesById = new Map(sources.savedQueries.map((savedQuery) => [savedQuery.id, savedQuery]))
+    const problemsByNodeId = new Map(
+        sources.materializationProblems.map((problem) => [problemNode(problem).id, problem])
+    )
+    const nodesBySavedQueryId = new Map(
+        sources.nodes.filter((node) => node.saved_query_id).map((node) => [node.saved_query_id, node])
+    )
+    const posthogNodesByName = new Map(
+        sources.nodes.filter((node) => node.origin === 'posthog').map((node) => [node.name, node])
+    )
+    const claimedGroupKeys = new Set<string>()
+    const takeGroup = (key: string): SubjectGroup | null => {
+        const group = groupsByKey.get(key) ?? null
+        if (group) {
+            claimedGroupKeys.add(key)
+        }
+        return group
+    }
+    const rowFor = (
+        { origin, node, syncStatus, ...row }: RowBase,
+        certificationLookupKey: string | null
+    ): CatalogTableRow => {
+        const failingChecks = row.checkGroup?.checks.filter(isFailingCheck) ?? []
+        const attention = buildAttentionRow(
+            {
+                key: row.key,
+                node,
+                materialization: node ? (problemsByNodeId.get(node.id) ?? null) : null,
+                failingChecks,
+            },
+            sources.healthBySubjectKey,
+            sources.refreshRequests
+        )
+        const subjectHealth = row.subject
+            ? sources.healthBySubjectKey[subjectKeyOf(row.subject.subjectType, row.subject.subjectId)]
+            : undefined
+        const refreshing = row.savedQuery
+            ? row.savedQuery.status === RUNNING_STATUS || row.savedQuery.id in sources.refreshRequests
+            : syncStatus === RUNNING_STATUS
+        return {
+            ...row,
+            refreshing,
+            freshness: freshnessFor(row.kind, row.refreshedAt, attention, refreshing, syncStatus === FAILED_STATUS),
+            subtitle: subtitleFor(origin, node),
+            checkCounts: {
+                total: Math.max(subjectHealth?.checks_total ?? 0, row.checkGroup?.checks.length ?? 0),
+                failing: Math.max(subjectHealth?.checks_failing ?? 0, failingChecks.length),
+            },
+            attention,
+            problems: attention.issueKinds,
+            certification: certificationLookupKey ? (certificationsByKey.get(certificationLookupKey) ?? null) : null,
+        }
+    }
+
+    const posthogGroupsByName = new Map(
+        sources.checkGroups
+            .filter((group) => group.subjectType === SubjectTypeEnumApi.PosthogTable)
+            .map((group) => [group.subjectName, group])
+    )
+
+    const posthogRows = sources.posthogTables.map((table) => {
+        const groupByName = posthogGroupsByName.get(table.name)
+        const subjectId = sources.posthogTableSubjectIds[table.name] ?? groupByName?.subjectUuid
+        const checkGroup = subjectId ? takeGroup(`${SubjectTypeEnumApi.PosthogTable}:${subjectId}`) : null
+        const node = posthogNodesByName.get(table.name) ?? null
+        return rowFor(
+            {
+                key: `posthog:${table.name}`,
+                name: table.name,
+                kind: 'posthog',
+                origin: KIND_LABELS.posthog,
+                node,
+                subject: subjectId ? { subjectType: SubjectTypeEnumApi.PosthogTable, subjectId } : null,
+                checkGroup,
+                savedQuery: null,
+                certificationTarget: null,
+                refreshedAt: null,
+                detailUrl: node ? urls.nodeDetail(node.id) : (checkGroup?.detailUrl ?? null),
+            },
+            null
+        )
+    })
+
+    const sourceRows = sources.dataWarehouseTables.map((table) => {
+        const key = `${SubjectTypeEnumApi.Table}:${table.id}`
+        const kind: TableKind = table.source ? 'source' : 'self_managed'
+        return rowFor(
+            {
+                key,
+                name: table.name,
+                kind,
+                origin: table.source?.source_type ?? KIND_LABELS.self_managed,
+                node: null,
+                subject: { subjectType: SubjectTypeEnumApi.Table, subjectId: table.id },
+                checkGroup: takeGroup(key),
+                savedQuery: null,
+                certificationTarget: { targetType: 'table', targetId: table.id },
+                refreshedAt: table.schema?.last_synced_at ?? table.source?.last_synced_at ?? null,
+                syncStatus: table.schema?.status,
+                detailUrl: sourceTableDetailUrl(table),
+            },
+            key
+        )
+    })
+
+    const viewRows = sources.views
+        .filter((view) => savedQueriesById.get(view.id)?.origin !== DataWarehouseSavedQueryOrigin.ENDPOINT)
+        .map((view) => {
+            const key = `${SubjectTypeEnumApi.View}:${view.id}`
+            const node = nodesBySavedQueryId.get(view.id) ?? null
+            const savedQuery = savedQueriesById.get(view.id) ?? null
+            const kind: TableKind = savedQuery?.is_materialized ? 'materialized_view' : 'view'
+            const checkGroup = takeGroup(key)
+            return rowFor(
+                {
+                    key,
+                    name: view.name,
+                    kind,
+                    origin: KIND_LABELS[kind],
+                    node,
+                    subject: { subjectType: SubjectTypeEnumApi.View, subjectId: view.id },
+                    checkGroup,
+                    savedQuery,
+                    certificationTarget: { targetType: 'view', targetId: view.id },
+                    refreshedAt: node?.last_run_at ?? savedQuery?.last_run_at ?? null,
+                    detailUrl: node ? urls.nodeDetail(node.id) : (checkGroup?.detailUrl ?? null),
+                },
+                key
+            )
+        })
+
+    const managedViewRows = sources.managedViews.map((view) =>
+        rowFor(
+            {
+                key: `managed_view:${view.id}`,
+                name: view.name,
+                kind: 'view',
+                origin: MANAGED_VIEW_ORIGIN,
+                node: null,
+                subject: null,
+                checkGroup: null,
+                savedQuery: null,
+                certificationTarget: null,
+                refreshedAt: null,
+                detailUrl: null,
+            },
+            null
+        )
+    )
+
+    const isEndpointGroup = (group: SubjectGroup): boolean =>
+        group.subjectType === SubjectTypeEnumApi.View &&
+        savedQueriesById.get(group.subjectUuid)?.origin === DataWarehouseSavedQueryOrigin.ENDPOINT
+
+    const unlistedRows = sources.checkGroups.flatMap((group) => {
+        const kind = UNLISTED_KINDS[group.subjectType]
+        if (!kind || claimedGroupKeys.has(group.subjectKey) || isEndpointGroup(group)) {
+            return []
+        }
+        return [
+            rowFor(
+                {
+                    key: group.subjectKey,
+                    name: group.subjectName,
+                    kind,
+                    origin: KIND_LABELS[kind],
+                    node: null,
+                    subject: group.subjectUuid
+                        ? { subjectType: group.subjectType, subjectId: group.subjectUuid }
+                        : null,
+                    checkGroup: group,
+                    savedQuery: null,
+                    certificationTarget: null,
+                    refreshedAt: null,
+                    detailUrl: group.detailUrl,
+                },
+                null
+            ),
+        ]
+    })
+
+    return [...posthogRows, ...sourceRows, ...viewRows, ...managedViewRows, ...unlistedRows].sort(
+        (left, right) => attentionRank(left) - attentionRank(right) || left.name.localeCompare(right.name)
+    )
+}
+
+export function rowNeedsAttention(row: CatalogTableRow): boolean {
+    return row.problems.length > 0
+}
+
+function matchesTrust(row: CatalogTableRow, trust: TrustFilter): boolean {
+    if (trust === 'any') {
+        return true
+    }
+    if (trust === 'none') {
+        return !row.certification
+    }
+    return row.certification?.status === trust
+}
+
+function matchesChecks(row: CatalogTableRow, checks: ChecksFilter): boolean {
+    if (checks === 'any') {
+        return true
+    }
+    return (checks === 'with') === row.checkCounts.total > 0
+}
+
+export function rowMatchesFilters(row: CatalogTableRow, filters: TablesFilters): boolean {
+    return (
+        (filters.kind === 'any' || row.kind === filters.kind) &&
+        (filters.problem === 'any' || row.problems.includes(filters.problem)) &&
+        matchesTrust(row, filters.trust) &&
+        matchesChecks(row, filters.checks)
+    )
+}
+
+export function rowMatchesSearch(row: CatalogTableRow, search: string): boolean {
+    const needle = search.trim().toLowerCase()
+    return !needle || row.name.toLowerCase().includes(needle) || row.subtitle.toLowerCase().includes(needle)
+}
+
+export type TablesSortColumn = 'name' | 'status' | 'checks' | 'trust' | 'freshness'
+export type SortDirection = 'asc' | 'desc'
+
+export interface TablesSort {
+    column: TablesSortColumn
+    direction: SortDirection
+}
+
+const TRUST_RANK: Record<string, number> = { certified: 0, proposed: 1, deprecated: 2 }
+
+export function passingChecks(row: Pick<CatalogTableRow, 'checkGroup' | 'checkCounts'>): CheckCounts | null {
+    const checks = row.checkGroup?.checks ?? []
+    if (checks.length > 0) {
+        return { total: checks.length, failing: checks.filter((check) => check.last_status !== 'passed').length }
+    }
+    return row.checkCounts.total > 0 ? row.checkCounts : null
+}
+
+function passingShare(row: CatalogTableRow): number | null {
+    const counts = passingChecks(row)
+    return counts ? (counts.total - counts.failing) / counts.total : null
+}
+
+const SORT_VALUES: Record<TablesSortColumn, (row: CatalogTableRow) => string | number | null> = {
+    name: (row) => row.name,
+    status: attentionRank,
+    checks: passingShare,
+    trust: (row) => (row.certification ? (TRUST_RANK[row.certification.status] ?? null) : null),
+    freshness: (row) => row.refreshedAt,
+}
+
+function compareValues(left: string | number, right: string | number): number {
+    return typeof left === 'string' && typeof right === 'string'
+        ? left.localeCompare(right)
+        : Number(left) - Number(right)
+}
+
+export function sortCatalogTableRows(rows: CatalogTableRow[], sort: TablesSort | null): CatalogTableRow[] {
+    if (!sort) {
+        return rows
+    }
+    const valueOf = SORT_VALUES[sort.column]
+    const sign = sort.direction === 'asc' ? 1 : -1
+    return [...rows].sort((left, right) => {
+        const leftValue = valueOf(left)
+        const rightValue = valueOf(right)
+        if (leftValue === null || rightValue === null) {
+            return Number(leftValue === null) - Number(rightValue === null) || left.name.localeCompare(right.name)
+        }
+        return sign * compareValues(leftValue, rightValue) || left.name.localeCompare(right.name)
+    })
+}
+
+export function nextTablesSort(current: TablesSort | null, column: TablesSortColumn): TablesSort | null {
+    if (current?.column !== column) {
+        return { column, direction: 'asc' }
+    }
+    return current.direction === 'asc' ? { column, direction: 'desc' } : null
+}
+
+export type ProposalDecision = 'accept' | 'reject'
+export type ReviewSource = 'inline' | 'bulk'
+
+export function hasPendingProposal(row: CatalogTableRow): boolean {
+    return row.certification?.status === 'proposed'
+}
+
+export function proposalAcceptsAsDeprecation(certification: DataCatalogCertificationApi): boolean {
+    return certification.proposed_status === 'deprecated'
+}
+
+export type RowMenuAction = 'sync_now' | 'certify' | 'deprecate' | 'remove_trust'
+
+export function rowMenuActions(row: CatalogTableRow, trustLoaded: boolean): RowMenuAction[] {
+    const menuActions: RowMenuAction[] = row.savedQuery?.is_materialized ? ['sync_now'] : []
+    if (!trustLoaded || !row.certificationTarget || hasPendingProposal(row)) {
+        return menuActions
+    }
+    menuActions.push(row.certification?.status === 'certified' ? 'deprecate' : 'certify')
+    if (row.certification) {
+        menuActions.push('remove_trust')
+    }
+    return menuActions
+}
+
+export function canCertify(row: CatalogTableRow): boolean {
+    return !!row.certificationTarget && row.certification?.status !== 'certified'
+}
