@@ -90,6 +90,7 @@ describe('MetricsRateLimiterService when Redis is unavailable', () => {
             METRICS_LIMITER_FAIL_OPEN: true,
             METRICS_REDIS_HOST: '',
             // Nothing listens on port 1, so every connection attempt fails.
+            // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
             REDIS_URL: 'redis://127.0.0.1:1',
         }
         const service = new MetricsRateLimiterService(config, createMetricsRateLimiterRedis(config))
