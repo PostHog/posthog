@@ -464,7 +464,6 @@ class SESProvider:
         return f"team-{team_id}"
 
     def get_tenant_sending_status(self, tenant_name: str) -> str | None:
-        """The tenant's sending status, such as ENABLED or DISABLED, or None when the tenant doesn't exist."""
         try:
             tenant = self.ses_v2_status_client.get_tenant(TenantName=tenant_name)["Tenant"]
         except ClientError as e:
@@ -480,11 +479,9 @@ class SESProvider:
                 ReputationEntityReference=tenant_arn, ReputationEntityType="RESOURCE"
             )["ReputationEntity"]
         except ClientError as e:
-            # A tenant with no attributed sends yet has no reputation entity.
             if e.response["Error"]["Code"] != "NotFoundException":
                 raise
             return sending_status
-        # The aggregate folds in both AWS-managed and customer-managed pauses.
         return entity.get("SendingStatusAggregate", sending_status)
 
     def get_tenant_reputation(self, team_id: int) -> dict[str, Any] | None:

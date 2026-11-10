@@ -2020,8 +2020,6 @@ class HogFlowActionSerializer(serializers.Serializer):
 
     def _sandbox_adoption_enabled(self) -> bool:
         get_team = self.context.get("get_team")
-        # Outside a request (internal re-saves) there is no team to evaluate the flag for, and those
-        # saves only re-persist steps that were accepted before.
         if get_team is None:
             return True
         if "_sandbox_adoption_enabled" not in self.context:
@@ -3628,9 +3626,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
         }
 
-        # Sandbox steps the flow already holds, live or in its staged draft, stay editable without the
-        # adoption flag. Unlike the gated templates above a draft counts too: every save checks a new
-        # sandbox step against the flag, lenient drafts included, so a stored one was allowed once.
         self.context["stored_sandbox_action_ids"] = {
             action["id"]
             for action in [
@@ -3811,10 +3806,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if duplicate_ids:
                 raise serializers.ValidationError({"actions": f"Duplicate action id(s): {', '.join(duplicate_ids)}"})
 
-        # A test run's configuration override binds no instance and passes the flow through the context.
         stored = instance or self.context.get("instance")
         actions = data.get("actions", instance.actions if instance else [])
-        # The owner is set on create and never changes, so a saved flow's owner wins over a submitted one.
         origin_product = stored.origin_product if stored else data.get("origin_product")
         if origin_product and any(
             isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE

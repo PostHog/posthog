@@ -29,8 +29,6 @@ SES_TENANT_CONFIGURATION_SETS: list[str] = [
     if cs.strip()
 ]
 
-# The sandbox sender: one shared SES tenant and From address that send for every team that has
-# not verified a domain yet. Unset leaves the tenant poll idle and the status without an address.
 SES_SANDBOX_FROM_ADDRESS = os.getenv("SES_SANDBOX_FROM_ADDRESS", "").strip().lower()
 SES_SANDBOX_TENANT_NAME = os.getenv("SES_SANDBOX_TENANT_NAME", "").strip()
 

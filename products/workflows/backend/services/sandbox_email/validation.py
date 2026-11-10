@@ -6,19 +6,14 @@ from rest_framework.exceptions import ValidationError
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.validation import generate_template_bytecode
 
-# The action ID travels to the email provider as a message tag, which only takes this alphabet.
 _ACTION_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
-# Allowlists rather than a list of forbidden keys: the sandbox sender owns the sender, the
-# delivery settings and the template, so anything a step could add beyond these is refused.
 _CONFIG_KEYS = frozenset({"message_category_id", "message_category_type", "inputs"})
 _INPUT_KEYS = frozenset({"email"})
 _ENVELOPE_KEYS = frozenset({"templating", "value"})
 _VALUE_KEYS = frozenset({"to", "subject", "preheader", "text", "html", "design"})
 _RECIPIENT_KEYS = frozenset({"email", "name"})
 _STRING_VALUE_KEYS = ("subject", "preheader", "text", "html")
-# Compiled here on every save. The editor sends the stored envelope back, so these are dropped
-# rather than refused, and never trusted.
 _COMPILED_KEYS = ("bytecode", "input_deps", "bytecode_contract")
 
 _CATEGORY_TYPES = ("marketing", "transactional")
@@ -35,12 +30,6 @@ def validate_sandbox_email_action(
     require_complete: bool = True,
     is_dwh_source: bool = False,
 ) -> dict[str, Any]:
-    """Validate a sandbox email step and return it with its email input compiled.
-
-    `require_complete` is False for a draft the editor saves mid-edit, which may still be missing its
-    recipient, subject or content. Every other check runs on every save. `is_dwh_source` is True when
-    a warehouse table triggers the workflow, so the email may read the synced row as `record`.
-    """
     action_id = action.get("id")
     if not isinstance(action_id, str) or not _ACTION_ID.match(action_id):
         raise ValidationError(
@@ -100,8 +89,6 @@ def _validate_email_value(value: dict[str, Any], *, require_complete: bool) -> N
         _reject_unknown_keys(recipient, _RECIPIENT_KEYS)
     recipient = recipient or {}
 
-    # A key that is present must hold text: the sender's renderer accepts a missing optional field,
-    # never a null one.
     wrong_types = [
         f"'to.{key}'" for key in ("email", "name") if key in recipient and not isinstance(recipient[key], str)
     ]
@@ -129,7 +116,6 @@ def _lookup(value: dict[str, Any], dotted: str) -> Any:
 
 
 def _compile(value: dict[str, Any], *, is_dwh_source: bool) -> dict[str, Any]:
-    # The design is the editor's own state. It never reaches the email provider.
     sendable = {key: field for key, field in value.items() if key != "design"}
     input_deps: set[str] = set()
     try:
