@@ -1889,6 +1889,11 @@ def _waits_on_external_review(run: ReviewRun) -> bool:
     return run.status == ReviewRunStatus.COMPLETED and run.verdict == ReviewVerdict.WAIT
 
 
+def _stranded(run: ReviewRun, wake: str) -> bool:
+    """Whether ``wake`` queued ``run`` and its workflow start failed, which leaves the run QUEUED."""
+    return run.status == ReviewRunStatus.QUEUED and bool((run.output or {}).get(wake))
+
+
 def _rereview_waiting_run(
     repo_config: StamphogRepoConfig,
     pr_number: int,
@@ -1909,7 +1914,7 @@ def _rereview_waiting_run(
     previous_output = latest.output or {}
     # A run that an earlier call queued and whose workflow start failed stays QUEUED. Queueing again
     # restarts its workflow, so a retry or a later call recovers it.
-    stranded = latest.status == ReviewRunStatus.QUEUED and bool(previous_output.get(wake))
+    stranded = _stranded(latest, wake)
     if not (waiting(latest) or stranded):
         return
     # Inbox runs carry the self-driving carve-out, which only the inbox trigger paths may grant.
@@ -2068,11 +2073,7 @@ def rereview_once_attestations_reported(run: ReviewRun) -> bool:
         return True
     # A retry after a failed workflow start finds the run this poll queued, still QUEUED. The call
     # below starts it again, so that run does not end the poll.
-    stranded = (
-        latest.status == ReviewRunStatus.QUEUED
-        and latest.head_sha == run.head_sha
-        and bool((latest.output or {}).get(_ATTESTATION_WAKE))
-    )
+    stranded = latest.head_sha == run.head_sha and _stranded(latest, _ATTESTATION_WAKE)
     if latest.id != run.id and not stranded:
         return True
     client = StamphogGitHubClient(repo_config.installation_id)

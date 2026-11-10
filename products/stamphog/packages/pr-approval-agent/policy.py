@@ -324,8 +324,8 @@ _OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions", "attestations", "bot_authors"}
 # GitHub Actions. Any workflow's GITHUB_TOKEN posts check runs as this App, so a result from it
 # proves nothing about who produced it.
 _GITHUB_ACTIONS_APP_ID = 15368
-_ATTESTATION_KEYS = {"name", "check", "app_id", "lifts", "paths", "sibling_files", "publisher_files"}
 _ATTESTATION_REQUIRED_KEYS = {"name", "check", "app_id", "lifts", "paths"}
+_ATTESTATION_KEYS = _ATTESTATION_REQUIRED_KEYS | {"sibling_files", "publisher_files"}
 _BOT_AUTHOR_KEYS = {"name", "login", "id"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
@@ -429,9 +429,8 @@ def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Att
     for index, entry in enumerate(raw):
         context = f"attestations[{index}]"
         _require(isinstance(entry, dict), f"{context}: must be a mapping")
-        _require(
-            not set(entry) - _ATTESTATION_KEYS, f"{context}: unknown keys {sorted(set(entry) - _ATTESTATION_KEYS)}"
-        )
+        unknown = set(entry) - _ATTESTATION_KEYS
+        _require(not unknown, f"{context}: unknown keys {sorted(unknown)}")
         missing = _ATTESTATION_REQUIRED_KEYS - set(entry)
         _require(not missing, f"{context}: missing keys {sorted(missing)}")
         name = entry["name"]

@@ -130,10 +130,6 @@ def _ok(msg: str) -> str:
     return f"  \033[32m✓\033[0m {msg}"
 
 
-def _check_identities(attestations: list[Attestation]) -> list[dict[str, object]]:
-    return [{"check": attestation.check, "app_id": attestation.app_id} for attestation in attestations]
-
-
 def _warn(msg: str) -> str:
     return f"  \033[33m⚠\033[0m {msg}"
 
@@ -497,11 +493,7 @@ class Pipeline:
         # A proof may name a rename's old path, so the old path is matched like a changed file.
         pinned = pinned_files(self._attestations, pr.check_runs, pr.deny_paths, reviewed)
         unattested = sorted(set(pr.deny_paths) - pinned) if self.admitted_bot else []
-        # The server polls GitHub for these checks after a WAIT, so the list names each one by the
-        # check name and App id that a check run carries.
-        attestation_checks = {
-            "pending": _check_identities(pending_attestations(self._attestations, pr.check_runs, file_paths)),
-        }
+        pending = pending_attestations(self._attestations, pr.check_runs, file_paths)
         deny = detect_deny_categories(pr.deny_paths, lifted)
         exception_lifted = bool(POLICY.deny_exceptions) and (
             detect_deny_categories(pr.deny_paths, lifted, apply_exceptions=False) != deny
@@ -587,7 +579,9 @@ class Pipeline:
             "title_scrutiny_flags": title_flags,
             "lifted_files": {category: sorted(files) for category, files in sorted(lifted.items())},
             "unattested_files": unattested,
-            "attestations": attestation_checks,
+            # The server polls GitHub for these checks after a WAIT, so the list names each one by the
+            # check name and App id that a check run carries.
+            "attestations": {"pending": [{"check": a.check, "app_id": a.app_id} for a in pending]},
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
             "has_dep_changes": has_dependency_changes(file_paths),
