@@ -412,8 +412,13 @@ class TestGetHighlights(BaseTest):
             found = highlights.get_highlights(team=self.team, user=self.user, scopes=None)
 
         self.assertEqual(
-            (found.status, connect.return_value.start_workflow.call_count, [m.key for m in found.pulse]),
-            (status, starts, pulse),
+            (
+                found.status,
+                connect.return_value.start_workflow.call_count,
+                [m.key for m in found.pulse],
+                [slot.key for slot in found.pulse_slots or []],
+            ),
+            (status, starts, pulse, pulse),
         )
 
 

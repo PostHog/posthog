@@ -144,7 +144,7 @@ def get_highlights(
             return replace(content, status=status)
     if ready is not None:
         with suppress(ValidationError):
-            return replace(_HIGHLIGHTS.validate_python(ready.content), status=status)
+            return replace(_with_slots(_HIGHLIGHTS.validate_python(ready.content)), status=status)
     return contracts.Highlights(
         status=status,
         generated_at=None,
@@ -218,6 +218,10 @@ def _start(
     except Exception as error:
         logger.exception("today_highlights_start_failed", highlights_id=str(row.id))
         capture_exception(error, {"highlights_id": str(row.id), "product": "today"})
+
+
+def _with_slots(content: contracts.Highlights) -> contracts.Highlights:
+    return content if content.pulse_slots is not None else _pulse_content(content, {}, [])
 
 
 def _pulse_content(
