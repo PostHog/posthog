@@ -7,6 +7,9 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -37,6 +40,7 @@ from products.alerts_platform.backend.facade.api import get_configuration, recor
 from products.alerts_platform.backend.facade.contracts import (
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
+    PlatformAlertConfigurationView,
     SourceKind,
     VerdictChange,
 )
@@ -348,6 +352,43 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [names[alert["id"]] for alert in response.json()["results"]] == expected
+
+    def test_a_page_of_alerts_insight_keeps_no_row_for_builds_in_queries_that_do_not_grow_with_it(self) -> None:
+        def native(insight_id: int) -> PlatformAlertConfigurationView:
+            with team_scope(self.team.id):
+                created = platform_testing.create_configuration(
+                    team_id=self.team.id,
+                    name="native",
+                    source_kind="insight",
+                    source_config={"insight_id": insight_id},
+                    check_interval_minutes=1440,
+                    owner="platform",
+                    legacy_configuration_id=None,
+                    created_by_id=self.user.id,
+                )
+                view = get_configuration(
+                    team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=created.id
+                )
+            assert view is not None
+            return view
+
+        views = [native(create_insight_alert(self.team).insight_id) for _ in range(3)]
+
+        def built_queries(page: list[PlatformAlertConfigurationView]) -> int:
+            with CaptureQueriesContext(connection) as queries:
+                built = AlertConfiguration.from_platform_views(page, team_id=self.team.id)
+                for alert in built.values():
+                    assert (alert.insight.name, alert.created_by, hasattr(alert.insight, "prefetched_tags")) == (
+                        "insight",
+                        self.user,
+                        True,
+                    )
+            assert len(built) == len(page)
+            return len(queries)
+
+        # The first build also loads the tag content type, which Django then caches.
+        built_queries(views[:1])
+        assert built_queries(views[:1]) == built_queries(views)
 
     def test_the_list_hides_an_alert_insight_keeps_no_row_for_without_insight_access(self) -> None:
         with team_scope(self.team.id):

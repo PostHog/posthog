@@ -2023,11 +2023,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         loaded: dict[uuid.UUID, AlertConfiguration] = {
             alert.id: alert for alert in rows.filter(id__in=[key.id for key in listed if not key.native])
         }
-        native = {
-            alert.id: alert
-            for view in native_insight_alert_views(self.team_id, [key.id for key in listed if key.native])
-            if (alert := AlertConfiguration.from_platform_view(view, team_id=self.team_id)) is not None
-        }
+        native = AlertConfiguration.from_platform_views(
+            native_insight_alert_views(self.team_id, [key.id for key in listed if key.native]), team_id=self.team_id
+        )
         if searched:
             for key in listed:
                 if key.native and key.id in native:
