@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { Billing } from './Billing'
+import { BillingHelp } from './BillingHelp'
 import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
 import { BillingSectionId } from './types'
@@ -49,13 +50,16 @@ export function BillingSection(): JSX.Element {
     const billingAlertsPending = alertsRequested && !receivedFeatureFlags
     const tabs = billingAlertsEnabled || billingAlertsPending ? allTabs : allTabs.filter((tab) => tab.key !== 'alerts')
 
-    const section = location.pathname.includes('spend')
+    // The help section has no tab: the overview's "Got questions about your bill?" card links to it.
+    const section: BillingSectionId = location.pathname.includes('spend')
         ? 'spend'
         : location.pathname.includes('usage')
           ? 'usage'
-          : alertsRequested && (billingAlertsEnabled || billingAlertsPending)
-            ? 'alerts'
-            : 'overview'
+          : location.pathname.includes('help')
+            ? 'help'
+            : alertsRequested && (billingAlertsEnabled || billingAlertsPending)
+              ? 'alerts'
+              : 'overview'
 
     useEffect(() => {
         // Wait for feature flags before redirecting an alerts deep link away.
@@ -67,7 +71,7 @@ export function BillingSection(): JSX.Element {
     // View-only members have no access to the Overview tab, so send them to Usage instead.
     // canOnlyViewUsageAndSpend is only true once org membership and flags are loaded, so admins never bounce.
     useEffect(() => {
-        if (section === 'overview' && canOnlyViewUsageAndSpend) {
+        if ((section === 'overview' || section === 'help') && canOnlyViewUsageAndSpend) {
             router.actions.replace(urls.organizationBillingSection('usage'))
         }
     }, [section, canOnlyViewUsageAndSpend])
@@ -117,6 +121,7 @@ export function BillingSection(): JSX.Element {
             {visibleTabs.length > 0 && <LemonTabs activeKey={section} onChange={handleTabChange} tabs={visibleTabs} />}
 
             {section === 'overview' && <Billing />}
+            {section === 'help' && <BillingHelp />}
             {section === 'usage' && <BillingUsage />}
             {section === 'spend' && <BillingSpendView />}
             {section === 'alerts' && (
