@@ -2,12 +2,15 @@ import io
 import os
 import re
 import gzip
+import json
 import uuid
 import zipfile
 import subprocess
-from collections.abc import Iterator
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -32,11 +35,11 @@ FROM_NEWER_BRANCH = "9999_from_a_newer_branch"
 NOT_IN_HISTORY = "0123456789ab"
 
 
-def schema_dump(recorded: list[tuple[str, str]]) -> bytes:
+def schema_dump(recorded: list[tuple[str, str]], *, preamble: str = "") -> bytes:
     rows = "".join(f"{index}\t{app}\t{name}\n" for index, (app, name) in enumerate(recorded, start=1))
     return gzip.compress(
         (
-            "CREATE TABLE public.django_migrations (id serial PRIMARY KEY, app text, name text);\n"
+            preamble + "CREATE TABLE public.django_migrations (id serial PRIMARY KEY, app text, name text);\n"
             f"COPY public.django_migrations (id, app, name) FROM stdin;\n{rows}\\.\n"
         ).encode()
     )
@@ -59,6 +62,77 @@ def git_history(root: Path, commits: list[dict[str, str]]) -> list[str]:
             subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
         )
     return shas
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class UploadedArtifact:
+    id: int
+    run_id: int
+    head_sha: str
+    name: str
+    archive: bytes
+
+
+@dataclass(kw_only=True, slots=True)
+class GitHubActions:
+    artifacts: list[UploadedArtifact] = field(default_factory=list)
+    api: str = "https://api.github.com/repos/PostHog/posthog/actions"
+
+    def upload(self, *, run_id: int, head_sha: str, name: str, files: dict[str, bytes]) -> None:
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as zipped:
+            for path, content in files.items():
+                zipped.writestr(path, content)
+        self.artifacts.append(
+            UploadedArtifact(
+                id=len(self.artifacts) + 1, run_id=run_id, head_sha=head_sha, name=name, archive=archive.getvalue()
+            )
+        )
+
+    def _describe(self, artifact: UploadedArtifact) -> dict[str, object]:
+        return {
+            "id": artifact.id,
+            "name": artifact.name,
+            "expired": False,
+            "size_in_bytes": len(artifact.archive),
+            "archive_download_url": f"{self.api}/artifacts/{artifact.id}/zip",
+            "created_at": f"2026-01-01T00:00:{artifact.id:02d}Z",
+            "workflow_run": {
+                "id": artifact.run_id,
+                "head_sha": artifact.head_sha,
+                "head_branch": "master",
+                "head_repository_id": 1,
+                "repository_id": 1,
+            },
+        }
+
+    def _listing(self, matches: Callable[[UploadedArtifact], bool]) -> tuple[int, dict[str, str], str]:
+        listed = [self._describe(artifact) for artifact in reversed(self.artifacts) if matches(artifact)]
+        return 200, {"Content-Type": "application/json"}, json.dumps({"total_count": len(listed), "artifacts": listed})
+
+    def _list_artifacts(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
+        names = parse_qs(urlsplit(request.url or "").query).get("name")
+        return self._listing(lambda artifact: names is None or artifact.name in names)
+
+    def _list_run_artifacts(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
+        run_id = int(urlsplit(request.url or "").path.split("/")[-2])
+        return self._listing(lambda artifact: artifact.run_id == run_id)
+
+    def _download(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], bytes]:
+        artifact_id = int(urlsplit(request.url or "").path.split("/")[-2])
+        found = [artifact.archive for artifact in self.artifacts if artifact.id == artifact_id]
+        return (200, {}, found[0]) if found else (404, {}, b"")
+
+    @contextmanager
+    def serving(self) -> Iterator[None]:
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
+            prefix = re.escape(self.api)
+            http.add_callback(responses.GET, re.compile(rf"{prefix}/artifacts(\?.*)?$"), self._list_artifacts)
+            http.add_callback(
+                responses.GET, re.compile(rf"{prefix}/runs/\d+/artifacts(\?.*)?$"), self._list_run_artifacts
+            )
+            http.add_callback(responses.GET, re.compile(rf"{prefix}/artifacts/\d+/zip$"), self._download)
+            yield
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -228,48 +302,26 @@ def test_prime_test_database_routes_a_downloaded_template_by_the_commit_the_mirr
             {"products/db_routing.yaml": "routes: []\n"},
         ],
     )
-    archive = io.BytesIO()
-    with zipfile.ZipFile(archive, "w") as zipped:
-        zipped.writestr("schema.sql.gz", schema_dump([("posthog", APPLIED), ("posthog", PENDING)]))
-    repo = "https://api.github.com/repos/PostHog/posthog/actions"
     monkeypatch.setenv("GH_TOKEN", "gho_not_a_real_token")
     store = TemplateStore(
         scratch.server, Checkout(history), prefix=scratch.store.prefix, failure_marker=tmp_path / "download-failed"
     )
+    recorded = [("posthog", APPLIED), ("posthog", PENDING)]
+    github = GitHubActions()
+    github.upload(
+        run_id=7,
+        head_sha=mirrored_at,
+        name="migrated-schema",
+        files={"schema.sql.gz": schema_dump(recorded, preamble=f"-- {os.urandom(16_000).hex()}\n")},
+    )
+    github.upload(
+        run_id=7,
+        head_sha=mirrored_at,
+        name=f"migrated-schema-mirrored-{dumped if marker == 'dumped' else 'f' * 40}",
+        files={},
+    )
 
-    with responses.RequestsMock(assert_all_requests_are_fired=False) as github:
-        github.get(
-            f"{repo}/artifacts",
-            json={
-                "artifacts": [
-                    {
-                        "id": 1,
-                        "name": "migrated-schema",
-                        "expired": False,
-                        "size_in_bytes": 20_000,
-                        "archive_download_url": f"{repo}/artifacts/1/zip",
-                        "created_at": "2026-01-01T00:00:00Z",
-                        "workflow_run": {
-                            "id": 7,
-                            "head_sha": mirrored_at,
-                            "head_branch": "master",
-                            "head_repository_id": 1,
-                            "repository_id": 1,
-                        },
-                    }
-                ]
-            },
-        )
-        github.get(
-            f"{repo}/runs/7/artifacts",
-            json={
-                "artifacts": [
-                    {"name": "migrated-schema"},
-                    {"name": f"migrated-schema-mirrored-{dumped if marker == 'dumped' else 'f' * 40}"},
-                ]
-            },
-        )
-        github.get(f"{repo}/artifacts/1/zip", body=archive.getvalue())
+    with github.serving():
         result = prime_test_database(scratch.server, scratch.target, store)
 
     assert (result.outcome, scratch.ledger()) == (outcome, ledger)
