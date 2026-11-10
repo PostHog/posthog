@@ -76005,7 +76005,7 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalRef {
       readonly id: string;
-      readonly integration: SessionRecordingExternalReferenceIntegration;
+      readonly integration: SessionRecordingExternalReferenceIntegration | null;
       integration_id: number;
       config: unknown;
       session_recording_id: string;
@@ -89888,7 +89888,7 @@ export namespace Schemas {
      */
     export interface PatchedSessionRecordingExternalRef {
       readonly id?: string;
-      readonly integration?: SessionRecordingExternalReferenceIntegration;
+      readonly integration?: SessionRecordingExternalReferenceIntegration | null;
       integration_id?: number;
       config?: unknown;
       session_recording_id?: string;
