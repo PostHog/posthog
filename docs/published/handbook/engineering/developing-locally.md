@@ -376,9 +376,9 @@ hogli test posthog/test/test_example.py -k test_something
 
 To see debug logs (such as ClickHouse queries), add argument `--log-cli-level=DEBUG`.
 
-On a new Postgres, such as a new dev box, the first test run replays every migration, which takes over 10 minutes.
-Run `hogli db:prime-test-db` before it to restore master CI's migrated schema in seconds instead.
-It needs a GitHub login (`gh auth login` or `GH_TOKEN`).
+When the test database does not exist yet, such as on a new dev box, the first test run restores master CI's migrated schema in seconds instead of replaying every migration.
+The restore needs a GitHub login (`gh auth login` or `GH_TOKEN`). Without one, or with `POSTHOG_SCHEMA_RESTORE_IN_DEV=off`, pytest migrates from scratch, which takes over 10 minutes.
+To restore the schema by hand, for example after a branch switch broke the test database, run `hogli db:prime-test-db`.
 
 You can also run tests for all files changed on the current branch:
 
