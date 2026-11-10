@@ -71,11 +71,11 @@ Ordinary publication refuses an empty ordered frontier. Review one seed revision
 
 Retry the same seed after newer aliases arrive. The seed must still exist at its expected digest; a missing seed in a repository with an ordered release or a conflicting digest fails. Untagged manifests and non-ordered tags alone do not block a verified seed copy. When the seed predates the channel policy, carry `bootstrapPolicyDigest` in the channel and verify it equals the reviewed current fingerprint before seeding. Preserve that adoption fingerprint across later policy changes.
 
-Before adding the first channel, review the selective role, source reads, origin writes and listing, immutable tags, ECR replication, retention and bootstrap evidence. Onboarding another worker needs its infrastructure entry and policy entry, with no workflow edit. Obtain the Charts consumer-binding check and verify consumer pulls and release selection separately. Adding a repository can cause a rollout even at the same digest. This publisher makes no consumer or Charts changes.
+Before adding the first channel, review the selective role, source reads, origin writes and listing, immutable tags, ECR replication, retention and bootstrap evidence. Onboarding another worker needs its infrastructure entry and policy entry, with no workflow edit while the channel count stays within the workflow's [channel budget](#bound-work-before-activation). Obtain the Charts consumer-binding check and verify consumer pulls and release selection separately. Adding a repository can cause a rollout even at the same digest. This publisher makes no consumer or Charts changes.
 
 ## Bound work before activation
 
-The workflow allows four channels and two concurrent registry workers. A local representative run covers 48 first-parent commits and the full four-channel fan-out; it measures fixture work, not production upload throughput. Recheck these bounds before increasing fan-out or enabling an origin with slower copy or readback behavior.
+The workflow allows eight channels and four concurrent registry workers. A local representative run covers 48 first-parent commits and the full eight-channel fan-out; it measures fixture work, not production upload throughput. Recheck these bounds before increasing fan-out or enabling an origin with slower copy or readback behavior.
 
 | Work                           | Bound              |
 | ------------------------------ | ------------------ |
