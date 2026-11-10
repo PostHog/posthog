@@ -274,6 +274,11 @@ export class HogInputsService {
             if (isWarehouseSourceIntegration(integration)) {
                 return null
             }
+            // An undecryptable field still holds ciphertext, so never hand out the secrets. The id stays so a
+            // per-channel push send can fail just this channel.
+            if ((decryptFailures[id]?.length ?? 0) > 0) {
+                return { $integration_id: integration.id, ...integration.config }
+            }
             return {
                 $integration_id: integration.id,
                 ...integration.config,
@@ -318,16 +323,6 @@ export class HogInputsService {
                 )
             ) {
                 throw new HogConfigurationError(warehouseIntegrationMessage(key))
-            }
-            if (
-                ids.some(
-                    (id) =>
-                        usedIds.includes(id) &&
-                        integrations[id]?.team_id === hogFunction.team_id &&
-                        (decryptFailures[id]?.length ?? 0) > 0
-                )
-            ) {
-                throw new HogConfigurationError(decryptIntegrationMessage(key))
             }
             returnInputs[key] = { value: ids.map(resolveIntegration).filter((v) => v !== null) }
         })

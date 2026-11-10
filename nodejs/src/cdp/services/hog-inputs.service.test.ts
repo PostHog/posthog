@@ -367,14 +367,11 @@ describe('Hog Inputs', () => {
             ).rejects.toThrow("The integration for input 'slack' no longer exists.")
         })
 
-        it.each<[string, string, (id: number) => number | number[]]>([
-            ['integration', 'oauth', (id: number): number => id],
-            ['integration_multi', 'channels', (id: number): number[] => [integrationId1, id]],
-        ])('fails a used %s input when the integration cannot be decrypted', async (type, key, value) => {
+        it('fails a used integration input when the integration cannot be decrypted', async () => {
             const id = 100000000 + team.id
             await insertUndecryptableIntegration(id)
-            hogFunction.inputs = { [key]: { value: value(id) } }
-            hogFunction.inputs_schema = [{ key, type: type as any, required: true }]
+            hogFunction.inputs = { oauth: { value: id } }
+            hogFunction.inputs_schema = [{ key: 'oauth', type: 'integration', required: true }]
 
             const error = await hogInputsService.buildInputs(hogFunction, globals).catch((e) => e)
 
@@ -392,7 +389,20 @@ describe('Hog Inputs', () => {
 
             await expect(hogInputsService.buildInputs(hogFunction, globals)).resolves.toBeDefined()
             const loaded = await hogInputsService.loadIntegrationInputs(hogFunction)
-            expect(loaded.slack.value).toMatchObject({ $integration_id: id })
+            expect(loaded.slack.value).toEqual({ $integration_id: id })
+        })
+
+        it('keeps the other channels of a used integration_multi input but drops the undecryptable secrets', async () => {
+            const id = 100000000 + team.id
+            await insertUndecryptableIntegration(id)
+            hogFunction.inputs = { channels: { value: [integrationId1, id] } }
+            hogFunction.inputs_schema = [{ key: 'channels', type: 'integration_multi', required: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(inputs.channels).toHaveLength(2)
+            expect(inputs.channels[0]).toMatchObject({ $integration_id: integrationId1 })
+            expect(inputs.channels[1]).toEqual({ $integration_id: id })
         })
 
         it.each([
