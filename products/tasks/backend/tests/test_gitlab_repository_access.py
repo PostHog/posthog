@@ -47,3 +47,24 @@ class TestGitLabRepositoryError:
             assert error is not None and expected in error
         if repository.lower() != "acme/app":
             get_project.assert_not_called()
+
+    def test_access_checks_share_a_deadline(self) -> None:
+        integration = MagicMock(
+            kind="gitlab",
+            config={"hostname": "https://gitlab.com", "path_with_namespace": "acme/app"},
+            sensitive_config={"access_token": "token123"},
+        )
+        with (
+            patch("products.tasks.backend.gitlab_repository_access.time.monotonic", side_effect=[0, 1, 6, 11]),
+            patch("posthog.models.integration.gitlab.PastedTokenSource.describe", return_value=None) as describe,
+            patch(
+                "posthog.models.integration.gitlab.GitLabIntegration.get_pushable_project", return_value=MagicMock()
+            ) as project,
+            patch("posthog.models.integration.gitlab.GitLabIntegration.token_reaches_only_connected_project") as bound,
+        ):
+            error = gitlab_repository_error(integration, "acme/app")
+
+        assert error is not None and "Couldn't reach GitLab" in error
+        describe.assert_called_once_with(timeout=9)
+        project.assert_called_once_with("acme/app", timeout=4)
+        bound.assert_not_called()
