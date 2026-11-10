@@ -65,11 +65,11 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
 
     return {
         ...config,
-        name,
+        name: variant === 'production' ? 'PostHog App' : name,
         slug: 'posthog',
         owner: 'posthog',
         scheme,
-        version: '1.13.0',
+        version: '1.15.0',
         orientation: 'default',
         userInterfaceStyle: 'automatic',
         icon: icons.png,
@@ -86,6 +86,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
                 'com.apple.security.application-groups': [appGroup],
             },
             infoPlist: {
+                CFBundleDisplayName: name,
                 ITSAppUsesNonExemptEncryption: false,
                 'com.posthog.posthog.CAPTURE_PUSH_NOTIFICATION_OPENED': false,
             },
@@ -183,8 +184,8 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
             ['./plugins/withAndroidLoopbackNetworking', { allowLoopback: variant !== 'production' }],
             './plugins/withAndroidAdaptiveIconInsets',
             './plugins/withAndroidNotificationIntents',
+            ['./plugins/withAndroidDisplayName', { name }],
             '@bacons/apple-targets',
-            './plugins/withIosArchiveScheme',
         ],
         updates: {
             url: `https://u.expo.dev/${EAS_PROJECT_ID}`,

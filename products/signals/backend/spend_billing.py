@@ -23,11 +23,11 @@ def system_source_exempt(source_product: str | None) -> bool:
 
 def scout_skill_spend_exempt(team_id: int, skill_name: str, skill_version: int | None) -> bool:
     from products.signals.backend.billing import (  # noqa: PLC0415 — billing uses this module for aggregation
-        BILLING_EXEMPT_SCOUT_SKILLS,
+        BILLING_EXEMPT_SCOUT_RUN_SKILLS,
         _scout_skill_is_canonical,
     )
 
-    return skill_name in BILLING_EXEMPT_SCOUT_SKILLS and _scout_skill_is_canonical(
+    return skill_name in BILLING_EXEMPT_SCOUT_RUN_SKILLS and _scout_skill_is_canonical(
         team_id, skill_name, version=skill_version
     )
 
