@@ -61,6 +61,7 @@ from posthog.api.tagged_item import (
 )
 from posthog.auth import InternalAPIAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.constants import PropertyOperatorType
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.exceptions import InsufficientScope
@@ -68,6 +69,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
+from posthog.models.property.property import Property, PropertyValidationError
 from posthog.paging import Page, PageRequest
 from posthog.permissions import (
     AccessControlPermission,
@@ -644,7 +646,30 @@ BATCH_FLAG_CONDITION_REJECTION = (
 )
 
 
-def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
+INCOMPLETE_AUDIENCE_CONDITION = "An audience filter is incomplete. Finish it or remove it."
+
+
+def _has_incomplete_condition(properties: Any) -> bool:
+    if isinstance(properties, list):
+        return any(_has_incomplete_condition(prop) for prop in properties)
+    if not isinstance(properties, dict):
+        return False
+    prop_type = properties.get("type")
+    if isinstance(prop_type, str) and prop_type in PropertyOperatorType and isinstance(properties.get("values"), list):
+        return _has_incomplete_condition(properties["values"])
+    try:
+        Property(**properties)
+    except PropertyValidationError:
+        return True
+    except (TypeError, exceptions.ValidationError):
+        return False
+    return False
+
+
+def reject_unusable_audience_conditions(team: Team, filters: dict) -> None:
+    # The property parser drops a condition it can't build, which would size and send to a wider audience.
+    if _has_incomplete_condition((filters or {}).get("properties")):
+        raise exceptions.ValidationError(INCOMPLETE_AUDIENCE_CONDITION)
     # Cohorts are expanded so a flag condition nested inside one is still caught.
     property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
     if any(prop.type == "flag" for prop in property_groups.flat):
@@ -6910,7 +6935,7 @@ class HogFlowViewSet(
                 ).data
             )
 
-        reject_flag_conditions_in_audience(self.team, filters)
+        reject_unusable_audience_conditions(self.team, filters)
 
         size = get_audience_size(
             team_id=self.team_id,
@@ -7840,7 +7865,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         group_type_index = request.data.get("group_type_index", None)
 
         try:
-            reject_flag_conditions_in_audience(team, filters)
+            reject_unusable_audience_conditions(team, filters)
             result = get_audience_size(
                 team_id=team.id,
                 filters=filters,
@@ -7889,7 +7914,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": f"Unsupported dedupe_key: {dedupe_key}"}, status=400)
 
         try:
-            reject_flag_conditions_in_audience(team, filters)
+            reject_unusable_audience_conditions(team, filters)
             page = get_audience_person_page(
                 team_id=team.id,
                 filters=filters,
