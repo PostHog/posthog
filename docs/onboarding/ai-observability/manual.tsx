@@ -236,7 +236,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                 <Markdown>### 1. Install</Markdown>
                                                 <CodeBlock
                                                     language="bash"
-                                                    code="composer require posthog/posthog-php"
+                                                    code={'composer require "posthog/posthog-php:^4.0"'}
                                                 />
 
                                                 <Markdown>### 2. Initialize PostHog</Markdown>

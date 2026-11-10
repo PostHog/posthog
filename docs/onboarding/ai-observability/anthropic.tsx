@@ -38,7 +38,7 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @posthog/ai posthog-node@5 @anthropic-ai/sdk
+                                    npm install @posthog/ai@8 posthog-node@5 @anthropic-ai/sdk
                                 `,
                             },
                             GO_OTEL_TAB,

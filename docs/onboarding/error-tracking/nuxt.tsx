@@ -18,28 +18,28 @@ export const getNuxt37Steps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm install @posthog/nuxt
+                                    npm install @posthog/nuxt@1
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add @posthog/nuxt
+                                    yarn add @posthog/nuxt@1
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'pnpm',
                                 code: dedent`
-                                    pnpm add @posthog/nuxt
+                                    pnpm add @posthog/nuxt@1
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'bun',
                                 code: dedent`
-                                    bun add @posthog/nuxt
+                                    bun add @posthog/nuxt@1
                                 `,
                             },
                         ]}

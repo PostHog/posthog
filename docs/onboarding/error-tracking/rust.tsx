@@ -26,7 +26,7 @@ export const getRustSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                         language="toml"
                         code={dedent`
                             [dependencies]
-                            posthog-rs = { version = "*", default-features = false, features = ["async-client", "error-tracking"] }
+                            posthog-rs = { version = "0.31", default-features = false, features = ["async-client", "error-tracking"] }
                         `}
                     />
                 </>

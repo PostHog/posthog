@@ -316,7 +316,7 @@ const SdkTracing = ({ ctx }: { ctx: OnboardingComponentsContext }): JSX.Element 
                     {
                         language: 'bash',
                         file: 'Node',
-                        code: 'npm install @posthog/ai @opentelemetry/sdk-trace-node @opentelemetry/resources @opentelemetry/exporter-trace-otlp-http',
+                        code: 'npm install @posthog/ai@8 @opentelemetry/sdk-trace-node @opentelemetry/resources @opentelemetry/exporter-trace-otlp-http',
                     },
                     {
                         language: 'bash',

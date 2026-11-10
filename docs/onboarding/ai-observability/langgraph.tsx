@@ -37,7 +37,7 @@ export const getLangGraphSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install posthog-node@5 @posthog/ai @langchain/langgraph @langchain/openai @langchain/core zod
+                                    npm install posthog-node@5 @posthog/ai@8 @langchain/langgraph @langchain/openai @langchain/core zod
                                 `,
                             },
                         ]}
