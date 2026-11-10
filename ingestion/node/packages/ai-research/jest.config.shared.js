@@ -33,6 +33,8 @@ module.exports = {
     // NOTE: This should be kept in sync with tsconfig.json
     moduleNameMapper: {
         '^@trybyte/robotstxt-parser$': '<rootDir>/node_modules/@trybyte/robotstxt-parser/dist/index.js',
+        // node-common's base server profiles through pyroscope, whose p-limit dependency is ESM-only.
+        '^@pyroscope/nodejs$': '<rootDir>/jest.pyroscope.mock.js',
         // `~/...` -> src/, `~/tests/...` -> tests/. The `.js`-suffixed variants come first to strip the
         // nodenext extension: the production tsconfig is module: nodenext, which forces import()
         // specifiers to carry `.js` (TS2835/TS2307), so ts-jest emits e.g. `~/foo.js` while only a
