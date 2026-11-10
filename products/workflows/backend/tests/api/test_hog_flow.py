@@ -1394,6 +1394,30 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("empty_list", []),
+            ("unknown_keyword", "all"),
+            ("unknown_weekday", ["monday", "funday"]),
+        ]
+    )
+    def test_hog_flow_time_window_rejects_days_that_never_match(self, _name, day):
+        flow = self._make_delay_flow({})
+        flow["actions"][1] = {
+            "id": "w1",
+            "name": "w1",
+            "type": "wait_until_time_window",
+            "config": {"timezone": "UTC", "day": day, "time": ["09:00", "17:00"]},
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__config",
+            "code": "invalid_input",
+            "detail": "day must be 'any', 'weekday', 'weekend', or a list of at least one weekday name.",
+            "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
             ("seconds", "30s"),
             ("minutes", "30m"),
             ("hours", "2h"),

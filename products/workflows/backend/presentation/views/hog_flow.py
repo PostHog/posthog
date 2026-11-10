@@ -1049,6 +1049,20 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
             raise serializers.ValidationError({"inputs": {schema["key"]: {"input": "This field is required."}}})
 
 
+_WEEKDAYS = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
+
+
+def _reject_unmatchable_time_window_days(config: dict) -> None:
+    day = config.get("day")
+    if day in ("any", "weekday", "weekend"):
+        return
+    if isinstance(day, list) and day and all(name in _WEEKDAYS for name in day):
+        return
+    raise serializers.ValidationError(
+        {"config": "day must be 'any', 'weekday', 'weekend', or a list of at least one weekday name."}
+    )
+
+
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
     # Non-draft saves always validate fully. Drafts stay lenient for the web UI builder (which saves
     # incomplete graphs mid-edit) and for internal re-saves (e.g. the refresh management command), which
@@ -2439,6 +2453,9 @@ class HogFlowActionSerializer(serializers.Serializer):
 
         if data.get("type") == "delay":
             self._validate_delay(data, strict)
+
+        if strict and data.get("type") == "wait_until_time_window":
+            _reject_unmatchable_time_window_days(data.get("config") or {})
 
         return data
 
