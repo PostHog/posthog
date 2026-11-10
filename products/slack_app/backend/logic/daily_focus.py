@@ -34,7 +34,6 @@ DEFAULT_DAILY_FOCUS_TIME = time(9, 0)
 # pinned: Slack action id on DMs that people already have
 DAILY_FOCUS_OFF_ACTION_ID = "slack_onboarding:daily_focus_off"
 DAILY_FOCUS_FOOTER_BLOCK_ID = "daily_focus_footer"
-# A sweep that finds more people than this leaves the rest for the next sweep, 15 minutes later.
 SWEEP_BATCH_SIZE = 1000
 # A run this late, such as Friday's after a sweep outage that lasted into the weekend, is skipped.
 STALE_AFTER = timedelta(hours=3)
@@ -60,7 +59,6 @@ class DueDailyFocus:
     slack_user_id: str
     # The previous run time, as epoch seconds. The run reads the messages sent after it.
     since: int
-    # Runs in one workspace start apart, because they share its Slack search budget.
     start_delay_seconds: int = 0
 
 

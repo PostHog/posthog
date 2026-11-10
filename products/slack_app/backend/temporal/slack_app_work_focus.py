@@ -16,8 +16,7 @@ from products.slack_app.backend.temporal.types import SlackAppWorkFocusInputs
 SLACK_APP_WORK_FOCUS_ACTIVITY_TIMEOUT = timedelta(minutes=2)
 # A burst of links runs out of search calls for the workspace. The retries wait for tokens, a minute apart at first.
 _RETRY = RetryPolicy(initial_interval=timedelta(minutes=1), backoff_coefficient=2.0, maximum_attempts=5)
-# Everyone in a timezone runs at about the same time, so a large workspace waits longer for search calls. The
-# retries keep trying for about an hour and a half.
+# Everyone in a timezone runs at about the same time, so a large workspace waits longer for search calls.
 _DAILY_RETRY = RetryPolicy(
     initial_interval=timedelta(minutes=1),
     backoff_coefficient=2.0,

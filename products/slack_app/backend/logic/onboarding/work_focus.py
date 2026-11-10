@@ -278,8 +278,7 @@ def _find_and_send(integration: WorkspaceIntegration, slack_user_id: str) -> str
     found = _find(integration, slack_user_id, after=timezone.now() - SEARCH_LOOKBACK, min_messages=MIN_MESSAGES)
     if found == "no_search_scope":
         return found
-    # Turned on before anything is sent, as the link step says. A quiet search still leaves the daily runs on, and
-    # a retry after a failed write to the database finds them on and shows the footer.
+    # Turned on before the quiet outcomes return and before the DM, so a retry after a failed write still finds it on.
     daily = _daily_focus_footer(integration, slack_user_id)
     if isinstance(found, str):
         return found

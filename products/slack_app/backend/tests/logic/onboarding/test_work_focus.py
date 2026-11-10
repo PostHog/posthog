@@ -424,7 +424,6 @@ def test_a_daily_run_reads_since_the_last_run_and_sends_once(
     ):
         bot_integration.return_value.missing_scopes.return_value = frozenset()
         assert find_and_send_daily_focus(integration, SLACK_USER_ID, since=SINCE) == "sent"
-        # A retry after Slack took the DM sends nothing more.
         assert find_and_send_daily_focus(integration, SLACK_USER_ID, since=SINCE) == "already_sent"
 
     searches = slack["search"].return_value.api_call.call_args_list

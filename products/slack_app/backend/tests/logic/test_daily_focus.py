@@ -83,7 +83,6 @@ def test_a_due_person_runs_once_and_moves_to_the_next_workday(org_team_user) -> 
     assert SlackDailyFocus.objects.unscoped().get(slack_user_id="U_DUE").next_run_at == datetime(
         2026, 11, 10, 8, 0, tzinfo=UTC
     )
-    # The next sweep sends Monday's run of the person who missed Friday's, and nothing more.
     assert [(run.slack_user_id, run.since) for run in claim_due_daily_focus(now)] == [
         ("U_MISSED", int(friday_nine.timestamp()))
     ]

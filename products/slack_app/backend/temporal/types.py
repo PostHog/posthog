@@ -38,7 +38,6 @@ class SlackAppWorkFocusInputs:
     slack_user_id: str
     # Set on a daily run: the previous run time, as epoch seconds. The run reads the messages sent after it.
     since: int | None = None
-    # A daily run waits this long first, so the runs of one workspace stay within its Slack search budget.
     start_delay_seconds: int = 0
 
 
