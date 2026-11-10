@@ -32,6 +32,7 @@ from posthog.tasks.alerts.utils import (
     RenderedInsightChart,
     next_check_time,
 )
+from posthog.temporal.ai.anomaly_investigation.workflow import _investigated_alert as load_investigated_alert
 from posthog.temporal.alerts.admission import admit_evaluation_slots, inflight_alert_ids, release_evaluation_slot
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 
@@ -55,7 +56,6 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration,
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
-from products.alerts.backend.platform_insight_alert import investigated_alert
 from products.alerts.backend.platform_investigation import claim_requested_investigations
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY, requested_investigation
 from products.alerts.backend.platform_source_cycle import (
@@ -1199,7 +1199,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert (start.alert_id, start.user_id) == (str(configuration.id), self.user.id)
         investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get(id=start.investigation_id)
         assert (investigation.alert_configuration_id, investigation.configuration_id) == (None, configuration.id)
-        investigated = investigated_alert(self.team.id, configuration.id)
+        investigated = load_investigated_alert(self.team.id, configuration.id)
         assert investigated is not None
         assert (investigated.id, investigated.insight_id, investigated.investigation_gates_notifications) == (
             configuration.id,
