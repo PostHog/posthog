@@ -36,6 +36,16 @@ function wherePredicate(term: string, columns: string[], dateFrom: string | unde
     return null
 }
 
+function sumCountByGroup(rows: Row[], groupColumns: string[]): Row[] {
+    const groups = new Map<string, Row>()
+    for (const row of rows) {
+        const key = groupColumns.map((column) => row[column]).join('\0')
+        const group = groups.get(key) ?? { ...Object.fromEntries(groupColumns.map((c) => [c, row[c]])), total: 0 }
+        groups.set(key, { ...group, total: Number(group.total) + Number(row.count) })
+    }
+    return [...groups.values()]
+}
+
 function strictHogQLFake(tables: Record<string, Row[]>): MockSignature {
     return async ({ request }) => {
         const body = (await request.json()) as { query: { query: string }; filters_override?: { date_from?: string } }
@@ -50,14 +60,12 @@ function strictHogQLFake(tables: Record<string, Row[]>): MockSignature {
         const [, select, table, where, groupBy, orderBy, limit] = parts
         const list = (text: string | undefined): string[] => (text ? text.split(/, (?![^(]*\))/) : [])
         const tableColumns = Object.keys(tables[table][0] ?? {})
-        let rows = tables[table]
-        for (const term of where ? where.split(' AND ') : []) {
-            const predicate = wherePredicate(term, tableColumns, body.filters_override?.date_from)
-            if (!predicate) {
-                return unsupported(`WHERE term ${term}`)
-            }
-            rows = rows.filter(predicate)
+        const terms = where ? where.split(' AND ') : []
+        const predicates = terms.map((term) => wherePredicate(term, tableColumns, body.filters_override?.date_from))
+        if (predicates.includes(null)) {
+            return unsupported(`WHERE ${where}`)
         }
+        const matching = tables[table].filter((row) => predicates.every((predicate) => predicate?.(row)))
         const groupColumns = list(groupBy)
         const sumsCount = !!groupBy && list(select).includes('sum(count) AS total')
         const columns = groupBy ? [...groupColumns, ...(sumsCount ? ['total'] : [])] : tableColumns
@@ -65,18 +73,7 @@ function strictHogQLFake(tables: Record<string, Row[]>): MockSignature {
         if (groupColumns.some((column) => !tableColumns.includes(column))) {
             return unsupported(`GROUP BY ${groupBy}`)
         }
-        if (groupBy) {
-            const groups = new Map<string, Row>()
-            for (const row of rows) {
-                const key = groupColumns.map((column) => row[column]).join('\0')
-                const group = groups.get(key) ?? {
-                    ...Object.fromEntries(groupColumns.map((c) => [c, row[c]])),
-                    total: 0,
-                }
-                groups.set(key, { ...group, total: Number(group.total) + Number(row.count) })
-            }
-            rows = [...groups.values()]
-        }
+        const rows = groupBy ? sumCountByGroup(matching, groupColumns) : matching
         if (selected.some((column) => !columns.includes(column))) {
             return unsupported(`SELECT ${select}`)
         }
