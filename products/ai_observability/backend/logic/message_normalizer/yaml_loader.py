@@ -1,4 +1,5 @@
 import re
+from typing import Final
 
 from ruamel.yaml import YAML
 from ruamel.yaml.composer import Composer, ComposerError
@@ -6,11 +7,25 @@ from ruamel.yaml.constructor import ConstructorError, DuplicateKeyError, SafeCon
 from ruamel.yaml.error import YAMLError
 from ruamel.yaml.events import AliasEvent
 from ruamel.yaml.nodes import MappingNode
+from ruamel.yaml.scanner import Scanner, ScannerError
 
 from .errors import RecipeCompileError
 from .values import key_text
 
 _YAML_1_2_CORE_INT = re.compile(r"[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+")
+
+MAX_FLOW_DEPTH: Final = 100
+
+
+class _RecipeScanner(Scanner):
+    # The scanner rechecks every open flow level on each token, so `[` nested a thousand deep costs seconds of CPU that
+    # no deadline can interrupt. Recipes nest flow collections a few levels at most.
+    def fetch_flow_collection_start(self, TokenClass, to_push):
+        if self.flow_level >= MAX_FLOW_DEPTH:
+            raise ScannerError(
+                None, None, f"flow collections nest deeper than {MAX_FLOW_DEPTH} levels", self.reader.get_mark()
+            )
+        super().fetch_flow_collection_start(TokenClass, to_push)
 
 
 class _RecipeComposer(Composer):
@@ -80,6 +95,7 @@ def load_recipe_yaml(source: str) -> object:
     # Recipes are authored against the YAML 1.2 parser the frontend uses. PyYAML follows YAML 1.1, which reads
     # every rule's `on:` key as the boolean `True`. A YAML instance is not thread-safe, so each call builds one.
     yaml = YAML(typ="safe", pure=True)
+    yaml.Scanner = _RecipeScanner
     yaml.Composer = _RecipeComposer
     yaml.Constructor = _RecipeConstructor
     try:

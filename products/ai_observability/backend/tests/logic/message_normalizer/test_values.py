@@ -39,8 +39,8 @@ def test_reads_missing_for_absent_keys_and_non_mappings(_name: str, value: Value
     assert not has_field(value, field)
 
 
-@parameterized.expand([("first", "0", "a"), ("last", "1", "b")])
-def test_read_field_indexes_a_list_with_a_numeric_string(_name: str, field: str, expected: str) -> None:
+@parameterized.expand([("first", "0", "a"), ("last", "1", "b"), ("length", "length", 2)])
+def test_reads_list_fields_like_javascript(_name: str, field: str, expected: Value) -> None:
     assert read_field(["a", "b"], field) == expected
     assert has_field(["a", "b"], field)
 

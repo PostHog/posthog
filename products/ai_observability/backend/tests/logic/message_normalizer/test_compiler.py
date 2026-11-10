@@ -101,6 +101,11 @@ def test_non_ascii_path_names_compile_like_javascript() -> None:
             "Unknown emit key 'colour'",
         ),
         ("a bad type name", {"id": "t", "rules": [{"on": {"f": {"is": "text"}}, "emit": {}}]}, "'is:' must be a type"),
+        (
+            "a bad type name in a list",
+            {"id": "t", "rules": [{"on": {"f": {"is": ["string", "text"]}}, "emit": {}}]},
+            "'is:' must be a type or array of types, got \"text\"$",
+        ),
     ]
 )
 def test_rejects_invalid_recipes(_name: str, raw: object, message: str) -> None:
