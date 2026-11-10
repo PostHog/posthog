@@ -60,3 +60,5 @@ that endpoint show where users bail.
 ## Next
 
 Return to SKILL.md for Step 4 (cross-check) and Step 5 (write findings), in the format you chose in Step 1.
+In a chart explanation of the funnel, give the step that regressed its own chapter, starting at the step before it,
+and keep the queries from steps 1 to 3 as its evidence.
