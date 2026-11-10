@@ -28,9 +28,7 @@ const QUESTIONS = [
     { index: 1, id: 'note-q' },
 ]
 
-// Merges like the survey results query: one row per submission id, the latest answer to each question,
-// and completed once any event completed it.
-function surveyResults(): { responses: () => StoredResponse[] } {
+function mergedSurveyResults(): { responses: () => StoredResponse[] } {
     const stored: Record<string, StoredResponse> = {}
     jest.mocked(posthog.capture).mockImplementation((event, properties) => {
         if (event !== 'survey sent' || !properties) {
@@ -64,7 +62,7 @@ const INTEREST: StoredResponse = {
 
 describe('comingSoonInterestLogic', () => {
     let logic: ReturnType<typeof comingSoonInterestLogic.build>
-    let results: ReturnType<typeof surveyResults>
+    let results: ReturnType<typeof mergedSurveyResults>
 
     const mountFor = (accountId: string): void => {
         logic.unmount()
@@ -78,7 +76,7 @@ describe('comingSoonInterestLogic', () => {
         initKeaTests()
         jest.clearAllMocks()
         jest.useFakeTimers()
-        results = surveyResults()
+        results = mergedSurveyResults()
         logic = comingSoonInterestLogic(SURVEY)
         logic.mount()
     })
@@ -99,12 +97,26 @@ describe('comingSoonInterestLogic', () => {
         expect(logic.values.noteOpen).toBe(true)
     })
 
-    it('records the interest on a later click when the first send was lost', () => {
+    it.each([
+        ['a later click', (): void => logic.actions.registerInterest(), INTEREST],
+        [
+            'the note',
+            (): void => {
+                logic.actions.setNote('Our billing system only speaks SMTP')
+                logic.actions.submitNote()
+            },
+            {
+                ...INTEREST,
+                completed: true,
+                answers: { ...INTEREST.answers, 'note-q': 'Our billing system only speaks SMTP' },
+            },
+        ],
+    ])('records the interest through %s when the first send was lost', (_, next, stored) => {
         jest.mocked(posthog.capture).mockImplementationOnce(() => undefined)
         logic.actions.registerInterest()
-        logic.actions.registerInterest()
+        next()
 
-        expect(results.responses()).toEqual([INTEREST])
+        expect(results.responses()).toEqual([stored])
     })
 
     it('keeps the note open when the second click of a double click lands on the overlay', () => {
