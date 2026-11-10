@@ -3,10 +3,79 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 15 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Returns the events retention period that every project without its own period uses, the default period while none is set, and the periods an organization admin can set.
+ * @summary Get the organization's events retention period
+ */
+export const OrganizationEventsRetentionRetrieveParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+/**
+ * Sets how long every project without its own period keeps events. The period has to be one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the organization's events retention period
+ */
+export const OrganizationEventsRetentionUpdateParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const OrganizationEventsRetentionUpdateBody = () => zod.object({
+    retention_months: zod
+        .union([
+            zod
+                .union([
+                    zod.literal(1),
+                    zod.literal(3),
+                    zod.literal(12),
+                    zod.literal(24),
+                    zod.literal(36),
+                    zod.literal(60),
+                    zod.literal(84),
+                ])
+                .describe(
+                    '\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years'
+                ),
+            zod.null(),
+        ])
+        .describe(
+            "The period in months. It also has to be between min_retention_months and max_retention_months. A shorter period deletes older events, and deleted events can't be restored. Null removes the period.\n\n\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years"
+        ),
+})
+
+/**
+ * Counts the events that the next monthly cleanup deletes if the organization keeps events for retention_months, summed over the projects without their own period. Organization admins only.
+ * @summary Count the events the organization's period would delete
+ */
+export const OrganizationEventsRetentionDeletionCountParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const organizationEventsRetentionDeletionCountQueryRetentionMonthsMax = 1200
+
+export const OrganizationEventsRetentionDeletionCountQueryParams = () => zod.object({
+    retention_months: zod
+        .number()
+        .min(1)
+        .max(organizationEventsRetentionDeletionCountQueryRetentionMonthsMax)
+        .describe('The period in months to count for, at most 1200. Only events older than this period are counted.'),
+})
 
 /**
  * Counts of $autocapture, $rageclick, and $dead_click events grouped by the element chain
@@ -51,9 +120,78 @@ export const ElementsStatsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'JSON-encoded list of property filters to apply to the underlying events, e.g. [{\"key\": \"$current_url\", \"value\": \"https:\/\/example.com\/page\"}] or [{\"key\": \"email\", \"value\": \"@posthog.com\", \"operator\": \"icontains\", \"type\": \"person\"}]. Supports event, person, cohort, element, and HogQL property filter types.'
+            'JSON-encoded list of property filters to apply to the underlying events, e.g. [{\"key\": \"$current_url\", \"value\": \"https:\/\/example.com\/page\"}] or [{\"key\": \"email\", \"value\": \"@posthog.com\", \"operator\": \"icontains\", \"type\": \"person\"}]. Supports event, person, cohort, and element property filter types.'
         ),
     sampling_factor: zod.number().optional().describe('Sampling factor between 0 and 1'),
+})
+
+/**
+ * Returns how far back events stay queryable for this project, the periods set for the project and its organization, the periods an admin can set, and the project's next deletion. Both queryable period fields are null while no retention period applies to the project.
+ * @summary Get the events retention period for a project
+ */
+export const EventsRetentionRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Sets how long this project keeps events, overriding the organization's period. The period has to be one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the events retention period for a project
+ */
+export const EventsRetentionUpdateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EventsRetentionUpdateBody = () => zod.object({
+    retention_months: zod
+        .union([
+            zod
+                .union([
+                    zod.literal(1),
+                    zod.literal(3),
+                    zod.literal(12),
+                    zod.literal(24),
+                    zod.literal(36),
+                    zod.literal(60),
+                    zod.literal(84),
+                ])
+                .describe(
+                    '\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years'
+                ),
+            zod.null(),
+        ])
+        .describe(
+            "The period in months. It also has to be between min_retention_months and max_retention_months. A shorter period deletes older events, and deleted events can't be restored. Null removes the period.\n\n\* `1` - 1 month\n\* `3` - 3 months\n\* `12` - 1 year\n\* `24` - 2 years\n\* `36` - 3 years\n\* `60` - 5 years\n\* `84` - 7 years"
+        ),
+})
+
+/**
+ * Counts the project's events that the next monthly cleanup deletes if the project keeps events for retention_months. Organization admins only.
+ * @summary Count the events a project's period would delete
+ */
+export const EventsRetentionDeletionCountParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const eventsRetentionDeletionCountQueryRetentionMonthsMax = 1200
+
+export const EventsRetentionDeletionCountQueryParams = () => zod.object({
+    retention_months: zod
+        .number()
+        .min(1)
+        .max(eventsRetentionDeletionCountQueryRetentionMonthsMax)
+        .describe('The period in months to count for, at most 1200. Only events older than this period are counted.'),
 })
 
 export const InsightsListParams = () => zod.object({

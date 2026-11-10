@@ -18,7 +18,6 @@ import { QueryContext } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
 import { EditorFilters } from 'products/product_analytics/frontend/insights/editor/EditorFilters'
-import { SelectorMatchChangeNotice } from 'products/product_analytics/frontend/insights/shared/selectorMatchChange/SelectorMatchChangeNotice'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { InsightVizDisplay } from './InsightVizDisplay'
@@ -141,10 +140,7 @@ export function InsightViz({
                                     embedded={isEmbedded}
                                 />
                                 {!isEmbedded ? (
-                                    <div className="flex-1 max-h-full overflow-auto pb-8">
-                                        <SelectorMatchChangeNotice insightProps={insightProps} />
-                                        {display}
-                                    </div>
+                                    <div className="flex-1 max-h-full overflow-auto pb-8">{display}</div>
                                 ) : (
                                     display
                                 )}
