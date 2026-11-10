@@ -102,9 +102,16 @@ def create_platform_owned(*, team_id: int, edit: PlatformAlertConfigurationEdit,
     return alert.id
 
 
-def on_updated(alert: LogsAlertConfiguration, *, snooze_changed: bool, grouping: Grouping | None = None) -> None:
+def on_updated(
+    alert: LogsAlertConfiguration,
+    *,
+    snooze_changed: bool,
+    grouping: Grouping | None = None,
+    at: datetime | None = None,
+) -> None:
     """Writes an edit the logs API saved onto the platform's copy, with the grouping the edit set.
-    A `grouping` of None keeps the copy's own. An alert logs owns has no copy to write.
+    A `grouping` of None keeps the copy's own. An alert logs owns has no copy to write. `at` is when
+    the edit started, before its `LogsAlertEvent` row.
 
     Raises `InvalidPlatformAlertEdit` when the platform's schema rejects the edit, or when the
     alert cannot take the grouping.
@@ -115,9 +122,10 @@ def on_updated(alert: LogsAlertConfiguration, *, snooze_changed: bool, grouping:
     update_owned_copy(
         team_id=alert.team_id,
         legacy_configuration_id=alert.id,
-        change=_platform_change_of(alert, grouping),
+        change=platform_change_of(alert, grouping),
         snooze_until=alert.snooze_until,
         snooze_changed=snooze_changed,
+        at=at,
     )
 
 
@@ -125,9 +133,18 @@ def on_deleted(*, team_id: int, alert_id: UUID) -> None:
     delete_copy(team_id=team_id, legacy_configuration_id=alert_id)
 
 
-def _platform_change_of(
+def platform_edit_of(alert: LogsAlertConfiguration, grouping: Grouping) -> PlatformAlertConfigurationEdit:
+    """A logs alert's settings as a whole platform edit."""
+    upsert = platform_upsert_of(alert)
+    return PlatformAlertConfigurationEdit(
+        enabled=upsert.enabled, grouping=grouping, **{field: getattr(upsert, field) for field in SETTINGS_FIELDS}
+    )
+
+
+def platform_change_of(
     alert: LogsAlertConfiguration, grouping: Grouping | None
 ) -> Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit]:
+    """The platform edit that carries a logs alert's settings onto its configuration."""
     # Only the settings a logs alert has, and a grouping the edit named. The logs row has no grouping,
     # so an edit that names none keeps what the copy stores rather than resetting it.
     upsert = platform_upsert_of(alert)
