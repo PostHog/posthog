@@ -10,11 +10,8 @@ jobs:
     turbo-affected-4:
         timeout-minutes: 30
         name: Turbo Affected
-        runs-on: ${{ matrix.os }}
-        strategy:
-            matrix:
-                # os: [depot-ubuntu-22.04, depot-ubuntu-22.04-4]
-                os: [depot-ubuntu-22.04-4]
+        # Keep merge-queue runs on Depot to avoid hosted-runner queue delays.
+        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-22.04-4' || 'ubuntu-22.04' }}
         permissions:
             contents: read
 
