@@ -27,5 +27,5 @@ ingestion/
 - Run cargo from `rust/`, the workspace root: `cargo test -p capture`. Cargo also resolves the workspace from inside a crate directory; `ingestion/rust/.cargo/config.toml` and `ingestion/rust/.env` link to the workspace's build config and test database URL so they apply there too.
 - `ingestion-rust.yml` decides what to build with `rust/affected-services --rules ingestion/ci/determinator-rules.toml`, so a change to `rust/common` runs exactly the ingestion crates that depend on it.
 - The images build from the repository root with `rust/Dockerfile` and `ingestion/node/Dockerfile`; `ingestion/ci/images.yml` lists them.
-- The CI stack's ClickHouse mounts Django's user-defined functions from the checkout (`docker/clickhouse/user_defined_function.xml`, `posthog/user_scripts`), because the pinned schema's materialized views call them and the executables are too large to pin.
+- `pinned/schema` holds the Postgres and ClickHouse schemas cut to what the Node packages reach; `pinned/schema/refresh` derives the cut from the packages' sources and tests and rewrites both.
 - The hog engine is CDP's: `publish-hog-engine-npm.yml` publishes `@posthog/hog-engine` from master and `bump-hog-engine.yml` opens the PR that moves ingestion's pin. The pin replaces the `workspace:*` dependency in `packages/ingestion/package.json` once the first version is on npm.

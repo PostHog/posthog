@@ -172,14 +172,17 @@ export function collectTableOwners(apps: DjangoApp[]): Map<string, Set<string>> 
 // The scan does not know which database a query uses. Node writes posthog_cohortpeople through the persons
 // database, but the match still puts the cohorts app in scope, so a new cohorts migration holds Node deploys
 // until Django applies it. This is a known false positive and it only adds wait time.
-function listNodeSourceFiles(sourceDirs: string[]): string[] {
+// `includeTests` adds what only the tests name, for cutting a test schema down to what Node touches.
+function listNodeSourceFiles(sourceDirs: string[], includeTests = false): string[] {
     return sourceDirs
-        .flatMap((dir) => listFilesRecursively(dir, (name) => name.endsWith('.ts') && !name.includes('.test.')))
-        .filter((file) => !file.split(path.sep).includes('__tests__'))
+        .flatMap((dir) =>
+            listFilesRecursively(dir, (name) => name.endsWith('.ts') && (includeTests || !name.includes('.test.')))
+        )
+        .filter((file) => includeTests || !file.split(path.sep).includes('__tests__'))
 }
 
-export function collectNodeIdentifiers(sourceDirs: string[]): Set<string> {
-    const sourceFiles = listNodeSourceFiles(sourceDirs)
+export function collectNodeIdentifiers(sourceDirs: string[], includeTests = false): Set<string> {
+    const sourceFiles = listNodeSourceFiles(sourceDirs, includeTests)
 
     const identifiers = new Set<string>()
     for (const file of sourceFiles) {
@@ -196,8 +199,8 @@ export interface NodeSqlTables {
     postgres: Set<string>
 }
 
-export function collectNodeSqlTables(sourceDirs: string[]): NodeSqlTables {
-    const sourceFiles = listNodeSourceFiles(sourceDirs)
+export function collectNodeSqlTables(sourceDirs: string[], includeTests = false): NodeSqlTables {
+    const sourceFiles = listNodeSourceFiles(sourceDirs, includeTests)
 
     const tables: NodeSqlTables = { all: new Set(), postgres: new Set() }
     for (const file of sourceFiles) {
