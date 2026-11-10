@@ -9,6 +9,7 @@ from uuid import UUID
 from django.db import models, transaction
 
 from posthog.event_usage import report_user_action
+from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, ChangeAction, Detail, changes_between, log_activity
@@ -23,6 +24,11 @@ if TYPE_CHECKING:
     from posthog.api.file_system.deletion import DeletionContext
 
 _SCOPE: Final = "HogFlow"
+
+
+def require_archived_before_delete(instance: HogFlow) -> None:
+    if instance.status != HogFlow.State.ARCHIVED:
+        raise Conflict("Archive this workflow before you delete it.", code="workflow_not_archived")
 
 
 def report_file_system_workflow_deletion(context: "DeletionContext", instance: HogFlow) -> None:
