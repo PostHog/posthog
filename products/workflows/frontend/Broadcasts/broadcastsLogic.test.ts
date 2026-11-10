@@ -344,11 +344,16 @@ describe('broadcastsLogic', () => {
             useMocks({
                 post: {
                     '/api/projects/:team_id/hog_flows/bulk_update_tags/': async ({ request }) => {
-                        const { tags } = (await request.json()) as { tags: string[] }
-                        if (!saveResponse) {
-                            flows = [{ ...DRAFT, tags: tags.map((tag) => tag.toLowerCase()) }]
+                        const { ids, action, tags } = (await request.json()) as Record<string, any>
+                        const sent: string[] = tags.map((tag: string) => tag.toLowerCase())
+                        const apply: Record<string, (old: string[]) => string[]> = {
+                            set: () => sent,
+                            add: (old) => [...old, ...sent],
+                            remove: (old) => old.filter((tag) => !sent.includes(tag)),
                         }
-                        return [200, saveResponse ?? { updated: flows, skipped: [] }]
+                        const hit = (flow: Flow): boolean => !saveResponse && ids.includes(flow.id)
+                        flows = flows.map((flow) => (hit(flow) ? { ...flow, tags: apply[action](flow.tags) } : flow))
+                        return [200, saveResponse ?? { updated: flows.filter(hit), skipped: [] }]
                     },
                 },
             })
