@@ -249,7 +249,7 @@ describe('RateLimiterService', () => {
 
     describe('claimAllOrNothingAcross', () => {
         let claims = 0
-        const newClaim = () => ({ key: `${KEY}/across/claim-${++claims}`, ttlSeconds: 60 })
+        const newClaim = () => ({ key: `${KEY}/across/claim-${++claims}`, attempt: 'attempt-1', ttlSeconds: 60 })
 
         it.each([
             ['a fraction', 0, 1.5],
