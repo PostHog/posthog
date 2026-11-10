@@ -299,13 +299,13 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_synthetic_original_timestamp_does_not_split_a_series(self):
         anchor = timezone.now().replace(second=0, microsecond=0)
         bucket = anchor - dt.timedelta(minutes=5)
-        # Ingestion excludes `$originalTimestamp` from series identity.
+        # Ingestion excludes `posthog.original_timestamp` from series identity.
         for index, value in enumerate((1.0, 2.0, 3.0)):
             seed_metric(
                 team_id=self.team.id,
                 metric_name="m_skewed",
                 points=[(bucket + dt.timedelta(seconds=10 * index), value)],
-                labels={"pod": "a", "$originalTimestamp": f"2020-01-0{index + 1}T00:00:00+00:00"},
+                labels={"pod": "a", "posthog.original_timestamp": f"2020-01-0{index + 1}T00:00:00+00:00"},
             )
 
         runner = self.runner_class(

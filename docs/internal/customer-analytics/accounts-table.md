@@ -84,6 +84,7 @@ On a fresh load, restoration uses this order:
 
 Accounts and Notes have independent My accounts filters.
 Changing one does not change the other, including when switching tabs.
+Notes saved views retain the selected assignee IDs when shared. Their summaries show those members' names, not the current viewer's accounts.
 Removing My accounts on the Accounts list restores all assignment statuses.
 Fresh Accounts loads do not restore unsaved filters or the Notes preference.
 Saved-view restoration waits for the project, user, and saved configuration to resolve before issuing list and overview queries.

@@ -164,7 +164,12 @@ function asTrendsQuery(query: unknown): StoryTrendsQuery {
 }
 
 function newInsightPath(query: Record<string, unknown>): string {
-    return `/insights/new#q=${encodeURIComponent(JSON.stringify(storyEvidenceNode(query)))}`
+    const node = storyEvidenceNode(query)
+    const encoded = encodeURIComponent(JSON.stringify(node))
+    // A new insight cannot show or edit SQL, so SQL opens in the SQL editor like `urls.insightNew()` does
+    return (node.source as { kind?: unknown } | undefined)?.kind === 'HogQLQuery'
+        ? `/sql?open_query=${encoded}`
+        : `/insights/new#q=${encoded}`
 }
 
 async function loadChart(context: Context, projectId: string, params: Params): Promise<StoryChart> {

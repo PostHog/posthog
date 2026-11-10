@@ -1159,6 +1159,8 @@ describe('Tool Filtering - Feature Flags', () => {
             'mcp-session-recording-console-logs',
             'workflows-push-token-import-mcp',
             'discussions-slack-sync',
+            'ui-customization',
+            'warehouse-migration-import',
             'mcp-feature-flag-restore-version',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))

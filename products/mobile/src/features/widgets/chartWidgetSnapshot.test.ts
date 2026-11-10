@@ -1,4 +1,5 @@
 import type { InsightApi } from '@/api/insights'
+import { demoInsightResponse } from '@/demo/views'
 import { insightSnapshot } from '@/model/adapters/insightSnapshot'
 
 import fixtures from '../../../modules/chart-widget/fixtures/insights.json'
@@ -87,4 +88,17 @@ test('formats only the compact rows retained by the widget', () => {
         },
     })
     expect(widgetSnapshot('example', source, 'row')?.rows).toHaveLength(12)
+})
+
+// Widgets keep their existing row representation until their native snapshot format supports mixed axes.
+test('keeps mixed-axis SQL values as formatted rows in home-screen widgets', () => {
+    const at = Date.parse('2026-11-02T12:00:00Z')
+    const response = demoInsightResponse({ shortId: 'demo-sql-revenue', dashboardRef: null, override: null }, at)
+    if (!response) throw new Error('Missing SQL demo insight')
+    const source = insightSnapshot(response, undefined, { readAt: at, serverNow: at })
+    expect(source.capabilities.chart).toBe(true)
+    const snapshot = widgetSnapshot('example', source, 'chart')
+    expect(snapshot).toMatchObject({ display: 'rows', series: [] })
+    expect(snapshot?.rows[1]?.label).toBe('Mar 2026')
+    expect(snapshot?.rows[1]?.value).toContain('20.0%')
 })
