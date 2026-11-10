@@ -565,7 +565,13 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert len(self.cdp.queued) == 1
 
-    @parameterized.expand(MISSING_UNSUBSCRIBE_LINKS)
+    @parameterized.expand(
+        [
+            *MISSING_UNSUBSCRIBE_LINKS,
+            ("text_link_running_into_a_long_run_of_punctuation", {"html": "", "text": TEXT_LINK_INTO_LONG_PUNCTUATION}),
+        ]
+    )
+    @pytest.mark.timeout(60)
     def test_a_marketing_template_send_without_a_clickable_unsubscribe_link_is_refused(
         self, cdp_post, _flag, capture, _name, case
     ):
