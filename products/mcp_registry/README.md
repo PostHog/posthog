@@ -37,7 +37,7 @@ None of them has a foreign key to a team, user, or organization table, so a late
 
 ## What to fix before it comes back
 
-1. Run it on cloud only, never on self-hosted installs (see #132164 and #131531).
+1. Keep it cloud-only. The revert restores the `is_cloud()` gate from #132164; also unschedule it on self-hosted installs (#131531).
 2. Only expose the MCP tools to callers the feature flag lets through. The tools were advertised to everyone while the endpoint was flag-gated, so calls from outside PostHog failed.
 3. The daily sync often didn't finish and nothing alerted anyone.
    Split the stages into separate tasks that can resume, alert when a run doesn't finish, and retry the crawl when outbound requests fail.
