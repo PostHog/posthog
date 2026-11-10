@@ -22,6 +22,7 @@ from posthog.integrations.backend.protocol import (
 from posthog.integrations.contracts import (
     SOURCE_MARKER_CONFIG_KEY,
     ConfigValue,
+    CrossTeamFilter,
     IntegrationConflict,
     IntegrationNotFound,
     IntegrationPatch,
@@ -29,7 +30,12 @@ from posthog.integrations.contracts import (
 )
 from posthog.integrations.enums import AuthType
 from posthog.models.integration.auth_types import ANY, default_auth_type
-from posthog.models.integration.model import Integration, IntegrationQuerySet, defer_repository_cache_fields
+from posthog.models.integration.model import (
+    Integration,
+    IntegrationQuerySet,
+    UndecryptedIntegrationSecretError,
+    defer_repository_cache_fields,
+)
 from posthog.models.integration.oauth import OauthIntegration
 
 # The unique key of a row: (team, kind, external id).
@@ -85,6 +91,20 @@ def _where_q(where: Mapping[str, ConfigValue]) -> Q:
     return q
 
 
+def _cross_team_config_q(cross_team_filter: CrossTeamFilter) -> Q:
+    # The accessor checks that each key is one JSON key segment, or two for `where_iexact`.
+    q = _where_q(cross_team_filter.where)
+    for key, values in cross_team_filter.where_in.items():
+        # nosemgrep: orm-field-injection - the accessor checks the key, and `__in` fixes the lookup
+        q &= Q(**{f"config__{key}__in": builtins.list(values)})
+    for path, text in cross_team_filter.where_iexact.items():
+        # nosemgrep: orm-field-injection - the accessor checks each key segment, and `__iexact` fixes the lookup
+        q &= Q(**{f"config__{path.replace('.', '__')}__iexact": text})
+    if cross_team_filter.has_config_key is not None:
+        q &= Q(config__has_key=cross_team_filter.has_config_key)
+    return q
+
+
 def _is_unique_key_violation(error: IntegrityError) -> bool:
     constraint = getattr(getattr(error.__cause__, "diag", None), "constraint_name", None)
     return constraint == _UNIQUE_KEY_CONSTRAINT or _UNIQUE_KEY_CONSTRAINT in str(error)
@@ -96,6 +116,15 @@ def _patch_row(row: Integration, patch: IntegrationPatch) -> builtins.list[str]:
     for field, value in changed.items():
         setattr(row, field, value)
     return builtins.list(changed)
+
+
+def _stores_access_token(row: Integration, access_token: str) -> bool:
+    try:
+        stored = row.access_token
+    except UndecryptedIntegrationSecretError:
+        # A caller that holds an unreadable token passes the stored value as it is.
+        stored = row.sensitive_config.get("access_token")
+    return (stored or "") == access_token
 
 
 class DjangoBackend:
@@ -147,6 +176,25 @@ class DjangoBackend:
             return _rows().filter(_scope_q(scope)).get(integration_id=external_id, id=id)
         except (Integration.DoesNotExist, ValueError, TypeError) as error:
             raise IntegrationNotFound(f"No integration {id!r} with external id {external_id!r} in {scope!r}") from error
+
+    def list_across_teams(
+        self, scope: RowScope, cross_team_filter: CrossTeamFilter
+    ) -> builtins.list[IntegrationRecord]:
+        f = cross_team_filter
+        # The scope always names kinds here, so Postgres can use the `(kind, integration_id)` index.
+        rows = _rows().filter(_scope_q(scope), _cross_team_config_q(f))
+        if f.team_ids is not None:
+            rows = rows.filter(team_id__in=builtins.list(f.team_ids))
+        if f.exclude_team_ids:
+            rows = rows.exclude(team_id__in=builtins.list(f.exclude_team_ids))
+        if f.created_by_ids is not None:
+            rows = rows.filter(created_by_id__in=builtins.list(f.created_by_ids))
+        if f.external_id is not None:
+            rows = rows.filter(integration_id=f.external_id)
+        if f.after_id is not None:
+            rows = rows.filter(id__lt=f.after_id) if f.newest_first else rows.filter(id__gt=f.after_id)
+        rows = rows.order_by("-id" if f.newest_first else "id")
+        return builtins.list(rows if f.limit is None else rows[: f.limit])
 
     def create(self, new: NewIntegration) -> IntegrationRecord:
         try:
@@ -240,8 +288,11 @@ class DjangoBackend:
         with transaction.atomic():
             row = self._row(scope, team_id, id, lock=True)
             oauth = OauthIntegration(row)
-            stale = stale_access_token is not None and row.access_token == stale_access_token
-            if not (stale or oauth.access_token_expired()):
+            stale = stale_access_token is not None and _stores_access_token(row, stale_access_token)
+            expired = oauth.access_token_expired()
+            if not (stale or expired):
                 return TokenRefresh(record=row, result="fresh")
-            oauth.refresh_access_token()
-            return TokenRefresh(record=row, result="error" if row.errors else "stale_token" if stale else "refreshed")
+            update_fields = _patch_row(row, oauth.token_refresh_patch())
+            if update_fields:
+                row.save(update_fields=update_fields)
+            return TokenRefresh(record=row, result="error" if row.errors else "refreshed" if expired else "stale_token")

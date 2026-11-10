@@ -157,6 +157,9 @@ class HogQLContext:
     # filter and holding lazy introspection objects, so tables resolving to the same bound walk the
     # database only once while surface-specific catalog metadata is fetched only when requested.
     information_schema_introspection: Optional[Any] = field(default=None, compare=False, repr=False)
+    # Per-query cache of the team's rows for `system.integrations`, so a query that references the
+    # table more than once calls the integrations SDK once. None until the first reference resolves.
+    system_integrations_rows: Optional[list[list[Any]]] = field(default=None, compare=False, repr=False)
     # Property-level access control: (property_name, PropertyDefinition.Type, group_type_index) tuples
     # that the current user is denied access to. Populated before type resolution so that
     # FieldType.get_child() can raise QueryError for restricted properties.
