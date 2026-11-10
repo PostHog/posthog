@@ -1,3 +1,4 @@
+import re
 import gzip
 import base64
 from collections.abc import Sequence
@@ -33,6 +34,20 @@ if TYPE_CHECKING:
 
 
 MAX_RUN_LOG_ENTRIES = 200
+WORKFLOW_FAILURE_PATTERN = (
+    r"^(?:\[Action:[^\]\r\n]+\] (?:Errored:|Skipped due to filter conditions$|Skipping send:"
+    r"|Recipient has opted out, skipping message delivery\.$)"
+    r"|Workflow trigger did not match the event\.$"
+    r"|This workflow triggers on [^\r\n]* would not trigger (?:this workflow|it)\.$"
+    r"|This trigger's filters do not name any internal events, so no event would trigger this workflow\.$"
+    r"|Messages PostHog's own connected Slack app posted would not trigger this workflow\.$"
+    r"|Activity from PostHog's own GitHub App would not trigger this workflow\.$)"
+)
+WORKFLOW_FAILURE_EVIDENCE = "Workflow step failed"
+
+
+def is_workflow_failure(message: str) -> bool:
+    return message == WORKFLOW_FAILURE_EVIDENCE or re.match(WORKFLOW_FAILURE_PATTERN, message) is not None
 
 
 @frozen
@@ -69,13 +84,7 @@ def get_last_completed_step(
             if message.startswith("Executing action ")
         }
         started = bool(started_ids)
-        failed_or_skipped = any(
-            "Errored:" in message
-            or "skip" in message.lower()
-            or "did not match" in message
-            or "would not trigger" in message
-            for message in messages
-        )
+        failed_or_skipped = any(is_workflow_failure(message) for message in messages)
         finished = "Workflow completed" in messages
         moved_ids = {
             message.removeprefix("Workflow moved to action ").removeprefix("[Action:").removesuffix("]")
@@ -124,7 +133,7 @@ def get_expected_resume_at(
             message.startswith("Executing action ")
             or message.startswith("Workflow moved to action ")
             or message == "Workflow completed"
-            or "Errored:" in message
+            or is_workflow_failure(message)
             for message in messages
         ):
             resume_at = None
@@ -136,7 +145,7 @@ def get_expected_resume_at(
             and not any(
                 message.startswith("Workflow moved to action ")
                 or message == "Workflow completed"
-                or "Errored:" in message
+                or is_workflow_failure(message)
                 for message in messages
             )
         ):
@@ -332,17 +341,14 @@ def list_account_runs(
         return Page(results=[], count=count)
     logs = sync_execute(
         """SELECT log_source_id, instance_id, timestamp,
-            if(position(message, 'Errored:') > 0 OR positionCaseInsensitive(message, 'skip') > 0
-                OR position(message, 'did not match') > 0 OR position(message, 'would not trigger') > 0,
-                'Errored:', left(message, 256)) AS evidence
+            if(match(message, %(failure_pattern)s), %(failure_evidence)s, left(message, 256)) AS evidence
         FROM log_entries
         WHERE team_id = %(team_id)s AND log_source = 'hog_flow'
             AND (log_source_id, instance_id) IN %(run_keys)s
             AND timestamp >= %(after)s
             AND (startsWith(message, 'Executing action ') OR startsWith(message, 'Workflow moved to action ')
                 OR startsWith(message, 'Workflow will pause until ') OR message = 'Workflow completed'
-                OR position(message, 'Errored:') > 0 OR positionCaseInsensitive(message, 'skip') > 0
-                OR position(message, 'did not match') > 0 OR position(message, 'would not trigger') > 0)
+                OR match(message, %(failure_pattern)s))
         ORDER BY timestamp DESC, evidence DESC
         LIMIT %(log_limit)s BY log_source_id, instance_id""",
         {
@@ -350,6 +356,8 @@ def list_account_runs(
             "run_keys": [(log_sources[(r.workflow_id, r.invocation_id)], r.invocation_id) for r in selected],
             "after": timezone.now() - timedelta(days=90),
             "log_limit": MAX_RUN_LOG_ENTRIES + 1,
+            "failure_pattern": WORKFLOW_FAILURE_PATTERN,
+            "failure_evidence": WORKFLOW_FAILURE_EVIDENCE,
         },
         workload=Workload.ONLINE,
         team_id=team.pk,

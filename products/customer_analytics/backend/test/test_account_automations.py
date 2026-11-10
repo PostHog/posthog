@@ -210,19 +210,40 @@ class TestAccountAutomations(ClickhouseTestMixin, NonAtomicAPIBaseTest):
             for workflow_id, actions in steps.items()
         } == {str(flow.id): [("wait", "delay", f"Wait {index}")] for index, flow in enumerate(workflows)}
 
-    @parameterized.expand([("custom_output", 1000, True), ("at_limit", 196, True), ("overflow", 201, False)])
+    @parameterized.expand(
+        [
+            ("custom_output", 1000, True, True),
+            ("custom_failure_output", 1, True, True),
+            ("custom_failure_output", 1000, True, True),
+            ("runtime_error", 1, False, True),
+            ("runtime_skip", 1, False, True),
+            ("at_limit", 196, True, False),
+            ("overflow", 201, False, False),
+        ]
+    )
     def test_log_evidence_ignores_custom_output_and_omits_overflow(
-        self, kind: str, message_count: int, has_evidence: bool
+        self, kind: str, message_count: int, has_evidence: bool, waiting: bool
     ) -> None:
         run_id = str(uuid4())
         self.seed(run_id, status="running", distinct_id=f"account:{self.account.id}")
         now = timezone.now()
-        messages = [
-            "Executing action a",
-            "Workflow moved to action wait",
-            "Executing action wait",
-            f"Workflow will pause until {(now + timedelta(days=1)).isoformat()}",
-        ] + [("custom output " * 1000 if kind == "custom_output" else "Executing action wait")] * message_count
+        custom_output = kind.startswith("custom_")
+        noise = {
+            "custom_failure_output": "[Action:a] skip_count=0 Errored: 0 did not match=0 would not trigger=0",
+            "runtime_error": "[Action:a] Errored: failed",
+            "runtime_skip": "[Action:a] Skipped due to filter conditions",
+        }.get(kind, "custom output " * 1000)
+        before_transition = custom_output or kind.startswith("runtime_")
+        messages = (
+            ["Executing action a"]
+            + ([noise] * message_count if before_transition else [])
+            + [
+                "Workflow moved to action wait",
+                "Executing action wait",
+                f"Workflow will pause until {(now + timedelta(days=1)).isoformat()}",
+            ]
+            + ([] if before_transition else ["Executing action wait"] * message_count)
+        )
         sync_execute(
             "INSERT INTO log_entries (team_id, log_source, log_source_id, instance_id, timestamp, level, message) VALUES",
             [
@@ -242,7 +263,7 @@ class TestAccountAutomations(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         assert response.status_code == 200, response.content
         result = response.json()["results"][0]
         assert (result["last_completed_step_at"] is not None) == has_evidence
-        assert (result["expected_resume_at"] is not None) == (has_evidence and kind == "custom_output")
+        assert (result["expected_resume_at"] is not None) == waiting
 
     @parameterized.expand(
         [(0, "example", True), (45, "example", True), (0, None, True), (0, "changed", True), (0, "example", False)]

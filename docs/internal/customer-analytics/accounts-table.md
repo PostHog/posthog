@@ -21,7 +21,9 @@ Run records expire after 30 days and step logs after 90 days.
 Only retained run records can be discovered, so older active runs may be absent too.
 Expected resume times come from retained delay logs and disappear after later execution or completion.
 Completed history can be incomplete, and a date appears as unavailable when retained evidence cannot establish it.
-Only lifecycle log messages contribute to step evidence. Custom output is excluded and returned messages are capped at 256 bytes.
+Only lifecycle log messages contribute to step evidence. Failure evidence matches known runtime messages with their expected prefixes.
+Ordinary function output containing error or skip words does not invalidate step history or consume the evidence limit.
+Returned messages are capped at 256 bytes.
 Runs with more than 200 lifecycle log messages omit completed-step and resume details because their evidence exceeds the summary limit.
 
 The endpoint requires account, workflow, person, and event read scopes.

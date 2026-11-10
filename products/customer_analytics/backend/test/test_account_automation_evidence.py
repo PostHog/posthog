@@ -16,8 +16,25 @@ class TestAccountRunEvidence(SimpleTestCase):
         [
             ("transition", ["Executing action a", "Workflow moved to action b"], 1),
             ("final", ["Executing action a", "Workflow completed"], 1),
-            ("error_continue", ["Executing action a", "a Errored: failed", "Workflow moved to action b"], None),
-            ("filtered", ["a Skipped due to filter conditions", "Workflow moved to action b"], None),
+            (
+                "error_continue",
+                ["Executing action a", "[Action:a] Errored: failed", "Workflow moved to action b"],
+                None,
+            ),
+            (
+                "filtered",
+                ["Executing action a", "[Action:a] Skipped due to filter conditions", "Workflow moved to action b"],
+                None,
+            ),
+            (
+                "custom_output",
+                [
+                    "Executing action a",
+                    "[Action:a] skip_count=0 Errored: 0 did not match=0 would not trigger=0",
+                    "Workflow moved to action b",
+                ],
+                2,
+            ),
             ("pause", ["Executing action a", "Workflow will pause until 2030-01-01"], None),
             ("expired_start", ["Workflow completed"], None),
             (
@@ -29,14 +46,19 @@ class TestAccountRunEvidence(SimpleTestCase):
                 "skipped_send",
                 [
                     "Executing action a",
-                    "Skipping send: recipient is on the suppression list.",
+                    "[Action:a] Skipping send: recipient is on the suppression list.",
                     "Workflow moved to action b",
                 ],
                 None,
             ),
             (
                 "later_error",
-                ["Executing action a", "Workflow moved to action b", "Executing action b", "b Errored: failed"],
+                [
+                    "Executing action a",
+                    "Workflow moved to action b",
+                    "Executing action b",
+                    "[Action:b] Errored: failed",
+                ],
                 1,
             ),
         ]
@@ -56,7 +78,7 @@ class TestAccountRunEvidence(SimpleTestCase):
         timestamp = datetime(2026, 1, 1, tzinfo=UTC)
         logs = [
             (timestamp, message)
-            for message in ["Executing action a", "Workflow moved to action b", "a Errored: failed"]
+            for message in ["Executing action a", "Workflow moved to action b", "[Action:a] Errored: failed"]
         ]
         assert get_last_completed_step(logs, exit_action_ids=set()) is None
 
@@ -87,6 +109,12 @@ class TestAccountRunEvidence(SimpleTestCase):
             ("invalid", ["Workflow will pause until invalid"], False),
             ("naive", ["Workflow will pause until 2026-01-02T00:00:00"], False),
             ("non_delay", ["Executing action fetch", "Workflow will pause until 2026-01-02T00:00:00Z"], False),
+            (
+                "custom_output",
+                ["Workflow will pause until 2026-01-02T00:00:00Z", "[Action:wait] skip_count=0 Errored: 0"],
+                True,
+            ),
+            ("failed", ["Workflow will pause until 2026-01-02T00:00:00Z", "[Action:wait] Errored: failed"], False),
         ]
     )
     def test_resume_time_requires_a_retained_future_pause_without_later_execution(
