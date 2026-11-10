@@ -38,7 +38,7 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @posthog/ai posthog-node@6 openai
+                                    npm install @posthog/ai@8 posthog-node@6 openai
                                 `,
                             },
                             GO_OTEL_TAB,

@@ -38,7 +38,7 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @posthog/ai posthog-node@6 openai portkey-ai
+                                    npm install @posthog/ai@8 posthog-node@6 openai portkey-ai
                                 `,
                             },
                         ]}

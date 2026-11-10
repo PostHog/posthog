@@ -37,7 +37,7 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @posthog/ai posthog-node@6 @google/genai
+                                    npm install @posthog/ai@8 posthog-node@6 @google/genai
                                 `,
                             },
                             GO_OTEL_TAB,

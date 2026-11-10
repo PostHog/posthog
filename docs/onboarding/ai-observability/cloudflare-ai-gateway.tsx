@@ -38,7 +38,7 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @posthog/ai posthog-node@6 openai
+                                    npm install @posthog/ai@8 posthog-node@6 openai
                                 `,
                             },
                         ]}

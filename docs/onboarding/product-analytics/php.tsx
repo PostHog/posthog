@@ -18,7 +18,7 @@ export const getPHPInstallSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 language: 'bash',
                                 file: 'Terminal',
                                 code: dedent`
-                                composer require posthog/posthog-php
+                                composer require "posthog/posthog-php:^4.0"
                             `,
                             },
                         ]}
