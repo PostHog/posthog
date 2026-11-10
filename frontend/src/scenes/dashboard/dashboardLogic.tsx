@@ -6327,8 +6327,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
             if (values.tileSavesPending) {
-                // The toast's Undo button has no disabled state, so say why nothing happened.
-                lemonToast.info('Wait for the dashboard to finish saving, then undo.')
                 return
             }
             actions.popLayoutUndo()
@@ -6341,7 +6339,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
             if (values.tileSavesPending) {
-                lemonToast.info('Wait for the dashboard to finish saving, then redo.')
                 return
             }
             actions.popLayoutRedo()
@@ -6372,7 +6369,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         saveEditModeChangesSuccess: ({ dashboard, payload }) => {
             cache.resolveEditSaveApplied?.()
-            cache.historyStepDone = null
             if (payload?.scope === 'layout' && !payload.recordUndo && cache.historyStepInFlight) {
                 const { kind, placements, inverse } = cache.historyStepInFlight
                 // A failed step goes back on its own stack to be tried again; a saved one can be taken back.
@@ -6385,7 +6381,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 } else {
                     actions.pushLayoutUndo(inverse, false)
                 }
-                cache.historyStepDone = cache.layoutSaveFailed ? null : kind
                 cache.historyStepInFlight = null
             }
             if (cache.layoutSaveFailed) {
@@ -6425,17 +6420,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // Only toast when changes were actually persisted — the no-op exit path skips the PATCH.
             if (cache.dashboardChangesPersisted) {
                 cache.dashboardChangesPersisted = false
-                if (payload?.scope === 'layout') {
-                    // A moved tile shows it saved, so only an undo, which moves tiles the editor did not touch, says so.
-                    if (cache.historyStepDone === 'undo') {
-                        lemonToast.success('Layout change undone', {
-                            toastId: `dashboard-layout-undone-${props.id}`,
-                            button: values.canUndoLayoutChange
-                                ? { label: 'Undo', action: () => actions.undoLayoutChange() }
-                                : undefined,
-                        })
-                    }
-                } else {
+                // Layout changes show on the grid as they save, so only other dashboard changes confirm with a toast.
+                if (payload?.scope !== 'layout') {
                     lemonToast.success('Dashboard saved')
                 }
             }

@@ -2121,12 +2121,10 @@ describe('dashboardLogic', () => {
                 )
                 moveFirstTileRight()
                 expect(logic.values.tileSavesPending).toBe(true)
-                const infoToast = jest.spyOn(lemonToast, 'info').mockImplementation(() => '')
 
                 await expectLogic(logic, () => logic.actions.undoLayoutChange()).toNotHaveDispatchedActions([
                     'restoreTilePlacements',
                 ])
-                expect(infoToast).toHaveBeenCalledWith('Wait for the dashboard to finish saving, then undo.')
 
                 finishSave(logic.values.dashboard!)
                 await expectLogic(logic).toFinishAllListeners()
@@ -2947,7 +2945,7 @@ describe('dashboardLogic', () => {
             )
         })
 
-        it('saves a layout change quietly and confirms only the undo', async () => {
+        it('saves and undoes a layout change without a toast', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const firstTile = logic.values.dashboard!.tiles[0]
@@ -2975,8 +2973,8 @@ describe('dashboardLogic', () => {
                 logic.actions.undoLayoutChange()
             }).toFinishAllListeners()
 
-            expect(successToast).toHaveBeenCalledTimes(1)
-            expect(successToast).toHaveBeenCalledWith('Layout change undone', expect.anything())
+            expect(logic.values.canUndoLayoutChange).toBe(false)
+            expect(successToast).not.toHaveBeenCalled()
         })
 
         it('counts a duplicated tile as saved only when the server has it', async () => {
