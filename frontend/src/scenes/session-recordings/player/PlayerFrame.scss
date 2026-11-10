@@ -14,8 +14,6 @@
         touch-action: pan-x pan-y;
     }
 
-    // The rrweb wrapper renders inside this frame's document, which this stylesheet cannot reach, so
-    // posthog/templates/replay_player_frame/index.html carries the wrapper's styles.
     // Sits behind the frame, so the recording itself covers the middle and only the bars show it.
     .PlayerFrame__ambient {
         position: absolute;
@@ -36,6 +34,8 @@
         }
     }
 
+    // The rrweb wrapper renders inside this frame's document, which this stylesheet cannot reach, so
+    // posthog/templates/replay_player_frame/index.html carries the wrapper's styles.
     .PlayerFrame__document {
         position: relative;
         width: 100%;

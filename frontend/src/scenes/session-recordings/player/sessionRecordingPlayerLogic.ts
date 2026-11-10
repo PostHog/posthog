@@ -867,6 +867,7 @@ export interface sessionRecordingPlayerLogicValues {
     seekRenderability: (timestamp: number) => SeekRenderability
     segmentForTimestamp: (timestamp?: number | undefined) => RecordingSegment | null
     sessionRecordingId: string
+    showAmbientBackground: boolean
     showPlayerChrome: boolean
     showingClipParams: boolean
     skipToFirstMatchingEvent: boolean
@@ -1433,6 +1434,11 @@ export interface sessionRecordingPlayerLogicMeta {
             isCommenting: boolean,
             showingClipParams: boolean,
             playerControlsOverlay: boolean
+        ) => boolean
+        showAmbientBackground: (
+            ambientBackground: boolean,
+            maskingWindow: boolean,
+            logicProps: SessionRecordingPlayerLogicProps
         ) => boolean
         showPlayerChrome: (
             isKioskMode: boolean,
@@ -2617,6 +2623,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     playerControlsOverlay
                 )
             },
+        ],
+        // Screenshot and video exports feed rendering and analysis, which want the recording on plain bars.
+        showAmbientBackground: [
+            (s) => [s.ambientBackground, s.maskingWindow, s.logicProps],
+            (
+                ambientBackground: boolean,
+                maskingWindow: boolean,
+                logicProps: SessionRecordingPlayerLogicProps
+            ): boolean =>
+                ambientBackground &&
+                !maskingWindow &&
+                logicProps.mode !== SessionRecordingPlayerMode.Screenshot &&
+                logicProps.mode !== SessionRecordingPlayerMode.Video,
         ],
         showPlayerChrome: [
             (s) => [s.isKioskMode, s.hoverModeIsEnabled, s.isHovering, s.forceShowPlayerChrome],

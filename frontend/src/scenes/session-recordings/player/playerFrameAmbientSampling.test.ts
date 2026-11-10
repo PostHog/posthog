@@ -5,6 +5,7 @@ import {
     gridSize,
     isBoxed,
     parseCssColor,
+    type Rgba,
 } from 'scenes/session-recordings/player/playerFrameAmbientSampling'
 
 describe('playerFrameAmbientSampling', () => {
@@ -40,7 +41,7 @@ describe('playerFrameAmbientSampling', () => {
         ['ignores unreadable stops', [[0, 0, 0, 255], null, [100, 50, 20, 255]], [50, 25, 10, 255]],
         ['has nothing to average', [null, null], null],
     ])('averages colors when it %s', (_, colors, expected) => {
-        expect(averageColor(colors as ([number, number, number, number] | null)[])).toEqual(expected)
+        expect(averageColor(colors as (Rgba | null)[])).toEqual(expected)
     })
 
     test.each([

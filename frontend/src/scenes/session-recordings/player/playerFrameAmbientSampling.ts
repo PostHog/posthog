@@ -1,3 +1,4 @@
+import { clamp } from 'lib/utils/numbers'
 import { PlayerFrameDimensions } from 'scenes/session-recordings/player/playerFrameScaling'
 
 const MIN_BAR_PX = 8
@@ -11,17 +12,24 @@ const MAX_EXTENDED_CELLS = 256
 const THUMBNAIL_WIDTH = 16
 const THUMBNAIL_HEIGHT = 32
 
+export type Rgba = [number, number, number, number]
+
 export interface AmbientGrid {
     columns: number
     rows: number
     pixels: Uint8ClampedArray<ArrayBuffer>
 }
 
-type Rgba = [number, number, number, number]
+export interface Rect {
+    left: number
+    top: number
+    width: number
+    height: number
+}
 
-interface Thumbnail {
+interface ImageThumbnail {
     source: string
-    pixels: Uint8ClampedArray<ArrayBuffer>
+    pixels: Uint8ClampedArray | null
 }
 
 export function isBoxed(container: PlayerFrameDimensions, recording: PlayerFrameDimensions): boolean {
@@ -30,7 +38,7 @@ export function isBoxed(container: PlayerFrameDimensions, recording: PlayerFrame
 
 export function gridSize(recording: PlayerFrameDimensions): { columns: number; rows: number } {
     const rows = Math.round((GRID_COLUMNS * recording.height) / recording.width)
-    return { columns: GRID_COLUMNS, rows: Math.min(Math.max(rows, MIN_GRID_ROWS), MAX_GRID_ROWS) }
+    return { columns: GRID_COLUMNS, rows: clamp(rows, MIN_GRID_ROWS, MAX_GRID_ROWS) }
 }
 
 export function parseCssColor(value: string): Rgba | null {
@@ -44,46 +52,71 @@ export function parseCssColor(value: string): Rgba | null {
 
 // A live DOM cannot be redrawn blurred like a video frame, so a coarse grid of sampled colors stands in for it.
 export class AmbientFrameSampler {
-    private thumbnails = new WeakMap<HTMLImageElement | HTMLCanvasElement, Thumbnail>()
+    private images = new WeakMap<HTMLImageElement, ImageThumbnail>()
+    private backgroundImages = new Map<string, Rgba | null>()
     private scratch: HTMLCanvasElement | null = null
-    private backgroundImages = new Map<string, Rgba | null | 'loading'>()
+    // Cleared every sample, because canvases repaint in place and an element's styles can change.
+    private canvasesThisSample = new Map<HTMLCanvasElement, Uint8ClampedArray | null>()
+    private elementColorsThisSample = new Map<Element, Rgba | null>()
+    onBackgroundImageLoad: (() => void) | null = null
 
     sample(doc: Document, recording: PlayerFrameDimensions): AmbientGrid | null {
+        const view = doc.defaultView
+        if (!view) {
+            return null
+        }
+        this.canvasesThisSample.clear()
+        this.elementColorsThisSample.clear()
         const { columns, rows } = gridSize(recording)
-        const fallback = this.documentColor(doc)
+        const fallback = this.documentColor(doc, view)
         const pixels = new Uint8ClampedArray(columns * rows * 4)
-        let found = 0
+        let found = false
         for (let row = 0; row < rows; row++) {
             for (let column = 0; column < columns; column++) {
                 const x = edgeAligned(column, columns, recording.width)
                 const y = edgeAligned(row, rows, recording.height)
-                const color = this.colorAt(doc, x, y) ?? fallback
+                const color = this.colorAt(doc, view, x, y) ?? fallback
                 if (color) {
-                    found++
+                    found = true
+                    pixels.set(color, (row * columns + column) * 4)
                 }
-                pixels.set(color ?? [0, 0, 0, 0], (row * columns + column) * 4)
             }
         }
         return found ? { columns, rows, pixels } : null
     }
 
     // Checks every stacked element, because a transparent overlay hides the painted element below from its ancestors.
-    private colorAt(doc: Document, x: number, y: number): Rgba | null {
-        const view = doc.defaultView
-        if (!view) {
-            return null
-        }
+    private colorAt(doc: Document, view: Window & typeof globalThis, x: number, y: number): Rgba | null {
         for (const element of doc.elementsFromPoint(x, y)) {
-            if (element instanceof view.HTMLImageElement || element instanceof view.HTMLCanvasElement) {
-                const pixel = this.pixelAt(element, x, y)
-                if (pixel) {
-                    return pixel
-                }
+            const pixel =
+                element instanceof view.HTMLImageElement
+                    ? this.pixelAt(element, this.imagePixels(element), x, y)
+                    : element instanceof view.HTMLCanvasElement
+                      ? this.pixelAt(element, this.canvasPixels(element), x, y)
+                      : null
+            const color = pixel ?? this.elementColor(element, view, doc.baseURI)
+            if (color) {
+                return color
             }
+        }
+        return null
+    }
+
+    private elementColor(element: Element, view: Window, baseUrl: string): Rgba | null {
+        if (!this.elementColorsThisSample.has(element)) {
             const style = view.getComputedStyle(element)
-            const color =
-                this.backgroundImageColor(style.backgroundImage, doc.baseURI) ??
-                opaque(parseCssColor(style.backgroundColor))
+            this.elementColorsThisSample.set(
+                element,
+                this.backgroundImageColor(style.backgroundImage, baseUrl) ??
+                    opaque(parseCssColor(style.backgroundColor))
+            )
+        }
+        return this.elementColorsThisSample.get(element) ?? null
+    }
+
+    private documentColor(doc: Document, view: Window): Rgba | null {
+        for (const element of [doc.body, doc.documentElement]) {
+            const color = element ? opaque(parseCssColor(view.getComputedStyle(element).backgroundColor)) : null
             if (color) {
                 return color
             }
@@ -96,76 +129,67 @@ export class AmbientFrameSampler {
         if (!backgroundImage || backgroundImage === 'none') {
             return null
         }
-        const url = backgroundImage.match(/url\(["']?([^"')]+)["']?\)/)?.[1]
-        if (url) {
-            // A relative URL against the replay frame's about:blank base cannot resolve.
-            return URL.canParse(url, baseUrl) ? this.imageAverage(new URL(url, baseUrl).href) : null
-        }
-        return averageColor(
-            [...backgroundImage.matchAll(/rgba?\([^)]*\)/g)].map((match) => opaque(parseCssColor(match[0])))
-        )
-    }
-
-    private imageAverage(url: string): Rgba | null {
-        const cached = this.backgroundImages.get(url)
+        const cached = this.backgroundImages.get(backgroundImage)
         if (cached !== undefined) {
-            return cached === 'loading' ? null : cached
+            return cached
         }
-        this.backgroundImages.set(url, 'loading')
-        const image = new Image()
-        image.crossOrigin = 'anonymous'
-        image.onload = () => {
-            const thumbnail = this.thumbnail(image)
-            this.backgroundImages.set(
-                url,
-                thumbnail ? averageColor(chunkPixels(thumbnail.pixels).map((pixel) => opaque(pixel))) : null
+        this.backgroundImages.set(backgroundImage, null)
+        const url = backgroundImage.match(/url\(["']?([^"')]+)["']?\)/)?.[1]
+        if (!url) {
+            const gradient = averageColor(
+                [...backgroundImage.matchAll(/rgba?\([^)]*\)/g)].map((match) => opaque(parseCssColor(match[0])))
             )
+            this.backgroundImages.set(backgroundImage, gradient)
+            return gradient
         }
-        image.onerror = () => this.backgroundImages.set(url, null)
-        image.src = url
-        return null
-    }
-
-    private documentColor(doc: Document): Rgba | null {
-        const view = doc.defaultView
-        for (const element of [doc.body, doc.documentElement]) {
-            const color = element && view ? opaque(parseCssColor(view.getComputedStyle(element).backgroundColor)) : null
-            if (color) {
-                return color
+        // A relative URL against the replay frame's about:blank base cannot resolve.
+        if (URL.canParse(url, baseUrl)) {
+            const image = new Image()
+            image.crossOrigin = 'anonymous'
+            image.onload = () => {
+                const pixels = this.draw(image)
+                this.backgroundImages.set(backgroundImage, pixels ? averageColor(rgbaPixels(pixels).map(opaque)) : null)
+                this.onBackgroundImageLoad?.()
             }
+            image.src = new URL(url, baseUrl).href
         }
         return null
     }
 
-    private pixelAt(element: HTMLImageElement | HTMLCanvasElement, x: number, y: number): Rgba | null {
+    private pixelAt(element: Element, pixels: Uint8ClampedArray | null, x: number, y: number): Rgba | null {
         const rect = element.getBoundingClientRect()
-        if (rect.width === 0 || rect.height === 0) {
-            return null
-        }
-        const thumbnail = this.thumbnail(element)
-        if (!thumbnail) {
+        if (!pixels || rect.width === 0 || rect.height === 0) {
             return null
         }
         const column = clamp(Math.floor(((x - rect.left) / rect.width) * THUMBNAIL_WIDTH), 0, THUMBNAIL_WIDTH - 1)
         const row = clamp(Math.floor(((y - rect.top) / rect.height) * THUMBNAIL_HEIGHT), 0, THUMBNAIL_HEIGHT - 1)
-        const offset = (row * THUMBNAIL_WIDTH + column) * 4
-        const [r, g, b, a] = thumbnail.pixels.slice(offset, offset + 4)
-        return opaque([r, g, b, a / 255])
+        return opaque(rgbaAt(pixels, (row * THUMBNAIL_WIDTH + column) * 4))
     }
 
-    // Drawn once per image source at a tiny size, so downscaling averages the pixels for free.
-    private thumbnail(element: HTMLImageElement | HTMLCanvasElement): Thumbnail | null {
-        const isImage = element.tagName === 'IMG'
-        if (isImage && !(element as HTMLImageElement).complete) {
+    // Failures are cached too, since most recorded images are cross-origin and cannot be read.
+    private imagePixels(image: HTMLImageElement): Uint8ClampedArray | null {
+        if (!image.complete) {
             return null
         }
-        // A canvas repaints in place, so only images can reuse a thumbnail.
-        const source = isImage ? (element as HTMLImageElement).currentSrc : ''
-        const cached = this.thumbnails.get(element)
-        if (cached && isImage && cached.source === source) {
-            return cached
+        const cached = this.images.get(image)
+        if (cached && cached.source === image.currentSrc) {
+            return cached.pixels
         }
+        const pixels = this.draw(image)
+        this.images.set(image, { source: image.currentSrc, pixels })
+        return pixels
+    }
+
+    private canvasPixels(canvas: HTMLCanvasElement): Uint8ClampedArray | null {
+        if (!this.canvasesThisSample.has(canvas)) {
+            this.canvasesThisSample.set(canvas, this.draw(canvas))
+        }
+        return this.canvasesThisSample.get(canvas) ?? null
+    }
+
+    private draw(source: HTMLImageElement | HTMLCanvasElement): Uint8ClampedArray | null {
         this.scratch ??= document.createElement('canvas')
+        // Resizing also clears the taint a previous cross-origin draw left behind.
         this.scratch.width = THUMBNAIL_WIDTH
         this.scratch.height = THUMBNAIL_HEIGHT
         const context = this.scratch.getContext('2d', { willReadFrequently: true })
@@ -173,23 +197,12 @@ export class AmbientFrameSampler {
             return null
         }
         try {
-            context.clearRect(0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
-            context.drawImage(element, 0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
-            const thumbnail = { source, pixels: context.getImageData(0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT).data }
-            this.thumbnails.set(element, thumbnail)
-            return thumbnail
+            context.drawImage(source, 0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
+            return context.getImageData(0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT).data
         } catch {
-            // A cross-origin image taints the canvas, and reading it back throws.
             return null
         }
     }
-}
-
-export interface Rect {
-    left: number
-    top: number
-    width: number
-    height: number
 }
 
 export function extendGrid(grid: AmbientGrid, recording: Rect, area: Rect): { grid: AmbientGrid; area: Rect } {
@@ -209,9 +222,11 @@ export function extendGrid(grid: AmbientGrid, recording: Rect, area: Rect): { gr
     for (let row = 0; row < rows; row++) {
         const sourceRow = clamp(row - rowsBefore, 0, grid.rows - 1)
         for (let column = 0; column < columns; column++) {
-            const sourceColumn = clamp(column - columnsBefore, 0, grid.columns - 1)
-            const source = (sourceRow * grid.columns + sourceColumn) * 4
-            pixels.set(grid.pixels.subarray(source, source + 4), (row * columns + column) * 4)
+            const source = (sourceRow * grid.columns + clamp(column - columnsBefore, 0, grid.columns - 1)) * 4
+            const target = (row * columns + column) * 4
+            for (let channel = 0; channel < 4; channel++) {
+                pixels[target + channel] = grid.pixels[source + channel]
+            }
         }
     }
     return {
@@ -249,23 +264,19 @@ export function averageColor(colors: (Rgba | null)[]): Rgba | null {
     ]
 }
 
-function chunkPixels(pixels: Uint8ClampedArray): Rgba[] {
-    const result: Rgba[] = []
-    for (let offset = 0; offset < pixels.length; offset += 4) {
-        result.push([pixels[offset], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3] / 255])
-    }
-    return result
-}
-
 // A cell-centered grid can land inside a card that stops just short of a colored margin the bars should continue.
 export function edgeAligned(index: number, count: number, length: number): number {
     return EDGE_INSET_PX + (index / (count - 1)) * (length - 2 * EDGE_INSET_PX)
 }
 
-function opaque(color: Rgba | null): Rgba | null {
-    return color && color[3] >= MIN_OPAQUE_ALPHA ? [color[0], color[1], color[2], 255] : null
+function rgbaAt(pixels: Uint8ClampedArray, offset: number): Rgba {
+    return [pixels[offset], pixels[offset + 1], pixels[offset + 2], pixels[offset + 3] / 255]
 }
 
-function clamp(value: number, min: number, max: number): number {
-    return Math.min(Math.max(value, min), max)
+function rgbaPixels(pixels: Uint8ClampedArray): Rgba[] {
+    return Array.from({ length: pixels.length / 4 }, (_, index) => rgbaAt(pixels, index * 4))
+}
+
+function opaque(color: Rgba | null): Rgba | null {
+    return color && color[3] >= MIN_OPAQUE_ALPHA ? [color[0], color[1], color[2], 255] : null
 }
