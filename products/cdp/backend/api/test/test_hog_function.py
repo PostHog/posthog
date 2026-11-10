@@ -1627,6 +1627,14 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         stored = HogFunction.objects.get(id=function.id).encrypted_inputs["token"]
         assert (stored["value"], stored["allowed_origins"], "auth" in stored) == ("I AM NEW", expected_origins, False)
 
+        with secret_host_binding_flag(False):
+            res = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{function.id}", data={"inputs": sender_inputs(SENDER_URL)}
+            )
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert HogFunction.objects.get(id=function.id).encrypted_inputs["token"]["allowed_origins"] == expected_origins
+
     def test_internal_save_that_changes_legacy_code_is_counted_but_not_refused(self) -> None:
         res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)
         assert res.status_code == status.HTTP_201_CREATED, res.json()

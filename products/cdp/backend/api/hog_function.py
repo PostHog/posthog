@@ -151,9 +151,9 @@ CREATE_ENABLED_MESSAGE = (
 )
 
 SECRET_HOST_BINDING_FLAG = "cdp-secret-host-binding"
-SECRET_REENTRY_MESSAGE = (
-    "The code reads this secret directly. Enter it again to save changes to the code, inputs or mappings."
-)
+SECRET_REENTRY_MESSAGE = "Enter this secret again to save changes to the code, inputs or mappings."
+# Marks a draft's staged secret that a draft edit entered. Validation drops the field, so it never goes live.
+STAGED_SECRET_ENTERED = "entered"
 SECRET_REENTRY_COUNTER = Counter(
     "posthog_cdp_secret_reentry_total",
     "Saves that change the code, inputs or mappings of a function whose code reads a stored secret, by outcome and by the API surface that saved them.",
@@ -352,6 +352,9 @@ def secret_binding_enforced(team: Team) -> bool:
             SECRET_HOST_BINDING_FLAG,
             str(team.uuid),
             groups={"organization": str(team.organization_id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id), "created_at": team.organization.created_at}
+            },
             send_feature_flag_events=False,
         )
     )
@@ -960,12 +963,16 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     def _store_legacy_secret_origins(self, attrs: dict) -> None:
         inputs = attrs.get("inputs") or {}
         entered = entered_secret_input_keys(self.requested_inputs)
+        stored = self.context.get("encrypted_inputs") or {}
         for schema in attrs.get("inputs_schema") or []:
-            entry = inputs.get(schema["key"]) if schema.get("secret") else None
+            key = schema["key"]
+            entry = inputs.get(key) if schema.get("secret") else None
             if not isinstance(entry, dict) or has_bound_auth(entry):
                 continue
-            if schema["key"] in entered or "allowed_origins" not in entry:
-                entry["allowed_origins"] = template_origins(self.loaded_template, schema["key"], inputs)
+            # A kept secret keeps the origins it was entered with, so a later edit to the template or to the URL
+            # input does not move them. Validation drops the stored field, so it is read from the stored entry.
+            kept = None if key in entered else (stored.get(key) or {}).get("allowed_origins")
+            entry["allowed_origins"] = kept if kept is not None else template_origins(self.loaded_template, key, inputs)
 
     def _require_legacy_secret_reentry(self, attrs: dict, team: Team) -> None:
         instance = self._stored_function()
@@ -1023,16 +1030,20 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             )
 
     def _staged_secrets(self, instance: HogFunction, live_secrets: dict) -> dict[str, bool]:
-        """The draft's secrets that differ from the live ones, each with whether a draft test run or a publish
-        counts it as entered again. Only the value is stored, so a value typed again unchanged does not count."""
+        """The draft's secrets that a draft edit entered or that differ from the live ones, each with whether a
+        draft test run or a publish counts it as entered again."""
         if not (self.context.get("use_draft") or "live_encrypted_inputs" in self.context):
             return {}
-        staged = {
-            key: (entry.get("value"), (live_secrets.get(key) or {}).get("value"))
-            for key, entry in (instance.draft_encrypted_inputs or {}).items()
-            if isinstance(entry, dict)
-        }
-        return {key: replaces_stored_value(value, live) for key, (value, live) in staged.items() if value != live}
+        staged: dict[str, bool] = {}
+        for key, entry in (instance.draft_encrypted_inputs or {}).items():
+            if not isinstance(entry, dict):
+                continue
+            value, live = entry.get("value"), (live_secrets.get(key) or {}).get("value")
+            if entry.get(STAGED_SECRET_ENTERED):
+                staged[key] = True
+            elif value != live:
+                staged[key] = replaces_stored_value(value, live)
+        return staged
 
     def _enforces_secret_binding(self, team: Team) -> bool:
         if self.context.get("view") is None:
@@ -1816,8 +1827,15 @@ class HogFunctionViewSet(
             # edit would silently revert it to the live value. Keys the draft no longer declares
             # secret drop out entirely.
             supplied = supplied_input_keys(serializer.requested_inputs)
+            entered = entered_secret_input_keys(serializer.requested_inputs)
             draft_secrets = {
-                key: value if key in supplied or key not in staged else staged[key] for key, value in recovered.items()
+                # A secret typed again unchanged stores the same value, so the mark is what lets publish count it.
+                key: {**value, STAGED_SECRET_ENTERED: True}
+                if key in entered and isinstance(value, dict)
+                else value
+                if key in supplied or key not in staged
+                else staged[key]
+                for key, value in recovered.items()
             }
         else:
             # This edit didn't touch inputs, so whatever is already staged still applies — and with
