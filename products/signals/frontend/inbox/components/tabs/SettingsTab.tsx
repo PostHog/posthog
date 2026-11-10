@@ -1,11 +1,10 @@
-import { useMountedLogic, useValues } from 'kea'
+import { useMountedLogic } from 'kea'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 import { urls } from 'scenes/urls'
 
-import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
 import { AgentSteeringSection } from '../config/AgentSteeringSection'
 import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
@@ -17,9 +16,6 @@ import { SettingsSection } from './SettingsSection'
 export function SettingsTab(): JSX.Element {
     const usageEnabled = useFeatureFlag('SELF_DRIVING_USAGE_DISPLAY')
     useMountedLogic(integrationsLogic)
-    // The usage widget renders nothing without the billing product, so the section title
-    // must hide with it rather than sit over an empty area.
-    const { product: inboxUsageProduct, spendProduct, isLoading: inboxUsageLoading } = useValues(inboxUsageLogic)
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-6">
@@ -52,18 +48,7 @@ export function SettingsTab(): JSX.Element {
             >
                 <SlackNotificationsSection />
             </SettingsSection>
-            {(inboxUsageProduct != null || spendProduct != null || inboxUsageLoading) && (
-                <SettingsSection
-                    title={spendProduct ? 'Billing usage' : usageEnabled ? 'Pull request usage' : 'Usage'}
-                    description={
-                        spendProduct
-                            ? 'Recorded billable usage this billing period.'
-                            : 'Pull requests agents opened this billing period.'
-                    }
-                >
-                    <InboxUsageWidget />
-                </SettingsSection>
-            )}
+            <InboxUsageWidget />
         </div>
     )
 }
