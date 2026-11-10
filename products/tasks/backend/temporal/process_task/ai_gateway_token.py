@@ -53,6 +53,12 @@ AI_GATEWAY_TOKEN_MINTS = Counter(
     labelnames=["result"],
 )
 
+AI_GATEWAY_TOKEN_UNAVAILABLE = Counter(
+    "tasks_ai_gateway_token_unavailable_total",
+    "Sandbox run attempts that failed because they could not get a scoped AI gateway token",
+    labelnames=["ai_product", "reason"],
+)
+
 # Mirrors resolveGatewayProduct in packages/agent/packages/agent/src/utils/gateway.ts.
 _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "feature_flags": "posthog_ai",
