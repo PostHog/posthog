@@ -38,14 +38,13 @@ from products.cohorts.backend.realtime_enablement import (
     enable_realtime_cohorts,
 )
 from products.cohorts.backend.realtime_teams import is_processing_team
-from products.cohorts.backend.tasks import process_realtime_cohort_request
+from products.cohorts.backend.tasks import REQUEST_TIME_LIMIT, process_realtime_cohort_request
 
 logger = structlog.get_logger(__name__)
 
-# A request queued this long ago lost its message, and one running this long lost its worker, so the next
-# submit for the team fails it. A running request is not taken over sooner, because two workers would then
-# run on one team.
-REQUEST_STALE_AFTER = timedelta(hours=2)
+# A request queued this long ago lost its message, and the time limit killed the worker of one running this
+# long, so the next submit for the team fails it. Past the limit, so two workers never run on one team.
+REQUEST_STALE_AFTER = REQUEST_TIME_LIMIT + timedelta(hours=1)
 
 
 @frozen
@@ -75,6 +74,8 @@ def submit_backfill(
     requested_by_id: int | None,
 ) -> RealtimeCohortRequest:
     """Raises ``ValueError``, and writes nothing, when the team's run of that kind cannot be created."""
+    if skip_scan_limit and backfill_kind != CohortBackfillKind.BEHAVIORAL:
+        raise ValueError("Only a behavioral backfill has a scan limit to skip")
     _check_backfill(team_id, backfill_kind)
     return _submit(
         RealtimeCohortRequest(
@@ -113,10 +114,25 @@ def _submit(request: RealtimeCohortRequest) -> RealtimeCohortRequest:
                 finished_at=now,
             )
             request.save(force_insert=True)
-            transaction.on_commit(lambda: process_realtime_cohort_request.delay(request.team_id, str(request.id)))
+            transaction.on_commit(lambda: _queue(request))
     except IntegrityError as error:
         raise ValueError("This team already has a request in progress") from error
     return request
+
+
+def _queue(request: RealtimeCohortRequest) -> None:
+    try:
+        process_realtime_cohort_request.delay(team_id=request.team_id, request_id=str(request.id))
+    except Exception:
+        # Otherwise the row holds the team's slot until it goes stale.
+        RealtimeCohortRequest.objects.for_team(request.team_id).filter(
+            id=request.id, state=RealtimeCohortRequestState.QUEUED
+        ).update(
+            state=RealtimeCohortRequestState.FAILED,
+            error="Could not queue the task. Submit the request again.",
+            finished_at=timezone.now(),
+        )
+        raise
 
 
 def process_request(team_id: int, request_id: UUID) -> None:

@@ -8,6 +8,7 @@ from unittest import mock
 
 from django.test import override_settings
 
+from kombu.exceptions import OperationalError
 from parameterized import parameterized
 
 from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTable
@@ -183,6 +184,20 @@ class TestRealtimeCohortRequests(BaseTest):
                 submit_enablement(self.team.id, requested_by_id=self.user.id, reason="Beta signup")
 
         assert self._request(unfinished.id).state == state_after_a_later_submit
+
+    def test_a_request_whose_task_could_not_be_queued_fails_and_frees_the_team(self) -> None:
+        with self.captureOnCommitCallbacks() as callbacks:
+            unqueued = submit_enablement(self.team.id, requested_by_id=self.user.id, reason="Beta signup")
+        [queue_task] = callbacks
+        with (
+            mock.patch("products.cohorts.backend.realtime_requests.process_realtime_cohort_request") as task,
+            self.assertRaises(OperationalError),
+        ):
+            task.delay.side_effect = OperationalError("broker unreachable")
+            queue_task()
+
+        assert self._request(unqueued.id).state == RealtimeCohortRequestState.FAILED
+        submit_enablement(self.team.id, requested_by_id=self.user.id, reason="Beta signup")
 
     def test_a_behavioral_backfill_without_its_attestations_is_refused_and_creates_no_run(self) -> None:
         RealtimeCohortTeamAccess.objects.create(

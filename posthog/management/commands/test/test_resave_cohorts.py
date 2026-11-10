@@ -13,6 +13,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, override_settings
 
+from billiard.common import _shutdown_cleanup
 from parameterized import parameterized
 
 from posthog.cohort_resave import UNWIND_SIGNALS, termination_unwinds
@@ -788,6 +789,7 @@ class TestTerminationUnwinds(SimpleTestCase):
             ("sigterm_claimed", signal.SIGTERM, _other_handler, False),
             ("sighup_claimed", signal.SIGHUP, _other_handler, False),
             ("sighup_ignored_by_nohup", signal.SIGHUP, signal.SIG_IGN, True),
+            ("sigterm_unwound_by_a_prefork_celery_child", signal.SIGTERM, _shutdown_cleanup, True),
         ]
     )
     def test_a_disposition_someone_else_set_is_left_in_place(

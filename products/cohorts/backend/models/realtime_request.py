@@ -58,7 +58,7 @@ class RealtimeCohortRequest(TeamScopedRootMixin, UUIDModel):
         db_table = "cohort_realtime_request"
         indexes = [models.Index(fields=["team", "-created_at"], name="cohort_rtr_team_created_idx")]
         constraints = [
-            # Makes a double submit fail, and keeps `enable` and a backfill of the same team from running together.
+            # Makes a double submit fail, and keeps two requests of the same team from running together.
             models.UniqueConstraint(
                 fields=["team"], condition=Q(state__in=UNFINISHED_REQUEST_STATES), name="cohort_rtr_unfinished_team_uq"
             ),
