@@ -7,30 +7,25 @@ const REDACTED_BODY = '[SessionRecording] body redacted as might contain a desti
 // lets anyone open incidents. The SDK body scrubbing only matches words like "token" and "secret", so it misses both.
 const SECRET_FIELD = /webhook[_-]?url|routing[_-]?key/i
 
+function redactArray(value: unknown[]): unknown[] {
+    const redacted = value.map(redactSecretFields)
+    return redacted.some((item, index) => item !== value[index]) ? redacted : value
+}
+
+function redactField(key: string, item: unknown): unknown {
+    return SECRET_FIELD.test(key) && item !== null && item !== '' ? REDACTED : redactSecretFields(item)
+}
+
+function redactObject(value: Record<string, unknown>): Record<string, unknown> {
+    const entries = Object.entries(value).map(([key, item]) => [key, redactField(key, item)] as const)
+    return entries.some(([key, item]) => item !== value[key]) ? Object.fromEntries(entries) : value
+}
+
 function redactSecretFields(value: unknown): unknown {
     if (!value || typeof value !== 'object') {
         return value
     }
-    if (Array.isArray(value)) {
-        let copy: unknown[] | null = null
-        value.forEach((item, index) => {
-            const redacted = redactSecretFields(item)
-            if (redacted !== item) {
-                copy ??= [...value]
-                copy[index] = redacted
-            }
-        })
-        return copy ?? value
-    }
-    let copy: Record<string, unknown> | null = null
-    for (const [key, item] of Object.entries(value)) {
-        const redacted = SECRET_FIELD.test(key) && item !== null && item !== '' ? REDACTED : redactSecretFields(item)
-        if (redacted !== item) {
-            copy ??= { ...value }
-            copy[key] = redacted
-        }
-    }
-    return copy ?? value
+    return Array.isArray(value) ? redactArray(value) : redactObject(value as Record<string, unknown>)
 }
 
 export function redactDestinationSecrets(body: unknown): unknown {
