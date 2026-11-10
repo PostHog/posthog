@@ -8,6 +8,13 @@
 
 `services/llm-gateway` is under an unofficial code freeze. Everyone should move to the Go gateway unless they can name a contract it does not support.
 
+Telemetry check, 2026-11-10: existing PostHog AI and Code callers on the Python fallback need generation telemetry to preserve the person's Last seen timestamp.
+The Python working tree now stamps `$update_person_last_seen_at: false` after caller properties are merged.
+Go main `76cc6e8b243d83f72a33255f993a6dba8c422132` does not stamp it and strips reserved properties from caller headers.
+A companion Go emitter change is prepared for primary and mirrored capture.
+Both changes are pending.
+This check covers activity suppression only and does not update the broader parity baseline below.
+
 A PR that changes the Python gateway must:
 
 1. Name the active caller and its use case.

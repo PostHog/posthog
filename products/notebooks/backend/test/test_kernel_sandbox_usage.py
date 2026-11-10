@@ -68,6 +68,8 @@ class TestRecordSandboxEnded(BaseTest):
         mock_report.assert_called_once()
         event, properties = mock_report.call_args[0]
         self.assertEqual(event, KERNEL_SANDBOX_ENDED_EVENT)
+        self.assertIs(properties["$update_person_last_seen_at"], False)
+        self.assertEqual(mock_report.call_args.kwargs["user"], self.user)
         self.assertEqual(properties["ended_reason"], KernelRuntime.Status.STOPPED)
         self.assertEqual(properties["estimated_runtime_seconds"], 1800)
         hourly_price = get_compute_rates().hourly_price(cpu_cores=1, memory_gb=2)

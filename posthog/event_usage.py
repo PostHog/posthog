@@ -331,6 +331,7 @@ def report_user_organization_membership_level_changed(
         distinct_id=user.distinct_id,
         event="membership level changed",
         properties={
+            "$update_person_last_seen_at": False,
             "new_level": new_level,
             "previous_level": previous_level,
             "$set": user.get_analytics_metadata(),
@@ -752,7 +753,7 @@ def report_organization_deletion_completed(user_id: int, organization_id: str) -
         capture_ph_event(
             distinct_id=user.distinct_id,
             event="organization deletion completed",
-            properties={"organization_id": organization_id},
+            properties={"organization_id": organization_id, "$update_person_last_seen_at": False},
             groups={"instance": SITE_URL, "organization": organization_id},
         )
 
