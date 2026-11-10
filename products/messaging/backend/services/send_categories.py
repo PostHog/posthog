@@ -1,7 +1,7 @@
 from typing import Literal
 from uuid import UUID
 
-from django.db import IntegrityError, connection, transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from products.messaging.backend.facade.contracts import (
@@ -87,20 +87,19 @@ def _create(team_id: int, requested: SendCategoryDefinition) -> MessageCategory:
                 f"create the category `{requested.key}`. Send the key of a category the project has, or archive "
                 "categories it no longer uses."
             )
-        try:
-            with transaction.atomic():
-                return MessageCategory.objects.create(
+        MessageCategory.objects.bulk_create(
+            [
+                MessageCategory(
                     team_id=team_id,
                     key=requested.key,
                     name=requested.name,
                     description=requested.description or "",
                     category_type=requested.type,
                 )
-        except IntegrityError:
-            category = _category_with_key(team_id, requested.key)
-            if category is None:
-                raise
-            return category
+            ],
+            ignore_conflicts=True,
+        )
+        return MessageCategory.objects.get(team_id=team_id, key=requested.key)
 
 
 def _update_to_match(category: MessageCategory, requested: SendCategoryDefinition) -> None:

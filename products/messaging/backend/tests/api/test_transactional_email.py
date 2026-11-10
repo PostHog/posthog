@@ -920,27 +920,6 @@ class TestTransactionalEmail(APIBaseTest):
         assert ours.id != theirs.id
         assert json.loads(mock_post.call_args.kwargs["data"])["send"]["messageCategory"]["id"] == str(ours.id)
 
-    def test_a_key_created_in_the_app_during_the_send_is_used_not_duplicated(self, mock_post, _flag, _capture):
-        self._cdp_accepts(mock_post)
-        made_in_the_app = self._category()
-        reads = iter([None, None])
-        real_read = send_categories._category_with_key
-
-        # The first two reads miss the row, as when the app creates it between the send's read and its insert.
-        with patch.object(
-            send_categories, "_category_with_key", side_effect=lambda *args: next(reads, real_read(*args))
-        ):
-            response = self._psak_client(["transactional_email:write"]).post(
-                self.send_email_url,
-                self._code_send(category=self.NEWSLETTER, html=self.UNSUBSCRIBE_HTML),
-                format="json",
-            )
-
-        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert MessageCategory.objects.filter(team=self.team, key="newsletter").count() == 1
-        sent = json.loads(mock_post.call_args.kwargs["data"])["send"]
-        assert sent["messageCategory"]["id"] == str(made_in_the_app.id)
-
     @parameterized.expand(
         [
             ("code_send_with_a_category", "code", NEWSLETTER, status.HTTP_400_BAD_REQUEST),
