@@ -16,12 +16,16 @@ export const trimUrlWhitespace = (href: string): string => {
     return href.slice(start, end)
 }
 
-const TEXT_LINK_START = /https?:\/\//
+const TEXT_LINK_START = /[hH][tT][tT][pP][sS]?:\/\/|[wW]{3}\./
+const TEXT_LINK_END = /[.,;:!?'")\]}>*]*$/
+const TEXT_LINK_END_BEFORE_LIQUID = /[.,;:!?'")\]}>*]*(?:\{[{%].*)?$/
 
-export const textLinks = (text: string): string[] =>
+export const textLinksTo = (text: string, base: string, { liquid }: { liquid: boolean }): string[] =>
     text.split(/\s+/).flatMap((word) => {
         const start = word.search(TEXT_LINK_START)
-        return start === -1 ? [] : [word.slice(start)]
+        const link = start === -1 ? '' : word.slice(start)
+        const end = liquid ? TEXT_LINK_END_BEFORE_LIQUID : TEXT_LINK_END
+        return link.startsWith(base) ? [link.slice(base.length).replace(end, '')] : []
     })
 
 const EMPTY_BOGUS_COMMENT = /<!>/g

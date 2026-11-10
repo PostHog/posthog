@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { CyclotronInvocationQueueParametersEmailType, EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 
-import { clickableHrefs, textLinks } from '../messaging/helpers/clickable-links'
+import { clickableHrefs, textLinksTo } from '../messaging/helpers/clickable-links'
 
 export const MAX_COPY_RECIPIENTS = 10
 
@@ -90,14 +90,20 @@ const isMarketingEmailStep = (action: HogFlowAction): action is EmailStep =>
 export const marketingEmailStep = (hogFlow: HogFlow): EmailStep | undefined =>
     hogFlow.actions.find(isMarketingEmailStep)
 
-const CODE_SEND_UNSUBSCRIBE_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/g
-const LIQUID_UNSUBSCRIBE_LINK = /\{\{-?\s*unsubscribe_url(_one_click)?\s*-?\}\}|\{%-?\s*unsubscribe_url\s*-?%\}/g
+const CODE_SEND_BODY = { placeholder: /\{\{\s*unsubscribe_url\s*\}\}/g, liquid: false }
+const LIQUID_BODY = {
+    placeholder: /\{\{-?\s*unsubscribe_url(_one_click)?\s*-?\}\}|\{%-?\s*unsubscribe_url\s*-?%\}/g,
+    liquid: true,
+}
 
-const hasClickableUnsubscribeLink = (body: { html?: string; text?: string }, placeholder: RegExp): boolean => {
+const hasClickableUnsubscribeLink = (
+    body: { html?: string; text?: string },
+    { placeholder, liquid }: { placeholder: RegExp; liquid: boolean }
+): boolean => {
     const link = `unsubscribe-link-${randomUUID()}`
     if (!body.html) {
         const url = `https://${link}.invalid/`
-        return textLinks((body.text ?? '').replace(placeholder, url)).some((textLink) => textLink.startsWith(url))
+        return textLinksTo((body.text ?? '').replace(placeholder, url), url, { liquid }).includes('')
     }
     return clickableHrefs(body.html.replace(placeholder, link)).includes(link)
 }
@@ -116,8 +122,8 @@ export const marketingSendRefusal = (
     }
     const email = action.config.inputs.email?.value ?? {}
     const hasUnsubscribeLink = send?.content
-        ? hasClickableUnsubscribeLink(send.content, CODE_SEND_UNSUBSCRIBE_PLACEHOLDER)
-        : hasClickableUnsubscribeLink(email, LIQUID_UNSUBSCRIBE_LINK)
+        ? hasClickableUnsubscribeLink(send.content, CODE_SEND_BODY)
+        : hasClickableUnsubscribeLink(email, LIQUID_BODY)
     if (!hasUnsubscribeLink) {
         return 'unsubscribe_link_required'
     }

@@ -34,7 +34,7 @@ import {
     resolveEmailSendingAppSourceVersion,
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
-import { clickableHrefs, textLinks } from './helpers/clickable-links'
+import { clickableHrefs, textLinksTo } from './helpers/clickable-links'
 import { escapeHtml } from './helpers/escape-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
@@ -1427,16 +1427,17 @@ export class EmailService {
         }
         const recipient = params.to?.email && unquoteMailbox(params.to.email)
         const preferencesPage = `${this.siteUrl}/messaging-preferences/`
-        const tokens = params.html
+        const paths = params.html
             ? clickableHrefs(params.html).flatMap((href) => {
                   const page = URL.canParse(href) ? new URL(href) : undefined
                   const path = page ? `${page.origin}${page.pathname}` : ''
-                  const token = path.startsWith(preferencesPage) ? path.slice(preferencesPage.length) : ''
-                  return /^[^/]+\/$/.test(token) ? [token.slice(0, -1)] : []
+                  return path.startsWith(preferencesPage) ? [path.slice(preferencesPage.length)] : []
               })
-            : textLinks(params.text ?? '')
-                  .filter((link) => link.startsWith(preferencesPage))
-                  .map((link) => link.slice(preferencesPage.length).split('/')[0])
+            : textLinksTo(params.text ?? '', preferencesPage, { liquid: false })
+        const tokens = paths.flatMap((path) => {
+            const page = path.split(/[?#]/)[0]
+            return /^[^/]+\/$/.test(page) ? [page.slice(0, -1)] : []
+        })
         return !tokens.some((token) => {
             const owner = this.recipientTokensService.validatePreferencesToken(token)
             return owner.valid && owner.team_id === invocation.teamId && unquoteMailbox(owner.identifier) === recipient

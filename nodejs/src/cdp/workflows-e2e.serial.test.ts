@@ -3962,6 +3962,18 @@ describe('Workflows E2E (email queue)', () => {
                 error: 'quota_limited',
             },
             {
+                name: 'a code send in a marketing category whose text link runs into Liquid markup it never renders',
+                kind: 'code',
+                payload: {
+                    send: {
+                        ...codeSend(newsletter),
+                        content: { subject: 'News', text: 'Bye: {{unsubscribe_url}}{% endif %}' },
+                    },
+                },
+                status: 400,
+                error: 'unsubscribe_link_required',
+            },
+            {
                 name: 'a code send whose category is a key, not an id',
                 kind: 'code',
                 payload: { send: { ...codeSend(), messageCategory: { id: 'newsletter', type: 'marketing' } } },
@@ -4223,28 +4235,30 @@ describe('Workflows E2E (email queue)', () => {
 
         it.each([
             {
-                body: 'html',
+                change: 'points its html unsubscribe link at another host',
                 html: '{% assign unsubscribe_url = "https://redirect.example.com/?to=" | append: unsubscribe_url %}<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
                 text: '',
             },
             {
-                body: 'text',
+                change: 'points its text unsubscribe link at another host',
                 html: '',
                 text: '{% assign unsubscribe_url = "https://redirect.example.com/?to=" | append: unsubscribe_url %}Unsubscribe: {{ unsubscribe_url }}',
             },
-        ])(
-            'skips a marketing template send whose Liquid points its $body unsubscribe link at another host',
-            async ({ html, text }) => {
-                const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional', { html, text }))
-                const to = `reader-${new UUIDT().toString()}@example.com`
+            {
+                change: 'runs its text unsubscribe link into markup',
+                html: '',
+                text: '{% assign unsubscribe_url = unsubscribe_url | append: "{%" %}Unsubscribe: {{ unsubscribe_url }}',
+            },
+        ])('skips a marketing template send whose Liquid $change', async ({ html, text }) => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional', { html, text }))
+            const to = `reader-${new UUIDT().toString()}@example.com`
 
-                const res = await post('template', flow, { to, distinct_id: 'reader', message_category: newsletter })
-                expect(res.status).toEqual(202)
-                await deliver()
+            const res = await post('template', flow, { to, distinct_id: 'reader', message_category: newsletter })
+            expect(res.status).toEqual(202)
+            await deliver()
 
-                expect(await sendOutcome(to, res.body.invocation_id)).toEqual('unsubscribe_link_required')
-            }
-        )
+            expect(await sendOutcome(to, res.body.invocation_id)).toEqual('unsubscribe_link_required')
+        })
 
         it.each([
             {

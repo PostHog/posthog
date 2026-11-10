@@ -136,5 +136,23 @@
         "html": "",
         "text": "Unsubscribe: https://redirect.example.com/?to={{ unsubscribe_url }}",
         "has_unsubscribe_link": false
+    },
+    {
+        "name": "text_link_inside_an_upper_case_url",
+        "html": "",
+        "text": "Unsubscribe: HTTPS://redirect.example.com/?to={{ unsubscribe_url }}",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "text_link_inside_a_www_address",
+        "html": "",
+        "text": "Unsubscribe: www.redirect.example.com/?to={{ unsubscribe_url }}",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "text_link_with_more_after_the_placeholder",
+        "html": "",
+        "text": "Unsubscribe: {{ unsubscribe_url }}manage",
+        "has_unsubscribe_link": false
     }
 ]
