@@ -121,3 +121,54 @@ ${CLAIM_UPDATE}
 FROM available
 WHERE cyclotron_jobs.id = available.id
 ${CLAIM_RETURNING}`
+
+export const FAIR_DEQUEUE_CANDIDATE_CAP = 1000
+
+export const FAIR_DEQUEUE_JOBS_SQL = `WITH RECURSIVE ${PRIORITY_CLASSES_CTE},
+due AS MATERIALIZED (
+    SELECT due.id, due.priority, due.dequeue_seq
+    FROM (SELECT priority FROM priority_classes ORDER BY priority ASC) c
+    CROSS JOIN LATERAL (
+        SELECT j.id, j.priority, j.dequeue_seq FROM cyclotron_jobs j
+        WHERE j.status = 'available' AND j.queue_name = $1 AND j.priority = c.priority AND j.scheduled <= NOW()
+        ORDER BY j.scheduled ASC
+        LIMIT $4::int + 1
+    ) due
+    LIMIT $4::int + 1
+),
+complete AS MATERIALIZED (
+    SELECT COUNT(*) <= $4::int AS all_due_rows FROM due
+),
+from_due AS (
+    SELECT j.id
+    FROM (SELECT id, priority, dequeue_seq FROM due ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST) d
+    JOIN cyclotron_jobs j ON j.id = d.id
+    WHERE (SELECT all_due_rows FROM complete)
+      AND j.status = 'available' AND j.queue_name = $1 AND j.scheduled <= NOW()
+    ORDER BY d.priority ASC, d.dequeue_seq ASC NULLS FIRST
+    LIMIT $2
+    FOR UPDATE OF j SKIP LOCKED
+),
+from_index AS (
+    SELECT id FROM cyclotron_jobs
+    WHERE NOT (SELECT all_due_rows FROM complete)
+      AND status = 'available' AND queue_name = $1 AND scheduled <= NOW()
+    ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED
+)
+${CLAIM_UPDATE}
+WHERE cyclotron_jobs.id = ANY(ARRAY(SELECT id FROM from_due UNION ALL SELECT id FROM from_index))
+${CLAIM_RETURNING}`
+
+export const LEGACY_FAIR_DEQUEUE_JOBS_SQL = `WITH available AS (
+    SELECT id FROM cyclotron_jobs
+    WHERE status = 'available' AND queue_name = $1 AND scheduled <= NOW()
+    ORDER BY priority ASC, dequeue_seq ASC NULLS FIRST
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED
+)
+${CLAIM_UPDATE}
+FROM available
+WHERE cyclotron_jobs.id = available.id
+${CLAIM_RETURNING}`

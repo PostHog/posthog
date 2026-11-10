@@ -223,6 +223,7 @@ export type CyclotronV2WorkerConfig = {
     heartbeatTimeoutMs?: number
     includeEmptyBatches?: boolean
     boundedPolls?: boolean
+    boundedFairDequeue?: boolean
 }
 
 export type CyclotronV2JanitorConfig = {

@@ -11,6 +11,7 @@ import {
     serializeResolverState,
 } from '../hogflows/batch-resolver.types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
+import { FAIR_DEQUEUE_CANDIDATE_CAP } from './due-rows-sql'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager, assignEmailDequeueSeq } from './manager'
 import { createCyclotronPool } from './pg-pool'
@@ -48,6 +49,7 @@ function createWorker(queueName = QUEUE, overrides?: Record<string, unknown>): C
         pollDelayMs: 10,
         includeEmptyBatches: true,
         boundedPolls: true,
+        boundedFairDequeue: true,
         ...overrides,
     })
 }
@@ -1896,13 +1898,16 @@ describe('Cyclotron V2', () => {
             await expect(job.heartbeat()).rejects.toThrow(/already released/)
         })
 
-        it('concurrent workers get disjoint batches', async () => {
+        it.each([
+            ['the plain dequeue', QUEUE],
+            ['the fair dequeue', 'email'],
+        ])('concurrent workers get disjoint batches via %s', async (_label, queue) => {
             for (let i = 0; i < 10; i++) {
-                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                await manager.createJob({ teamId: 1 + (i % 3), queueName: queue })
             }
 
-            const worker1 = createWorker(QUEUE, { batchMaxSize: 5 })
-            const worker2 = createWorker(QUEUE, { batchMaxSize: 5 })
+            const worker1 = createWorker(queue, { batchMaxSize: 5 })
+            const worker2 = createWorker(queue, { batchMaxSize: 5 })
 
             const [batch1, batch2] = await Promise.all([dequeueOneBatch(worker1), dequeueOneBatch(worker2)])
 
@@ -2337,11 +2342,49 @@ describe('Cyclotron V2', () => {
             })
         })
 
-        describe('Worker: fairDequeue ordering', () => {
+        describe.each([
+            ['bounded', true],
+            ['legacy', false],
+        ])('Worker: fairDequeue ordering, %s claim', (_label, boundedFairDequeue) => {
             // The email queue is intrinsically fair-dequeued — the worker derives
             // it from the queue name, so an EMAIL_QUEUE worker is already fair.
             const createFairWorker = (overrides?: Record<string, unknown>): CyclotronV2Worker =>
-                createWorker(EMAIL_QUEUE, overrides)
+                createWorker(EMAIL_QUEUE, { boundedFairDequeue, ...overrides })
+
+            it.each([
+                {
+                    label: 'a lower-sequence row of another team is parked',
+                    seed: async (): Promise<string> => {
+                        await manager.bulkCreateJobs([
+                            { teamId: 200, queueName: EMAIL_QUEUE, scheduled: new Date(Date.now() + 3_600_000) },
+                        ])
+                        const [due] = await manager.bulkCreateJobs([{ teamId: 100, queueName: EMAIL_QUEUE }])
+                        return due
+                    },
+                },
+                {
+                    label: 'more rows are due than the candidate cap',
+                    seed: async (): Promise<string> => {
+                        const [first] = await manager.bulkCreateJobs([
+                            { teamId: 200, queueName: EMAIL_QUEUE, scheduled: new Date(Date.now() - 1_000) },
+                        ])
+                        await manager.bulkCreateJobs(
+                            Array.from({ length: FAIR_DEQUEUE_CANDIDATE_CAP + 1 }, () => ({
+                                teamId: 100,
+                                queueName: EMAIL_QUEUE,
+                                scheduled: new Date(Date.now() - 3_600_000),
+                            }))
+                        )
+                        return first
+                    },
+                },
+            ])('claims the lowest-sequence due row when $label', async ({ seed }) => {
+                const expected = await seed()
+
+                const jobs = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
+
+                expect(jobs.map((j) => j.id)).toEqual([expected])
+            })
 
             it('dequeues the fast class before an earlier-enqueued bulk backlog', async () => {
                 // A bulk broadcast (priority 1) is already queued when two fast-class
