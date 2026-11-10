@@ -393,7 +393,8 @@ export class WorkerIngestServer {
     /**
      * Fed sub-batches by `streamId:seq`, for the shared in-flight accounting the
      * processor autoscaler reads. Kept off StreamState so a batch whose stream
-     * died mid-processing is still released when it settles.
+     * died mid-processing is still collected by the pump and released when it
+     * settles.
      */
     private readonly acceptedBatches = new Map<string, FedBatch>()
 
@@ -587,7 +588,6 @@ export class WorkerIngestServer {
      */
     private async runPump(): Promise<void> {
         while (!this.stopped) {
-            // A batch whose stream died must still be collected.
             if (this.acceptedBatches.size === 0) {
                 await new Promise<void>((resolve) => {
                     this.wakePump = resolve
