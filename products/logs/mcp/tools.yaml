@@ -428,6 +428,7 @@ tools:
             idempotent: true
         title: Group logs by attributes
         description_file: ./prompts/logs-group-by.md
+        hooks: logs/redactCredentialsHooks
         response:
             exclude:
                 - groups.*.value
