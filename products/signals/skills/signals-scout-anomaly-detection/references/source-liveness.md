@@ -5,20 +5,42 @@ Stale dashboards and empty view counts mean nobody is looking at the charts.
 They do not mean that the sources that fed those charts still send events.
 A capture failure on a project nobody watches is the one no human will notice, so check it before the quick close-out.
 
-The probe is one grouped query plus one confirmation query per candidate.
+The probe is one grouped query plus one confirmation query per candidate, and one history query when the profile has no events.
 It compares each previously active source's latest complete day with its own trailing 28 complete days.
 
 ## 0. Is there any history?
 
-If the profile's `top_events` is empty, the project has no recent events to compare.
-Skip the probe and record the limit in the `not-in-use:` entry ("no events in the profile, no source history to check").
-A project that never sent events is not broken.
+The profile's `top_events` covers a short rolling window (its `window_days`), not the probe's baseline.
+An empty list means no events in that window, not that the project never sent events.
+A project-wide gap that began before the window empties it too, and that gap is what this probe exists to catch.
+
+If `top_events` has rows, continue to step 1.
+If it is empty or null, read the event history over the last 35 complete days:
+
+```sql
+SELECT event, count() AS events, max(timestamp) AS last_seen
+FROM events
+WHERE timestamp >= toStartOfDay(now()) - INTERVAL 35 DAY
+    AND timestamp < toStartOfDay(now())
+GROUP BY event
+ORDER BY events DESC
+LIMIT 10
+```
+
+HogQL evaluates `toStartOfDay(now())` in the project timezone, so both bounds are project-local midnights and every day in the range is complete.
+
+- **No rows.** The project sent no events in 35 days.
+  Skip the probe and record the limit in the `not-in-use:` entry ("no events in the last 35 complete days, no source history to check").
+  A project that never sent events is not broken.
+- **Rows.** Use the top three event names from this result in place of `top_events` in step 1, and continue through steps 2 to 4.
+  An empty profile is not evidence of a gap by itself.
+  Only a source that passes the floors in step 2 and the checks in step 3 becomes a report.
 
 ## 1. Confirm the source properties
 
 Do not assume that a property exists on every project.
 `$lib` and `$host` are optional: a server SDK sends no `$host`, and a direct call to the capture API can send neither.
-Call `read-data-schema` with `event_properties` for the top three events in the profile's `top_events`.
+Call `read-data-schema` with `event_properties` for the top three events in the profile's `top_events`, or in the step 0 history when the profile has none.
 A property is confirmed when it appears on at least one of them.
 
 Build `<source>` from confirmed properties only.
@@ -94,6 +116,8 @@ ORDER BY day
 
 - **Weekly rhythm.** A source that sends only on weekdays is quiet every weekend.
   It is a candidate only when it had events on the same weekday as the latest complete day in each of the 4 prior weeks.
+  When `last_seen` is more than 7 days before the latest complete day, the source has been quiet on every weekday since, so its rhythm cannot explain the gap.
+  Skip this check for it.
 - **Onset.** The first complete day with no events or with less than about 10% of the baseline.
   `last_seen` from step 2 gives the last event.
 - **Replacement.** Look for a source that first appeared near the onset with similar volume: the same host with a new `$lib`, or the same `$lib` on a new host.
@@ -111,7 +135,7 @@ Sum `last_day` and `baseline_daily` over the other rows of the step 2 result.
 
 | What the probe found                                       | Outcome                                                                           |
 | ---------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| No event history, or no source passes the floors           | Quiet exit. The `not-in-use:` entry says "no prior source with usable history"    |
+| No events in 35 days, or no source passes the floors       | Quiet exit. The `not-in-use:` entry says "no prior source with usable history"    |
 | Every source is live                                       | Quiet exit. The `not-in-use:` entry says "sources live" and the date of the probe |
 | A confirmed candidate (a source gap or a project-wide gap) | One source-health report. Do not close out empty                                  |
 
