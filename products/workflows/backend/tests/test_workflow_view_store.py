@@ -19,10 +19,9 @@ class TestWorkflowViewStoreConcurrency(TransactionTestCase):
         self.view = self.store.create(name="Shared", state={"filters": [], "text": "", "columns": []})
 
     def _edit_while_holding_the_view(self, locked: Event, writer_pid: int, writer_blocked: Event) -> None:
-        # Django shares its test connection across threads, so the other writer needs its own database session.
-        other = connection.get_new_connection(connection.get_connection_params())
+        separate_session = connection.get_new_connection(connection.get_connection_params())
         try:
-            with other.cursor() as cursor:
+            with separate_session.cursor() as cursor:
                 cursor.execute("BEGIN")
                 cursor.execute("SELECT pg_backend_pid()")
                 holder_pid = cursor.fetchone()[0]
@@ -41,7 +40,7 @@ class TestWorkflowViewStoreConcurrency(TransactionTestCase):
                 )
                 cursor.execute("COMMIT")
         finally:
-            other.close()
+            separate_session.close()
 
     def test_a_write_that_waits_on_a_locked_view_is_refused_once_a_newer_version_commits(self) -> None:
         locked = Event()
