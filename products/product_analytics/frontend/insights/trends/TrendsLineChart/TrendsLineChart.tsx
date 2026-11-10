@@ -27,6 +27,8 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, type IntervalType } from '~/types'
 
+import { RetentionDeletionOverlay } from 'products/product_analytics/frontend/insights/dataRetention/RetentionDeletionOverlay'
+import { showsRetentionDeletion } from 'products/product_analytics/frontend/insights/dataRetention/showsRetentionDeletion'
 import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
@@ -115,6 +117,7 @@ export function TrendsLineChart({
         showConfidenceIntervals,
         confidenceLevel,
         isSingleSeriesDefinition,
+        compareFilter,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -411,6 +414,7 @@ export function TrendsLineChart({
 
     const showAnnotations = !inSharedMode && trendsFilter?.showAnnotations !== false
     const annotationsDates = currentPeriodResult?.days ?? []
+    const showRetentionDeletion = showsRetentionDeletion({ isStickiness, days, querySource, compareFilter })
 
     return (
         <TimeSeriesLineChart<TrendsSeriesMeta>
@@ -428,6 +432,7 @@ export function TrendsLineChart({
             dataAttr="trend-line-graph"
             onError={handleChartError}
         >
+            {showRetentionDeletion && <RetentionDeletionOverlay />}
             {insight.id ? (
                 <TrendsAlertOverlays
                     insightId={insight.id}

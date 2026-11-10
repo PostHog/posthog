@@ -31,6 +31,8 @@ import { QueryContext } from '~/queries/types'
 import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { RetentionDeletionOverlay } from 'products/product_analytics/frontend/insights/dataRetention/RetentionDeletionOverlay'
+import { showsRetentionDeletion } from 'products/product_analytics/frontend/insights/dataRetention/showsRetentionDeletion'
 import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
@@ -514,6 +516,12 @@ export function TrendsBarChart({
         ? indexedResults?.find((r: IndexedTrendResult) => r.compare_label === 'previous')
         : undefined
     const annotationsPreviousDates = previousPeriodResult?.days
+    const showRetentionDeletion = showsRetentionDeletion({
+        isStickiness,
+        days: currentPeriodResult?.days,
+        querySource,
+        compareFilter,
+    })
 
     return (
         <TimeSeriesBarChart<TrendsSeriesMeta>
@@ -529,6 +537,7 @@ export function TrendsBarChart({
             dataAttr="trend-bar-graph"
             onError={handleChartError}
         >
+            {showRetentionDeletion && <RetentionDeletionOverlay />}
             {insight.id && (
                 <TrendsAlertOverlays
                     insightId={insight.id}

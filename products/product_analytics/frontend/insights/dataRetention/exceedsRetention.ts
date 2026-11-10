@@ -1,4 +1,4 @@
-import { dayjs } from 'lib/dayjs'
+import { type Dayjs, dayjs } from 'lib/dayjs'
 
 import {
     isAnyDataWarehouseNode,
@@ -9,25 +9,36 @@ import {
 } from '~/queries/schema/node-guards'
 import { Node } from '~/queries/schema/schema-general'
 
-/** Whether one insight's date range reaches past the team's events retention window.
- *
- * Shared by the per-insight banner, the dashboard-level banner and the tile icon so every surface answers the
- * question the same way, from the range the backend resolved for the results being shown.
- */
-export function exceedsRetention({
-    query,
-    dateFromOverride,
-    resolvedDateFrom,
-    retentionMonths,
-}: {
+// Retention floors and deletes only the events table, so an insight reading warehouse tables alone loses nothing.
+export function readsOnlyWarehouseTables(source: Node | null | undefined): boolean {
+    return (
+        !!source &&
+        isInsightQueryWithSeries(source) &&
+        source.series.length > 0 &&
+        source.series.every(isAnyDataWarehouseNode)
+    )
+}
+
+interface InsightRange {
     query?: Node | null
     /** Effective range from a surface that overrides the query's own: a dashboard or tile filter, or the live editor. */
     dateFromOverride?: string | null
     /** `resolved_date_range.date_from` from the query response the surface is showing. */
     resolvedDateFrom?: string | null
-    retentionMonths: number | null
-}): boolean {
-    if (!retentionMonths) {
+}
+
+/** Whether one insight's date range reaches back before `cutoff`.
+ *
+ * Shared by the per-insight banner, the dashboard-level banner and the tile icon so every surface answers the
+ * question the same way, from the range the backend resolved for the results being shown.
+ */
+export function rangeReachesBefore({
+    query,
+    dateFromOverride,
+    resolvedDateFrom,
+    cutoff,
+}: InsightRange & { cutoff: Dayjs | null }): boolean {
+    if (!cutoff) {
         return false
     }
     // A SQL insight can scan arbitrary history and has no resolved range, so warn whenever retention applies.
@@ -35,8 +46,7 @@ export function exceedsRetention({
         return true
     }
     const source = isInsightVizNode(query) ? query.source : undefined
-    // Retention floors only the events table, so an insight reading warehouse tables alone can't be truncated.
-    if (isInsightQueryWithSeries(source) && source.series.length > 0 && source.series.every(isAnyDataWarehouseNode)) {
+    if (readsOnlyWarehouseTables(source)) {
         return false
     }
     const dateFrom = dateFromOverride ?? source?.dateRange?.date_from
@@ -48,5 +58,12 @@ export function exceedsRetention({
     if (!resolvedDateFrom) {
         return false
     }
-    return dayjs(resolvedDateFrom).isBefore(dayjs().subtract(retentionMonths, 'month'))
+    return dayjs(resolvedDateFrom).isBefore(cutoff)
+}
+
+export function exceedsRetention({
+    retentionMonths,
+    ...range
+}: InsightRange & { retentionMonths: number | null }): boolean {
+    return rangeReachesBefore({ ...range, cutoff: retentionMonths ? dayjs().subtract(retentionMonths, 'month') : null })
 }
