@@ -28,25 +28,20 @@ function surveySentEntry(
     }
 }
 
+function surveyIdFromFilter(properties: { key?: string; value?: unknown }[] | undefined): string | null {
+    const value = properties?.find((property) => property.key === '$survey_id')?.value
+    const surveyId = Array.isArray(value) ? value[0] : value
+    return typeof surveyId === 'string' && surveyId ? surveyId : null
+}
+
 export function getAwaitedSurveyId(action: HogFlowAction | undefined): string | null {
     if (action?.type !== 'wait_until_condition') {
         return null
     }
-    for (const entry of action.config.events ?? []) {
-        for (const event of entry.filters?.events ?? []) {
-            if (event.id !== SURVEY_SENT_EVENT) {
-                continue
-            }
-            const surveyFilter = (event.properties ?? []).find(
-                (property: { key?: string }) => property.key === '$survey_id'
-            ) as { value?: unknown } | undefined
-            const value = Array.isArray(surveyFilter?.value) ? surveyFilter?.value[0] : surveyFilter?.value
-            if (typeof value === 'string' && value) {
-                return value
-            }
-        }
-    }
-    return null
+    const surveySentEvents = (action.config.events ?? [])
+        .flatMap((entry) => entry.filters?.events ?? [])
+        .filter((event) => event.id === SURVEY_SENT_EVENT)
+    return surveySentEvents.map((event) => surveyIdFromFilter(event.properties)).find(Boolean) ?? null
 }
 
 export function getNextAction(workflow: WorkflowGraph, actionId: string): HogFlowAction | undefined {
