@@ -88,6 +88,25 @@ describe('task artifacts and comments tools', () => {
         ])
     })
 
+    // A UUIDT has a per-millisecond counter where RFC 4122 has the version digit, and
+    // random bytes where it has the variant digit, so a strict UUID check rejects it.
+    it.each([
+        ['root_comment_id', { root_comment_id: '01a1aa05-0f82-0000-39df-151783a90003' }],
+        [
+            'comment_id',
+            {
+                root_comment_id: '019fcdb5-2e5b-7ab1-bdab-b77fafd3c96f',
+                comment_id: '01a1aa05-0f82-0001-c4df-151783a90004',
+            },
+        ],
+    ])('accepts a UUIDT comment id as %s', (_field, input) => {
+        expect(tasksCommentsRetrieve().schema.safeParse(input).success).toBe(true)
+    })
+
+    it('rejects a comment id that is not a UUID', () => {
+        expect(tasksCommentsRetrieve().schema.safeParse({ root_comment_id: 'not-an-id' }).success).toBe(false)
+    })
+
     it('fails closed when the host did not stamp a task', async () => {
         const { context: toolContext, request } = context(undefined)
 
