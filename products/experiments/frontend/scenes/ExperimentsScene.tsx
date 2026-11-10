@@ -728,6 +728,7 @@ const ExperimentsTable = ({
                 selectedIds={tagsModalExperiment ? [tagsModalExperiment.id as number] : []}
                 isOpen={!!tagsModalExperiment}
                 title={tagsModalExperiment ? `Edit tags for ${tagsModalExperiment.name}` : undefined}
+                initialTags={tagsModalExperiment?.tags ?? []}
                 onClose={() => setTagsModalExperiment(null)}
                 onSuccess={() => {
                     setTagsModalExperiment(null)

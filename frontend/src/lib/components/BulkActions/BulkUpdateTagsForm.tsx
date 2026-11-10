@@ -33,6 +33,8 @@ export interface BulkUpdateTagsFormProps {
     onClose: () => void
     /** Hosts that supply their own title (e.g. a modal) can hide the built-in header line. */
     showHeader?: boolean
+    /** The item's current tags. Pass this when editing one item: the form starts with them and saves the result as is. */
+    initialTags?: string[]
 }
 
 /** The bulk tag editing form, shared between the popover button and the modal host. */
@@ -42,9 +44,16 @@ export function BulkUpdateTagsForm({
     onSuccess,
     onClose,
     showHeader = true,
+    initialTags,
 }: BulkUpdateTagsFormProps): JSX.Element {
-    const [tagAction, setTagAction] = useState<BulkTagAction>('add')
-    const [selectedTags, setSelectedTags] = useState<string[]>([])
+    // With one item's tags known, the user edits them directly, so the add/remove/replace modes are not needed.
+    const editsSingleItem = initialTags !== undefined
+    const [tagAction, setTagAction] = useState<BulkTagAction>(editsSingleItem ? 'set' : 'add')
+    const [selectedTags, setSelectedTags] = useState<string[]>(initialTags ?? [])
+    const tagsUnchanged =
+        editsSingleItem &&
+        selectedTags.length === initialTags.length &&
+        selectedTags.every((tag) => initialTags.includes(tag))
     const [loading, setLoading] = useState(false)
 
     const { currentProjectId } = useValues(projectLogic)
@@ -92,24 +101,26 @@ export function BulkUpdateTagsForm({
                     Update tags for {selectedIds.length} item{selectedIds.length !== 1 ? 's' : ''}
                 </div>
             )}
-            <LemonSegmentedButton
-                value={tagAction}
-                onChange={setTagAction}
-                options={[
-                    { value: 'add' as const, label: 'Add' },
-                    { value: 'remove' as const, label: 'Remove' },
-                    { value: 'set' as const, label: 'Replace all' },
-                ]}
-                size="small"
-                fullWidth
-            />
+            {!editsSingleItem && (
+                <LemonSegmentedButton
+                    value={tagAction}
+                    onChange={setTagAction}
+                    options={[
+                        { value: 'add' as const, label: 'Add' },
+                        { value: 'remove' as const, label: 'Remove' },
+                        { value: 'set' as const, label: 'Replace all' },
+                    ]}
+                    size="small"
+                    fullWidth
+                />
+            )}
             <TagsInputSelect
                 value={selectedTags}
                 onChange={setSelectedTags}
                 placeholder="Enter tags..."
                 data-attr="bulk-tag-input"
             />
-            {tagAction === 'set' && (
+            {tagAction === 'set' && !editsSingleItem && (
                 <LemonBanner type="warning">This will replace all existing tags on the selected items.</LemonBanner>
             )}
             <div className="flex gap-2 justify-end">
@@ -122,10 +133,20 @@ export function BulkUpdateTagsForm({
                     onClick={() => void submit()}
                     loading={loading}
                     disabledReason={
-                        selectedTags.length === 0 && tagAction !== 'set' ? 'Select at least one tag' : undefined
+                        tagsUnchanged
+                            ? 'No changes to save'
+                            : selectedTags.length === 0 && tagAction !== 'set'
+                              ? 'Select at least one tag'
+                              : undefined
                     }
                 >
-                    {tagAction === 'add' ? 'Add tags' : tagAction === 'remove' ? 'Remove tags' : 'Replace tags'}
+                    {editsSingleItem
+                        ? 'Save'
+                        : tagAction === 'add'
+                          ? 'Add tags'
+                          : tagAction === 'remove'
+                            ? 'Remove tags'
+                            : 'Replace tags'}
                 </LemonButton>
             </div>
         </div>
