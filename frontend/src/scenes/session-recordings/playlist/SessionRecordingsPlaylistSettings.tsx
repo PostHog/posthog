@@ -569,7 +569,6 @@ export function SessionRecordingsPlaylistTopSettings({
             'data-attr': 'mark-as-not-viewed',
         })
 
-        // The vision API refuses every request on a self-hosted install
         if (!isHobby) {
             // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
             menuItems.push({

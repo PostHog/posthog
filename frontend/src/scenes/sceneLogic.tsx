@@ -990,8 +990,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 router.actions.replace(urls.projectRoot())
                 return
             }
-            // `isHobby` reads true until preflight loads, so without the preflight check a cloud user who
-            // deep-links into a cloud-only scene could be sent away.
+            // `isHobby` is true until preflight loads, so a cloud user must not be redirected before it loads
             if (sceneConfig.cloudOnly && preflight && preflightLogic.values.isHobby) {
                 router.actions.replace(urls.moveToPostHogCloud())
                 return
