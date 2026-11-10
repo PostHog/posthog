@@ -18,6 +18,8 @@ const status: WarehouseSuggestionStatusApi = {
     window_days: 30,
     paused_reason: null,
     refreshed_at: '2026-10-07T08:30:00Z',
+    waiting: 0,
+    can_show_more: false,
 }
 
 function suggestion(

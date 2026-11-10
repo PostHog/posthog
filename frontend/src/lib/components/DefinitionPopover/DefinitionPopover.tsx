@@ -48,8 +48,17 @@ function Header({
     onEdit: _onEdit,
     onView: _onView,
 }: HeaderProps): JSX.Element {
-    const { state, type, definition, viewFullDetailUrl, hideView, hideEdit, isViewable, openDetailInNewTab } =
-        useValues(definitionPopoverLogic)
+    const {
+        state,
+        type,
+        definition,
+        viewFullDetailUrl,
+        hideView,
+        hideEdit,
+        isViewable,
+        isEditable,
+        openDetailInNewTab,
+    } = useValues(definitionPopoverLogic)
     const { setPopoverState } = useActions(definitionPopoverLogic)
     const { reportDataManagementDefinitionClickView, reportDataManagementDefinitionClickEdit } =
         useActions(eventUsageLogic)
@@ -90,7 +99,7 @@ function Header({
                 )}
                 {state === DefinitionPopoverState.View && (
                     <div className="definition-popover-header-row-buttons flex gap-4 text-[0.8125rem] click-outside-block">
-                        {!hideEdit && isViewable && <Link onClick={onEdit}>Edit</Link>}
+                        {!hideEdit && isEditable && <Link onClick={onEdit}>Edit</Link>}
                         {!hideView && isViewable && viewFullDetailUrl && (
                             <Link
                                 target={openDetailInNewTab ? '_blank' : undefined}

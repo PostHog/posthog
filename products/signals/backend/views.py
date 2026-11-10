@@ -71,7 +71,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.errors import ClickHouseQueryTimeOut
 from posthog.event_usage import report_user_action
 from posthog.integrations import IntegrationManager, IntegrationNotFound
-from posthog.models import Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.github_integration_base import GitHubIntegrationBase, PullRequestRef
@@ -140,6 +140,7 @@ from products.signals.backend.enums import ReportPriority, ReportTaskActionKind,
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.facade.source_configs import AlertNamePatterns, evaluate_alert_filter
 from products.signals.backend.feedback_notes import forward_feedback_note
+from products.signals.backend.hybrid_search import SearchMode, SemanticSearchUnavailable
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
     fetch_implementation_prs_for_reports,
@@ -239,6 +240,10 @@ from products.signals.backend.report_read_state import (
     ReportReadStateResponseSerializer,
     report_read_states,
 )
+from products.signals.backend.report_search import (
+    search_enabled as report_search_enabled,
+    search_reports,
+)
 from products.signals.backend.report_task_actions import (
     AI_CONSENT_DISABLED_REASON,
     INBOX_REPORT_ACTION_EVENT,
@@ -307,6 +312,8 @@ from products.signals.backend.serializers import (
     SignalReportMetricRefreshResponseSerializer,
     SignalReportPriorityUpdateSerializer,
     SignalReportRefundSerializer,
+    SignalReportSearchQuerySerializer,
+    SignalReportSearchResponseSerializer,
     SignalReportSectionCountsSerializer,
     SignalReportSerializer,
     SignalReportSourceMetadataRequestSerializer,
@@ -363,6 +370,7 @@ from products.signals.backend.temporal.types import (
 )
 from products.signals.backend.throttles import (
     ReportMetricRefreshThrottle,
+    ReportSearchThrottle,
     ReportTaskActionRunBurstThrottle,
     ReportTaskActionRunSustainedThrottle,
     UserReportCreateBurstThrottle,
@@ -1498,9 +1506,10 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
             "nullable": True,
             "description": (
                 "The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, "
-                "action or fix for that outcome of the served ranking model. For sort=personal it is personal "
-                "when your stored personal ranking ordered the page. Null for every other sort. Each row's "
-                "inbox_merge_key belongs to this ranker."
+                "action or fix for that outcome of the served ranking model, or personal when a stored personal "
+                "ranking ordered the page. For sort=personal that is the teammate's ranking with scope=teammate, "
+                "else yours. For sort=recommended it is yours, when your flag arm serves it. Null for every other "
+                "sort. Each row's inbox_merge_key belongs to this ranker."
             ),
         }
         paginated["properties"]["ranking_id"] = {
@@ -1508,7 +1517,7 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
             "format": "uuid",
             "nullable": True,
             "description": (
-                "The stored personal ranking that ordered the page when sort=personal. Pass it back as "
+                "The stored personal ranking that ordered the page, when the ranker is personal. Pass it back as "
                 "ranking_id on later pages, so a new ranking does not reorder them. Null when no personal "
                 "ranking applied, and for every other sort."
             ),
@@ -1728,11 +1737,14 @@ _REPORT_LIST_PARAMETERS = [
             "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored "
             "when ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
             "the open, action or fix outcome of the served ranking model, highest score first, with "
-            "unscored and stale reports in priority order after the scored ones. The response's ranker "
+            "unscored and stale reports in priority order after the scored ones, or your stored personal "
+            "ranking, as personal gives it, then the priority order. The response's ranker "
             "field names the one used, and its ranking_pill field says whether to show score pills. "
-            "personal puts the reports of your stored personal ranking first, by rank, then the reports it "
-            "folded, then every other report in your recommended order. It only reads the stored ranking "
-            "and never starts a build. With no stored personal ranking, it is the recommended order."
+            "personal puts the reports of a stored personal ranking first, by rank, then the reports it "
+            "folded, then every other report in your recommended order. With scope=teammate it reads the "
+            "teammate's stored ranking, else yours. It only reads the stored ranking and never starts a "
+            "build. With no stored personal ranking, or a teammate outside the organization, it is the "
+            "recommended order, or the priority order when recommended gives you the personal ranking."
         ),
     ),
     OpenApiParameter(
@@ -1842,6 +1854,12 @@ _SECTION_COUNTS_PARAMETERS = [
 ]
 
 
+class _SemanticSearchUnavailable(exceptions.APIException):
+    status_code = 503
+    default_detail = "The semantic search is unavailable. Try again, or use `search_mode=hybrid` or `keyword`."
+    default_code = "semantic_search_unavailable"
+
+
 @extend_schema_view(
     destroy=extend_schema(
         summary="Delete a signal report",
@@ -1924,6 +1942,54 @@ class SignalReportViewSet(
         "ranking_fixed": "inbox_ranking_fix_score",
     }
     _RANKING_ORDERING_HEADS: dict[str, str] = RANKING_ORDERING_HEADS
+
+    @validated_request(
+        query_serializer=SignalReportSearchQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=SignalReportSearchResponseSerializer),
+            404: OpenApiResponse(description="Report search is not available for this project."),
+            503: OpenApiResponse(
+                description="A `semantic` search could not run. A `hybrid` search never returns this."
+            ),
+        },
+        summary="Search inbox reports",
+        description=(
+            "Rank the project's inbox reports by how well they match a query, best match first. A hybrid search "
+            "merges keyword matches on the title and summary with semantic matches on the report's meaning. Reports "
+            "older than 3 months can match on keywords only. Returns at most 25 results, with no total count and no "
+            "pages: rephrase the query for different results."
+        ),
+        operation_id="signals_reports_search",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="search",
+        required_scopes=["inbox:read"],
+        pagination_class=None,
+        throttle_classes=[ReportSearchThrottle],
+    )
+    @tracer.start_as_current_span("signals.reports.search")
+    def search(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        if not report_search_enabled(self.team):
+            raise NotFound()
+        if trial_store_for_request(request, self.team_id) is not None:
+            raise exceptions.PermissionDenied("Private scout trials cannot search inbox reports.")
+        query = request.validated_query_data
+        reports = self.get_queryset()
+        if query.get("created_after") is not None:
+            reports = reports.filter(created_at__gte=query["created_after"])
+        try:
+            result = search_reports(
+                self.team,
+                reports,
+                query=query["query"],
+                search_mode=SearchMode(query["search_mode"]),
+                limit=query["limit"],
+            )
+        except SemanticSearchUnavailable:
+            raise _SemanticSearchUnavailable()
+        return Response(SignalReportSearchResponseSerializer(result).data)
 
     @extend_schema(
         responses={200: RankingOutcomesResponseSerializer},
@@ -2086,6 +2152,12 @@ class SignalReportViewSet(
             # metric snapshots alone.
             qs = queryset.filter(team=self.team)
             return self._apply_signal_report_status_filter(qs)
+        if self.action == "search":
+            # Search ranks and renders its own rows, so it takes the list's visibility filters and none of
+            # its annotations.
+            qs = queryset.filter(team=self.team)
+            qs = self._apply_signal_report_status_filter(qs)
+            return self._apply_signal_report_listed_filter(qs)
         if self.action in {"retrieve", "signals"}:
             qs = self._scope_signal_report_queryset(queryset)
             qs = self._annotate_artefact_count(qs)
@@ -2306,6 +2378,8 @@ class SignalReportViewSet(
         # every status — and without breaking if the status set evolves).
         if (
             self.action in self._SUPPRESSED_VISIBLE_ACTIONS
+            # A search that misses a dismissed report invites the duplicate the dismissal was about.
+            or self.action == "search"
             or self._include_all_statuses_requested()
             or self.request.query_params.get("view") in {"dismissed", "held_back", "all"}
         ):
@@ -2334,7 +2408,10 @@ class SignalReportViewSet(
 
     def _apply_signal_report_listed_filter(self, queryset):
         # List-only: a report a scout kept out of the inbox stays reachable by id and by its other actions.
-        if self.action not in {"list", "section_counts"} or self._bool_query_param("include_unlisted") is True:
+        if (
+            self.action not in {"list", "section_counts", "search"}
+            or self._bool_query_param("include_unlisted") is True
+        ):
             return queryset
         return queryset.filter(inbox_hidden_report_filter(self.team_id))
 
@@ -2909,24 +2986,62 @@ class SignalReportViewSet(
         inbox_sort = params.get("sort")
         if params.get("ordering") is not None or inbox_sort not in ("recommended", "personal"):
             return None
+        own_order = self._own_personal_order
         # The personal sort only borrows the arm's order, so it records no exposure for the experiment.
         return resolve_recommended_arm(
-            self.team, cast(User, self.request.user), send_feature_flag_events=inbox_sort == "recommended"
+            self.team,
+            cast(User, self.request.user),
+            personal_list_size=len(own_order.report_ids) if own_order is not None else 0,
+            send_feature_flag_events=inbox_sort == "recommended",
         )
+
+    @cached_property
+    def _own_personal_order(self) -> PersonalListOrder | None:
+        """The caller's stored list. The personal arm of `sort=recommended` serves it."""
+        request = self.request
+        user = request.user
+        if is_service_auth(request) or not isinstance(user, User):
+            return None
+        return personal_list_order(self.team, user, request.query_params.get("ranking_id"))
 
     @cached_property
     def _personal_order(self) -> PersonalListOrder | None:
         request = self.request
         user = request.user
+        arm = self._recommended_arm
+        if arm is None:
+            return None
+        if request.query_params.get("sort") == "recommended":
+            # Only a caller with a stored list can get the personal arm, so this order is never None for it.
+            return self._own_personal_order if arm.personal else None
         if (
-            self._recommended_arm is None
-            or request.query_params.get("sort") != "personal"
-            or is_service_auth(request)
+            is_service_auth(request)
             or not isinstance(user, User)
             or not user_flag_enabled(PERSONAL_INBOX_RANKING_FLAG, user, self.team)
         ):
             return None
-        return personal_list_order(self.team, user, request.query_params.get("ranking_id"))
+        owner = self._personal_ranking_owner(user)
+        if owner is None:
+            return None
+        if owner == user:
+            return self._own_personal_order
+        return personal_list_order(self.team, owner, request.query_params.get("ranking_id"))
+
+    def _personal_ranking_owner(self, user: User) -> User | None:
+        """Whose stored ranking `sort=personal` reads: the teammate `scope=teammate` names, else the caller."""
+        params = self.request.query_params
+        if params.get("scope") != "teammate":
+            return user
+        try:
+            teammate_uuid = uuid.UUID((params.get("teammate_uuid") or "").strip())
+        except ValueError:
+            return None
+        membership = (
+            OrganizationMembership.objects.filter(organization_id=self.team.organization_id, user__uuid=teammate_uuid)
+            .select_related("user")
+            .first()
+        )
+        return membership.user if membership is not None else None
 
     @property
     def _base_inbox_ranker(self) -> InboxRanker | None:

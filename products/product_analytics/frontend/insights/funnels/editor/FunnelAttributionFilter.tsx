@@ -2,16 +2,20 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+
 import { FunnelsFilter } from '~/queries/schema/schema-general'
 import { BreakdownAttributionType, EditorFilterProps, StepOrderValue } from '~/types'
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
 import { FUNNEL_STEP_COUNT_LIMIT } from './FunnelsQuerySteps'
+import { FunnelAttributionOption, QuillFunnelAttributionSelect } from './QuillFunnelAttributionSelect'
 
 export function FunnelAttribution({ insightProps }: EditorFilterProps): JSX.Element {
     const { insightFilter, steps } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const quillSurface = useQuillSurface()
 
     const { breakdownAttributionType, breakdownAttributionValue, funnelOrderType } = (insightFilter ||
         {}) as FunnelsFilter
@@ -23,40 +27,55 @@ export function FunnelAttribution({ insightProps }: EditorFilterProps): JSX.Elem
               ? `${breakdownAttributionType}/${breakdownAttributionValue || 0}`
               : breakdownAttributionType
 
+    const touchpointOptions: FunnelAttributionOption[] = [
+        { value: BreakdownAttributionType.FirstTouch, label: 'First touchpoint' },
+        { value: BreakdownAttributionType.LastTouch, label: 'Last touchpoint' },
+        { value: BreakdownAttributionType.AllSteps, label: 'All steps' },
+        {
+            value: BreakdownAttributionType.Step,
+            label: 'Any step',
+            hidden: funnelOrderType !== StepOrderValue.UNORDERED,
+        },
+    ]
+    const specificStep = {
+        label: 'Specific step',
+        options: Array(FUNNEL_STEP_COUNT_LIMIT)
+            .fill(null)
+            .map((_, stepIndex) => ({
+                value: `${BreakdownAttributionType.Step}/${stepIndex}`,
+                label: `Step ${stepIndex + 1}`,
+                hidden: stepIndex >= steps.length,
+            })),
+        hidden: funnelOrderType === StepOrderValue.UNORDERED,
+    }
+
+    const onChange = (value: string | null): void => {
+        const [breakdownAttributionType, breakdownAttributionValue] = (value || '').split('/')
+        if (value) {
+            updateInsightFilter({
+                breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
+                breakdownAttributionValue: breakdownAttributionValue ? parseInt(breakdownAttributionValue) : 0,
+            })
+        }
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillFunnelAttributionSelect
+                value={currentValue}
+                touchpointOptions={touchpointOptions}
+                specificStep={specificStep}
+                onChange={onChange}
+            />
+        )
+    }
+
     return (
-        <LemonSelect
+        <LemonSelect<string>
             value={currentValue}
             placeholder="Attribution"
-            options={[
-                { value: BreakdownAttributionType.FirstTouch, label: 'First touchpoint' },
-                { value: BreakdownAttributionType.LastTouch, label: 'Last touchpoint' },
-                { value: BreakdownAttributionType.AllSteps, label: 'All steps' },
-                {
-                    value: BreakdownAttributionType.Step,
-                    label: 'Any step',
-                    hidden: funnelOrderType !== StepOrderValue.UNORDERED,
-                },
-                {
-                    label: 'Specific step',
-                    options: Array(FUNNEL_STEP_COUNT_LIMIT)
-                        .fill(null)
-                        .map((_, stepIndex) => ({
-                            value: `${BreakdownAttributionType.Step}/${stepIndex}`,
-                            label: `Step ${stepIndex + 1}`,
-                            hidden: stepIndex >= steps.length,
-                        })),
-                    hidden: funnelOrderType === StepOrderValue.UNORDERED,
-                },
-            ]}
-            onChange={(value) => {
-                const [breakdownAttributionType, breakdownAttributionValue] = (value || '').split('/')
-                if (value) {
-                    updateInsightFilter({
-                        breakdownAttributionType: breakdownAttributionType as BreakdownAttributionType,
-                        breakdownAttributionValue: breakdownAttributionValue ? parseInt(breakdownAttributionValue) : 0,
-                    })
-                }
-            }}
+            options={[...touchpointOptions, specificStep]}
+            onChange={onChange}
             dropdownMaxContentWidth={true}
             data-attr="breakdown-attributions"
         />
