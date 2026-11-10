@@ -35,7 +35,7 @@ from posthog.temporal.quota_limiting.run_quota_limiting import (
     RunQuotaLimitingWorkflow,
 )
 from posthog.temporal.usage_report.activities import plan_usage_counters
-from posthog.temporal.usage_report.queries import QUERIES, QuerySpec
+from posthog.temporal.usage_report.queries import QUERIES, QUERY_INDEX, QuerySpec
 from posthog.temporal.usage_report.types import (
     AggregateInputs,
     AggregateResult,
@@ -62,6 +62,7 @@ from posthog.temporal.usage_report.workflow import (
     TRANSACTIONAL_EMAILS_QUERY_NAME,
     USAGE_COUNTER_SERVICE_PATCH_ID,
     RunUsageReportsWorkflow,
+    _dispatched_queries,
     _queries_for_ai_overage_bytes_patch,
     _queries_for_business_knowledge_usage_patch,
     _queries_for_local_evaluation_not_modified_patch,
@@ -113,6 +114,11 @@ def test_single_query_is_versioned_for_existing_histories(
 ) -> None:
     assert query_name not in [spec.name for spec in queries_for_patch(QUERIES, False)]
     assert query_name in [spec.name for spec in queries_for_patch(QUERIES, True)]
+
+
+def test_deferred_query_is_known_to_every_worker_but_not_dispatched() -> None:
+    assert AI_OVERAGE_BYTES_QUERY_NAME in QUERY_INDEX
+    assert AI_OVERAGE_BYTES_QUERY_NAME not in [spec.name for spec in _dispatched_queries(QUERIES)]
 
 
 @parameterized.expand(
@@ -227,6 +233,7 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
     fails = report_behavior in {"activity_failure", "query_failure", "pre_patch_query_failure", "counter_query_failure"}
     pre_signals_spend = report_behavior == "pre_signals_spend"
     recording_queries = [spec for spec in QUERIES if not pre_signals_spend or spec.name != SIGNALS_SPEND_QUERY_NAME]
+    dispatched_queries = _dispatched_queries(recording_queries)
     pre_patch = report_behavior.startswith("pre_patch")
     legacy_aggregation_queue = pre_patch or report_behavior == "pre_aggregation_queue"
     parallel_counters = not pre_patch and report_behavior != "serial_counters"
@@ -391,10 +398,10 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
                             ),
                         )
                         if report_behavior == "concurrency":
-                            for offset in range(0, len(QUERIES), QUERY_CONCURRENCY):
+                            for offset in range(0, len(dispatched_queries), QUERY_CONCURRENCY):
                                 batch = [
                                     await asyncio.wait_for(starts.get(), timeout=10)
-                                    for _ in range(min(QUERY_CONCURRENCY, len(QUERIES) - offset))
+                                    for _ in range(min(QUERY_CONCURRENCY, len(dispatched_queries) - offset))
                                 ]
                                 for name in batch:
                                     releases[name].set()
@@ -455,7 +462,7 @@ async def test_workflow_runs_query_then_aggregate(report_behavior: str, caplog: 
                 scheduled_summaries[attrs.activity_id] = decoded_summary
 
     counter_names = plans[0].query_names if plans else set()
-    expected_names = [spec.name for spec in recording_queries if spec.name not in counter_names]
+    expected_names = [spec.name for spec in dispatched_queries if spec.name not in counter_names]
     with override_settings(USAGE_REPORT_AGGREGATION_TASK_QUEUE=aggregation_queue):
         await Replayer(
             workflows=[RunUsageReportsWorkflow],
