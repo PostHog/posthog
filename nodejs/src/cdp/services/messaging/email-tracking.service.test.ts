@@ -470,15 +470,35 @@ describe('EmailTrackingService', () => {
                 expect(opened).toBeLessThan(5100)
             })
 
-            it('still records the open when Redis stalls', async () => {
+            it.each<[string, (service: any) => void]>([
+                [
+                    'Redis stalls',
+                    (service) =>
+                        jest.spyOn(service.engagementRedis, 'useClient').mockReturnValue(new Promise(() => {})),
+                ],
+                [
+                    'Redis rejects',
+                    (service) =>
+                        jest
+                            .spyOn(service.engagementRedis, 'useClient')
+                            .mockRejectedValueOnce(new Error('pool exhausted')),
+                ],
+                [
+                    'the team config read fails',
+                    (service) =>
+                        jest
+                            .spyOn(service.teamWorkflowsConfigService, 'shouldCaptureEngagementEvents')
+                            .mockRejectedValueOnce(new Error('column does not exist')),
+                ],
+            ])('still records the open when %s', async (_, fail) => {
                 const parentRunId = new UUIDT().toString()
-                const service = api['emailTrackingService'] as any
-                jest.spyOn(service.engagementRedis, 'useClient').mockReturnValue(new Promise(() => {}))
+                fail(api['emailTrackingService'])
                 const code = signer.generate({
                     functionId: hogFunction.id,
                     id: new UUIDT().toString(),
                     teamId: team.id,
                     parentRunId,
+                    distinctId: 'distinct-id',
                 })
 
                 const response = await supertest(app).get(`/public/m/pixel?ph_id=${code}`)
@@ -489,7 +509,7 @@ describe('EmailTrackingService', () => {
                         .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
                         .filter(({ value }) => value.app_source_id === parentRunId)
                         .map(({ value }) => value.metric_name)
-                    expect(names).toEqual(['email_opened'])
+                    expect(names.filter((name) => name === 'email_opened')).toHaveLength(1)
                 })
             })
 
@@ -715,6 +735,40 @@ describe('EmailTrackingService', () => {
                             reason: 'hard',
                         }),
                     }),
+                ])
+            })
+
+            it.each<[string, (service: any) => void]>([
+                [
+                    'reading the team config',
+                    (service) =>
+                        jest
+                            .spyOn(service.teamWorkflowsConfigService, 'shouldCaptureEngagementEvents')
+                            .mockRejectedValueOnce(new Error('column does not exist')),
+                ],
+                [
+                    'queueing the engagement event',
+                    (service) => {
+                        jest.spyOn(
+                            service.teamWorkflowsConfigService,
+                            'shouldCaptureEngagementEvents'
+                        ).mockResolvedValue(true)
+                        jest.spyOn(service.capturedEventsService, 'queueEvent').mockRejectedValueOnce(
+                            new Error('team lookup failed')
+                        )
+                    },
+                ],
+            ])('counts a notification once when the first attempt fails %s', async (_, failFirstAttempt) => {
+                failFirstAttempt(api['emailTrackingService'])
+                const bounce = { functionId: hogFunction.id, distinctId: 'distinct-id' }
+
+                expect((await postBounce(bounce)).status).toBe(500)
+                expect((await postBounce(bounce)).status).toBe(200)
+
+                const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                expect(metrics.map((m) => [m.value.metric_name, m.value.count])).toEqual([
+                    ['email_bounced', 1],
+                    ['email_bounced_hard', 1],
                 ])
             })
 

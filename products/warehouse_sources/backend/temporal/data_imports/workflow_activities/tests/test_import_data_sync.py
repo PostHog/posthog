@@ -106,14 +106,24 @@ def _passthrough(fn, *, executor=None):
     return _inner
 
 
+def _without_oauth_fields(source_mock: Any) -> None:
+    # The store asks the source class where its OAuth pointer is. A MagicMock answer is not an integration id.
+    if isinstance(source_mock, mock.Mock):
+        source_mock.in_use_oauth_slot.return_value = None
+        source_mock.in_use_oauth_pointer.return_value = None
+
+
 @contextlib.contextmanager
 def _patched_activity(source_mock, model=None, schema=None):
     """Patch out every dependency import_data_activity_sync touches before source setup."""
+    _without_oauth_fields(source_mock)
     if model is None:
         model = mock.MagicMock()
         model.pipeline_version = ExternalDataJob.PipelineVersion.V3
         model.pipeline.source_type = "MongoDB"
         model.pipeline.job_inputs = {}
+        # The source has no credentials row, so the store reads `job_inputs` as stored.
+        model.pipeline.credentials_integration_id = None
         model.folder_path = mock.Mock(return_value="dataset")
 
     if schema is None:
@@ -1261,11 +1271,13 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
 
 @contextlib.contextmanager
 def _patched_activity_reaching_run(source_mock, schema, api_version=None, workflow_run_id=None):
+    _without_oauth_fields(source_mock)
     model = mock.MagicMock()
     model.workflow_run_id = workflow_run_id
     model.pipeline_version = ExternalDataJob.PipelineVersion.V3
     model.pipeline.source_type = "MongoDB"
     model.pipeline.job_inputs = {}
+    model.pipeline.credentials_integration_id = None
     model.pipeline.api_version = api_version
     model.folder_path = mock.Mock(return_value="dataset")
 
@@ -1641,6 +1653,7 @@ def _probe_model() -> mock.MagicMock:
     model.pipeline_version = ExternalDataJob.PipelineVersion.V3
     model.pipeline.source_type = "Postgres"
     model.pipeline.job_inputs = {}
+    model.pipeline.credentials_integration_id = None
     model.folder_path = mock.Mock(return_value="dataset")
     return model
 

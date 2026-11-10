@@ -8,15 +8,28 @@ import { type OrgAiStatus, projectOrganization } from '@/features/chat/aiAccess'
 import { track } from '@/lib/analytics'
 import { createPersistHydrationGate } from '@/lib/persistHydration'
 
-export type DefaultPage = 'inbox' | 'chats' | 'views'
+export type DefaultPage = 'inbox' | 'chats' | 'views' | 'web_analytics' | 'live'
 
-export type DefaultPageHref = '/inbox' | '/chats' | '/views'
+export type DefaultPageHref = '/inbox' | '/chats' | '/views' | '/web-analytics' | '/live'
 
-export const DEFAULT_PAGES: readonly DefaultPage[] = ['inbox', 'chats', 'views']
+export const DEFAULT_PAGES: readonly DefaultPage[] = ['inbox', 'chats', 'views', 'web_analytics', 'live']
 
-const LABELS: Record<DefaultPage, string> = { inbox: 'Inbox', chats: 'Chats', views: 'Views' }
+const LABELS: Record<DefaultPage, string> = {
+    inbox: 'Inbox',
+    chats: 'Chats',
+    views: 'Views',
+    web_analytics: 'Web analytics',
+    live: 'Live',
+}
 
-const HREFS: Record<DefaultPage, DefaultPageHref> = { inbox: '/inbox', chats: '/chats', views: '/views' }
+// The public paths of the (tabs) routes. Web analytics and Live open as their navigation tabs, pinned or not.
+const HREFS: Record<DefaultPage, DefaultPageHref> = {
+    inbox: '/inbox',
+    chats: '/chats',
+    views: '/views',
+    web_analytics: '/web-analytics',
+    live: '/live',
+}
 
 export function defaultPageLabel(page: DefaultPage): string {
     return LABELS[page]

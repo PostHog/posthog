@@ -1690,7 +1690,7 @@ def count_organization_access_cache_round_trips() -> Iterator[Callable[..., int]
             },
         ) as get_many,
     ):
-
+        # IP policies share the backend but not the organization-access key namespace.
         def count(key_prefix: str | None = "organization_access:") -> int:
             if key_prefix is None:
                 return get.call_count + get_many.call_count
