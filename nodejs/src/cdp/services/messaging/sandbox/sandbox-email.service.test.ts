@@ -213,6 +213,7 @@ describe('SandboxEmailService', () => {
     it.each([
         ['the trimmed address', 'member@example.com'],
         ['the padded address its unsubscribe link carried', ' member@example.com '],
+        ['the stored member spelling', 'Member@Example.com'],
     ])('refuses a padded recipient who opted out under %s', async (_name, optedOutIdentifier) => {
         const recipients = new RecipientsManagerService({} as PostgresRouter)
         jest.spyOn(recipients, 'get').mockImplementation(({ identifier }) => {
@@ -270,7 +271,9 @@ describe('SandboxEmailService', () => {
     })
 
     it('hands the run opt-outs, category, and frequency cap to the recipient check', async () => {
-        const deps = fakeDeps()
+        const deps = fakeDeps({
+            authorize: jest.fn().mockResolvedValue({ ...member, storedAddress: 'member@example.com' }),
+        })
         const frequencyCap = jest.fn()
         const optOuts = [{ identifier: 'member@example.com', categoryId: 'news' }]
 

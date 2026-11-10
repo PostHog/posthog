@@ -121,6 +121,16 @@ export class SandboxEmailService {
         if (!authorization.ok) {
             return refusal(authorization.reason, request.capsClaimedFor)
         }
+        if (![address, email.data.to.email].includes(authorization.storedAddress)) {
+            const storedCheck = await this.deps.checkRecipient({
+                ...this.recipientCheckBase(request),
+                address: authorization.storedAddress,
+                frequencyCap: NO_FREQUENCY_CAP,
+            })
+            if (!storedCheck.ok) {
+                return refusal(storedCheck.reason, request.capsClaimedFor)
+            }
+        }
         const tenant = admitTenant(authorization.tenant, this.deps.now?.() ?? new Date())
         if (!tenant.ok) {
             return refusal(tenant.reason, request.capsClaimedFor)
@@ -164,13 +174,7 @@ export class SandboxEmailService {
         address: string,
         rendered: string
     ): Promise<SandboxRecipientCheck> {
-        const base = {
-            teamId: request.teamId,
-            categoryId: request.categoryId,
-            categoryType: request.categoryType,
-            optOuts: request.optOuts ?? [],
-            isTest: request.isTest,
-        }
+        const base = this.recipientCheckBase(request)
         if (rendered !== address) {
             const linkCheck = await this.deps.checkRecipient({
                 ...base,
@@ -186,6 +190,18 @@ export class SandboxEmailService {
             address,
             frequencyCap: request.frequencyCap ?? NO_FREQUENCY_CAP,
         })
+    }
+
+    private recipientCheckBase(
+        request: SandboxSendRequest
+    ): Omit<SandboxRecipientCheckRequest, 'address' | 'frequencyCap'> {
+        return {
+            teamId: request.teamId,
+            categoryId: request.categoryId,
+            categoryType: request.categoryType,
+            optOuts: request.optOuts ?? [],
+            isTest: request.isTest,
+        }
     }
 }
 
