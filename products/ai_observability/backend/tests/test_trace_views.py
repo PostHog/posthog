@@ -259,6 +259,34 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert response.json() == {"available_trace_ids": ["application,trace"]}
 
+    def test_numbers_steps_that_share_a_name(self) -> None:
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "event_uuid": f"00000000-0000-0000-0000-00000000000{index}",
+                    "distinct_id": "user-1",
+                    "team": self.team,
+                    "timestamp": T0 + timedelta(seconds=index),
+                    "properties": {
+                        "$ai_trace_id": "trace-1",
+                        "$ai_parent_id": "trace-1",
+                        "$ai_span_name": "openai.chat",
+                    },
+                }
+                for index in (1, 2)
+            ]
+        )
+
+        response = self.client.get(self._url(_encode("trace-1")))
+
+        [root] = response.json()["tree"]
+        assert [root["label"], *(child["label"] for child in root["children"])] == [
+            "openai.chat #1",
+            "openai.chat #2",
+            "openai.chat #3",
+        ]
+
     @parameterized.expand([("plain id", "trace-1"), ("id with a dot", "run.42"), ("id with a slash", "a/b")])
     def test_returns_the_trace_in_camel_case(self, _name: str, trace_id: str) -> None:
         _create_trace(self.team, trace_id)
@@ -596,6 +624,7 @@ class TestTraceClustersView(ClickhouseTestMixin, APIBaseTest):
             "jobName": None,
             "clusterId": 3,
             "title": "Billing questions",
+            "label": "Billing questions",
             "description": "Users ask about invoices.",
             "isOutlier": False,
         }
@@ -684,6 +713,10 @@ class TestTraceFeedbackView(ClickhouseTestMixin, APIBaseTest):
             ("text", "Too long, but correct.", "trace-1")
         ]
         assert body["summary"]["total"] == 2
+        assert [(step["nodeId"], step["responseCount"], step["total"]) for step in body["steps"]] == [
+            (GENERATION, 0, 1),
+            ("trace-1", 1, 1),
+        ]
         assert body["surveyResponsesStatus"] == "ok"
 
     @parameterized.expand(

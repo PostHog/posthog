@@ -30,13 +30,17 @@ export interface TraceViewContainerProps {
 
 type ReadyValues = Pick<
     traceViewModelLogicValues,
-    | 'header'
-    | 'summary'
-    | 'clustersChip'
+    | 'trace'
+    | 'clusters'
+    | 'evaluationResults'
+    | 'traceFeedback'
+    | 'pullRequest'
     | 'mode'
     | 'tree'
     | 'selectedNodeId'
-    | 'detailData'
+    | 'selectedTreeNode'
+    | 'selectedNodeLoad'
+    | 'evaluationResultsFailed'
     | 'detailTab'
     | 'datasetItemSource'
     | 'datasetsEnabled'
@@ -44,9 +48,7 @@ type ReadyValues = Pick<
     | 'canViewInThread'
     | 'thread'
     | 'timeline'
-    | 'evalsChip'
-    | 'evalOutcomesByNode'
-    | 'gitBranch'
+    | 'evalOutcomes'
     | 'searchBox'
     | 'matchingNodeIds'
     | 'highlightQuery'
@@ -55,10 +57,11 @@ type ReadyValues = Pick<
     | 'summaryRequesting'
     | 'summaryRequestError'
     | 'summaryConsentGiven'
-    | 'feedbackChip'
     | 'feedbackCount'
-    | 'feedbackCountByNodeId'
-    | 'feedbackMode'
+    | 'stepFeedback'
+    | 'traceFeedbackFailed'
+    | 'stepLabels'
+    | 'feedbackFocusNodeId'
     | 'selectedStepFeedback'
 > &
     Pick<
@@ -97,13 +100,15 @@ interface ReadyActions {
 }
 
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
-    if (!values.summary) {
+    const { trace } = values
+    if (!trace) {
         return null
     }
     const queue = values.reviewStatus?.queue ?? null
     return {
         header: {
-            ...values.header,
+            name: trace.name,
+            hasError: trace.hasError,
             backLink: values.backLink,
             copyAction: { loading: values.traceCopying, onCopy: actions.copyTrace },
             exportAction: { loading: values.traceExportLoading, onExport: actions.exportTrace },
@@ -117,13 +122,15 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
             ),
         },
         summary: {
-            ...values.summary,
-            clusters: values.clustersChip,
-            evals: values.evalsChip ? { chip: values.evalsChip, onClick: actions.showFailingEvals } : null,
-            feedback: values.feedbackChip
-                ? { chip: values.feedbackChip, onClick: () => actions.showFeedback(null, 'chip') }
+            trace,
+            clusters: values.clusters,
+            evals: values.evaluationResults
+                ? { summary: values.evaluationResults.summary, onClick: actions.showFailingEvals }
                 : null,
-            git: values.gitBranch,
+            feedback: values.traceFeedback
+                ? { summary: values.traceFeedback.summary, onClick: () => actions.showFeedback(null, 'chip') }
+                : null,
+            git: trace.git ? { ...trace.git, pullRequest: values.pullRequest } : null,
             review: values.reviewStatus
                 ? {
                       status: values.reviewStatus,
@@ -142,9 +149,14 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         onSelectNode: actions.selectNode,
         onPrefetchNode: actions.prefetchNode,
         onSelectFromView: actions.selectAndShowSpans,
-        detail: values.detailData
+        detail: values.selectedTreeNode
             ? {
-                  ...values.detailData,
+                  node: values.selectedTreeNode,
+                  load: values.selectedNodeLoad,
+                  trace,
+                  evaluationResults: values.evaluationResults?.results ?? null,
+                  evaluationResultsFailed: values.evaluationResultsFailed,
+                  stepLabels: values.stepLabels,
                   raw: values.selectedRaw,
                   tab: values.detailTab,
                   onTabChange: actions.setDetailTab,
@@ -169,7 +181,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
             : null,
         thread: values.thread,
         timeline: values.timeline,
-        evalOutcomes: values.evalOutcomesByNode,
+        evalOutcomes: values.evalOutcomes,
         search: { ...values.searchBox, onQueryChange: actions.setQuery, onStep: actions.stepMatch },
         matchingNodeIds: values.matchingNodeIds,
         highlightQuery: values.highlightQuery,
@@ -184,10 +196,16 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
             onReload: actions.loadSummary,
             onSelectStep: actions.summaryStepClicked,
         },
-        feedbackMode: values.feedbackMode,
+        feedback: values.traceFeedback,
+        feedbackFailed: values.traceFeedbackFailed,
+        feedbackSteps: {
+            traceId: values.traceId,
+            stepLabels: values.stepLabels,
+            focusNodeId: values.feedbackFocusNodeId,
+        },
         onRetryFeedback: actions.retryTraceFeedback,
         feedbackCount: values.feedbackCount,
-        feedbackCountByNodeId: values.feedbackCountByNodeId,
+        stepFeedback: values.stepFeedback,
     }
 }
 
@@ -201,14 +219,18 @@ export const TraceViewContainer = memo(function TraceViewContainer({
     // Every kea value getter is a hook, so read them all on every render, whatever the status.
     const {
         status,
-        errorMessage,
-        header,
-        summary,
-        clustersChip,
+        loadFailure,
+        trace,
+        clusters,
+        evaluationResults,
+        traceFeedback,
+        pullRequest,
         mode,
         tree,
         selectedNodeId,
-        detailData,
+        selectedTreeNode,
+        selectedNodeLoad,
+        evaluationResultsFailed,
         detailTab,
         datasetItemSource,
         datasetsEnabled,
@@ -216,9 +238,7 @@ export const TraceViewContainer = memo(function TraceViewContainer({
         canViewInThread,
         thread,
         timeline,
-        evalsChip,
-        evalOutcomesByNode,
-        gitBranch,
+        evalOutcomes,
         searchBox,
         matchingNodeIds,
         highlightQuery,
@@ -227,10 +247,11 @@ export const TraceViewContainer = memo(function TraceViewContainer({
         summaryRequesting,
         summaryRequestError,
         summaryConsentGiven,
-        feedbackChip,
         feedbackCount,
-        feedbackCountByNodeId,
-        feedbackMode,
+        stepFeedback,
+        traceFeedbackFailed,
+        stepLabels,
+        feedbackFocusNodeId,
         selectedStepFeedback,
     } = useValues(logic)
     const actions = useActions(logic)
@@ -252,13 +273,17 @@ export const TraceViewContainer = memo(function TraceViewContainer({
         status === 'ready'
             ? toReadyProps(
                   {
-                      header,
-                      summary,
-                      clustersChip,
+                      trace,
+                      clusters,
+                      evaluationResults,
+                      traceFeedback,
+                      pullRequest,
                       mode,
                       tree,
                       selectedNodeId,
-                      detailData,
+                      selectedTreeNode,
+                      selectedNodeLoad,
+                      evaluationResultsFailed,
                       detailTab,
                       datasetItemSource,
                       datasetsEnabled,
@@ -266,9 +291,7 @@ export const TraceViewContainer = memo(function TraceViewContainer({
                       canViewInThread,
                       thread,
                       timeline,
-                      evalsChip,
-                      evalOutcomesByNode,
-                      gitBranch,
+                      evalOutcomes,
                       searchBox,
                       matchingNodeIds,
                       highlightQuery,
@@ -277,10 +300,11 @@ export const TraceViewContainer = memo(function TraceViewContainer({
                       summaryRequesting,
                       summaryRequestError,
                       summaryConsentGiven,
-                      feedbackChip,
                       feedbackCount,
-                      feedbackCountByNodeId,
-                      feedbackMode,
+                      stepFeedback,
+                      traceFeedbackFailed,
+                      stepLabels,
+                      feedbackFocusNodeId,
                       selectedStepFeedback,
                       traceExportLoading,
                       traceCopying,
@@ -299,8 +323,8 @@ export const TraceViewContainer = memo(function TraceViewContainer({
 
     const props: TraceViewProps = readyProps
         ? { status: 'ready', ...readyProps }
-        : status === 'error'
-          ? { status: 'error', errorMessage, backLink }
+        : status === 'error' && loadFailure
+          ? { status: 'error', loadFailure, backLink }
           : { status: 'loading' }
 
     return <TraceView {...props} />

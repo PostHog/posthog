@@ -1458,6 +1458,8 @@ export interface TraceNodeApi {
     id: string
     kind: TraceNodeKindEnumApi
     name: string
+    /** The node's name, numbered #1, #2 and so on when nodes in the trace share it, in tree order. */
+    label: string
     model: string | null
     stats: TraceNodeStatsApi
     hasError: boolean
@@ -1511,6 +1513,8 @@ export interface TraceClusterApi {
     /** The cluster's id within its run. -1 is the run's outliers. */
     clusterId: number
     title: string | null
+    /** The cluster's title, or Outliers for the run's outliers, or Cluster <id> when the run gave it no title. */
+    label: string
     description: string | null
     /** The trace fit no cluster in this run. */
     isOutlier: boolean
@@ -1753,6 +1757,16 @@ export interface TraceFeedbackSummaryApi {
     thumbsDown: number
 }
 
+export interface TraceStepFeedbackApi {
+    /** The tree node the entries target: the step's event uuid, or the trace id for trace-level feedback. */
+    nodeId: string
+    /** Oldest first. */
+    scores: TraceFeedbackScoreApi[]
+    responseCount: number
+    /** Scores plus responses. */
+    total: number
+}
+
 export interface TraceFeedbackApi {
     /** Oldest first. */
     scores: TraceFeedbackScoreApi[]
@@ -1763,6 +1777,8 @@ export interface TraceFeedbackApi {
     /** ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes. */
     surveyResponsesStatus: SurveyResponsesStatusEnumApi
     summary: TraceFeedbackSummaryApi
+    /** One entry per node with feedback, sorted by node id. */
+    steps: TraceStepFeedbackApi[]
 }
 
 export interface TraceNodeMetadataApi {

@@ -34,6 +34,9 @@ class TraceNode(Contract):
     id: str
     kind: TraceNodeKind
     name: str
+    label: str = Field(
+        description="The node's name, numbered #1, #2 and so on when nodes in the trace share it, in tree order."
+    )
     model: str | None
     stats: TraceNodeStats
     has_error: bool
@@ -274,6 +277,9 @@ class TraceCluster(Contract):
     job_name: str | None
     cluster_id: int = Field(description="The cluster's id within its run. -1 is the run's outliers.")
     title: str | None
+    label: str = Field(
+        description="The cluster's title, or Outliers for the run's outliers, or Cluster <id> when the run gave it no title."
+    )
     description: str | None
     is_outlier: bool = Field(description="The trace fit no cluster in this run.")
 
@@ -376,6 +382,15 @@ class TraceFeedbackSummary(Contract):
     thumbs_down: int = Field(description="Thumbs down answers to 2-point survey rating questions.")
 
 
+class TraceStepFeedback(Contract):
+    node_id: str = Field(
+        description="The tree node the entries target: the step's event uuid, or the trace id for trace-level feedback."
+    )
+    scores: list[TraceFeedbackScore] = Field(description="Oldest first.")
+    response_count: int
+    total: int = Field(description="Scores plus responses.")
+
+
 class TraceFeedback(Contract):
     scores: list[TraceFeedbackScore] = Field(description="Oldest first.")
     responses: list[TraceFeedbackResponse] = Field(description="What users said, oldest first.")
@@ -386,6 +401,7 @@ class TraceFeedback(Contract):
         description="ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes."
     )
     summary: TraceFeedbackSummary
+    steps: list[TraceStepFeedback] = Field(description="One entry per node with feedback, sorted by node id.")
 
 
 class TraceHumanReviewScore(Contract):

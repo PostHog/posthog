@@ -116971,6 +116971,8 @@ export namespace Schemas {
       id: string;
       kind: TraceNodeKindEnum;
       name: string;
+      /** The node's name, numbered #1, #2 and so on when nodes in the trace share it, in tree order. */
+      label: string;
       model: string | null;
       stats: TraceNodeStats;
       hasError: boolean;
@@ -117067,6 +117069,8 @@ export namespace Schemas {
       /** The cluster's id within its run. -1 is the run's outliers. */
       clusterId: number;
       title: string | null;
+      /** The cluster's title, or Outliers for the run's outliers, or Cluster <id> when the run gave it no title. */
+      label: string;
       description: string | null;
       /** The trace fit no cluster in this run. */
       isOutlier: boolean;
@@ -117285,6 +117289,16 @@ export namespace Schemas {
       thumbsDown: number;
     }
 
+    export interface TraceStepFeedback {
+      /** The tree node the entries target: the step's event uuid, or the trace id for trace-level feedback. */
+      nodeId: string;
+      /** Oldest first. */
+      scores: TraceFeedbackScore[];
+      responseCount: number;
+      /** Scores plus responses. */
+      total: number;
+    }
+
     export interface TraceFeedback {
       /** Oldest first. */
       scores: TraceFeedbackScore[];
@@ -117295,6 +117309,8 @@ export namespace Schemas {
       /** ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes. */
       surveyResponsesStatus: SurveyResponsesStatusEnum;
       summary: TraceFeedbackSummary;
+      /** One entry per node with feedback, sorted by node id. */
+      steps: TraceStepFeedback[];
     }
 
     export interface TraceHumanReviewScore {

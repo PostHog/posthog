@@ -1,25 +1,21 @@
 import { LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
+import type { TraceClusterApi } from '../../../generated/api.schemas'
 import { ChipButton } from './ChipButton'
 import { LabeledChipValue } from './LabeledChipValue'
 
-export interface ClusterChipItem {
-    label: string
-    description: string | null
-    jobName: string | null
-    isOutlier: boolean
-    runAt: string
-    href: string
-}
-
 export interface TraceClustersChipProps {
-    first: ClusterChipItem
-    others: ClusterChipItem[]
+    clusters: TraceClusterApi[]
 }
 
-function ClusterTooltip({ item }: { item: ClusterChipItem }): JSX.Element {
+function clusterHref(cluster: TraceClusterApi): string {
+    return urls.aiObservabilityCluster(cluster.runId, cluster.clusterId)
+}
+
+function ClusterTooltip({ item }: { item: TraceClusterApi }): JSX.Element {
     return (
         <div className="flex max-w-80 flex-col gap-1">
             <span className="font-semibold">{item.label}</span>
@@ -31,11 +27,20 @@ function ClusterTooltip({ item }: { item: ClusterChipItem }): JSX.Element {
     )
 }
 
-export function TraceClustersChip({ first, others }: TraceClustersChipProps): JSX.Element {
+export function TraceClustersChip({ clusters }: TraceClustersChipProps): JSX.Element | null {
+    const [first, ...others] = clusters
+    if (!first) {
+        return null
+    }
     return (
         <span className="inline-flex max-w-full min-w-0 items-center gap-1.5">
             <Tooltip title={<ClusterTooltip item={first} />}>
-                <Link to={first.href} subtle className="inline-flex min-w-0" data-attr="trace-view-cluster-chip">
+                <Link
+                    to={clusterHref(first)}
+                    subtle
+                    className="inline-flex min-w-0"
+                    data-attr="trace-view-cluster-chip"
+                >
                     <LemonTag weight="normal" type={first.isOutlier ? 'caution' : 'default'} className="max-w-full">
                         <LabeledChipValue label="Cluster">{first.label}</LabeledChipValue>
                     </LemonTag>
@@ -62,7 +67,7 @@ export function TraceClustersChip({ first, others }: TraceClustersChipProps): JS
                                         ) : null}
                                     </span>
                                 ),
-                                to: item.href,
+                                to: clusterHref(item),
                                 'data-attr': 'trace-view-cluster-chip-item',
                             })),
                         },

@@ -8,7 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { TraceExportApi } from '../../generated/api.schemas'
-import { makeTraceResource } from './adapter/testFixtures'
+import { makeTraceResource } from './testFixtures'
 import { toExportedAsset, traceExportLogic } from './traceExportLogic'
 import { traceViewLogic } from './traceViewLogic'
 

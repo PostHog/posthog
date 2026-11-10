@@ -16,7 +16,7 @@ import {
     makeNodeDetail,
     makeRawNode,
     makeTraceResource,
-} from './adapter/testFixtures'
+} from './testFixtures'
 import { traceViewLogic } from './traceViewLogic'
 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
@@ -110,33 +110,26 @@ describe('traceViewLogic', () => {
         return logic
     }
 
-    it('loads the trace by its encoded id with the link timestamp as the hint and derives the summary', async () => {
+    it('loads the trace by its encoded id with the link timestamp as the hint', async () => {
         const logic = traceViewLogic({ traceId: 'a/b', timestampHint: '2026-09-01T10:15:00Z' })
         logic.mount()
 
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready', traceName: 'Untitled trace' })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready' })
         expect(requestedPath).toMatch(/\/traces\/YS9i\/$/)
         expect(requestedHint).toEqual('2026-09-01T10:15:00Z')
-        expect(logic.values.personLabel).toBe('ada@example.com')
-        expect(logic.values.summary?.person).toEqual({
-            label: 'ada@example.com',
-            href: expect.stringContaining('user-1'),
-        })
         expect(logic.values.tree[0].children.map((child) => child.id)).toEqual(['span-1', 'gen-1', 'gen-2'])
     })
 
     it.each([
-        ['the trace is not found', 404, 'It may have been deleted, or it is outside the retention period.'],
-        ['the request fails', 500, 'Something went wrong while loading it. Try again in a moment.'],
-    ])('status is error when %s', async (_description, statusCode, expectedMessage) => {
+        ['the trace is not found', 404, 'not_found'],
+        ['the request fails', 500, 'failed'],
+    ])('status is error when %s', async (_description, statusCode, expectedFailure) => {
         silenceKeaLoadersErrors()
         useMocks({ get: { [TRACE_URL]: () => [statusCode, { detail: 'nope' }] } })
         const logic = traceViewLogic({ traceId: 'trace-1', timestampHint: null })
         logic.mount()
 
-        await expectLogic(logic)
-            .toFinishAllListeners()
-            .toMatchValues({ status: 'error', errorMessage: expectedMessage })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'error', loadFailure: expectedFailure })
     })
 
     it.each([

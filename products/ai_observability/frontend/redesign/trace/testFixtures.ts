@@ -17,7 +17,7 @@ import type {
     TraceNodeRawApi,
     TraceNodeStatsApi,
     TraceSurveyResponseApi,
-} from '../../../generated/api.schemas'
+} from '../../generated/api.schemas'
 
 export function makeEvent(overrides: Partial<LLMTraceEvent> & { id: string }): LLMTraceEvent {
     return { event: '$ai_span', properties: {}, createdAt: '2026-09-01T10:15:00Z', ...overrides }
@@ -138,6 +138,7 @@ export function makeTraceResource(overrides: Partial<TraceApi> = {}): TraceApi {
                 id: 'trace-1',
                 kind: 'trace',
                 name: 'answer-billing-question',
+                label: 'answer-billing-question',
                 model: null,
                 stats: emptyStats,
                 hasError: false,
@@ -145,6 +146,7 @@ export function makeTraceResource(overrides: Partial<TraceApi> = {}): TraceApi {
                     id,
                     kind: id.startsWith('gen') ? 'generation' : 'span',
                     name: id,
+                    label: id,
                     model: null,
                     stats: emptyStats,
                     hasError: false,
@@ -194,6 +196,7 @@ export function makeTraceCluster(overrides: Partial<TraceClusterApi> = {}): Trac
         jobName: 'Support conversations',
         clusterId: 3,
         title: 'Billing questions',
+        label: 'Billing questions',
         description: 'Users ask why an invoice changed.',
         isOutlier: false,
         ...overrides,
@@ -245,6 +248,7 @@ export function makeFeedback(overrides: Partial<TraceFeedbackApi> = {}): TraceFe
         unanswered: [],
         surveyResponsesStatus: 'ok',
         summary: { total: scores.length + responses.length, thumbsUp: 0, thumbsDown: 0 },
+        steps: [],
         ...overrides,
     }
 }

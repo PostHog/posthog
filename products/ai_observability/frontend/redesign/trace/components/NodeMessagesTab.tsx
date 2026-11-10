@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { IconMessage } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { MessagesOpening, NodeContent, NodeSideContent } from '../types'
+import { MessagesOpening, NodeLoad, NodeSideContent } from '../types'
 import { ErrorCallout } from './ErrorCallout'
 import { firstOpenIndex } from './firstOpenIndex'
 import { NodeContentGate } from './NodeContentGate'
@@ -13,8 +13,7 @@ import { revealFirstOpenMessage } from './revealFirstOpenMessage'
 
 export interface NodeMessagesTabProps {
     stepId: string
-    content: NodeContent
-    error: string | null
+    load: NodeLoad
     onViewInThread: (() => void) | null
     opening: MessagesOpening
     onOpeningChange: (opening: MessagesOpening) => void
@@ -23,15 +22,15 @@ export interface NodeMessagesTabProps {
 
 export function NodeMessagesTab({
     stepId,
-    content,
-    error,
+    load,
     onViewInThread,
     opening,
     onOpeningChange,
     highlightQuery = null,
 }: NodeMessagesTabProps): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
-    const inputIsMessages = content.kind === 'loaded' && content.input.kind === 'messages'
+    const inputIsMessages = load.status === 'ready' && load.node.content.input.kind === 'messages'
+    const error = load.status === 'ready' ? load.node.error : null
     const isSearching = useRef(false)
     isSearching.current = !!highlightQuery
     const [resetCount, setResetCount] = useState(0)
@@ -68,8 +67,8 @@ export function NodeMessagesTab({
     return (
         <div className="flex flex-col gap-3" ref={containerRef}>
             {error ? <ErrorCallout message={error} /> : null}
-            <NodeContentGate content={content}>
-                {(loaded) => (
+            <NodeContentGate load={load}>
+                {({ content: loaded }) => (
                     <>
                         {inputIsMessages ? (
                             <div className="flex justify-end">

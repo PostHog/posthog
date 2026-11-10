@@ -1,4 +1,4 @@
-import { ConversationState, NodeLoad, NodeSideContent } from '../types'
+import { ConversationState, NodeLoad, NodeSideContent } from './types'
 
 const THREAD_LOAD_ERROR = 'The conversation could not be loaded. Reload the page to try again.'
 

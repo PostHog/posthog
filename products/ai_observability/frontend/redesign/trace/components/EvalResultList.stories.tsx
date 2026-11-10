@@ -1,31 +1,45 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { openaiAgentsEvals } from '../sampleFixtures/openaiAgentsWithEvals'
-import { FIXTURE_EVALS, FIXTURE_TRACE_EVALS, withWidth } from '../storyFixtures'
+import { openaiAgentsWithEvals } from '../sampleFixtures/openaiAgentsWithEvals'
+import { FIXTURE_EVALS, FIXTURE_TREE, withWidth } from '../storyFixtures'
+import { stepLabelsOf } from '../traceTreeLookups'
 import { EvalResultList } from './EvalResultList'
+
+const root = FIXTURE_TREE[0]
+const generation = root.children[1]
 
 const meta: Meta<typeof EvalResultList> = {
     title: 'Scenes-App/AI observability/Trace view/Eval results',
     component: EvalResultList,
-    args: { onSelectNode: () => {} },
+    args: {
+        results: FIXTURE_EVALS,
+        failed: false,
+        viewedNode: generation,
+        stepLabels: stepLabelsOf(FIXTURE_TREE),
+        onSelectNode: () => {},
+    },
 }
 export default meta
 
 type Story = StoryObj<typeof EvalResultList>
 
-export const Results: Story = { args: { evals: { status: 'ready', results: FIXTURE_EVALS } } }
-export const WithTargets: Story = { args: { evals: { status: 'ready', results: FIXTURE_TRACE_EVALS } } }
+export const Results: Story = {}
+export const WithTargets: Story = { args: { viewedNode: root } }
 export const Narrow: Story = {
-    args: { evals: { status: 'ready', results: FIXTURE_TRACE_EVALS } },
+    args: { viewedNode: root },
     decorators: [withWidth(420)],
 }
-export const AgentEvals: Story = { args: { evals: { status: 'ready', results: openaiAgentsEvals } } }
+export const AgentEvals: Story = {
+    args: {
+        results: openaiAgentsWithEvals.evaluationResults,
+        viewedNode: openaiAgentsWithEvals.tree[0],
+        stepLabels: stepLabelsOf(openaiAgentsWithEvals.tree),
+    },
+}
 export const Loading: Story = {
-    args: { evals: { status: 'loading' } },
+    args: { results: null },
     decorators: [withWidth(720)],
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
-export const Empty: Story = { args: { evals: { status: 'ready', results: [] } } }
-export const LoadError: Story = {
-    args: { evals: { status: 'error', errorMessage: 'Evaluation results could not be loaded. Try again later.' } },
-}
+export const Empty: Story = { args: { results: [] } }
+export const LoadError: Story = { args: { results: null, failed: true } }

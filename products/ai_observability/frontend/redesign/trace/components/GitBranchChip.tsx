@@ -1,12 +1,13 @@
 import { IconGitBranch } from '@posthog/icons'
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import type { TraceGitApi } from '../../../generated/api.schemas'
-import { GitPullRequestLink } from '../types'
+import { urls } from 'scenes/urls'
+
+import type { TraceGitApi, TracePullRequestApi } from '../../../generated/api.schemas'
 import { LabeledChipValue } from './LabeledChipValue'
 
 export interface GitBranchChipProps extends TraceGitApi {
-    pullRequest: GitPullRequestLink | null
+    pullRequest: TracePullRequestApi | null
 }
 
 function tooltipTitle({ branch, repo, pullRequest }: GitBranchChipProps): string {
@@ -32,7 +33,16 @@ export function GitBranchChip(props: GitBranchChipProps): JSX.Element {
         // hover listeners to the first element only, so it remounts for the new one.
         <Tooltip key={pullRequest ? 'linked' : 'plain'} title={tooltipTitle(props)}>
             {pullRequest ? (
-                <Link to={pullRequest.href} subtle className="inline-flex" data-attr="trace-view-git-pull-request-link">
+                <Link
+                    to={urls.engineeringAnalyticsPullRequest(
+                        pullRequest.repoOwner,
+                        pullRequest.repoName,
+                        pullRequest.number
+                    )}
+                    subtle
+                    className="inline-flex"
+                    data-attr="trace-view-git-pull-request-link"
+                >
                     {tag}
                 </Link>
             ) : (

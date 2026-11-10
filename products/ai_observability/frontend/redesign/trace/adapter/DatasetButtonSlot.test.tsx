@@ -6,9 +6,9 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
 import { saveToDatasetButtonLogic } from '../../../datasets/saveToDatasetButtonLogic'
+import { makeRawNode } from '../testFixtures'
 import { RawLoad } from '../types'
 import { DatasetButtonSlot } from './DatasetButtonSlot'
-import { makeRawNode } from './testFixtures'
 
 const source = { traceId: 'trace-1', timestamp: '2026-09-01T10:15:00Z', sourceId: 'span-1' }
 const ready: RawLoad = { status: 'ready', raw: makeRawNode({ id: 'span-1' }) }

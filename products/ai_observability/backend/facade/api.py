@@ -48,7 +48,7 @@ from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.evaluation_summary import EvaluationSummary
 from ..logic.traces.events_fallback import fallback_window
-from ..logic.traces.feedback import FeedbackText, Score, TraceFeedback
+from ..logic.traces.feedback import FeedbackText, Score, StepFeedback, TraceFeedback, roll_up_by_step
 from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.node_contents_queries import load_trace_nodes
@@ -188,15 +188,16 @@ def _to_stats(usage: Usage) -> contracts.TraceNodeStats:
     )
 
 
-def _to_node(node: TreeNode) -> contracts.TraceNode:
+def _to_node(node: TreeNode, labels: Mapping[str, str]) -> contracts.TraceNode:
     return contracts.TraceNode(
         id=node.event.id,
         kind=node.event.kind,
         name=node.event.title,
+        label=labels[node.event.id],
         model=node.event.row.model,
         stats=_to_stats(node.display_usage),
         has_error=node.event.has_error,
-        children=[_to_node(child) for child in node.children],
+        children=[_to_node(child, labels) for child in node.children],
     )
 
 
@@ -223,10 +224,11 @@ def _to_trace(trace: Trace) -> contracts.Trace:
         id=trace.id,
         kind="trace",
         name=trace.title,
+        label=trace.node_labels[trace.id],
         model=None,
         stats=totals,
         has_error=trace.has_error,
-        children=[_to_node(node) for node in trace.tree],
+        children=[_to_node(node, trace.node_labels) for node in trace.tree],
     )
     return contracts.Trace(
         id=trace.id,
@@ -398,6 +400,7 @@ def _to_trace_cluster(cluster: TraceCluster) -> contracts.TraceCluster:
         job_name=cluster.job_name,
         cluster_id=cluster.cluster_id,
         title=cluster.title,
+        label=cluster.label,
         description=cluster.description,
         is_outlier=cluster.is_outlier,
     )
@@ -435,6 +438,7 @@ def get_trace_feedback(
         ],
         key=lambda response: response.timestamp,
     )
+    steps = roll_up_by_step(feedback.scores, [response.node_id for response in responses])
     return contracts.TraceFeedback(
         scores=scores,
         responses=responses,
@@ -444,8 +448,9 @@ def get_trace_feedback(
         ],
         survey_responses_status=survey_responses_status,
         summary=contracts.TraceFeedbackSummary(
-            total=len(scores) + len(responses), thumbs_up=thumbs.up, thumbs_down=thumbs.down
+            total=sum(step.total for step in steps), thumbs_up=thumbs.up, thumbs_down=thumbs.down
         ),
+        steps=[_to_step_feedback(step) for step in steps],
     )
 
 
@@ -478,6 +483,15 @@ def _to_review_queue_assignment(queue: QueueAssignment) -> contracts.TraceReview
 def _to_feedback_score(score: Score) -> contracts.TraceFeedbackScore:
     return contracts.TraceFeedbackScore(
         id=score.id, name=score.name, value=score.value, node_id=score.node_id, timestamp=score.timestamp
+    )
+
+
+def _to_step_feedback(step: StepFeedback) -> contracts.TraceStepFeedback:
+    return contracts.TraceStepFeedback(
+        node_id=step.node_id,
+        scores=[_to_feedback_score(score) for score in step.scores],
+        response_count=step.response_count,
+        total=step.total,
     )
 
 

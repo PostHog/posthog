@@ -72,6 +72,33 @@ def test_errors_count_every_event_that_failed() -> None:
     assert (failed.error_count, failed.has_error) == (2, True)
 
 
+def test_node_labels_number_repeated_names_across_depths_in_pre_order() -> None:
+    labelled = trace(
+        {"event": "$ai_trace", "trace_name": "support", "parent_id": None, "timestamp": T0},
+        {"uuid": "agent", "span_id": "agent", "span_name": "agent", "timestamp": T0 + timedelta(seconds=1)},
+        {
+            "uuid": "child",
+            "event": "$ai_generation",
+            "span_name": "openai.chat",
+            "parent_id": "agent",
+            "timestamp": T0 + timedelta(seconds=3),
+        },
+        {
+            "uuid": "sibling",
+            "event": "$ai_generation",
+            "span_name": "openai.chat",
+            "timestamp": T0 + timedelta(seconds=2),
+        },
+    )
+
+    assert labelled.node_labels == {
+        "trace-1": "support",
+        "agent": "agent",
+        "child": "openai.chat #1",
+        "sibling": "openai.chat #2",
+    }
+
+
 def test_thread_node_ids_hold_the_user_visible_generation() -> None:
     assert trace(
         {"uuid": "g1", "event": "$ai_generation", "timestamp": T0},
