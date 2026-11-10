@@ -11,6 +11,7 @@ const EDGE_INSET_PX = 3
 const MAX_EXTENDED_CELLS = 256
 const THUMBNAIL_WIDTH = 16
 const MAX_BACKGROUND_IMAGES = 200
+const MAX_BACKGROUND_IMAGE_LENGTH = 4096
 const FETCHABLE_PROTOCOLS = ['https:', 'http:', 'data:', 'blob:']
 const THUMBNAIL_HEIGHT = 32
 
@@ -137,6 +138,14 @@ export class AmbientFrameSampler {
         if (cached !== undefined) {
             return cached
         }
+        // A recording with ever-changing image URLs would otherwise grow the cache for the whole session.
+        if (this.backgroundImages.size >= MAX_BACKGROUND_IMAGES) {
+            this.backgroundImages.clear()
+        }
+        // An inline data URI can run to hundreds of kilobytes, which is too much to keep as a key.
+        if (backgroundImage.length > MAX_BACKGROUND_IMAGE_LENGTH) {
+            return null
+        }
         this.backgroundImages.set(backgroundImage, null)
         const url = backgroundImage.match(/url\(["']?([^"')]+)["']?\)/)?.[1]
         if (!url) {
@@ -147,11 +156,7 @@ export class AmbientFrameSampler {
             return gradient
         }
         // Computed styles resolve recorded URLs to absolute ones, so a relative URL here would only hit the app origin.
-        if (
-            this.backgroundImages.size <= MAX_BACKGROUND_IMAGES &&
-            URL.canParse(url) &&
-            FETCHABLE_PROTOCOLS.includes(new URL(url).protocol)
-        ) {
+        if (URL.canParse(url) && FETCHABLE_PROTOCOLS.includes(new URL(url).protocol)) {
             // The recorded document's own policy admits any image, and the app's would report every one.
             const image = new view.Image()
             image.crossOrigin = 'anonymous'

@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { EventType, Handler, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 import { useEffect, useRef } from 'react'
 
 import {
@@ -12,6 +13,12 @@ import {
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 const CHECK_INTERVAL_MS = 500
+// Stylesheet changes replay through the CSSOM, which the mutation observer cannot see.
+const STYLESHEET_SOURCES = [
+    IncrementalSource.StyleSheetRule,
+    IncrementalSource.StyleDeclaration,
+    IncrementalSource.AdoptedStyleSheet,
+]
 // Overhang the container, so the blur does not fade to the dark background at the edges.
 const OVERHANG = 0.1
 
@@ -144,11 +151,18 @@ export function PlayerFrameAmbient(): JSX.Element | null {
             )
         }
 
+        const markDirtyOnStyleChange = (event: eventWithTime): void => {
+            if (event.type === EventType.IncrementalSnapshot && STYLESHEET_SOURCES.includes(event.data.source)) {
+                dirty = true
+            }
+        }
+        replayer.on('event-cast', markDirtyOnStyleChange as Handler)
         sampler.onBackgroundImageLoad = markDirty
         update()
         const interval = setInterval(update, CHECK_INTERVAL_MS)
         return () => {
             clearInterval(interval)
+            replayer.off('event-cast', markDirtyOnStyleChange as Handler)
             observer.disconnect()
             observedDocument?.removeEventListener('scroll', markDirty, true)
             observedDocument?.removeEventListener('load', markDirty, true)
