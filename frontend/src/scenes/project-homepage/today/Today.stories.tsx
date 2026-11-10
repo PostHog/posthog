@@ -1002,6 +1002,30 @@ type Story = StoryObj<{}>
 
 export const Home: Story = { decorators: [keepNumbers([])] }
 
+// The campaign id picks the slot for the story's date and user, so each story shows one placement.
+function productPushCampaign(id: string): Decorator {
+    return mswDecorator({
+        get: {
+            '/api/organizations/:organization_id/product_push_campaign/active/': {
+                id,
+                product_key: 'session_replay',
+                product_path: 'Session replay',
+                reason_text: null,
+                started_at: '2026-09-21T09:00:00Z',
+                ends_at: null,
+            },
+        },
+    })
+}
+
+export const HomeWithProductPush: Story = {
+    decorators: [keepNumbers([]), productPushCampaign('0195a0b2-0000-0000-0000-000000000101')],
+}
+
+export const HomeWithProductPushBehindShowMore: Story = {
+    decorators: [keepNumbers([]), productPushCampaign('0195a0b2-0000-0000-0000-000000000102')],
+}
+
 export const HomeWithFrequentItems: Story = {
     parameters: {
         featureFlags: {
