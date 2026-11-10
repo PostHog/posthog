@@ -28,6 +28,10 @@ export const RareTarget: Story = {
     },
 }
 
+export const RareTargetLowestBucketHidden: Story = {
+    args: { ...RareTarget.args, hideLowestBucket: true },
+}
+
 export const SingleBucket: Story = {
     args: {
         buckets: Array.from({ length: 10 }, (_, decile) => ({ lower: decile / 10, users: decile === 9 ? 128 : 0 })),
