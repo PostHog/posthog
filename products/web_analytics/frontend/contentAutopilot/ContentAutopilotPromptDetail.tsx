@@ -89,6 +89,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
     const { closePromptDetail, openPromptDetail, setArchiveConfirming, setPromptEditing, setVisibilityMetric } =
         useActions(contentAutopilotPromptDetailLogic)
     const { opportunityByPromptId } = useValues(contentAutopilotLogic)
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
     const draftOpportunity = prompt ? draftableOpportunity(opportunityByPromptId, prompt) : null
 
     if (!promptId) {
@@ -97,7 +98,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
 
     if (detailError === 'not_found') {
         return (
-            <PromptPage title="Prompt not found" onBack={closePromptDetail}>
+            <PromptPage title="Prompt not found" onBack={() => setWorkspaceTab('prompts')}>
                 <p className="m-0">This prompt isn't in the project's prompt set anymore, or the link is wrong.</p>
             </PromptPage>
         )
@@ -116,7 +117,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
         sentimentQuery
 
     return (
-        <PromptPage title={prompt?.prompt ?? 'Loading prompt'} onBack={closePromptDetail}>
+        <PromptPage title={prompt?.prompt ?? 'Loading prompt'} onBack={() => setWorkspaceTab('prompts')}>
             {detailError === 'failed' ? (
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: () => openPromptDetail(promptId) }}>
                     Couldn't load this prompt. Try again, and if it keeps happening contact support.
