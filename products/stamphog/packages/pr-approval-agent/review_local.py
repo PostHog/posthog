@@ -421,12 +421,12 @@ def _blocked_only_by_pending_attestations(pipeline: Pipeline) -> list[Attestatio
     """The unfinished checks that alone keep this PR from a review, or nothing.
 
     `Pipeline._only_pending_attestations` cannot answer this. It disqualifies the PR on any
-    failing gate other than the deny-list, and a deny always pulls the tier gate down to T2-never
-    as well. That method therefore returns nothing for every PR that it exists to catch.
+    failing gate other than the deny-list, and a deny always sets the tier gate to T2-never as
+    well. That method returns nothing for every PR that it exists to catch.
 
-    This function derives the tier again with the denies removed, rather than special-casing the
-    gate. A PR that is T2 for another reason (breadth, size) therefore stays refused, and does not
-    wait for a check that cannot change the outcome.
+    This function derives the tier again with the denies removed. A PR that is T2 for another
+    reason (breadth, size) stays refused, and does not wait for a check that cannot change the
+    outcome.
     """
     pr = pipeline.pr
     cl = pipeline.classification

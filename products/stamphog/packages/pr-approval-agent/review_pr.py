@@ -314,7 +314,7 @@ class Pipeline:
         """The attestations still running whose lifts cover every deny category, or nothing.
 
         Empty when no category is denied, when a denied category has no pending check that may lift
-        it, or when no check is pending: the deny-list verdict stands in each case.
+        it, or when no check is pending. The deny-list verdict stands in each case.
         """
         deny = set(self.classification.get("deny_categories", []))
         if not deny:

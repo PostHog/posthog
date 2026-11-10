@@ -1,9 +1,8 @@
-"""Lift deny categories on the word of a CI check that the policy names.
+"""Lift deny categories for the files that a CI check named in the policy vouches for.
 
 A policy `attestations` entry names a check run, the GitHub App that publishes it, the deny
 categories it may lift, and the paths it may lift them for. The engine knows nothing about what
-the check proves: a migration analyzer, a dependency prover and a security scanner are all the same
-shape here. Adding one is policy data, not engine code.
+a check proves, so a new kind of check needs a policy entry and no engine change.
 
 The publisher embeds the files it vouched for in the check summary as a marker:
 
@@ -48,7 +47,7 @@ def lifted_files(
     pr_file_paths: list[str],
     reviewed: ReviewedHead,
 ) -> dict[str, set[str]]:
-    """Deny category -> files that a proven attestation lifts it for.
+    """Each deny category with the files that a proven attestation lifts it for.
 
     A file is lifted for a category only by exact path, because Git paths are case-sensitive.
     """
@@ -154,6 +153,5 @@ def _latest_completed(check_runs: list[dict], attestation: Attestation) -> dict 
     ]
     if not completed:
         return None
-    # GitHub assigns check run ids in creation order. `completed_at` is set by the publisher, so it
-    # cannot order runs.
+    # The publisher sets `completed_at`, so only the id, which GitHub assigns in creation order, orders runs.
     return max(completed, key=lambda cr: cr.get("id") or 0)

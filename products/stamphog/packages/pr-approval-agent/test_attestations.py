@@ -85,9 +85,6 @@ def _lifted(attestations: list[Attestation], check_runs: list[dict], files: list
     return lifted_files(attestations, check_runs, files, _REVIEWED)
 
 
-# ── lifted_files ─────────────────────────────────────────────────
-
-
 def test_success_check_lifts_listed_migrations_and_their_sibling_marker() -> None:
     files = [
         _MIGRATION,
@@ -194,9 +191,6 @@ def test_each_attestation_lifts_only_its_own_categories() -> None:
     lifted = _lifted([_MIGRATION_RISK, _DEPENDENCY_PROOF], [_check(files=[_MIGRATION]), _proof()], files)
 
     assert lifted == {"migrations": {_MIGRATION}, "deps_toolchain": {_LOCKFILE}, "ci_workflows": {_LOCKFILE}}
-
-
-# ── pending_attestations ─────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
