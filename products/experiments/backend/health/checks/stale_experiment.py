@@ -4,13 +4,13 @@ An experiment that runs past the daily calculation. Pure functions, no I/O.
 The finding says what stopped and not that the results are old, because a page load can still refresh them.
 """
 
-from products.experiments.backend.daily_calculation import DAILY_CALCULATION_DAYS
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
+from products.experiments.backend.facade.daily_calculation import DAILY_CALCULATION_DAYS
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.skips import (
     NOT_AFTER_END,

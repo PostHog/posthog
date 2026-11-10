@@ -17,7 +17,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.redis import get_client
 
-from products.experiments.backend.daily_calculation import DAILY_CALCULATION_DAYS
+from products.experiments.backend.facade.daily_calculation import DAILY_CALCULATION_DAYS
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_GROUP_KEY,

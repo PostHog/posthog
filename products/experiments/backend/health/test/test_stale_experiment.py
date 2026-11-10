@@ -11,11 +11,6 @@ from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from products.experiments.backend.daily_calculation import (
-    DAILY_CALCULATION_DAYS,
-    daily_calculation_start_cutoff,
-    is_past_daily_calculation,
-)
 from products.experiments.backend.facade.api import get_experiment_health
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
@@ -23,6 +18,11 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthReaderAccess,
+)
+from products.experiments.backend.facade.daily_calculation import (
+    DAILY_CALCULATION_DAYS,
+    daily_calculation_start_cutoff,
+    is_past_daily_calculation,
 )
 from products.experiments.backend.health.checks.stale_experiment import stale_experiment
 from products.experiments.backend.health.skips import (
@@ -39,7 +39,10 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 STALE = ExperimentHealthFindingCode.STALE_EXPERIMENT
 END = ExperimentHealthFindingActionKind.END_EXPERIMENT
 FREEZE = ExperimentHealthFindingActionKind.FREEZE_EXPOSURE
-PAST_THE_DAILY_CALCULATION = {"past_daily_calculation": True, "hours_since_start": DAILY_CALCULATION_DAYS * 24 + 1}
+PAST_THE_DAILY_CALCULATION: dict[str, Any] = {
+    "past_daily_calculation": True,
+    "hours_since_start": DAILY_CALCULATION_DAYS * 24 + 1,
+}
 NO_HISTORY = ExperimentHealthReaderAccess(
     can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
 )

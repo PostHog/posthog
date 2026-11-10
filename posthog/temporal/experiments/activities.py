@@ -33,7 +33,7 @@ from posthog.temporal.experiments.models import (
 )
 from posthog.temporal.experiments.utils import check_significance_transition, recalculation_hour_filter
 
-from products.experiments.backend.daily_calculation import daily_calculation_start_cutoff
+from products.experiments.backend.facade.daily_calculation import daily_calculation_start_cutoff
 from products.experiments.backend.facade.timeseries import (
     apply_saved_metric_overrides,
     backfill_experiment_timeseries,

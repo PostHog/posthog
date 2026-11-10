@@ -31,11 +31,11 @@ from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
-from products.experiments.backend.daily_calculation import is_past_daily_calculation
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
 )
+from products.experiments.backend.facade.daily_calculation import is_past_daily_calculation
 from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD, LAST_CALLED_AT_LAG_DURATION
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension

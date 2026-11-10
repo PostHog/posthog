@@ -17,7 +17,7 @@ from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
 from posthog.redis import get_client
 
-from products.experiments.backend.daily_calculation import daily_calculation_start_cutoff
+from products.experiments.backend.facade.daily_calculation import daily_calculation_start_cutoff
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.metric_resolution import get_metrics_for_calculation
 from products.experiments.backend.models.experiment import (

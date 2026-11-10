@@ -5,7 +5,6 @@ from typing import assert_never
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
-from products.experiments.backend.daily_calculation import DAILY_CALCULATION_DAYS
 from products.experiments.backend.facade.contracts import (
     ExperimentHealth,
     ExperimentHealthCheckKey,
@@ -18,6 +17,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthRuleTest,
     ExperimentHealthValueKey,
 )
+from products.experiments.backend.facade.daily_calculation import DAILY_CALCULATION_DAYS
 from products.experiments.backend.health.checks.bias_risk import (
     MULTIPLE_VARIANT_BIAS_MINIMUM_COUNT,
     MULTIPLE_VARIANT_BIAS_THRESHOLD,
