@@ -1,77 +1,61 @@
 import { useValues } from 'kea'
 
-import { IconPin } from '@posthog/icons'
-import { Badge, Button, Text } from '@posthog/quill'
+import { Button, Text } from '@posthog/quill'
 
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { TodayPulseEditor } from './TodayPulseEditor'
 import { pulseGhosts } from './todayPulseGhosts'
 
-const GHOST_LINE = 'M0 14 L12 12 L24 13 L36 9 L48 11 L60 7 L72 8 L84 5 L96 6 L108 3 L120 4'
+const GHOST_LINES = [
+    'M0 13 C14 12 22 9 34 10 S56 12 68 8 S92 6 104 7 S116 4 120 4',
+    'M0 9 C12 11 24 12 36 9 S58 5 70 7 S94 11 106 8 S116 6 120 6',
+    'M0 12 C14 10 24 11 36 12 S60 8 72 9 S94 5 106 6 S116 8 120 7',
+    'M0 8 C12 9 26 7 38 9 S60 12 72 10 S96 6 108 7 S116 5 120 5',
+]
 
 export function TodayPulseEmpty({ canPin }: { canPin: boolean }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const ghosts = pulseGhosts(currentTeam?.customer_analytics_config)
-    const pending = ghosts.filter((ghost) => ghost.configured).map((ghost) => ghost.name)
+    const pending = ghosts.find((ghost) => ghost.configured)
 
     return (
         <div className="TodayPulseEmpty" data-attr="today-pulse-empty">
-            <ul className="TodayPulse TodayPulse--ghost" aria-label="Key numbers that are not ready yet">
-                {ghosts.map((ghost) => (
+            <ul className="TodayPulse TodayPulse--ghost" aria-hidden>
+                {ghosts.map((ghost, index) => (
                     <li key={ghost.key} className="TodayPulse__metric">
                         <span className="TodayPulse__name">{ghost.name}</span>
                         <span className="TodayPulse__row">
-                            <span className="TodayPulse__ghostValue" aria-hidden />
-                            {ghost.configured ? (
-                                <Badge variant="info">Pending</Badge>
-                            ) : (
-                                <Button
-                                    size="xs"
-                                    variant="link-muted"
-                                    className="-ms-1"
-                                    render={<LinkPrimitive to={urls.customerAnalyticsConfiguration()} />}
-                                    data-attr="today-pulse-ghost-setup"
-                                >
-                                    Set up
-                                </Button>
-                            )}
+                            <span className="TodayPulse__ghostValue" />
                         </span>
                         <span className="TodayPulse__spark">
-                            <svg
-                                viewBox="0 0 120 16"
-                                preserveAspectRatio="none"
-                                className="TodayPulse__ghostLine"
-                                aria-hidden
-                            >
-                                <path d={GHOST_LINE} />
+                            <svg viewBox="0 0 120 16" preserveAspectRatio="none" className="TodayPulse__ghostLine">
+                                <path d={GHOST_LINES[index % GHOST_LINES.length]} />
                             </svg>
                         </span>
                     </li>
                 ))}
             </ul>
-            <div className="TodayPulseEmpty__footer">
-                <Text size="xs" variant="muted" render={<p />} className="m-0">
-                    {pending.length === 0
-                        ? 'Pin the trend insights you check every day. PostHog also adds the ones your team opens most.'
-                        : pending.length === 1
-                          ? `${pending[0]} is set up for you and fills in when events arrive. Pin a trend insight to add your own.`
-                          : `${pending.join(' and ')} are set up for you and fill in when events arrive. Pin a trend insight to add your own.`}
-                </Text>
+            <Text size="xs" variant="muted" render={<p />} className="TodayPulseEmpty__note m-0">
+                <span>
+                    {pending
+                        ? `${pending.name} fills in when events arrive.`
+                        : 'Key numbers fill in when events arrive.'}
+                </span>
                 {canPin ? (
-                    <TodayPulseEditor
-                        align="start"
-                        trigger={
-                            <Button size="sm" variant="outline" data-attr="today-pulse-empty-pin">
-                                <IconPin />
-                                Pin a number
-                            </Button>
-                        }
-                    />
+                    <>
+                        {' '}
+                        <TodayPulseEditor
+                            align="start"
+                            trigger={
+                                <Button variant="link" size="inline" data-attr="today-pulse-empty-pin">
+                                    Pin an insight
+                                </Button>
+                            }
+                        />
+                    </>
                 ) : null}
-            </div>
+            </Text>
         </div>
     )
 }

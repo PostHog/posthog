@@ -25,6 +25,7 @@ export interface todayGetStartedLogicValues {
     integrationsLoading: boolean // personalIntegrationsLogic
     isNewProject: boolean // todayLogic
     hiddenForTeams: Record<string, true>
+    guideOpen: boolean
     hidden: boolean
     stepsReady: boolean
     steps: TodayGetStartedStep[]
@@ -37,6 +38,12 @@ export interface todayGetStartedLogicActions {
     connectGitHub: () => { value: true } // personalIntegrationsLogic
     showInviteModal: () => { value: true } // inviteLogic
     hideGuide: () => {
+        value: true
+    }
+    openGuide: () => {
+        value: true
+    }
+    closeGuide: () => {
         value: true
     }
     hideGuideForTeam: (teamId: number | null) => {
@@ -70,6 +77,8 @@ export const todayGetStartedLogic = kea<todayGetStartedLogicType>([
     })),
     actions({
         hideGuide: true,
+        openGuide: true,
+        closeGuide: true,
         hideGuideForTeam: (teamId: number | null) => ({ teamId }),
         stepActed: (step: TodayGetStartedStepKey, action: string) => ({ step, action }),
     }),
@@ -80,6 +89,7 @@ export const todayGetStartedLogic = kea<todayGetStartedLogicType>([
             { persist: true },
             { hideGuideForTeam: (state, { teamId }) => ({ ...state, [String(teamId)]: true }) },
         ],
+        guideOpen: [false, { openGuide: () => true, closeGuide: () => false, hideGuide: () => false }],
     }),
     selectors({
         hidden: [
@@ -108,6 +118,9 @@ export const todayGetStartedLogic = kea<todayGetStartedLogicType>([
         allDone: [(s) => [s.steps], (steps: TodayGetStartedStep[]): boolean => steps.every((s) => s.done)],
     }),
     listeners(({ actions, values }) => ({
+        openGuide: () => {
+            posthog.capture('today get started opened', { done_count: values.doneCount })
+        },
         hideGuide: () => {
             posthog.capture('today get started hidden', { done_count: values.doneCount })
             actions.hideGuideForTeam(values.currentTeamId)
