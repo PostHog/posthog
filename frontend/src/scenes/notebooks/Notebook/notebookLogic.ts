@@ -755,7 +755,8 @@ export type notebookLogicType = MakeLogicType<
 export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
-    key(({ shortId, mode = 'notebook' }) => `${shortId}-${mode}`),
+    // Keep the legacy suffix because scratchpad content is persisted under this key.
+    key(({ shortId, mode }) => `${shortId}-${mode === 'canvas' ? mode : undefined}`),
 
     connect((props: NotebookLogicProps) => ({
         values: [
