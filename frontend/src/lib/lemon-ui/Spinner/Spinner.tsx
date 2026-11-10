@@ -120,11 +120,13 @@ export function SpinnerOverlay({
                             </filter>
                             <path
                                 id={`${effectId}-secondary`}
-                                d="M-100 460C80 200 400 160 500 290L410 240L620 200L530 160C700 100 780 360 1100 160"
+                                pathLength={100}
+                                d="M-100 420C120 50 820 20 800 300C780 560 220 550 250 290C280 60 690 150 620 330C560 490 360 370 460 260C570 160 840 420 1100 180"
                             />
                             <path
                                 id={`${effectId}-accent`}
-                                d="M-100 200C180 40 480 460 480 310L600 260L560 330L740 200C880 100 940 300 1100 240"
+                                pathLength={100}
+                                d="M-100 160C180 540 900 530 850 220C800-60 140 70 180 350C220 600 720 500 700 270C680 60 390 190 450 340C510 480 830 80 1100 340"
                             />
                         </defs>
                         <use
@@ -133,6 +135,12 @@ export function SpinnerOverlay({
                             filter={`url(#${effectId})`}
                         />
                         <use href={`#${effectId}-secondary`} className="SpinnerOverlay__trace" />
+                        <use
+                            href={`#${effectId}-secondary`}
+                            className="SpinnerOverlay__pulse SpinnerOverlay__pulse--glow"
+                            filter={`url(#${effectId})`}
+                        />
+                        <use href={`#${effectId}-secondary`} className="SpinnerOverlay__pulse" />
                     </svg>
                     <svg
                         className="SpinnerOverlay__ribbon SpinnerOverlay__ribbon--accent"
@@ -146,6 +154,12 @@ export function SpinnerOverlay({
                             filter={`url(#${effectId})`}
                         />
                         <use href={`#${effectId}-accent`} className="SpinnerOverlay__trace" />
+                        <use
+                            href={`#${effectId}-accent`}
+                            className="SpinnerOverlay__pulse SpinnerOverlay__pulse--glow"
+                            filter={`url(#${effectId})`}
+                        />
+                        <use href={`#${effectId}-accent`} className="SpinnerOverlay__pulse" />
                     </svg>
                 </>
             )}

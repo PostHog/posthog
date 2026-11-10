@@ -129,6 +129,11 @@
                 animation-duration: 9s;
                 animation-delay: -3s;
                 animation-direction: alternate-reverse;
+
+                .SpinnerOverlay__pulse {
+                    animation-duration: 4.5s;
+                    animation-delay: -2s;
+                }
             }
         }
 
@@ -138,9 +143,20 @@
         }
 
         .SpinnerOverlay__trace {
-            stroke-width: 4px;
-            stroke-dasharray: 180 16 60 12;
-            animation: SpinnerOverlay__flow 4s linear infinite;
+            stroke-width: 3px;
+            opacity: 0.35;
+        }
+
+        .SpinnerOverlay__pulse {
+            stroke-width: 7px;
+            stroke-linecap: round;
+            stroke-dasharray: 5 95;
+            animation: SpinnerOverlay__flow 3s linear -1s infinite;
+
+            &--glow {
+                stroke-width: 24px;
+                opacity: 0.6;
+            }
         }
 
         .Spinner {
@@ -150,7 +166,7 @@
         &.SpinnerOverlay--frozen,
         &[aria-hidden='true'] {
             .SpinnerOverlay__ribbon,
-            .SpinnerOverlay__trace {
+            .SpinnerOverlay__pulse {
                 animation-play-state: paused;
             }
         }
@@ -159,7 +175,7 @@
             transition: none;
 
             .SpinnerOverlay__ribbon,
-            .SpinnerOverlay__trace {
+            .SpinnerOverlay__pulse {
                 animation: none;
             }
         }
@@ -199,6 +215,6 @@
 
 @keyframes SpinnerOverlay__flow {
     to {
-        stroke-dashoffset: -268;
+        stroke-dashoffset: -100;
     }
 }
