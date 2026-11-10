@@ -2,7 +2,7 @@ import './EndpointPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored latency sparkline geometry. Both series share the same start; the
 // "materialized" series drops at the materialization point (x=55), where the marker sits.
@@ -24,7 +24,7 @@ function areaPath(line: string): string {
  * `__swap` grids and crossfaded, so toggling never changes the layout's size.
  */
 export function EndpointPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('EndpointPreview', isStatic && 'EndpointPreview--static')}>

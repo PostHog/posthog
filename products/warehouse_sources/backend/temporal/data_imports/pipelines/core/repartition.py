@@ -48,6 +48,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import get_governor
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_PERMISSION_DENIED_MESSAGE,
+    ObjectStorePermissionDeniedError,
+    is_object_store_permission_denied,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import _purge_s3_prefix
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     NULL_NUMERICAL_PARTITION,
@@ -303,6 +308,11 @@ async def _valid_delta_row_count(uri: str, storage_options: dict[str, str]) -> i
     DeltaError / FileNotFoundError from an interrupted write or swap). Used to gate destructive swap
     steps on the temp/live tables actually being intact, so a partial `__repartitioned` temp can never
     be copied over a good live table.
+
+    Raises `ObjectStorePermissionDeniedError` for a bucket refusal (see `is_object_store_permission_denied`)
+    rather than folding it into the same None as a missing/corrupt table: unlike those, a refusal says
+    nothing about whether the table is intact, and the raw `OSError` otherwise carries the bucket key
+    straight into whatever reports it.
     """
     try:
         is_delta = await asyncio.to_thread(
@@ -314,6 +324,10 @@ async def _valid_delta_row_count(uri: str, storage_options: dict[str, str]) -> i
         return await asyncio.to_thread(_table_row_count, dt)
     except (deltalake.exceptions.DeltaError, FileNotFoundError):
         return None
+    except OSError as e:
+        if is_object_store_permission_denied(e):
+            raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+        raise
 
 
 # Rows read from the live table to tell which partition scheme its data is bucketed under. The
@@ -579,6 +593,10 @@ async def _live_missing_data_file(live_uri: str, storage_options: dict[str, str]
     except (deltalake.exceptions.DeltaError, FileNotFoundError):
         # Live unreadable — the corrupted-log revive already covers that state.
         return None
+    except OSError as e:
+        if is_object_store_permission_denied(e):
+            raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+        raise
     basename = missing_path.rsplit("/", 1)[-1]
     referenced = next((uri for uri in file_uris if uri.rsplit("/", 1)[-1] == basename), None)
     if referenced is None:
