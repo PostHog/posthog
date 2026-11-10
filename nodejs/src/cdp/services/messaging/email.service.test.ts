@@ -2018,16 +2018,17 @@ describe('EmailService', () => {
                 [
                     'loads its files and sends only once that call settles',
                     true,
+                    3_000,
                     sent,
                     () => [
                         { to: [expect.stringContaining(recipient)], attachments: deliveredFiles.map((file) => file()) },
                     ],
                 ],
-                ['reschedules as a load retry once its deadline passes', false, retriedLoad, () => []],
+                ['reschedules as a load retry once its deadline passes', false, 1_000, retriedLoad, () => []],
             ])(
                 'when a flow sends its next email inline while the SES call of the email before still waits for its credentials, it %s',
-                async (_name, credentialsArrive, expected, inbox) => {
-                    const emailService = sender({ attachmentSendDeadlineMs: 1_000 })
+                async (_name, credentialsArrive, attachmentSendDeadlineMs, expected, inbox) => {
+                    const emailService = sender({ attachmentSendDeadlineMs })
                     let giveCredentials!: () => void
                     const credentials = new Promise<{ accessKeyId: string; secretAccessKey: string }>((resolve) => {
                         giveCredentials = () =>
