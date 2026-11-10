@@ -89,6 +89,7 @@ export function makeNodeDetail({
                   ioKeys: { input: null, output: null, tools: null, ...ioKeys },
               }
             : null,
+        content: { input: { kind: 'json', value: null }, output: { kind: 'json', value: null } },
     }
 }
 

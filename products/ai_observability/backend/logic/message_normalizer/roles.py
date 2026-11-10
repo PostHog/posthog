@@ -20,6 +20,8 @@ ROLE_MAP: Final[Mapping[str, str]] = MappingProxyType(
 )
 
 AVAILABLE_TOOLS_ROLE: Final = "available tools"
+THINKING_ROLE: Final = "assistant (thinking)"
+TOOL_RESULT_ROLE: Final = "assistant (tool result)"
 
 
 def normalize_role(raw_role: Value, fallback: str) -> str:

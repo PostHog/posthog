@@ -56,13 +56,12 @@ def default_recipes() -> tuple[Recipe, ...]:
     return recipes
 
 
-def merge_recipes(stored: Sequence[StoredRecipe]) -> list[Recipe]:
+def merge_recipes(customs: Sequence[Recipe]) -> list[Recipe]:
     # Team recipes run after every built-in, so they catch inputs the built-ins miss without ever shadowing them.
-    customs = [recipe for recipe in map(_compile_stored, stored) if recipe is not None]
     return [*default_recipes(), *customs]
 
 
-def _compile_stored(stored: StoredRecipe) -> Recipe | None:
+def compile_stored_recipe(stored: StoredRecipe) -> Recipe | None:
     # A team recipe that does not compile is skipped, so a bad edit can never break trace rendering.
     try:
         recipe = compile_recipe(load_recipe_yaml(stored.source), stored.id)

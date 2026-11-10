@@ -23,6 +23,7 @@ from products.ai_observability.backend.logic.message_normalizer.normalizer impor
     DEFAULT_RECIPES_DIR,
     RecipeNormalizer,
     StoredRecipe,
+    compile_stored_recipe,
     default_recipes,
     merge_recipes,
 )
@@ -117,14 +118,20 @@ def test_normalize_messages(
     )
 
 
+def compiled(stored: list[StoredRecipe]) -> list[Recipe]:
+    return [recipe for recipe in map(compile_stored_recipe, stored) if recipe is not None]
+
+
 def test_merge_returns_the_built_ins_in_order_then_team_recipes_by_database_id() -> None:
     builtin_ids = [recipe.id for recipe in default_recipes()]
     assert [recipe.id for recipe in merge_recipes([])] == builtin_ids
     merged = merge_recipes(
-        [
-            StoredRecipe(id="db-first", source="rules: []\n"),
-            StoredRecipe(id="db-second", source="id: ignored\nrules: []\n"),
-        ]
+        compiled(
+            [
+                StoredRecipe(id="db-first", source="rules: []\n"),
+                StoredRecipe(id="db-second", source="id: ignored\nrules: []\n"),
+            ]
+        )
     )
     assert [recipe.id for recipe in merged] == [*builtin_ids, "db-first", "db-second"]
 
@@ -144,7 +151,7 @@ def test_merge_skips_broken_team_recipes_and_keeps_the_rest() -> None:
         StoredRecipe(id="unhashable-key", source="? [[a]]\n: 1\nrules: []\n"),
     ]
     with structlog.testing.capture_logs() as logs:
-        recipes = merge_recipes([*broken, date_keyed, good])
+        recipes = merge_recipes(compiled([*broken, date_keyed, good]))
     assert [(log["event"], log["recipe_id"], log["error_type"]) for log in logs] == [
         ("llma_team_recipe_skipped", "duplicate-key", "DuplicateKeyError"),
         ("llma_team_recipe_skipped", "bad-rules", "RecipeCompileError"),
