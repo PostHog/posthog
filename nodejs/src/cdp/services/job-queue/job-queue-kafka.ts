@@ -64,14 +64,17 @@ export class CyclotronJobQueueKafka implements JobQueue {
             // on-call can find the partitions, offsets and functions that a restart replays.
             try {
                 const { backgroundTask } = await this.consumeKafkaBatch(messages)
+                // The background task can outlive the batch, so its handler keeps the summary and not the
+                // messages. The consumer releases the message payloads after it reads the offsets.
+                const batch = describeKafkaBatch(messages)
                 return {
                     backgroundTask: backgroundTask.catch((error) => {
-                        logFailedKafkaBatch('background_task', messages, error)
+                        logFailedKafkaBatch('background_task', batch, error)
                         throw error
                     }),
                 }
             } catch (error) {
-                logFailedKafkaBatch('batch', messages, error)
+                logFailedKafkaBatch('batch', describeKafkaBatch(messages), error)
                 throw error
             }
         })
@@ -261,12 +264,14 @@ export function serializeInvocation(invocation: CyclotronJobInvocation): Cyclotr
     }
 }
 
-export type KafkaBatchSummary = {
+type KafkaBatchSummary = {
     partitions: { partition: number; firstOffset: number; lastOffset: number; messages: number }[]
     functions: string[]
 }
 
-export function summarizeKafkaBatch(messages: Message[]): KafkaBatchSummary {
+type KafkaBatchDescription = { topic?: string } & (KafkaBatchSummary | { summaryError: string })
+
+function summarizeKafkaBatch(messages: Message[]): KafkaBatchSummary {
     const partitions = new Map<number, KafkaBatchSummary['partitions'][number]>()
     const functions = new Set<string>()
 
@@ -295,16 +300,16 @@ export function summarizeKafkaBatch(messages: Message[]): KafkaBatchSummary {
     }
 }
 
-function logFailedKafkaBatch(stage: 'batch' | 'background_task', messages: Message[], error: unknown): void {
+function describeKafkaBatch(messages: Message[]): KafkaBatchDescription {
+    const topic = messages[0]?.topic
     try {
-        logger.error('🔄', 'cdp_cyclotron_kafka_batch_failed', {
-            stage,
-            error: String(error),
-            topic: messages[0]?.topic,
-            ...summarizeKafkaBatch(messages),
-        })
-    } catch (logError) {
-        // The original error must still reach the consumer, so a failure to log it is only reported.
-        logger.error('🔄', 'cdp_cyclotron_kafka_batch_failed_log_error', { error: String(logError) })
+        return { topic, ...summarizeKafkaBatch(messages) }
+    } catch (error) {
+        // This also runs for batches that succeed, so a batch it cannot summarize must not fail the consumer.
+        return { topic, summaryError: String(error) }
     }
+}
+
+function logFailedKafkaBatch(stage: 'batch' | 'background_task', batch: KafkaBatchDescription, error: unknown): void {
+    logger.error('🔄', 'cdp_cyclotron_kafka_batch_failed', { stage, error: String(error), ...batch })
 }

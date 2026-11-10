@@ -45,8 +45,11 @@ describe('CyclotronJobQueueKafka', () => {
             return eachBatch!
         }
 
-        const runBatch = async (eachBatch: EachBatch, messages: Message[]): Promise<void> => {
+        const runBatch = async (eachBatch: EachBatch, messages: Message[], settle: () => void): Promise<void> => {
             const result = await eachBatch(messages)
+            // The consumer drops the messages before the background task settles, so the log must not need them.
+            messages.length = 0
+            settle()
             await result?.backgroundTask
         }
 
@@ -54,17 +57,21 @@ describe('CyclotronJobQueueKafka', () => {
             {
                 stage: 'batch',
                 value: null,
-                backgroundTask: () => Promise.resolve(),
+                backgroundTaskFails: false,
                 error: 'Bad message',
             },
             {
                 stage: 'background_task',
                 value: Buffer.from(JSON.stringify({ id: 'inv', teamId: 1, functionId: 'fn-a', queue: 'hog' })),
-                backgroundTask: () => Promise.reject(new Error('background task failed')),
+                backgroundTaskFails: true,
                 error: 'background task failed',
             },
         ])('logs the $stage failure with its partitions, offsets and functions and rethrows it', async (c) => {
-            const eachBatch = await startQueue(c.backgroundTask)
+            let settle = (): void => {}
+            const backgroundTask = new Promise<void>((resolve, reject) => {
+                settle = c.backgroundTaskFails ? () => reject(new Error('background task failed')) : resolve
+            })
+            const eachBatch = await startQueue(() => backgroundTask)
             const loggerError = jest.spyOn(logger, 'error')
             const messages = [
                 message(c.value, 7, 120, '2', 'fn-b'),
@@ -73,7 +80,7 @@ describe('CyclotronJobQueueKafka', () => {
                 message(c.value, 7, 119, '1', 'fn-a'),
             ]
 
-            await expect(runBatch(eachBatch, messages)).rejects.toThrow(c.error)
+            await expect(runBatch(eachBatch, messages, settle)).rejects.toThrow(c.error)
 
             expect(loggerError).toHaveBeenCalledWith('🔄', 'cdp_cyclotron_kafka_batch_failed', {
                 stage: c.stage,
