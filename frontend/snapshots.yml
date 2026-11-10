@@ -15060,6 +15060,10 @@ snapshots:
         hash: v1.k794b7964.aab1c9fbc591759a9e754595061e016837e6c4e862c2360de2168635f64a83ab.5EgAUewtjNyO6pUOWeokaTKJMivFHpfxpi9aOWBt9VM
     scenes-app-platformalerts--list--light:
         hash: v1.k794b7964.de5bad7fdb767b1af67aff9f17311843e261cf6a397ae81eb869be106367bf54.zfo-7njw2DSU3-XaDFSukMRuOZAxgU3CZ4a94pqsapA
+    scenes-app-platformalerts--routing--dark:
+        hash: v1.k794b7964.d613746505e51ce88ebefc8ef0d03a6f29aa422f36b0c905328281950fe5581e.O2xjRjTNFa6w6Z09vnofXt4RATrDtQnfiFKpBtO2coc
+    scenes-app-platformalerts--routing--light:
+        hash: v1.k794b7964.dea075ade5283b6728b1e433b5e3450e09d322efc954ac30fd29e8691922a6c5.2M-kdtCkgUXtagW46aHmk1LNwzJW4nP5nfF4xtWFRn0
     scenes-app-posthog-ai--chat-history--dark:
         hash: v1.k794b7964.eee0d73adae1a95b8020e415795b22d598502020aca651bbf0e9d6efc874570d.bRIMlhqBUQzGifiT0EX3if9HvBrvwa0aLAzSQMEAu-w
     scenes-app-posthog-ai--chat-history--light:

@@ -9,7 +9,7 @@ from django.db.models import Prefetch, prefetch_related_objects
 
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.user import User
-from posthog.schema_enums import AlertCalculationInterval
+from posthog.schema_enums import AlertCalculationInterval, InsightThresholdType
 
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts_platform.backend.facade.api import (
@@ -190,7 +190,9 @@ def _presented(alert: AlertConfiguration, configuration: PlatformAlertConfigurat
     alert.schedule_start_time = configuration.anchor_time
     if alert.threshold is None:
         # Every insight row has a threshold, and the API's readers expect one.
-        alert.threshold = Threshold(team=alert.team, insight=alert.insight, configuration={})
+        alert.threshold = Threshold(
+            team=alert.team, insight=alert.insight, configuration={"type": InsightThresholdType.ABSOLUTE.value}
+        )
     # An unsaved threshold has no `created_at`, which the API's readers expect.
     alert.threshold.created_at = configuration.created_at
     # What the viewset annotates on a row. The platform's last check replaces it when there is one.

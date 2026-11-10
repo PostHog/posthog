@@ -13,6 +13,8 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import InsightThreshold
+
 from posthog.constants import AvailableFeature
 from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertCalculationInterval
@@ -329,6 +331,23 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         ):
             hidden = self.client.get(f"{self.url}/{self.copy_id}/")
         assert hidden.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_a_detector_alert_insight_keeps_no_row_for_shows_a_threshold_the_schema_accepts(self) -> None:
+        with team_scope(self.team.id):
+            native = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="detector",
+                source_kind="insight",
+                source_config={"insight_id": self.alert.insight_id, "condition": {"detector": {"type": "zscore"}}},
+                check_interval_minutes=1440,
+                owner="platform",
+                legacy_configuration_id=None,
+            )
+
+        response = self.client.get(f"{self.url}/{native.id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        InsightThreshold.model_validate(response.json()["threshold"]["configuration"])
 
     @parameterized.expand(
         [
