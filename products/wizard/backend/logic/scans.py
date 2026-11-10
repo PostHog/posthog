@@ -8,7 +8,12 @@ from posthog.event_usage import report_user_or_team_action
 from posthog.models import Team, User
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.wizard.backend.facade.contracts import RecordWizardScanInput, WizardScanResult, WizardScanTool
+from products.wizard.backend.facade.contracts import (
+    RecordWizardScanInput,
+    WizardDetectedWarehouseSource,
+    WizardScanResult,
+    WizardScanTool,
+)
 from products.wizard.backend.models import WizardDetectedTool, WizardScan
 from products.wizard.backend.observability.config import (
     WIZARD_POSTHOG_ALTERNATIVE_DETECTED_EVENT,
@@ -232,3 +237,31 @@ def organization_has_detected_tool(*, organization_id: str, kinds: Collection[st
         .filter(team__organization_id=organization_id, kind__in=kinds, removed_at__isnull=True)
         .exists()
     )
+
+
+def list_detected_warehouse_sources(
+    team_id: int, *, seen_since: datetime | None = None
+) -> tuple[WizardDetectedWarehouseSource, ...]:
+    rows = WizardDetectedTool.objects.for_team(team_id).filter(
+        removed_at__isnull=True,
+        warehouse_source_type__isnull=False,
+    )
+    if seen_since is not None:
+        rows = rows.filter(last_seen_at__gte=seen_since)
+
+    # One workspace per row, so two repositories of one project can report the same source.
+    sources: dict[str, WizardDetectedWarehouseSource] = {}
+    for row in rows.order_by("-last_seen_at").only("kind", "warehouse_source_type", "first_seen_at", "last_seen_at"):
+        source_type = row.warehouse_source_type
+        if not source_type:
+            continue
+        sources.setdefault(
+            source_type,
+            WizardDetectedWarehouseSource(
+                kind=row.kind,
+                warehouse_source_type=source_type,
+                first_seen_at=row.first_seen_at,
+                last_seen_at=row.last_seen_at,
+            ),
+        )
+    return tuple(sources.values())

@@ -8578,6 +8578,10 @@ snapshots:
         hash: v1.k794b7964.71a9693ba7099543574e96ac5d3eff87ead557759ef3348f7c96891e1dae9141.65_7wuuYuTdKgfFxOSuiihUOeiIq-ewMLT2Pryc8Gvc
     products-wizard-wizard-run-sidebar-widget--completed--light:
         hash: v1.k794b7964.45359de1124ada6b14580c8a67e1e80f85462001228e09eb798df6c406f024f7.V6RQhbjyvgIhnwr7lj0dKC4Sk1vAG5Gw6ct1ACTOn5w
+    products-wizard-wizard-run-sidebar-widget--detected-sources-menu-open--dark:
+        hash: v1.k794b7964.0aee2245c967e2b1363e30bd64e0d740340e1264f9c2755319423319511d4ac0.FIMxJQxeI3etSLPdYndUhU5ynD10xxO_P8bHBIovmeo
+    products-wizard-wizard-run-sidebar-widget--detected-sources-menu-open--light:
+        hash: v1.k794b7964.dd63da42ed861eb25f02678446adec498d81b08ae94377b9eba178d871427b11.pp4SBWIjM_qSVfZJuK9_CYf5JIvoeIYoontS5HX7f0k
     products-wizard-wizard-run-sidebar-widget--empty--dark:
         hash: v1.k794b7964.7edb126ab5f52f4c83021c3500402674697080984be60a900b7b20e6a23af9f3.3novMKHcPVCpp9wlFO-hLNfouNhqykOwEXliZGuwGc0
     products-wizard-wizard-run-sidebar-widget--empty--light:
@@ -8595,13 +8599,13 @@ snapshots:
     products-wizard-wizard-run-sidebar-widget--long-task-name--light:
         hash: v1.k794b7964.87409ef3c77b271ce443cd020fe6546646a19f159def5cca9ad74a72d0c99f0a.rOZgVCrJZ9GKXSV1HRDcSqNyzU7dCNclfUWXCovar8Q
     products-wizard-wizard-run-sidebar-widget--many-runs--dark:
-        hash: v1.k794b7964.c60422ac49554c92e0f0b70a468aeaca43520005b432d847d69fddfee5796b05.rlCUAIxAGgazj0EgCnyM3zEUen82VTOIqSg97RPamfs
+        hash: v1.k794b7964.a9f676fcb6ff84782f0141be95246a00d635778d58b08b8696dfddd25f44a25b.eV_YA6y9CK8E7PbE8Qg7M5Mf56ZxFfSdkHNZsDrmAbU
     products-wizard-wizard-run-sidebar-widget--many-runs--light:
-        hash: v1.k794b7964.b36b26edaea9e4b38ea4d4e58b5a8f96e67a76c9d1ed3fb3b0da2f221b8df4e1.s5s9k4NPEkAorFYD0q7WHZ5fxKb3mgiwCLCjGb7HWiI
+        hash: v1.k794b7964.405c8314085cc3de6ab520a560ac4497edfd847221dab58282aa7ac52f24f43d.wgFOX8WpU7eTMhUqMLMOK7yjyQBBl_04mvWQYcg31T4
     products-wizard-wizard-run-sidebar-widget--mixed-statuses--dark:
-        hash: v1.k794b7964.2f3c6f3897e172d853d84d0a1d23ccbc62d34df0d899e74a74af0b28fcb37acb.TwQh7FEaJJn9dzJF1GYxQNW2FadsNmW8_2OL7mX8vuM
+        hash: v1.k794b7964.b1e865145734a62e2a98b11fe2b54a7bb110d0bdfbbaf110a9abb33f60c5c583.HddMnmfxV9Tq9lDOtR7GmDF0SChECNmyxNqzqafxqSQ
     products-wizard-wizard-run-sidebar-widget--mixed-statuses--light:
-        hash: v1.k794b7964.578af0b3a9070e00ab4bd95296c174b8b34a7201a5c6cb91a986203af5b66261.5KQ_TlQjfAIBBrbMAGW7VfPWw9fOVNuLpQUwPW2VRyI
+        hash: v1.k794b7964.e68f0f5c0368976a805ff5aa1a61ffcaf9a0f30139d58a7c6a8e4d17ddd5f997.gt9zy5yZh7wORE8ANbZr6zEAWKfFKvTdvabgIh5H4a0
     products-wizard-wizard-run-sidebar-widget--multiple-runs--dark:
         hash: v1.k794b7964.e6c1c492ae401d6e193bb3c7a1b90a1792a38cd585eb657a26bfc15be867c377.5ltu6ecQ-GFEpLXDkkMzOEF-0JDdWTsLJ611fyroi_g
     products-wizard-wizard-run-sidebar-widget--multiple-runs--light:
@@ -8611,9 +8615,9 @@ snapshots:
     products-wizard-wizard-run-sidebar-widget--multiple-runs-hovered--light:
         hash: v1.k794b7964.6aca699d79bb0dfc80da9305fd8d3c82bf382b4a49f15ae7168d614f8d79139e.YUrKHRPcUUmFf1OpzXRa9ye6ztFFnIA19Xv5W3dDaU4
     products-wizard-wizard-run-sidebar-widget--multiple-runs-menu-open--dark:
-        hash: v1.k794b7964.26e0d00f12ec11d1fac80a9f6a7070d9f13502a45b803aacb2ae25af2b0bdfdc.HGN_qi6x788DGkNXUWa8u8oQaaKWfASDzJXKmfLbJxE
+        hash: v1.k794b7964.5cf9ace1cf56c56083b52ff14475200491eab226754ad331200c9202bfff1ac3.NSuzmnTcofALAYRKoBzbuUZL001BTan4RXHkeGWYdXc
     products-wizard-wizard-run-sidebar-widget--multiple-runs-menu-open--light:
-        hash: v1.k794b7964.fba9d9d30be910c963a0e7855d175096d3fee41ce157c951149d7a6bd6619f45.gQcXbkwPBk3qcm15uqsLpvTxCY3z6GmBuRLoR9F8yYs
+        hash: v1.k794b7964.b076950733e123eb5ba43bfcec9e6a6c6a2c7fc5525f9d3fd51df8545f6920f9.tVQrQj8skr-Omf-P5KZpqcOZVnSACAmCXMr0Csx9-Zo
     products-wizard-wizard-run-sidebar-widget--running-stage--dark:
         hash: v1.k794b7964.86309030c423ee46b327f51be7502adbcb9b5203d90207c76c3dc2b52194697c.e5fa7NiW5tVIzqlPxIOaSuSIXtTli3un_3AzZjMVaDM
     products-wizard-wizard-run-sidebar-widget--running-stage--light:

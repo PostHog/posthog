@@ -120742,6 +120742,17 @@ export namespace Schemas {
       started_at?: string | null;
     }
 
+    export interface WizardDetectedWarehouseSource {
+      /** The tool's kind in the wizard tool catalog, such as `Stripe`. */
+      kind: string;
+      /** The data warehouse source type that imports this tool's data, such as `Stripe` or `Postgres`. */
+      warehouse_source_type: string;
+      /** When a wizard scan first found the tool. */
+      first_seen_at: string;
+      /** When a wizard scan last found the tool. */
+      last_seen_at: string;
+    }
+
     export interface WizardInstallStart {
       /** ID of the setup run. Pass it to the status endpoint. */
       readonly run_id: string;
@@ -141939,6 +141950,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type WizardScansDetectedSourcesRetrieveParams = {
+    /**
+     * Only return sources a scan found at or after this time, such as the start of a wizard run.
+     */
+    seen_since?: string;
     };
 
     export type WizardSessionsListParams = {
