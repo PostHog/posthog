@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { withWidth } from '../storyFixtures'
 import { NodeRawTab } from './NodeRawTab'
 
 const meta: Meta<typeof NodeRawTab> = {
@@ -31,6 +32,7 @@ export const Default: Story = {
 
 export const Loading: Story = {
     args: { raw: { status: 'loading' } },
+    decorators: [withWidth(720)],
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
