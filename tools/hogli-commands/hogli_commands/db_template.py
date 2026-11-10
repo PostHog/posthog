@@ -33,7 +33,6 @@ from hogli_commands.db_schema import (
     find_newest_compatible_artifact,
     github_session,
     migrations_missing_from_checkout,
-    product_routed_app_labels,
     routed_app_labels,
     run_psql_with_gzip_input,
 )
@@ -222,8 +221,8 @@ class TemplateStore:
         self.server.create_database(building)
         try:
             self.server.load_gzip_dump(building, dump)
-            if apps := sorted({*product_routed_app_labels(), *routed_at_dump}):
-                self.server.forget_migrations(building, apps)
+            if routed_at_dump:
+                self.server.forget_migrations(building, routed_at_dump)
             self.server.rename_database(building, name)
         except Exception:
             self.server.drop_database(building)

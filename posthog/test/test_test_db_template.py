@@ -15,7 +15,14 @@ import psycopg
 import requests
 import responses
 from hogli_commands import db_template
-from hogli_commands.db_template import Checkout, PostgresServer, PrimeOutcome, TemplateStore, prime_test_database
+from hogli_commands.db_template import (
+    Checkout,
+    PostgresServer,
+    PrimeOutcome,
+    PrimeResult,
+    TemplateStore,
+    prime_test_database,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 APPLIED, PENDING = sorted(path.stem for path in (REPO_ROOT / "posthog" / "migrations").glob("0*.py"))[1:3]
@@ -40,9 +47,15 @@ class Scratch:
                 connection.execute("INSERT INTO django_migrations (app, name) VALUES ('posthog', %s)", (name,))
 
     def build_template(
-        self, sha: str, migrations: list[str], tmp_path: Path, store: TemplateStore | None = None
+        self,
+        sha: str,
+        migrations: list[str],
+        tmp_path: Path,
+        store: TemplateStore | None = None,
+        other_apps: tuple[tuple[str, str], ...] = (),
     ) -> None:
-        rows = "".join(f"{index}\tposthog\t{name}\n" for index, name in enumerate(migrations, start=1))
+        recorded = [("posthog", name) for name in migrations] + list(other_apps)
+        rows = "".join(f"{index}\t{app}\t{name}\n" for index, (app, name) in enumerate(recorded, start=1))
         dump = tmp_path / "schema.sql.gz"
         dump.write_bytes(
             gzip.compress(
@@ -126,33 +139,57 @@ def test_prime_test_database_leaves_the_database_alone_without_a_template_from_t
     assert (result.outcome, scratch.ledger()) == (PrimeOutcome.SKIPPED, ledger)
 
 
-def test_prime_test_database_forgets_apps_the_template_commit_routed_to_another_database(
-    scratch: Scratch, tmp_path: Path
+@pytest.mark.parametrize(
+    "routing, other_apps, ledger",
+    [
+        ("routes:\n  - app_label: posthog\n", (), set()),
+        (
+            "routes: []\n",
+            (("stamphog", "0002_a_routed_app_migration"),),
+            {APPLIED, PENDING, "0002_a_routed_app_migration"},
+        ),
+    ],
+    ids=["routed-away-at-the-template-commit", "routed-away-only-in-the-checkout"],
+)
+def test_prime_test_database_clears_only_the_apps_the_template_commit_routed_to_another_database(
+    scratch: Scratch, tmp_path: Path, routing: str, other_apps: tuple[tuple[str, str], ...], ledger: set[str]
 ) -> None:
     history = tmp_path / "history"
     (history / "products").mkdir(parents=True)
-    (history / "products" / "db_routing.yaml").write_text("routes:\n  - app_label: posthog\n    database: elsewhere\n")
-    git = [
-        "git",
-        "-C",
-        str(history),
-        "-c",
-        "user.name=test",
-        "-c",
-        "user.email=test@example.com",
-        "-c",
-        "commit.gpgsign=false",
-    ]
+    (history / "products" / "db_routing.yaml").write_text(routing)
+    git = ["git", "-C", str(history), "-c", "user.name=test", "-c", "user.email=test@example.com"]
     subprocess.run([*git, "init", "-q"], check=True)
     subprocess.run([*git, "add", "."], check=True)
-    subprocess.run([*git, "commit", "-q", "-m", "route posthog away"], check=True)
+    subprocess.run([*git, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "routing"], check=True)
     sha = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
     store = TemplateStore(scratch.server, Checkout(history), allow_download=False, prefix=scratch.store.prefix)
-    scratch.build_template(sha, [APPLIED, PENDING], tmp_path, store)
+    scratch.build_template(sha, [APPLIED, PENDING], tmp_path, store, other_apps)
 
     result = prime_test_database(scratch.server, scratch.target, store)
 
-    assert (result.outcome, scratch.ledger()) == (PrimeOutcome.CLONED, set())
+    assert (result.outcome, scratch.ledger()) == (PrimeOutcome.CLONED, ledger)
+
+
+@pytest.mark.parametrize(
+    "mode, naming",
+    [("auto", "test-name"), ("auto", "default-name"), ("off", "test-name")],
+)
+def test_prime_django_test_database_primes_the_test_database_of_the_django_settings(
+    scratch: Scratch, monkeypatch: pytest.MonkeyPatch, mode: str, naming: str
+) -> None:
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setenv(db_template.MODE_ENV, mode)
+    scratch.seed(scratch.target, [APPLIED])
+    database = dict(settings.DATABASES["default"])
+    if naming == "test-name":
+        database |= {"NAME": "posthog", "TEST": {"NAME": scratch.target}}
+    else:
+        database |= {"NAME": scratch.target.removeprefix("test_"), "TEST": {}}
+
+    result = db_template.prime_django_test_database(database)
+
+    kept = PrimeResult(outcome=PrimeOutcome.KEPT, detail=f"{scratch.target} fits this checkout")
+    assert result == (None if mode == "off" else kept)
 
 
 def test_usable_template_retries_a_failed_download_only_after_the_retry_window(
@@ -179,9 +216,11 @@ def test_usable_template_retries_a_failed_download_only_after_the_retry_window(
     assert (requests_within_window, requests_in_total) == (1, 2)
 
 
-def test_postgres_server_connects_with_the_tls_settings_of_the_django_database(tmp_path: Path) -> None:
-    tls = {"sslmode": "verify-full", "sslrootcert": str(tmp_path / "missing-ca.pem")}
+def test_postgres_server_connects_with_the_tls_settings_of_the_django_database() -> None:
+    tls = {"sslmode": "require", "sslrootcert": "system"}
     server = PostgresServer.from_django({**settings.DATABASES["default"], "OPTIONS": tls})
 
-    with pytest.raises(psycopg.OperationalError, match=r"(?i)ssl|certificate"):
+    with pytest.raises(
+        psycopg.OperationalError, match='weak sslmode "require" may not be used with sslrootcert=system'
+    ):
         server.database_exists("postgres")
