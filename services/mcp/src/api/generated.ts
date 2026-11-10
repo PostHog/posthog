@@ -25746,12 +25746,14 @@ export namespace Schemas {
 
     /**
      * * `time_series` - Time series
+     * * `funnel_steps` - Funnel steps
      */
     export type ChartExplanationShapeEnum = typeof ChartExplanationShapeEnum[keyof typeof ChartExplanationShapeEnum];
 
 
     export const ChartExplanationShapeEnum = {
       TimeSeries: 'time_series',
+      FunnelSteps: 'funnel_steps',
     } as const;
 
     export interface StorySeriesResult {
@@ -25770,6 +25772,19 @@ export namespace Schemas {
          * @maxItems 5000
          */
       days?: string[];
+    }
+
+    export interface StoryFunnelStep {
+      /**
+         * The step's name.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * How many reached the step.
+         * @minimum 0
+         */
+      count: number;
     }
 
     /**
@@ -25938,21 +25953,30 @@ export namespace Schemas {
     }
 
     /**
-     * The insight query the explanation follows.
+     * The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.
      */
     export type ExplainChartDataQuery = {[key: string]: unknown};
 
     export interface ExplainChartData {
       /** What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.
        *
-       * * `time_series` - Time series */
+       * * `time_series` - Time series
+       * * `funnel_steps` - Funnel steps */
       shape?: ChartExplanationShapeEnum;
-      /** The insight query the explanation follows. */
+      /** The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps. */
       query: ExplainChartDataQuery;
-      /** Every series on the chart when it was explained. */
-      results: StorySeriesResult[];
+      /** Every series on the chart when it was explained. Time series only. */
+      results?: StorySeriesResult[];
+      /** The followed breakdown value's steps when it was explained. Funnel steps only. */
+      steps?: StoryFunnelStep[];
       /**
-         * The index in `results` the explanation follows.
+         * Every breakdown value's label, empty when the funnel has no breakdown. Funnel steps only.
+         * @maxItems 1000
+         * @items.maxLength 400
+         */
+      breakdowns?: string[];
+      /**
+         * The index in `results` the explanation follows, or the index in `breakdowns` on a funnel.
          * @minimum 0
          */
       seriesIndex: number;
@@ -25962,8 +25986,8 @@ export namespace Schemas {
          * @nullable
          */
       insightName: string | null;
-      /** Whether the last point's period had not ended yet. */
-      lastPointInProgress: boolean;
+      /** Whether the last point's period had not ended yet. Time series only. */
+      lastPointInProgress?: boolean;
       /**
          * One sentence a person could read in place of the whole explanation.
          * @maxLength 300
@@ -31751,6 +31775,30 @@ export namespace Schemas {
       /** When deleting, also delete insights that are only on this dashboard. */
       delete_insights?: boolean;
       _create_in_folder?: string;
+    }
+
+    export interface DashboardActivitySummary {
+      /**
+         * When the dashboard was last changed, from its activity log. Null if never logged.
+         * @nullable
+         */
+      last_edited_at: string | null;
+      /** Who made the last logged change. */
+      last_edited_by: UserBasic | null;
+      /**
+         * Client that made the last logged change, e.g. 'mcp'. Null for the web app.
+         * @nullable
+         */
+      last_edited_client: string | null;
+      /**
+         * When someone other than the requesting user last opened the dashboard in the app. Programmatic reads (API, MCP, subscriptions) do not count.
+         * @nullable
+         */
+      last_viewed_by_others_at: string | null;
+      /** Who that last viewer was. */
+      last_viewed_by_others_user: UserBasic | null;
+      /** Number of people, including the requesting user, who opened the dashboard in the app in the last 30 days. */
+      recent_viewer_count: number;
     }
 
     /**
@@ -49499,6 +49547,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly connection_warning: string | null;
+    }
+
+    export interface ExternalDataSourceSyncState {
+      /** Opaque digest of the sync state the sources list shows: each source's status and last completed run, and each table's status, sync toggle, error, last sync and row count. It changes when that state changes. Compare it with an earlier value; do not parse it. */
+      fingerprint: string;
     }
 
     export type ExternalQueryErrorCode = typeof ExternalQueryErrorCode[keyof typeof ExternalQueryErrorCode];
@@ -91939,7 +91992,7 @@ export namespace Schemas {
          * @nullable
          */
       snoozed_until?: string | null;
-      /** Tag names to set on the ticket. */
+      /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
       tags?: string[];
     }
 
@@ -116896,7 +116949,7 @@ export namespace Schemas {
          * @nullable
          */
       snoozed_until?: string | null;
-      /** Tag names to set on the ticket. */
+      /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
       tags?: string[];
     }
 
@@ -128368,6 +128421,18 @@ export namespace Schemas {
 
 
     export const DashboardsDestroyFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsActivitySummaryRetrieveParams = {
+    format?: DashboardsActivitySummaryRetrieveFormat;
+    };
+
+    export type DashboardsActivitySummaryRetrieveFormat = typeof DashboardsActivitySummaryRetrieveFormat[keyof typeof DashboardsActivitySummaryRetrieveFormat];
+
+
+    export const DashboardsActivitySummaryRetrieveFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
