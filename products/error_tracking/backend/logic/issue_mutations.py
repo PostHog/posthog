@@ -19,7 +19,7 @@ from posthog.event_usage import groups
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.ph_client import ph_scoped_capture
+from posthog.ph_client import ph_background_capture
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
 from products.access_control.backend.facade.api import role_belongs_to_organization
@@ -713,20 +713,19 @@ def assign_issue_automatically(team_id: int, issue_id: UUID | str, decision: "De
 
     outcome = _counted(AutoAssignmentOutcome.ASSIGNED if created else AutoAssignmentOutcome.KEPT_EXISTING)
     if created:
-        with ph_scoped_capture() as capture:
-            capture(
-                distinct_id=str(issue.team.uuid),
-                # pinned: analytics event name, renaming it breaks dashboards
-                event="error_tracking_issue_auto_assigned",
-                properties={
-                    "issue_id": str(issue.id),
-                    "assignee_type": candidate.assignee.type,
-                    "source": candidate.source,
-                    "confidence": candidate.confidence,
-                    "threshold": decision.threshold,
-                },
-                groups=groups(team=issue.team),
-            )
+        ph_background_capture()(
+            distinct_id=str(issue.team.uuid),
+            # pinned: analytics event name, renaming it breaks dashboards
+            event="error_tracking_issue_auto_assigned",
+            properties={
+                "issue_id": str(issue.id),
+                "assignee_type": candidate.assignee.type,
+                "source": candidate.source,
+                "confidence": candidate.confidence,
+                "threshold": decision.threshold,
+            },
+            groups=groups(team=issue.team),
+        )
     if assignment.user_id == user_id:
         # A retry after a failed sync finds the row it wrote and returns kept_existing, so it must still sync.
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)

@@ -45,10 +45,9 @@ class TestAssignIssueAutomatically(BaseTest):
         self.enterContext(
             patch("products.error_tracking.backend.logic.issue_changes.issue_change_log_enabled", return_value=True)
         )
-        scoped_capture = self.enterContext(
-            patch("products.error_tracking.backend.logic.issue_mutations.ph_scoped_capture")
-        )
-        self.capture = scoped_capture.return_value.__enter__.return_value
+        self.capture = self.enterContext(
+            patch("products.error_tracking.backend.logic.issue_mutations.ph_background_capture")
+        ).return_value
         self.sync = self.enterContext(
             patch("products.error_tracking.backend.logic.issue_mutations.sync_issues_to_clickhouse")
         )
