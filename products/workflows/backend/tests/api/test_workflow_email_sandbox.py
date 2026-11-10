@@ -117,14 +117,20 @@ class TestWorkflowEmailSandbox(APIBaseTest):
         assert [created.status_code, verified.status_code, updated.status_code] == [400, 400, 400]
         assert _sandbox_rows(self.team.id) == [sandbox_row]
 
-    def test_admin_records_who_blocked_the_organization(self) -> None:
-        request = RequestFactory().get("/admin/workflows/sandboxsenderorganizationblock/add/")
+    @parameterized.expand([("prefilled",), ("forged",), ("omitted",)])
+    def test_admin_records_who_blocked_the_organization(self, posted_creator: str) -> None:
+        request = RequestFactory().post("/admin/workflows/sandboxsenderorganizationblock/add/")
         request.user = self.user
         model_admin = SandboxSenderOrganizationBlockAdmin(SandboxSenderOrganizationBlock, AdminSite())
-        initial = model_admin.get_changeform_initial_data(request)
+        other_staff = User.objects.create_and_join(self.organization, "other-staff@example.com", None)
+        created_by = {
+            "prefilled": {"created_by": model_admin.get_changeform_initial_data(request)["created_by"]},
+            "forged": {"created_by": other_staff.pk},
+            "omitted": {},
+        }[posted_creator]
 
         form = model_admin.get_form(request, obj=None)(
-            data={"organization": self.organization.pk, "reason": "abuse", "created_by": initial["created_by"]}
+            data={"organization": self.organization.pk, "reason": "abuse", **created_by}
         )
         assert form.is_valid(), form.errors
         form.save()
