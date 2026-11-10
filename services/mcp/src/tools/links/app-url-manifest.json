@@ -624,6 +624,11 @@
         "params": [],
         "scope": "project"
     },
+    "dataWarehouseMigrationConnect": {
+        "template": "/data-warehouse/migrate/connect",
+        "params": [],
+        "scope": "project"
+    },
     "dataWarehouseSource": {
         "template": "/data-management/sources/{id}/schemas",
         "params": ["id"],

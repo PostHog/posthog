@@ -44,6 +44,20 @@ export const LlmTrace: Story = {
     render: () => <Demo data={LLM_TRACE} />,
 }
 
+const flagFirstToolCall = (node: FlameNode): FlameNode => ({
+    ...node,
+    children: node.children?.map((child, index) => (index === 1 ? { ...child, color: '#f04f58' } : child)),
+})
+
+export const CustomColors: Story = {
+    render: () => (
+        <Demo
+            data={flagFirstToolCall(LLM_TRACE)}
+            config={{ groupColors: { agent: '#888888', llm: '#f7a501', tool: '#1d4aff', retrieval: '#36b37e' } }}
+        />
+    ),
+}
+
 export const Focused: Story = {
     render: () => (
         <Demo data={CPU_PROFILE} defaultFocusedId="handle_request/views.insights.retrieve/query_runner.run" />

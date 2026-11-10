@@ -407,7 +407,9 @@ class TrialInboxReads:
                 queryset, documents, page_request, include_source_metadata=include_source_metadata
             ),
         )
-        return paginator.get_paginated_response(page.results)
+        response = paginator.get_paginated_response(page.results)
+        response.data["source_metadata_available"] = self.view._source_metadata_available
+        return response
 
 
 def private_report_artefacts(store: ScoutTrialStore, report_id: str) -> list[SignalReportArtefact]:
