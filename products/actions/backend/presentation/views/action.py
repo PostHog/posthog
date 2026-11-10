@@ -655,7 +655,9 @@ class ActionViewSet(
             tags=serializer.validated_data["tags"],
         )
         return Response(
-            {"updated": [{"id": change.id, "tags": list(change.tags)} for change in changes], "skipped": skipped}
+            BulkUpdateTagsResponseSerializer(
+                {"updated": [{"id": change.id, "tags": list(change.tags)} for change in changes], "skipped": skipped}
+            ).data
         )
 
     # Shared so this endpoint is documented like every TaggedItemViewSetMixin bulk tag endpoint.
