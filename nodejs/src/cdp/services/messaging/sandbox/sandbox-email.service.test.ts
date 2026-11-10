@@ -207,14 +207,8 @@ describe('SandboxEmailService', () => {
         expect(deps.ses.send).not.toHaveBeenCalled()
     })
 
-    it('claims no cap when a recipient check refuses the send', async () => {
-        const deps = fakeDeps({ checkRecipient: jest.fn().mockResolvedValue({ ok: false, reason: 'opted_out' }) })
-
-        await new SandboxEmailService(deps).send(request())
-
-        expect(deps.authorize).not.toHaveBeenCalled()
-        expect(deps.claimCaps).not.toHaveBeenCalled()
-    })
+    const capped = (): Promise<FrequencyCapCheck> =>
+        Promise.resolve({ capped: true, nextSlotAt: now.getTime() + 3_600_000, holdHours: null })
 
     const withRecipientChecks = (preferencesByIdentifier: Record<string, Record<string, PreferenceStatus>> = {}) => {
         const recipients = new RecipientsManagerService({} as PostgresRouter)
@@ -257,12 +251,20 @@ describe('SandboxEmailService', () => {
     ])('refuses a padded recipient who opted out under %s', async (_name, optedOutIdentifier) => {
         const { deps, mailbox } = withRecipientChecks({ [optedOutIdentifier]: { news: 'OPTED_OUT' } })
         const service = new SandboxEmailService(deps)
+        let marketingSlots = 1
+        const frequencyCap = (): Promise<FrequencyCapCheck> => {
+            if (marketingSlots === 0) {
+                return capped()
+            }
+            marketingSlots -= 1
+            return Promise.resolve({ capped: false })
+        }
         const toPaddedMember = (categoryId: string) =>
             request({
                 email: { to: { email: ' member@example.com ' }, subject: 'Hi', text: 'Hello' },
                 categoryId,
                 categoryType: 'marketing',
-                frequencyCap: () => Promise.resolve({ capped: false }),
+                frequencyCap,
             })
 
         await expect(service.send(toPaddedMember('news'))).resolves.toEqual({ status: 'skipped', reason: 'opted_out' })
@@ -295,8 +297,6 @@ describe('SandboxEmailService', () => {
         expect(deps.claimCaps).toHaveBeenCalledTimes(2)
     })
 
-    const capped = (): Promise<FrequencyCapCheck> =>
-        Promise.resolve({ capped: true, nextSlotAt: now.getTime() + 3_600_000, holdHours: null })
     const accepted: SandboxSendOutcome = { status: 'accepted', messageId: 'ses-1' }
     const optedOut: SandboxSendOutcome = { status: 'skipped', reason: 'opted_out' }
 

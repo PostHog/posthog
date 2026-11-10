@@ -43,7 +43,6 @@ export type SandboxSendRequest = {
     categoryType?: 'marketing' | 'transactional'
     optOuts?: MessageOptOutRecord[]
     frequencyCap?: () => Promise<FrequencyCapCheck>
-    /** The recipient an earlier attempt of this step visit holds daily cap tokens for, from `capsClaimedFor`. */
     capsClaimedFor?: string
 }
 
@@ -109,10 +108,6 @@ export class SandboxEmailService {
         if (!address) {
             return { status: 'skipped', reason: 'invalid_recipient' }
         }
-        const recipientCheck = await this.checkRecipient(request, address, email.data.to.email)
-        if (!recipientCheck.ok) {
-            return refusal(recipientCheck.reason, request.capsClaimedFor)
-        }
         const authorization = await this.deps.authorize({
             teamId: request.teamId,
             recipient: address,
@@ -121,15 +116,13 @@ export class SandboxEmailService {
         if (!authorization.ok) {
             return refusal(authorization.reason, request.capsClaimedFor)
         }
-        if (![address, email.data.to.email].includes(authorization.storedAddress)) {
-            const storedCheck = await this.deps.checkRecipient({
-                ...this.recipientCheckBase(request),
-                address: authorization.storedAddress,
-                frequencyCap: NO_FREQUENCY_CAP,
-            })
-            if (!storedCheck.ok) {
-                return refusal(storedCheck.reason, request.capsClaimedFor)
-            }
+        const recipientCheck = await this.checkRecipient(request, [
+            email.data.to.email,
+            address,
+            authorization.storedAddress,
+        ])
+        if (!recipientCheck.ok) {
+            return refusal(recipientCheck.reason, request.capsClaimedFor)
         }
         const tenant = admitTenant(authorization.tenant, this.deps.now?.() ?? new Date())
         if (!tenant.ok) {
@@ -163,33 +156,23 @@ export class SandboxEmailService {
             isTest,
             ...(parentRunId ? { parentRunId } : {}),
         })
-        // A throttle means SES refused the message, so its tokens still cover the next attempt. A transient
-        // failure may follow an acceptance, so the next attempt claims again.
         return sent.status === 'retry' && sent.reason === 'ses_throttled' ? { ...sent, capsClaimedFor } : sent
     }
 
-    /** Checks the trimmed address, and also the rendered spelling its unsubscribe link carries when the two differ. */
-    private async checkRecipient(
-        request: SandboxSendRequest,
-        address: string,
-        rendered: string
-    ): Promise<SandboxRecipientCheck> {
-        const base = this.recipientCheckBase(request)
-        if (rendered !== address) {
-            const linkCheck = await this.deps.checkRecipient({
-                ...base,
-                address: rendered,
-                frequencyCap: NO_FREQUENCY_CAP,
+    private async checkRecipient(request: SandboxSendRequest, spellings: string[]): Promise<SandboxRecipientCheck> {
+        const addresses = [...new Set(spellings)]
+        for (const [index, address] of addresses.entries()) {
+            const last = index === addresses.length - 1
+            const check = await this.deps.checkRecipient({
+                ...this.recipientCheckBase(request),
+                address,
+                frequencyCap: last ? (request.frequencyCap ?? NO_FREQUENCY_CAP) : NO_FREQUENCY_CAP,
             })
-            if (!linkCheck.ok) {
-                return linkCheck
+            if (!check.ok || last) {
+                return check
             }
         }
-        return await this.deps.checkRecipient({
-            ...base,
-            address,
-            frequencyCap: request.frequencyCap ?? NO_FREQUENCY_CAP,
-        })
+        return { ok: true }
     }
 
     private recipientCheckBase(
@@ -211,7 +194,6 @@ function capClaimHolder(organizationId: string, storedAddress: string): string {
     return createHash('sha256').update(`${organizationId}/${storedAddress.toLowerCase()}`).digest('hex')
 }
 
-/** A refusal before SES leaves any cap claim an earlier attempt holds untouched, so its retry carries it on. */
 function refusal(reason: string, capsClaimedFor: string | undefined): SandboxSendOutcome {
     if (!RETRYABLE_REFUSALS.has(reason)) {
         return { status: 'skipped', reason }
