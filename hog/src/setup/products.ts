@@ -1,153 +1,150 @@
+import { z } from 'zod'
+
 import type { Context } from '@/core/context'
 
+export const PRODUCT_IDS = [
+    'product-analytics',
+    'web-analytics',
+    'session-replay',
+    'feature-flags',
+    'experiments',
+    'error-tracking',
+    'surveys',
+    'llm-analytics',
+    'mcp-analytics',
+    'logs',
+    'metrics',
+    'tracing',
+    'data-warehouse',
+] as const
+
+export type ProductId = (typeof PRODUCT_IDS)[number]
+
+export const ProductIdSchema = z.enum(PRODUCT_IDS)
+
+// `--products`: product ids separated by commas.
+export const ProductListSchema = z.string().transform((raw, ctx) => {
+    const ids = raw
+        .split(',')
+        .map((id) => id.trim().toLowerCase())
+        .filter(Boolean)
+    const unknown = ids.filter((id) => !ProductIdSchema.safeParse(id).success)
+
+    if (ids.length === 0 || unknown.length > 0) {
+        const message = unknown.length > 0 ? `There is no product named ${unknown.join(', ')}.` : 'Name a product.'
+        ctx.issues.push({ code: 'custom', input: raw, message })
+        return z.NEVER
+    }
+
+    return ids.flatMap((id) => ProductIdSchema.safeParse(id).data ?? [])
+})
+
 interface ProductInfo {
-    // Matches the omnibus skill `posthog:instrument-<id>` when there is one.
-    id: string
     label: string
     description: string
-    // The ProductKey PostHog records a product intent under.
-    intent: string
-    // Keywords for `hog learn -s` when the product has no omnibus skill.
+    // Keywords for `hog learn -s` when the product has no `posthog:instrument-<id>` skill.
     search: string
 }
 
-// What the purpose question and the products step say about each product. The omnibus skills the
-// library lists decide which products get `hog learn posthog:instrument-<id>`, and a new omnibus
-// skill shows up without an entry here, under its own name.
-const PRODUCTS: readonly ProductInfo[] = [
-    {
-        id: 'product-analytics',
+// What setup says about each product. PostHog records a product intent under the id with
+// underscores, such as `session_replay`.
+const PRODUCTS: Record<ProductId, ProductInfo> = {
+    'product-analytics': {
         label: 'Product analytics',
         description: 'Track events and chart how people use your product.',
-        intent: 'product_analytics',
         search: 'product analytics events',
     },
-    {
-        id: 'web-analytics',
+    'web-analytics': {
         label: 'Web analytics',
         description: 'See traffic, referrers and top pages for your site.',
-        intent: 'web_analytics',
         search: 'web analytics',
     },
-    {
-        id: 'session-replay',
+    'session-replay': {
         label: 'Session replay',
         description: 'Watch recordings of real sessions in your app.',
-        intent: 'session_replay',
         search: 'session replay',
     },
-    {
-        id: 'feature-flags',
+    'feature-flags': {
         label: 'Feature flags',
         description: 'Turn features on for some users without a deploy.',
-        intent: 'feature_flags',
         search: 'feature flags',
     },
-    {
-        id: 'experiments',
+    experiments: {
         label: 'Experiments',
         description: 'Run A/B tests and see which version wins.',
-        intent: 'experiments',
         search: 'experiments',
     },
-    {
-        id: 'error-tracking',
+    'error-tracking': {
         label: 'Error tracking',
         description: 'Capture exceptions and see which ones affect users.',
-        intent: 'error_tracking',
         search: 'error tracking',
     },
-    {
-        id: 'surveys',
+    surveys: {
         label: 'Surveys',
         description: 'Ask users questions inside your app.',
-        intent: 'surveys',
         search: 'surveys',
     },
-    {
-        id: 'llm-analytics',
+    'llm-analytics': {
         label: 'LLM analytics',
         description: 'Track LLM calls, their costs and their traces.',
-        intent: 'llm_analytics',
         search: 'llm analytics',
     },
-    {
-        id: 'logs',
+    'mcp-analytics': {
+        label: 'MCP analytics',
+        description: 'See which tools agents call on your MCP server.',
+        search: 'mcp analytics',
+    },
+    logs: {
         label: 'Logs',
         description: "Send your app's logs to PostHog and search them.",
-        intent: 'logs',
         search: 'logs',
     },
-    {
-        id: 'metrics',
+    metrics: {
         label: 'Metrics',
         description: 'Send metrics from your services and chart them.',
-        intent: 'metrics',
         search: 'metrics',
     },
-    {
-        id: 'tracing',
+    tracing: {
         label: 'Tracing',
         description: 'Follow requests across your services.',
-        intent: 'tracing',
         search: 'tracing',
     },
-    {
-        id: 'data-warehouse',
+    'data-warehouse': {
         label: 'Data warehouse',
         description: 'Query data from your other tools next to your events.',
-        intent: 'data_warehouse',
         search: 'data warehouse source',
     },
-]
+}
 
 const INSTRUMENT_PREFIX = 'posthog:instrument-'
 export const INSTALL_SKILL = `${INSTRUMENT_PREFIX}integration`
 
 export interface Product {
-    id: string
+    id: ProductId
     label: string
-    description: string | null
-    intent: string | null
+    description: string
+    // The `hog learn` command for adding the product to an app.
     command: string
 }
 
-function fromSkill(id: string): Product {
-    const words = id.replaceAll('-', ' ')
-    return {
-        id,
-        label: `${words.charAt(0).toUpperCase()}${words.slice(1)}`,
-        description: null,
-        intent: null,
-        command: `hog learn ${INSTRUMENT_PREFIX}${id}`,
-    }
+export function productLabel(id: ProductId): string {
+    return PRODUCTS[id].label
 }
 
-// The product's name and intent from the table alone, so steps that only name products don't
-// download the skill list.
-export function knownProduct(id: string): Pick<Product, 'label' | 'intent'> {
-    const known = PRODUCTS.find((product) => product.id === id)
-    return known ? { label: known.label, intent: known.intent } : fromSkill(id)
+export function productIntent(id: ProductId): string {
+    return id.replaceAll('-', '_')
 }
 
-// `skills` is the library's list of skill names, or undefined when hog couldn't load it. Without it,
-// every product points to a search, which works whether or not an omnibus skill exists.
+// `skills` lists the `posthog:instrument-*` skills, or is undefined when they didn't load.
+// Without it, every product points to a search, which works whether or not its skill exists.
 function productList(skills: readonly string[] | undefined): Product[] {
-    const omnibus = new Set(
-        (skills ?? [])
-            .filter((name) => name.startsWith(INSTRUMENT_PREFIX) && name !== INSTALL_SKILL)
-            .map((name) => name.slice(INSTRUMENT_PREFIX.length))
-    )
-    const known = PRODUCTS.map(
-        ({ search, ...product }): Product => ({
-            ...product,
-            command: omnibus.has(product.id)
-                ? `hog learn ${INSTRUMENT_PREFIX}${product.id}`
-                : `hog learn -s "${search}"`,
-        })
-    )
-    const added = [...omnibus].filter((id) => !PRODUCTS.some((product) => product.id === id)).map(fromSkill)
-    return [...known, ...added]
+    const known = new Set(skills)
+
+    return PRODUCT_IDS.map((id) => {
+        const { label, description, search } = PRODUCTS[id]
+        const skill = `${INSTRUMENT_PREFIX}${id}`
+        return { id, label, description, command: known.has(skill) ? `hog learn ${skill}` : `hog learn -s "${search}"` }
+    })
 }
 
 // The skill list downloads like any `hog learn`. A failure leaves every product on a search.
@@ -160,7 +157,8 @@ export async function loadProducts(ctx: Context): Promise<Product[]> {
     }
 }
 
-export function chosenFirst(products: readonly Product[], chosen: readonly string[]): Product[] {
+// The products the person picked come first, in the order picked.
+export function chosenFirst(products: readonly Product[], chosen: readonly ProductId[]): Product[] {
     const picked = chosen.flatMap((id) => products.filter((product) => product.id === id))
     return [...picked, ...products.filter((product) => !chosen.includes(product.id))]
 }

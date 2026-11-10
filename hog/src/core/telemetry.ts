@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { AccessKey } from '@/posthog/access-key'
 import { posthogFile, type Credentials } from '@/posthog/credentials'
+import { INGESTION_HOSTS } from '@/posthog/host'
 import { VERSION } from '@/version'
 
 import type { Mode } from './agent'
@@ -13,7 +14,7 @@ import type { Schema } from './schema'
 // PostHog's own project, where posthog-cli release builds send their events too.
 export const DEFAULT_TELEMETRY_TOKEN = 'sTMFPsFhdP1Ssg'
 
-const TELEMETRY_HOST = 'https://us.i.posthog.com'
+const TELEMETRY_HOST = INGESTION_HOSTS.us
 // posthog-cli's timeout. A CLI must not hang on its own analytics.
 const SEND_TIMEOUT_MS = 5000
 const ID_FILE = 'hog-telemetry-id'

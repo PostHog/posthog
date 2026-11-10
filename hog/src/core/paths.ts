@@ -1,10 +1,16 @@
-import { isAbsolute, posix, relative, resolve, win32 } from 'node:path'
+import { isAbsolute, posix, relative, resolve, sep, win32 } from 'node:path'
 
 import { HogError } from './errors'
 import type { Runtime } from './runtime'
 
 export function absolutePath(root: string, path: string): string {
     return isAbsolute(path) ? path : resolve(root, path)
+}
+
+// Whether an absolute `path` is inside the absolute `folder`. The folder itself is not inside it.
+export function isInside(folder: string, path: string): boolean {
+    const inside = relative(folder, path)
+    return inside !== '' && inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside)
 }
 
 // The path to store in posthog.json, relative to its folder. A sibling folder stays relative, as

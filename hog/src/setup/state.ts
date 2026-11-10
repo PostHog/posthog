@@ -7,8 +7,12 @@ import type { Context } from '@/core/context'
 import { withFileLock } from '@/core/file-lock'
 import { parseJsonOrUndefined } from '@/core/json'
 import { posthogFile } from '@/posthog/credentials'
-import { HostSchema, REGION_IDS } from '@/posthog/host'
-import { SETUP_COMMAND } from '@/posthog/login/flow'
+import { HostSchema } from '@/posthog/host'
+import { LOGIN_COMMAND } from '@/posthog/login/flow'
+
+import { ProductIdSchema } from './products'
+
+export const SETUP_NEXT = 'hog setup next'
 
 export const STEP_IDS = [
     'purpose',
@@ -31,20 +35,18 @@ const SkillFileSchema = z.object({
 
 export type SkillFile = z.output<typeof SkillFileSchema>
 
-// Only what hog can't look up again. Credentials, posthog.json, the AGENTS.md block and the events
+// Only what can't be looked up again. Credentials, posthog.json, the AGENTS.md block and the events
 // are checked on every run.
 const SetupStateSchema = z.object({
     folder: z.string(),
     // Epoch milliseconds of the answers to the purpose step. The verify step counts events from then.
     startedAt: z.number(),
     reason: z.string(),
-    products: z.array(z.string()),
-    // Null when posthog.json or --host already named the host.
-    region: z.enum(REGION_IDS).nullable(),
-    // --host at the purpose step, so the login goes there before posthog.json names it.
-    host: HostSchema.nullable().catch(null),
+    // An id hog doesn't know, from another hog version, drops out instead of failing the file.
+    products: z.array(z.string()).transform((ids) => ids.flatMap((id) => ProductIdSchema.safeParse(id).data ?? [])),
+    // The host the purpose step picked, so the login goes there before posthog.json names it.
+    host: HostSchema,
     reads: z.array(SkillFileSchema),
-    // A step id hog doesn't know, from another hog version, drops out instead of failing the file.
     completed: z.array(z.string()).transform((ids) => ids.filter((id): id is StepId => isStepId(id))),
 })
 
@@ -60,6 +62,7 @@ export interface SetupScope {
     folder: string
     statePath: string
     lockName: string
+    // The folder's pending login. It starts with `hog auth login`, so a new login clears it.
     pendingName: string
 }
 
@@ -67,15 +70,16 @@ export async function setupScope(ctx: Context): Promise<SetupScope> {
     const loaded = await ctx.config()
     const folder = loaded?.root ?? ctx.runtime.cwd()
     const hash = createHash('sha256').update(folder).digest('hex')
+
     return {
         folder,
         statePath: posthogFile(ctx.runtime, `setup/${hash}.json`),
         lockName: `setup-${hash.slice(0, 32)}.lock`,
-        pendingName: `${SETUP_COMMAND} ${hash.slice(0, 32)}`,
+        pendingName: `${LOGIN_COMMAND} setup ${hash.slice(0, 32)}`,
     }
 }
 
-// A file hog can't read counts as no setup, so the setup starts over instead of failing.
+// A file that can't be read counts as no setup, so the setup starts over instead of failing.
 export async function readState(ctx: Context, scope: SetupScope): Promise<SetupState | undefined> {
     try {
         const state = parseJsonOrUndefined(await ctx.runtime.readFile(scope.statePath), SetupStateSchema)

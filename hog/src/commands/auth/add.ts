@@ -1,4 +1,4 @@
-import { printPending, resumeApproval } from '@/core/approval'
+import { printPending, resumeApproval, waitIdentity } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { ADD_COMMAND, loginWait } from '@/posthog/login/flow'
@@ -37,7 +37,7 @@ export default defineCommand({
         const { finishStepUp, stepUp } = await import('@/posthog/login/step-up')
 
         if (options.wait) {
-            const { pending, value } = await resumeApproval(ctx, loginWait(ctx.runtime, ADD_COMMAND))
+            const { pending, value } = await resumeApproval(ctx, loginWait(ctx.runtime, waitIdentity(ADD_COMMAND)))
             // A request an older hog started doesn't name its project, so the approved one counts.
             return finishStepUp(ctx, value, { host: pending.host, projectId: pending.projectId ?? value.projectId })
         }

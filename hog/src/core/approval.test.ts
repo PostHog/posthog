@@ -6,6 +6,7 @@ import { fakeRuntime } from '@/testing'
 import {
     PendingApprovalSchema,
     resumeApproval,
+    waitIdentity,
     type ApprovalFlow,
     type PendingApproval,
     type PollOutcome,
@@ -42,7 +43,7 @@ describe('resumeApproval', () => {
         const remaining: PollOutcome<string>[] = [...outcomes]
         const polledAt: number[] = []
         const flow: ApprovalFlow<PendingApproval, string> = {
-            command: 'hog thing start',
+            ...waitIdentity('hog thing start'),
             noun: 'thing',
             pending: PendingApprovalSchema,
             start: async () => PENDING,

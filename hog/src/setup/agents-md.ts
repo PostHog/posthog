@@ -1,10 +1,11 @@
-import { basename, isAbsolute, join, relative, sep } from 'node:path'
+import { basename, join } from 'node:path'
 
 import { HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
+import { isInside } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 
-import type { Product } from './products'
+import type { Product, ProductId } from './products'
 
 const START = '<!-- posthog:setup:start -->'
 const END = '<!-- posthog:setup:end -->'
@@ -31,15 +32,19 @@ export function earlyBlock(): string {
 
 interface UseCase {
     text: string
-    products: readonly string[]
+    // Each one adds its `hog learn` command to the line.
+    products: readonly ProductId[]
     command?: string
     onlyWhenChosen?: boolean
 }
 
 const USE_CASES: readonly UseCase[] = [
-    { text: 'Adding tracking for a new feature', products: ['product-analytics', 'web-analytics'] },
+    { text: 'Adding tracking for a new feature', products: ['product-analytics'] },
     { text: 'Feature flags and experiments', products: ['feature-flags', 'experiments'] },
     { text: 'Debugging errors (error tracking)', products: ['error-tracking'] },
+    { text: 'Logs, metrics and tracing (APM)', products: ['logs', 'metrics', 'tracing'] },
+    { text: 'Querying data from other tools (data warehouse)', products: ['data-warehouse'] },
+    { text: 'Tracking how agents use an MCP server (MCP analytics)', products: ['mcp-analytics'] },
     {
         text: 'Checking metrics or answering product questions',
         products: [],
@@ -53,15 +58,13 @@ export function finalBlock(options: {
     host: string
     projectId: string
     products: readonly Product[]
-    chosen: readonly string[]
+    chosen: readonly ProductId[]
 }): string {
     const { host, projectId, products, chosen } = options
-    const command = (id: string): string => {
-        const product = products.find((candidate) => candidate.id === id)
-        return `\`${product?.command ?? `hog learn -s "${id.replaceAll('-', ' ')}"`}\``
-    }
+    const command = (id: ProductId): string => `\`${products.find((product) => product.id === id)?.command}\``
     const lineFor = (useCase: UseCase): string =>
-        `- ${useCase.text}: ${useCase.command ?? command(useCase.products[0] ?? '')}`
+        `- ${useCase.text}: ${useCase.command ?? useCase.products.map(command).join(', ')}`
+
     const lines: string[] = []
     const listed = new Set<UseCase>()
     for (const id of chosen) {
@@ -74,11 +77,13 @@ export function finalBlock(options: {
             lines.push(lineFor(useCase))
         }
     }
+
     for (const useCase of USE_CASES) {
         if (!listed.has(useCase) && !useCase.onlyWhenChosen) {
             lines.push(lineFor(useCase))
         }
     }
+
     return [
         '## PostHog',
         '',
@@ -125,45 +130,56 @@ function withBlock(path: string, text: string, body: string): string {
     return `${text.replace(/\n*$/, '')}\n\n${block}\n`
 }
 
-// The folder comes from a checkout, which can hold AGENTS.md or CLAUDE.md as a symlink. A link inside
-// the folder, such as CLAUDE.md to AGENTS.md, is followed. hog neither reads nor writes through a link
-// that leaves the folder.
-async function destination(runtime: Runtime, folder: string, path: string): Promise<string> {
-    const [root, target] = await Promise.all([runtime.realPath(folder), runtime.realPath(path)])
-    const inside = relative(root, target)
-    if (inside === '' || inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside)) {
+// The folder comes from a checkout, which can hold AGENTS.md or CLAUDE.md as a link. A link inside
+// the folder, such as CLAUDE.md to AGENTS.md, is followed. A link that leaves the folder, or one to a
+// missing file, is neither read nor written through.
+async function destination(runtime: Runtime, root: string, path: string): Promise<string> {
+    const target = await runtime.realPath(path).catch(() => undefined)
+    if (target === undefined || !isInside(root, target)) {
+        const where = target === undefined ? 'a file that does not exist' : escapeControls(target)
         throw new HogError(
             'setup_file_outside_folder',
-            `${escapeControls(path)} links to ${escapeControls(target)}, which is outside ${escapeControls(folder)}, so hog didn't change it.`,
+            `${escapeControls(path)} links to ${where}, outside ${escapeControls(root)}, so it stays as it is.`,
             `Replace ${basename(path)} with a file, or link it to a file inside the folder. Then run \`hog setup next\` again.`
         )
     }
+
     return target
 }
 
-async function writeOne(runtime: Runtime, path: string, target: string, body: string): Promise<WrittenFile> {
-    const before = await readText(runtime, target)
+async function writeOne(
+    runtime: Runtime,
+    file: { path: string; target: string; before: string | undefined },
+    body: string
+): Promise<WrittenFile> {
+    const { path, target, before } = file
     const after = withBlock(path, before ?? '', body)
     if (after === before) {
         return { path, status: 'unchanged' }
     }
+
     await runtime.replaceFile(target, after)
     return { path, status: before === undefined ? 'created' : 'updated' }
 }
 
 // Everything outside the markers stays as it is. A CLAUDE.md linked to AGENTS.md already has the
-// new block when hog reads it, so it counts as unchanged.
+// new block when it is read, so it counts as unchanged.
 export async function writeBlock(runtime: Runtime, folder: string, body: string): Promise<WrittenFile[]> {
+    const root = await runtime.realPath(folder)
     const [agentsPath, claudePath] = [join(folder, AGENTS_FILE), join(folder, CLAUDE_FILE)]
     const [agentsTarget, claudeTarget] = await Promise.all([
-        destination(runtime, folder, agentsPath),
-        destination(runtime, folder, claudePath),
+        destination(runtime, root, agentsPath),
+        destination(runtime, root, claudePath),
     ])
-    const written = [await writeOne(runtime, agentsPath, agentsTarget, body)]
+
+    const agents = { path: agentsPath, target: agentsTarget, before: await readText(runtime, agentsTarget) }
+    const written = [await writeOne(runtime, agents, body)]
+
     const claude = await readText(runtime, claudeTarget)
     if (claude !== undefined && (!IMPORTS_AGENTS_MD.test(claude) || findBlock(claude))) {
-        written.push(await writeOne(runtime, claudePath, claudeTarget, body))
+        written.push(await writeOne(runtime, { path: claudePath, target: claudeTarget, before: claude }, body))
     }
+
     return written
 }
 

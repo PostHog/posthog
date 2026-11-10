@@ -10,7 +10,7 @@ import { validationError } from '@/core/schema'
 import { PersonalAPIKey, type AccessKey } from '@/posthog/access-key'
 import { CI_CREDENTIALS_HINT } from '@/posthog/credentials'
 import { LOGIN_SCOPES, READ_ONLY_LOGIN_SCOPES } from '@/posthog/device-auth'
-import { cloudRegion, HostSchema, parseHost, REGIONS } from '@/posthog/host'
+import { cloudRegion, HostSchema, parseHost, REGION_CHOICES, REGION_IDS, REGIONS } from '@/posthog/host'
 import { parseProjectId, ProjectIdSchema } from '@/posthog/ids'
 import { finishLogin, type FinishedLogin } from '@/posthog/login/finish'
 import { LOGIN_COMMAND, loginFlow, loginWait } from '@/posthog/login/flow'
@@ -53,7 +53,7 @@ export default defineCommand({
     options: {
         region: {
             type: 'string',
-            choices: ['us', 'eu'],
+            choices: REGION_IDS,
             placeholder: 'region',
             description:
                 'Where your PostHog account is hosted, as in the us.posthog.com or eu.posthog.com address. Use --host for self-hosted PostHog',
@@ -111,8 +111,7 @@ export default defineCommand({
             const choice = await prompts.select(
                 'Where is your PostHog account hosted?',
                 [
-                    { value: 'us', label: 'US Cloud', hint: 'us.posthog.com' },
-                    { value: 'eu', label: 'EU Cloud', hint: 'eu.posthog.com' },
+                    ...REGION_CHOICES,
                     {
                         value: 'key',
                         label: 'Paste a personal API key',
