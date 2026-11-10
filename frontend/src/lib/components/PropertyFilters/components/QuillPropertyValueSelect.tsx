@@ -19,8 +19,12 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
-const CREATE_PREFIX = '__create__:'
 const NON_ESCAPED_COMMA_REGEX = /(?<!\\),/
+// Matches the Lemon input's cap, so a property with thousands of values stays quick to open and type into.
+const MAX_LISTED_OPTIONS = 100
+// An object, not a string, so no real property value can be mistaken for the "add what I typed" row.
+const CREATE_ITEM = { create: true } as const
+type Item = string | typeof CREATE_ITEM
 
 export interface QuillPropertyValueOption {
     key: string
@@ -70,13 +74,40 @@ export function QuillPropertyValueSelect({
     const [inputValue, setInputValue] = useState('')
     const [open, setOpen] = useState(false)
     const anchor = useRef<HTMLDivElement>(null)
+    // Read when the menu closes, after Base UI has started clearing the input state.
+    const latestInput = useRef('')
+    latestInput.current = inputValue
 
     const optionsByKey = new Map(options.map((option) => [option.key, option]))
     const typed = inputValue.trim()
-    const createKey =
-        allowCustomValues && typed && !values.includes(typed) && !optionsByKey.has(typed) ? CREATE_PREFIX + typed : null
-    const selectedCustomKeys = values.filter((key) => !optionsByKey.has(key))
-    const items = [...(createKey ? [createKey] : []), ...selectedCustomKeys, ...options.map((option) => option.key)]
+    // Untrimmed, so a regex keeps significant spaces; PropertyValue trims for every other operator.
+    const customValue = inputValue.replaceAll('\\,', ',')
+    const showCreate = allowCustomValues && !!typed && !values.includes(typed) && !optionsByKey.has(typed)
+    const query = typed.toLowerCase()
+    const matches = (key: string): boolean => !query || key.toLowerCase().includes(query)
+    const exactMatch = optionsByKey.has(typed) ? [typed] : []
+    const optionKeys = options
+        .map((option) => option.key)
+        .filter((key) => key !== typed && matches(key))
+        .slice(0, MAX_LISTED_OPTIONS - exactMatch.length)
+    const selectedCustomKeys = values.filter((key) => !optionsByKey.has(key) && matches(key))
+    const items: Item[] = [...(showCreate ? [CREATE_ITEM] : []), ...selectedCustomKeys, ...exactMatch, ...optionKeys]
+
+    const resetInput = (): void => {
+        setInputValue('')
+        onInputChange('')
+    }
+
+    const commitValues = (keys: string[]): void => {
+        if (multiple) {
+            onChange(Array.from(new Set(keys)))
+        } else {
+            const added = keys.filter((key) => !values.includes(key))
+            onChange(added.length ? [added[added.length - 1]] : keys.slice(-1))
+            setOpen(false)
+        }
+        resetInput()
+    }
 
     const changeInput = (next: string): void => {
         const transformed = inputTransform ? inputTransform(next) : next
@@ -86,8 +117,7 @@ export function QuillPropertyValueSelect({
                 .map((part) => part.replaceAll('\\,', ',').trim())
                 .filter((part) => part && !values.includes(part))
             onChange([...values, ...added])
-            setInputValue('')
-            onInputChange('')
+            resetInput()
             return
         }
         setInputValue(transformed)
@@ -99,42 +129,49 @@ export function QuillPropertyValueSelect({
             multiple
             autoHighlight
             items={items}
-            value={values}
+            filter={null}
+            itemToStringLabel={(item: Item) => (typeof item === 'string' ? item : customValue)}
+            value={values as Item[]}
             open={open}
-            onOpenChange={setOpen}
+            onOpenChange={(nextOpen, eventDetails) => {
+                // Base UI clears the input as focus leaves, so what was typed is kept here rather than on blur.
+                const pending = latestInput.current
+                const leftField = eventDetails.reason === 'focus-out' || eventDetails.reason === 'outside-press'
+                if (!nextOpen && leftField && allowCustomValues && pending.trim()) {
+                    commitValues([...values, pending.replaceAll('\\,', ',')])
+                }
+                setOpen(nextOpen)
+            }}
             inputValue={inputValue}
             onInputValueChange={changeInput}
-            onValueChange={(next: string[], eventDetails) => {
+            onValueChange={(next: Item[], eventDetails) => {
                 if (eventDetails.reason === 'escape-key') {
                     eventDetails.allowPropagation()
                     return
                 }
-                const keys = next.map((key) => (key.startsWith(CREATE_PREFIX) ? key.slice(CREATE_PREFIX.length) : key))
-                if (multiple) {
-                    onChange(Array.from(new Set(keys)))
-                } else {
-                    const added = keys.filter((key) => !values.includes(key))
-                    onChange(added.length ? [added[added.length - 1]] : keys.slice(-1))
-                    setOpen(false)
-                }
-                setInputValue('')
-                onInputChange('')
+                commitValues(next.map((item) => (typeof item === 'string' ? item : customValue)))
             }}
         >
             <ComboboxChips ref={anchor} aria-invalid={invalid || undefined} className={className}>
                 <ComboboxValue>
-                    {(selected: string[]) => (
+                    {(selected: Item[]) => (
                         <>
-                            {selected.map((key) => {
+                            {(selected as string[]).map((key) => {
                                 const tooltip = valueTooltip?.(key)
                                 return tooltip ? (
                                     <Tooltip key={key}>
-                                        <TooltipTrigger render={<ComboboxChip title={key}>{key}</ComboboxChip>} />
+                                        <TooltipTrigger
+                                            render={
+                                                <ComboboxChip title={key}>
+                                                    <span className="ph-no-capture">{key}</span>
+                                                </ComboboxChip>
+                                            }
+                                        />
                                         <TooltipContent>{tooltip}</TooltipContent>
                                     </Tooltip>
                                 ) : (
                                     <ComboboxChip key={key} title={key}>
-                                        {key}
+                                        <span className="ph-no-capture">{key}</span>
                                     </ComboboxChip>
                                 )
                             })}
@@ -175,14 +212,14 @@ export function QuillPropertyValueSelect({
                     )}
                 </ComboboxEmpty>
                 <ComboboxList>
-                    {(key: string) =>
-                        key === createKey ? (
-                            <ComboboxItem key={key} value={key}>
-                                {multiple ? `Add "${typed}"` : typed}
+                    {(item: Item) =>
+                        typeof item !== 'string' ? (
+                            <ComboboxItem key="create" value={item}>
+                                <span className="ph-no-capture">{multiple ? `Add "${typed}"` : typed}</span>
                             </ComboboxItem>
                         ) : (
-                            <ComboboxItem key={key} value={key} tooltip={optionsByKey.get(key)?.tooltip}>
-                                {optionsByKey.get(key)?.content ?? key}
+                            <ComboboxItem key={item} value={item} tooltip={optionsByKey.get(item)?.tooltip}>
+                                {optionsByKey.get(item)?.content ?? <span className="ph-no-capture">{item}</span>}
                             </ComboboxItem>
                         )
                     }
