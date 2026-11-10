@@ -49,9 +49,9 @@ fn commit_tick(commit_interval: Duration) -> Duration {
     }
 }
 
-/// The exit commit runs after the shutdown drain, inside
-/// [`crate::config::GRACEFUL_SHUTDOWN`]. The attempts and the waits between
-/// them take at most 11 s.
+/// Commits during the shutdown drain and at exit run inside
+/// [`crate::config::GRACEFUL_SHUTDOWN`]. One commit's attempts and the waits
+/// between them take at most 11 s.
 const EXIT_COMMIT_ATTEMPTS: u32 = 2;
 const EXIT_COMMIT_TIMEOUT: Duration = Duration::from_secs(5);
 const STALE_EPOCH_RETRY_WAIT: Duration = Duration::from_secs(1);
@@ -299,22 +299,27 @@ impl IngestionConsumer {
         info!("Consumer loop stopped");
     }
 
-    /// The client's close bumps the member epoch, so the broker rejects an
-    /// async commit still in flight. The commit carries every partition's last
-    /// handed-out offset, which covers the async commits the shutdown drain sent.
     async fn commit_on_exit(&self) {
-        let Some(commit) = self.settlement.take_all() else {
-            return;
-        };
+        if let Some(commit) = self.settlement.take_all() {
+            self.commit_before_close(commit, "exit").await;
+        }
+    }
+
+    /// The client's close bumps the member epoch, so the broker rejects an
+    /// async commit still in flight.
+    async fn commit_before_close(&self, commit: Commit, path: &'static str) {
+        for topic_partition in &commit.resume {
+            self.resume_partition(topic_partition);
+        }
         for attempt in 1..=EXIT_COMMIT_ATTEMPTS {
             let Err(err) = self
-                .commit_offsets_sync(&commit.offsets, EXIT_COMMIT_TIMEOUT, "exit")
+                .commit_offsets_sync(&commit.offsets, EXIT_COMMIT_TIMEOUT, path)
                 .await
             else {
                 return;
             };
             if attempt == EXIT_COMMIT_ATTEMPTS || !err.is_stale_member_epoch() {
-                warn!(error = %err, "Could not commit the processed offsets on exit");
+                warn!(error = %err, path, "Could not commit the processed offsets before the close");
                 return;
             }
             // librdkafka expedites a heartbeat on this error, and its answer
@@ -353,7 +358,7 @@ impl IngestionConsumer {
             let mut submitted = false;
             while let Some(step) = poller.next_step(tokio::time::Instant::now()) {
                 submitted |= matches!(step, Step::Submit(_));
-                if let Err(failure) = self.carry_out(step, poller) {
+                if let Err(failure) = self.carry_out(step, poller, accepting_new_batches).await {
                     match failure {
                         Stopped::Drained => {}
                         Stopped::Commit(err) => self.fail_commit(err),
@@ -442,7 +447,12 @@ impl IngestionConsumer {
         }
     }
 
-    fn carry_out<P: PollingStrategy>(&self, step: Step, poller: &mut P) -> Result<(), Stopped> {
+    async fn carry_out<P: PollingStrategy>(
+        &self,
+        step: Step,
+        poller: &mut P,
+        accepting_new_batches: bool,
+    ) -> Result<(), Stopped> {
         match step {
             Step::Submit(collected) => {
                 let poll = self.submit_poll(collected).map_err(Stopped::Batch)?;
@@ -450,7 +460,13 @@ impl IngestionConsumer {
                 self.handle.report_healthy();
                 Ok(())
             }
-            Step::Commit(commit) => self.commit(commit).map_err(Stopped::Commit),
+            Step::Commit(commit) if accepting_new_batches => {
+                self.commit(commit).map_err(Stopped::Commit)
+            }
+            Step::Commit(commit) => {
+                self.commit_before_close(commit, "shutdown").await;
+                Ok(())
+            }
             Step::Stop => Err(Stopped::Drained),
         }
     }
