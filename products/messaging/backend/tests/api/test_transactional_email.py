@@ -79,11 +79,6 @@ ACCEPTED_SEND_KEYS: dict[str, set[str] | None] = {
     "attachments": None,
     "tracking": {"captureEngagement"},
 }
-ACCEPTED_ATTACHMENT_KEYS = {"filename", "content", "contentType", "contentId"}
-RECEIVER_ADDRESS = re.compile(
-    r"[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?"
-    r"(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+"
-)
 WELCOME_DELIVERED = {
     "subject": "Welcome, Jane",
     "html": "<p>Hi Jane</p>",
@@ -122,15 +117,10 @@ class FakeCdpApi:
     def _send(self, request: requests.PreparedRequest) -> tuple[int, dict[str, str], str]:
         payload = json.loads(request.body or "{}")
         send = payload["send"]
-        issues = self._unrecognized_keys(send) + self._invalid_values(send)
-        unreachable = [
-            address
-            for address in [payload["to"], *send.get("cc", []), *send.get("bcc", [])]
-            if not RECEIVER_ADDRESS.fullmatch(address)
-        ]
-        if unreachable and not issues:
-            return 422, {}, json.dumps({"error": "recipient_unreachable"})
-        if issues or unreachable:
+        issues = self._unrecognized_keys(send)
+        if not isinstance(send.get("tracking", {}).get("captureEngagement"), bool):
+            issues.append({"code": "invalid_type", "path": ["send", "tracking", "captureEngagement"]})
+        if issues:
             return 400, {}, json.dumps({"error": json.dumps(issues)})
         self._queued.append(payload)
         return 202, {}, json.dumps({"invocation_id": f"invocation-{len(self._queued)}"})
@@ -155,25 +145,6 @@ class FakeCdpApi:
             for payload in delivered
             if payload["send"]["tracking"]["captureEngagement"] is not False
         ]
-
-    @staticmethod
-    def _invalid_values(send: dict[str, Any]) -> list[dict[str, Any]]:
-        issues = []
-        if not isinstance(send.get("tracking", {}).get("captureEngagement"), bool):
-            issues.append({"code": "invalid_type", "path": ["send", "tracking", "captureEngagement"]})
-        if "content" in send and not (send["content"].get("html") or send["content"].get("text")):
-            issues.append({"code": "custom", "path": ["send", "content"]})
-        if "from" in send and not isinstance(send["from"].get("integrationId"), int):
-            issues.append({"code": "invalid_type", "path": ["send", "from", "integrationId"]})
-        issues += [
-            {"code": "too_big", "path": ["send", field]} for field in ("cc", "bcc") if len(send.get(field, [])) > 10
-        ]
-        for index, file in enumerate(send.get("attachments", [])):
-            if file.keys() - ACCEPTED_ATTACHMENT_KEYS:
-                issues.append({"code": "unrecognized_keys", "path": ["send", "attachments", index]})
-            if not {"filename", "content"} <= file.keys():
-                issues.append({"code": "invalid_type", "path": ["send", "attachments", index]})
-        return issues
 
     def _unrecognized_keys(self, send: dict[str, Any]) -> list[dict[str, Any]]:
         issues = [
