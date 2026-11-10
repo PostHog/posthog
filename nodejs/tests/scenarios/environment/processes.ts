@@ -42,13 +42,8 @@ const entryPointsOf = (nodejsDir: string): string[] => [
 function launchesNode(entry: ProcEntry, nodejsDir: string): boolean {
     const args = entry.cmdline.split(' ')
     const cwd = entry.cwd
-    if (cwd === null) {
-        return args.some((arg) =>
-            ENTRY_POINTS.some((entryPoint) => arg === entryPoint || arg.endsWith(`/${entryPoint}`))
-        )
-    }
     const entryPoints = entryPointsOf(nodejsDir)
-    return args.some((arg) => entryPoints.includes(path.resolve(cwd, arg)))
+    return args.some((arg) => entryPoints.includes(cwd === null ? arg : path.resolve(cwd, arg)))
 }
 
 function servesCdp(environ: string[]): boolean {
@@ -149,9 +144,15 @@ function holderOf(address: string): Promise<string> {
     })
 }
 
+export const lockAddress = (stateDir: string): string =>
+    `\0posthog-scenarios-${createHash('sha256').update(realpathSync(stateDir)).digest('hex').slice(0, 16)}`
+
 export async function holdRunLock(stateDir: string): Promise<() => Promise<void>> {
-    const address = `\0posthog-scenarios-${createHash('sha256').update(realpathSync(stateDir)).digest('hex').slice(0, 16)}`
-    const server = net.createServer((socket) => socket.end(String(process.pid)))
+    const address = lockAddress(stateDir)
+    const server = net.createServer((socket) => {
+        socket.on('error', () => undefined)
+        socket.end(String(process.pid))
+    })
     try {
         await new Promise<void>((resolve, reject) => {
             server.once('error', reject)
@@ -161,7 +162,12 @@ export async function holdRunLock(stateDir: string): Promise<() => Promise<void>
         if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') {
             throw error
         }
-        const holder = (await holderOf(address)) || 'another process'
+        const holder = await holderOf(address)
+        if (!holder) {
+            throw new Error(
+                `Another scenario runner holds ${stateDir}; wait for it to finish, then run the scenario again.`
+            )
+        }
         throw new StackConflictError(`Scenario runner ${holder} is already running from ${stateDir}.`, `kill ${holder}`)
     }
     server.unref()
