@@ -1,7 +1,7 @@
 import './Spinner.scss'
 
 import posthog from 'posthog-js'
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { twJoin, twMerge } from 'tailwind-merge'
 
 import { IconPencil } from '@posthog/icons'
@@ -90,6 +90,8 @@ export function SpinnerOverlay({
     mode?: 'spinning' | 'editing'
 }): JSX.Element {
     const ref = useCancelAnimationsOnUnmount<HTMLDivElement>()
+    const smokeFilterId = useId()
+    const isSceneLoading = sceneLevel && mode === 'spinning'
 
     return (
         <div
@@ -97,13 +99,65 @@ export function SpinnerOverlay({
             className={twJoin(
                 'SpinnerOverlay',
                 sceneLevel && 'SpinnerOverlay--scene-level',
-                sceneLevel && mode === 'spinning' && 'SpinnerOverlay--thinking',
+                isSceneLoading && 'SpinnerOverlay--thinking',
                 spinnerProps.frozen && 'SpinnerOverlay--frozen'
             )}
             aria-hidden={!visible}
-            role={sceneLevel && mode === 'spinning' ? 'status' : undefined}
-            aria-label={sceneLevel && mode === 'spinning' ? 'Loading' : undefined}
+            role={isSceneLoading ? 'status' : undefined}
+            aria-label={isSceneLoading ? 'Loading' : undefined}
         >
+            {isSceneLoading && (
+                <>
+                    <svg
+                        className="SpinnerOverlay__smoke"
+                        viewBox="0 0 1000 600"
+                        preserveAspectRatio="none"
+                        aria-hidden
+                    >
+                        <defs>
+                            <filter id={smokeFilterId} x="-30%" y="-50%" width="160%" height="200%">
+                                <feTurbulence
+                                    type="fractalNoise"
+                                    baseFrequency="0.008 0.028"
+                                    numOctaves={3}
+                                    seed={8}
+                                    result="noise"
+                                />
+                                <feColorMatrix
+                                    in="noise"
+                                    type="matrix"
+                                    values="0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  3 0 0 0 -1"
+                                    result="density"
+                                />
+                                <feGaussianBlur in="SourceGraphic" stdDeviation={12} result="soft" />
+                                <feComposite in="soft" in2="density" operator="in" result="smoke" />
+                                <feDisplacementMap
+                                    in="smoke"
+                                    in2="noise"
+                                    scale={90}
+                                    xChannelSelector="R"
+                                    yChannelSelector="G"
+                                />
+                                <feGaussianBlur stdDeviation={2} />
+                            </filter>
+                        </defs>
+                        <g filter={`url(#${smokeFilterId})`}>
+                            <path d="M-100 480C120 80 420 620 650 300S950 80 1100 220" />
+                            <path d="M-100 300C250 600 350 80 650 380S900 480 1100 100" />
+                        </g>
+                    </svg>
+                    <svg
+                        className="SpinnerOverlay__smoke SpinnerOverlay__smoke--warm"
+                        viewBox="0 0 1000 600"
+                        preserveAspectRatio="none"
+                        aria-hidden
+                    >
+                        <g filter={`url(#${smokeFilterId})`}>
+                            <path d="M-100 100C200 440 450 0 650 260S900 600 1100 320" />
+                        </g>
+                    </svg>
+                </>
+            )}
             {mode === 'editing' ? (
                 <IconPencil className="text-5xl text-accent z-10 drop-shadow-xl" />
             ) : (

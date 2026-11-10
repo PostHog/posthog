@@ -104,22 +104,29 @@
         overflow: hidden;
         isolation: isolate;
 
-        &::before,
-        &::after {
-            position: absolute;
-            inset: -50%;
-            content: '';
-            background:
-                radial-gradient(ellipse at 30% 40%, var(--color-teal-400), transparent 45%),
-                radial-gradient(ellipse at 70% 40%, var(--color-blue-400), transparent 45%),
-                radial-gradient(ellipse at 50% 70%, var(--color-purple-400), transparent 45%);
-            opacity: 0.12;
-            animation: SpinnerOverlay__think 16s linear infinite;
+        &::before {
+            display: none;
         }
 
-        &::after {
-            animation-duration: 23s;
-            animation-direction: reverse;
+        .SpinnerOverlay__smoke {
+            position: absolute;
+            inset: -20%;
+            width: 140%;
+            height: 140%;
+            fill: none;
+            stroke: var(--color-teal-400);
+            stroke-width: 70px;
+            opacity: 0.32;
+            transform-origin: center;
+            animation: SpinnerOverlay__think 6s ease-in-out infinite alternate;
+
+            &--warm {
+                stroke: var(--color-orange-500);
+                stroke-width: 50px;
+                animation-duration: 9s;
+                animation-delay: -3s;
+                animation-direction: alternate-reverse;
+            }
         }
 
         .Spinner {
@@ -128,8 +135,7 @@
 
         &.SpinnerOverlay--frozen,
         &[aria-hidden='true'] {
-            &::before,
-            &::after {
+            .SpinnerOverlay__smoke {
                 animation-play-state: paused;
             }
         }
@@ -137,15 +143,13 @@
         @media (prefers-reduced-motion: reduce) {
             transition: none;
 
-            &::before,
-            &::after {
+            .SpinnerOverlay__smoke {
                 animation: none;
             }
         }
 
         @media (forced-colors: active) {
-            &::before,
-            &::after {
+            .SpinnerOverlay__smoke {
                 display: none;
             }
 
@@ -167,17 +171,12 @@
 
 @keyframes SpinnerOverlay__think {
     0% {
-        opacity: 0.12;
-        transform: rotate(0deg) scale(1);
-    }
-
-    50% {
-        opacity: 0.22;
-        transform: rotate(180deg) scale(1.15);
+        opacity: 0.32;
+        transform: translate(-12%, 8%) rotate(-18deg) scale(1.05, 0.85);
     }
 
     100% {
-        opacity: 0.12;
-        transform: rotate(360deg) scale(1);
+        opacity: 0.5;
+        transform: translate(12%, -10%) rotate(15deg) scale(1.25, 1.15);
     }
 }
