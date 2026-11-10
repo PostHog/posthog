@@ -61,11 +61,11 @@ export function TodayPulseSection(): JSX.Element | null {
         <section className="TodayHome__list" aria-labelledby={titleId}>
             <div className="TodayHome__headingRow">
                 <TodayHomeHeading id={titleId}>At a glance</TodayHomeHeading>
-                {canEdit ? <TodayPulseEditor /> : null}
+                {canEdit && view !== 'empty' ? <TodayPulseEditor /> : null}
             </div>
             {view === 'loading' ? <TodayPulseSkeleton /> : null}
             {view === 'numbers' ? <TodayPulse metrics={pulseTiles} slots={pulseSlots} /> : null}
-            {view === 'empty' ? <TodayPulseEmpty /> : null}
+            {view === 'empty' ? <TodayPulseEmpty canPin={canEdit} /> : null}
         </section>
     )
 }

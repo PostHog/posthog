@@ -1,7 +1,18 @@
 import { IconPin, IconTrends } from '@posthog/icons'
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, IconStack, IconStackItem } from '@posthog/quill'
+import {
+    Button,
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyTitle,
+    IconStack,
+    IconStackItem,
+} from '@posthog/quill'
 
-export function TodayPulseEmpty(): JSX.Element {
+import { TodayPulseEditor } from './TodayPulseEditor'
+
+export function TodayPulseEmpty({ canPin }: { canPin: boolean }): JSX.Element {
     return (
         <Empty className="TodayEmpty" data-attr="today-pulse-empty">
             <EmptyHeader>
@@ -15,9 +26,22 @@ export function TodayPulseEmpty(): JSX.Element {
                 </IconStack>
                 <EmptyTitle>No key numbers yet</EmptyTitle>
                 <EmptyDescription>
-                    Select Edit to pin a trend insight. PostHog also adds the trend insights your team opens most.
+                    Pin the trend insights you check every day. PostHog also adds the ones your team opens most.
                 </EmptyDescription>
             </EmptyHeader>
+            {canPin ? (
+                <EmptyContent>
+                    <TodayPulseEditor
+                        align="center"
+                        trigger={
+                            <Button size="sm" variant="outline" data-attr="today-pulse-empty-pin">
+                                <IconPin />
+                                Pin a number
+                            </Button>
+                        }
+                    />
+                </EmptyContent>
+            ) : null}
         </Empty>
     )
 }
