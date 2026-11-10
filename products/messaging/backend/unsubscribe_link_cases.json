@@ -1,0 +1,116 @@
+[
+    {
+        "name": "link_in_href",
+        "html": "<p>News</p><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": true
+    },
+    {
+        "name": "unspaced_placeholder_in_single_quotes",
+        "html": "<a href='{{unsubscribe_url}}'>Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": true
+    },
+    {
+        "name": "unquoted_href",
+        "html": "<a href={{unsubscribe_url}}>Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": true
+    },
+    {
+        "name": "href_padded_with_whitespace",
+        "html": "<a href=\"  {{ unsubscribe_url }}\n\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": true
+    },
+    {
+        "name": "upper_case_markup",
+        "html": "<A HREF=\"{{ unsubscribe_url }}\">Unsubscribe</A>",
+        "text": "",
+        "has_unsubscribe_link": true
+    },
+    {
+        "name": "text_only_email",
+        "html": "",
+        "text": "Unsubscribe: {{ unsubscribe_url }}",
+        "has_unsubscribe_link": true
+    },
+    {
+        "name": "no_placeholder",
+        "html": "<p>News</p>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_in_an_html_comment",
+        "html": "<p>News</p><!-- <a href=\"{{ unsubscribe_url }}\">Unsubscribe</a> -->",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "placeholder_in_another_attribute",
+        "html": "<a title=\"{{ unsubscribe_url }}\" href=\"https://example.com/news\">News</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "placeholder_in_a_data_attribute",
+        "html": "<a data-href=\"{{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "placeholder_as_an_image_source",
+        "html": "<img src=\"{{ unsubscribe_url }}\" alt=\"\"><p>News</p>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "placeholder_as_visible_text",
+        "html": "<p>Unsubscribe: {{ unsubscribe_url }}</p>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_inside_a_script",
+        "html": "<script>var link = '<a href=\"{{ unsubscribe_url }}\">Unsubscribe</a>';</script><p>News</p>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_inside_a_template_element",
+        "html": "<template><a href=\"{{ unsubscribe_url }}\">Unsubscribe</a></template><p>News</p>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "second_href_on_the_same_link",
+        "html": "<a href=\"https://example.com/news\" href=\"{{ unsubscribe_url }}\">News</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_to_another_host",
+        "html": "<a href=\"https://redirect.example.com/?to={{ unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_with_more_after_the_placeholder",
+        "html": "<a href=\"{{ unsubscribe_url }}manage\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "placeholder_written_as_character_references",
+        "html": "<a href=\"&#123;&#123; unsubscribe_url }}\">Unsubscribe</a>",
+        "text": "",
+        "has_unsubscribe_link": false
+    },
+    {
+        "name": "link_only_in_the_text_of_an_html_email",
+        "html": "<p>News</p>",
+        "text": "Unsubscribe: {{ unsubscribe_url }}",
+        "has_unsubscribe_link": false
+    }
+]
