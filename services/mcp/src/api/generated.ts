@@ -25746,12 +25746,14 @@ export namespace Schemas {
 
     /**
      * * `time_series` - Time series
+     * * `funnel_steps` - Funnel steps
      */
     export type ChartExplanationShapeEnum = typeof ChartExplanationShapeEnum[keyof typeof ChartExplanationShapeEnum];
 
 
     export const ChartExplanationShapeEnum = {
       TimeSeries: 'time_series',
+      FunnelSteps: 'funnel_steps',
     } as const;
 
     export interface StorySeriesResult {
@@ -25770,6 +25772,19 @@ export namespace Schemas {
          * @maxItems 5000
          */
       days?: string[];
+    }
+
+    export interface StoryFunnelStep {
+      /**
+         * The step's name.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * How many reached the step.
+         * @minimum 0
+         */
+      count: number;
     }
 
     /**
@@ -25938,21 +25953,30 @@ export namespace Schemas {
     }
 
     /**
-     * The insight query the explanation follows.
+     * The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.
      */
     export type ExplainChartDataQuery = {[key: string]: unknown};
 
     export interface ExplainChartData {
       /** What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.
        *
-       * * `time_series` - Time series */
+       * * `time_series` - Time series
+       * * `funnel_steps` - Funnel steps */
       shape?: ChartExplanationShapeEnum;
-      /** The insight query the explanation follows. */
+      /** The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps. */
       query: ExplainChartDataQuery;
-      /** Every series on the chart when it was explained. */
-      results: StorySeriesResult[];
+      /** Every series on the chart when it was explained. Time series only. */
+      results?: StorySeriesResult[];
+      /** The followed breakdown value's steps when it was explained. Funnel steps only. */
+      steps?: StoryFunnelStep[];
       /**
-         * The index in `results` the explanation follows.
+         * Every breakdown value's label, empty when the funnel has no breakdown. Funnel steps only.
+         * @maxItems 1000
+         * @items.maxLength 400
+         */
+      breakdowns?: string[];
+      /**
+         * The index in `results` the explanation follows, or the index in `breakdowns` on a funnel.
          * @minimum 0
          */
       seriesIndex: number;
@@ -25962,8 +25986,8 @@ export namespace Schemas {
          * @nullable
          */
       insightName: string | null;
-      /** Whether the last point's period had not ended yet. */
-      lastPointInProgress: boolean;
+      /** Whether the last point's period had not ended yet. Time series only. */
+      lastPointInProgress?: boolean;
       /**
          * One sentence a person could read in place of the whole explanation.
          * @maxLength 300
@@ -39924,6 +39948,16 @@ export namespace Schemas {
       Duration: 'Duration',
     } as const;
 
+    export type PropertyDefinitionTypeNameEnum = typeof PropertyDefinitionTypeNameEnum[keyof typeof PropertyDefinitionTypeNameEnum];
+
+
+    export const PropertyDefinitionTypeNameEnum = {
+      Event: 'event',
+      Person: 'person',
+      Group: 'group',
+      Session: 'session',
+    } as const;
+
     /**
      * Serializer mixin that handles tags for objects.
      */
@@ -39947,6 +39981,13 @@ export namespace Schemas {
       hidden?: boolean | null;
       /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
       readonly warehouse_origin: unknown;
+      /** Kind of property: an event, person, group or session property. */
+      readonly type: PropertyDefinitionTypeNameEnum;
+      /**
+         * Group type index of a group property, null for every other type.
+         * @nullable
+         */
+      readonly group_type_index: number | null;
     }
 
     export interface ErrorDetail {
@@ -49482,6 +49523,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly connection_warning: string | null;
+    }
+
+    export interface ExternalDataSourceSyncState {
+      /** Opaque digest of the sync state the sources list shows: each source's status and last completed run, and each table's status, sync toggle, error, last sync and row count. It changes when that state changes. Compare it with an earlier value; do not parse it. */
+      fingerprint: string;
     }
 
     export type ExternalQueryErrorCode = typeof ExternalQueryErrorCode[keyof typeof ExternalQueryErrorCode];
@@ -84130,6 +84176,13 @@ export namespace Schemas {
       hidden?: boolean | null;
       /** Provenance for a person property populated from a data warehouse source (source/table/column/last synced), or null. Read-only. */
       readonly warehouse_origin?: unknown;
+      /** Kind of property: an event, person, group or session property. */
+      readonly type?: PropertyDefinitionTypeNameEnum;
+      /**
+         * Group type index of a group property, null for every other type.
+         * @nullable
+         */
+      readonly group_type_index?: number | null;
     }
 
     export interface PatchedErrorTrackingAlertUpdateRequest {
@@ -91818,7 +91871,7 @@ export namespace Schemas {
          * @nullable
          */
       snoozed_until?: string | null;
-      /** Tag names to set on the ticket. */
+      /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
       tags?: string[];
     }
 
@@ -97000,22 +97053,6 @@ export namespace Schemas {
       Person: 'person',
     } as const;
 
-    /**
-     * * `event` - Event
-     * * `person` - Person
-     * * `group` - Group
-     * * `session` - Session
-     */
-    export type PropertyUsageTypeEnum = typeof PropertyUsageTypeEnum[keyof typeof PropertyUsageTypeEnum];
-
-
-    export const PropertyUsageTypeEnum = {
-      Event: 'event',
-      Person: 'person',
-      Group: 'group',
-      Session: 'session',
-    } as const;
-
     export interface PropertyUsageEntry {
       /** Property definition type the name belongs to.
        *
@@ -97023,7 +97060,7 @@ export namespace Schemas {
        * * `person` - Person
        * * `group` - Group
        * * `session` - Session */
-      type?: PropertyUsageTypeEnum;
+      type?: PropertyDefinitionTypeNameEnum;
       /**
          * Property name, for example `$current_url`.
          * @maxLength 400
@@ -97045,7 +97082,7 @@ export namespace Schemas {
        * * `person` - Person
        * * `group` - Group
        * * `session` - Session */
-      type: PropertyUsageTypeEnum;
+      type: PropertyDefinitionTypeNameEnum;
       /** Property name. */
       name: string;
       /**
@@ -116791,7 +116828,7 @@ export namespace Schemas {
          * @nullable
          */
       snoozed_until?: string | null;
-      /** Tag names to set on the ticket. */
+      /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
       tags?: string[];
     }
 

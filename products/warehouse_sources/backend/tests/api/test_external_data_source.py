@@ -562,6 +562,41 @@ class TestExternalDataSource(APIBaseTest):
         ExternalDataSource.objects.create(team=other_team, source_type="Stripe")
         self.assertEqual(self.client.get(url).json(), {"exists": False})
 
+    @parameterized.expand(
+        [
+            ("schema_status", lambda schema: ExternalDataSchema.objects.filter(pk=schema.pk).update(status="Running")),
+            ("sync_toggle", lambda schema: ExternalDataSchema.objects.filter(pk=schema.pk).update(should_sync=False)),
+            (
+                "row_count",
+                lambda schema: DataWarehouseTable.objects.filter(pk=schema.table_id).update(row_count=10),
+            ),
+            (
+                "completed_run",
+                lambda schema: ExternalDataJob.objects.create(
+                    team_id=schema.team_id,
+                    pipeline_id=schema.source_id,
+                    schema=schema,
+                    status=ExternalDataJob.Status.COMPLETED,
+                ),
+            ),
+            ("schema_deleted", lambda schema: ExternalDataSchema.objects.filter(pk=schema.pk).update(deleted=True)),
+            (
+                "source_deleted",
+                lambda schema: ExternalDataSource.objects.filter(pk=schema.source_id).update(deleted=True),
+            ),
+        ]
+    )
+    def test_sync_state_fingerprint_changes_only_with_sync_state(self, _name, change_sync_state) -> None:
+        schema = self._make_schema_with_table(self._make_source("tracked"), "Customer", status="Completed")
+        url = f"/api/projects/{self.team.pk}/external_data_sources/sync_state/"
+        before = self.client.get(url).json()["fingerprint"]
+        other_team = Team.objects.create(organization=self.organization)
+        ExternalDataSource.objects.create(team=other_team, source_type="Stripe")
+
+        assert self.client.get(url).json()["fingerprint"] == before
+        change_sync_state(schema)
+        assert self.client.get(url).json()["fingerprint"] != before
+
     def test_list_serializes_trimmed_schema_shape_while_retrieve_stays_full(self):
         # The sources list embeds every schema of every source, so it serializes a trimmed per-schema
         # shape (the fields the list UI reads); the single-source view keeps the full schema.
@@ -6588,6 +6623,50 @@ class TestExternalDataSource(APIBaseTest):
         Project.objects.filter(id__in=[1, 2]).delete()
         Team.objects.filter(id__in=[1, 2]).delete()
 
+        expected = [
+            {
+                "table": "table_1",
+                "label": None,
+                "should_sync": False,
+                "should_sync_default": True,
+                "description": None,
+                "rows": None,
+                "incremental_fields": [
+                    {
+                        "label": "id",
+                        "type": "integer",
+                        "field": "id",
+                        "field_type": "integer",
+                        "nullable": True,
+                        # Index lookup raises against the mocked pg_connection (object())
+                        # and falls back to the no-warning default (is_indexed=True).
+                        "is_indexed": True,
+                        "recommended": True,
+                        "notes": [
+                            "Only marks new rows. Edits to existing rows don't sync.",
+                            "Can be empty. Rows where it's empty never sync.",
+                        ],
+                    }
+                ],
+                "incremental_available": True,
+                "append_available": True,
+                "cdc_available": None,
+                "xmin_available": False,
+                "incremental_field": "id",
+                "sync_type": None,
+                "supports_webhooks": False,
+                "webhook_only": False,
+                "prefers_full_refresh": False,
+                "available_columns": [
+                    {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
+                ],
+                "detected_primary_keys": ["id"],
+                "primary_key_detection_supported": True,
+                "permission_error": None,
+                "rls_warning": None,
+            }
+        ]
+
         with override_settings(CLOUD_DEPLOYMENT="US"):
             team_2 = Team.objects.create(id=2, organization=self.team.organization)
             response = self.client.post(
@@ -6603,44 +6682,7 @@ class TestExternalDataSource(APIBaseTest):
                 },
             )
             assert response.status_code == 200
-            assert response.json() == [
-                {
-                    "table": "table_1",
-                    "label": None,
-                    "should_sync": False,
-                    "should_sync_default": True,
-                    "description": None,
-                    "rows": None,
-                    "incremental_fields": [
-                        {
-                            "label": "id",
-                            "type": "integer",
-                            "field": "id",
-                            "field_type": "integer",
-                            "nullable": True,
-                            # Index lookup raises against the mocked pg_connection (object())
-                            # and falls back to the no-warning default (is_indexed=True).
-                            "is_indexed": True,
-                        }
-                    ],
-                    "incremental_available": True,
-                    "append_available": True,
-                    "cdc_available": None,
-                    "xmin_available": False,
-                    "incremental_field": "id",
-                    "sync_type": None,
-                    "supports_webhooks": False,
-                    "webhook_only": False,
-                    "prefers_full_refresh": False,
-                    "available_columns": [
-                        {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
-                    ],
-                    "detected_primary_keys": ["id"],
-                    "primary_key_detection_supported": True,
-                    "permission_error": None,
-                    "rls_warning": None,
-                }
-            ]
+            assert response.json() == expected
 
             new_team = Team.objects.create(id=984961485, name="new_team", organization=self.team.organization)
 
@@ -6683,44 +6725,7 @@ class TestExternalDataSource(APIBaseTest):
             )
 
             assert response.status_code == 200
-            assert response.json() == [
-                {
-                    "table": "table_1",
-                    "label": None,
-                    "should_sync": False,
-                    "should_sync_default": True,
-                    "description": None,
-                    "rows": None,
-                    "incremental_fields": [
-                        {
-                            "label": "id",
-                            "type": "integer",
-                            "field": "id",
-                            "field_type": "integer",
-                            "nullable": True,
-                            # Index lookup raises against the mocked pg_connection (object())
-                            # and falls back to the no-warning default (is_indexed=True).
-                            "is_indexed": True,
-                        }
-                    ],
-                    "incremental_available": True,
-                    "append_available": True,
-                    "cdc_available": None,
-                    "xmin_available": False,
-                    "incremental_field": "id",
-                    "sync_type": None,
-                    "supports_webhooks": False,
-                    "webhook_only": False,
-                    "prefers_full_refresh": False,
-                    "available_columns": [
-                        {"field": "id", "label": "id", "type": "integer", "nullable": True, "sensitivity": None},
-                    ],
-                    "detected_primary_keys": ["id"],
-                    "primary_key_detection_supported": True,
-                    "permission_error": None,
-                    "rls_warning": None,
-                }
-            ]
+            assert response.json() == expected
 
             new_team = Team.objects.create(id=984961486, name="new_team", organization=self.team.organization)
 

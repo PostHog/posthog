@@ -37,4 +37,12 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "propertyId": "Identifier of the property the member belongs to.",
         },
     },
+    "knowledge_base_articles": {
+        "description": "A knowledge base article published on a property's help center.",
+        "docs_url": "https://help.tawk.to/article/rest-api",
+        "columns": {
+            "id": "Unique identifier of the article.",
+            "propertyId": "Identifier of the property the article belongs to.",
+        },
+    },
 }
