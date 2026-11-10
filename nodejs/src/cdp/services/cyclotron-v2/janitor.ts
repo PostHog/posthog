@@ -8,7 +8,7 @@ import { captureException } from '~/common/utils/posthog'
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
-import { QUEUE_CLASSES_CTE } from './manager'
+import { QUEUE_DEPTHS_SQL } from './due-rows-sql'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -107,17 +107,6 @@ interface PoisonRow {
     janitor_touch_count: number
     transition_count: number
 }
-
-export const QUEUE_DEPTHS_SQL = `WITH RECURSIVE ${QUEUE_CLASSES_CTE}
-SELECT c.queue_name, SUM(due.count) AS count,
-       EXTRACT(EPOCH FROM NOW() - MIN(due.oldest))::float8 * 1000 AS oldest_due_age_ms
-FROM queue_classes c
-CROSS JOIN LATERAL (
-    SELECT COUNT(*) AS count, MIN(j.scheduled) AS oldest FROM cyclotron_jobs j
-    WHERE j.status = 'available' AND j.queue_name = c.queue_name AND j.priority = c.priority AND j.scheduled <= NOW()
-) due
-WHERE due.count > 0
-GROUP BY c.queue_name`
 
 export class CyclotronV2Janitor {
     private pool: Pool
