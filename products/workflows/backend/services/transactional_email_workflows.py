@@ -12,6 +12,7 @@ from posthog.models.scoping import with_team_scope
 
 from products.workflows.backend.facade.contracts import (
     TRANSACTIONAL_EMAIL_ACTION_ID,
+    TransactionalEmailBody,
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
     TransactionalEmailSenderRequired,
@@ -253,6 +254,17 @@ def update_transactional_email_workflow(
             validated_status=flow.status,
             keeps_live_sensitivity=False,
         )
+
+
+def get_transactional_email_body(*, team_id: int, hog_flow_id: UUID) -> TransactionalEmailBody:
+    actions = HogFlow.objects.filter(team_id=team_id, pk=hog_flow_id).values_list("actions", flat=True).first()
+    if actions is None:
+        raise WorkflowNotFound()
+    step = next((action for action in actions if action.get("id") == TRANSACTIONAL_EMAIL_ACTION_ID), {})
+    email = step.get("config", {}).get("inputs", {}).get("email", {}).get("value")
+    if not isinstance(email, dict):
+        return TransactionalEmailBody(html="", text="")
+    return TransactionalEmailBody(html=email.get("html") or "", text=email.get("text") or "")
 
 
 @with_team_scope()

@@ -361,6 +361,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("workflow_archived", "transactional_email_paused"),
             ("category_turned_marketing", "marketing_template"),
             ("marketing_template_without_an_unsubscribe_link", "unsubscribe_link_required"),
+            ("marketing_workflow_without_an_unsubscribe_link", "unsubscribe_link_required"),
             ("liquid_in_recipient", "invalid_recipient"),
             ("idempotency_key_with_spaces", "invalid_idempotency_key"),
             ("idempotency_key_too_long", "invalid_idempotency_key"),
@@ -385,6 +386,12 @@ class TestTransactionalEmail(APIBaseTest):
             MessageCategory.objects.filter(id=category.id).update(category_type=MessageCategoryType.MARKETING)
         elif case == "marketing_template_without_an_unsubscribe_link":
             MessageTemplate.objects.filter(id=self.template.id).update(message_category=self._category())
+        elif case == "marketing_workflow_without_an_unsubscribe_link":
+            # The workflow keeps the body it was made with, which the CDP sends, while the template gains the link.
+            MessageTemplate.objects.filter(id=self.template.id).update(
+                message_category=self._category(),
+                content={"email": {"subject": "Reset your password", "html": self.UNSUBSCRIBE_HTML}},
+            )
         elif case == "liquid_in_recipient":
             body["to"] = "{{person.properties.email}}@example.com"
         elif case == "idempotency_key_with_spaces":
@@ -1632,8 +1639,15 @@ class TestTransactionalEmail(APIBaseTest):
     def test_a_template_send_names_its_categorys_current_type(self, mock_post, _flag, _capture, _name, archived):
         self._cdp_accepts(mock_post)
         account = self._category(key="account", name="Account", category_type=MessageCategoryType.TRANSACTIONAL)
-        content = {"email": {"subject": "Your account", "html": self.UNSUBSCRIBE_HTML}}
-        MessageTemplate.objects.filter(id=self.template.id).update(message_category=account, content=content)
+        saved = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
+            {
+                "message_category": str(account.id),
+                "content": {"email": {"subject": "Your account", "html": self.UNSUBSCRIBE_HTML}},
+            },
+            format="json",
+        )
+        assert saved.status_code == status.HTTP_200_OK, saved.json()
         MessageCategory.objects.filter(id=account.id).update(
             category_type=MessageCategoryType.MARKETING, deleted=archived
         )

@@ -725,6 +725,12 @@ class TransactionalEmailContent:
     reply_to: str = ""
 
 
+@frozen
+class TransactionalEmailBody:
+    html: str
+    text: str
+
+
 class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
 

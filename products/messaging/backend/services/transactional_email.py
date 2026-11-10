@@ -78,6 +78,7 @@ from products.workflows.backend.facade.transactional_emails import (
     code_send_sender_id,
     create_code_email_workflow,
     create_transactional_email_workflow,
+    get_transactional_email_body,
     resolve_transactional_email_sender,
     update_transactional_email_workflow,
 )
@@ -556,12 +557,11 @@ def send_transactional_email(
         if isinstance(template, UUID):
             model = MessageTemplate.objects.get(team_id=team.id, id=template, deleted=False)
             send = _template_send(team.id, model, marketing_enabled=marketing_enabled)
-            email = model.content["email"]
         else:
             send = _template_send(team.id, template, marketing_enabled=marketing_enabled)
-            email = template.content["email"]
         if _is_marketing(send.category):
-            _require_unsubscribe_link(email.get("html") or "", email.get("text") or "")
+            body = get_transactional_email_body(team_id=team.id, hog_flow_id=send.hog_flow_id)
+            _require_unsubscribe_link(body.html, body.text)
         send_category = template_send_category(send.category, category)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
     if send_category is not None:
