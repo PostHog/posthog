@@ -1,5 +1,8 @@
+import { dirname } from 'node:path'
+
 import { printPending, refuseInCi, resumeApproval, runApproval, type PendingResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
+import { updateConfig } from '@/core/config'
 import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
@@ -14,6 +17,11 @@ import { parseProjectId, ProjectIdSchema } from '@/posthog/ids'
 import { LOGIN_COMMAND, loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
 import { parsePersonalApiKey, PersonalApiKeySchema } from '@/posthog/tokens'
 
+interface NamedIn {
+    path: string
+    status: 'created' | 'updated' | 'unchanged'
+}
+
 type LoginResult =
     | (PendingResult & { host: string })
     | {
@@ -27,6 +35,7 @@ type LoginResult =
           scopes: string[] | null
           // ISO 8601, for an OAuth login. hog renews the token before then.
           expiresAt: string | null
+          config: NamedIn
           next: string
       }
 
@@ -35,7 +44,23 @@ function nextCommand(scopes: readonly string[] | null): string {
     return canQuery ? 'hog query run "select event, count() from events group by event"' : 'hog --help'
 }
 
-function loggedInResult(loggedIn: LoggedIn): LoginResult {
+// Commands pick a login from the closest posthog.json, so the login names itself there. The file in
+// this folder or above it keeps its other settings, and a new one goes in this folder.
+async function nameInConfig(ctx: Context, { host, projectId }: LoggedIn): Promise<NamedIn> {
+    const loaded = await ctx.config()
+    if (loaded && loaded.config.host === host && loaded.config.projectId?.toString() === projectId) {
+        return { path: loaded.path, status: 'unchanged' }
+    }
+    const path = await updateConfig(ctx.runtime, loaded, (raw) => {
+        raw.host = host
+        raw.projectId = Number(projectId)
+    })
+    return { path, status: loaded ? 'updated' : 'created' }
+}
+
+async function finish(ctx: Context, key: AccessKey): Promise<LoginResult> {
+    const loggedIn = await saveLogin(ctx.runtime, key)
+    const config = await nameInConfig(ctx, loggedIn)
     const { host, projectId, store, credentialsPath, keychainError, status } = loggedIn
     const { scopes, expiresAt } = status
     return {
@@ -47,12 +72,9 @@ function loggedInResult(loggedIn: LoggedIn): LoginResult {
         keychainError,
         scopes,
         expiresAt: expiresAt === null ? null : new Date(expiresAt).toISOString(),
+        config,
         next: nextCommand(scopes),
     }
-}
-
-async function finish(ctx: Context, key: AccessKey): Promise<LoginResult> {
-    return loggedInResult(await saveLogin(ctx.runtime, key))
 }
 
 async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
@@ -98,7 +120,8 @@ export default defineCommand({
     notes: [
         'At a terminal, hog asks where your PostHog account is hosted and opens the browser to approve the login.',
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
-        'The person picks one project, and the token only works there. To use another project, log in again. hog renews the token by itself.',
+        'The person picks one project, and the token only works there. hog renews the token by itself.',
+        'Each project keeps its own login, and the closest posthog.json picks which one a command uses. hog writes the host and project to posthog.json in this folder, or to the closest one above it.',
         'hog stores the token in the system keychain. If no keychain is available, such as over SSH, it stores the token in a file only you can read.',
         'In CI, skip login. Run `hog ci setup` once so jobs use their OIDC token, or set HOG_PERSONAL_API_KEY and HOG_HOST, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.',
     ].join('\n'),
@@ -185,6 +208,20 @@ export default defineCommand({
                 out.line(out.style(`Credentials saved to ${result.credentialsPath}, which only you can read`, 'dim'))
                 break
         }
+        const { path, status } = result.config
+        const file = escapeControls(path)
+        const saved = {
+            created: `Created ${file} with this host and project.`,
+            updated: `Set this host and project in ${file}.`,
+            unchanged: `${file} already names this host and project.`,
+        }[status]
+        out.line(saved)
+        out.line(
+            out.style(
+                `Commands under ${escapeControls(dirname(path))} use this login, unless a closer posthog.json names another project.`,
+                'dim'
+            )
+        )
         out.line(`Try it: ${result.next}`)
     },
 })

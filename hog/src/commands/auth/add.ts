@@ -59,11 +59,13 @@ export default defineCommand({
                 out.line(`Your login for ${result.host} already has these scopes.`)
                 return
             case 'added':
-                out.line(`${out.style('Scopes added', 'green', 'bold')} to your login for ${result.host}.`)
-                if (result.previousProjectId) {
+                out.line(
+                    `${out.style('Scopes added', 'green', 'bold')} to your login for project ${result.projectId} on ${result.host}.`
+                )
+                if (result.expectedProjectId) {
                     out.line(
                         out.style(
-                            `You're now logged in to project ${result.projectId} instead of ${result.previousProjectId}.`,
+                            `PostHog approved them for project ${result.projectId}, so hog added them to your login for that project. Your login for project ${result.expectedProjectId}, which this folder uses, keeps its scopes.`,
                             'yellow'
                         )
                     )

@@ -22,7 +22,7 @@ const STORED_LOGIN = {
             'https://us.posthog.com': {
                 store: 'file',
                 type: 'personal_api_key',
-                projectId: '9',
+                projectId: '42',
                 host: 'https://us.posthog.com',
             },
         },

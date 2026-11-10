@@ -104,6 +104,7 @@ export class Context {
         this.credentialsRequest ??= this.config().then((loaded) =>
             resolveCredentials(this.runtime, {
                 ...this.globals,
+                configPath: loaded?.path,
                 configHost: loaded?.config.host,
                 configProjectId: loaded?.config.projectId?.toString(),
             })
