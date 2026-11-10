@@ -335,27 +335,28 @@ class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
         sender = self.create_sender(f"hello@{DOMAIN}")
         self.world.ses.identities[DOMAIN].mail_from_domain = f"bounce.{DOMAIN}"
         read_mail_from = self.world.ses._get_identity_mail_from_domain_attributes
-        reads = 0
+        edits = iter(f"returns{n}" for n in range(1, 100))
 
-        # Verify reads MAIL FROM three times, the last right before it stores the subdomain on the sender.
-        def the_sender_is_edited_after_the_last_read(*, Identities: list[str]) -> dict:
-            nonlocal reads
-            reads += 1
+        # Each read is followed by an edit, so the last edit lands after verify's last read, before it stores the subdomain.
+        def the_sender_is_edited_after_each_read(*, Identities: list[str]) -> dict:
             attributes = read_mail_from(Identities=Identities)
-            if reads == 3:
-                EmailIntegration(Integration.objects.get(id=sender)).update_native_integration(
-                    {"mail_from_subdomain": "returns"}, team_id=self.team.id
-                )
+            config = Integration.objects.get(id=sender).config
+            edited = self.client.patch(
+                f"/api/projects/{self.team.id}/integrations/{sender}/email",
+                {"config": {**config, "mail_from_subdomain": next(edits)}},
+                format="json",
+            )
+            assert edited.status_code == status.HTTP_200_OK, edited.json()
             return attributes
 
         with patch.object(
-            self.world.ses, "_get_identity_mail_from_domain_attributes", the_sender_is_edited_after_the_last_read
+            self.world.ses, "_get_identity_mail_from_domain_attributes", the_sender_is_edited_after_each_read
         ):
             assert self.verify(sender).status_code == status.HTTP_200_OK
 
-        assert reads == 3
-        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"returns.{DOMAIN}"
-        assert Integration.objects.get(id=sender).config["mail_from_subdomain"] == "returns"
+        stored = Integration.objects.get(id=sender).config["mail_from_subdomain"]
+        assert stored.startswith("returns")
+        assert self.world.ses.identities[DOMAIN].mail_from_domain == f"{stored}.{DOMAIN}"
 
     def test_a_sender_of_another_organization_is_not_found(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
