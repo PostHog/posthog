@@ -10,14 +10,16 @@ import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytic
 import { mswDecorator } from '~/mocks/browser'
 import { Mocks } from '~/mocks/utils'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
+import {
+    MarketingAnalyticsRecommendation,
+    MarketingAnalyticsRecommendationResolutionState,
+} from '~/queries/schema/schema-general'
 
 import IconGoogleAds from 'public/services/google-ads.png'
 import IconGoogleSearchConsole from 'public/services/google-search-console.svg'
 
 import { userEvent } from 'storybook/test'
 
-import { dismissalFields } from './recommendations'
 import { RecommendationsSection } from './RecommendationsSection'
 
 function source(
@@ -70,6 +72,13 @@ function recommendation(
         impactDirection: 'save',
         impactType: 'measured',
         currency: 'USD',
+        identity: {
+            rule: overrides.rule,
+            source_type: 'google_ads',
+            customer_id: '1234567890',
+            campaign_id: '',
+            subject: overrides.subject,
+        },
         ...overrides,
     }
 }
@@ -213,20 +222,9 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     }),
 ]
 
-const DISMISSALS_URL = '/api/projects/:team_id/marketing_analytics_recommendation_dismissals/'
-
-function dismissal(row: MarketingAnalyticsRecommendation): Record<string, unknown> {
-    return {
-        id: `dismissal-${row.rule}-${row.subject}`,
-        ...dismissalFields(row),
-        created_at: '2025-02-14T12:00:00Z',
-    }
-}
-
 const MOCKS: Mocks = {
     delete: { '/api/projects/:team_id/query/:query_id/': [204] },
     get: {
-        [DISMISSALS_URL]: [],
         '/api/environments/:team_id/external_data_sources/wizard/': {
             GoogleAds: { name: 'GoogleAds', label: 'Google Ads', iconPath: IconGoogleAds, fields: [] },
             GoogleSearchConsole: {
@@ -370,29 +368,56 @@ export const MissingTablesInModal: Story = {
     },
 }
 
-function withDismissed(rows: MarketingAnalyticsRecommendation[]): Mocks {
-    return { ...MOCKS, get: { ...MOCKS.get, [DISMISSALS_URL]: rows.map(dismissal) } }
+function withResolved(
+    state: (row: MarketingAnalyticsRecommendation) => MarketingAnalyticsRecommendationResolutionState | null
+): Mocks {
+    const results = RESULTS.map((row) => {
+        const resolved = state(row)
+        return resolved
+            ? {
+                  ...row,
+                  resolution: { id: `resolution-${row.subject}`, state: resolved, resolvedAt: '2025-02-14T12:00:00Z' },
+              }
+            : row
+    })
+    return {
+        ...MOCKS,
+        post: {
+            '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/': () => [
+                200,
+                { results, disclaimer: DISCLAIMER },
+            ],
+        },
+    }
 }
 
-export const DismissedInModal: Story = {
+const BRAND_OVERLAP = RESULTS.filter((row) => row.rule === 'brand_overlap')
+
+export const ResolvedInModal: Story = {
     parameters: {
-        msw: { mocks: withDismissed(RESULTS.filter((row) => row.rule === 'spend_without_conversions')) },
+        msw: {
+            mocks: withResolved((row) =>
+                row === BRAND_OVERLAP[0] ? 'dismissed' : row === BRAND_OVERLAP[1] ? 'applied' : null
+            ),
+        },
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
         const modal = within(canvasElement.ownerDocument.body)
-        await userEvent.click(await modal.findByText('Review 2 dismissed'))
-        await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
+        await userEvent.click(await modal.findByText('Review 2 dismissed or applied'))
+        await userEvent.click(await modal.findByText('Brand overlap', { selector: 'button *' }))
     },
 }
 
+const ALL_DISMISSED = withResolved(() => 'dismissed')
+
 export const AllDismissed: Story = {
-    parameters: { msw: { mocks: withDismissed(RESULTS) } },
+    parameters: { msw: { mocks: ALL_DISMISSED } },
 }
 
 export const AllDismissedInModal: Story = {
-    parameters: { msw: { mocks: withDismissed(RESULTS) } },
+    parameters: { msw: { mocks: ALL_DISMISSED } },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))

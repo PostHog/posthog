@@ -20,9 +20,12 @@ Each result has:
 - `action` and `reason` — what to do and the numbers behind it. Quote them instead of inventing your own advice.
 - `impact` — the monthly money impact in `currency`, or null. `impactDirection` says how to read it: `save` is spend to cut, `invest` is extra budget to add, `gain` is value to win, and `keep` is spend to protect.
 - `impactType` — `measured` comes straight from the data. `estimated` is a projection, so present it as an estimate.
+- `identity` — what a dismissal or an applied mark keys on. Ignore it when you present the results.
 - `steps` — how to apply the recommendation, in order. A step's `copyValue` is the exact text to paste, such as a campaign name, a keyword in match type syntax (`[term]` is exact match, `"term"` is phrase match) or a page URL. A step's `url` opens what `linkText` names: a Google Ads section for the whole account, Google Search Console, or the page on the user's site that ranks for the search. When the user asks how to make a change, walk them through these steps. Some rules have no steps yet.
 
 Totals in different currencies come from different ad accounts. Never add them together.
+
+The results leave out recommendations that someone in the project dismissed or marked as applied in the Marketing analytics scene, so do not suggest those again. A missing recommendation can mean someone already handled it.
 
 Present the results as suggestions for the user to evaluate, not as instructions. Always show the response's `disclaimer` text with them. Do not change campaigns, budgets, bids or keywords on the user's behalf.
 

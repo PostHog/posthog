@@ -5,7 +5,8 @@ import {
     groupRecommendations,
     recommendationKey,
     recommendationsShownState,
-    withoutDismissed,
+    unresolved,
+    withResolutionOverrides,
 } from './recommendations'
 
 function recommendation(overrides: Partial<MarketingAnalyticsRecommendation>): MarketingAnalyticsRecommendation {
@@ -13,6 +14,13 @@ function recommendation(overrides: Partial<MarketingAnalyticsRecommendation>): M
         rule: 'spend_without_conversions',
         level: 'search_term',
         subject: 'term',
+        identity: {
+            rule: 'spend_without_conversions',
+            source_type: 'google_ads',
+            customer_id: '111',
+            campaign_id: '',
+            subject: 'term',
+        },
         action: 'Add it as a negative',
         reason: 'No conversions',
         impact: 100,
@@ -46,32 +54,29 @@ describe('recommendations', () => {
         })
     })
 
-    describe('withoutDismissed', () => {
-        it('hides a dismissal stored with an empty campaign for a recommendation without one', () => {
+    describe('withResolutionOverrides', () => {
+        it('applies resolutions made in this session to the matching identity only', () => {
+            const identity = recommendation({}).identity
+            const dismissed = { id: 'r1', state: 'dismissed' as const, resolvedAt: '2026-11-01T00:00:00Z' }
             const rows = [
-                recommendation({ rule: 'review_campaign', level: 'campaign', subject: 'Campaign A', campaign: null }),
-                recommendation({ subject: 'example shoes', campaign: 'Campaign A' }),
-                recommendation({ subject: 'example shoes', campaign: 'Campaign B' }),
+                recommendation({ identity: { ...identity, customer_id: '111' } }),
+                recommendation({ identity: { ...identity, customer_id: '222' }, resolution: dismissed }),
+                recommendation({ identity: { ...identity, customer_id: '333' }, resolution: dismissed }),
             ]
-            const dismissed = new Set([
-                recommendationKey({ rule: 'review_campaign', subject: 'Campaign A', campaign: '' }),
-                recommendationKey({
-                    rule: 'spend_without_conversions',
-                    subject: 'example shoes',
-                    campaign: 'Campaign A',
-                }),
-            ])
 
-            expect(withoutDismissed(rows, dismissed).map((row) => [row.subject, row.campaign])).toEqual([
-                ['example shoes', 'Campaign B'],
-            ])
+            const shown = withResolutionOverrides(rows, {
+                [recommendationKey(rows[0])]: { ...dismissed, state: 'applied' },
+                [recommendationKey(rows[1])]: null,
+            })
+
+            expect(unresolved(shown).map((row) => row.identity.customer_id)).toEqual(['222'])
+            expect(shown[0].resolution?.state).toBe('applied')
         })
     })
 
     describe('recommendationsShownState', () => {
         const loaded: RecommendationsLoadStatus = {
             sourcesLoading: false,
-            dismissalsPending: false,
             responseLoading: false,
             responseError: false,
             connectedSourceCount: 1,
@@ -80,7 +85,6 @@ describe('recommendations', () => {
         }
 
         it.each([
-            ['dismissals still loading', { dismissalsPending: true }, null],
             ['first response still loading', { responseLoading: true, hasRecommendations: false }, null],
             ['reload over earlier results', { responseLoading: true }, 'recommendations'],
             ['failed load over earlier results', { responseError: true }, 'error'],

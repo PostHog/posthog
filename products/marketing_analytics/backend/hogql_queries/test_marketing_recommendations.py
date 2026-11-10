@@ -13,6 +13,8 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     SearchTermStats,
     TermKeywordStats,
     brands_from_site_urls,
+    dedupe_site_rules,
+    identity_key,
     recommend,
 )
 
@@ -64,6 +66,7 @@ def _inputs(
         site_urls=("sc-domain:example.com",),
         currency="USD",
         days=30,
+        customer_id="1234567890",
     )
 
 
@@ -89,14 +92,74 @@ class TestMarketingRecommendations(SimpleTestCase):
     def test_campaigns_sharing_a_budget_get_one_budget_recommendation(self) -> None:
         shared = {"status_reasons": ("BUDGET_CONSTRAINED",), "recommended_daily_budget": 300.0, "budget_id": "b1"}
         campaigns = (
-            _campaign(id="c1", **shared),
             _campaign(id="c2", name="Search 2", **shared),
+            _campaign(id="c1", **shared),
             _campaign(id="c3", name="Search 3", status_reasons=("BUDGET_CONSTRAINED",), recommended_daily_budget=200.0),
         )
 
         budget_rows = [rec for rec in recommend(_inputs(campaigns)) if rec.rule == "budget_constrained"]
 
-        assert len(budget_rows) == 2
+        assert [(rec.subject, rec.identity.campaign_id, rec.identity.subject) for rec in budget_rows] == [
+            ("Search", "", "b1"),
+            ("Search 3", "c3", ""),
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "campaign_renamed",
+                (_campaign(name="Search", status_reasons=("HAS_ADS_DISAPPROVED",)),),
+                (_campaign(name="Search 2026", status_reasons=("HAS_ADS_DISAPPROVED",)),),
+                (),
+                (),
+                ("policy_limited", "1234567890", "c1", ""),
+            ),
+            (
+                "another_campaign_spends_most_on_the_term_in_the_new_range",
+                (_campaign(), _campaign(id="c2", name="Replay")),
+                (_campaign(), _campaign(id="c2", name="Replay")),
+                (_term("spy website traffic", "c1", 500, 0), _term("product analytics", "c1", 500, 10)),
+                (_term("spy website traffic", "c2", 500, 0), _term("product analytics", "c1", 500, 10)),
+                ("spend_without_conversions", "1234567890", "", "spy website traffic"),
+            ),
+        ]
+    )
+    def test_identity_stays_the_same_across_runs(
+        self,
+        _name: str,
+        campaigns_before: tuple[CampaignStats, ...],
+        campaigns_after: tuple[CampaignStats, ...],
+        terms_before: tuple[SearchTermStats, ...],
+        terms_after: tuple[SearchTermStats, ...],
+        expected: tuple[str, str, str, str],
+    ) -> None:
+        rule = expected[0]
+        before, after = (
+            [
+                (rec.identity.rule, rec.identity.customer_id, rec.identity.campaign_id, rec.identity.subject)
+                for rec in recommend(_inputs(campaigns, terms))
+                if rec.rule == rule
+            ]
+            for campaigns, terms in ((campaigns_before, terms_before), (campaigns_after, terms_after))
+        )
+
+        assert before == after == [expected]
+
+    def test_resolved_recommendations_free_their_slot_under_the_per_rule_limit(self) -> None:
+        terms = (
+            *(_term(f"waste term {i:02d}", "c1", cost=500 + i, conversions=0) for i in range(12)),
+            _term("product analytics", "c1", cost=500, conversions=100),
+        )
+        first = [rec for rec in recommend(_inputs((_campaign(),), terms)) if rec.rule == "spend_without_conversions"]
+        assert len(first) == 10
+
+        recs = recommend(
+            replace(_inputs((_campaign(),), terms), resolved=frozenset(identity_key(rec.identity) for rec in first))
+        )
+
+        wasted = [rec.subject for rec in recs if rec.rule == "spend_without_conversions"]
+        assert wasted[:2] == ["waste term 01", "waste term 00"]
+        assert sorted(wasted[2:]) == sorted(rec.subject for rec in first)
 
     @parameterized.expand(
         [
@@ -214,8 +277,12 @@ class TestMarketingRecommendations(SimpleTestCase):
 
         recs = recommend(_inputs((_campaign(),), terms, organic))
 
-        rules = {rec.rule for rec in recs if rec.subject == "funnel analysis"} & {"content_gap", "striking_distance"}
-        assert rules == expected
+        organic_recs = [rec for rec in recs if rec.rule in ("content_gap", "striking_distance")]
+        assert {rec.rule for rec in organic_recs if rec.subject == "funnel analysis"} == expected
+        assert all(rec.identity.customer_id == rec.identity.campaign_id == "" for rec in organic_recs)
+        other_account = recommend(replace(_inputs((_campaign(),), terms, organic), customer_id="9876543210"))
+        merged = [rec.rule for rec in dedupe_site_rules(recs + other_account) if rec.subject == "funnel analysis"]
+        assert sorted(merged) == sorted(expected)
 
     @parameterized.expand(
         [
@@ -258,14 +325,14 @@ class TestMarketingRecommendations(SimpleTestCase):
         organic += (OrganicQueryStats(query=query, clicks=1, impressions=5000, position=25),)
 
         gaps = {
-            rec.subject: rec.campaign
+            rec.subject: (rec.campaign, rec.identity.customer_id, rec.identity.campaign_id)
             for rec in recommend(_inputs(campaigns, terms, organic))
             if rec.rule == "keyword_gap"
         }
 
         assert (query in gaps) == expected
         if expected:
-            assert gaps[query] == "Search"
+            assert gaps[query] == ("Search", "", "")
 
     def test_performance_max_gets_brand_exclusion_and_rank_advice(self) -> None:
         pmax = _campaign(
@@ -338,7 +405,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             if rec.rule == "spend_without_conversions"
         ]
 
-        assert [rec.action for rec in recs] == [expected]
+        assert [(rec.action, rec.campaign, rec.identity.campaign_id) for rec in recs] == [(expected, "Search", "")]
         assert [
             (step.copyValue, (step.url or "").removeprefix("https://ads.google.com/aw/"))
             for step in recs[0].steps or []

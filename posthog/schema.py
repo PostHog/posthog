@@ -201,6 +201,7 @@ from posthog.schema_enums import (
     MarketingAnalyticsRecommendationImpactDirection as MarketingAnalyticsRecommendationImpactDirection,
     MarketingAnalyticsRecommendationImpactType as MarketingAnalyticsRecommendationImpactType,
     MarketingAnalyticsRecommendationLevel as MarketingAnalyticsRecommendationLevel,
+    MarketingAnalyticsRecommendationResolutionState as MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationRule as MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationsSourceType as MarketingAnalyticsRecommendationsSourceType,
     MarketingAnalyticsRetentionInterval as MarketingAnalyticsRetentionInterval,
@@ -6992,33 +6993,42 @@ class MarketingAnalyticsItem(BaseModel):
     value: float | str | None = None
 
 
-class MarketingAnalyticsRecommendation(BaseModel):
+class MarketingAnalyticsRecommendationIdentity(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    action: str
-    campaign: str | None = Field(
-        default=None,
-        description=("The campaign a search term recommendation applies to, when it applies to one."),
+    campaign_id: str = Field(
+        ...,
+        description=("The Google Ads campaign id. Empty when the recommendation is not about one campaign."),
     )
-    currency: str | None = None
-    impact: float | None = Field(
-        default=None,
-        description=("Monthly money impact in the account currency. Null when the rule has no money impact."),
+    customer_id: str = Field(
+        ...,
+        description=("The Google Ads account id. Empty when the recommendation is not tied to one account."),
     )
-    impactDirection: MarketingAnalyticsRecommendationImpactDirection
-    impactType: MarketingAnalyticsRecommendationImpactType
-    level: MarketingAnalyticsRecommendationLevel
-    reason: str
     rule: MarketingAnalyticsRecommendationRule
-    steps: list[MarketingAnalyticsRecommendationStep] | None = Field(
-        default=None,
-        description=("How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet."),
-    )
+    source_type: Literal["google_ads"] = Field(default="google_ads", description="The ad platform the ids belong to.")
     subject: str = Field(
         ...,
-        description="The campaign name or the search term the recommendation is about.",
+        description=(
+            "The search term, or the budget id for a budget recommendation. Empty when"
+            " the campaign id names the subject."
+        ),
     )
+
+
+class MarketingAnalyticsRecommendationResolution(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str = Field(
+        ...,
+        description=("The resolution id. Delete it through the resolutions API to show the recommendation again."),
+    )
+    resolvedAt: str = Field(
+        ...,
+        description=("When someone last dismissed the recommendation or marked it as applied."),
+    )
+    state: MarketingAnalyticsRecommendationResolutionState
 
 
 class MarketingAnalyticsRecommendationsSource(BaseModel):
@@ -14817,72 +14827,6 @@ class CachedMarketingAnalyticsAttributionQueryResponse(BaseModel):
     )
 
 
-class CachedMarketingAnalyticsRecommendationsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    disclaimer: str = Field(
-        ...,
-        description=("Caveat to show with the results. The results are suggestions, and impact figures are estimates."),
-    )
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: AwareDatetime
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: AwareDatetime
-    query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = Field(
-        default=None,
-        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
-    )
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None,
-        description=("The resolved previous/comparison period date range, when comparing against another period"),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[MarketingAnalyticsRecommendation]
-    timezone: str
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
-        default=None,
-        description=("Connector-synced data warehouse sources referenced by this query, if any."),
-    )
-    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries. Also carries access control warnings when a system-table"
-            " query filters out objects the user can't access, and a breakdown warning"
-            " when the query ran without its requested breakdown."
-        ),
-    )
-
-
 class CachedMarketingAnalyticsRetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -21234,6 +21178,43 @@ class MarketingAnalyticsAttributionQueryResponse(BaseModel):
             " query filters out objects the user can't access, and a breakdown warning"
             " when the query ran without its requested breakdown."
         ),
+    )
+
+
+class MarketingAnalyticsRecommendation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: str
+    campaign: str | None = Field(
+        default=None,
+        description=("The campaign a search term recommendation applies to, when it applies to one."),
+    )
+    currency: str | None = None
+    identity: MarketingAnalyticsRecommendationIdentity
+    impact: float | None = Field(
+        default=None,
+        description=("Monthly money impact in the account currency. Null when the rule has no money impact."),
+    )
+    impactDirection: MarketingAnalyticsRecommendationImpactDirection
+    impactType: MarketingAnalyticsRecommendationImpactType
+    level: MarketingAnalyticsRecommendationLevel
+    reason: str
+    resolution: MarketingAnalyticsRecommendationResolution | None = Field(
+        default=None,
+        description=(
+            "Set only when the query includes resolved recommendations and someone"
+            " dismissed this one or marked it as applied."
+        ),
+    )
+    rule: MarketingAnalyticsRecommendationRule
+    steps: list[MarketingAnalyticsRecommendationStep] | None = Field(
+        default=None,
+        description=("How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet."),
+    )
+    subject: str = Field(
+        ...,
+        description="The campaign name or the search term the recommendation is about.",
     )
 
 
@@ -28711,6 +28692,72 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     )
 
 
+class CachedMarketingAnalyticsRecommendationsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    disclaimer: str = Field(
+        ...,
+        description=("Caveat to show with the results. The results are suggestions, and impact figures are estimates."),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_scan: QueryScanSummary | None = Field(
+        default=None,
+        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
+    )
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MarketingAnalyticsRecommendation]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning | BreakdownNotAppliedWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries. Also carries access control warnings when a system-table"
+            " query filters out objects the user can't access, and a breakdown warning"
+            " when the query ran without its requested breakdown."
+        ),
+    )
+
+
 class CachedNewExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -30732,6 +30779,13 @@ class MarketingAnalyticsRecommendationsQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    includeResolved: bool | None = Field(
+        default=False,
+        description=(
+            "Also return recommendations that someone in the project dismissed or"
+            " marked as applied, with their `resolution`."
+        ),
+    )
     kind: Literal["MarketingAnalyticsRecommendationsQuery"] = "MarketingAnalyticsRecommendationsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MarketingAnalyticsRecommendationsQueryResponse | None = None

@@ -37367,6 +37367,9 @@
                 "currency": {
                     "type": ["string", "null"]
                 },
+                "identity": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationIdentity"
+                },
                 "impact": {
                     "description": "Monthly money impact in the account currency. Null when the rule has no money impact.",
                     "type": ["number", "null"]
@@ -37383,6 +37386,17 @@
                 "reason": {
                     "type": "string"
                 },
+                "resolution": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationResolution"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied."
+                },
                 "rule": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationRule"
                 },
@@ -37398,8 +37412,39 @@
                     "type": "string"
                 }
             },
-            "required": ["rule", "level", "subject", "action", "reason", "impactDirection", "impactType"],
+            "required": ["rule", "level", "subject", "identity", "action", "reason", "impactDirection", "impactType"],
             "type": "object"
+        },
+        "MarketingAnalyticsRecommendationIdentity": {
+            "additionalProperties": false,
+            "description": "What a dismissal or an applied mark keys on. The field names match the recommendation resolutions API, so a client sends this object as is.",
+            "properties": {
+                "campaign_id": {
+                    "description": "The Google Ads campaign id. Empty when the recommendation is not about one campaign.",
+                    "type": "string"
+                },
+                "customer_id": {
+                    "description": "The Google Ads account id. Empty when the recommendation is not tied to one account.",
+                    "type": "string"
+                },
+                "rule": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationRule"
+                },
+                "source_type": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationIdentitySourceType",
+                    "description": "The ad platform the ids belong to."
+                },
+                "subject": {
+                    "description": "The search term, or the budget id for a budget recommendation. Empty when the campaign id names the subject.",
+                    "type": "string"
+                }
+            },
+            "required": ["rule", "source_type", "customer_id", "campaign_id", "subject"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationIdentitySourceType": {
+            "const": "google_ads",
+            "type": "string"
         },
         "MarketingAnalyticsRecommendationImpactDirection": {
             "enum": ["save", "gain", "invest", "keep"],
@@ -37411,6 +37456,28 @@
         },
         "MarketingAnalyticsRecommendationLevel": {
             "enum": ["campaign", "search_term"],
+            "type": "string"
+        },
+        "MarketingAnalyticsRecommendationResolution": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "description": "The resolution id. Delete it through the resolutions API to show the recommendation again.",
+                    "type": "string"
+                },
+                "resolvedAt": {
+                    "description": "When someone last dismissed the recommendation or marked it as applied.",
+                    "type": "string"
+                },
+                "state": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationResolutionState"
+                }
+            },
+            "required": ["id", "state", "resolvedAt"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationResolutionState": {
+            "enum": ["dismissed", "applied"],
             "type": "string"
         },
         "MarketingAnalyticsRecommendationRule": {
@@ -37455,6 +37522,11 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "includeResolved": {
+                    "default": false,
+                    "description": "Also return recommendations that someone in the project dismissed or marked as applied, with their `resolution`.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "MarketingAnalyticsRecommendationsQuery",

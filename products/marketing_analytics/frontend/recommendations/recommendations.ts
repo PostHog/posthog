@@ -3,6 +3,7 @@ import { marketingSourceName } from 'scenes/web-analytics/tabs/marketing-analyti
 
 import {
     MarketingAnalyticsRecommendation,
+    MarketingAnalyticsRecommendationResolution,
     MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationsSource,
 } from '~/queries/schema/schema-general'
@@ -117,40 +118,31 @@ export function sumImpact(recommendations: MarketingAnalyticsRecommendation[]): 
     )
 }
 
-export interface RecommendationDismissalFields {
-    rule: MarketingAnalyticsRecommendationRule
-    subject: string
-    campaign: string
+export function recommendationKey(recommendation: MarketingAnalyticsRecommendation): string {
+    const { rule, source_type, customer_id, campaign_id, subject } = recommendation.identity
+    return JSON.stringify([rule, source_type, customer_id, campaign_id, subject])
 }
 
-// Matches the unique constraint on dismissals, where a missing campaign is stored as an empty string.
-export function dismissalFields(recommendation: {
-    rule: MarketingAnalyticsRecommendationRule
-    subject: string
-    campaign?: string | null
-}): RecommendationDismissalFields {
-    return { rule: recommendation.rule, subject: recommendation.subject, campaign: recommendation.campaign ?? '' }
-}
+// Resolutions made in this session, by recommendation key. Null means restored.
+export type ResolutionOverrides = Record<string, MarketingAnalyticsRecommendationResolution | null>
 
-export function recommendationKey(recommendation: {
-    rule: MarketingAnalyticsRecommendationRule
-    subject: string
-    campaign?: string | null
-}): string {
-    const { rule, subject, campaign } = dismissalFields(recommendation)
-    return JSON.stringify([rule, subject, campaign])
-}
-
-export function withoutDismissed(
+// A dismissal, an applied mark or a restore shows at once, without waiting for the query to run again.
+export function withResolutionOverrides(
     recommendations: MarketingAnalyticsRecommendation[],
-    dismissedKeys: Set<string>
+    overrides: ResolutionOverrides
 ): MarketingAnalyticsRecommendation[] {
-    return recommendations.filter((recommendation) => !dismissedKeys.has(recommendationKey(recommendation)))
+    return recommendations.map((recommendation) => {
+        const key = recommendationKey(recommendation)
+        return key in overrides ? { ...recommendation, resolution: overrides[key] } : recommendation
+    })
+}
+
+export function unresolved(recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] {
+    return recommendations.filter((recommendation) => !recommendation.resolution)
 }
 
 export interface RecommendationsLoadStatus {
     sourcesLoading: boolean
-    dismissalsPending: boolean
     responseLoading: boolean
     responseError: boolean
     connectedSourceCount: number
@@ -160,10 +152,10 @@ export interface RecommendationsLoadStatus {
 
 export function recommendationsShownState(status: RecommendationsLoadStatus): RecommendationsShownState | null {
     const hasSelectedSource = status.selectedSourceCount > 0
-    if (hasSelectedSource && !status.responseError && !status.dismissalsPending && status.hasRecommendations) {
+    if (hasSelectedSource && !status.responseError && status.hasRecommendations) {
         return 'recommendations'
     }
-    if (status.sourcesLoading || status.dismissalsPending || (status.responseLoading && hasSelectedSource)) {
+    if (status.sourcesLoading || (status.responseLoading && hasSelectedSource)) {
         return null
     }
     if (status.connectedSourceCount === 0) {

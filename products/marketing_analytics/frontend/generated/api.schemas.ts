@@ -2754,6 +2754,47 @@ export const RecommendationRuleEnumApi = {
 } as const
 
 /**
+ * * `google_ads` - Google Ads
+ */
+export type RecommendationResolutionSourceTypeEnumApi =
+    (typeof RecommendationResolutionSourceTypeEnumApi)[keyof typeof RecommendationResolutionSourceTypeEnumApi]
+
+export const RecommendationResolutionSourceTypeEnumApi = {
+    GoogleAds: 'google_ads',
+} as const
+
+/**
+ * * `dismissed` - Dismissed
+ * * `applied` - Applied
+ */
+export type RecommendationResolutionStateEnumApi =
+    (typeof RecommendationResolutionStateEnumApi)[keyof typeof RecommendationResolutionStateEnumApi]
+
+export const RecommendationResolutionStateEnumApi = {
+    Dismissed: 'dismissed',
+    Applied: 'applied',
+} as const
+
+export interface RecommendationSnapshotApi {
+    /**
+     * The recommendation's `action` when it was resolved.
+     * @maxLength 1000
+     */
+    action: string
+    /**
+     * The recommendation's `impact` when it was resolved.
+     * @nullable
+     */
+    impact?: number | null
+    /**
+     * The recommendation's `currency` when it was resolved.
+     * @maxLength 8
+     * @nullable
+     */
+    currency?: string | null
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -2810,10 +2851,10 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
-export interface RecommendationDismissalApi {
-    /** The dismissal id. Delete it to show the recommendation again. */
+export interface RecommendationResolutionApi {
+    /** The resolution id. Delete it to show the recommendation again. */
     readonly id: string
-    /** The rule that produced the dismissed recommendation.
+    /** The rule that produced the resolved recommendation.
      *
      * * `budget_constrained` - Budget Constrained
      * * `brand_leak` - Brand Leak
@@ -2826,19 +2867,37 @@ export interface RecommendationDismissalApi {
      * * `spend_without_conversions` - Spend Without Conversions
      * * `striking_distance` - Striking Distance */
     rule: RecommendationRuleEnumApi
+    /** The recommendation's `identity.source_type`.
+     *
+     * * `google_ads` - Google Ads */
+    source_type?: RecommendationResolutionSourceTypeEnumApi
     /**
-     * The campaign name or search term the dismissed recommendation is about.
-     * @maxLength 400
+     * The recommendation's `identity.customer_id`.
+     * @maxLength 64
      */
-    subject: string
+    customer_id?: string
     /**
-     * The campaign a search term recommendation applies to. Empty for campaign recommendations.
-     * @maxLength 400
+     * The recommendation's `identity.campaign_id`.
+     * @maxLength 64
      */
-    campaign?: string
-    /** The user who dismissed the recommendation. */
-    readonly dismissed_by: UserBasicApi
-    /** When the recommendation was dismissed. */
+    campaign_id?: string
+    /**
+     * The recommendation's `identity.subject`.
+     * @maxLength 1024
+     */
+    subject?: string
+    /** Dismissed hides the recommendation. Applied marks that someone made the change it suggests.
+     *
+     * * `dismissed` - Dismissed
+     * * `applied` - Applied */
+    resolution: RecommendationResolutionStateEnumApi
+    /** What the recommendation suggested when it was resolved. */
+    snapshot?: RecommendationSnapshotApi | null
+    /** The user who last resolved the recommendation. */
+    readonly resolved_by: UserBasicApi
+    /** When the recommendation was last resolved. */
+    readonly resolved_at: string
+    /** When the recommendation was first resolved. */
     readonly created_at: string
 }
 

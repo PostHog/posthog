@@ -14,7 +14,8 @@ import {
     recommendationsShownState,
     sectionRecommendations,
     sumImpact,
-    withoutDismissed,
+    unresolved,
+    withResolutionOverrides,
 } from './recommendations'
 import { RecommendationsIdle } from './RecommendationsIdle'
 import { recommendationsLogic } from './recommendationsLogic'
@@ -30,10 +31,8 @@ export function RecommendationsSection(): JSX.Element {
         selectedRule,
         introSeen,
         connectedSourceTypes,
-        dismissedKeys,
-        showDismissed,
-        dismissals,
-        dismissalsLoading,
+        resolutionOverrides,
+        showResolved,
     } = useValues(recommendationsLogic)
     const { openRecommendations, selectRule, closeRecommendations, dismissIntro, reportRecommendationsShown } =
         useActions(recommendationsLogic)
@@ -41,24 +40,21 @@ export function RecommendationsSection(): JSX.Element {
     const { loadData } = useActions(dataNodeLogic(dataNodeProps))
 
     const recommendationsResponse = response as MarketingAnalyticsRecommendationsQueryResponse | null
-    const allResults = recommendationsResponse?.results ?? []
-    const results = withoutDismissed(allResults, dismissedKeys)
-    const dismissedCount = allResults.length - results.length
+    const allResults = withResolutionOverrides(recommendationsResponse?.results ?? [], resolutionOverrides)
+    const results = unresolved(allResults)
+    const resolvedCount = allResults.length - results.length
     const visibleGroups = groupRecommendations(results)
-    const groups = showDismissed && dismissedCount > 0 ? groupRecommendations(allResults) : visibleGroups
+    const groups = showResolved && resolvedCount > 0 ? groupRecommendations(allResults) : visibleGroups
     const sections = sectionRecommendations(groups)
-    // With every recommendation dismissed the modal still opens, so the dismissed ones stay reachable.
+    // With every recommendation resolved the modal still opens, so the resolved ones stay reachable.
     const firstRule = sections[0]?.groups[0]?.rule ?? allResults[0]?.rule
     // Reloading can drop the open rule, so the modal falls back to the first one instead of closing on its own.
     const selectedGroup =
         selectedRule === null
             ? undefined
             : (groups.find((group) => group.rule === selectedRule) ?? sections[0]?.groups[0])
-    // Until dismissals load, a dismissed recommendation would flash back into the list.
-    const dismissalsPending = dismissalsLoading && dismissals === null
     const shownState = recommendationsShownState({
         sourcesLoading: !dataWarehouseSources,
-        dismissalsPending,
         responseLoading,
         responseError: !!responseError,
         connectedSourceCount: connectedSourceTypes.length,
@@ -92,7 +88,7 @@ export function RecommendationsSection(): JSX.Element {
             has_invest_impact: directions.has('invest'),
             source_types: [...new Set(sources.map((source) => source.sourceType))],
             data_gap_count: dataGaps.length,
-            dismissed_count: showGroups ? dismissedCount : 0,
+            resolved_count: showGroups ? resolvedCount : 0,
             intro_shown: showGroups && !introSeen,
         })
         // One event per state the viewer sees, so reloads and new date ranges with the same state do not add views.
@@ -152,12 +148,12 @@ export function RecommendationsSection(): JSX.Element {
                 onClose={closeRecommendations}
                 total={results.length}
                 totals={sumImpact(results)}
-                dismissedCount={dismissedCount}
+                resolvedCount={resolvedCount}
                 sections={sections}
                 selectedGroup={selectedGroup}
                 onSelect={(group) =>
                     group.rule !== selectedGroup?.rule &&
-                    selectRule(group.rule, withoutDismissed(group.recommendations, dismissedKeys).length)
+                    selectRule(group.rule, unresolved(group.recommendations).length)
                 }
                 dataNodeProps={dataNodeProps}
                 dataGaps={dataGaps}

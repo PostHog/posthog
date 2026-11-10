@@ -23,7 +23,7 @@ import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-genera
 
 import { RecommendationDataGapButton } from './RecommendationDataGapButton'
 import { RecommendationDataGapDescription } from './RecommendationDataGapDescription'
-import { RecommendationDismissButton } from './RecommendationDismissButton'
+import { RecommendationResolutionButtons } from './RecommendationResolutionButtons'
 import {
     IMPACT_DIRECTION_DESCRIPTIONS,
     IMPACT_DIRECTION_LABELS,
@@ -34,9 +34,8 @@ import {
     RecommendationGroup,
     RecommendationSection,
     RecommendationTotal,
-    recommendationKey,
     sumImpact,
-    withoutDismissed,
+    unresolved,
 } from './recommendations'
 import { recommendationsLogic } from './recommendationsLogic'
 import { RecommendationSteps } from './RecommendationSteps'
@@ -82,7 +81,6 @@ function rowKey(row: MarketingAnalyticsRecommendation, index: number): string {
 }
 
 function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[] }): JSX.Element {
-    const { dismissedKeys } = useValues(recommendationsLogic)
     const { reportRecommendationsActionClicked } = useActions(recommendationsLogic)
     const [expanded, setExpanded] = useState<Set<string>>(new Set())
     const toggle = (key: string, rule: MarketingAnalyticsRecommendation['rule']): void => {
@@ -103,9 +101,7 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
             dataSource={rows}
             rowKey={rowKey}
             // Dims the content but not the last cell, so Restore still reads as a live button.
-            rowClassName={(row) =>
-                dismissedKeys.has(recommendationKey(row)) ? '[&>td:not(:last-child)]:opacity-50' : null
-            }
+            rowClassName={(row) => (row.resolution ? '[&>td:not(:last-child)]:opacity-50' : null)}
             expandable={{
                 expandedRowRender: (row) => <RecommendationSteps steps={row.steps ?? []} rule={row.rule} />,
                 rowExpandable: (row) => (row.steps?.length ? 1 : 0),
@@ -171,10 +167,10 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
                         ),
                 },
                 {
-                    key: 'dismiss',
+                    key: 'resolution',
                     align: 'right',
                     width: 0,
-                    render: (_, row) => <RecommendationDismissButton recommendation={row} />,
+                    render: (_, row) => <RecommendationResolutionButtons recommendation={row} />,
                 },
             ]}
         />
@@ -186,7 +182,7 @@ export function RecommendationsModal({
     onClose,
     total,
     totals,
-    dismissedCount,
+    resolvedCount,
     sections,
     selectedGroup,
     onSelect,
@@ -198,7 +194,7 @@ export function RecommendationsModal({
     onClose: () => void
     total: number
     totals: RecommendationTotal[]
-    dismissedCount: number
+    resolvedCount: number
     sections: RecommendationSection[]
     selectedGroup: RecommendationGroup | undefined
     onSelect: (group: RecommendationGroup) => void
@@ -206,14 +202,14 @@ export function RecommendationsModal({
     dataGaps: RecommendationDataGap[]
     disclaimer: string | undefined
 }): JSX.Element {
-    const { showDismissed, dismissedKeys } = useValues(recommendationsLogic)
-    const selectedRows = withoutDismissed(selectedGroup?.recommendations ?? [], dismissedKeys)
-    const { reportRecommendationsActionClicked, setShowDismissed } = useActions(recommendationsLogic)
-    const toggleDismissed = (): void => {
-        if (!showDismissed) {
-            reportRecommendationsActionClicked('show_dismissed', 'modal')
+    const { showResolved } = useValues(recommendationsLogic)
+    const selectedRows = unresolved(selectedGroup?.recommendations ?? [])
+    const { reportRecommendationsActionClicked, setShowResolved } = useActions(recommendationsLogic)
+    const toggleResolved = (): void => {
+        if (!showResolved) {
+            reportRecommendationsActionClicked('show_resolved', 'modal')
         }
-        setShowDismissed(!showDismissed)
+        setShowResolved(!showResolved)
     }
     const navRef = useRef<HTMLElement>(null)
     const detailRef = useRef<HTMLElement>(null)
@@ -256,14 +252,16 @@ export function RecommendationsModal({
                 <span className="flex flex-wrap items-center gap-2">
                     <span>{`${total} for the selected sources and dates`}</span>
                     <ImpactTotals totals={totals} />
-                    {dismissedCount > 0 && (
+                    {resolvedCount > 0 && (
                         <LemonButton
                             size="xsmall"
                             type="tertiary"
-                            onClick={toggleDismissed}
-                            data-attr="marketing-recommendations-toggle-dismissed"
+                            onClick={toggleResolved}
+                            data-attr="marketing-recommendations-toggle-resolved"
                         >
-                            {showDismissed ? 'Hide dismissed' : `Review ${dismissedCount} dismissed`}
+                            {showResolved
+                                ? 'Hide dismissed and applied'
+                                : `Review ${resolvedCount} dismissed or applied`}
                         </LemonButton>
                     )}
                 </span>
@@ -292,7 +290,7 @@ export function RecommendationsModal({
                                         onClick={() => selectGroup(group)}
                                         sideIcon={
                                             <LemonBadge.Number
-                                                count={withoutDismissed(group.recommendations, dismissedKeys).length}
+                                                count={unresolved(group.recommendations).length}
                                                 maxDigits={2}
                                                 status={group.rule === selectedGroup?.rule ? 'primary' : 'muted'}
                                             />
@@ -349,8 +347,8 @@ export function RecommendationsModal({
                         </section>
                     ) : (
                         <p className="mb-0 text-secondary">
-                            {dismissedCount > 0
-                                ? 'Every recommendation for these sources and dates is dismissed. Review them to restore one.'
+                            {resolvedCount > 0
+                                ? 'Every recommendation for these sources and dates is dismissed or applied. Review them to restore one.'
                                 : 'No recommendations for the selected sources and dates.'}
                         </p>
                     )}

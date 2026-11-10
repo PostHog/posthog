@@ -61,7 +61,7 @@ export function RecommendationsSummary({
             {results.length > 0 ? (
                 <ImpactSummary totals={sumImpact(results)} />
             ) : (
-                <span className="text-secondary">All recommendations for this period are dismissed.</span>
+                <span className="text-secondary">All recommendations for this period are dismissed or applied.</span>
             )}
             {dataGaps.length > 0 && (
                 <RecommendationDataGapButton

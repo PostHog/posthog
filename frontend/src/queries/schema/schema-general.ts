@@ -8735,6 +8735,11 @@ export interface MarketingAnalyticsRecommendationsQuery extends DataNode<Marketi
     dateRange?: DateRange
     /** Tables to read. Omit to read every synced Google Ads and Google Search Console source in the project. */
     sources?: MarketingAnalyticsRecommendationsSource[]
+    /**
+     * Also return recommendations that someone in the project dismissed or marked as applied, with their `resolution`.
+     * @default false
+     */
+    includeResolved?: boolean
 }
 
 export type MarketingAnalyticsRecommendationRule =
@@ -8765,6 +8770,31 @@ export interface MarketingAnalyticsRecommendationStep {
     linkText?: string | null
 }
 
+export type MarketingAnalyticsRecommendationIdentitySourceType = 'google_ads'
+
+/** What a dismissal or an applied mark keys on. The field names match the recommendation resolutions API, so a client sends this object as is. */
+export interface MarketingAnalyticsRecommendationIdentity {
+    rule: MarketingAnalyticsRecommendationRule
+    /** The ad platform the ids belong to. */
+    source_type: MarketingAnalyticsRecommendationIdentitySourceType
+    /** The Google Ads account id. Empty when the recommendation is not tied to one account. */
+    customer_id: string
+    /** The Google Ads campaign id. Empty when the recommendation is not about one campaign. */
+    campaign_id: string
+    /** The search term, or the budget id for a budget recommendation. Empty when the campaign id names the subject. */
+    subject: string
+}
+
+export type MarketingAnalyticsRecommendationResolutionState = 'dismissed' | 'applied'
+
+export interface MarketingAnalyticsRecommendationResolution {
+    /** The resolution id. Delete it through the resolutions API to show the recommendation again. */
+    id: string
+    state: MarketingAnalyticsRecommendationResolutionState
+    /** When someone last dismissed the recommendation or marked it as applied. */
+    resolvedAt: string
+}
+
 export interface MarketingAnalyticsRecommendation {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendationLevel
@@ -8772,6 +8802,9 @@ export interface MarketingAnalyticsRecommendation {
     subject: string
     /** The campaign a search term recommendation applies to, when it applies to one. */
     campaign?: string | null
+    identity: MarketingAnalyticsRecommendationIdentity
+    /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
+    resolution?: MarketingAnalyticsRecommendationResolution | null
     action: string
     reason: string
     /** Monthly money impact in the account currency. Null when the rule has no money impact. */

@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import {
@@ -10,10 +10,12 @@ import {
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
-import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     IntegrationFilter,
     MarketingAnalyticsRecommendation,
+    MarketingAnalyticsRecommendationResolution,
+    MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsRecommendationsSource,
@@ -22,16 +24,14 @@ import {
 import { ExternalDataSource } from '~/types'
 
 import {
-    marketingAnalyticsRecommendationDismissalsCreate,
-    marketingAnalyticsRecommendationDismissalsDestroy,
-    marketingAnalyticsRecommendationDismissalsList,
+    marketingAnalyticsRecommendationResolutionsCreate,
+    marketingAnalyticsRecommendationResolutionsDestroy,
 } from '../generated/api'
-import { RecommendationDismissalApi } from '../generated/api.schemas'
 import { selectedSearchSources } from '../search/searchPerformance'
 import {
     RECOMMENDATIONS_QUERY_KEY,
     RecommendationDataGap,
-    dismissalFields,
+    ResolutionOverrides,
     recommendationDataGaps,
     recommendationKey,
     recommendationsSource,
@@ -58,11 +58,9 @@ export interface recommendationsLogicValues {
     selectedRule: MarketingAnalyticsRecommendationRule | null
     introSeen: boolean
     currentTeamId: number | null
-    dismissals: RecommendationDismissalApi[] | null
-    dismissalsLoading: boolean
-    dismissedKeys: Set<string>
+    resolutionOverrides: ResolutionOverrides
     pendingKeys: string[]
-    showDismissed: boolean
+    showResolved: boolean
 }
 
 export interface recommendationsLogicActions extends Pick<
@@ -74,7 +72,7 @@ export interface recommendationsLogicActions extends Pick<
     | 'reportRecommendationsRuleSelected'
     | 'reportRecommendationsClosed'
     | 'reportRecommendationsActionClicked'
-    | 'reportRecommendationDismissed'
+    | 'reportRecommendationResolved'
     | 'reportRecommendationRestored'
 > {
     openRecommendations: (
@@ -92,22 +90,23 @@ export interface recommendationsLogicActions extends Pick<
     ) => { rule: MarketingAnalyticsRecommendationRule; ruleRecommendationCount: number }
     closeRecommendations: () => { value: true }
     dismissIntro: () => { value: true }
-    loadDismissals: () => void
-    loadDismissalsSuccess: (
-        dismissals: RecommendationDismissalApi[] | null,
-        payload?: any
-    ) => { dismissals: RecommendationDismissalApi[] | null; payload?: any }
-    loadDismissalsFailure: (error: string, errorObject?: any) => { error: string; errorObject?: any }
-    dismissRecommendation: (recommendation: MarketingAnalyticsRecommendation) => {
+    resolveRecommendation: (
+        recommendation: MarketingAnalyticsRecommendation,
+        resolution: MarketingAnalyticsRecommendationResolutionState
+    ) => {
         recommendation: MarketingAnalyticsRecommendation
+        resolution: MarketingAnalyticsRecommendationResolutionState
     }
     restoreRecommendation: (recommendation: MarketingAnalyticsRecommendation) => {
         recommendation: MarketingAnalyticsRecommendation
     }
-    dismissalSaved: (dismissal: RecommendationDismissalApi) => { dismissal: RecommendationDismissalApi }
-    dismissalRemoved: (key: string) => { key: string }
-    dismissalRequestFailed: (key: string) => { key: string }
-    setShowDismissed: (showDismissed: boolean) => { showDismissed: boolean }
+    resolutionSaved: (
+        key: string,
+        resolution: MarketingAnalyticsRecommendationResolution
+    ) => { key: string; resolution: MarketingAnalyticsRecommendationResolution }
+    resolutionRemoved: (key: string) => { key: string }
+    resolutionRequestFailed: (key: string) => { key: string }
+    setShowResolved: (showResolved: boolean) => { showResolved: boolean }
 }
 
 export type recommendationsLogicType = MakeLogicType<recommendationsLogicValues, recommendationsLogicActions>
@@ -131,7 +130,7 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
                 'reportRecommendationsRuleSelected',
                 'reportRecommendationsClosed',
                 'reportRecommendationsActionClicked',
-                'reportRecommendationDismissed',
+                'reportRecommendationResolved',
                 'reportRecommendationRestored',
             ],
         ],
@@ -148,44 +147,48 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         }),
         closeRecommendations: true,
         dismissIntro: true,
-        dismissRecommendation: (recommendation: MarketingAnalyticsRecommendation) => ({ recommendation }),
+        resolveRecommendation: (
+            recommendation: MarketingAnalyticsRecommendation,
+            resolution: MarketingAnalyticsRecommendationResolutionState
+        ) => ({
+            recommendation,
+            resolution,
+        }),
         restoreRecommendation: (recommendation: MarketingAnalyticsRecommendation) => ({ recommendation }),
-        dismissalSaved: (dismissal: RecommendationDismissalApi) => ({ dismissal }),
-        dismissalRemoved: (key: string) => ({ key }),
-        dismissalRequestFailed: (key: string) => ({ key }),
-        setShowDismissed: (showDismissed: boolean) => ({ showDismissed }),
+        resolutionSaved: (key: string, resolution: MarketingAnalyticsRecommendationResolution) => ({
+            key,
+            resolution,
+        }),
+        resolutionRemoved: (key: string) => ({ key }),
+        resolutionRequestFailed: (key: string) => ({ key }),
+        setShowResolved: (showResolved: boolean) => ({ showResolved }),
     }),
-    loaders(({ values }) => ({
-        dismissals: [
-            null as RecommendationDismissalApi[] | null,
+    reducers({
+        resolutionOverrides: [
+            {} as ResolutionOverrides,
             {
-                loadDismissals: async () =>
-                    await marketingAnalyticsRecommendationDismissalsList(String(values.currentTeamId)),
+                resolutionSaved: (state, { key, resolution }) => ({ ...state, [key]: resolution }),
+                resolutionRemoved: (state, { key }) => ({ ...state, [key]: null }),
+                // A new response carries the current resolutions, including ones made by other people.
+                [dataNodeLogic({
+                    key: RECOMMENDATIONS_QUERY_KEY,
+                    query: { kind: NodeKind.MarketingAnalyticsRecommendationsQuery },
+                }).actionTypes.loadDataSuccess]: () => ({}),
             },
         ],
-    })),
-    reducers({
-        dismissals: {
-            dismissalSaved: (state, { dismissal }) => [
-                ...(state ?? []).filter((existing) => existing.id !== dismissal.id),
-                dismissal,
-            ],
-            dismissalRemoved: (state, { key }) =>
-                (state ?? []).filter((dismissal) => recommendationKey(dismissal) !== key),
-        },
         pendingKeys: [
             [] as string[],
             {
-                dismissRecommendation: (state, { recommendation }) => [...state, recommendationKey(recommendation)],
+                resolveRecommendation: (state, { recommendation }) => [...state, recommendationKey(recommendation)],
                 restoreRecommendation: (state, { recommendation }) => [...state, recommendationKey(recommendation)],
-                dismissalSaved: (state, { dismissal }) => state.filter((key) => key !== recommendationKey(dismissal)),
-                dismissalRemoved: (state, { key }) => state.filter((pending) => pending !== key),
-                dismissalRequestFailed: (state, { key }) => state.filter((pending) => pending !== key),
+                resolutionSaved: (state, { key }) => state.filter((pending) => pending !== key),
+                resolutionRemoved: (state, { key }) => state.filter((pending) => pending !== key),
+                resolutionRequestFailed: (state, { key }) => state.filter((pending) => pending !== key),
             },
         ],
-        showDismissed: [
+        showResolved: [
             false,
-            { setShowDismissed: (_, { showDismissed }) => showDismissed, closeRecommendations: () => false },
+            { setShowResolved: (_, { showResolved }) => showResolved, closeRecommendations: () => false },
         ],
         selectedRule: [
             null as MarketingAnalyticsRecommendationRule | null,
@@ -199,11 +202,6 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         introSeen: [false, { persist: true }, { dismissIntro: () => true, openRecommendations: () => true }],
     }),
     selectors({
-        dismissedKeys: [
-            (s) => [s.dismissals],
-            (dismissals: RecommendationDismissalApi[] | null): Set<string> =>
-                new Set((dismissals ?? []).map(recommendationKey)),
-        ],
         selectedSources: [
             (s) => [s.dataWarehouseSources, s.integrationFilter],
             (
@@ -247,6 +245,8 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
                 kind: NodeKind.MarketingAnalyticsRecommendationsQuery,
                 sources,
                 dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                // The modal lists resolved recommendations on request, and the counts leave them out.
+                includeResolved: true,
             }),
         ],
         dataNodeProps: [
@@ -259,32 +259,50 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         ],
     }),
     listeners(({ actions, selectors, values }) => ({
-        dismissRecommendation: async ({ recommendation }) => {
+        resolveRecommendation: async ({ recommendation, resolution }) => {
             try {
-                const dismissal = await marketingAnalyticsRecommendationDismissalsCreate(
-                    String(values.currentTeamId),
-                    dismissalFields(recommendation)
-                )
-                actions.dismissalSaved(dismissal)
-                actions.reportRecommendationDismissed(recommendation.rule, recommendation.level)
+                const saved = await marketingAnalyticsRecommendationResolutionsCreate(String(values.currentTeamId), {
+                    ...recommendation.identity,
+                    resolution,
+                    snapshot: {
+                        action: recommendation.action,
+                        impact: recommendation.impact ?? null,
+                        currency: recommendation.currency ?? null,
+                    },
+                })
+                actions.resolutionSaved(recommendationKey(recommendation), {
+                    id: saved.id,
+                    state: saved.resolution,
+                    resolvedAt: saved.resolved_at,
+                })
+                actions.reportRecommendationResolved(recommendation.rule, recommendation.level, resolution)
             } catch {
-                actions.dismissalRequestFailed(recommendationKey(recommendation))
-                lemonToast.error("Couldn't dismiss the recommendation. Try again.")
+                actions.resolutionRequestFailed(recommendationKey(recommendation))
+                lemonToast.error(
+                    resolution === 'applied'
+                        ? "Couldn't mark the recommendation as applied. Try again."
+                        : "Couldn't dismiss the recommendation. Try again."
+                )
             }
         },
         restoreRecommendation: async ({ recommendation }) => {
             const key = recommendationKey(recommendation)
-            const dismissal = values.dismissals?.find((existing) => recommendationKey(existing) === key)
-            if (!dismissal) {
-                actions.dismissalRemoved(key)
+            const resolution = recommendation.resolution
+            if (!resolution) {
+                actions.resolutionRemoved(key)
                 return
             }
             try {
-                await marketingAnalyticsRecommendationDismissalsDestroy(String(values.currentTeamId), dismissal.id)
-                actions.dismissalRemoved(key)
-                actions.reportRecommendationRestored(recommendation.rule, recommendation.level)
-            } catch {
-                actions.dismissalRequestFailed(key)
+                await marketingAnalyticsRecommendationResolutionsDestroy(String(values.currentTeamId), resolution.id)
+                actions.resolutionRemoved(key)
+                actions.reportRecommendationRestored(recommendation.rule, recommendation.level, resolution.state)
+            } catch (error) {
+                // Someone else already restored it, so the local copy is stale rather than the request wrong.
+                if (error instanceof ApiError && error.status === 404) {
+                    actions.resolutionRemoved(key)
+                    return
+                }
+                actions.resolutionRequestFailed(key)
                 lemonToast.error("Couldn't restore the recommendation. Try again.")
             }
         },
@@ -305,6 +323,5 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
         if (!values.dataWarehouseSources) {
             actions.loadSources()
         }
-        actions.loadDismissals()
     }),
 ])

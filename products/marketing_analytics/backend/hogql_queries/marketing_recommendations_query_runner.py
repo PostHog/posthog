@@ -3,10 +3,13 @@ from datetime import datetime
 from functools import cached_property
 from typing import Any
 
+from django.db.models import Count, Max
+
 from posthog.schema import (
     CachedMarketingAnalyticsRecommendationsQueryResponse,
     MarketingAnalyticsRecommendation,
-    MarketingAnalyticsRecommendationRule,
+    MarketingAnalyticsRecommendationResolution,
+    MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsRecommendationsQueryResponse,
     MarketingAnalyticsRecommendationsSource,
@@ -24,13 +27,17 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     CampaignStats,
+    IdentityKey,
     OrganicQueryStats,
     RankingPage,
     RecommendationInputs,
     SearchTermStats,
     TermKeywordStats,
+    dedupe_site_rules,
+    identity_key,
     recommend,
 )
+from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
 from products.warehouse_sources.backend.facade.api import (
     all_queryable_table_keys,
     list_schemas_for_source,
@@ -77,6 +84,14 @@ class MarketingAnalyticsRecommendationsQueryRunner(
     def to_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(select=[ast.Constant(value=1)])
 
+    def get_cache_key_variant(self) -> str:
+        # A dismissal or a restore changes the results without changing the query, so it must miss the cache.
+        state = RecommendationResolution.objects.for_team(self.team.pk).aggregate(
+            count=Count("id"), latest=Max("resolved_at")
+        )
+        latest = state["latest"].isoformat() if state["latest"] else ""
+        return f"_resolutions_{state['count']}_{latest}"
+
     def _calculate(self) -> MarketingAnalyticsRecommendationsQueryResponse:
         sources = self.query.sources if self.query.sources is not None else self._project_sources()
         if not sources:
@@ -93,9 +108,10 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         results = [
             recommendation
             for source in ads
+            for campaigns in (tuple(self._campaigns(source)),)
             for recommendation in recommend(
                 RecommendationInputs(
-                    campaigns=tuple(self._campaigns(source)),
+                    campaigns=campaigns,
                     search_terms=tuple(self._search_terms(source)),
                     organic_queries=organic_queries,
                     site_urls=site_urls,
@@ -103,12 +119,49 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                     days=self._days_with_data(source) or days,
                     term_keywords=tuple(self._term_keywords(source)),
                     ranking_pages=ranking_pages,
+                    customer_id=next((campaign.customer_id for campaign in campaigns if campaign.customer_id), None),
+                    resolved=frozenset(self._resolutions),
                 )
             )
         ]
         return MarketingAnalyticsRecommendationsQueryResponse(
-            results=_dedupe_organic_only(results), disclaimer=DISCLAIMER
+            results=self._apply_resolutions(dedupe_site_rules(results)), disclaimer=DISCLAIMER
         )
+
+    @cached_property
+    def _resolutions(self) -> dict[IdentityKey, RecommendationResolution]:
+        return {
+            (
+                resolution.rule,
+                resolution.source_type,
+                resolution.customer_id,
+                resolution.campaign_id,
+                resolution.subject,
+            ): resolution
+            for resolution in RecommendationResolution.objects.for_team(self.team.pk)
+        }
+
+    def _apply_resolutions(
+        self, results: list[MarketingAnalyticsRecommendation]
+    ) -> list[MarketingAnalyticsRecommendation]:
+        annotated = []
+        for recommendation in results:
+            resolution = self._resolutions.get(identity_key(recommendation.identity))
+            if resolution is None:
+                annotated.append(recommendation)
+            elif self.query.includeResolved:
+                annotated.append(
+                    recommendation.model_copy(
+                        update={
+                            "resolution": MarketingAnalyticsRecommendationResolution(
+                                id=str(resolution.id),
+                                state=MarketingAnalyticsRecommendationResolutionState(resolution.resolution),
+                                resolvedAt=resolution.resolved_at.isoformat(),
+                            )
+                        }
+                    )
+                )
+        return annotated
 
     def _project_sources(self) -> list[MarketingAnalyticsRecommendationsSource]:
         table_keys = all_queryable_table_keys(self.team.pk)
@@ -176,7 +229,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 SELECT toString(campaign_id), any(campaign_name), any(campaign_advertising_channel_type),
                     any({primary_status}), any(toString({status_reasons})),
                     any(campaign_budget_amount_micros) / 1000000, any({recommended_budget}) / 1000000,
-                    any(toString({budget_id})), any(toString({serving_status}))
+                    any(toString({budget_id})), any(toString({serving_status})), any(toString({customer_id}))
                 FROM {table} GROUP BY campaign_id
                 """,
                 source.campaignTable,
@@ -187,6 +240,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 ),
                 budget_id=self._field(source.campaignTable, "campaign_campaign_budget"),
                 serving_status=self._field(source.campaignTable, "campaign_status"),
+                customer_id=self._field(source.campaignTable, "customer_id"),
             )
         }
         spend = {
@@ -224,6 +278,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                     lost_to_budget=share[1],
                     lost_to_rank=share[2],
                     budget_id=definition[7] or None,
+                    customer_id=definition[9] or None,
                 )
             )
         return campaigns
@@ -430,16 +485,3 @@ def _parse_reasons(value: str | None) -> tuple[str, ...]:
     except ValueError:
         return tuple(part.strip(" '\"") for part in value.strip("[]").split(",") if part.strip(" '\""))
     return tuple(str(reason) for reason in parsed) if isinstance(parsed, list) else ()
-
-
-def _dedupe_organic_only(results: list[MarketingAnalyticsRecommendation]) -> list[MarketingAnalyticsRecommendation]:
-    # Keyword gap reads only the shared Search Console data, so each ad account would repeat the same query.
-    seen: set[str] = set()
-    deduped = []
-    for recommendation in results:
-        if recommendation.rule == MarketingAnalyticsRecommendationRule.KEYWORD_GAP:
-            if recommendation.subject in seen:
-                continue
-            seen.add(recommendation.subject)
-        deduped.append(recommendation)
-    return deduped

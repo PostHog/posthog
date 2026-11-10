@@ -65,15 +65,25 @@ export const MarketingAnalyticsConversionRecordingsListBody = /* @__PURE__ */ zo
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Marketing analytics recommendations that the team dismissed. A dismissed recommendation stays hidden
- * for everyone in the project until someone deletes the dismissal.
+ * Marketing analytics recommendations that someone in the project dismissed or marked as applied. The
+ * recommendations query leaves a resolved recommendation out for everyone in the project until someone deletes
+ * its resolution.
  */
-export const marketingAnalyticsRecommendationDismissalsCreateBodySubjectMax = 400
+export const marketingAnalyticsRecommendationResolutionsCreateBodySourceTypeDefault = `google_ads`
+export const marketingAnalyticsRecommendationResolutionsCreateBodyCustomerIdDefault = ``
+export const marketingAnalyticsRecommendationResolutionsCreateBodyCustomerIdMax = 64
 
-export const marketingAnalyticsRecommendationDismissalsCreateBodyCampaignDefault = ``
-export const marketingAnalyticsRecommendationDismissalsCreateBodyCampaignMax = 400
+export const marketingAnalyticsRecommendationResolutionsCreateBodyCampaignIdDefault = ``
+export const marketingAnalyticsRecommendationResolutionsCreateBodyCampaignIdMax = 64
 
-export const MarketingAnalyticsRecommendationDismissalsCreateBody = /* @__PURE__ */ zod.object({
+export const marketingAnalyticsRecommendationResolutionsCreateBodySubjectDefault = ``
+export const marketingAnalyticsRecommendationResolutionsCreateBodySubjectMax = 1024
+
+export const marketingAnalyticsRecommendationResolutionsCreateBodySnapshotOneActionMax = 1000
+
+export const marketingAnalyticsRecommendationResolutionsCreateBodySnapshotOneCurrencyMax = 8
+
+export const MarketingAnalyticsRecommendationResolutionsCreateBody = /* @__PURE__ */ zod.object({
     rule: zod
         .enum([
             'budget_constrained',
@@ -91,15 +101,50 @@ export const MarketingAnalyticsRecommendationDismissalsCreateBody = /* @__PURE__
             '\* `budget_constrained` - Budget Constrained\n\* `brand_leak` - Brand Leak\n\* `scale_campaign` - Scale Campaign\n\* `review_campaign` - Review Campaign\n\* `policy_limited` - Policy Limited\n\* `brand_overlap` - Brand Overlap\n\* `content_gap` - Content Gap\n\* `keyword_gap` - Keyword Gap\n\* `spend_without_conversions` - Spend Without Conversions\n\* `striking_distance` - Striking Distance'
         )
         .describe(
-            'The rule that produced the dismissed recommendation.\n\n\* `budget_constrained` - Budget Constrained\n\* `brand_leak` - Brand Leak\n\* `scale_campaign` - Scale Campaign\n\* `review_campaign` - Review Campaign\n\* `policy_limited` - Policy Limited\n\* `brand_overlap` - Brand Overlap\n\* `content_gap` - Content Gap\n\* `keyword_gap` - Keyword Gap\n\* `spend_without_conversions` - Spend Without Conversions\n\* `striking_distance` - Striking Distance'
+            'The rule that produced the resolved recommendation.\n\n\* `budget_constrained` - Budget Constrained\n\* `brand_leak` - Brand Leak\n\* `scale_campaign` - Scale Campaign\n\* `review_campaign` - Review Campaign\n\* `policy_limited` - Policy Limited\n\* `brand_overlap` - Brand Overlap\n\* `content_gap` - Content Gap\n\* `keyword_gap` - Keyword Gap\n\* `spend_without_conversions` - Spend Without Conversions\n\* `striking_distance` - Striking Distance'
         ),
+    source_type: zod
+        .enum(['google_ads'])
+        .describe('\* `google_ads` - Google Ads')
+        .default(marketingAnalyticsRecommendationResolutionsCreateBodySourceTypeDefault)
+        .describe("The recommendation's `identity.source_type`.\n\n\* `google_ads` - Google Ads"),
+    customer_id: zod
+        .string()
+        .max(marketingAnalyticsRecommendationResolutionsCreateBodyCustomerIdMax)
+        .default(marketingAnalyticsRecommendationResolutionsCreateBodyCustomerIdDefault)
+        .describe("The recommendation's `identity.customer_id`."),
+    campaign_id: zod
+        .string()
+        .max(marketingAnalyticsRecommendationResolutionsCreateBodyCampaignIdMax)
+        .default(marketingAnalyticsRecommendationResolutionsCreateBodyCampaignIdDefault)
+        .describe("The recommendation's `identity.campaign_id`."),
     subject: zod
         .string()
-        .max(marketingAnalyticsRecommendationDismissalsCreateBodySubjectMax)
-        .describe('The campaign name or search term the dismissed recommendation is about.'),
-    campaign: zod
-        .string()
-        .max(marketingAnalyticsRecommendationDismissalsCreateBodyCampaignMax)
-        .default(marketingAnalyticsRecommendationDismissalsCreateBodyCampaignDefault)
-        .describe('The campaign a search term recommendation applies to. Empty for campaign recommendations.'),
+        .max(marketingAnalyticsRecommendationResolutionsCreateBodySubjectMax)
+        .default(marketingAnalyticsRecommendationResolutionsCreateBodySubjectDefault)
+        .describe("The recommendation's `identity.subject`."),
+    resolution: zod
+        .enum(['dismissed', 'applied'])
+        .describe('\* `dismissed` - Dismissed\n\* `applied` - Applied')
+        .describe(
+            'Dismissed hides the recommendation. Applied marks that someone made the change it suggests.\n\n\* `dismissed` - Dismissed\n\* `applied` - Applied'
+        ),
+    snapshot: zod
+        .union([
+            zod.object({
+                action: zod
+                    .string()
+                    .max(marketingAnalyticsRecommendationResolutionsCreateBodySnapshotOneActionMax)
+                    .describe("The recommendation's `action` when it was resolved."),
+                impact: zod.number().nullish().describe("The recommendation's `impact` when it was resolved."),
+                currency: zod
+                    .string()
+                    .max(marketingAnalyticsRecommendationResolutionsCreateBodySnapshotOneCurrencyMax)
+                    .nullish()
+                    .describe("The recommendation's `currency` when it was resolved."),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('What the recommendation suggested when it was resolved.'),
 })

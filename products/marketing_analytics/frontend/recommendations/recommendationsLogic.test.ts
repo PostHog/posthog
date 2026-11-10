@@ -3,19 +3,27 @@ import { expectLogic } from 'kea-test-utils'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { dismissalFields, recommendationKey } from './recommendations'
+import { recommendationKey } from './recommendations'
 import { recommendationsLogic } from './recommendationsLogic'
 
-const DISMISSALS_URL = '/api/projects/:team_id/marketing_analytics_recommendation_dismissals/'
+const RESOLUTIONS_URL = '/api/projects/:team_id/marketing_analytics_recommendation_resolutions/'
 
 const RECOMMENDATION: MarketingAnalyticsRecommendation = {
     rule: 'spend_without_conversions',
     level: 'search_term',
     subject: 'example shoes',
-    campaign: null,
+    campaign: 'Search',
+    identity: {
+        rule: 'spend_without_conversions',
+        source_type: 'google_ads',
+        customer_id: '1234567890',
+        campaign_id: '',
+        subject: 'example shoes',
+    },
     action: 'Add it as a negative keyword',
     reason: 'No conversions',
     impact: 100,
@@ -29,7 +37,7 @@ describe('recommendationsLogic', () => {
 
     beforeEach(() => {
         useMocks({
-            get: { '/api/environments/:team_id/external_data_sources/': { results: [] }, [DISMISSALS_URL]: [] },
+            get: { '/api/environments/:team_id/external_data_sources/': { results: [] } },
         })
         initKeaTests()
         logic = recommendationsLogic()
@@ -64,44 +72,80 @@ describe('recommendationsLogic', () => {
         await expectLogic(marketingAnalyticsLogic, run).toDispatchActions([reported()])
     })
 
-    it('hides a dismissed recommendation, restores it, and reports both', async () => {
-        useMocks({
-            post: {
-                [DISMISSALS_URL]: () => [201, { id: 'dismissal-1', ...dismissalFields(RECOMMENDATION) }],
-            },
-            delete: { [`${DISMISSALS_URL}:id/`]: [204] },
-        })
+    it.each(['dismissed', 'applied'] as const)(
+        'hides a recommendation marked %s, restores it, and reports both',
+        async (resolution) => {
+            let posted: Record<string, unknown> | undefined
+            useMocks({
+                post: {
+                    [RESOLUTIONS_URL]: async ({ request }) => {
+                        posted = (await request.json()) as Record<string, unknown>
+                        return [201, { id: 'resolution-1', ...posted, resolved_at: '2026-11-01T00:00:00Z' }]
+                    },
+                },
+                delete: { [`${RESOLUTIONS_URL}:id/`]: [204] },
+            })
+            const key = recommendationKey(RECOMMENDATION)
 
-        await expectLogic(marketingAnalyticsLogic, () =>
-            logic.actions.dismissRecommendation(RECOMMENDATION)
-        ).toDispatchActions([
-            marketingAnalyticsLogic.actionCreators.reportRecommendationDismissed(
-                'spend_without_conversions',
-                'search_term'
-            ),
-        ])
-        expect(logic.values.dismissedKeys.has(recommendationKey(RECOMMENDATION))).toBe(true)
-        expect(logic.values.pendingKeys).toEqual([])
+            await expectLogic(marketingAnalyticsLogic, () =>
+                logic.actions.resolveRecommendation(RECOMMENDATION, resolution)
+            ).toDispatchActions([
+                marketingAnalyticsLogic.actionCreators.reportRecommendationResolved(
+                    'spend_without_conversions',
+                    'search_term',
+                    resolution
+                ),
+            ])
+            expect(posted).toEqual({
+                ...RECOMMENDATION.identity,
+                resolution,
+                snapshot: { action: 'Add it as a negative keyword', impact: 100, currency: 'USD' },
+            })
+            expect(logic.values.resolutionOverrides[key]?.state).toBe(resolution)
+            expect(logic.values.pendingKeys).toEqual([])
 
-        await expectLogic(marketingAnalyticsLogic, () =>
-            logic.actions.restoreRecommendation(RECOMMENDATION)
-        ).toDispatchActions([
-            marketingAnalyticsLogic.actionCreators.reportRecommendationRestored(
-                'spend_without_conversions',
-                'search_term'
-            ),
-        ])
-        expect(logic.values.dismissedKeys.size).toBe(0)
+            await expectLogic(marketingAnalyticsLogic, () =>
+                logic.actions.restoreRecommendation({
+                    ...RECOMMENDATION,
+                    resolution: logic.values.resolutionOverrides[key],
+                })
+            ).toDispatchActions([
+                marketingAnalyticsLogic.actionCreators.reportRecommendationRestored(
+                    'spend_without_conversions',
+                    'search_term',
+                    resolution
+                ),
+            ])
+            expect(logic.values.resolutionOverrides[key]).toBeNull()
+            expect(logic.values.pendingKeys).toEqual([])
+
+            await expectLogic(logic, () =>
+                dataNodeLogic(logic.values.dataNodeProps).actions.loadDataSuccess({ results: [], disclaimer: '' })
+            ).toMatchValues({ resolutionOverrides: {} })
+        }
+    )
+
+    it('clears the pending state and reports nothing when resolving fails', async () => {
+        useMocks({ post: { [RESOLUTIONS_URL]: () => [500, { detail: 'nope' }] } })
+
+        await expectLogic(logic, () => logic.actions.resolveRecommendation(RECOMMENDATION, 'dismissed'))
+            .toDispatchActions(['resolutionRequestFailed'])
+            .toNotHaveDispatchedActions(['resolutionSaved'])
+        expect(logic.values.resolutionOverrides).toEqual({})
         expect(logic.values.pendingKeys).toEqual([])
     })
 
-    it('clears the pending state and reports nothing when dismissing fails', async () => {
-        useMocks({ post: { [DISMISSALS_URL]: () => [500, { detail: 'nope' }] } })
+    it('drops the local resolution when someone else already restored it', async () => {
+        useMocks({ delete: { [`${RESOLUTIONS_URL}:id/`]: () => [404, { detail: 'Not found.' }] } })
+        const resolved = {
+            ...RECOMMENDATION,
+            resolution: { id: 'resolution-1', state: 'dismissed' as const, resolvedAt: '2026-11-01T00:00:00Z' },
+        }
 
-        await expectLogic(logic, () => logic.actions.dismissRecommendation(RECOMMENDATION))
-            .toDispatchActions(['dismissalRequestFailed'])
-            .toNotHaveDispatchedActions(['dismissalSaved'])
-        expect(logic.values.dismissedKeys.size).toBe(0)
+        await expectLogic(logic, () => logic.actions.restoreRecommendation(resolved))
+            .toDispatchActions(['resolutionRemoved'])
+            .toNotHaveDispatchedActions(['resolutionRequestFailed'])
+        expect(logic.values.resolutionOverrides[recommendationKey(RECOMMENDATION)]).toBeNull()
         expect(logic.values.pendingKeys).toEqual([])
     })
 })

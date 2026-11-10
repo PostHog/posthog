@@ -36,6 +36,7 @@ import {
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsRecommendationLevel,
+    MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationRule,
     NativeMarketingSource,
     NodeKind,
@@ -136,7 +137,7 @@ export interface RecommendationsShownProperties {
     has_invest_impact: boolean
     source_types: string[]
     data_gap_count: number
-    dismissed_count: number
+    resolved_count: number
     intro_shown: boolean
 }
 
@@ -147,7 +148,7 @@ export type RecommendationsAction =
     | 'manage_source'
     | 'view_instructions'
     | 'open_step_link'
-    | 'show_dismissed'
+    | 'show_resolved'
 
 export type RecommendationsActionLocation =
     | 'section_empty'
@@ -538,18 +539,22 @@ export interface marketingAnalyticsLogicActions {
         configured: DashboardGoalsConfigured
         section: string
     }
-    reportRecommendationDismissed: (
+    reportRecommendationResolved: (
         rule: MarketingAnalyticsRecommendationRule,
-        level: MarketingAnalyticsRecommendationLevel
+        level: MarketingAnalyticsRecommendationLevel,
+        resolution: MarketingAnalyticsRecommendationResolutionState
     ) => {
         level: MarketingAnalyticsRecommendationLevel
+        resolution: MarketingAnalyticsRecommendationResolutionState
         rule: MarketingAnalyticsRecommendationRule
     }
     reportRecommendationRestored: (
         rule: MarketingAnalyticsRecommendationRule,
-        level: MarketingAnalyticsRecommendationLevel
+        level: MarketingAnalyticsRecommendationLevel,
+        resolution: MarketingAnalyticsRecommendationResolutionState
     ) => {
         level: MarketingAnalyticsRecommendationLevel
+        resolution: MarketingAnalyticsRecommendationResolutionState
         rule: MarketingAnalyticsRecommendationRule
     }
     reportRecommendationsActionClicked: (
@@ -907,20 +912,16 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             ruleRecommendationCount: number
         ) => ({ rule, ruleRecommendationCount }),
         reportRecommendationsClosed: (rule: MarketingAnalyticsRecommendationRule | null) => ({ rule }),
-        reportRecommendationDismissed: (
+        reportRecommendationResolved: (
             rule: MarketingAnalyticsRecommendationRule,
-            level: MarketingAnalyticsRecommendationLevel
-        ) => ({
-            rule,
-            level,
-        }),
+            level: MarketingAnalyticsRecommendationLevel,
+            resolution: MarketingAnalyticsRecommendationResolutionState
+        ) => ({ rule, level, resolution }),
         reportRecommendationRestored: (
             rule: MarketingAnalyticsRecommendationRule,
-            level: MarketingAnalyticsRecommendationLevel
-        ) => ({
-            rule,
-            level,
-        }),
+            level: MarketingAnalyticsRecommendationLevel,
+            resolution: MarketingAnalyticsRecommendationResolutionState
+        ) => ({ rule, level, resolution }),
         reportRecommendationsActionClicked: (
             action: RecommendationsAction,
             location: RecommendationsActionLocation,
@@ -1767,11 +1768,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             reportRecommendationsClosed: ({ rule }) => {
                 posthog.capture('marketing analytics recommendations closed', { rule })
             },
-            reportRecommendationDismissed: ({ rule, level }) => {
-                posthog.capture('marketing analytics recommendation dismissed', { rule, level })
+            reportRecommendationResolved: ({ rule, level, resolution }) => {
+                posthog.capture('marketing analytics recommendation resolved', { rule, level, resolution })
             },
-            reportRecommendationRestored: ({ rule, level }) => {
-                posthog.capture('marketing analytics recommendation restored', { rule, level })
+            reportRecommendationRestored: ({ rule, level, resolution }) => {
+                posthog.capture('marketing analytics recommendation restored', { rule, level, resolution })
             },
             reportRecommendationsActionClicked: ({ action, location, rule }) => {
                 posthog.capture('marketing analytics recommendations action clicked', { action, location, rule })

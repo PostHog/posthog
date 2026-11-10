@@ -30,7 +30,7 @@ import type {
     MarketingAnalyticsUtmAuditRetrieveParams,
     MarketingDiagnosticResponseApi,
     PatchedConversionGoalUpdateApi,
-    RecommendationDismissalApi,
+    RecommendationResolutionApi,
     SetupPlanResponseApi,
     SourceValidationApi,
     UtmAuditResponseApi,
@@ -497,59 +497,43 @@ export const marketingAnalyticsUtmAuditRetrieve = async (
     })
 }
 
-export const getMarketingAnalyticsRecommendationDismissalsListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/marketing_analytics_recommendation_dismissals/`
+export const getMarketingAnalyticsRecommendationResolutionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics_recommendation_resolutions/`
 }
 
 /**
- * Marketing analytics recommendations that the team dismissed. A dismissed recommendation stays hidden
- * for everyone in the project until someone deletes the dismissal.
+ * Marketing analytics recommendations that someone in the project dismissed or marked as applied. The
+ * recommendations query leaves a resolved recommendation out for everyone in the project until someone deletes
+ * its resolution.
  */
-export const marketingAnalyticsRecommendationDismissalsList = async (
+export const marketingAnalyticsRecommendationResolutionsCreate = async (
     projectId: string,
+    recommendationResolutionApi: NonReadonly<RecommendationResolutionApi>,
     options?: RequestInit
-): Promise<RecommendationDismissalApi[]> => {
-    return apiMutator<RecommendationDismissalApi[]>(getMarketingAnalyticsRecommendationDismissalsListUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getMarketingAnalyticsRecommendationDismissalsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/marketing_analytics_recommendation_dismissals/`
-}
-
-/**
- * Marketing analytics recommendations that the team dismissed. A dismissed recommendation stays hidden
- * for everyone in the project until someone deletes the dismissal.
- */
-export const marketingAnalyticsRecommendationDismissalsCreate = async (
-    projectId: string,
-    recommendationDismissalApi: NonReadonly<RecommendationDismissalApi>,
-    options?: RequestInit
-): Promise<RecommendationDismissalApi> => {
-    return apiMutator<RecommendationDismissalApi>(getMarketingAnalyticsRecommendationDismissalsCreateUrl(projectId), {
+): Promise<RecommendationResolutionApi> => {
+    return apiMutator<RecommendationResolutionApi>(getMarketingAnalyticsRecommendationResolutionsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(recommendationDismissalApi),
+        body: JSON.stringify(recommendationResolutionApi),
     })
 }
 
-export const getMarketingAnalyticsRecommendationDismissalsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/marketing_analytics_recommendation_dismissals/${id}/`
+export const getMarketingAnalyticsRecommendationResolutionsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/marketing_analytics_recommendation_resolutions/${id}/`
 }
 
 /**
- * Marketing analytics recommendations that the team dismissed. A dismissed recommendation stays hidden
- * for everyone in the project until someone deletes the dismissal.
+ * Marketing analytics recommendations that someone in the project dismissed or marked as applied. The
+ * recommendations query leaves a resolved recommendation out for everyone in the project until someone deletes
+ * its resolution.
  */
-export const marketingAnalyticsRecommendationDismissalsDestroy = async (
+export const marketingAnalyticsRecommendationResolutionsDestroy = async (
     projectId: string,
     id: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getMarketingAnalyticsRecommendationDismissalsDestroyUrl(projectId, id), {
+    return apiMutator<void>(getMarketingAnalyticsRecommendationResolutionsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })

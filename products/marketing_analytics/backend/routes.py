@@ -1,7 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 from products.marketing_analytics.backend.api import MarketingAnalyticsViewSet
-from products.marketing_analytics.backend.recommendation_dismissal_api import RecommendationDismissalViewSet
+from products.marketing_analytics.backend.recommendation_resolution_api import RecommendationResolutionViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -12,8 +12,8 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(
-        r"marketing_analytics_recommendation_dismissals",
-        RecommendationDismissalViewSet,
-        "project_marketing_analytics_recommendation_dismissals",
+        r"marketing_analytics_recommendation_resolutions",
+        RecommendationResolutionViewSet,
+        "project_marketing_analytics_recommendation_resolutions",
         ["team_id"],
     )
