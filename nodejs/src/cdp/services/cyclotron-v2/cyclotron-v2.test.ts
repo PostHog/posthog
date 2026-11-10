@@ -3,6 +3,7 @@ import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { sleep } from '~/common/utils/utils'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import {
@@ -21,7 +22,7 @@ import {
     CyclotronV2DequeuedJob,
     CyclotronV2JobInit,
 } from './types'
-import { CyclotronV2Worker, sleep } from './worker'
+import { CyclotronV2Worker } from './worker'
 import { CyclotronV2RateLimitedWorker } from './worker-rate-limited'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
@@ -191,13 +192,11 @@ async function pollCountForQueue(queue: string, outcome: string): Promise<number
     return line ? Number(line.trim().split(' ').pop()) : 0
 }
 
-// node-postgres needs nextTick and setImmediate for its socket I/O, and the polling waits below
-// need a real performance clock to stay bounded.
 function useFakeClockWithRealIo(): void {
     jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'performance'] })
 }
 
-async function waitWithoutAdvancingClock(what: string, condition: () => Promise<boolean>): Promise<void> {
+async function waitForWorkerToSettle(what: string, condition: () => Promise<boolean>): Promise<void> {
     const deadline = performance.now() + 2_000
     while (!(await condition())) {
         if (performance.now() > deadline) {
@@ -205,7 +204,6 @@ async function waitWithoutAdvancingClock(what: string, condition: () => Promise<
         }
         await new Promise((resolve) => setImmediate(resolve))
     }
-    // One more turn lets the worker register the sleep that follows the poll.
     await new Promise((resolve) => setImmediate(resolve))
 }
 
@@ -225,7 +223,7 @@ async function emptyPollIntervals(
                 jest.advanceTimersToNextTimer()
             }
             const pollNumber = pollTimes.length + 1
-            await waitWithoutAdvancingClock(
+            await waitForWorkerToSettle(
                 `empty poll ${pollNumber}`,
                 async () => (await pollCountForQueue(queue, 'empty')) - emptyPollsBefore >= pollNumber
             )
@@ -1328,7 +1326,6 @@ describe('Cyclotron V2', () => {
                     : Promise.resolve()
             )
 
-            // The job arrives on the poll after the 80 ms sleep, and the empty poll right behind it starts over at 10.
             expect(intervals).toEqual([10, 20, 40, 80, 10])
             expect((await pollCountForQueue(queue, 'jobs')) - jobPollsBefore).toBe(1)
         })
@@ -1357,7 +1354,7 @@ describe('Cyclotron V2', () => {
             useFakeClockWithRealIo()
             try {
                 await worker.connect(async () => {})
-                await waitWithoutAdvancingClock(
+                await waitForWorkerToSettle(
                     `a ${outcome} poll`,
                     async () => (await pollCountForQueue(queue, outcome)) > pollsBefore
                 )
@@ -1366,7 +1363,7 @@ describe('Cyclotron V2', () => {
                 const stopping = worker.stopConsuming().then(() => {
                     stopped = true
                 })
-                await waitWithoutAdvancingClock('stopConsuming to return', () => Promise.resolve(stopped))
+                await waitForWorkerToSettle('stopConsuming to return', () => Promise.resolve(stopped))
                 await stopping
             } finally {
                 await worker.disconnect()

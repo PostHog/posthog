@@ -59,10 +59,6 @@ export const pollsCounter = new Counter({
     labelNames: ['queue', 'outcome'] as const,
 })
 
-export function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 /**
  * Insert N new jobs within an open transaction. Mirrors the bulk-insert shape
  * from `CyclotronV2Manager.bulkCreateJobs` but runs on a caller-provided
