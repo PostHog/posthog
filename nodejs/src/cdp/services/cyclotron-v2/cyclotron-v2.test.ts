@@ -3086,9 +3086,21 @@ describe('Cyclotron V2', () => {
             expect(await gaugeValueForQueue('queue-drains', ageMetric)).toBe(0)
         })
 
-        it('measureQueueDepths returns correct counts per queue', async () => {
-            await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available', priority: 0 })
-            await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available', priority: 2 })
+        it('measureQueueDepths returns the count and oldest due age per queue across priority classes', async () => {
+            await insertRawJob({
+                id: uuidv7(),
+                queue_name: 'queue-a',
+                status: 'available',
+                priority: 0,
+                scheduled: new Date(Date.now() - 50_000),
+            })
+            await insertRawJob({
+                id: uuidv7(),
+                queue_name: 'queue-a',
+                status: 'available',
+                priority: 2,
+                scheduled: new Date(Date.now() - 10_000),
+            })
             await insertRawJob({ id: uuidv7(), queue_name: 'queue-b', status: 'available', priority: 1 })
             await insertRawJob({
                 id: uuidv7(),
@@ -3113,6 +3125,9 @@ describe('Cyclotron V2', () => {
 
             expect(result.depths.get('queue-a')).toBe(2)
             expect(result.depths.get('queue-b')).toBe(1)
+            const oldestAgeMs = await gaugeValueForQueue('queue-a', 'cdp_cyclotron_v2_queue_oldest_due_age_ms')
+            expect(oldestAgeMs).toBeGreaterThanOrEqual(50_000)
+            expect(oldestAgeMs).toBeLessThan(60_000)
         })
 
         it('sweeps expired conversion watchers and keeps live ones', async () => {
