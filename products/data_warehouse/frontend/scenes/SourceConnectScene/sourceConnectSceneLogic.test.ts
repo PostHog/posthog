@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
@@ -346,5 +347,48 @@ describe('sourceConnectSceneLogic', () => {
         expect(errorToast).toHaveBeenCalledWith('Could not connect to the database. Check the host, then try again.')
         expect(sourceConnectSceneLogic.values.storedCredential).toBeNull()
         errorToast.mockRestore()
+    })
+
+    it.each([
+        ['stored', 201, 'warehouse source connection saved', {}],
+        ['rejected', 400, 'warehouse source connect failed', { error_class: 'rejected', status_code: 400 }],
+        ['server error', 500, 'warehouse source connect failed', { error_class: 'server_error', status_code: 500 }],
+    ])('tracks a %s submit from an agent link without what the user typed', async (_name, status, outcome, extra) => {
+        jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+        jest.spyOn(posthog, 'captureException').mockReturnValue(undefined as any)
+        const capture = jest.spyOn(posthog, 'capture')
+        useMocks({
+            post: {
+                '/api/projects/:team_id/external_data_sources/store_credentials/': () => [
+                    status,
+                    status === 201
+                        ? {
+                              credential_id: 'ba07775f-8eaf-4d09-aa6f-50e37f17f243',
+                              source_type: 'Postgres',
+                              created_at: '2026-06-10T00:00:00Z',
+                              expires_at: '2026-06-11T00:00:00Z',
+                          }
+                        : { message: 'Could not connect to db.example.com.' },
+                ],
+            },
+        })
+        router.actions.push('/data-warehouse/connect?kind=postgres&utm_source=wizard')
+        sourceConnectSceneLogic.actions.setCredentialsFormValue('payload', { host: 'db.example.com' })
+
+        await expectLogic(sourceConnectSceneLogic, () => {
+            sourceConnectSceneLogic.actions.submitCredentialsForm()
+        }).toFinishAllListeners()
+
+        const linkProperties = { source_type: 'Postgres', link_source: 'wizard', from_migration: false }
+        const connectCalls = capture.mock.calls.filter(([event]) =>
+            String(event).startsWith('warehouse source connect')
+        )
+        expect(connectCalls).toEqual([
+            ['warehouse source connect page viewed', linkProperties],
+            ['warehouse source connect submitted', linkProperties],
+            [outcome, { ...linkProperties, ...extra }],
+        ])
+        expect(JSON.stringify(connectCalls)).not.toContain('example.com')
+        jest.restoreAllMocks()
     })
 })

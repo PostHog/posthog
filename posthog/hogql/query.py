@@ -80,6 +80,7 @@ from posthog.hogql.printer.access_control import build_access_control_warning
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.resolver import Resolver, ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_lazy_table_types, extract_select_queries
+from posthog.hogql.team_first_prewhere import should_check_team_first_in_prewhere
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
@@ -692,6 +693,17 @@ class HogQLQueryExecutor:
             return {}
         return types
 
+    def _modifiers_tag(self) -> dict[str, Any]:
+        tag = {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
+        if (
+            isinstance(self.clickhouse_settings, HogQLGlobalSettings)
+            and self.clickhouse_settings.move_primary_key_columns_to_end_of_prewhere is False
+        ):
+            # Temporary rollout marker, not a real modifier. Remove it with the `hogql-team-first-prewhere` flag.
+            # It goes here because `query_log_archive` keeps `modifiers` and drops unknown top-level tags.
+            tag["teamFirstPrewhere"] = True
+        return tag
+
     def _column_formats(self) -> list[str | None] | None:
         if self.send_raw_query and self.connection_id is not None:
             return None
@@ -847,6 +859,16 @@ class HogQLQueryExecutor:
                     )
                 if settings.read_overflow_mode is None:
                     settings.read_overflow_mode = "throw"
+
+            # Batch exports pass a `HogQLQuerySettings` subclass, which has no field for this setting.
+            if isinstance(settings, HogQLGlobalSettings) and should_check_team_first_in_prewhere(
+                self.team, self.clickhouse_prepared_ast
+            ):
+                # ON can help when index selection is precise; OFF can help when it leaves lots of irrelevant
+                # rows inside the selected granules. Small teams can share granules with many other teams,
+                # so an early team_id check can avoid expensive property evaluation on other teams' rows.
+                # OFF allows the optimizer to check team_id earlier; it does not force it first.
+                settings.move_primary_key_columns_to_end_of_prewhere = False
 
             with self.timings.measure("print_prepared_ast"):
                 if self.clickhouse_prepared_ast is None:
@@ -1054,15 +1076,15 @@ class HogQLQueryExecutor:
                 **self.context.read_tags(),
                 plan_fingerprint=plan_fingerprint,
                 timings=timings_dict,
-                modifiers=(
-                    {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
-                ),
+                modifiers=self._modifiers_tag(),
             )
 
             workload = self.workload
             table_workload = clickhouse_context.workload
             if table_workload is not None and table_workload != Workload.DEFAULT and workload in MAIN_CLUSTER_WORKLOADS:
                 workload = table_workload
+            elif workload == Workload.METRICS and table_workload == Workload.LOGS:
+                workload = Workload.LOGS
 
             def run_clickhouse_query() -> Any:
                 return sync_execute(
