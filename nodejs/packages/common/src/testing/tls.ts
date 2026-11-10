@@ -18,6 +18,8 @@ export async function createTestTlsIdentity(hostname: string): Promise<TestTlsId
     const certificatePath = path.join(directory, 'server.crt')
 
     try {
+        // A throwaway self-signed identity for one test run; the unencrypted key never leaves the temp dir.
+        // nosemgrep: trailofbits.generic.openssl-insecure-flags.openssl-insecure-flags
         await execFileAsync('openssl', [
             'req',
             '-x509',

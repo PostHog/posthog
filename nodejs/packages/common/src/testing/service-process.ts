@@ -61,6 +61,8 @@ export class ServiceProcess {
         args: string[],
         options: { cwd: string; env: NodeJS.ProcessEnv }
     ) {
+        // The command is the service binary a test starts, never request input.
+        // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
         this.child = spawn(command, args, {
             cwd: options.cwd,
             env: options.env,
