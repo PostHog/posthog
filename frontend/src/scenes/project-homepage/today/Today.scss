@@ -344,64 +344,14 @@ html[data-today-transition]::view-transition-new(root) {
     gap: 12px;
 }
 
-.TodayPulse--ghost .TodayPulse__name {
-    color: var(--today-muted);
-}
+.TodayPulse__emptySlot {
+    height: 72px;
+    border: 1px dashed var(--today-line);
+    border-radius: 8px;
 
-.TodayPulse__ghostRow {
-    align-items: baseline;
-    min-height: 23px;
-
-    .TodayPulse__ghostSetup:only-child {
-        align-self: flex-end;
-        line-height: 20px;
-    }
-}
-
-.TodayPulse__ghostValue {
-    color: var(--today-faint);
-}
-
-.TodayPulse__ghostNote {
-    min-width: 0;
-    overflow: hidden;
-    font-size: 13px;
-    color: var(--today-faint);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.TodayPulse__ghostSetup {
-    font-size: 13px;
-    color: var(--today-muted);
-    text-decoration: underline;
-    text-decoration-color: var(--today-line);
-    text-underline-offset: 3px;
-
-    &:hover {
-        color: var(--today-ink);
-        text-decoration-color: currentColor;
-    }
-}
-
-.TodayPulse__ghostLine {
-    width: 100%;
-    height: 100%;
-    overflow: visible;
-
-    line {
-        stroke: var(--today-line);
-        stroke-linecap: round;
-        stroke-width: 1.5;
-        vector-effect: non-scaling-stroke;
-    }
-
-    circle {
-        fill: var(--today-faint);
-    }
-
-    .TodayPulse__metric:not([data-configured]) & line {
-        stroke-dasharray: 2 4;
+    @container main-content (max-width: 600px) {
+        background: transparent;
+        border-style: dashed;
     }
 }
 
