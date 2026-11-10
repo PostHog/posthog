@@ -18,7 +18,7 @@ import { TodayPulsePinButton } from './TodayPulsePinButton'
 import type { TodayTone } from './todayTone'
 
 function cardCaption(metric: HighlightMetricApi): string {
-    return metric.experiment ? metric.experiment.metric_name : pulsePeriodCaption(metric)
+    return metric.experiment ? 'Experiment' : pulsePeriodCaption(metric)
 }
 
 function suggestionText(metric: HighlightMetricApi): string {

@@ -22,6 +22,9 @@ export function TodayPulseExperimentResult({
 }): JSX.Element {
     return (
         <>
+            <Text size="xs" variant="muted" render={<span />} className="line-clamp-2">
+                {experiment.metric_name}
+            </Text>
             <div className="flex flex-wrap items-baseline gap-x-2">
                 <Heading size="xl" render={<span />} className="tabular-nums">
                     <TodayChange change={lift} tone={tone} decimals={experimentLiftDecimals(lift)} />
