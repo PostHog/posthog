@@ -118,8 +118,6 @@ export type CyclotronV2ManagerConfig = {
     pool: CyclotronV2PoolConfig
     depthLimit?: number
     depthCheckIntervalMs?: number
-    // On, only the first insert waits for the depth query. Later inserts use the last result
-    // while one refresh runs in the background, so a full queue is refused up to one refresh late.
     backgroundDepthCheck?: boolean
     // Knobs for rescheduleParkedJobs — see that method for semantics.
     rescheduleFloorSeconds?: number

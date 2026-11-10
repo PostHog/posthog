@@ -126,7 +126,7 @@ const enqueuePhaseHistogram = new Histogram({
     buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 20, 30, 60],
 })
 
-export async function timeEnqueuePhase<T>(phase: EnqueuePhase, step: () => Promise<T>): Promise<T> {
+export async function timeEnqueuePhase<T>(phase: EnqueuePhase, step: () => Promise<T> | T): Promise<T> {
     const end = enqueuePhaseHistogram.startTimer({ phase })
     try {
         return await step()

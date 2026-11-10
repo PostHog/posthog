@@ -69,8 +69,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
     CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
-    // On, enqueues answer from the last queue depth result and refresh it in the background,
-    // instead of every enqueue in the process waiting for a slow depth query.
     CDP_CYCLOTRON_BACKGROUND_DEPTH_CHECK: boolean
     // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean

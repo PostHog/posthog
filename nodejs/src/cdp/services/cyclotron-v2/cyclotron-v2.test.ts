@@ -4,6 +4,7 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { createPromise } from '~/tests/helpers/promises'
 
 import {
     HOGFLOW_BATCH_RESOLVE_QUEUE,
@@ -650,64 +651,45 @@ describe('Cyclotron V2', () => {
         describe('depth check under a slow depth query', () => {
             const DEPTH_QUERY = /SELECT COUNT\(\*\) AS count FROM cyclotron_jobs\s+WHERE status = 'available'/
 
-            function deferred(): { promise: Promise<void>; resolve: () => void } {
-                let resolve!: () => void
-                const promise = new Promise<void>((r) => (resolve = r))
-                return { promise, resolve }
-            }
+            const storedJobs = async (): Promise<number> =>
+                (
+                    await assertPool.query<{ count: number }>(
+                        'SELECT COUNT(*)::int AS count FROM cyclotron_jobs WHERE queue_name = $1',
+                        [QUEUE]
+                    )
+                ).rows[0].count
 
-            // The manager runs its next step in a continuation of the promise it awaited. All
-            // pending continuations run on the microtask queue before the next macrotask starts.
-            const drainContinuations = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+            const stillPendingAfter = (pending: Promise<unknown>, ms: number): Promise<boolean> =>
+                Promise.race([pending.then(() => false), sleep(ms).then(() => true)])
 
-            // Holds the depth query at the pg boundary until the test releases it, passes every
-            // other statement through to real Postgres, and counts the job inserts issued while a
-            // depth query is held.
             function holdDepthQueries(target: CyclotronV2Manager): {
                 entered: () => Promise<void>
                 release: () => Promise<void>
-                started: () => number
-                insertsWhileHeld: () => number
             } {
                 const pool = (target as unknown as { pool: Pool }).pool
                 const passThrough = pool.query.bind(pool) as (...args: unknown[]) => Promise<unknown>
-                let gate = deferred()
-                let entered = deferred()
+                let gate = createPromise()
+                let entered = createPromise()
                 let held: Promise<unknown>[] = []
-                let started = 0
-                let insertsWhileHeld = 0
                 pool.query = ((text: unknown, ...rest: unknown[]) => {
                     if (typeof text !== 'string' || !DEPTH_QUERY.test(text)) {
-                        if (
-                            held.length > 0 &&
-                            typeof text === 'string' &&
-                            text.includes('INSERT INTO cyclotron_jobs')
-                        ) {
-                            insertsWhileHeld++
-                        }
                         return passThrough(text, ...rest)
                     }
-                    started++
                     entered.resolve()
                     const run = gate.promise.then(() => passThrough(text, ...rest))
                     held.push(run)
                     return run
                 }) as Pool['query']
                 return {
-                    entered: async () => {
-                        await entered.promise
-                        await drainContinuations()
-                    },
-                    started: () => started,
-                    insertsWhileHeld: () => insertsWhileHeld,
+                    entered: () => entered.promise,
                     release: async () => {
                         const runs = held
                         held = []
                         gate.resolve()
-                        gate = deferred()
-                        entered = deferred()
+                        gate = createPromise()
+                        entered = createPromise()
                         await Promise.all(runs)
-                        await drainContinuations()
+                        await new Promise((resolve) => setImmediate(resolve))
                     },
                 }
             }
@@ -727,6 +709,10 @@ describe('Cyclotron V2', () => {
                 await m.connect()
                 const depth = holdDepthQueries(m)
                 try {
+                    const first = m.createJob({ teamId: 1, queueName: QUEUE })
+                    await depth.entered()
+                    await depth.release()
+                    await first
                     await body(m, depth, () => (now += intervalMs + 1))
                 } finally {
                     await depth.release()
@@ -735,45 +721,44 @@ describe('Cyclotron V2', () => {
                 }
             }
 
-            it('with the background depth check, enqueues while one depth refresh is held and refuses once a full result lands', async () => {
+            it('with the background depth check, stores a job while the depth refresh is still running', async () => {
+                await withHeldDepthQueries({ backgroundDepthCheck: true }, async (m, depth, expireInterval) => {
+                    expireInterval()
+                    const second = m.createJob({ teamId: 1, queueName: QUEUE })
+                    await depth.entered()
+
+                    await waitForExpect(async () => expect(await storedJobs()).toBe(2))
+                    await second
+                })
+            })
+
+            it('with the background depth check, refuses an enqueue once a refresh finds the queue full', async () => {
                 await withHeldDepthQueries(
                     { backgroundDepthCheck: true, depthLimit: 2 },
                     async (m, depth, expireInterval) => {
-                        const first = m.createJob({ teamId: 1, queueName: QUEUE })
+                        expireInterval()
+                        await m.createJob({ teamId: 1, queueName: QUEUE })
                         await depth.entered()
                         await depth.release()
-                        await first
-                        expect(depth.insertsWhileHeld()).toBe(0)
-                        await m.createJob({ teamId: 1, queueName: QUEUE })
 
-                        expireInterval()
-                        await m.createJob({ teamId: 1, queueName: QUEUE })
-                        expireInterval()
-                        await m.createJob({ teamId: 1, queueName: QUEUE })
-                        expect({ started: depth.started(), insertsWhileHeld: depth.insertsWhileHeld() }).toEqual({
-                            started: 2,
-                            insertsWhileHeld: 2,
-                        })
-
-                        await depth.release()
                         await expect(m.createJob({ teamId: 1, queueName: QUEUE })).rejects.toThrow(/queue is full/i)
+                        expect(await storedJobs()).toBe(2)
                     }
                 )
             })
 
-            it('without the background depth check, an enqueue waits for an expired depth check', async () => {
+            it('without the background depth check, holds an enqueue until its expired depth check returns', async () => {
                 await withHeldDepthQueries({}, async (m, depth, expireInterval) => {
-                    const first = m.createJob({ teamId: 1, queueName: QUEUE })
-                    await depth.entered()
-                    await depth.release()
-                    await first
-
                     expireInterval()
                     const second = m.createJob({ teamId: 1, queueName: QUEUE })
                     await depth.entered()
+
+                    expect(await stillPendingAfter(second, 200)).toBe(true)
+                    expect(await storedJobs()).toBe(1)
+
                     await depth.release()
                     await second
-                    expect(depth.insertsWhileHeld()).toBe(0)
+                    expect(await storedJobs()).toBe(2)
                 })
             })
         })
