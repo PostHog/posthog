@@ -2,6 +2,7 @@ import time
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import connection
 
 from posthog.settings import EE_AVAILABLE
 from posthog.temporal.common.db_errors import is_transient_db_error
@@ -59,5 +60,9 @@ class Command(BaseCommand):
                 if attempt == MAX_BATCH_ATTEMPTS or not is_transient_db_error(error):
                     raise
                 self.stdout.write(f"batch after {ids[0]} failed ({error}), attempt {attempt} of {MAX_BATCH_ATTEMPTS}")
+                # Django keeps a connection that a failover closed, so drop it and let the retry reconnect.
+                # Closing it inside a transaction would break that transaction, as in tests.
+                if not connection.in_atomic_block:
+                    connection.close_if_unusable_or_obsolete()
                 time.sleep(sleep_seconds)
         raise AssertionError("unreachable")
