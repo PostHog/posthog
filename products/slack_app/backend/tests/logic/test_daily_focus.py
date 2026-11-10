@@ -6,7 +6,7 @@ import pytest
 from posthog.models.integration import Integration
 
 from products.slack_app.backend.logic.daily_focus import claim_due_daily_focus, next_run_after, previous_run_before
-from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
+from products.slack_app.backend.models import SlackDailyFocus, SlackUserProfileCache
 from products.slack_app.backend.tests.conftest import SLACK_TEAM_ID
 
 PRAGUE = ZoneInfo("Europe/Prague")
@@ -49,17 +49,16 @@ def test_a_due_person_runs_once_and_moves_to_the_next_workday(org_team_user) -> 
     _, team, _ = org_team_user
     integration = Integration.objects.create(team=team, kind="slack", integration_id=SLACK_TEAM_ID)
     monday_nine = datetime(2026, 11, 9, 9, 0, tzinfo=PRAGUE)
-    for slack_user_id, enabled, next_run_at in [
-        ("U_DUE", True, monday_nine),
-        ("U_LATER", True, datetime(2026, 11, 9, 10, 0, tzinfo=PRAGUE)),
-        ("U_OFF", False, None),
+    for slack_user_id, next_run_at in [
+        ("U_DUE", monday_nine),
+        ("U_LATER", datetime(2026, 11, 9, 10, 0, tzinfo=PRAGUE)),
+        ("U_OFF", None),
     ]:
-        SlackSettings.objects.create(
+        SlackDailyFocus.objects.create(
             slack_workspace_id=SLACK_TEAM_ID,
             slack_user_id=slack_user_id,
-            daily_focus_enabled=enabled,
-            daily_focus_next_run_at=next_run_at,
-            daily_focus_integration_id=integration.id,
+            integration_id=integration.id,
+            next_run_at=next_run_at,
         )
         SlackUserProfileCache.objects.create(integration=integration, slack_user_id=slack_user_id, tz="Europe/Prague")
     now = datetime(2026, 11, 9, 9, 2, tzinfo=PRAGUE)
@@ -69,8 +68,6 @@ def test_a_due_person_runs_once_and_moves_to_the_next_workday(org_team_user) -> 
     assert [(run.slack_user_id, run.since) for run in due] == [
         ("U_DUE", int(datetime(2026, 11, 6, 9, 0, tzinfo=PRAGUE).timestamp()))
     ]
-    assert SlackSettings.objects.get(slack_user_id="U_DUE").daily_focus_next_run_at == datetime(
-        2026, 11, 10, 8, 0, tzinfo=UTC
-    )
+    assert SlackDailyFocus.objects.get(slack_user_id="U_DUE").next_run_at == datetime(2026, 11, 10, 8, 0, tzinfo=UTC)
     # A sweep that runs again before the next workday finds nobody, so nobody gets the day twice.
     assert claim_due_daily_focus(now) == []

@@ -1,3 +1,5 @@
+from datetime import time
+
 from django.db import models
 from django.db.models import Q
 
@@ -263,27 +265,6 @@ class SlackSettings(UUIDModel):
         blank=True,
         help_text="This user's onboarding thread in the PostHog DM, and whether they finished it.",
     )
-    # Only read on a personal row. NULL means the person never chose, which resolves to off.
-    daily_focus_enabled = models.BooleanField(
-        null=True,
-        blank=True,
-        help_text="Send this user a work focus DM every workday.",
-    )
-    # NULL resolves to ``DEFAULT_DAILY_FOCUS_TIME`` in ``logic/daily_focus.py``.
-    daily_focus_time = models.TimeField(
-        null=True,
-        blank=True,
-        help_text="The local time of day the daily work focus runs, in the user's Slack timezone.",
-    )
-    # NULL while the daily work focus is off. The sweep runs every row whose time has come.
-    daily_focus_next_run_at = models.DateTimeField(null=True, blank=True)
-    # An id, not a relation, because integration rows are read through the integrations SDK. A run whose
-    # installation is gone ends without a DM.
-    daily_focus_integration_id = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="The installation the daily work focus runs on, because one Slack workspace can connect several.",
-    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -302,18 +283,47 @@ class SlackSettings(UUIDModel):
                 condition=Q(slack_user_id__isnull=True),
             ),
         ]
-        indexes = [
-            models.Index(
-                fields=["daily_focus_next_run_at"],
-                name="slack_settings_daily_focus_idx",
-                condition=Q(daily_focus_next_run_at__isnull=False),
-            ),
-        ]
 
     def __str__(self) -> str:
         who = self.slack_user_id or "(workspace default)"
         target = self.default_integration_id if self.default_integration_id else "(inherit)"
         return f"{self.slack_workspace_id} / {who} → integration {target}"
+
+
+class SlackDailyFocus(UUIDModel):
+    """One row per Slack user who set up the daily work focus. Turning it off keeps the row, so a later onboarding
+    does not turn it back on and the picked time stays."""
+
+    slack_workspace_id = models.CharField(max_length=64)
+    slack_user_id = models.CharField(max_length=64)
+    # An id, not a relation, because integration rows are read through the integrations SDK. A run whose
+    # installation is gone ends without a DM.
+    integration_id = models.IntegerField(
+        help_text="The installation the daily work focus runs on, because one Slack workspace can connect several."
+    )
+    at = models.TimeField(
+        default=time(9, 0),
+        help_text="The local time of day the daily work focus runs, in the user's Slack timezone.",
+    )
+    # NULL while the daily work focus is off. The sweep runs every row whose time has come.
+    next_run_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["slack_workspace_id", "slack_user_id"],
+                name="uniq_slack_daily_focus_per_user",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["next_run_at"],
+                name="slack_daily_focus_due_idx",
+                condition=Q(next_run_at__isnull=False),
+            )
+        ]
 
 
 class SlackChannel(UUIDModel):

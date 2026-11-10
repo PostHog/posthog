@@ -38,6 +38,7 @@ from products.slack_app.backend.logic.interview_recruitment import (
 )
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
+    SlackDailyFocus,
     SlackSettings,
     SlackThreadTaskMapping,
     SlackUserProfileCache,
@@ -716,7 +717,7 @@ class TestFeatureTipsToggle:
 
 class TestDailyFocusControls:
     @pytest.mark.parametrize(
-        "scopes, action, expected_enabled, expected_next_run",
+        "scopes, action, stored, expected_next_run",
         [
             (
                 "search:read.public",
@@ -724,9 +725,10 @@ class TestDailyFocusControls:
                 True,
                 datetime(2026, 11, 10, 8, 0, tzinfo=UTC),
             ),
-            ("search:read.public", {"selected_options": []}, False, None),
+            # Off keeps the row, so a later onboarding does not turn it back on.
+            ("search:read.public", {"selected_options": []}, True, None),
             # The link cannot search, so a stale view must not turn on a run that cannot work.
-            ("users:read", {"selected_options": [{"value": "on"}]}, None, None),
+            ("users:read", {"selected_options": [{"value": "on"}]}, False, None),
         ],
     )
     def test_the_checkbox_turns_the_daily_work_focus_on_and_off(
@@ -737,7 +739,7 @@ class TestDailyFocusControls:
         link_user,
         scopes,
         action,
-        expected_enabled,
+        stored,
         expected_next_run,
     ):
         self._link(slack_integration, link_user, scopes)
@@ -746,23 +748,26 @@ class TestDailyFocusControls:
         with time_machine.travel(datetime(2026, 11, 9, 12, 0, tzinfo=UTC), tick=False):
             self._click(action)
 
-        row = SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").first()
-        assert (row.daily_focus_enabled if row else None) is expected_enabled
-        assert (row.daily_focus_next_run_at if row else None) == expected_next_run
+        row = SlackDailyFocus.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001").first()
+        assert (row is not None) is stored
+        assert (row.next_run_at if row else None) == expected_next_run
 
     def test_a_new_time_moves_the_next_run(self, slack_integration, mock_slack_client, flag_on, link_user):
         self._link(slack_integration, link_user, "search:read.public")
-        SlackSettings.objects.create(
-            slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001", daily_focus_enabled=True
+        SlackDailyFocus.objects.create(
+            slack_workspace_id=SLACK_WORKSPACE_ID,
+            slack_user_id="U001",
+            integration_id=slack_integration.id,
+            next_run_at=datetime(2026, 11, 10, 8, 0, tzinfo=UTC),
         )
 
         with time_machine.travel(datetime(2026, 11, 9, 12, 0, tzinfo=UTC), tick=False):
             self._click({"action_id": ACTION_SET_DAILY_FOCUS_TIME, "selected_time": "14:30"})
 
-        row = SlackSettings.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
-        assert row.daily_focus_time == time(14, 30)
+        row = SlackDailyFocus.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id="U001")
+        assert row.at == time(14, 30)
         # Still today, because 14:30 in Prague comes after noon UTC.
-        assert row.daily_focus_next_run_at == datetime(2026, 11, 9, 13, 30, tzinfo=UTC)
+        assert row.next_run_at == datetime(2026, 11, 9, 13, 30, tzinfo=UTC)
 
     def _link(self, slack_integration, link_user, scopes: str) -> None:
         user = User.objects.create_and_join(slack_integration.team.organization, "daily@example.com", None)

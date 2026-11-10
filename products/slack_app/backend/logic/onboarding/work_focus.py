@@ -207,6 +207,8 @@ def find_and_send_daily_focus(integration: WorkspaceIntegration, slack_user_id: 
         return "turned_off"
     if not has_ai_approval(integration.team_id):
         return "no_ai_consent"
+    if _out_of_ai_credits(integration):
+        return "out_of_ai_credits"
     # A task started from the DM reads its thread with the bot, so suggestions need the bot's DM scope.
     if SlackIntegration(integration).missing_scopes(frozenset({"im:history"})):
         return "missing_bot_scope"
@@ -222,6 +224,20 @@ def find_and_send_daily_focus(integration: WorkspaceIntegration, slack_user_id: 
     if not cache.add(sent_key, True, timeout=SENT_KEY_TIMEOUT_SECONDS):
         return "already_sent"
     return _post(integration, slack_user_id, found, blocks, mode="daily")
+
+
+def _out_of_ai_credits(integration: WorkspaceIntegration) -> bool:
+    """Nobody asked for the daily run, so a team without AI credits gets no run and no message about it."""
+    from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the billing query stack off the Slack import path
+        is_team_over_ai_credit_budget,
+    )
+
+    try:
+        return is_team_over_ai_credit_budget(integration.team.api_token)
+    except Exception:
+        # The quota cache reads Redis. An outage must not stop the runs of teams that have credits.
+        logger.warning("slack_app_daily_focus_ai_credit_check_failed", team_id=integration.team_id, exc_info=True)
+        return False
 
 
 def _ready_to_send(integration: WorkspaceIntegration, slack_user_id: str) -> None:

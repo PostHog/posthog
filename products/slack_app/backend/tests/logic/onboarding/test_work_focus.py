@@ -32,7 +32,7 @@ from products.slack_app.backend.logic.onboarding.work_focus import (
     find_and_send_work_focus,
     work_focus_blocks,
 )
-from products.slack_app.backend.models import SlackSettings
+from products.slack_app.backend.models import SlackDailyFocus, SlackSettings
 from products.slack_app.backend.services.slack_settings import resolve_onboarding
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
@@ -354,8 +354,8 @@ def test_the_onboarding_turns_the_daily_work_focus_on_unless_the_person_chose(
     integration = _install(team)
     link_user(user, user_scopes="search:read.public")
     if chose_before is not None:
-        SlackSettings.objects.create(
-            slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID, daily_focus_enabled=chose_before
+        SlackDailyFocus.objects.create(
+            slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID, integration_id=integration.id
         )
 
     with patch(f"{WORK_FOCUS}.is_slack_app_daily_work_focus_enabled", return_value=True):
@@ -364,19 +364,17 @@ def test_the_onboarding_turns_the_daily_work_focus_on_unless_the_person_chose(
     dm = slack["bot"].chat_postMessage.call_args.kwargs
     assert (DAILY_FOCUS_OFF_ACTION_ID in action_ids(dm["blocks"])) is turns_on
     assert resolve_daily_focus(SLACK_TEAM_ID, SLACK_USER_ID).enabled is turns_on
-    row = SlackSettings.objects.get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID)
-    assert (row.daily_focus_next_run_at is not None) is turns_on
 
 
 SINCE = datetime(2026, 11, 6, 8, 0, tzinfo=UTC)
 
 
 def _turn_on_daily(integration: WorkspaceIntegration) -> None:
-    SlackSettings.objects.create(
+    SlackDailyFocus.objects.create(
         slack_workspace_id=SLACK_TEAM_ID,
         slack_user_id=SLACK_USER_ID,
-        daily_focus_enabled=True,
-        daily_focus_integration_id=integration.id,
+        integration_id=integration.id,
+        next_run_at=datetime(2026, 11, 9, 8, 0, tzinfo=UTC),
     )
 
 
@@ -409,7 +407,7 @@ def test_a_daily_run_reads_since_the_last_run_and_sends_once(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("reason", ["quiet_day", "turned_off", "flag_off"])
+@pytest.mark.parametrize("reason", ["quiet_day", "turned_off", "flag_off", "out_of_ai_credits"])
 def test_a_daily_run_sends_nothing_on_a_quiet_day_or_when_turned_off(
     reason: str, org_team_user, link_user, slack: dict[str, MagicMock]
 ) -> None:
@@ -419,19 +417,22 @@ def test_a_daily_run_sends_nothing_on_a_quiet_day_or_when_turned_off(
     link_user(user, user_scopes="search:read.public")
     _turn_on_daily(integration)
     if reason == "turned_off":
-        SlackSettings.objects.update(daily_focus_enabled=False)
+        SlackDailyFocus.objects.update(next_run_at=None)
     if reason == "quiet_day":
         slack["ranker"].return_value.decide.side_effect = None
         slack["ranker"].return_value.decide.return_value = SystemOneResult(model="jev", answers={}, input_tokens=None)
 
     with (
         patch(f"{WORK_FOCUS}.is_slack_app_daily_work_focus_enabled", return_value=reason != "flag_off"),
+        patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", return_value=reason == "out_of_ai_credits"),
         patch(f"{WORK_FOCUS}.SlackIntegration") as bot_integration,
     ):
         bot_integration.return_value.missing_scopes.return_value = frozenset()
         outcome = find_and_send_daily_focus(integration, SLACK_USER_ID, since=SINCE)
 
-    assert outcome == {"quiet_day": "nothing_actionable", "turned_off": "turned_off", "flag_off": "flag_off"}[reason]
+    assert outcome == {"quiet_day": "nothing_actionable"}.get(reason, reason)
+    # Only a quiet day got as far as reading Slack. The others spend no search calls and no AI credits.
+    assert slack["search"].return_value.api_call.called is (reason == "quiet_day")
     bot_integration.return_value.client.chat_postMessage.assert_not_called()
 
 
@@ -465,7 +466,6 @@ def test_turn_off_in_the_dm_stops_the_daily_work_focus_and_says_so(mock_slack_cl
         )
 
     assert response.status_code == 200
-    row = SlackSettings.objects.get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id=SLACK_USER_ID)
-    assert row.daily_focus_enabled is False and row.daily_focus_next_run_at is None
+    assert resolve_daily_focus(SLACK_TEAM_ID, SLACK_USER_ID).enabled is False
     updated = mock_slack_cls.return_value.client.chat_update.call_args.kwargs["blocks"]
     assert action_ids(updated) == [] and "daily work focus is off" in all_block_text(updated)

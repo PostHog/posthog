@@ -2,7 +2,6 @@
 timezone. A sweep every few minutes starts a run for each person whose time has come."""
 
 import json
-from collections.abc import Mapping
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -16,7 +15,7 @@ from posthog.dataclasses import frozen
 from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
+from products.slack_app.backend.models import SlackDailyFocus, SlackUserProfileCache
 from products.slack_app.backend.services.slack_messages import context_block
 from products.slack_app.backend.services.slack_user_info import get_slack_user_info
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
@@ -106,44 +105,36 @@ def parse_clock(value: object) -> time | None:
 
 
 def resolve_daily_focus(slack_workspace_id: str, slack_user_id: str) -> DailyFocusSettings:
-    row: Mapping[str, Any] = (
-        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
-        .values("daily_focus_enabled", "daily_focus_time")
-        .first()
-    ) or {}
-    return DailyFocusSettings(
-        enabled=row.get("daily_focus_enabled"), at=row.get("daily_focus_time") or DEFAULT_DAILY_FOCUS_TIME
+    row = SlackDailyFocus.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id).first()
+    if row is None:
+        return DailyFocusSettings(enabled=None, at=DEFAULT_DAILY_FOCUS_TIME)
+    return DailyFocusSettings(enabled=row.next_run_at is not None, at=row.at)
+
+
+def _locked_row(integration: WorkspaceIntegration, slack_user_id: str) -> SlackDailyFocus:
+    row, _ = SlackDailyFocus.objects.select_for_update().get_or_create(
+        slack_workspace_id=integration.integration_id,
+        slack_user_id=slack_user_id,
+        defaults={"integration_id": integration.id, "at": DEFAULT_DAILY_FOCUS_TIME},
     )
+    return row
 
 
 def turn_on_daily_focus(integration: WorkspaceIntegration, slack_user_id: str, *, source: str) -> None:
     zone = person_zone(integration, slack_user_id)
     with transaction.atomic():
-        row, _ = SlackSettings.objects.select_for_update().get_or_create(
-            slack_workspace_id=integration.integration_id, slack_user_id=slack_user_id
-        )
-        row.daily_focus_enabled = True
-        row.daily_focus_integration_id = integration.id
-        row.daily_focus_next_run_at = next_run_after(
-            timezone.now(), zone, row.daily_focus_time or DEFAULT_DAILY_FOCUS_TIME
-        )
-        row.save(
-            update_fields=[
-                "daily_focus_enabled",
-                "daily_focus_integration_id",
-                "daily_focus_next_run_at",
-                "updated_at",
-            ]
-        )
+        row = _locked_row(integration, slack_user_id)
+        row.integration_id = integration.id
+        row.next_run_at = next_run_after(timezone.now(), zone, row.at)
+        row.save(update_fields=["integration_id", "next_run_at", "updated_at"])
     capture_slack_event(integration, TURNED_ON_EVENT, slack_user_id=slack_user_id, source=source)
 
 
 def turn_off_daily_focus(integration: WorkspaceIntegration, slack_user_id: str, *, source: str) -> None:
-    SlackSettings.objects.update_or_create(
-        slack_workspace_id=integration.integration_id,
-        slack_user_id=slack_user_id,
-        defaults={"daily_focus_enabled": False, "daily_focus_next_run_at": None},
-    )
+    with transaction.atomic():
+        row = _locked_row(integration, slack_user_id)
+        row.next_run_at = None
+        row.save(update_fields=["next_run_at", "updated_at"])
     capture_slack_event(integration, TURNED_OFF_EVENT, slack_user_id=slack_user_id, source=source)
 
 
@@ -151,13 +142,11 @@ def set_daily_focus_time(integration: WorkspaceIntegration, slack_user_id: str, 
     """Keeps the daily work focus on or off. When it is on, the next run moves to the new time."""
     zone = person_zone(integration, slack_user_id)
     with transaction.atomic():
-        row, _ = SlackSettings.objects.select_for_update().get_or_create(
-            slack_workspace_id=integration.integration_id, slack_user_id=slack_user_id
-        )
-        row.daily_focus_time = at
-        if row.daily_focus_enabled:
-            row.daily_focus_next_run_at = next_run_after(timezone.now(), zone, at)
-        row.save(update_fields=["daily_focus_time", "daily_focus_next_run_at", "updated_at"])
+        row = _locked_row(integration, slack_user_id)
+        row.at = at
+        if row.next_run_at is not None:
+            row.next_run_at = next_run_after(timezone.now(), zone, at)
+        row.save(update_fields=["at", "next_run_at", "updated_at"])
     capture_slack_event(integration, TIME_CHANGED_EVENT, slack_user_id=slack_user_id, at=at.strftime("%H:%M"))
 
 
@@ -166,36 +155,33 @@ def claim_due_daily_focus(now: datetime, *, limit: int = SWEEP_BATCH_SIZE) -> li
     a day twice. A run that then fails to start is skipped for that day, not sent twice."""
     with transaction.atomic():
         rows = list(
-            SlackSettings.objects.select_for_update(skip_locked=True)
-            .filter(daily_focus_enabled=True, daily_focus_next_run_at__lte=now, slack_user_id__isnull=False)
-            .order_by("daily_focus_next_run_at")[:limit]
+            SlackDailyFocus.objects.select_for_update(skip_locked=True)
+            .filter(next_run_at__lte=now)
+            .order_by("next_run_at")[:limit]
         )
         zones = {
             (profile["integration_id"], profile["slack_user_id"]): profile["tz"]
             for profile in SlackUserProfileCache.objects.filter(
-                integration_id__in={row.daily_focus_integration_id for row in rows},
+                integration_id__in={row.integration_id for row in rows},
                 slack_user_id__in={row.slack_user_id for row in rows},
             ).values("integration_id", "slack_user_id", "tz")
         }
         due = []
         for row in rows:
-            scheduled = row.daily_focus_next_run_at
-            if row.daily_focus_integration_id is None or scheduled is None or row.slack_user_id is None:
-                # The installation is gone, so nothing can run until the person turns it on again.
-                row.daily_focus_next_run_at = None
+            scheduled = row.next_run_at
+            if scheduled is None:
                 continue
-            at = row.daily_focus_time or DEFAULT_DAILY_FOCUS_TIME
-            zone = zone_named(zones.get((row.daily_focus_integration_id, row.slack_user_id)))
-            row.daily_focus_next_run_at = next_run_after(now, zone, at)
+            zone = zone_named(zones.get((row.integration_id, row.slack_user_id)))
+            row.next_run_at = next_run_after(now, zone, row.at)
             due.append(
                 DueDailyFocus(
-                    integration_id=row.daily_focus_integration_id,
+                    integration_id=row.integration_id,
                     slack_team_id=row.slack_workspace_id,
                     slack_user_id=row.slack_user_id,
-                    since=int(previous_run_before(scheduled, zone, at).timestamp()),
+                    since=int(previous_run_before(scheduled, zone, row.at).timestamp()),
                 )
             )
-        SlackSettings.objects.bulk_update(rows, ["daily_focus_next_run_at"])
+        SlackDailyFocus.objects.bulk_update(rows, ["next_run_at"])
     return due
 
 
