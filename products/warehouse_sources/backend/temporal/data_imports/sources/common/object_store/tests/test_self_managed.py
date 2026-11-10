@@ -160,6 +160,11 @@ class TestParseSelfManagedUrl:
                 SelfManagedLocation(service="r2", bucket="exports", key="orders/{1..3}.csv", account=R2_ACCOUNT),
             ),
             (
+                "r2_jurisdiction",
+                f"https://{R2_ACCOUNT}.eu.r2.cloudflarestorage.com/exports/a.csv",
+                SelfManagedLocation(service="r2", bucket="exports", key="a.csv", account=R2_ACCOUNT, jurisdiction="eu"),
+            ),
+            (
                 "upper_case_host",
                 "https://EXPORTS.S3.US-EAST-1.AMAZONAWS.COM/A.csv",
                 SelfManagedLocation(service="s3", bucket="exports", key="A.csv", region="us-east-1"),
@@ -189,7 +194,7 @@ class TestParseSelfManagedUrl:
             ("azure_data_lake_endpoint", "https://examplestore.dfs.core.windows.net/exports/a.csv"),
             ("azure_other_cloud", "https://examplestore.blob.core.chinacloudapi.cn/exports/a.csv"),
             ("azure_without_container", "https://examplestore.blob.core.windows.net/"),
-            ("r2_jurisdiction_endpoint", f"https://{R2_ACCOUNT}.eu.r2.cloudflarestorage.com/exports/a.csv"),
+            ("r2_unknown_jurisdiction", f"https://{R2_ACCOUNT}.apac.r2.cloudflarestorage.com/exports/a.csv"),
             ("r2_short_account", "https://abc.r2.cloudflarestorage.com/exports/a.csv"),
             ("gcs_browser_url", "https://storage.cloud.google.com/exports/a.csv"),
         ]
@@ -197,6 +202,20 @@ class TestParseSelfManagedUrl:
     def test_refuses_urls_it_cant_map_exactly(self, _name: str, url: str) -> None:
         with pytest.raises(UnmappableTableError):
             parse_self_managed_url(url)
+
+    @parameterized.expand(
+        [
+            # Migration markers already store keys of this form, so it must not change.
+            ("r2", f"https://{R2_ACCOUNT}.r2.cloudflarestorage.com/exports/a.csv", f"r2/{R2_ACCOUNT}/exports"),
+            (
+                "r2_jurisdiction",
+                f"https://{R2_ACCOUNT}.eu.r2.cloudflarestorage.com/exports/a.csv",
+                f"r2/{R2_ACCOUNT}.eu/exports",
+            ),
+        ]
+    )
+    def test_group_key(self, _name: str, url: str, expected: str) -> None:
+        assert parse_self_managed_url(url).group_key == expected
 
 
 class TestClickHouseGlob:

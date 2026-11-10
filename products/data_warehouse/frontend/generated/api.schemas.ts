@@ -1166,6 +1166,8 @@ export interface WarehouseTrinoStatusApi {
      * @nullable
      */
     ready_at: string | null
+    /** Whether the organization's Trino catalog is backed by hoglake. Hoglake credentials reach nothing otherwise. */
+    hoglake: boolean
     /** Trino connection target. Null until Trino is ready and reachable. */
     connection: WarehouseTrinoConnectionApi | null
 }
@@ -2869,6 +2871,22 @@ export interface PatchedTableApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface HistoryTableRefApi {
+    /** ID of the history table. */
+    id: string
+    /** Name the history table is queried by in HogQL. */
+    name: string
+    /** Whether you can change who can access the history table. */
+    user_can_manage_access: boolean
+}
+
+export interface TableHistoryTableApi {
+    /** Whether this table has access rules of its own that you can manage, so there are rules to copy to its history table. */
+    main_table_has_copyable_rules: boolean
+    /** The table's history table, which keeps every past version of its rows. `null` when the table has none or you can't view it. */
+    history_table: HistoryTableRefApi | null
 }
 
 /**

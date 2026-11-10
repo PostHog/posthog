@@ -22,6 +22,7 @@ from posthog.security.outbound_proxy import internal_requests
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.signals.backend.facade.testing import claim_trial, trial_incomplete_sources
+from products.signals.backend.facade.trial import TrialExecutionRefused
 from products.signals.backend.models import SignalReport
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
 from products.tasks.backend import model_catalog
@@ -906,6 +907,22 @@ class TestProvisioningBoundaries:
             record_routing.assert_called_once_with(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
 
     @pytest.mark.parametrize(
+        "claude_access,codex_access,runtime",
+        [
+            ("own-subscription", "posthog-gateway", "acp"),
+            ("posthog-gateway", "own-subscription", "acp"),
+            ("posthog-gateway", "posthog-gateway", "pi"),
+        ],
+    )
+    def test_trial_execution_refusal_is_expected(self, claude_access: str, codex_access: str, runtime: str) -> None:
+        ctx = self._ctx()
+        ctx.state = {"self_driving_funding": {"funding": "trial"}}
+        ctx.claude_model_access, ctx.codex_model_access, ctx.task_runtime = claude_access, codex_access, runtime
+        with pytest.raises(TrialExecutionRefused, match="PostHog AI gateway") as error:
+            utils.run_gateway_env_vars(ctx, self._task())
+        assert is_expected_activity_failure(error.value)
+
+    @pytest.mark.parametrize(
         ("private_capture", "claude_model_access", "codex_model_access", "runtime"),
         [
             (False, "posthog-gateway", "posthog-gateway", "acp"),
@@ -1785,7 +1802,7 @@ class TestPosthogCodeSandboxMint:
         assert {entry.id for entry in model_catalog.MODELS} - {"gpt-6.1-terra"} <= set(pin)
         assert "gpt-6.1-terra" not in pin
         assert set(SDK_IMPLICIT_MODELS) <= set(pin)
-        assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini"} <= set(pin)
+        assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5-mini"} <= set(pin)
 
     def test_pin_carries_the_go_spelling_of_every_cf_id(self):
         pin = set(_PRODUCT_ALLOWED_MODELS["posthog_code"])

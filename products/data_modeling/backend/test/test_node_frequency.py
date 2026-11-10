@@ -245,7 +245,7 @@ class TestBuildFrequencyGraph(BaseTest):
 
 @pytest.mark.django_db
 class TestSeedTargets(BaseTest):
-    def _view_node_in_dag_with(self, *, saved_query_interval, dag_interval) -> tuple[DAG, Node]:
+    def _view_node_in_dag_with(self, *, saved_query_interval=None, dag_interval) -> tuple[DAG, Node]:
         dag = DAG.objects.create(team=self.team, name="seed-demo", sync_frequency_interval=dag_interval)
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="v",
@@ -258,7 +258,7 @@ class TestSeedTargets(BaseTest):
 
     @parameterized.expand(
         [
-            ("saved_query_interval_wins", H1, DAY, H1),
+            ("legacy_saved_query_interval_wins", H1, DAY, H1),
             ("falls_back_to_dag_interval", None, DAY, DAY),
             ("no_signal_leaves_node_unseeded", None, None, None),
         ]
