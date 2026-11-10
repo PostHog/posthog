@@ -145,7 +145,7 @@ def validate_file_system_placement(folder: str | None, name: str | None) -> None
     if not folder:
         return
     try:
-        validate_file_system_path(f"{folder}/{escape_path(name or '')}")
+        validate_file_system_path(f"{folder}/{escape_path(name or 'Untitled')}")
     except serializers.ValidationError as error:
         raise serializers.ValidationError({"_create_in_folder": error.detail})
 

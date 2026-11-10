@@ -45,6 +45,6 @@ def require_linked_workflow_editor(context: "DeletionContext | RestoreContext", 
 def lock_template_for_delete(template: Model) -> None:
     try:
         with transaction.atomic():
-            list(type(template)._base_manager.select_for_update(nowait=True).filter(pk=template.pk).values_list("pk"))
+            template.refresh_from_db(from_queryset=type(template)._base_manager.select_for_update(nowait=True))
     except OperationalError:
         raise Conflict("This template is being saved. Try again in a moment.", code="template_busy")
