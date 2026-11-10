@@ -143,8 +143,9 @@ class ConsoleRegistry:
             if module.name.endswith(CONTRIBUTION_SUFFIXES):
                 importlib.import_module(f"{__package__}.{module.name}")
         autodiscover_modules("console")
-        # Set only after every import succeeds, so the next call imports a failed module again. Until then console
-        # pages raise its error, and the moved URL routes log it and serve nothing, while the rest of the app works.
+        # Set only after every import succeeds, so the next console request imports a failed module again and shows
+        # its error. The moved URL redirects are built once when the URLconf loads, so after a failed discovery they
+        # stay missing until the process restarts, while the rest of the app works.
         self._discovered = True
 
 

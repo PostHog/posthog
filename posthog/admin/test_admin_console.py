@@ -40,7 +40,7 @@ from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operat
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
-from posthog.admin.console.urls import MovedUrlResolver
+from posthog.admin.console.urls import moved_url_patterns
 from posthog.admin.console.user_panels import is_acting_as
 from posthog.admin.console.views import _offered_operations
 from posthog.csp_middleware import CSPMiddleware
@@ -385,20 +385,19 @@ class TestAdminConsoleMovedUrls(SimpleTestCase):
         match = resolve(request.path)
         return match.func(request, *match.args, **match.kwargs)
 
-    def test_a_contribution_that_raises_leaves_other_urls_working_and_is_retried(self) -> None:
-        moved_routes = MovedUrlResolver()
-        urlconf = URLResolver(RegexPattern(r"^/"), [moved_routes, path("api/ping/", HttpResponse, name="ping")])
-
+    def test_a_contribution_that_raises_leaves_other_urls_working(self) -> None:
         with (
             patch.object(console, "discover", side_effect=RuntimeError("a console.py raised")),
             capture_logs() as logs,
         ):
-            assert urlconf.resolve("/api/ping/").url_name == "ping"
-            with self.assertRaises(Resolver404):
-                urlconf.resolve("/admin/posthog/team/7/rebuild-cache/")
+            urlconf = URLResolver(
+                RegexPattern(r"^/"), [*moved_url_patterns(), path("api/ping/", HttpResponse, name="ping")]
+            )
 
+        assert urlconf.resolve("/api/ping/").url_name == "ping"
+        with self.assertRaises(Resolver404):
+            urlconf.resolve("/admin/posthog/team/7/rebuild-cache/")
         assert [log["event"] for log in logs] == ["admin_console_moved_urls_failed"]
-        assert urlconf.resolve("/admin/posthog/team/7/rebuild-cache/").func is not None
 
     @parameterized.expand(
         [
