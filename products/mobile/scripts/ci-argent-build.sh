@@ -11,6 +11,7 @@ mkdir -p "$1" "$2"
 build_dir=$(cd "$1" && pwd)
 artifact_dir=$(cd "$2" && pwd)
 cd "$app_dir"
+app_scheme=$(node -p 'require("./eas.json").build.base.ios.scheme')
 
 export CI=1 EXPO_NO_DOTENV=1 EXPO_NO_TELEMETRY=1 DO_NOT_TRACK=1
 export COCOAPODS_DISABLE_STATS=true
@@ -28,7 +29,7 @@ pod install --project-directory=ios 2>&1 | tee "$artifact_dir/pods.log"
 
 xcodebuild \
     -workspace ios/PostHog.xcworkspace \
-    -scheme PostHog \
+    -scheme "$app_scheme" \
     -configuration Release \
     -sdk iphonesimulator \
     -destination 'generic/platform=iOS Simulator' \

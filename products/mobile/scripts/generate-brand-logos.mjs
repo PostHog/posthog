@@ -57,10 +57,19 @@ function writePng(relativePath, svg) {
     writeFileSync(new URL(relativePath, root), execFileSync('rsvg-convert', { input: serialize(svg) }))
 }
 
-if (process.argv[2] !== 'app') {
-    throw new Error('Usage: pnpm brand:generate app')
+switch (process.argv[2]) {
+    case 'app': {
+        const logos = { light: renderLogos(false), dark: renderLogos(true) }
+        writeFileSync(new URL('src/ui/icons/brandLogos.json', root), `${JSON.stringify(logos, null, 4)}\n`)
+        writePng('assets/splash-icon-dark.png', renderLogo(Logo.Logomark, true, 1040, 560))
+        break
+    }
+    case 'icon': {
+        const svg = renderLogo(Logo.Logomark, true, 1024, 1024)
+        svg.setAttribute('viewBox', '-6.5 -18.5 65 65')
+        writePng('assets/app.icon/Assets/logo-dark.png', svg)
+        break
+    }
+    default:
+        throw new Error('Usage: pnpm brand:generate app|icon')
 }
-
-const logos = { light: renderLogos(false), dark: renderLogos(true) }
-writeFileSync(new URL('src/ui/icons/brandLogos.json', root), `${JSON.stringify(logos, null, 4)}\n`)
-writePng('assets/splash-icon-dark.png', renderLogo(Logo.Logomark, true, 1040, 560))

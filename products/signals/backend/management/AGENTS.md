@@ -256,6 +256,28 @@ uv run manage.py resume_setup_paused_operational_scouts --apply --team-id 1
 
 Idempotent. A resumed row no longer matches.
 
+## Switching off general scouts nobody chose
+
+Opening the inbox once seeded the general scout enabled for every team, so many teams run one that no person turned on.
+`unenroll_unchosen_general_scouts` sets `enabled=False` on a running `signals-scout-general` row only when no person created or enabled it, and the team never completed self-driving setup.
+Setup completed on a child project counts for the parent's scout.
+It also leaves a row alone when a person or the wizard enabled or created another non-operational scout on the team, or when the row's activity log shows a person changed whether or when it runs (that survives the person's account being deleted, which clears `enabled_by`).
+Every skip reason is checked again under the row lock just before the write.
+A team that edited the general scout skill is left alone.
+Each row saves on its own, so the activity log records it, and `save` moves `status` to `paused_by_user` with no `status_changed_by`.
+It prints totals for matched, skipped, and changed rows, split by `managed_by` and `status`.
+
+```bash
+# Dry run (the default): totals and the first 50 team ids
+uv run manage.py unenroll_unchosen_general_scouts
+
+# Canary on some teams, then write for all
+uv run manage.py unenroll_unchosen_general_scouts --apply --team-ids 1 2
+uv run manage.py unenroll_unchosen_general_scouts --apply
+```
+
+Idempotent. A switched-off row no longer matches.
+
 ## Reactivating report checks a paused scout retired
 
 Dispatch once treated a paused scout as a permanent refusal, so three ticks of a pause retired an `agent` check as `errored`.

@@ -1177,6 +1177,7 @@ export const productConfiguration: Record<string, any> = {
     ReplayVision: {
         name: 'Replay vision',
         projectBased: true,
+        cloudOnly: true,
         description:
             'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
         iconType: 'replay_vision',
@@ -1186,18 +1187,21 @@ export const productConfiguration: Record<string, any> = {
     ReplayVisionScanner: {
         name: 'Replay vision scanner',
         projectBased: true,
+        cloudOnly: true,
         iconType: 'replay_vision',
         layout: 'app-container',
     },
     ReplayVisionScannerEditor: {
         name: 'Replay vision scanner editor',
         projectBased: true,
+        cloudOnly: true,
         iconType: 'replay_vision',
         layout: 'app-container',
     },
     ReplayVisionObservation: {
         name: 'Replay vision observation',
         projectBased: true,
+        cloudOnly: true,
         iconType: 'replay_vision',
         layout: 'app-container',
     },
