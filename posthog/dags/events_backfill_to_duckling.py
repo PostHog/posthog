@@ -2639,26 +2639,14 @@ def export_persons_to_duckling_s3(
     fanout = _compute_fanout(row_count, config.target_rows_per_file, config.max_s3_file_fanout)
 
     day_expression = "toDate(p._timestamp, 'UTC')" if target.backend == "hoglake" else "toDate(p._timestamp)"
-    # Join person with person_distinct_id2 to get distinct_ids
-    # Use FINAL to handle ReplacingMergeTree deduplication
     # Filter by _timestamp to get persons modified on this date
-    export_sql = f"""
-    INSERT INTO FUNCTION s3(
-        '{s3_url}',
-        'Parquet'
+    export_sql = persons_export_sql(
+        s3_url,
+        columns,
+        team_id,
+        partition_by=f"toString(cityHash64(distinct_id) % {fanout})",
+        conditions=[f"{day_expression} = '{date_str}'"],
     )
-    PARTITION BY toString(cityHash64(distinct_id) % {fanout})
-    SELECT
-        {columns}
-    FROM person AS p FINAL
-    INNER JOIN person_distinct_id2 AS pd FINAL ON p.id = pd.person_id AND p.team_id = pd.team_id
-    WHERE p.team_id = {team_id}
-      AND pd.team_id = {team_id}
-      AND {day_expression} = '{date_str}'
-      AND p.is_deleted = 0
-      AND pd.is_deleted = 0
-    SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
-    """
 
     # Bound per-partition writer memory like the events export (see PARQUET_WRITER_SETTINGS).
     export_settings = PERSONS_JOIN_SETTINGS.copy()
@@ -2754,22 +2742,9 @@ def export_persons_full_to_duckling_s3(
     )
     fanout = _compute_fanout(row_count, config.target_rows_per_file, config.max_s3_file_fanout)
 
-    export_sql = f"""
-    INSERT INTO FUNCTION s3(
-        '{s3_url}',
-        'Parquet'
+    export_sql = persons_export_sql(
+        s3_url, columns, team_id, partition_by=f"toString(cityHash64(distinct_id) % {fanout})"
     )
-    PARTITION BY toString(cityHash64(distinct_id) % {fanout})
-    SELECT
-        {columns}
-    FROM person AS p FINAL
-    INNER JOIN person_distinct_id2 AS pd FINAL ON p.id = pd.person_id AND p.team_id = pd.team_id
-    WHERE p.team_id = {team_id}
-      AND pd.team_id = {team_id}
-      AND p.is_deleted = 0
-      AND pd.is_deleted = 0
-    SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
-    """
 
     context.log.info(f"Exporting all persons for {info} ({row_count} distinct-ids → {fanout} file(s)) to {s3_glob}")
     logger.info(
@@ -2791,30 +2766,49 @@ def export_persons_full_to_duckling_s3(
         raise
 
 
+def persons_export_sql(
+    s3_url: str, columns: str, team_id: int, *, partition_by: str, conditions: Sequence[str] = ()
+) -> str:
+    """Export the team's persons, one row per distinct id, to `s3_url`.
+
+    FINAL deduplicates the ReplacingMergeTree rows. PARTITION BY sees the output columns of the SELECT, not the
+    source aliases.
+    """
+    extra = "".join(f"\n      AND {condition}" for condition in conditions)
+    return f"""
+    INSERT INTO FUNCTION s3(
+        '{s3_url}',
+        'Parquet'
+    )
+    PARTITION BY {partition_by}
+    SELECT
+        {columns}
+    FROM person AS p FINAL
+    INNER JOIN person_distinct_id2 AS pd FINAL ON p.id = pd.person_id AND p.team_id = pd.team_id
+    WHERE p.team_id = {team_id}
+      AND pd.team_id = {team_id}{extra}
+      AND p.is_deleted = 0
+      AND pd.is_deleted = 0
+    SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
+    """
+
+
 def hoglake_persons_full_month_sql(s3_url: str, columns: str, team_id: int, month_start: date, fanout: int) -> str:
     """One month of a full persons export, with one file per UTC day and hash bucket.
 
     The partition id joins the UTC day and the bucket in one string, because a tuple would put brackets and quotes
     in the file name. PARTITION BY sees the output columns of the SELECT, not the source aliases.
     """
-    return f"""
-    INSERT INTO FUNCTION s3(
-        '{s3_url}',
-        'Parquet'
+    return persons_export_sql(
+        s3_url,
+        columns,
+        team_id,
+        partition_by=f"concat(toString(toDate(_timestamp, 'UTC')), '_', toString(cityHash64(distinct_id) % {fanout}))",
+        conditions=[
+            f"p._timestamp >= toDateTime('{month_start.isoformat()}', 'UTC')",
+            f"p._timestamp < toDateTime('{_next_month(month_start).isoformat()}', 'UTC')",
+        ],
     )
-    PARTITION BY concat(toString(toDate(_timestamp, 'UTC')), '_', toString(cityHash64(distinct_id) % {fanout}))
-    SELECT
-        {columns}
-    FROM person AS p FINAL
-    INNER JOIN person_distinct_id2 AS pd FINAL ON p.id = pd.person_id AND p.team_id = pd.team_id
-    WHERE p.team_id = {team_id}
-      AND pd.team_id = {team_id}
-      AND p.is_deleted = 0
-      AND pd.is_deleted = 0
-      AND p._timestamp >= toDateTime('{month_start.isoformat()}', 'UTC')
-      AND p._timestamp < toDateTime('{_next_month(month_start).isoformat()}', 'UTC')
-    SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
-    """
 
 
 def _export_persons_full_by_month(
