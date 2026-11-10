@@ -282,7 +282,7 @@ export class SecretEventRedactor {
     }
     text = redactGitlabSecrets(text);
     const gitlabHeld = gitlabPartialPrefixLength(text);
-    const gitlabSuffix = gitlabHeld ? text.slice(-gitlabHeld) : "";
+    let gitlabSuffix = gitlabHeld ? text.slice(-gitlabHeld) : "";
     if (gitlabHeld) text = text.slice(0, -gitlabHeld);
     const context = this.context;
     for (const rule of RULES) {
@@ -308,9 +308,10 @@ export class SecretEventRedactor {
         return host + REDACTED;
       },
     );
-    if (gitlabHeld) {
-      this.active = null;
-      heldDots = 0;
+    if (this.active && gitlabSuffix) {
+      const match = this.active.tail.exec(gitlabSuffix)?.[0] ?? "";
+      gitlabSuffix = gitlabSuffix.slice(match.length);
+      if (gitlabSuffix) this.active = null;
     }
     text += gitlabSuffix;
     // The rule loop has already redacted the text; this covers the other fields.

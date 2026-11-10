@@ -44,6 +44,7 @@ export interface SessionLogWriterOptions {
 }
 
 interface ChunkBuffer {
+  kind: "agent_message_chunk" | "agent_thought_chunk";
   text: string;
   firstTimestamp: string;
   firstEventId?: string;
@@ -250,11 +251,19 @@ export class SessionLogWriter {
       }
 
       // Check if this is an agent_message_chunk event
-      if (this.isAgentMessageChunk(message)) {
+      const chunkKind = this.getSessionUpdateType(message);
+      if (
+        chunkKind === "agent_message_chunk" ||
+        (chunkKind === "agent_thought_chunk" && this.extractChunkText(message))
+      ) {
+        if (session.chunkBuffer && session.chunkBuffer.kind !== chunkKind) {
+          this.emitCoalescedMessage(sessionId, session);
+        }
         const text = this.extractChunkText(message);
         if (text) {
           if (!session.chunkBuffer) {
             session.chunkBuffer = {
+              kind: chunkKind,
               text,
               firstTimestamp: timestamp,
               firstEventId: session.leadingEmptyChunkEventId ?? eventId,
@@ -281,7 +290,10 @@ export class SessionLogWriter {
       // the direct message supersedes the partial chunks
       const isNeutral = session.transcriptBoundaries.isNeutral(message);
       let supersededChunks: ChunkBuffer | undefined;
-      if (this.isDirectAgentMessage(message) && session.chunkBuffer) {
+      if (
+        this.isDirectAgentMessage(message) &&
+        session.chunkBuffer?.kind === "agent_message_chunk"
+      ) {
         supersededChunks = session.chunkBuffer;
         session.chunkBuffer = undefined;
       } else if (!isNeutral) {
@@ -611,10 +623,6 @@ export class SessionLogWriter {
     session.pendingRawInputSnapshots.clear();
   }
 
-  private isAgentMessageChunk(message: Record<string, unknown>): boolean {
-    return this.getSessionUpdateType(message) === "agent_message_chunk";
-  }
-
   private isEmptyThoughtChunk(message: Record<string, unknown>): boolean {
     if (this.getSessionUpdateType(message) !== "agent_thought_chunk") {
       return false;
@@ -637,11 +645,14 @@ export class SessionLogWriter {
   private emitCoalescedMessage(sessionId: string, session: SessionState): void {
     if (!session.chunkBuffer) return;
 
-    const { firstTimestamp, firstEventId, lastEventId } = session.chunkBuffer;
+    const { kind, firstTimestamp, firstEventId, lastEventId } =
+      session.chunkBuffer;
     const text = redactSecrets(session.chunkBuffer.text);
     session.chunkBuffer = undefined;
-    session.lastAgentMessage = text;
-    session.currentTurnMessages.push(text);
+    if (kind === "agent_message_chunk") {
+      session.lastAgentMessage = text;
+      session.currentTurnMessages.push(text);
+    }
 
     // The id range covers the chunk events this entry replaces.
     const entry: StoredNotification = {
@@ -654,7 +665,8 @@ export class SessionLogWriter {
         method: "session/update",
         params: {
           update: {
-            sessionUpdate: "agent_message",
+            sessionUpdate:
+              kind === "agent_message_chunk" ? "agent_message" : kind,
             content: { type: "text", text },
           },
         },

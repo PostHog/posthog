@@ -118,6 +118,12 @@ describe("redactSecrets", () => {
     }
   });
 
+  it("preserves generic token redaction when a GitLab prefix overlaps a chunk", () => {
+    vi.stubEnv("GITLAB_TOKEN", "glpat-example-secret");
+    expect(streamText(["phx_g", "Abc123 "])).toBe("[REDACTED] ");
+    vi.unstubAllEnvs();
+  });
+
   it("redacts every segment of a JWT", () => {
     const jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhY2N0XzEifQ.c2lnbmF0dXJl";
     expect(redactSecrets(`Bearer ${jwt} ok`)).toBe("Bearer [REDACTED] ok");

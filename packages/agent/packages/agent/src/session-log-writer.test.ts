@@ -65,6 +65,14 @@ describe("SessionLogWriter", () => {
           content: { type: "text", text: token.slice(7) },
         }),
       );
+      for (const text of [token.slice(0, 7), token.slice(7)]) {
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("agent_thought_chunk", {
+            content: { type: "text", text },
+          }),
+        );
+      }
       logWriter.appendRawLine(
         sessionId,
         makeSessionUpdate("tool_call", {
@@ -76,7 +84,7 @@ describe("SessionLogWriter", () => {
       const entries = JSON.stringify(mockAppendLog.mock.calls[0][2]);
       expect(entries).not.toContain(token);
       expect(entries).not.toContain(encodeURIComponent(token));
-      expect(entries.match(/\[REDACTED\]/g)).toHaveLength(2);
+      expect(entries.match(/\[REDACTED\]/g)).toHaveLength(3);
     });
 
     it("redacts MCP authorization headers before persistence", async () => {
