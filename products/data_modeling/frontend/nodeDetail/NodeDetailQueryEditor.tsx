@@ -43,7 +43,6 @@ export function NodeDetailQueryEditor({
                 hideAgentHints
                 hideAiTools
                 showOpenInSqlEditor
-                showInlineSaveBar
                 autoFocusQueryPane={false}
                 hostSync={<NodeDetailQueryEditorSync id={id} />}
             />

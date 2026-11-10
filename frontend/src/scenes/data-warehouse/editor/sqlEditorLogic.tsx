@@ -170,7 +170,6 @@ import {
     queryHistorySuggestionOnReject,
     queryHistorySuggestionOnRejectText,
 } from './suggestions/queryHistorySuggestion'
-import { updateViewLabel } from './updateViewLabel'
 
 export interface SqlEditorLogicProps {
     tabId: string
@@ -1054,8 +1053,8 @@ export interface sqlEditorLogicActions {
     reportAIQueryRejected: () => {
         value: true
     }
-    reviewEditingViewUpdate: (skipReview?: boolean) => {
-        skipReview: boolean | undefined
+    reviewEditingViewUpdate: () => {
+        value: true
     }
     reviewViewUpdate: (
         view: UpdateViewPayload,
@@ -1585,7 +1584,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             inProgressDraftEdits,
         }),
         deleteInProgressDraftEdit: (draftId: string) => ({ draftId }),
-        reviewEditingViewUpdate: (skipReview?: boolean) => ({ skipReview }),
+        reviewEditingViewUpdate: true,
         reviewViewUpdate: (view: UpdateViewPayload, draftId?: string) => ({
             view,
             draftId,
@@ -3508,7 +3507,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                 }
             },
-            reviewEditingViewUpdate: ({ skipReview }) => {
+            reviewEditingViewUpdate: () => {
                 const view = values.editingView
                 if (!view) {
                     return
@@ -3519,20 +3518,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
                 // The data node is bound inside the editor, so the response is read from the mounted instance.
                 const response = dataNodeLogic.findMounted({ key: values.dataLogicKey })?.values.response
-                const payload = {
+                actions.reviewViewUpdate({
                     id: view.id,
                     query: { ...values.sourceQuery.source, query: values.queryInput ?? '' },
                     types: response && 'types' in response ? (response.types ?? []) : [],
                     shouldRematerialize: view.is_materialized === true,
                     edited_history_id: values.inProgressViewEdits[view.id],
-                }
-                // A caller that already shows the diff has nothing to review, so it saves directly.
-                // updateView still runs the conflict check either way.
-                if (skipReview) {
-                    actions.updateView(payload)
-                    return
-                }
-                actions.reviewViewUpdate(payload)
+                })
             },
             reviewViewUpdate: ({ view, draftId }) => {
                 // Reuse the editor's inline accept/reject diff (QueryPane) instead of a separate
@@ -3547,7 +3539,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions._setSuggestionPayload({
                     suggestedValue: editedQuery,
                     originalValue: savedQuery,
-                    acceptText: updateViewLabel(view.shouldRematerialize === true),
+                    acceptText: view.shouldRematerialize ? 'Update and re-materialize view' : 'Update view',
                     rejectText: 'Cancel',
                     diffShowRunButton: false,
                     onAccept: () => {

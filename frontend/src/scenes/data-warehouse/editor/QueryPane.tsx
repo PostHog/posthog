@@ -13,8 +13,6 @@ import { cn } from 'lib/utils/css-classes'
 import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { editorSizingLogic } from './editorSizingLogic'
-import { QueryPaneFloatingBar } from './QueryPaneFloatingBar'
-import { QueryPaneSaveBar } from './QueryPaneSaveBar'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
 interface QueryPaneProps {
@@ -27,16 +25,9 @@ interface QueryPaneProps {
     editorVimModeEnabled?: boolean
     editorVimrc?: string
     constrainHeight?: boolean
-    /** Opt in to the floating save bar for the view being edited. Hosts with no view leave it off. */
-    showInlineSaveBar?: boolean
-    /** Saved query text to diff the edit against while typing. Unset leaves the plain editor. */
-    liveDiffOriginalValue?: string
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
-    // A suggestion's diff and the live edit diff both render through originalValue, but only the
-    // suggestion gets the accept and reject bar: the live one is saved from QueryPaneSaveBar.
-    const diffOriginalValue = props.originalValue || props.liveDiffOriginalValue
     const { queryPaneHeight, queryPaneDesiredSize, queryPaneResizerProps } = useValues(editorSizingLogic)
     const { onAcceptSuggestedQueryInput, onRejectSuggestedQueryInput } = useActions(sqlEditorLogic)
     const { acceptText, rejectText, diffShowRunButton, insightLoading } = useValues(sqlEditorLogic)
@@ -47,7 +38,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 enabled: false,
             },
             wordWrap: 'on',
-            scrollBeyondLastLine: !!diffOriginalValue,
+            scrollBeyondLastLine: !!props.originalValue,
             automaticLayout: true,
             fixedOverflowWidgets: true,
             glyphMargin: true,
@@ -57,7 +48,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
             quickSuggestionsDelay: 300,
             readOnly: queryLoading,
         }),
-        [diffOriginalValue, queryLoading]
+        [props.originalValue, queryLoading]
     )
     // Without an output pane beneath it the editor owns its column, so it takes whatever height the
     // database tree gives the row rather than leaving dead space next to the schema list.
@@ -100,8 +91,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                         sourceQuery={props.sourceQuery}
                                         height={height}
                                         width={width}
-                                        originalValue={diffOriginalValue}
-                                        hideOriginalLineNumbers={!props.originalValue && !!props.liveDiffOriginalValue}
+                                        originalValue={props.originalValue}
                                         enableVimMode={props.editorVimModeEnabled}
                                         vimrc={props.editorVimrc}
                                         {...props.codeEditorProps}
@@ -121,47 +111,48 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             <span>Loading query…</span>
                         </div>
                     )}
-                    {props.showInlineSaveBar && !props.originalValue && <QueryPaneSaveBar />}
                     {props.originalValue && (
-                        <QueryPaneFloatingBar>
-                            <div className="flex gap-1 whitespace-nowrap px-1.5 py-1">
-                                {!!diffShowRunButton && (
-                                    <LemonButton
-                                        type="primary"
-                                        icon={<IconCheck color="var(--success)" />}
-                                        onClick={() => {
-                                            onAcceptSuggestedQueryInput(true)
-                                        }}
-                                        tooltipPlacement="top"
-                                        size="small"
-                                    >
-                                        {acceptText} & run
-                                    </LemonButton>
-                                )}
+                        <div
+                            className="absolute flex gap-1 bg-bg-light rounded border py-1 px-1.5 z-10 left-1/2 -translate-x-1/2 bottom-4 whitespace-nowrap"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)' }}
+                        >
+                            {!!diffShowRunButton && (
                                 <LemonButton
-                                    type="tertiary"
+                                    type="primary"
                                     icon={<IconCheck color="var(--success)" />}
                                     onClick={() => {
-                                        onAcceptSuggestedQueryInput()
+                                        onAcceptSuggestedQueryInput(true)
                                     }}
                                     tooltipPlacement="top"
                                     size="small"
                                 >
-                                    {acceptText}
+                                    {acceptText} & run
                                 </LemonButton>
-                                <LemonButton
-                                    status="danger"
-                                    icon={<IconX />}
-                                    onClick={() => {
-                                        onRejectSuggestedQueryInput()
-                                    }}
-                                    tooltipPlacement="top"
-                                    size="small"
-                                >
-                                    {rejectText}
-                                </LemonButton>
-                            </div>
-                        </QueryPaneFloatingBar>
+                            )}
+                            <LemonButton
+                                type="tertiary"
+                                icon={<IconCheck color="var(--success)" />}
+                                onClick={() => {
+                                    onAcceptSuggestedQueryInput()
+                                }}
+                                tooltipPlacement="top"
+                                size="small"
+                            >
+                                {acceptText}
+                            </LemonButton>
+                            <LemonButton
+                                status="danger"
+                                icon={<IconX />}
+                                onClick={() => {
+                                    onRejectSuggestedQueryInput()
+                                }}
+                                tooltipPlacement="top"
+                                size="small"
+                            >
+                                {rejectText}
+                            </LemonButton>
+                        </div>
                     )}
                 </div>
                 <Resizer {...queryPaneResizerProps} />

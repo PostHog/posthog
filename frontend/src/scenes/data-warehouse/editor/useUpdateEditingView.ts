@@ -11,8 +11,6 @@ interface UpdateEditingView {
     loading: boolean
     isMaterializedView: boolean
     update: () => void
-    /** Saves without opening the review, for a caller that already shows the diff. */
-    commit: () => void
 }
 
 /** Update state for the view open in the editor. Call it below the SQLEditor bindings. */
@@ -71,11 +69,5 @@ export function useUpdateEditingView(): UpdateEditingView {
         saveAsViewDisabledReason,
     ])
 
-    return {
-        disabledReason,
-        loading,
-        isMaterializedView,
-        update: () => reviewEditingViewUpdate(),
-        commit: () => reviewEditingViewUpdate(true),
-    }
+    return { disabledReason, loading, isMaterializedView, update: reviewEditingViewUpdate }
 }

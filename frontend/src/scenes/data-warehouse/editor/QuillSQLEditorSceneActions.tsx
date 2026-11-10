@@ -21,7 +21,6 @@ import type { SaveAsTarget, SaveAsTargetId } from 'products/data_warehouse/front
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { SaveAsMenuItem, editorSceneLogic } from './editorSceneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
-import { updateViewLabel } from './updateViewLabel'
 
 export interface QuillSQLEditorSecondarySaveMenuItem extends SaveAsMenuItem {
     onClick: () => void
@@ -190,7 +189,7 @@ export function QuillSQLEditorSceneActions({
                                     disabledReason={editingViewDisabledReason}
                                 >
                                     {!editingViewLoading && <IconDownload />}
-                                    {updateViewLabel(isMaterializedView)}
+                                    {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
                                 </Button>
                             </AccessControlAction>
                             {saveOptionsTrigger()}
