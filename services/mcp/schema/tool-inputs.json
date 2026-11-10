@@ -3199,7 +3199,7 @@
                 },
                 "action_id": {
                     "type": "string",
-                    "description": "Id of the function_email step whose email to edit."
+                    "description": "Id of the function_email or email_sandbox step whose email to edit."
                 },
                 "operations": {
                     "description": "Ordered edits applied atomically to the step's email design - the same operations as workflows-patch-email-template. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. Reference blocks by id (read them via workflows-get).",
@@ -3408,7 +3408,7 @@
                     }
                 },
                 "email_patch": {
-                    "description": "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is always re-rendered from it.",
+                    "description": "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. A sandbox step (type email_sandbox) takes only subject, preheader, text and to. The design is edited via operations, and html is always re-rendered from it.",
                     "type": "object",
                     "propertyNames": {
                         "type": "string"
@@ -3418,6 +3418,15 @@
                 "base_updated_at": {
                     "description": "Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow is newer, the patch is rejected with 409 instead of clobbering a concurrent edit.",
                     "type": "string"
+                },
+                "sender": {
+                    "description": "Switch the step's sender. 'sandbox' moves it to PostHog's sandbox sender, which sends only to verified members of the organization and needs no verified domain; it is set up for the project on first use. 'own' moves a sandbox step back to one of the project's verified senders, named in email_patch.from.integrationId. The step keeps its id, recipient, content and category.\n\n* `sandbox` - sandbox\n* `own` - own",
+                    "type": "string",
+                    "enum": ["sandbox", "own"]
+                },
+                "drop_own_sender_settings": {
+                    "description": "With sender 'sandbox': drop the settings the sandbox sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it.",
+                    "type": "boolean"
                 }
             },
             "required": ["id", "action_id"]

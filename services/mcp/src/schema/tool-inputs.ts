@@ -7,6 +7,7 @@ import {
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
 import { FeatureFlagsPartialUpdateBody, FeatureFlagsPartialUpdateParams } from '../generated/feature_flags/api'
+import { HogFlowsActionsEmailPartialUpdateBody } from '../generated/workflows/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -1433,7 +1434,7 @@ export const EmailTemplateDesignPatchSchema = z.strictObject({
 export const WorkflowActionEmailPatchSchema = z
     .object({
         id: z.string().describe('The workflow (HogFlow) id.'),
-        action_id: z.string().describe('Id of the function_email step whose email to edit.'),
+        action_id: z.string().describe('Id of the function_email or email_sandbox step whose email to edit.'),
         operations: z
             .array(EmailDesignPatchOperationSchema)
             .min(1)
@@ -1448,8 +1449,9 @@ export const WorkflowActionEmailPatchSchema = z
             .optional()
             .describe(
                 "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, " +
-                    'preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is ' +
-                    'always re-rendered from it.'
+                    'preheader, text, to, from, replyTo, cc, bcc. A sandbox step (type email_sandbox) takes only ' +
+                    'subject, preheader, text and to. The design is edited via operations, and html is always ' +
+                    're-rendered from it.'
             ),
         base_updated_at: z
             .string()
@@ -1458,12 +1460,14 @@ export const WorkflowActionEmailPatchSchema = z
                 'Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow ' +
                     'is newer, the patch is rejected with 409 instead of clobbering a concurrent edit.'
             ),
+        sender: HogFlowsActionsEmailPartialUpdateBody().shape.sender,
+        drop_own_sender_settings: HogFlowsActionsEmailPartialUpdateBody().shape.drop_own_sender_settings,
     })
     .superRefine((data, ctx) => {
-        if (!data.operations?.length && !data.email_patch) {
+        if (!data.operations?.length && !data.email_patch && !data.sender) {
             ctx.addIssue({
                 code: 'custom',
-                message: 'Provide operations and/or email_patch.',
+                message: 'Provide operations, email_patch, or sender.',
             })
         }
     })

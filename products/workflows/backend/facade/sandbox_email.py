@@ -7,11 +7,13 @@ from products.workflows.backend.services.sandbox_email.conversion import (
     own_only_settings,
     to_own_email_action,
     to_sandbox_action,
+    written_in_liquid,
 )
 from products.workflows.backend.services.sandbox_email.provisioning import (
     SANDBOX_SENDER_ADOPTION_FLAG,
     SANDBOX_SENDER_INTEGRATION_ID,
     has_verified_own_sender,
+    is_verified_own_sender,
     provision_sandbox_sender,
     sandbox_adoption_enabled,
     sandbox_sender_status,
@@ -33,6 +35,7 @@ __all__ = [
     "SandboxSenderUnavailable",
     "can_default_to_sandbox",
     "has_verified_own_sender",
+    "is_verified_own_sender",
     "own_only_settings",
     "provision_sandbox_sender",
     "sandbox_adoption_enabled",
@@ -42,4 +45,5 @@ __all__ = [
     "to_sandbox_action",
     "valid_sandbox_action_id",
     "validate_sandbox_email_action",
+    "written_in_liquid",
 ]

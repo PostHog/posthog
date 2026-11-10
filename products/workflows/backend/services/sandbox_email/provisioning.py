@@ -67,3 +67,10 @@ def set_up_sandbox_sender(team: Team, user: User) -> IntegrationRecord:
 
 def has_verified_own_sender(team_id: int) -> bool:
     return any(sender.config.get("verified") for sender in IntegrationManager.email.credentials.list(team_id))
+
+
+def is_verified_own_sender(team_id: int, integration_id: int) -> bool:
+    return any(
+        sender.id == integration_id and sender.config.get("verified")
+        for sender in IntegrationManager.email.credentials.list(team_id)
+    )

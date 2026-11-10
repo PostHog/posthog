@@ -47,7 +47,7 @@ def to_sandbox_action(action: dict[str, Any]) -> dict[str, Any]:
         "type": SANDBOX_ACTION_TYPE,
         "config": {
             **_category(config),
-            "inputs": {"email": {"templating": _templating(email), "value": _content(_value(email))}},
+            "inputs": {"email": {"templating": "liquid", "value": _content(_value(email))}},
         },
     }
 
@@ -64,12 +64,16 @@ def to_own_email_action(action: dict[str, Any], integration_id: int) -> dict[str
             **_category(config),
             "inputs": {
                 "email": {
-                    "templating": _templating(email),
+                    "templating": "liquid",
                     "value": {**_content(_value(email)), "from": {"integrationId": integration_id}},
                 }
             },
         },
     }
+
+
+def written_in_liquid(action: dict[str, Any]) -> bool:
+    return _email(_config(action)).get("templating", "hog") == "liquid"
 
 
 def can_default_to_sandbox(action: dict[str, Any]) -> bool:
@@ -109,12 +113,9 @@ def _category(config: dict[str, Any]) -> dict[str, Any]:
     return {key: config[key] for key in _CATEGORY_KEYS if config.get(key)}
 
 
-def _templating(email: dict[str, Any]) -> str:
-    return "liquid" if email.get("templating") == "liquid" else "hog"
-
-
 def _content(value: dict[str, Any]) -> dict[str, Any]:
-    recipient = value.get("to") if isinstance(value.get("to"), dict) else {}
+    to = value.get("to")
+    recipient: dict[str, Any] = to if isinstance(to, dict) else {}
     content: dict[str, Any] = {
         "to": {
             "email": recipient["email"] if isinstance(recipient.get("email"), str) else "",

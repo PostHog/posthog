@@ -273,6 +273,7 @@ from products.workflows.backend.facade.sandbox_email import (
     SandboxSenderUnavailable,
     can_default_to_sandbox,
     has_verified_own_sender,
+    is_verified_own_sender,
     own_only_settings,
     sandbox_adoption_enabled,
     set_up_sandbox_sender,
@@ -280,6 +281,7 @@ from products.workflows.backend.facade.sandbox_email import (
     to_sandbox_action,
     valid_sandbox_action_id,
     validate_sandbox_email_action,
+    written_in_liquid,
 )
 from products.workflows.backend.facade.schedules import (
     compute_next_occurrences,
@@ -1080,7 +1082,7 @@ def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, contex
         {
             action.get("id")
             for action in [*(instance.actions or []), *((instance.draft or {}).get("actions") or [])]
-            if isinstance(action, dict)
+            if isinstance(action, dict) and isinstance(action.get("id"), str)
         }
         if instance
         else set()
@@ -1088,12 +1090,12 @@ def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, contex
     new_steps = [
         index
         for index, action in enumerate(actions)
-        if isinstance(action, dict) and action.get("id") not in stored_ids and can_default_to_sandbox(action)
+        if isinstance(action, dict) and can_default_to_sandbox(action) and action["id"] not in stored_ids
     ]
     if not new_steps:
         return data
     team = get_team()
-    if has_verified_own_sender(team.id):
+    if has_verified_own_sender(team.id) or not _can_set_up_sandbox_sender(team, user):
         return data
     try:
         set_up_sandbox_sender(team, user)
@@ -1101,8 +1103,23 @@ def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, contex
         return data
     converted = list(actions)
     for index in new_steps:
-        converted[index] = to_sandbox_action(actions[index])
+        step = deepcopy(actions[index])
+        _apply_email_template_content(step["config"], team, False, context)
+        if step["config"].get("template_uuid") and not _has_email_body(step):
+            continue
+        converted[index] = to_sandbox_action(step)
     return {**data, "actions": converted}
+
+
+def _can_set_up_sandbox_sender(team: Team, user: User) -> bool:
+    return UserAccessControl(user=user, team=team).check_access_level_for_resource("hog_flow", "editor")
+
+
+def _has_email_body(action: dict) -> bool:
+    inputs = action["config"].get("inputs")
+    email = inputs.get("email") if isinstance(inputs, dict) else None
+    value = email.get("value") if isinstance(email, dict) else None
+    return isinstance(value, dict) and any(value.get(key) for key in _TEMPLATE_EMAIL_BODY_KEYS)
 
 
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
@@ -4364,6 +4381,13 @@ def _apply_action_email_edit(
     _locate_action_email_value(new_actions, action_id)
     index = next(i for i, a in enumerate(new_actions) if isinstance(a, dict) and a.get("id") == action_id)
     if sender == "own" and new_actions[index]["type"] == SANDBOX_EMAIL_ACTION_TYPE:
+        if not written_in_liquid(new_actions[index]):
+            raise exceptions.ValidationError(
+                {
+                    "sender": "This step is written in Hog, and steps on the project's own senders use Liquid. "
+                    "Add a new email step in Liquid on that sender, then remove this one."
+                }
+            )
         new_actions[index] = to_own_email_action(new_actions[index], _patched_sender_id(email_patch))
     elif new_actions[index]["type"] == SANDBOX_EMAIL_ACTION_TYPE:
         own_only = sorted(set(email_patch) - _SANDBOX_EMAIL_PATCH_KEYS)
@@ -6060,11 +6084,18 @@ class HogFlowViewSet(
         sender = op_serializer.validated_data.get("sender")
         drop_own_sender_settings = op_serializer.validated_data["drop_own_sender_settings"]
         action_id = kwargs["action_id"]
-        if sender == "sandbox":
-            self._set_up_sandbox_sender(request)
 
         # Authorize + team-scope via the normal lookup; the service re-reads FOR UPDATE inside the transaction.
         unlocked = self._edit_state()
+        if sender == "sandbox":
+            self._set_up_sandbox_sender(request)
+        if sender == "own" and not is_verified_own_sender(self.team.id, _patched_sender_id(email_patch)):
+            raise exceptions.ValidationError(
+                {
+                    "sender": "That sender's domain isn't verified yet. Verify it in the project's email settings, "
+                    "or keep the sandbox sender until then."
+                }
+            )
 
         # Rendering is a synchronous Unlayer HTTP call, so it runs before the transaction, against the
         # unlocked row — it must not extend the select_for_update hold. Draft routing is predicted the
@@ -6124,6 +6155,10 @@ class HogFlowViewSet(
     def _set_up_sandbox_sender(self, request: Request) -> None:
         if not isinstance(request.user, User):
             raise exceptions.ValidationError({"sender": "Switching to the sandbox sender needs a signed-in user."})
+        if not _can_set_up_sandbox_sender(self.team, request.user):
+            raise exceptions.PermissionDenied(
+                "Setting up the sandbox sender needs edit access to all workflows in this project."
+            )
         try:
             set_up_sandbox_sender(self.team, request.user)
         except SandboxSenderUnavailable as error:
