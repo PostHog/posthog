@@ -134,9 +134,9 @@ from products.alerts.backend.facade.platform import (
     moved_alert_check_page,
     moved_alert_fired_checks,
     moved_alert_statuses,
-    native_insight_alert,
     native_insight_alert_matches,
-    native_insight_alerts,
+    native_insight_alert_view,
+    native_insight_alert_views,
     platform_takes_new_alert_with,
     write_moved_alert_edit,
 )
@@ -1925,7 +1925,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert_id = uuid.UUID(str(self.kwargs[self.lookup_url_kwarg or self.lookup_field]))
         except ValueError:
             return None
-        alert = native_insight_alert(self.team_id, alert_id)
+        view = native_insight_alert_view(self.team_id, alert_id)
+        alert = AlertConfiguration.from_platform_view(view, team_id=self.team_id) if view is not None else None
         if alert is None:
             return None
         # The same read gates `safely_get_queryset` applies to a row.
@@ -2022,7 +2023,11 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         loaded: dict[uuid.UUID, AlertConfiguration] = {
             alert.id: alert for alert in rows.filter(id__in=[key.id for key in listed if not key.native])
         }
-        native = native_insight_alerts(self.team_id, [key.id for key in listed if key.native])
+        native = {
+            alert.id: alert
+            for view in native_insight_alert_views(self.team_id, [key.id for key in listed if key.native])
+            if (alert := AlertConfiguration.from_platform_view(view, team_id=self.team_id)) is not None
+        }
         if searched:
             for key in listed:
                 if key.native and key.id in native:

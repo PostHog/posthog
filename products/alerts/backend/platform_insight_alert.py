@@ -105,16 +105,12 @@ def investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | Non
     return alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
 
 
-def native_insight_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | None:
-    """An unsaved alert that presents an insight alert with no insight row the way the API shows a
-    row. Its `save` and `delete` raise, because every write goes to the platform. None when there is
-    no such alert or its insight is gone."""
+def native_insight_alert_view(team_id: int, alert_id: UUID) -> PlatformAlertConfigurationView | None:
+    """The team's insight alert with no insight row under `alert_id`, as the platform keeps it, or None."""
     configuration = get_configuration(
         team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id
     )
-    if configuration is None or configuration.legacy_configuration_id is not None:
-        return None
-    return _presented(configuration, team_id=team_id)
+    return configuration if configuration is not None and configuration.legacy_configuration_id is None else None
 
 
 def native_insight_alert_matches(team_id: int, *, search: str | None) -> tuple[NativeConfigurationMatch, ...]:
@@ -122,10 +118,10 @@ def native_insight_alert_matches(team_id: int, *, search: str | None) -> tuple[N
     return native_configuration_matches(team_id=team_id, source_kind=SourceKind.INSIGHT, search=search)
 
 
-def native_insight_alerts(team_id: int, alert_ids: Collection[UUID]) -> dict[UUID, AlertConfiguration]:
-    """`native_insight_alert` for each named alert that exists, keyed by id."""
+def native_insight_alert_views(team_id: int, alert_ids: Collection[UUID]) -> tuple[PlatformAlertConfigurationView, ...]:
+    """The named insight alerts with no insight row, as the platform keeps them, in no particular order."""
     if not alert_ids:
-        return {}
+        return ()
     page = list_configurations(
         team_id=team_id,
         source_kinds=[SourceKind.INSIGHT.value],
@@ -133,15 +129,15 @@ def native_insight_alerts(team_id: int, alert_ids: Collection[UUID]) -> dict[UUI
         offset=0,
         configuration_ids=alert_ids,
     )
-    presented = (
-        _presented(configuration, team_id=team_id)
-        for configuration in page.configurations
-        if configuration.legacy_configuration_id is None
+    return tuple(
+        configuration for configuration in page.configurations if configuration.legacy_configuration_id is None
     )
-    return {alert.id: alert for alert in presented if alert is not None}
 
 
-def _presented(configuration: PlatformAlertConfigurationView, *, team_id: int) -> AlertConfiguration | None:
+def presented_alert(configuration: PlatformAlertConfigurationView, *, team_id: int) -> AlertConfiguration | None:
+    """An unsaved alert that presents an insight alert with no insight row the way the API shows a
+    row. Its `save` and `delete` raise, because every write goes to the platform. None when its
+    insight is gone."""
     alert = alert_from_platform(configuration, team_id=team_id, enabled=configuration.enabled)
     if alert is None:
         return None
