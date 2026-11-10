@@ -10,15 +10,15 @@ export function useStickyColumnOffsets(
 ): { headerRowRef: RefObject<HTMLTableRowElement>; offsets: Record<string, number> } {
     const headerRowRef = useRef<HTMLTableRowElement>(null)
     const [offsets, setOffsets] = useState<Record<string, number>>({})
-    const stickySignature = stickyKeys.join('|')
-    const columnSignature = columnKeys.join('|')
+    const stickySignature = JSON.stringify(stickyKeys)
+    const columnSignature = JSON.stringify(columnKeys)
 
     useLayoutEffect(() => {
         const row = headerRowRef.current
         if (!row) {
             return
         }
-        const sticky = new Set(stickySignature.split('|'))
+        const sticky = new Set<string>(JSON.parse(stickySignature))
         const measure = (): void => {
             const next: Record<string, number> = {}
             let left = 0

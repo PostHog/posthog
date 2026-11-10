@@ -196,6 +196,7 @@ export function QuillInsightsTableHead({
         <TableHead
             data-column-key={column.key}
             align={isNumericColumn(column) ? 'right' : undefined}
+            aria-sort={order === 1 ? 'ascending' : order === -1 ? 'descending' : undefined}
             className="max-w-80"
             sticky={sticky}
             style={style}

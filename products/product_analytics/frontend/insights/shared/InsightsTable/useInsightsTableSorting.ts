@@ -13,15 +13,19 @@ export function useInsightsTableSorting(useURL: boolean): [Sorting | null, (colu
     const { push } = useActions(router)
     const [internalSorting, setInternalSorting] = useState<Sorting | null>(null)
 
-    const param: string | undefined = useURL ? searchParams[SORTING_PARAM] : undefined
-    const sorting =
-        internalSorting ??
-        (param ? { columnKey: param.replace(/^-/, ''), order: param.startsWith('-') ? -1 : 1 } : null)
+    const param: string | undefined = searchParams[SORTING_PARAM]
+    // With the URL as the only source, Back and Forward move the sort along with the address.
+    const sorting: Sorting | null = useURL
+        ? param
+            ? { columnKey: param.replace(/^-/, ''), order: param.startsWith('-') ? -1 : 1 }
+            : null
+        : internalSorting
 
     const toggleSorting = (columnKey: string): void => {
         const next = getNextSorting(sorting, columnKey, false)
-        setInternalSorting(next)
-        if (useURL) {
+        if (!useURL) {
+            setInternalSorting(next)
+        } else {
             push(
                 location.pathname,
                 {

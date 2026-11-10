@@ -27,14 +27,14 @@ export function QuillColumnSortButton({
             aria-label={ariaLabel}
             tooltip={children ? undefined : ariaLabel}
             className={cn(
-                'gap-1.5 align-middle',
+                'max-w-72 gap-1.5 align-middle',
                 !children && 'ml-2',
                 order && 'text-foreground',
                 !order && 'hover:bg-fill-hover/50'
             )}
             onClick={onClick}
         >
-            {children}
+            {children && <span className="min-w-0 truncate">{children}</span>}
             {order === 1 ? (
                 <ArrowUp className="size-3" />
             ) : order === -1 ? (

@@ -42,8 +42,9 @@ export function QuillBreakdownValue({
                         nativeButton={false}
                         render={<LinkPrimitive to={label} target="_blank" />}
                         title={label}
-                        // Lines the link text up with plain values, the column header and the swatch after it.
-                        className="-mx-2 min-w-0 max-w-full"
+                        // Lines the link text up with plain values, the column header and the swatch after it. Buttons block text
+                        // selection, which would leave the URL out when someone copies rows.
+                        className="-mx-2 min-w-0 max-w-full select-text"
                     >
                         <span className="truncate">{label}</span>
                         <IconExternal />
