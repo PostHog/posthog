@@ -713,6 +713,7 @@ export interface sessionRecordingPlayerLogicValues {
     hasReachedExportFullVideoLimit: boolean // exportsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
+    ambientBackground: boolean // playerSettingsLogic
     playerControlsOverlay: boolean // playerSettingsLogic
     showMetadataFooter: boolean // playerSettingsLogic
     skipInactivitySetting: boolean // playerSettingsLogic
@@ -817,6 +818,7 @@ export interface sessionRecordingPlayerLogicValues {
     seekRenderability: (timestamp: number) => SeekRenderability
     segmentForTimestamp: (timestamp?: number | undefined) => RecordingSegment | null
     sessionRecordingId: string
+    showAmbientBackground: boolean
     showPlayerChrome: boolean
     showingClipParams: boolean
     skipToFirstMatchingEvent: boolean
@@ -885,6 +887,9 @@ export interface sessionRecordingPlayerLogicActions {
         sessionRecordingId: string
         timestamp: number | undefined
     } // exportsLogic
+    setAmbientBackground: (ambientBackground: boolean) => {
+        ambientBackground: boolean
+    } // playerSettingsLogic
     setPlayerControlsOverlay: (playerControlsOverlay: boolean) => {
         playerControlsOverlay: boolean
     } // playerSettingsLogic
@@ -1368,6 +1373,11 @@ export interface sessionRecordingPlayerLogicMeta {
             showingClipParams: boolean,
             playerControlsOverlay: boolean
         ) => boolean
+        showAmbientBackground: (
+            ambientBackground: boolean,
+            maskingWindow: boolean,
+            logicProps: SessionRecordingPlayerLogicProps
+        ) => boolean
         showPlayerChrome: (
             isKioskMode: boolean,
             hoverModeIsEnabled: boolean,
@@ -1475,7 +1485,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'recordingTooLargeToPlay',
             ],
             playerSettingsLogic,
-            ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay'],
+            ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay', 'ambientBackground'],
             userLogic,
             ['user', 'hasAvailableFeature'],
             preflightLogic,
@@ -1506,7 +1516,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess', 'snapshotProcessingFailed'],
             playerSettingsLogic,
-            ['setSpeed', 'setSkipInactivitySetting', 'setPlayerControlsOverlay'],
+            ['setSpeed', 'setSkipInactivitySetting', 'setPlayerControlsOverlay', 'setAmbientBackground'],
             sessionRecordingEventUsageLogic,
             ['reportNextRecordingTriggered', 'reportRecordingExportedToFile', 'reportRecordingDebuggedWithAI'],
             sidePanelStateLogic,
@@ -2478,6 +2488,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     playerControlsOverlay
                 )
             },
+        ],
+        // Screenshot and video exports feed rendering and analysis, which want the recording on plain bars.
+        showAmbientBackground: [
+            (s) => [s.ambientBackground, s.maskingWindow, s.logicProps],
+            (
+                ambientBackground: boolean,
+                maskingWindow: boolean,
+                logicProps: SessionRecordingPlayerLogicProps
+            ): boolean =>
+                ambientBackground &&
+                !maskingWindow &&
+                logicProps.mode !== SessionRecordingPlayerMode.Screenshot &&
+                logicProps.mode !== SessionRecordingPlayerMode.Video,
         ],
         showPlayerChrome: [
             (s) => [s.isKioskMode, s.hoverModeIsEnabled, s.isHovering, s.forceShowPlayerChrome],
