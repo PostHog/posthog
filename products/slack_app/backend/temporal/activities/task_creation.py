@@ -739,6 +739,7 @@ def create_posthog_code_task_for_repo_activity(
     )
 
     slack_thread_context = SlackThreadContext(
+        team_id=integration.team_id,
         integration_id=integration.id,
         channel=channel,
         thread_ts=thread_ts,
@@ -1328,6 +1329,7 @@ def forward_posthog_code_followup_activity(
     # Message queued; the agent picks it up next, so leave the :eyes: reaction
     # up. relayAgentResponse posts the agent's response once it finishes.
     _delete_followup_progress(
+        team_id=mapping.team_id,
         integration_id=inputs.integration_id,
         channel=channel,
         thread_ts=thread_ts,
@@ -1888,6 +1890,7 @@ def _resume_task_with_new_run(
                 )
 
     slack_thread_context = SlackThreadContext(
+        team_id=mapping.team_id,
         integration_id=inputs.integration_id,
         channel=channel,
         thread_ts=thread_ts,
@@ -1940,6 +1943,7 @@ def _resume_task_with_new_run(
 
 
 def _delete_followup_progress(
+    team_id: int,
     integration_id: int,
     channel: str,
     thread_ts: str,
@@ -1951,6 +1955,7 @@ def _delete_followup_progress(
     try:
         SlackThreadHandler(
             SlackThreadContext(
+                team_id=team_id,
                 integration_id=integration_id,
                 channel=channel,
                 thread_ts=thread_ts,

@@ -336,7 +336,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
             deliver_pending_slack_file_artifacts(task_run)
     handler.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
     if answer_delivered and has_pending_slack_files:
-        record_slack_feature_used(mapping.integration_id, target, SlackFeature.FILE_OUTPUTS)
+        record_slack_feature_used(mapping.team_id, mapping.integration_id, target, SlackFeature.FILE_OUTPUTS)
 
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
