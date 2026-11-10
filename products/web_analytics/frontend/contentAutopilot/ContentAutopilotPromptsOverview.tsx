@@ -8,6 +8,7 @@ import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
+import { ContentAutopilotBrandedSegmentControl } from './ContentAutopilotBrandedSegmentControl'
 import { ContentAutopilotPromptKpiCard } from './ContentAutopilotPromptKpiCard'
 import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTile'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
@@ -19,7 +20,7 @@ import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSug
 import { contentAutopilotWeeklyReportLogic } from './contentAutopilotWeeklyReportLogic'
 import { POSITION_DESCRIPTION } from './promptReport'
 import { promptSourcesContext } from './promptReportColumns'
-import { engineLabel } from './utils'
+import { brandedAnswersNote, engineLabel, segmentPrompts } from './utils'
 
 export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     const { overview, overviewLoading, overviewError, overviewKpis, hasChecks, citationQuery, sourcesQuery } =
@@ -46,6 +47,54 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     }
     if (!overview || !overviewKpis || !citationQuery || !sourcesQuery) {
         return <LemonSkeleton className="h-32 w-full" />
+    }
+    const header = (
+        <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0 flex-1 basis-80">
+                <h4 className="m-0">Last {OVERVIEW_DAYS} days, all engines</h4>
+                <p className="m-0 text-xs text-muted" data-attr="content-autopilot-prompts-overview-answers">
+                    {brandedAnswersNote(overview.branded, overview.current.checks - overview.current.failed)} Each
+                    number is compared with the {OVERVIEW_DAYS} days before.
+                </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+                <ContentAutopilotBrandedSegmentControl tab="overview" />
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={openWeeklyReportPreview}
+                    data-attr="content-autopilot-weekly-report-preview"
+                >
+                    Preview weekly report
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    icon={<IconSend />}
+                    onClick={() => sendWeeklyReport('overview')}
+                    data-attr="content-autopilot-weekly-report-send"
+                >
+                    Send weekly report
+                </LemonButton>
+            </div>
+        </div>
+    )
+    if (!hasChecks && overview.branded_answers + overview.non_branded_answers > 0) {
+        return (
+            <section className="flex flex-col gap-4" data-attr="content-autopilot-prompts-overview">
+                {header}
+                <LemonCard
+                    hoverEffect={false}
+                    className="p-4"
+                    data-attr="content-autopilot-prompts-overview-segment-empty"
+                >
+                    <h4 className="m-0">
+                        No answers to {segmentPrompts(overview.branded)} in the last {OVERVIEW_DAYS} days
+                    </h4>
+                    <p className="m-0 mt-1 text-muted">Choose another option above to see the other answers.</p>
+                </LemonCard>
+            </section>
+        )
     }
     if (!hasChecks) {
         return overview.prompts_tracked === 0 ? (
@@ -86,33 +135,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
             className="@container/prompts-overview flex flex-col gap-4"
             data-attr="content-autopilot-prompts-overview"
         >
-            <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                    <h4 className="m-0">Last {OVERVIEW_DAYS} days, all engines</h4>
-                    <p className="m-0 text-xs text-muted">
-                        Each number is compared with the {OVERVIEW_DAYS} days before.
-                    </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={openWeeklyReportPreview}
-                        data-attr="content-autopilot-weekly-report-preview"
-                    >
-                        Preview weekly report
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        icon={<IconSend />}
-                        onClick={() => sendWeeklyReport('overview')}
-                        data-attr="content-autopilot-weekly-report-send"
-                    >
-                        Send weekly report
-                    </LemonButton>
-                </div>
-            </div>
+            {header}
             <div className="grid grid-cols-2 @3xl/prompts-overview:grid-cols-3 @7xl/prompts-overview:grid-cols-5 gap-3">
                 <ContentAutopilotPromptKpiCard
                     label="Prompts tracked"
@@ -149,7 +172,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
             <ContentAutopilotPromptQueryTile
                 title="Cited as a source over time"
                 query={citationQuery}
-                uniqueKey="aeo-prompt-set-citations"
+                uniqueKey={`aeo-prompt-set-citations-${overview.branded}`}
                 bodyClassName="h-72 p-2"
                 footer={
                     engineTotals.length ? (
@@ -183,7 +206,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 <ContentAutopilotPromptQueryTile
                     title="Sites the engines cite most"
                     query={sourcesQuery}
-                    uniqueKey="aeo-prompt-set-sources"
+                    uniqueKey={`aeo-prompt-set-sources-${overview.branded}`}
                     context={promptSourcesContext}
                     footer={`Your site: ${overview.target_domains.join(', ')}`}
                     data-attr="content-autopilot-prompts-overview-sources-tile"
