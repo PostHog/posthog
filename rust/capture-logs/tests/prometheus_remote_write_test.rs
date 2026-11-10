@@ -724,6 +724,27 @@ fn estimates_expansion_of_many_samples_and_fat_labels() {
     assert!(estimate_expanded_bytes(&label_bomb) > 16 * 2 * 1024 * 1024);
 }
 
+#[test]
+fn estimates_expansion_of_json_escaped_label_values() {
+    use capture_logs::endpoints::prometheus::estimate_expanded_bytes;
+
+    let req = WriteRequest {
+        timeseries: vec![series(
+            vec![label("__name__", "m"), label("blob", &"\u{1}".repeat(1024))],
+            vec![
+                Sample {
+                    value: 0.0,
+                    timestamp: 0,
+                };
+                1_000
+            ],
+        )],
+        metadata: vec![],
+    };
+
+    assert!(estimate_expanded_bytes(&req) >= 1_000 * 6 * 1024);
+}
+
 /// A fat declared `MetricMetadata.unit` is cloned into every row, so it must
 /// count toward the expansion estimate. Without it, ~100k compact samples plus
 /// a ~1 MiB unit estimate to only ~28 MiB (under the 16x * 2 MiB cap) yet blow

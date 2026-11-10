@@ -19,7 +19,7 @@ use uuid::Uuid;
 use crate::authorizer::Signal;
 use crate::log_record::override_timestamp;
 use crate::metric_record::{compute_series_fingerprint, KafkaMetricRow};
-use crate::service::Service;
+use crate::service::{Service, ATTRIBUTE_OVERHEAD_BYTES};
 
 const METRIC_NAME_LABEL: &str = "__name__";
 const JOB_LABEL: &str = "job";
@@ -320,10 +320,14 @@ pub fn estimate_expanded_bytes(req: &WriteRequest) -> u64 {
     req.timeseries
         .iter()
         .map(|series| {
+            // Rows store each label value JSON-encoded, so a control character takes six bytes.
             let label_bytes: u64 = series
                 .labels
                 .iter()
-                .map(|l| (l.name.len() + l.value.len()) as u64)
+                .map(|l| {
+                    (l.name.len() + json!(l.value).to_string().len() + ATTRIBUTE_OVERHEAD_BYTES)
+                        as u64
+                })
                 .sum();
             // The declared unit is cloned into every row (see `write_request_to_
             // kafka_rows`), so it must be part of the per-row cost — otherwise a
