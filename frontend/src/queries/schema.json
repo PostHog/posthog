@@ -26829,6 +26829,10 @@
                 "uuid": {
                     "description": "Unique identifier. Auto-generated if omitted.",
                     "type": "string"
+                },
+                "value_format": {
+                    "$ref": "#/definitions/ExperimentMetricValueFormat",
+                    "description": "For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results."
                 }
             },
             "required": ["kind", "metric_type"],
@@ -27546,6 +27550,10 @@
                 "uuid": {
                     "type": "string"
                 },
+                "value_format": {
+                    "$ref": "#/definitions/ExperimentMetricValueFormat",
+                    "description": "How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it."
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -27751,6 +27759,10 @@
                 "uuid": {
                     "type": "string"
                 },
+                "value_format": {
+                    "$ref": "#/definitions/ExperimentMetricValueFormat",
+                    "description": "How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it."
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -27831,6 +27843,10 @@
                 },
                 "uuid": {
                     "type": "string"
+                },
+                "value_format": {
+                    "$ref": "#/definitions/ExperimentMetricValueFormat",
+                    "description": "How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it."
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -28007,6 +28023,22 @@
             "required": ["metric_type"],
             "type": "object"
         },
+        "ExperimentMetricValueFormat": {
+            "additionalProperties": false,
+            "description": "How experiment results show the value of a metric. The calculation never reads it.",
+            "properties": {
+                "type": {
+                    "$ref": "#/definitions/ExperimentMetricValueFormatType"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "ExperimentMetricValueFormatType": {
+            "description": "What the value of an experiment metric is. `currency` is an amount in the project's base currency. `duration` is seconds and `duration_ms` is milliseconds. `percentage` is a percent on a 0-100 scale, and `percentage_scaled` is a fraction on a 0-1 scale that results show as a percent.",
+            "enum": ["currency", "duration", "duration_ms", "percentage", "percentage_scaled"],
+            "type": "string"
+        },
         "ExperimentParameters": {
             "additionalProperties": false,
             "properties": {
@@ -28075,6 +28107,10 @@
                 },
                 "uuid": {
                     "type": "string"
+                },
+                "value_format": {
+                    "$ref": "#/definitions/ExperimentMetricValueFormat",
+                    "description": "How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it."
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -28267,6 +28303,10 @@
                 "uuid": {
                     "type": "string"
                 },
+                "value_format": {
+                    "$ref": "#/definitions/ExperimentMetricValueFormat",
+                    "description": "How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it."
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -28378,6 +28418,10 @@
                 },
                 "uuid": {
                     "type": "string"
+                },
+                "value_format": {
+                    "$ref": "#/definitions/ExperimentMetricValueFormat",
+                    "description": "How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it."
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",

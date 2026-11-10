@@ -8398,6 +8398,21 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentMetricValueFormatType = typeof ExperimentMetricValueFormatType[keyof typeof ExperimentMetricValueFormatType];
+
+
+    export const ExperimentMetricValueFormatType = {
+      Currency: 'currency',
+      Duration: 'duration',
+      DurationMs: 'duration_ms',
+      Percentage: 'percentage',
+      PercentageScaled: 'percentage_scaled',
+    } as const;
+
+    export interface ExperimentMetricValueFormat {
+      type: ExperimentMetricValueFormatType;
+    }
+
     export type ExperimentMeanMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentMeanMetric {
@@ -8421,6 +8436,8 @@ export namespace Schemas {
       /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
       upper_bound_percentile?: number | null;
       uuid?: string | null;
+      /** How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it. */
+      value_format?: ExperimentMetricValueFormat | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -8453,6 +8470,8 @@ export namespace Schemas {
       series: (EventsNode | ActionsNode | ExperimentDataWarehouseNode)[];
       sharedMetricId?: number | null;
       uuid?: string | null;
+      /** How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it. */
+      value_format?: ExperimentMetricValueFormat | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -8491,6 +8510,8 @@ export namespace Schemas {
       response?: ExperimentRatioMetricResponse;
       sharedMetricId?: number | null;
       uuid?: string | null;
+      /** How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it. */
+      value_format?: ExperimentMetricValueFormat | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -8540,6 +8561,8 @@ export namespace Schemas {
       start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentExposureNode;
       start_handling: StartHandling;
       uuid?: string | null;
+      /** How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it. */
+      value_format?: ExperimentMetricValueFormat | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -8574,6 +8597,8 @@ export namespace Schemas {
       /** Must set `math_property`, the numeric property to take the quantile of. `math` is ignored. */
       source: EventsNode | ActionsNode;
       uuid?: string | null;
+      /** How results show the value of the metric. Metrics that report a share of users (funnel, retention, mean with a threshold) ignore it. */
+      value_format?: ExperimentMetricValueFormat | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -44653,6 +44678,8 @@ export namespace Schemas {
       upper_bound_percentile?: number | null;
       /** Unique identifier. Auto-generated if omitted. */
       uuid?: string | null;
+      /** For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results. */
+      value_format?: ExperimentMetricValueFormat | null;
     }
 
     /**
