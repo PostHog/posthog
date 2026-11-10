@@ -38,6 +38,7 @@ import { ReportCardMonitoringBand } from './ReportCardMonitoringBand'
 import { ReportCardMonitoringPanel } from './ReportCardMonitoringPanel'
 import { ReportCardRankingPill } from './ReportCardRankingPill'
 import { ReportCardRankingTag } from './ReportCardRankingTag'
+import { useMinuteClock } from './useMinuteClock'
 import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
 
@@ -171,7 +172,7 @@ function ReportCardRaw({
     const reportMetricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
     const showImpactColumn = reportMetricsEnabled && !isMonitoring
     const hasRightColumn = showImpactColumn || !!monitoringSummary
-    const now = Date.now()
+    const now = useMinuteClock(isMonitoring)
     const detailUrl = inboxReportDetailUrl(report.id, backUrl)
     const personalReason = personalSort ? report.personal_reason : null
 

@@ -1,12 +1,14 @@
 import { IconEye } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
-
 import type { ReportMonitoringSummaryApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { SignalReport } from '../../types'
-import { monitoringTimeLeft, monitoringWindowProgress } from '../../utils/reportMonitoringSummary'
+import {
+    monitoringPullRequestStatus,
+    monitoringTimeLeft,
+    monitoringWindowProgress,
+} from '../../utils/reportMonitoringSummary'
 import { parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
 import { primaryReportPullRequest, reportPullRequests } from '../../utils/reportPullRequests'
 
@@ -26,7 +28,7 @@ export function ReportCardMonitoringBand({
     const pullRequest = reportPullRequests(report).find((pr) => pr.merged) ?? primaryReportPullRequest(report)
     const prUrl = safeHttpUrl(pullRequest.url)
     const prNumber = prUrl ? parsePrUrlParts(prUrl)?.number : null
-    const mergedAt = pullRequest.merged_at ?? report.monitoring_started_at
+    const prStatus = monitoringPullRequestStatus(pullRequest, report.monitoring_started_at)
     const progress = summary ? monitoringWindowProgress(summary, now) : null
 
     return (
@@ -46,13 +48,12 @@ export function ReportCardMonitoringBand({
                     ) : (
                         `#${prNumber}`
                     )}
-                    {mergedAt ? ` merged ${dayjs(mergedAt).format('MMM D')}` : null}
+                    {prStatus ? ` ${prStatus}` : null}
                 </span>
             ) : null}
             {summary ? (
                 <span className="ml-auto text-tertiary tabular-nums">
-                    {progress ? `${progress} · ` : null}
-                    {monitoringTimeLeft(summary.ends_at, now)}
+                    {[progress, monitoringTimeLeft(summary.ends_at, now)].filter(Boolean).join(' · ')}
                 </span>
             ) : null}
         </div>

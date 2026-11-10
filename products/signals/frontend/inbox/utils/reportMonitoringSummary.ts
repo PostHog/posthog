@@ -49,6 +49,22 @@ export function monitoringTimeLeft(endsAt: string, now: number): string {
     return hours ? `${days}d ${hours}h left` : `${days}d left`
 }
 
+/**
+ * "merged Nov 9", or the PR's state when nothing confirms a merge. A merge sets the Monitoring start
+ * when it puts the report into Monitoring, so that stands in for a missing merge time; a manual
+ * completion can leave the PR open.
+ */
+export function monitoringPullRequestStatus(
+    pullRequest: { merged: boolean; merged_at?: string | null; state: string },
+    monitoringStartedAt: string | null | undefined
+): string | null {
+    const mergedAt = pullRequest.merged ? (pullRequest.merged_at ?? monitoringStartedAt) : null
+    if (mergedAt) {
+        return `merged ${dayjs(mergedAt).format('MMM D')}`
+    }
+    return pullRequest.state === 'open' || pullRequest.state === 'closed' ? pullRequest.state : null
+}
+
 /** The strip's input: the whole Monitoring period, with the lead check's interim readings on it. */
 export function monitoringSummaryTimeline(summary: ReportMonitoringSummaryApi, now: number): MonitoringTimeline {
     const start = Date.parse(summary.started_at)
@@ -109,20 +125,33 @@ export interface MonitoringTrend {
 export function monitoringTrend(
     summary: ReportMonitoringSummaryApi,
     metric: (ReportMetricApi & { interval?: string | null }) | undefined,
-    timezone: string
+    timezone: string,
+    weekStartDay: number = 0
 ): MonitoringTrend | null {
     const lead = summary.lead_check
     const values = metric?.series?.filter((point) => Number.isFinite(point)) ?? []
     const interval = metric?.interval
-    if (!lead || !metric?.value_at || values.length < 2 || !interval || !BUCKET_INTERVALS.has(interval)) {
+    const fix = Date.parse(summary.started_at)
+    if (
+        !lead ||
+        !metric?.value_at ||
+        Date.parse(metric.value_at) < fix ||
+        values.length < 2 ||
+        // Bars grow up from zero, so a series or target below zero has no honest drawing here.
+        values.some((value) => value < 0) ||
+        (lead.comparison.value ?? 0) < 0 ||
+        !interval ||
+        !BUCKET_INTERVALS.has(interval)
+    ) {
         return null
     }
     const unit = interval as 'minute' | 'hour' | 'day' | 'week' | 'month'
-    const lastStart = dayjs(metric.value_at).tz(timezone).startOf(unit)
-    const fix = Date.parse(summary.started_at)
-    if (fix >= lastStart.add(1, unit).valueOf()) {
-        return null
-    }
+    const measured = dayjs(metric.value_at).tz(timezone)
+    // Trends starts weeks on the project's week start day, not the browser locale's.
+    const lastStart =
+        unit === 'week'
+            ? measured.startOf('day').subtract((measured.day() - weekStartDay + 7) % 7, 'day')
+            : measured.startOf(unit)
     const starts = values.map((_, index) => lastStart.subtract(values.length - 1 - index, unit).valueOf())
     const factor = bucketTargetFactor(lead, interval)
     return {
@@ -145,13 +174,70 @@ export interface MonitoringFigures {
     basis: string
 }
 
+type FigureFormat = { value_format: NonNullable<MonitoringLeadCheckApi['value_format']>; unit: string | null }
+
+function figureFormat(lead: MonitoringLeadCheckApi): FigureFormat {
+    return { value_format: lead.value_format ?? 'number', unit: lead.unit }
+}
+
 function targetText(lead: MonitoringLeadCheckApi): string {
-    const format = { value_format: lead.value_format ?? 'number', unit: lead.unit }
+    const format = figureFormat(lead)
     const { operator, value, bounds } = lead.comparison
     if (operator === 'between' && bounds) {
         return `between ${formatReportMetricValue(format, bounds.lower)} and ${formatReportMetricValue(format, bounds.upper)}`
     }
     return `${operator === 'lte' ? '≤' : '≥'} ${formatReportMetricValue(format, value)}`
+}
+
+function latestMeasuredReading(lead: MonitoringLeadCheckApi): MonitoringLeadCheckApi['readings'][number] | null {
+    return lead.readings.findLast((reading) => reading.observed_value != null) ?? null
+}
+
+function rateFigures(lead: MonitoringLeadCheckApi): MonitoringFigures {
+    const format = figureFormat(lead)
+    return {
+        before: formatReportMetricValue(format, lead.baseline_value),
+        sinceFix: formatReportMetricValue(format, latestMeasuredReading(lead)?.observed_value),
+        basis: `target ${targetText(lead)}`,
+    }
+}
+
+function perBucketFigures(
+    summary: ReportMonitoringSummaryApi,
+    lead: MonitoringLeadCheckApi,
+    interval: string,
+    bucketMinutes: number
+): MonitoringFigures {
+    const format = figureFormat(lead)
+    // A per-bucket rate is rarely a whole number, so it keeps its decimals.
+    const rateFormat = { ...format, value_format: format.value_format === 'count' ? 'number' : format.value_format }
+    const perBucket = (value: number | null | undefined, minutes: number | null | undefined): string | null =>
+        value != null && minutes && minutes > 0
+            ? formatReportMetricValue(rateFormat, (value * bucketMinutes) / minutes)
+            : null
+    const latest = latestMeasuredReading(lead)
+    return {
+        before: perBucket(lead.baseline_value, lead.monitoring.baseline_period_minutes),
+        sinceFix: perBucket(
+            latest?.observed_value,
+            latest ? (Date.parse(latest.measured_at) - Date.parse(summary.started_at)) / 60_000 : null
+        ),
+        basis: `per ${interval} · target ${targetText(lead)} in ${monitoringPeriodLabel(lead.monitoring.reference_period_minutes)}`,
+    }
+}
+
+function totalFigures(lead: MonitoringLeadCheckApi): MonitoringFigures {
+    const format = figureFormat(lead)
+    const baselinePeriod = lead.monitoring.baseline_period_minutes
+    const latest = latestMeasuredReading(lead)
+    return {
+        before:
+            lead.baseline_value != null
+                ? `${formatReportMetricValue(format, lead.baseline_value)}${baselinePeriod ? ` in ${monitoringPeriodLabel(baselinePeriod)}` : ''}`
+                : null,
+        sinceFix: latest ? `${formatReportMetricValue(format, latest.observed_value)} so far` : null,
+        basis: `target ${targetText(lead)} in ${monitoringPeriodLabel(lead.monitoring.reference_period_minutes)}`,
+    }
 }
 
 /**
@@ -166,47 +252,14 @@ export function monitoringFigures(
     if (!lead) {
         return null
     }
-    const format = { value_format: lead.value_format ?? 'number', unit: lead.unit }
-    const latest = lead.readings.findLast((reading) => reading.observed_value != null) ?? null
-    const baselinePeriod = lead.monitoring.baseline_period_minutes ?? null
-    const period = monitoringPeriodLabel(lead.monitoring.reference_period_minutes)
-
     if (isRate(lead)) {
-        return {
-            before: formatReportMetricValue(format, lead.baseline_value),
-            sinceFix: formatReportMetricValue(format, latest?.observed_value),
-            basis: `target ${targetText(lead)}`,
-        }
+        return rateFigures(lead)
     }
-
-    const bucketMinutes = lead.monitoring.threshold_scaling === 'linear' ? BUCKET_MINUTES[interval ?? 'day'] : undefined
-    if (bucketMinutes) {
-        // A per-bucket rate is rarely a whole number, so it keeps its decimals.
-        const rateFormat = { ...format, value_format: format.value_format === 'count' ? 'number' : format.value_format }
-        const elapsedMinutes = latest
-            ? (Date.parse(latest.measured_at) - Date.parse(summary.started_at)) / 60_000
-            : null
-        return {
-            before:
-                lead.baseline_value != null && baselinePeriod
-                    ? formatReportMetricValue(rateFormat, (lead.baseline_value * bucketMinutes) / baselinePeriod)
-                    : null,
-            sinceFix:
-                latest?.observed_value != null && elapsedMinutes && elapsedMinutes > 0
-                    ? formatReportMetricValue(rateFormat, (latest.observed_value * bucketMinutes) / elapsedMinutes)
-                    : null,
-            basis: `per ${interval ?? 'day'} · target ${targetText(lead)} in ${period}`,
-        }
-    }
-
-    return {
-        before:
-            lead.baseline_value != null
-                ? `${formatReportMetricValue(format, lead.baseline_value)}${baselinePeriod ? ` in ${monitoringPeriodLabel(baselinePeriod)}` : ''}`
-                : null,
-        sinceFix: latest ? `${formatReportMetricValue(format, latest.observed_value)} so far` : null,
-        basis: `target ${targetText(lead)} in ${period}`,
-    }
+    const bucket = interval ?? 'day'
+    const bucketMinutes = BUCKET_MINUTES[bucket]
+    return lead.monitoring.threshold_scaling === 'linear' && bucketMinutes
+        ? perBucketFigures(summary, lead, bucket, bucketMinutes)
+        : totalFigures(lead)
 }
 
 export const MONITORING_SUMMARY_TAGS: Record<
@@ -223,6 +276,11 @@ export const MONITORING_SUMMARY_TAGS: Record<
         label: 'On track',
         type: 'success',
         description: 'This report will be resolved at the end of the monitoring window if the goal is met.',
+    },
+    readings_hidden: {
+        label: 'Readings hidden',
+        type: 'muted',
+        description: "You don't have access to the data this check measures, so its interim readings are hidden.",
     },
     awaiting_reading: {
         label: 'Awaiting first reading',

@@ -4,7 +4,12 @@ import type {
     ReportMonitoringSummaryApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
-import { monitoringFigures, monitoringTrend, monitoringWindowProgress } from './reportMonitoringSummary'
+import {
+    monitoringFigures,
+    monitoringPullRequestStatus,
+    monitoringTrend,
+    monitoringWindowProgress,
+} from './reportMonitoringSummary'
 
 const STARTED_AT = '2026-11-06T18:00:00Z'
 
@@ -30,8 +35,11 @@ function lead(overrides: Partial<MonitoringLeadCheckApi> = {}): MonitoringLeadCh
     }
 }
 
-function summary(leadCheck: MonitoringLeadCheckApi | null = lead()): ReportMonitoringSummaryApi {
-    return { state: 'not_on_track', started_at: STARTED_AT, ends_at: '2026-11-13T18:00:00Z', lead_check: leadCheck }
+function summary(
+    leadCheck: MonitoringLeadCheckApi | null = lead(),
+    startedAt: string = STARTED_AT
+): ReportMonitoringSummaryApi {
+    return { state: 'not_on_track', started_at: startedAt, ends_at: '2026-11-13T18:00:00Z', lead_check: leadCheck }
 }
 
 function metric(valueAt: string): ReportMetricApi & { interval: string } {
@@ -57,8 +65,32 @@ describe('Monitoring summary on an inbox row', () => {
         expect(monitoringTrend(summary(), metric(valueAt), timezone)?.fixIndex).toBe(fixIndex)
     })
 
-    it('draws no trend from a snapshot measured before the fix', () => {
-        expect(monitoringTrend(summary(), metric('2026-11-05T12:00:00Z'), 'UTC')).toBeNull()
+    it.each([
+        // Sunday Nov 8 is the last day of a Monday-start week, and the first of a Sunday-start week.
+        ['Monday', 1, 1],
+        ['Sunday', 0, 2],
+    ])('places a weekly fix in the project week that starts on %s', (_name, weekStartDay, fixIndex) => {
+        const weekly = { ...metric('2026-11-10T12:00:00Z'), series: [9, 8, 2], interval: 'week' }
+        expect(monitoringTrend(summary(lead(), '2026-11-08T18:00:00Z'), weekly, 'UTC', weekStartDay)?.fixIndex).toBe(
+            fixIndex
+        )
+    })
+
+    it.each([
+        ['a snapshot measured in an earlier bucket', metric('2026-11-05T12:00:00Z')],
+        ['a snapshot measured earlier in the same bucket', metric('2026-11-06T12:00:00Z')],
+        ['negative values', { ...metric('2026-11-09T12:00:00Z'), series: [-3, -2, -1] }],
+    ])('draws no trend from %s', (_name, snapshot) => {
+        expect(monitoringTrend(summary(), snapshot, 'UTC')).toBeNull()
+    })
+
+    it.each([
+        ['a merge with its time', { merged: true, merged_at: '2026-11-07T10:00:00Z', state: 'merged' }, 'merged Nov 7'],
+        ['a merge without its time', { merged: true, merged_at: null, state: 'merged' }, 'merged Nov 6'],
+        ['an open PR after a manual completion', { merged: false, merged_at: null, state: 'open' }, 'open'],
+        ['an unknown state', { merged: false, merged_at: null, state: 'unknown' }, null],
+    ])('describes the PR for %s', (_name, pullRequest, expected) => {
+        expect(monitoringPullRequestStatus(pullRequest, STARTED_AT)).toBe(expected)
     })
 
     it.each([

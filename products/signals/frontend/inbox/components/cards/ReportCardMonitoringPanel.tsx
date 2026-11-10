@@ -41,11 +41,16 @@ export function ReportCardMonitoringPanel({
     metrics?: ReportMetricApi[]
     now: number
 }): JSX.Element {
-    const { timezone } = useValues(teamLogic)
+    const { timezone, currentTeam } = useValues(teamLogic)
     const lead = summary.lead_check
     const metric = lead?.metric_id ? metrics?.find((candidate) => candidate.metric_id === lead.metric_id) : undefined
     const interval = metricInterval(metric)
-    const trend = monitoringTrend(summary, metric ? { ...metric, interval } : undefined, timezone)
+    const trend = monitoringTrend(
+        summary,
+        metric ? { ...metric, interval } : undefined,
+        timezone,
+        currentTeam?.week_start_day ?? 0
+    )
     const figures = monitoringFigures(summary, interval)
     const tag = MONITORING_SUMMARY_TAGS[summary.state]
 
@@ -74,11 +79,20 @@ export function ReportCardMonitoringPanel({
                 </div>
             ) : null}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                <Tooltip title={tag.description} openOnClick>
-                    <LemonTag size="small" type={tag.type} className="shrink-0">
-                        {tag.label}
-                    </LemonTag>
-                </Tooltip>
+                {/* The row is a link: a tap that opens this explanation must not also open the report. */}
+                <span
+                    className="inline-flex shrink-0"
+                    onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                    }}
+                >
+                    <Tooltip title={tag.description} openOnClick>
+                        <LemonTag size="small" type={tag.type}>
+                            {tag.label}
+                        </LemonTag>
+                    </Tooltip>
+                </span>
                 {figures ? (
                     <span className="min-w-0 text-[11px] leading-tight text-tertiary">{figures.basis}</span>
                 ) : null}
