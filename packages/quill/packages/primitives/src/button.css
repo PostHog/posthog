@@ -40,11 +40,17 @@
 
     /*
      * Press feedback — the button dips 1px under the cursor. Excluded are the
-     * variants/components that own their own press motion: `toggle` dips 2px,
-     * and tabs stay put (a tab that jumps would drag the whole strip's baseline
-     * with it).
+     * variants/components that own their own press motion: `primary` sinks its
+     * face into its shelf, `toggle` dips 2px, and tabs stay put (a tab that jumps
+     * would drag the whole strip's baseline with it).
      */
-    .quill-button:not(:disabled, [aria-disabled='true'], .quill-tabs__trigger, .quill-toggle):active {
+    .quill-button:not(
+        :disabled,
+        [aria-disabled='true'],
+        .quill-button--variant-primary,
+        .quill-tabs__trigger,
+        .quill-toggle
+    ):active {
         translate: 0 1px;
     }
 
@@ -140,50 +146,73 @@
        ========================================================================= */
 
     /*
-     * A dark edge of the brand color draws the border, and a mid shade draws a ledge
-     * along the bottom inside it. The ledge stays inside the border box, so the button
-     * lines up with its neighbors in a row. `--quill-button-lift` is the ledge height;
-     * a press lowers it.
+     * A raised face on a shelf, drawn by two layers inside the button's own box, so
+     * the button keeps its size and lines up with its neighbors in a row:
+     * - `::before` is the shelf, in a mid shade of the brand color.
+     * - `::after` is the face, which stops `--quill-button-lift` above the shelf's bottom.
+     * Both take the dark edge as their outline. `--quill-button-shelf` is the shelf's height
+     * at rest. A press drops the lift to 0: the face and the label move down by the whole
+     * shelf, compressing it to a plain 1px bottom edge, and nothing shows above the face.
      */
     .quill-button--variant-primary {
         --quill-button-edge: color-mix(in oklab, var(--primary) 70%, black);
         --quill-button-side: color-mix(in oklab, var(--primary) 84%, black);
-        --quill-button-lift: 2px;
-        --quill-button-ledge: inset 0 calc(var(--quill-button-lift) * -1) 0 0 var(--quill-button-side);
+        --quill-button-face: var(--primary);
+        --quill-button-shelf: 2px;
+        --quill-button-lift: var(--quill-button-shelf);
+        --quill-button-sink: calc(var(--quill-button-shelf) - var(--quill-button-lift));
 
+        position: relative;
+        padding-block: var(--quill-button-sink) var(--quill-button-lift);
         color: var(--primary-foreground);
-        background-color: var(--primary);
-        border-color: var(--quill-button-edge);
-        box-shadow: var(--quill-button-ledge);
+        background-color: transparent;
+        isolation: isolate;
+        border-color: transparent;
     }
 
     :is(.dark, [theme='dark']) .quill-button--variant-primary {
-        --quill-button-edge: color-mix(in oklab, var(--primary) 60%, black);
-        --quill-button-side: color-mix(in oklab, var(--primary) 76%, black);
+        --quill-button-edge: color-mix(in oklab, var(--primary) 62%, black);
+        --quill-button-side: color-mix(in oklab, var(--primary) 78%, black);
+    }
 
-        /* A 1px edge almost vanishes against a dark surface. */
-        border-width: 1.5px;
+    .quill-button--variant-primary::before,
+    .quill-button--variant-primary::after {
+        position: absolute;
+        inset: -1px;
+        z-index: -1;
+        pointer-events: none;
+        content: '';
+        border: 1px solid var(--quill-button-edge);
+        border-radius: var(--radius-sm);
+    }
+
+    .quill-button--variant-primary::before {
+        inset-block-start: calc(var(--quill-button-sink) - 1px);
+        background-color: var(--quill-button-side);
+    }
+
+    .quill-button--variant-primary::after {
+        inset-block: calc(var(--quill-button-sink) - 1px) calc(var(--quill-button-lift) - 1px);
+        background-color: var(--quill-button-face);
     }
 
     .quill-button--variant-primary:focus-visible {
-        border-color: var(--quill-button-edge);
-        box-shadow:
-            var(--quill-button-ledge),
-            0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
+        border-color: transparent;
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
     }
 
     .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):hover {
-        background-color: color-mix(in oklab, var(--primary) 98%, black 5%);
+        --quill-button-face: color-mix(in oklab, var(--primary) 98%, black 5%);
     }
 
     .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):active {
-        --quill-button-lift: 1px;
+        --quill-button-lift: 0px;
     }
 
-    /* Disabled sits flat — no ledge that reads as pressable. */
+    /* Disabled sits flat, with no shelf that reads as pressable. */
     .quill-button--variant-primary:disabled,
     .quill-button--variant-primary[aria-disabled='true']:not([data-loading]) {
-        box-shadow: none;
+        --quill-button-shelf: 0px;
     }
 
     /* =========================================================================
