@@ -59,9 +59,9 @@ function parseBody(raw: string): unknown {
     }
 }
 
-function nonNegativeInteger(value: string | null, fallback: number): number {
+function integerAtLeast(value: string | null, min: number, fallback: number): number {
     const parsed = Number(value ?? fallback)
-    return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback
+    return Number.isInteger(parsed) && parsed >= min ? parsed : fallback
 }
 
 export async function startProviderEdge(options: ProviderEdgeOptions): Promise<ProviderEdge> {
@@ -117,8 +117,8 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
                 return {
                     status: 200,
                     body: truth.page(
-                        nonNegativeInteger(url.searchParams.get('after'), 0),
-                        nonNegativeInteger(url.searchParams.get('limit'), TRUTH_PAGE_LIMIT)
+                        integerAtLeast(url.searchParams.get('after'), 0, 0),
+                        integerAtLeast(url.searchParams.get('limit'), 1, TRUTH_PAGE_LIMIT)
                     ),
                 }
             case 'POST /_faults':
