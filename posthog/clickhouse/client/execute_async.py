@@ -35,7 +35,7 @@ logger = structlog.get_logger(__name__)
 
 # A worker on an earlier release raises on a tag key that its QueryTags model does not have. A new tag is
 # sent to workers only after the release that drops unknown keys in process_query_task is on every worker.
-TAGS_NOT_YET_SENT_TO_WORKERS = frozenset({"refresh_requested", "refresh_reason"})
+TAGS_NOT_YET_SENT_TO_WORKERS: set[str] = {"refresh_requested", "refresh_reason"}
 
 CUSTOM_BUCKETS = (0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0, 20, 30, 60, 120, 300, 600, float("inf"))
 
