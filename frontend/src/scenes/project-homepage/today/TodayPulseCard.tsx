@@ -10,7 +10,12 @@ import type { HighlightMetricApi } from 'products/today/frontend/generated/api.s
 
 import { TodayChange } from './TodayChange'
 import { todayNumber } from './todayNumbers'
-import { experimentComparison, experimentPeople, experimentVerdict } from './todayPulseExperiment'
+import {
+    experimentComparison,
+    experimentLiftDecimals,
+    experimentPeople,
+    experimentVerdict,
+} from './todayPulseExperiment'
 import { pulseChange, pulsePeriodCaption, pulsePriorLabel } from './todayPulseFacts'
 import { TodayPulseMovers } from './TodayPulseMovers'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
@@ -63,7 +68,11 @@ export function TodayPulseCard({
                         <>
                             <div className="flex flex-wrap items-baseline gap-x-2">
                                 <Heading size="xl" render={<span />} className="tabular-nums">
-                                    <TodayChange change={metric.value} tone={tone} />
+                                    <TodayChange
+                                        change={metric.value}
+                                        tone={tone}
+                                        decimals={experimentLiftDecimals(metric.value)}
+                                    />
                                 </Heading>
                                 <span className="text-sm text-muted-foreground">
                                     {experimentComparison(experiment)}

@@ -18,7 +18,13 @@ import { TodayChange } from './TodayChange'
 import { pulsePinLimitReason, todayHighlightsLogic } from './todayHighlightsLogic'
 import { todayNumber } from './todayNumbers'
 import { TodayPulseCard } from './TodayPulseCard'
-import { EXPERIMENT_PIN_REASON, experimentComparison, experimentTone, experimentVerdict } from './todayPulseExperiment'
+import {
+    EXPERIMENT_PIN_REASON,
+    experimentComparison,
+    experimentLiftDecimals,
+    experimentTone,
+    experimentVerdict,
+} from './todayPulseExperiment'
 import { pulseChange } from './todayPulseFacts'
 import { TodayPulseHoverCard } from './TodayPulseHoverCard'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
@@ -156,7 +162,11 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                             <>
                                 <span className="TodayPulse__row">
                                     <span className="TodayPulse__value">
-                                        <TodayChange change={metric.value} tone={tone} />
+                                        <TodayChange
+                                            change={metric.value}
+                                            tone={tone}
+                                            decimals={experimentLiftDecimals(metric.value)}
+                                        />
                                     </span>
                                     <span className="TodayChange">{experimentComparison(experiment)}</span>
                                 </span>

@@ -4,12 +4,15 @@ from functools import partial
 
 from django.utils import timezone
 
+from posthog.models import Team, User
+
 from products.experiments.backend.facade.api import (
     count_enrolled_people,
     get_stored_primary_result,
     list_ended_experiments_without_conclusion,
     list_own_running_experiments,
     list_running_experiments,
+    viewable_experiment_names,
 )
 from products.experiments.backend.facade.contracts import EndedExperiment, RunningExperiment, StoredPrimaryResult
 from products.today.backend.facade.contracts import (
@@ -32,6 +35,7 @@ LONG_RUNNING_DAYS = 60
 JUST_CROSSED_DAYS = 67
 MIN_PEOPLE = 100
 NUMBER_CANDIDATES = 10
+NUMBER_PREFIX = "experiment:"
 
 
 def _days_since(context: HighlightContext, moment: datetime) -> int:
@@ -87,7 +91,7 @@ def _number(experiment: RunningExperiment, result: StoredPrimaryResult) -> Highl
     if shown is None or shown.change is None:
         return None
     return HighlightMetric(
-        key=f"experiment:{experiment.id}",
+        key=f"{NUMBER_PREFIX}{experiment.id}",
         name=_name(experiment.name, 60),
         value=shown.change * 100,
         unit=HighlightUnit.NUMBER,
@@ -110,13 +114,21 @@ def _number(experiment: RunningExperiment, result: StoredPrimaryResult) -> Highl
 def _experiment_number(context: HighlightContext) -> HighlightMetric | None:
     running = list_own_running_experiments(team_id=context.team.id, user_id=context.user.id, limit=NUMBER_CANDIDATES)
     for experiment in running:
-        if f"experiment:{experiment.id}" in context.hidden:
+        if f"{NUMBER_PREFIX}{experiment.id}" in context.hidden:
             continue
         result = get_stored_primary_result(team_id=context.team.id, experiment_id=experiment.id)
         number = _number(experiment, result) if result is not None else None
         if number is not None:
             return number
     return None
+
+
+def name_experiment_numbers(team: Team, user: User, keys: list[str]) -> dict[str, str]:
+    ids = {
+        int(id) for key in keys if key.startswith(NUMBER_PREFIX) and (id := key.removeprefix(NUMBER_PREFIX)).isdigit()
+    }
+    names = viewable_experiment_names(team=team, user=user, experiment_ids=ids) if ids else {}
+    return {f"{NUMBER_PREFIX}{id}": _name(name, 60) for id, name in names.items()}
 
 
 def find_experiment_highlights(context: HighlightContext) -> HighlightFindings:

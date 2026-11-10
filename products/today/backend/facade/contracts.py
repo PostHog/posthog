@@ -349,3 +349,4 @@ class HighlightSource:
     # Today skips the source when the viewer's API scopes or access controls do not cover these.
     scopes: tuple[str, ...] = ()
     pulse_order: int = 0
+    number_names: Callable[["Team", "User", list[str]], dict[str, str]] | None = None

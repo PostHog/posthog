@@ -1,6 +1,12 @@
 import type { HighlightExperimentResultApi } from 'products/today/frontend/generated/api.schemas'
 
-import { experimentComparison, experimentPeople, experimentTone, experimentVerdict } from './todayPulseExperiment'
+import {
+    experimentComparison,
+    experimentLiftDecimals,
+    experimentPeople,
+    experimentTone,
+    experimentVerdict,
+} from './todayPulseExperiment'
 
 const RESULT: HighlightExperimentResultApi = {
     metric_name: 'Conversion rate',
@@ -35,5 +41,14 @@ describe('todayPulseExperiment', () => {
             experimentVerdict(experiment),
             experimentPeople(experiment),
         ]).toEqual([tone, comparison, verdict, people])
+    })
+
+    test.each([
+        [0.4, 2],
+        [-0.06, 2],
+        [8.2, 1],
+        [-12.5, 0],
+    ])('shows a lift of %s with %s decimals', (lift, decimals) => {
+        expect(experimentLiftDecimals(lift)).toBe(decimals)
     })
 })

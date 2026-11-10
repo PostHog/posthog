@@ -8,6 +8,11 @@ export function isExperimentKey(key: string): boolean {
     return key.startsWith('experiment:')
 }
 
+export function experimentLiftDecimals(lift: number): number {
+    const size = Math.abs(lift)
+    return size < 1 ? 2 : size < 10 ? 1 : 0
+}
+
 export function experimentTone(experiment: HighlightExperimentResultApi): TodayTone {
     if (!experiment.significant) {
         return 'neutral'

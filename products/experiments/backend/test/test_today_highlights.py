@@ -172,6 +172,18 @@ class TestExperiments(BaseTest):
 
         self.assertEqual([c.title for c in found.items][1:], [title] if title else [])
 
+    def test_only_experiment_keys_get_a_name(self) -> None:
+        with patch.object(
+            today_highlights, "viewable_experiment_names", return_value={11: "Checkout redesign experiment"}
+        ) as names:
+            named = today_highlights.name_experiment_numbers(
+                self.team, self.user, ["experiment:11", "experiment:x", "signup_event"]
+            )
+
+        self.assertEqual(
+            (named, names.call_args.kwargs["experiment_ids"]), ({"experiment:11": "Checkout redesign"}, {11})
+        )
+
     @parameterized.expand(
         [
             ("count", MagicMock(side_effect=TimeoutError("slow")), MagicMock(return_value=None)),

@@ -6,7 +6,7 @@ from functools import partial
 from queue import Queue
 from time import monotonic, sleep
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -482,6 +482,12 @@ class TestLoadSources(SimpleTestCase):
             ),
             ("not a source", declaring("alerts")),
             ("an empty name", declaring(HighlightSource(name="", find=lambda _c: HighlightFindings()))),
+            (
+                "names that cannot be called",
+                declaring(
+                    HighlightSource(name="alerts", find=lambda _c: HighlightFindings(), number_names=cast(Any, "names"))
+                ),
+            ),
             (
                 "a name taken twice",
                 declaring(

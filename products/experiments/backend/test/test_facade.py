@@ -23,6 +23,7 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.team.team import DEPRECATED_ATTRS
@@ -30,6 +31,7 @@ from posthog.models.user import User
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.experiments.backend.facade import api, count_running_experiments_on_feature_flag_called, create_experiment
 from products.experiments.backend.facade.change_signals import connect_experiment_changed, experiment_changed
 from products.experiments.backend.facade.contracts import (
@@ -321,6 +323,33 @@ class TestHighlightFacts(BaseTest):
         )
 
         assert [(e.name, e.flag_key) for e in found] == [(name, listed[name]) for name in expected]
+
+    def test_names_only_the_experiments_the_user_can_view(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        shown = self._experiment("Checkout redesign")
+        hidden_from_reader = self._experiment("Pricing copy")
+        deleted = self._experiment("Deleted", deleted=True)
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        elsewhere = Experiment.objects.create(
+            team=other_team,
+            name="Elsewhere",
+            feature_flag=FeatureFlag.objects.create(team=other_team, key="elsewhere", created_by=self.user),
+            created_by=self.user,
+        )
+        create_access_control(
+            team_id=self.team.id, resource="experiment", resource_id=str(hidden_from_reader.id), access_level="none"
+        )
+
+        names = api.viewable_experiment_names(
+            team=self.team,
+            user=self._create_user("reader@example.com"),
+            experiment_ids=[shown.id, hidden_from_reader.id, deleted.id, elsewhere.id],
+        )
+
+        assert names == {shown.id: "Checkout redesign"}
 
     def test_lists_own_running_experiments_with_any_exposure_newest_first(self) -> None:
         now = timezone.now()
