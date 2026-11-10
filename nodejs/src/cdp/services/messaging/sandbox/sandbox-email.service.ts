@@ -1,4 +1,3 @@
-import { createHash } from 'crypto'
 import { Counter, Histogram } from 'prom-client'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
@@ -29,7 +28,7 @@ export const SANDBOX_INTEGRATION_ID = 'posthog-managed-sandbox'
 export type SandboxSendOutcome =
     | { status: 'accepted'; messageId: string }
     | { status: 'skipped' | 'failed'; reason: string }
-    | { status: 'retry'; reason: string; capsClaimedFor?: string }
+    | { status: 'retry'; reason: string }
 
 export type SandboxSendRequest = {
     teamId: number
@@ -44,7 +43,7 @@ export type SandboxSendRequest = {
     categoryType?: 'marketing' | 'transactional'
     optOuts?: MessageOptOutRecord[]
     frequencyCap?: () => Promise<FrequencyCapCheck>
-    capsClaimedFor?: string
+    capClaimId: string
 }
 
 export type SandboxEmailServiceDeps = {
@@ -54,7 +53,12 @@ export type SandboxEmailServiceDeps = {
     isProvisioned: (teamId: number) => Promise<boolean>
     authorize: (request: { teamId: number; recipient: string; tenantName: string }) => Promise<SandboxAuthorization>
     checkRecipient: (request: SandboxRecipientCheckRequest) => Promise<SandboxRecipientCheck>
-    claimCaps: (claim: { organizationId: string; teamId: number; storedAddress: string }) => Promise<SandboxCapClaim>
+    claimCaps: (claim: {
+        organizationId: string
+        teamId: number
+        storedAddress: string
+        claimId: string
+    }) => Promise<SandboxCapClaim>
     ses: Pick<SandboxSesClient, 'send'>
     now?: () => Date
 }
@@ -100,7 +104,7 @@ export class SandboxEmailService {
         }
         const provisioned = await this.deps.isProvisioned(request.teamId).catch(() => null)
         if (provisioned === null) {
-            return refusal('authorization_unavailable', request.capsClaimedFor)
+            return refusal('authorization_unavailable')
         }
         if (!provisioned) {
             return { status: 'skipped', reason: 'sandbox_not_provisioned' }
@@ -115,7 +119,7 @@ export class SandboxEmailService {
             tenantName: this.deps.tenantName,
         })
         if (!authorization.ok) {
-            return refusal(authorization.reason, request.capsClaimedFor)
+            return refusal(authorization.reason)
         }
         const recipientCheck = await this.checkRecipient(request, [
             email.data.to.email,
@@ -124,22 +128,20 @@ export class SandboxEmailService {
             canonicalRecipient(address),
         ])
         if (!recipientCheck.ok) {
-            return refusal(recipientCheck.reason, request.capsClaimedFor)
+            return refusal(recipientCheck.reason)
         }
         const tenant = admitTenant(authorization.tenant, this.deps.now?.() ?? new Date())
         if (!tenant.ok) {
-            return refusal(tenant.reason, request.capsClaimedFor)
+            return refusal(tenant.reason)
         }
-        const capsClaimedFor = capClaimHolder(authorization.organizationId, authorization.storedAddress)
-        if (request.capsClaimedFor !== capsClaimedFor) {
-            const caps = await this.deps.claimCaps({
-                organizationId: authorization.organizationId,
-                teamId: request.teamId,
-                storedAddress: authorization.storedAddress,
-            })
-            if (!caps.ok) {
-                return refusal(caps.reason, request.capsClaimedFor)
-            }
+        const caps = await this.deps.claimCaps({
+            organizationId: authorization.organizationId,
+            teamId: request.teamId,
+            storedAddress: authorization.storedAddress,
+            claimId: request.capClaimId,
+        })
+        if (!caps.ok) {
+            return refusal(caps.reason)
         }
         const message = buildSandboxMessage({
             email: email.data,
@@ -149,7 +151,7 @@ export class SandboxEmailService {
             recipient: authorization.storedAddress,
         })
         const { teamId, hogFlowId, invocationId, actionId, flowVersion, isTest, parentRunId } = request
-        const sent = await this.deps.ses.send(message, {
+        return await this.deps.ses.send(message, {
             teamId,
             hogFlowId,
             invocationId,
@@ -158,7 +160,6 @@ export class SandboxEmailService {
             isTest,
             ...(parentRunId ? { parentRunId } : {}),
         })
-        return sent.status === 'retry' && sent.reason === 'ses_throttled' ? { ...sent, capsClaimedFor } : sent
     }
 
     private async checkRecipient(request: SandboxSendRequest, spellings: string[]): Promise<SandboxRecipientCheck> {
@@ -192,15 +193,8 @@ export class SandboxEmailService {
 
 const NO_FREQUENCY_CAP = (): Promise<FrequencyCapCheck> => Promise.resolve({ capped: false })
 
-function capClaimHolder(organizationId: string, storedAddress: string): string {
-    return createHash('sha256').update(`${organizationId}/${storedAddress.toLowerCase()}`).digest('hex')
-}
-
-function refusal(reason: string, capsClaimedFor: string | undefined): SandboxSendOutcome {
-    if (!RETRYABLE_REFUSALS.has(reason)) {
-        return { status: 'skipped', reason }
-    }
-    return capsClaimedFor ? { status: 'retry', reason, capsClaimedFor } : { status: 'retry', reason }
+function refusal(reason: string): SandboxSendOutcome {
+    return RETRYABLE_REFUSALS.has(reason) ? { status: 'retry', reason } : { status: 'skipped', reason }
 }
 
 function parseSingleAddress(raw: string): string | null {

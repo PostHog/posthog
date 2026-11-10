@@ -66,10 +66,12 @@ async function handleTestSend(
         return
     }
     const { hog_flow_id, action_id, email, message_category_id, message_category_type } = body.data
+    const invocationId = randomUUID()
     const outcome = await service.send({
         teamId,
         hogFlowId: hog_flow_id,
-        invocationId: randomUUID(),
+        invocationId,
+        capClaimId: invocationId,
         actionId: action_id,
         flowVersion: 0,
         isTest: true,

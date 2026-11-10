@@ -3,12 +3,11 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { TeamManager } from '~/common/utils/team-manager'
 import { PluginsServerConfig } from '~/types'
 
-import { RecipientsManagerService } from '../../managers/recipients-manager.service'
 import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
-import { EmailSuppressionService } from '../email-suppression.service'
 import { CAPS_VALKEY_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxEmailEvents } from './sandbox-email-events'
 import { SandboxEmailService, createSandboxEmailService } from './sandbox-email.service'
+import { sandboxRecipientReads } from './sandbox-recipient-checks'
 import { SandboxSesClient, createSandboxSesV2Client } from './sandbox-ses-client'
 
 export type SandboxEmailRuntime = { service: SandboxEmailService; events: SandboxEmailEvents }
@@ -82,13 +81,10 @@ export function createSandboxEmailRuntime(
     const service = createSandboxEmailService({
         enabled: true,
         db: postgres,
-        recipientChecks: {
-            suppression: new EmailSuppressionService(postgres, {
-                transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
-                globalHardBounceEnforce: config.EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE,
-            }),
-            recipients: new RecipientsManagerService(postgres),
-        },
+        recipientChecks: sandboxRecipientReads(postgres, {
+            transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
+            globalHardBounceEnforce: config.EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE,
+        }),
         limiter: new RateLimiterService(capsValkey, { name: 'sandbox-email-caps' }),
         caps: {
             team: config.WORKFLOWS_SANDBOX_DAILY_TEAM_CAP,

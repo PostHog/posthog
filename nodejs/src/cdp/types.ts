@@ -584,7 +584,7 @@ export type HogFlowInvocationContext = {
         frequencyCapHoldDeadlineAt?: string
         sandboxEmail?: SandboxEmailOutcome
         sandboxEmailRetries?: number
-        sandboxEmailCapsClaimedFor?: string
+        sandboxEmailUncertainSends?: number
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.

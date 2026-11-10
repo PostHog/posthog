@@ -24,6 +24,7 @@ describe('SandboxEmailService', () => {
             isTest: false,
             email: { to: { email: 'member@example.com', name: 'Mem' }, subject: 'Hi', text: 'Hello' },
             ...overrides,
+            capClaimId: overrides.capClaimId ?? `${overrides.invocationId ?? 'run-1'}:action_email_sandbox_1`,
         }
         const email = sent.email as { to?: { email?: string } }
         return {
@@ -218,21 +219,34 @@ describe('SandboxEmailService', () => {
         }
     )
 
-    it('reuses a daily allowance held after an SES throttle only for the member it was spent on', async () => {
+    it('charges a step visit retried after an SES throttle once, and again when it names another member', async () => {
         await world.addMember(personal('other@example.com'))
         const service = world.service({ caps: { team: 1, recipient: 1 } })
         world.ses.replyNext(SES_THROTTLE)
 
-        const throttled = await service.send(request())
-        expect(throttled).toEqual({ status: 'retry', reason: 'ses_throttled', capsClaimedFor: expect.any(String) })
-        const { capsClaimedFor } = throttled as { capsClaimedFor: string }
-
-        await expect(service.send(request({ capsClaimedFor }))).resolves.toMatchObject({ status: 'accepted' })
-        await expect(service.send(request({ capsClaimedFor, ...to('other@example.com') }))).resolves.toEqual({
+        await expect(service.send(request())).resolves.toEqual({ status: 'retry', reason: 'ses_throttled' })
+        await expect(service.send(request())).resolves.toMatchObject({ status: 'accepted' })
+        await expect(service.send(request(to('other@example.com')))).resolves.toEqual({
             status: 'skipped',
             reason: 'daily_cap_reached',
         })
         expect(recipients()).toEqual([member()])
+    })
+
+    it.each([
+        ['suppression', 'posthog_messagesuppression'],
+        ['preference', 'posthog_messagerecipientpreference'],
+    ])('retries a send whose %s read waits behind a lock past its deadline', async (_read, table) => {
+        const release = await world.lockTable(table)
+        try {
+            await expect(world.service({ faults: { recipientReadTimeoutMs: 200 } }).send(request())).resolves.toEqual({
+                status: 'retry',
+                reason: 'authorization_unavailable',
+            })
+        } finally {
+            await release()
+        }
+        expect(world.ses.delivered).toEqual([])
     })
 
     const accepted: SandboxSendOutcome = { status: 'accepted', messageId: 'ses-1' }

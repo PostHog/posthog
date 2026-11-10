@@ -46,7 +46,9 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
             })
         }
         result.invocation.state.currentAction!.sandboxEmailRetries = retries + 1
-        result.invocation.state.currentAction!.sandboxEmailCapsClaimedFor = attempt.capsClaimedFor
+        if (attempt.reason === 'ses_transient') {
+            result.invocation.state.currentAction!.sandboxEmailUncertainSends = uncertainSends(invocation) + 1
+        }
         return { retryAt: DateTime.now().plus({ milliseconds: sandboxRetryDelayMs(retries) }) }
     }
 
@@ -71,7 +73,7 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
             categoryId: action.config.message_category_id,
             categoryType: action.config.message_category_type,
             optOuts: invocation.state.messageOptOuts,
-            capsClaimedFor: invocation.state.currentAction?.sandboxEmailCapsClaimedFor,
+            capClaimId: `${stepVisitKey(invocation, action)}/${uncertainSends(invocation)}`,
             frequencyCap: () =>
                 this.deps.recipientPreferences.checkMarketingFrequencyCap({
                     teamId: invocation.teamId,
@@ -108,6 +110,10 @@ function toOutcome(attempt: Exclude<SandboxSendOutcome, { status: 'retry' }>): S
     return attempt.status === 'accepted'
         ? { outcome: 'accepted', messageId: attempt.messageId }
         : { outcome: attempt.status, reason: attempt.reason }
+}
+
+function uncertainSends(invocation: CyclotronJobInvocationHogFlow): number {
+    return invocation.state.currentAction?.sandboxEmailUncertainSends ?? 0
 }
 
 function stepVisitKey(invocation: CyclotronJobInvocationHogFlow, action: SandboxEmailAction): string {

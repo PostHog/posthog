@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { Redis } from 'ioredis'
+import { Client } from 'pg'
 
 import { insertIntegration } from '~/cdp/_tests/fixtures'
 import { defaultConfig } from '~/common/config/config'
@@ -17,7 +18,7 @@ import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../../em
 import { readSandboxAuthorization } from '../sandbox-authorization'
 import { SandboxCaps, claimSandboxCaps } from '../sandbox-caps'
 import { SANDBOX_INTEGRATION_ID, SandboxEmailService, hasSandboxSenderRow } from '../sandbox-email.service'
-import { checkSandboxRecipient } from '../sandbox-recipient-checks'
+import { checkSandboxRecipient, sandboxRecipientReads } from '../sandbox-recipient-checks'
 import { SandboxSesClient, createSandboxSesV2Client } from '../sandbox-ses-client'
 import { FakeSesEndpoint } from './fake-ses-endpoint'
 
@@ -81,6 +82,7 @@ export type SandboxFaults = {
     provisioningDb?: PostgresRouter
     authorizationDb?: PostgresRouter
     recipientsDb?: PostgresRouter
+    recipientReadTimeoutMs?: number
     capsLimiter?: RateLimiterService
 }
 
@@ -100,6 +102,7 @@ export type SandboxWorld = {
     setTenant: (sendingStatus: string, syncedAt: Date) => Promise<void>
     blockOrganization: () => Promise<void>
     deadPostgres: () => Promise<PostgresRouter>
+    lockTable: (table: string) => Promise<() => Promise<void>>
     unreachableLimiter: () => RateLimiterService
     limiter: (name: string) => RateLimiterService
     service: (options?: { caps?: SandboxCaps; enabled?: boolean; faults?: SandboxFaults }) => SandboxEmailService
@@ -204,6 +207,16 @@ export function useSandboxWorld(): SandboxWorld {
         return router
     }
 
+    world.lockTable = async (table) => {
+        const holder = new Client({ connectionString: defaultConfig.DATABASE_URL })
+        holder.on('error', () => undefined)
+        await holder.connect()
+        await holder.query('BEGIN')
+        await holder.query(`SET LOCAL idle_in_transaction_session_timeout = '10s'`)
+        await holder.query(`LOCK TABLE ${table} IN ACCESS EXCLUSIVE MODE`)
+        return () => holder.end()
+    }
+
     world.unreachableLimiter = () =>
         new RateLimiterService(
             createRedisV2PoolFromConfig({
@@ -223,7 +236,11 @@ export function useSandboxWorld(): SandboxWorld {
     world.limiter = (name) => new RateLimiterService(world.valkey, { name })
 
     world.service = ({ caps = { team: 5, recipient: 5 }, enabled = true, faults = {} } = {}) => {
-        const recipientsDb = faults.recipientsDb ?? world.postgres
+        const recipientReads = sandboxRecipientReads(
+            faults.recipientsDb ?? world.postgres,
+            emailSuppressionConfigFromEnv(),
+            faults.recipientReadTimeoutMs
+        )
         const limiter = faults.capsLimiter ?? world.limiter('sandbox-email-caps')
         return new SandboxEmailService({
             enabled,
@@ -231,14 +248,7 @@ export function useSandboxWorld(): SandboxWorld {
             tenantName: world.tenantName,
             isProvisioned: (teamId) => hasSandboxSenderRow(faults.provisioningDb ?? world.postgres, teamId),
             authorize: (request) => readSandboxAuthorization(faults.authorizationDb ?? world.postgres, request),
-            checkRecipient: (request) =>
-                checkSandboxRecipient(
-                    {
-                        suppression: new EmailSuppressionService(recipientsDb, emailSuppressionConfigFromEnv()),
-                        recipients: faults.recipientsDb ? new RecipientsManagerService(recipientsDb) : world.recipients,
-                    },
-                    request
-                ),
+            checkRecipient: (request) => checkSandboxRecipient(recipientReads, request),
             claimCaps: (claim) => claimSandboxCaps(limiter, caps, claim),
             ses: world.sesClient,
         })
