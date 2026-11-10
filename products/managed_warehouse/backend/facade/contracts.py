@@ -27,6 +27,8 @@ __all__ = [
     "DuckLakeDayReplacement",
     "DuckLakeTableLayoutError",
     "DuckLakeTableReplacement",
+    "HoglakeBackfillCatalog",
+    "TrinoBackend",
     "DuckgresQueryServerConfig",
     "DuckgresServerSummary",
     "DuckgresStoredBucketConfig",
@@ -454,6 +456,10 @@ class DuckLakeTableLayoutError(ValueError):
     """The table's column types differ from the backfill export, so add_files refuses the export's files."""
 
 
+# The connector behind an organization's managed Trino catalog. The backend is fixed when the warehouse is created.
+TrinoBackend = Literal["ducklake", "hoglake"]
+
+
 class DuckLakeBackfillCatalog(Protocol):
     """The DuckLake statements a backfill runs in the organization's Trino catalog."""
 
@@ -493,3 +499,24 @@ class StaffActionOutcome:
     ok: bool
     status_code: int
     message: str
+
+
+class HoglakeBackfillCatalog(Protocol):
+    """The hoglake statements of one team's backfill, run in the organization's Trino catalog."""
+
+    def ensure_table(
+        self, table: str, columns: Mapping[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
+    ) -> None: ...
+
+    def replace_table(self, table: str, columns: Mapping[str, str]) -> None: ...
+
+    def register_export(
+        self,
+        table: str,
+        *,
+        location: str,
+        file_prefix: str,
+        import_id: str,
+        expected_rows: int,
+        replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
+    ) -> int: ...

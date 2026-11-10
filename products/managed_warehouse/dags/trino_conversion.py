@@ -125,6 +125,8 @@ def _summarize(
 @dagster.op(tags={"owner": JobOwners.TEAM_MANAGED_WAREHOUSE.value})
 def duckling_trino_conversion(context: dagster.OpExecutionContext, config: DucklingTrinoConversionConfig) -> None:
     target = _resolve_duckling_target(config.team_id)
+    if target.backend == "hoglake":
+        raise ValueError("The Trino conversion changes DuckLake tables, and this organization's catalog is hoglake")
     tables = {
         "events": (target.events_table, EVENTS_TRINO_COLUMN_TYPES),
         "persons": (target.persons_table, PERSONS_TRINO_COLUMN_TYPES),

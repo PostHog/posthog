@@ -40,10 +40,10 @@ import calendar
 import functools
 import dataclasses
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import closing
+from contextlib import AbstractContextManager, closing
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 from django.db import DatabaseError
 from django.utils import timezone
@@ -78,7 +78,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_string
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.query_tagging import DagsterTags, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
 from posthog.dataclasses import frozen
@@ -95,11 +95,18 @@ from products.data_warehouse.backend.facade.models import ManagedWarehouseBackfi
 from products.managed_warehouse.backend.facade.api import (
     DUCKGRES_BUCKET_REGION,
     get_catalog_connection_config,
+    get_control_plane_data_path,
     get_org_id_for_team,
     get_stored_bucket_config,
     resolve_team_earliest_event_date,
 )
-from products.managed_warehouse.backend.facade.backfill_trino import backfills_through_trino, connect_backfill_catalog
+from products.managed_warehouse.backend.facade.backfill_trino import (
+    backfills_through_hoglake,
+    backfills_through_trino,
+    connect_backfill_catalog,
+    connect_hoglake_backfill_catalog,
+    get_trino_backend,
+)
 from products.managed_warehouse.backend.facade.client import (
     ServiceCredential,
     ServiceCredentialUnavailable,
@@ -108,12 +115,20 @@ from products.managed_warehouse.backend.facade.client import (
     refresh_service_credential,
 )
 from products.managed_warehouse.backend.facade.contracts import (
+    CPUnavailableError,
+    DuckLakeBackfillCatalog,
     DuckLakeDayReplacement,
     DuckLakeTableLayoutError,
     DuckLakeTableReplacement,
+    HoglakeBackfillCatalog,
     ManagedWarehouseTeamMembership,
+    TrinoBackend,
 )
-from products.managed_warehouse.backend.facade.metrics import record_duckling_backfill_workload, track_duckling_backfill
+from products.managed_warehouse.backend.facade.metrics import (
+    record_duckling_backfill_skipped,
+    record_duckling_backfill_workload,
+    track_duckling_backfill,
+)
 from products.managed_warehouse.backend.facade.team_state import (
     list_enabled_backfill_team_memberships,
     resolve_events_persons_tables,
@@ -127,6 +142,8 @@ logger = structlog.get_logger(__name__)
 DUCKLAKE_ALIAS = "ducklake"
 
 MAX_RETRY_ATTEMPTS = 3
+
+DUCKLAKE_BUCKET_PREFIX = "posthog-duckling-"
 
 ONE_HOUR_IN_SECONDS = 60 * 60
 ONE_GB_IN_BYTES = 1024 * 1024 * 1024
@@ -234,6 +251,10 @@ class DucklingTarget:
     # Default to the shared tables; _resolve_duckling_target sets these per-team from table_suffix.
     events_table: str = "events"
     persons_table: str = "persons"
+    backend: TrinoBackend = "ducklake"
+    # The S3 root of the warehouse's data, as `s3://<bucket>/<prefix>/`. Only a hoglake export needs it, because a
+    # hoglake warehouse sits under a prefix of a shared bucket.
+    data_path: str | None = None
 
 
 def _resolve_table_names(team_id: int) -> tuple[str, str]:
@@ -274,11 +295,34 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     from products.managed_warehouse.backend.facade.api import get_control_plane_bucket  # noqa: PLC0415
 
     org_id = get_org_id_for_team(team_id)
+    try:
+        backend = get_trino_backend(org_id)
+    except CPUnavailableError:
+        # Every provisioned warehouse has a stored server row, so the row alone does not name the backend. A bucket
+        # named posthog-duckling-* is a per-org DuckLake bucket, and hoglake warehouses only live in the shared
+        # customer bucket. Anything else must fail here, so that the run retries and never guesses.
+        stored = get_stored_bucket_config(org_id)
+        if stored is None or not (stored.bucket or "").startswith(DUCKLAKE_BUCKET_PREFIX):
+            raise
+        logger.warning(
+            "duckling_backend_unavailable_using_stored_ducklake_bucket", team_id=team_id, organization_id=org_id
+        )
+        backend = "ducklake"
+    if backend == "hoglake":
+        return _resolve_hoglake_target(team_id, org_id)
     events_table, persons_table = _resolve_table_names(team_id)
 
     # Control plane first — authoritative, and rejects an org_id-mismatched status body.
     cp_bucket = get_control_plane_bucket(org_id)
     if cp_bucket:
+        # ClickHouse can neither list nor reach the objects under a prefix of a shared bucket, and the DuckLake export
+        # paths ignore the prefix, so the files would land outside the warehouse.
+        data_path = get_control_plane_data_path(org_id)
+        if data_path is not None and data_path != f"s3://{cp_bucket}/":
+            raise ValueError(
+                f"The DuckLake warehouse of org {org_id} keeps its data under {data_path}, a prefix of a shared "
+                "bucket. The backfill cannot export to a prefix."
+            )
         logger.info(
             "duckling_bucket_resolved_from_control_plane",
             team_id=team_id,
@@ -316,6 +360,29 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     raise ValueError(
         f"No S3 bucket resolvable for org {org_id}: the control plane warehouse status named "
         f"none, and no stored DuckgresServer bucket to fall back to."
+    )
+
+
+def _resolve_hoglake_target(team_id: int, org_id: str) -> DucklingTarget:
+    """A hoglake team writes `team_<id>.events|persons|groups` under the warehouse's data path.
+
+    The control-plane team row names DuckLake tables, so it has no part in this target. The control plane alone names
+    the data path, because the stored duckgres row has no prefix.
+    """
+    data_path = get_control_plane_data_path(org_id)
+    if not data_path:
+        raise ValueError(f"No S3 data path resolvable for org {org_id}: the control plane warehouse status named none.")
+    bucket = data_path.removeprefix("s3://").partition("/")[0]
+    logger.info(
+        "hoglake_data_path_resolved_from_control_plane", team_id=team_id, organization_id=org_id, data_path=data_path
+    )
+    return DucklingTarget(
+        team_id=team_id,
+        organization_id=org_id,
+        bucket=bucket,
+        bucket_region=DUCKGRES_BUCKET_REGION,
+        backend="hoglake",
+        data_path=data_path,
     )
 
 
@@ -1116,6 +1183,8 @@ class DucklingBackfillConfig(Config):
     use_trino_canary: bool = False
     # Opt-in per run: register through Trino even when the organization is not on the flag.
     register_through_trino: bool = False
+    # Opt-in per run for a hoglake organization that is not on the hoglake flag.
+    register_through_hoglake: bool = False
     events_parquet_row_group_size_bytes: int = pydantic.Field(
         default=DEFAULT_EVENTS_PARQUET_ROW_GROUP_SIZE_BYTES,
         gt=0,
@@ -1139,14 +1208,40 @@ class _DucklakeRegistration:
     session: _DuckgresSession | None = None
 
 
+class HoglakeBackfillNotEnabled(Exception):
+    """A hoglake warehouse has neither the hoglake flag nor the run override, so the run exports nothing.
+
+    The run fails instead of finishing, because a finished run would mark its days as backfilled.
+    """
+
+
+HOGLAKE_NOT_ENABLED_REASON = "hoglake_not_enabled"
+
+
 def _open_ducklake_registration(
-    context: AssetExecutionContext | OpExecutionContext, config: DucklingBackfillConfig, target: DucklingTarget
+    context: AssetExecutionContext | OpExecutionContext,
+    config: DucklingBackfillConfig,
+    target: DucklingTarget,
+    *,
+    dataset: str,
 ) -> _DucklakeRegistration:
     """Choose Trino or duckgres for the run, and open the duckgres session when the run registers through it.
 
     An organization that duckgres does not have registers through Trino, because PostHog provisions every warehouse with
     Trino. Only duckgres knows which organizations it has, so its refusal of the connection is the signal.
+    A hoglake warehouse has no duckgres organization, so it registers through Trino or not at all.
     """
+    if target.backend == "hoglake":
+        if config.register_through_hoglake or backfills_through_hoglake(target.organization_id):
+            return _DucklakeRegistration(through_trino=True)
+        record_duckling_backfill_skipped(team_id=target.team_id, dataset=dataset, reason=HOGLAKE_NOT_ENABLED_REASON)
+        logger.warning(
+            "duckling_backfill_hoglake_not_enabled", team_id=target.team_id, organization_id=target.organization_id
+        )
+        raise HoglakeBackfillNotEnabled(
+            f"Organization {target.organization_id} has a hoglake warehouse, but is not on the "
+            "managed-warehouse-hoglake-backfill-registration flag, and the run does not set register_through_hoglake"
+        )
     if config.register_through_trino or backfills_through_trino(target.organization_id):
         return _DucklakeRegistration(through_trino=True)
     if config.dry_run or config.skip_ducklake_registration:
@@ -1260,6 +1355,97 @@ def get_s3_url_for_clickhouse(bucket: str, region: str, path_without_scheme: str
     policy explicitly allows the ClickHouse EC2 role, so no credentials needed.
     """
     return f"https://{bucket}.s3.{region}.amazonaws.com/{path_without_scheme}"
+
+
+def _next_month(month_start: date) -> date:
+    return (month_start.replace(day=1) + timedelta(days=32)).replace(day=1)
+
+
+@frozen
+class HoglakeMonth:
+    start: date
+    rows: int
+    busiest_day_rows: int
+
+
+@retry(
+    stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+    wait=wait_exponential(multiplier=1, min=4, max=60),
+    retry=retry_if_exception_type((ClickHouseError, OSError, TimeoutError)),
+    reraise=True,
+)
+def hoglake_months_with_rows(
+    client: Client, table: str, timestamp_column: str, condition: str, settings: dict[str, Any]
+) -> list[HoglakeMonth]:
+    """The UTC calendar months that hold rows of a full export, oldest first, with their row counts."""
+    rows = client.execute(
+        f"SELECT toStartOfMonth({timestamp_column}, 'UTC') AS month, toDate({timestamp_column}, 'UTC') AS day, "
+        f"count() FROM {table} WHERE {condition} GROUP BY month, day ORDER BY month, day",
+        settings=settings,
+    )
+    totals: dict[date, tuple[int, int]] = {}
+    for month, _day, day_rows in rows:
+        total, busiest = totals.get(month, (0, 0))
+        totals[month] = (total + int(day_rows), max(busiest, int(day_rows)))
+    return [
+        HoglakeMonth(start=month, rows=total, busiest_day_rows=busiest) for month, (total, busiest) in totals.items()
+    ]
+
+
+def hoglake_per_day_fanout(config: DucklingBackfillConfig, month: HoglakeMonth) -> int:
+    """How many files to split each UTC day of a month into.
+
+    A hoglake file may hold one UTC day only, so a monthly export fans out per day. The busiest day sets the fan-out,
+    because a bulk update can put most of a month's rows on one day. One query keeps a writer open for every day of
+    the month, and the writers together must fit in the row-group buffer budget.
+    """
+    days = calendar.monthrange(month.start.year, month.start.month)[1]
+    writer_limit = max(1, EVENTS_PARQUET_ROW_GROUP_BUFFER_BUDGET_BYTES // DEFAULT_PARQUET_ROW_GROUP_SIZE_BYTES // days)
+    return min(
+        _compute_fanout(month.busiest_day_rows, config.target_rows_per_file, config.max_s3_file_fanout), writer_limit
+    )
+
+
+@frozen
+class HoglakeExport:
+    """The S3 glob of a hoglake export, with the number of rows that ClickHouse wrote into it.
+
+    `add_files` compares the row count to the footers of the files it registers, so a retry cannot silently end a day
+    after an earlier attempt deleted the files.
+    """
+
+    s3_glob: str
+    rows: int
+
+
+def _written_or_raise(written_rows: int | None, info: str) -> int:
+    if written_rows is None:
+        raise ValueError(f"ClickHouse did not report the rows it wrote for {info}, so the export cannot be checked")
+    return written_rows
+
+
+def export_glob(result: str | HoglakeExport | None) -> str | None:
+    """The S3 glob of an export, for the duckgres path, which has no use for the row count."""
+    return result.s3_glob if isinstance(result, HoglakeExport) else result
+
+
+def _export_result(target: DucklingTarget, s3_glob: str, written_rows: int | None) -> str | HoglakeExport:
+    if target.backend != "hoglake":
+        return s3_glob
+    return HoglakeExport(s3_glob=s3_glob, rows=_written_or_raise(written_rows, s3_glob))
+
+
+def hoglake_export_directory(target: DucklingTarget, table: str, date: datetime | None) -> str:
+    """The S3 key of the directory that holds one hoglake export, below the bucket.
+
+    A hoglake warehouse only accepts files under `data/team_<id>/` of its data path, and `add_files` lists this
+    directory, so no other export may share it.
+    """
+    if target.data_path is None:
+        raise ValueError(f"The target of team {target.team_id} has no data path, so it cannot export to hoglake")
+    root = target.data_path.removeprefix(f"s3://{target.bucket}/")
+    period = f"day={date.strftime('%Y-%m-%d')}" if date is not None else "full"
+    return f"{root}data/team_{target.team_id}/_ph_backfill/{table}/{period}"
 
 
 def _validate_identifier(identifier: str) -> None:
@@ -1606,10 +1792,15 @@ def _execute_export_with_retry(
     export_sql: str,
     settings: dict[str, Any],
     info: str,
-) -> None:
-    """Execute export SQL with retry logic for transient failures."""
+) -> int | None:
+    """Execute export SQL with retry logic for transient failures.
+
+    Returns the number of rows that ClickHouse reports it wrote, or None when the client reports none.
+    """
     try:
         client.execute(export_sql, settings=settings)
+        progress = getattr(getattr(client, "last_query", None), "progress", None)
+        return int(progress.written_rows) if progress is not None else None
     except Exception as e:
         logger.warning(
             "duckling_export_retry",
@@ -1767,7 +1958,7 @@ def export_events_to_duckling_s3(
     run_id: str,
     settings: dict[str, Any],
     columns: str = EVENTS_COLUMNS,
-) -> str | None:
+) -> str | HoglakeExport | None:
     """Export events for a team/date to the duckling's S3 bucket.
 
     The day is fanned out across a volume-sized number of Parquet files via ClickHouse
@@ -1788,7 +1979,10 @@ def export_events_to_duckling_s3(
     day = date.strftime("%d")
     date_str = date.strftime("%Y-%m-%d")
 
-    day_dir = f"{BACKFILL_EVENTS_S3_PREFIX}/{team_id}/year={year}/month={month}/day={day}"
+    if target.backend == "hoglake":
+        day_dir = hoglake_export_directory(target, "events", date)
+    else:
+        day_dir = f"{BACKFILL_EVENTS_S3_PREFIX}/{team_id}/year={year}/month={month}/day={day}"
 
     # {_partition_id} is substituted by ClickHouse per PARTITION BY bucket, so one
     # INSERT emits {run_id}_0.parquet … {run_id}_{N-1}.parquet. The run_id prefix
@@ -1806,7 +2000,9 @@ def export_events_to_duckling_s3(
     # S3 glob with scheme that registration enumerates to find every produced file
     s3_glob = f"s3://{target.bucket}/{file_glob}"
 
-    where_clause = f"team_id = {team_id} AND toDate(timestamp) = '{date_str}'"
+    # The hoglake day partition is a UTC day, so the filter names the zone instead of relying on the server's.
+    day_expression = "toDate(timestamp, 'UTC')" if target.backend == "hoglake" else "toDate(timestamp)"
+    where_clause = f"team_id = {team_id} AND {day_expression} = '{date_str}'"
 
     # Event rows are wide (large properties/person_properties JSON). With PARTITION BY,
     # writer memory includes one row-group staging buffer per active bucket, so the byte
@@ -1869,10 +2065,10 @@ def export_events_to_duckling_s3(
     )
 
     try:
-        _execute_export_with_retry(client, export_sql, export_settings, info)
+        written_rows = _execute_export_with_retry(client, export_sql, export_settings, info)
         context.log.info(f"Successfully exported events for {info}")
         logger.info("duckling_export_success", team_id=team_id, date=date_str)
-        return s3_glob
+        return _export_result(target, s3_glob, written_rows)
     except Exception:
         context.log.exception(f"Failed to export events for {info} after {MAX_RETRY_ATTEMPTS} attempts")
         logger.exception("duckling_export_failed", team_id=team_id, date=date_str)
@@ -2390,7 +2586,7 @@ def export_persons_to_duckling_s3(
     run_id: str,
     settings: dict[str, Any],
     columns: str = PERSONS_COLUMNS,
-) -> str | None:
+) -> str | HoglakeExport | None:
     """Export persons for a team/date to the duckling's S3 bucket.
 
     Exports persons joined with person_distinct_id2 to include distinct_ids.
@@ -2407,7 +2603,10 @@ def export_persons_to_duckling_s3(
     month = date.strftime("%m")
     date_str = date.strftime("%Y-%m-%d")
 
-    period_dir = f"{BACKFILL_PERSONS_S3_PREFIX}/{team_id}/year={year}/month={month}"
+    if target.backend == "hoglake":
+        period_dir = hoglake_export_directory(target, "persons", date)
+    else:
+        period_dir = f"{BACKFILL_PERSONS_S3_PREFIX}/{team_id}/year={year}/month={month}"
     # Fanned out by PARTITION BY into {run_id}_*.parquet — see export_events_to_duckling_s3
     # for why the run_id prefix keeps replays from re-registering prior files.
     partition_path = f"{period_dir}/{run_id}_{{_partition_id}}.parquet"
@@ -2439,6 +2638,7 @@ def export_persons_to_duckling_s3(
     )
     fanout = _compute_fanout(row_count, config.target_rows_per_file, config.max_s3_file_fanout)
 
+    day_expression = "toDate(p._timestamp, 'UTC')" if target.backend == "hoglake" else "toDate(p._timestamp)"
     # Join person with person_distinct_id2 to get distinct_ids
     # Use FINAL to handle ReplacingMergeTree deduplication
     # Filter by _timestamp to get persons modified on this date
@@ -2454,7 +2654,7 @@ def export_persons_to_duckling_s3(
     INNER JOIN person_distinct_id2 AS pd FINAL ON p.id = pd.person_id AND p.team_id = pd.team_id
     WHERE p.team_id = {team_id}
       AND pd.team_id = {team_id}
-      AND toDate(p._timestamp) = '{date_str}'
+      AND {day_expression} = '{date_str}'
       AND p.is_deleted = 0
       AND pd.is_deleted = 0
     SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
@@ -2476,10 +2676,10 @@ def export_persons_to_duckling_s3(
     )
 
     try:
-        _execute_export_with_retry(client, export_sql, export_settings, info)
+        written_rows = _execute_export_with_retry(client, export_sql, export_settings, info)
         context.log.info(f"Successfully exported persons for {info}")
         logger.info("duckling_persons_export_success", team_id=team_id, date=date_str)
-        return s3_glob
+        return _export_result(target, s3_glob, written_rows)
     except Exception:
         context.log.exception(f"Failed to export persons for {info} after {MAX_RETRY_ATTEMPTS} attempts")
         logger.exception("duckling_persons_export_failed", team_id=team_id, date=date_str)
@@ -2495,7 +2695,7 @@ def export_persons_full_to_duckling_s3(
     run_id: str,
     settings: dict[str, Any],
     columns: str = PERSONS_COLUMNS,
-) -> str | None:
+) -> str | HoglakeExport | None:
     """Export ALL persons for a team to the duckling's S3 bucket.
 
     Single FINAL query with no date filtering - much more efficient than
@@ -2505,7 +2705,10 @@ def export_persons_full_to_duckling_s3(
     Returns:
         S3 glob matching every file this run produced, or None if dry_run.
     """
-    period_dir = f"{BACKFILL_PERSONS_S3_PREFIX}/{team_id}/year=0/month=0"
+    if target.backend == "hoglake":
+        period_dir = hoglake_export_directory(target, "persons", None)
+    else:
+        period_dir = f"{BACKFILL_PERSONS_S3_PREFIX}/{team_id}/year=0/month=0"
     # Fanned out by PARTITION BY into {run_id}_*.parquet — see export_events_to_duckling_s3
     # for why the run_id prefix keeps replays from re-registering prior files.
     partition_path = f"{period_dir}/{run_id}_{{_partition_id}}.parquet"
@@ -2536,6 +2739,11 @@ def export_persons_full_to_duckling_s3(
             f"{config.max_s3_file_fanout} files (~{config.target_rows_per_file} rows/file) to {s3_glob}"
         )
         return None
+
+    if target.backend == "hoglake":
+        return _export_persons_full_by_month(
+            context, client, config, target, run_id, period_dir, full_export_settings, settings, columns
+        )
 
     # Size the fan-out from the team's distinct-id rows (≈ output rows; team_id is the
     # leading primary key). No FINAL — a slight overcount only nudges the file count up.
@@ -2573,14 +2781,75 @@ def export_persons_full_to_duckling_s3(
     )
 
     try:
-        _execute_export_with_retry(client, export_sql, full_export_settings, info)
+        written_rows = _execute_export_with_retry(client, export_sql, full_export_settings, info)
         context.log.info(f"Successfully exported all persons for {info}")
         logger.info("duckling_persons_full_export_success", team_id=team_id)
-        return s3_glob
+        return _export_result(target, s3_glob, written_rows)
     except Exception:
         context.log.exception(f"Failed to export persons (full) for {info} after {MAX_RETRY_ATTEMPTS} attempts")
         logger.exception("duckling_persons_full_export_failed", team_id=team_id)
         raise
+
+
+def hoglake_persons_full_month_sql(s3_url: str, columns: str, team_id: int, month_start: date, fanout: int) -> str:
+    """One month of a full persons export, with one file per UTC day and hash bucket.
+
+    The partition id joins the UTC day and the bucket in one string, because a tuple would put brackets and quotes
+    in the file name. PARTITION BY sees the output columns of the SELECT, not the source aliases.
+    """
+    return f"""
+    INSERT INTO FUNCTION s3(
+        '{s3_url}',
+        'Parquet'
+    )
+    PARTITION BY concat(toString(toDate(_timestamp, 'UTC')), '_', toString(cityHash64(distinct_id) % {fanout}))
+    SELECT
+        {columns}
+    FROM person AS p FINAL
+    INNER JOIN person_distinct_id2 AS pd FINAL ON p.id = pd.person_id AND p.team_id = pd.team_id
+    WHERE p.team_id = {team_id}
+      AND pd.team_id = {team_id}
+      AND p.is_deleted = 0
+      AND pd.is_deleted = 0
+      AND p._timestamp >= toDateTime('{month_start.isoformat()}', 'UTC')
+      AND p._timestamp < toDateTime('{_next_month(month_start).isoformat()}', 'UTC')
+    SETTINGS s3_truncate_on_insert=1, use_hive_partitioning=0
+    """
+
+
+def _export_persons_full_by_month(
+    context: AssetExecutionContext,
+    client: Client,
+    config: DucklingBackfillConfig,
+    target: DucklingTarget,
+    run_id: str,
+    period_dir: str,
+    export_settings: dict[str, Any],
+    settings: dict[str, Any],
+    columns: str,
+) -> HoglakeExport:
+    """Export all persons of a hoglake team, one query per month, into the same `full` directory.
+
+    The persons table is partitioned by UTC day of `_timestamp`, and `add_files` refuses a file that spans two days.
+    """
+    team_id = target.team_id
+    months = hoglake_months_with_rows(
+        client, "person", "_timestamp", f"team_id = {team_id} AND is_deleted = 0", settings
+    )
+    written_total = 0
+    for month in months:
+        month_start = month.start
+        fanout = hoglake_per_day_fanout(config, month)
+        partition_path = f"{period_dir}/{run_id}_{month_start:%Y%m}_{{_partition_id}}.parquet"
+        s3_url = get_s3_url_for_clickhouse(target.bucket, target.bucket_region, partition_path)
+        info = f"team_id={team_id}, full_export, month={month_start:%Y-%m}"
+        context.log.info(f"Exporting persons for {info} ({month.rows} rows, {fanout} file(s) per day)")
+        written_rows = _execute_export_with_retry(
+            client, hoglake_persons_full_month_sql(s3_url, columns, team_id, month_start, fanout), export_settings, info
+        )
+        written_total += _written_or_raise(written_rows, info)
+    logger.info("duckling_persons_full_export_success", team_id=team_id, months=len(months))
+    return HoglakeExport(s3_glob=f"s3://{target.bucket}/{period_dir}/{run_id}_*.parquet", rows=written_total)
 
 
 def register_persons_files_with_duckling(
@@ -2690,12 +2959,12 @@ def list_exported_files(client: Client, target: DucklingTarget, s3_glob: str, se
 
 
 class _ExportUnderPrefix(Protocol):
-    def __call__(self, *, client: Client, run_id: str) -> str | None: ...
+    def __call__(self, *, client: Client, run_id: str) -> str | HoglakeExport | None: ...
 
 
 @frozen
 class TrinoExport:
-    """One export that the Trino path registers in one DuckLake snapshot.
+    """One export that the Trino path registers in one DuckLake snapshot, or one hoglake commit.
 
     `export` writes the files under the given file prefix and returns their S3 glob.
     """
@@ -2709,6 +2978,95 @@ class TrinoExport:
 class TrinoBackfillResult:
     partitions_exported: int
     files_registered: int
+
+
+@frozen
+class HoglakeRegistrationLocation:
+    """The directory that `add_files` lists for one export, and the file-name prefix it keeps."""
+
+    directory: str
+    file_prefix: str
+
+
+def _hoglake_registration_location(s3_glob: str) -> HoglakeRegistrationLocation:
+    directory, _, pattern = s3_glob.rpartition("/")
+    if not pattern.endswith("*.parquet"):
+        raise ValueError(f"Export glob {s3_glob} does not end in a file prefix and *.parquet")
+    return HoglakeRegistrationLocation(directory=f"{directory}/", file_prefix=pattern.removesuffix("*.parquet"))
+
+
+def _describe_export(exported: list[str] | HoglakeExport) -> str:
+    return exported.s3_glob if isinstance(exported, HoglakeExport) else f"{len(exported)} file(s)"
+
+
+BackfillCatalogConnector = Callable[[], AbstractContextManager[DuckLakeBackfillCatalog | HoglakeBackfillCatalog]]
+
+
+def _backfill_catalog_connector(config: DucklingBackfillConfig, target: DucklingTarget) -> BackfillCatalogConnector:
+    # A connection per use, because an export can outlive the Trino service credential, which cannot be renewed.
+    connect = connect_hoglake_backfill_catalog if target.backend == "hoglake" else connect_backfill_catalog
+    return functools.partial(connect, target.organization_id, canary=config.use_trino_canary, team_id=target.team_id)
+
+
+def _export_and_list(
+    client: Client,
+    *,
+    item: TrinoExport,
+    prefix: str,
+    tags: DagsterTags,
+    target: DucklingTarget,
+    settings: dict[str, Any],
+) -> list[str] | None:
+    with tags_context(kind="dagster", dagster=tags):
+        s3_glob = export_glob(item.export(client=client, run_id=prefix))
+        return None if s3_glob is None else list_exported_files(client, target, s3_glob, settings)
+
+
+def _export_for_hoglake(
+    client: Client,
+    *,
+    item: TrinoExport,
+    prefix: str,
+    tags: DagsterTags,
+    target: DucklingTarget,
+    settings: dict[str, Any],
+) -> HoglakeExport | None:
+    with tags_context(kind="dagster", dagster=tags):
+        result = item.export(client=client, run_id=prefix)
+    if result is not None and not isinstance(result, HoglakeExport):
+        raise ValueError(f"The hoglake export of {item.label} did not report the rows it wrote")
+    return result
+
+
+def _register_hoglake_export(
+    context: AssetExecutionContext,
+    catalog: HoglakeBackfillCatalog,
+    target: DucklingTarget,
+    *,
+    table: str,
+    column_types: Mapping[str, str],
+    label: str,
+    exported: HoglakeExport,
+    import_id: str,
+    replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
+    rebuild: bool,
+) -> int:
+    location = _hoglake_registration_location(exported.s3_glob)
+    if rebuild:
+        catalog.replace_table(table, column_types)
+    added = catalog.register_export(
+        table,
+        location=location.directory,
+        file_prefix=location.file_prefix,
+        import_id=import_id,
+        expected_rows=exported.rows,
+        replacement=replacement,
+    )
+    context.log.info(f"Registered {added} file(s) for {label} in {table} through hoglake")
+    logger.info(
+        "duckling_hoglake_files_registered", team_id=target.team_id, table=table, partition=label, file_count=added
+    )
+    return added
 
 
 def backfill_through_trino(
@@ -2726,6 +3084,9 @@ def backfill_through_trino(
     One add_files call adds the files of an export and removes the rows they replace in the same snapshot. A retried
     call with the same import id is a no-op, so this path needs no delete-then-register replay. A run that skips
     registration still writes the Trino types, because add_files can register only those files later.
+
+    For a hoglake warehouse, add_files lists the files itself, so ClickHouse lists nothing, and a call without files
+    still ends the day that it replaces.
     """
     run_id = context.run.run_id[:16]
     cluster = _get_cluster()
@@ -2734,6 +3095,7 @@ def backfill_through_trino(
     partitions_exported = 0
     files_registered = 0
     register = not (config.dry_run or config.skip_ducklake_registration)
+    through_hoglake = target.backend == "hoglake"
     if config.rebuild_mismatched_table and config.skip_schema_validation:
         raise ValueError(
             "rebuild_mismatched_table needs the schema validation, because the validation finds the mismatch"
@@ -2747,9 +3109,8 @@ def backfill_through_trino(
         and all(isinstance(item.replacement, DuckLakeTableReplacement) for item in exports)
     )
     rebuild = False
-    connect = functools.partial(
-        connect_backfill_catalog, target.organization_id, canary=config.use_trino_canary, team_id=target.team_id
-    )
+    connect = _backfill_catalog_connector(config, target)
+    export = _export_for_hoglake if through_hoglake else _export_and_list
 
     if register:
         with connect() as catalog:
@@ -2773,33 +3134,49 @@ def backfill_through_trino(
         # A new prefix for every export, because an export under an earlier prefix would overwrite files that
         # DuckLake already registered with their row counts and statistics.
         prefix = f"{run_id}_{secrets.token_hex(4)}"
-
-        def export_and_list(client: Client, item: TrinoExport = item, prefix: str = prefix) -> list[str] | None:
-            with tags_context(kind="dagster", dagster=tags):
-                s3_glob = item.export(client=client, run_id=prefix)
-                return None if s3_glob is None else list_exported_files(client, target, s3_glob, settings)
-
-        files = cluster.any_host_by_role(fn=export_and_list, workload=workload, node_role=NodeRole.DATA).result()
-        if files is None:
+        exported = cluster.any_host_by_role(
+            fn=functools.partial(export, item=item, prefix=prefix, tags=tags, target=target, settings=settings),
+            workload=workload,
+            node_role=NodeRole.DATA,
+        ).result()
+        if exported is None:
             continue
         partitions_exported += 1
-        if not register:
-            context.log.info(f"Exported {len(files)} file(s) for {item.label} without registering them")
-            continue
         replacement = item.replacement if config.cleanup_existing_partition_data else None
+        if not register:
+            context.log.info(f"Exported {_describe_export(exported)} for {item.label} without registering it")
+            continue
+        if isinstance(exported, HoglakeExport):
+            with connect() as catalog:
+                files_registered += _register_hoglake_export(
+                    context,
+                    cast(HoglakeBackfillCatalog, catalog),
+                    target,
+                    table=table,
+                    column_types=column_types,
+                    label=item.label,
+                    exported=exported,
+                    import_id=prefix,
+                    replacement=replacement,
+                    rebuild=rebuild,
+                )
+            rebuild = False
+            continue
+        files = exported
         # An export can outlive the Trino service credential, which cannot be renewed after it expires.
         with connect() as catalog:
+            ducklake_catalog = cast(DuckLakeBackfillCatalog, catalog)
             if rebuild:
                 # The rebuild waits until the export finished, to keep the window with an empty table short. A file
                 # count that add_files refuses fails here, before the rebuild empties the table.
-                catalog.validate_file_count(files)
-                catalog.replace_table(table, column_types)
+                ducklake_catalog.validate_file_count(files)
+                ducklake_catalog.replace_table(table, column_types)
                 rebuild = False
             if files:
-                catalog.register_files(table, files, import_id=prefix, replacement=replacement)
+                ducklake_catalog.register_files(table, files, import_id=prefix, replacement=replacement)
                 files_registered += len(files)
             elif replacement is not None:
-                catalog.delete_rows(table, replacement)
+                ducklake_catalog.delete_rows(table, replacement)
         context.log.info(f"Registered {len(files)} file(s) for {item.label} in {table} through Trino")
         logger.info(
             "duckling_trino_files_registered",
@@ -2974,7 +3351,9 @@ def _run_duckling_events_backfill(context: AssetExecutionContext, config: Duckli
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
 
-    registration = _open_ducklake_registration(context, config, target)
+    registration = _open_ducklake_registration(
+        context, config, target, dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS
+    )
     if registration.through_trino:
         _backfill_events_through_trino(context, config, target, dates)
         return
@@ -3033,15 +3412,17 @@ def _run_duckling_events_backfill(context: AssetExecutionContext, config: Duckli
 
             def do_export(client: Client, date: datetime = partition_date) -> str | None:
                 with tags_context(kind="dagster", dagster=tags):
-                    return export_events_to_duckling_s3(
-                        context=context,
-                        client=client,
-                        config=config,
-                        target=target,
-                        team_id=team_id,
-                        date=date,
-                        run_id=run_id,
-                        settings=merged_settings,
+                    return export_glob(
+                        export_events_to_duckling_s3(
+                            context=context,
+                            client=client,
+                            config=config,
+                            target=target,
+                            team_id=team_id,
+                            date=date,
+                            run_id=run_id,
+                            settings=merged_settings,
+                        )
                     )
 
             s3_glob = cluster.any_host_by_role(
@@ -3292,7 +3673,9 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
 
     context.log.info(f"Backfill ready for team_id={team_id}: org={target.organization_id}, bucket={target.bucket}")
 
-    registration = _open_ducklake_registration(context, config, target)
+    registration = _open_ducklake_registration(
+        context, config, target, dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS
+    )
     if registration.through_trino:
         _backfill_persons_through_trino(context, config, target, None if is_full else dates)
         return
@@ -3350,15 +3733,17 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
 
             def do_full_export(client: Client) -> str | None:
                 with tags_context(kind="dagster", dagster=tags):
-                    return export_persons_full_to_duckling_s3(
-                        context=context,
-                        client=client,
-                        config=config,
-                        target=target,
-                        team_id=team_id,
-                        run_id=run_id,
-                        settings=merged_settings,
-                        columns=persons_columns,
+                    return export_glob(
+                        export_persons_full_to_duckling_s3(
+                            context=context,
+                            client=client,
+                            config=config,
+                            target=target,
+                            team_id=team_id,
+                            run_id=run_id,
+                            settings=merged_settings,
+                            columns=persons_columns,
+                        )
                     )
 
             s3_glob = cluster.any_host_by_role(
@@ -3404,16 +3789,18 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
 
                 def do_export(client: Client, date: datetime = partition_date) -> str | None:
                     with tags_context(kind="dagster", dagster=tags):
-                        return export_persons_to_duckling_s3(
-                            context=context,
-                            client=client,
-                            config=config,
-                            target=target,
-                            team_id=team_id,
-                            date=date,
-                            run_id=run_id,
-                            settings=merged_settings,
-                            columns=persons_columns,
+                        return export_glob(
+                            export_persons_to_duckling_s3(
+                                context=context,
+                                client=client,
+                                config=config,
+                                target=target,
+                                team_id=team_id,
+                                date=date,
+                                run_id=run_id,
+                                settings=merged_settings,
+                                columns=persons_columns,
+                            )
                         )
 
                 s3_glob = cluster.any_host_by_role(
@@ -3448,6 +3835,44 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
     finally:
         if session is not None:
             session.close()
+
+
+def _backend_allows_backfill(organization_id: str) -> bool:
+    try:
+        backend = get_trino_backend(organization_id, use_cache=True)
+    except CPUnavailableError as error:
+        # The run asks again, and fails there when the warehouse turns out to be hoglake without the flag.
+        logger.warning("duckling_sensor_backend_unavailable", organization_id=organization_id, error=str(error))
+        return True
+    return backend != "hoglake" or backfills_through_hoglake(organization_id)
+
+
+def schedulable_backfill_team_memberships(
+    memberships: Sequence[ManagedWarehouseTeamMembership], *, dataset: str
+) -> list[ManagedWarehouseTeamMembership]:
+    """Keep the teams that a run can back up now.
+
+    A hoglake warehouse without the hoglake flag gets no partitions, so its days are created once the flag turns on.
+    """
+    if not memberships:
+        return []
+    allowed: dict[str, bool] = {}
+    schedulable: list[ManagedWarehouseTeamMembership] = []
+    for membership in memberships:
+        organization_id = membership.organization_id
+        if organization_id not in allowed:
+            allowed[organization_id] = _backend_allows_backfill(organization_id)
+        if allowed[organization_id]:
+            schedulable.append(membership)
+            continue
+        record_duckling_backfill_skipped(team_id=membership.team_id, dataset=dataset, reason=HOGLAKE_NOT_ENABLED_REASON)
+        logger.info(
+            "duckling_sensor_skipped_hoglake_team",
+            team_id=membership.team_id,
+            organization_id=organization_id,
+            dataset=dataset,
+        )
+    return schedulable
 
 
 # Cap on current-month CATCH-UP partitions (every day older than yesterday) emitted in one
@@ -3506,7 +3931,10 @@ def duckling_events_daily_backfill_sensor(
     run_requests: list[RunRequest] = []
     catchup_emitted = 0  # older-than-yesterday days created this tick, bounded below
 
-    for backfill in list_enabled_backfill_team_memberships("events_daily_backfill_sensor"):
+    for backfill in schedulable_backfill_team_memberships(
+        list_enabled_backfill_team_memberships("events_daily_backfill_sensor"),
+        dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+    ):
         for partition_date in current_month_dates:
             date_str = partition_date.strftime("%Y-%m-%d")
             partition_key = f"{backfill.team_id}_{date_str}"
@@ -3742,7 +4170,10 @@ def duckling_events_full_backfill_sensor(
     today = timezone.now().date()
     last_month_end = today.replace(day=1) - timedelta(days=1)
 
-    backfills = list_enabled_backfill_team_memberships("events_full_backfill_sensor")
+    backfills = schedulable_backfill_team_memberships(
+        list_enabled_backfill_team_memberships("events_full_backfill_sensor"),
+        dataset=ManagedWarehouseBackfillPartition.Dataset.EVENTS,
+    )
     if not backfills:
         context.log.info("No enabled duckling backfill teams found")
         return SensorResult(run_requests=[])
@@ -3889,7 +4320,10 @@ def duckling_persons_daily_backfill_sensor(
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
 
-    for backfill in list_enabled_backfill_team_memberships("persons_daily_backfill_sensor"):
+    for backfill in schedulable_backfill_team_memberships(
+        list_enabled_backfill_team_memberships("persons_daily_backfill_sensor"),
+        dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+    ):
         partition_key = f"{backfill.team_id}_{yesterday}"
 
         if partition_key not in existing:
@@ -3983,7 +4417,10 @@ def duckling_persons_full_backfill_sensor(
         To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
-    backfills = list_enabled_backfill_team_memberships("persons_full_backfill_sensor")
+    backfills = schedulable_backfill_team_memberships(
+        list_enabled_backfill_team_memberships("persons_full_backfill_sensor"),
+        dataset=ManagedWarehouseBackfillPartition.Dataset.PERSONS,
+    )
     if not backfills:
         context.log.info("No enabled duckling backfill teams found")
         return SensorResult(run_requests=[])

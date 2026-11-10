@@ -1308,6 +1308,11 @@ def _cp_status_body(organization_id: UUID | str) -> dict | None:
     return resp.data
 
 
+def cp_trino_status_for(organization_id: UUID | str) -> Response:
+    """The control plane's Trino status for backend callers, which have no user-facing feature flag to pass."""
+    return _request("GET", organization_id, "/trino", timeout=10, require_enabled=False)
+
+
 def cp_bucket_for(organization_id: UUID | str) -> str | None:
     """Authoritative S3 bucket for the org's duckling, straight from the control plane.
 

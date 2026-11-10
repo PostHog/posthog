@@ -8,18 +8,27 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from rest_framework.response import Response
 from trino.exceptions import Http503Error, TrinoConnectionError, TrinoExternalError, TrinoQueryError, TrinoUserError
 
+from products.managed_warehouse.backend import backfill_trino
 from products.managed_warehouse.backend.backfill_trino import (
     ADD_FILES_MAX_FILES,
     BACKFILL_TRINO_PRINCIPAL,
+    HoglakeBackfillCatalog,
     TrinoBackfillCatalog,
+    backfills_through_hoglake,
     backfills_through_trino,
     data_imports_through_trino,
     data_imports_trino_flag,
+    trino_backend_for,
 )
-from products.managed_warehouse.backend.facade.backfill_trino import connect_backfill_catalog
+from products.managed_warehouse.backend.facade.backfill_trino import (
+    connect_backfill_catalog,
+    connect_hoglake_backfill_catalog,
+)
 from products.managed_warehouse.backend.facade.contracts import (
+    CPUnavailableError,
     DuckLakeDayReplacement,
     DuckLakeTableLayoutError,
     DuckLakeTableReplacement,
@@ -27,6 +36,7 @@ from products.managed_warehouse.backend.facade.contracts import (
 from products.managed_warehouse.backend.facade.feature_flags import (
     DATA_IMPORTS_TRINO_REGISTRATION_FLAG,
     DUCKLAKE_TRINO_REGISTRATION_FLAG,
+    HOGLAKE_BACKFILL_REGISTRATION_FLAG,
 )
 
 if TYPE_CHECKING:
@@ -61,11 +71,15 @@ class _FakeTrino:
         columns: dict[str, str] | None = None,
         failures: list[Exception | None] | None = None,
         other_team_rows: bool | list[bool] = False,
+        namespaces: tuple[str, ...] = ("team_7",),
+        add_files_rows: list[list[object]] | None = None,
     ) -> None:
         self.statements: list[str] = []
         self.failures = failures or []
         self._columns = columns or {}
         self._other_team_rows = other_team_rows
+        self._namespaces = namespaces
+        self._add_files_rows = add_files_rows if add_files_rows is not None else [["added_data_files", 2]]
 
     def cursor(self) -> _Cursor:
         return _Cursor(self)
@@ -73,8 +87,10 @@ class _FakeTrino:
     def rows_for(self, statement: str) -> list[list[object]]:
         if "information_schema.columns" in statement:
             return [[name, data_type] for name, data_type in self._columns.items()]
+        if "information_schema.schemata" in statement:
+            return [[1]] if any(f"'{name}'" in statement for name in self._namespaces) else []
         if "EXECUTE add_files" in statement:
-            return [["added_data_files", 2]]
+            return self._add_files_rows
         if statement.startswith("SELECT 1 FROM"):
             rows = self._other_team_rows
             return [[1]] if (rows.pop(0) if isinstance(rows, list) else rows) else []
@@ -89,6 +105,16 @@ def _catalog(
 ) -> tuple[TrinoBackfillCatalog, _FakeTrino]:
     connection = _FakeTrino(columns, failures, other_team_rows)
     return TrinoBackfillCatalog(cast("Connection", connection), team_id=team_id), connection
+
+
+def _hoglake_catalog(
+    columns: dict[str, str] | None = None,
+    failures: list[Exception | None] | None = None,
+    namespaces: tuple[str, ...] = ("team_7",),
+    add_files_rows: list[list[object]] | None = None,
+) -> tuple[HoglakeBackfillCatalog, _FakeTrino]:
+    connection = _FakeTrino(columns, failures, namespaces=namespaces, add_files_rows=add_files_rows)
+    return HoglakeBackfillCatalog(cast("Connection", connection), team_id=7), connection
 
 
 def _changes(connection: _FakeTrino) -> list[str]:
@@ -329,6 +355,227 @@ class TestEnsureTable:
         assert (raised.type is DuckLakeTableLayoutError) == (error is DuckLakeTableLayoutError)
 
 
+class TestHoglakeBackfillCatalog:
+    LOCATION = "s3://bucket/warehouses/org/data/team_7/_ph_backfill/events/day=2024-01-31/"
+
+    @parameterized.expand(
+        [
+            ("events", "day(timestamp)"),
+            ("persons", "day(_timestamp)"),
+            ("groups", "day(_timestamp)"),
+        ]
+    )
+    def test_creates_the_table_in_the_team_namespace_partitioned_by_day(self, table: str, partitioning: str) -> None:
+        catalog, connection = _hoglake_catalog(COLUMNS)
+
+        catalog.ensure_table(table, COLUMNS, drop_first=False, create_if_missing=True, validate=True)
+
+        assert _changes(connection) == [
+            f'CREATE TABLE IF NOT EXISTS "warehouse"."team_7"."{table}" '
+            '("team_id" bigint, "timestamp" timestamp(6) with time zone, "person_version" bigint) '
+            f"WITH (partitioning = ARRAY['{partitioning}'])"
+        ]
+
+    def test_names_hogtower_when_the_team_namespace_is_missing(self) -> None:
+        catalog, connection = _hoglake_catalog(COLUMNS, namespaces=())
+
+        with pytest.raises(ValueError, match="team_7.*hogtower"):
+            catalog.ensure_table("events", COLUMNS, drop_first=False, create_if_missing=True, validate=True)
+
+        assert _changes(connection) == []
+
+    @parameterized.expand(
+        [
+            ("extra_column", {**COLUMNS, "added_later": "varchar"}, None, None),
+            ("unsigned_column", {**COLUMNS, "person_version": "decimal(20,0)"}, DuckLakeTableLayoutError, "team_7"),
+            ("missing_table", {}, ValueError, "does not exist"),
+        ]
+    )
+    def test_validates_the_columns_in_the_team_namespace(
+        self, _name: str, actual: dict[str, str], error: type[Exception] | None, message: str | None
+    ) -> None:
+        catalog, connection = _hoglake_catalog(actual)
+
+        def ensure() -> None:
+            catalog.ensure_table("events", COLUMNS, drop_first=False, create_if_missing=False, validate=True)
+
+        if error is None:
+            ensure()
+        else:
+            with pytest.raises(error, match=message):
+                ensure()
+        assert "table_schema = 'team_7'" in connection.statements[-1]
+
+    def test_rebuilds_the_table_partitioned_by_day_and_keeps_other_columns(self) -> None:
+        catalog, connection = _hoglake_catalog({**COLUMNS, "person_version": "decimal(20,0)", "added_later": "varchar"})
+
+        catalog.replace_table("persons", COLUMNS)
+
+        assert connection.statements[-1] == (
+            'CREATE OR REPLACE TABLE "warehouse"."team_7"."persons" '
+            '("team_id" bigint, "timestamp" timestamp(6) with time zone, "person_version" bigint, '
+            "\"added_later\" varchar) WITH (partitioning = ARRAY['day(_timestamp)'])"
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "day",
+                DuckLakeDayReplacement(column="timestamp", day=date(2024, 1, 31)),
+                ", replace_range_column => 'timestamp', replace_range_start => '2024-01-31 00:00:00.000000 UTC', "
+                "replace_range_end => '2024-02-01 00:00:00.000000 UTC'",
+            ),
+            ("table", DuckLakeTableReplacement(), ", replace => true"),
+            ("append", None, ""),
+        ]
+    )
+    def test_registers_the_files_in_the_location_and_ends_the_files_they_replace(
+        self, _name: str, replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None, options: str
+    ) -> None:
+        catalog, connection = _hoglake_catalog()
+
+        added = catalog.register_export(
+            "events",
+            location=self.LOCATION,
+            file_prefix="run1_ab12_",
+            import_id="run1_ab12",
+            expected_rows=12,
+            replacement=replacement,
+        )
+
+        assert added == 2
+        assert connection.statements == [
+            'ALTER TABLE "warehouse"."team_7"."events" EXECUTE add_files('
+            f"location => '{self.LOCATION}', file_prefix => 'run1_ab12_', import_id => 'run1_ab12', "
+            f"allow_missing => true, delete_on_failure => true, expected_rows => 12{options})"
+        ]
+
+    def test_an_unknown_added_count_after_a_receipt_recovery_counts_as_zero(self) -> None:
+        catalog, _connection = _hoglake_catalog(add_files_rows=[["added_data_files", -1], ["ended_data_files", -1]])
+
+        added = catalog.register_export(
+            "events",
+            location=self.LOCATION,
+            file_prefix="run1_ab12_",
+            import_id="run1_ab12",
+            expected_rows=0,
+            replacement=None,
+        )
+
+        assert added == 0
+
+    @parameterized.expand(
+        [
+            ("another_team", "s3://bucket/warehouses/org/data/team_8/_ph_backfill/events/day=2024-01-31/", "timestamp"),
+            ("another_table", "s3://bucket/warehouses/org/data/team_7/_ph_backfill/persons/full/", "timestamp"),
+            ("outside_the_backfill_directory", "s3://bucket/warehouses/org/data/team_7/events/", "timestamp"),
+            ("wrong_partition_column", LOCATION, "_timestamp"),
+        ]
+    )
+    def test_refuses_a_registration_that_could_reach_other_files_or_miss_the_partition(
+        self, _name: str, location: str, column: str
+    ) -> None:
+        catalog, connection = _hoglake_catalog()
+
+        with pytest.raises(ValueError):
+            catalog.register_export(
+                "events",
+                location=location,
+                file_prefix="run1_ab12_",
+                import_id="run1_ab12",
+                expected_rows=1,
+                replacement=DuckLakeDayReplacement(column=column, day=date(2024, 1, 31)),
+            )
+
+        assert connection.statements == []
+
+    def test_refuses_a_table_that_is_not_a_backfill_table(self) -> None:
+        catalog, connection = _hoglake_catalog()
+
+        with pytest.raises(ValueError, match="not a hoglake backfill table"):
+            catalog.ensure_table("posthog_events", COLUMNS, drop_first=True, create_if_missing=True, validate=True)
+
+        assert _changes(connection) == []
+
+    def test_connects_with_the_team_id_and_the_canary_choice(self) -> None:
+        with patch(
+            "products.managed_warehouse.backend.backfill_trino.connect_managed_warehouse_trino",
+            return_value=nullcontext(MagicMock(catalog="example_catalog")),
+        ) as connect:
+            with connect_hoglake_backfill_catalog("org-1", canary=True, team_id=7):
+                pass
+
+        connect.assert_called_once_with("org-1", principal=BACKFILL_TRINO_PRINCIPAL, canary=True)
+
+
+@pytest.fixture
+def clean_backend_cache():
+    backfill_trino._backend_cache.clear()
+    yield
+    backfill_trino._backend_cache.clear()
+
+
+@pytest.mark.usefixtures("clean_backend_cache")
+class TestTrinoBackendFor:
+    @staticmethod
+    def _status(body: object, code: int = 200) -> Response:
+        return Response(body, status=code)
+
+    @parameterized.expand(
+        [
+            ("status_backend", {"enabled": True, "status": {"org": "org-1", "backend": "hoglake"}}, "hoglake"),
+            ("top_level_backend", {"enabled": True, "backend": "hoglake", "status": {"org": "org-1"}}, "hoglake"),
+            ("ducklake_backend", {"enabled": True, "backend": "ducklake", "status": {"org": "org-1"}}, "ducklake"),
+            ("no_backend_reported", {"enabled": True, "status": {"org": "org-1"}}, "ducklake"),
+            ("not_enabled_yet", {"enabled": False, "backend": "hoglake"}, "hoglake"),
+            ("not_enabled_ducklake", {"enabled": False, "backend": "ducklake"}, "ducklake"),
+        ]
+    )
+    def test_reads_the_backend_from_the_trino_status(self, _name: str, body: dict, expected: str) -> None:
+        with patch(
+            "products.managed_warehouse.backend.presentation.views._request", return_value=self._status(body)
+        ) as request:
+            assert trino_backend_for("org-1") == expected
+
+        assert request.call_args.kwargs["require_enabled"] is False
+
+    @parameterized.expand([("not_configured", 501), ("not_found", 404)])
+    def test_a_control_plane_without_a_trino_status_counts_as_ducklake(self, _name: str, code: int) -> None:
+        with patch(
+            "products.managed_warehouse.backend.presentation.views._request",
+            return_value=self._status({"error": "none"}, code),
+        ):
+            assert trino_backend_for("org-1") == "ducklake"
+
+    @parameterized.expand(
+        [
+            ("server_error", {"error": "boom"}, 502),
+            ("unauthorized", {"error": "no"}, 401),
+            ("forbidden", {"error": "no"}, 403),
+            ("another_organization", {"enabled": True, "status": {"org": "org-2", "backend": "hoglake"}}, 200),
+        ]
+    )
+    def test_refuses_to_guess_the_backend_when_the_control_plane_cannot_say(
+        self, _name: str, body: dict, code: int
+    ) -> None:
+        with patch(
+            "products.managed_warehouse.backend.presentation.views._request", return_value=self._status(body, code)
+        ):
+            with pytest.raises(CPUnavailableError):
+                trino_backend_for("org-1")
+
+    def test_a_sensor_reads_the_status_once_per_ttl_and_a_run_always_reads_it(self) -> None:
+        body = {"enabled": True, "status": {"org": "org-1", "backend": "hoglake"}}
+        with patch(
+            "products.managed_warehouse.backend.presentation.views._request", return_value=self._status(body)
+        ) as request:
+            assert trino_backend_for("org-1", use_cache=True) == "hoglake"
+            assert trino_backend_for("org-1", use_cache=True) == "hoglake"
+            assert request.call_count == 1
+            assert trino_backend_for("org-1") == "hoglake"
+            assert request.call_count == 2
+
+
 def _query_error(error_class: type[TrinoQueryError], name: str, error_type: str) -> TrinoQueryError:
     return error_class({"errorName": name, "errorType": error_type, "message": name}, "query-1")
 
@@ -410,10 +657,49 @@ class TestTransientFailures:
         assert [statement.split()[0] for statement in connection.statements] == ["SELECT", "ALTER", "SELECT"]
 
 
+@patch("tenacity.nap.time.sleep")
+class TestHoglakeTransientFailures:
+    @staticmethod
+    def _register(catalog: HoglakeBackfillCatalog) -> int:
+        return catalog.register_export(
+            "events",
+            location=TestHoglakeBackfillCatalog.LOCATION,
+            file_prefix="run1_ab12_",
+            import_id="run1_ab12",
+            expected_rows=1,
+            replacement=DuckLakeDayReplacement(column="timestamp", day=date(2024, 1, 31)),
+        )
+
+    @parameterized.expand(
+        [
+            ("transaction_conflict", _query_error(TrinoExternalError, "TRANSACTION_CONFLICT", "EXTERNAL")),
+            ("snapshot_expired", _query_error(TrinoExternalError, "HOGLAKE_SNAPSHOT_EXPIRED", "EXTERNAL")),
+        ]
+    )
+    def test_repeats_the_registration_with_the_same_import_id(self, _sleep, _name: str, failure: Exception) -> None:
+        catalog, connection = _hoglake_catalog(failures=[failure])
+
+        assert self._register(catalog) == 2
+
+        assert len(connection.statements) == 2
+        assert connection.statements[0] == connection.statements[1]
+        assert "import_id => 'run1_ab12'" in connection.statements[1]
+
+    def test_raises_a_rejection_without_repeating_it(self, _sleep) -> None:
+        failure = _query_error(TrinoUserError, "INVALID_PROCEDURE_ARGUMENT", "USER_ERROR")
+        catalog, connection = _hoglake_catalog(failures=[failure])
+
+        with pytest.raises(TrinoUserError):
+            self._register(catalog)
+
+        assert len(connection.statements) == 1
+
+
 @pytest.mark.parametrize(
     "through_trino, flag",
     [
         (backfills_through_trino, DUCKLAKE_TRINO_REGISTRATION_FLAG),
+        (backfills_through_hoglake, HOGLAKE_BACKFILL_REGISTRATION_FLAG),
         (data_imports_through_trino, DATA_IMPORTS_TRINO_REGISTRATION_FLAG),
     ],
 )

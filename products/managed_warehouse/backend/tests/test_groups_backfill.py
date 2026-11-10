@@ -4,6 +4,7 @@ import re
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
@@ -19,7 +20,12 @@ from dagster import DagsterInstance, DagsterRun, DagsterRunStatus, SensorResult,
 from psycopg import sql
 
 from posthog.clickhouse.client.connection import get_client_from_pool
-from posthog.dags.events_backfill_to_duckling import DUCKLAKE_ALIAS, DucklingBackfillConfig, DucklingTarget
+from posthog.dags.events_backfill_to_duckling import (
+    DUCKLAKE_ALIAS,
+    DucklingBackfillConfig,
+    DucklingTarget,
+    HoglakeBackfillNotEnabled,
+)
 
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeDayReplacement,
@@ -47,6 +53,12 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from dagster import RunRequest
+
+
+@pytest.fixture(autouse=True)
+def _default_to_a_ducklake_warehouse():
+    with patch("posthog.dags.events_backfill_to_duckling.get_trino_backend", return_value="ducklake"):
+        yield
 
 
 @pytest.mark.parametrize("for_trino", [False, True])
@@ -309,6 +321,22 @@ class _FakeGroupsCatalog:
     def __init__(self) -> None:
         self.tables: list[tuple[str, dict[str, str]]] = []
         self.registered: list[tuple[str, list[str], DuckLakeDayReplacement | DuckLakeTableReplacement | None]] = []
+        self.exports: list[
+            tuple[str, str, str, str, int, DuckLakeDayReplacement | DuckLakeTableReplacement | None]
+        ] = []
+
+    def register_export(
+        self,
+        table: str,
+        *,
+        location: str,
+        file_prefix: str,
+        import_id: str,
+        expected_rows: int,
+        replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
+    ) -> int:
+        self.exports.append((table, location, file_prefix, import_id, expected_rows, replacement))
+        return 1
 
     def ensure_table(
         self, table: str, columns: dict[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
@@ -366,6 +394,61 @@ def test_groups_backfill_registers_through_trino_when_the_org_is_not_on_the_flag
     assert catalog.registered
 
 
+@pytest.mark.parametrize(
+    "partition_key,directory,replacement",
+    [
+        ("7", "full", DuckLakeTableReplacement()),
+        (
+            "7_2025-12-31",
+            "day=2025-12-31",
+            DuckLakeDayReplacement(column="_timestamp", day=datetime(2025, 12, 31).date()),
+        ),
+    ],
+)
+@time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False)
+def test_groups_backfill_registers_through_hoglake_from_the_team_directory(
+    partition_key: str, directory: str, replacement: DuckLakeDayReplacement | DuckLakeTableReplacement
+) -> None:
+    inserts, catalog, connect_hoglake, _ = _run_groups_through_trino(
+        partition_key, DucklingBackfillConfig(), hoglake=True
+    )
+
+    connect_hoglake.assert_called_with("org", canary=False, team_id=7)
+    assert catalog.tables == [("groups", GROUPS_TRINO_COLUMN_TYPES)]
+    [(table, location, file_prefix, import_id, expected_rows, registered_replacement)] = catalog.exports
+    assert expected_rows == 3 * len(inserts)
+    assert (table, registered_replacement) == ("groups", replacement)
+    assert location == f"s3://bkt/warehouses/org/data/team_7/_ph_backfill/groups/{directory}/"
+    assert file_prefix == f"{import_id}_"
+    assert len(inserts) == (2 if directory == "full" else 1)
+    for insert in inserts:
+        assert (
+            f"'https://bkt.s3.us-east-1.amazonaws.com/warehouses/org/data/team_7/_ph_backfill/groups/{directory}/{file_prefix}"
+            in insert
+        )
+    if directory == "full":
+        first, second = inserts
+        assert (
+            "PARTITION BY concat(toString(toDate(_timestamp, 'UTC')), '_', toString(cityHash64(group_type_index, group_key) %"
+            in first
+        )
+        assert "_timestamp >= toDateTime('2025-11-01', 'UTC') AND _timestamp < toDateTime('2025-12-01', 'UTC')" in first
+        assert (
+            "_timestamp >= toDateTime('2025-12-01', 'UTC') AND _timestamp < toDateTime('2026-01-01', 'UTC')" in second
+        )
+        assert f"/full/{file_prefix}202511_{{_partition_id}}.parquet" in first
+
+
+@time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False)
+def test_groups_backfill_fails_before_exporting_when_a_hoglake_warehouse_is_not_enabled() -> None:
+    inserts: list[str] = []
+
+    with pytest.raises(HoglakeBackfillNotEnabled):
+        _run_groups_through_trino("7", DucklingBackfillConfig(), hoglake=True, hoglake_flag=False, inserts=inserts)
+
+    assert inserts == []
+
+
 @pytest.mark.parametrize("partition_key", ["7", "7_2025-12-31"])
 @time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False)
 def test_groups_export_only_writes_the_trino_types_without_registering(partition_key: str) -> None:
@@ -381,16 +464,40 @@ def test_groups_export_only_writes_the_trino_types_without_registering(partition
 
 
 def _run_groups_through_trino(
-    partition_key: str, config: DucklingBackfillConfig, org_on_flag: bool = True, duckgres_refuses: bool = False
+    partition_key: str,
+    config: DucklingBackfillConfig,
+    org_on_flag: bool = True,
+    duckgres_refuses: bool = False,
+    hoglake: bool = False,
+    hoglake_flag: bool = True,
+    inserts: list[str] | None = None,
 ) -> tuple[list[str], _FakeGroupsCatalog, MagicMock, MagicMock]:
-    target = DucklingTarget(team_id=7, organization_id="org", bucket="bkt", bucket_region="us-east-1")
-    inserts: list[str] = []
+    target = (
+        DucklingTarget(
+            team_id=7,
+            organization_id="org",
+            bucket="bkt",
+            bucket_region="us-east-1",
+            backend="hoglake",
+            data_path="s3://bkt/warehouses/org/",
+        )
+        if hoglake
+        else DucklingTarget(team_id=7, organization_id="org", bucket="bkt", bucket_region="us-east-1")
+    )
+    inserts = [] if inserts is None else inserts
 
     def execute(query: str, params: object = None, settings: object = None) -> list[tuple[object, ...]]:
         if "INSERT INTO FUNCTION" in query:
             inserts.append(query)
+            client.last_query = SimpleNamespace(progress=SimpleNamespace(written_rows=3))
             return []
+        if "GROUP BY month" in query:
+            return [
+                (datetime(2025, 11, 1).date(), datetime(2025, 11, 3).date(), 5),
+                (datetime(2025, 12, 1).date(), datetime(2025, 12, 1).date(), 5),
+            ]
         if "'One'" in query:
+            assert not hoglake, "hoglake lists the files itself"
             return [("0.parquet",)]
         return [(10,)]
 
@@ -419,11 +526,16 @@ def _run_groups_through_trino(
         ) as duckgres_connect,
         patch("products.managed_warehouse.dags.groups_backfill.record_duckling_backfill_workload"),
         patch("posthog.dags.events_backfill_to_duckling._get_cluster", return_value=cluster),
-        patch("posthog.dags.events_backfill_to_duckling.connect_backfill_catalog") as connect_catalog,
+        patch("posthog.dags.events_backfill_to_duckling.backfills_through_hoglake", return_value=hoglake_flag),
+        patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_skipped"),
+        patch("posthog.dags.events_backfill_to_duckling.connect_backfill_catalog") as connect_ducklake,
+        patch("posthog.dags.events_backfill_to_duckling.connect_hoglake_backfill_catalog") as connect_hoglake,
         patch("tenacity.nap.time.sleep"),
     ):
+        connect_catalog = connect_hoglake if hoglake else connect_ducklake
         connect_catalog.return_value.__enter__.return_value = catalog
         run_groups_backfill(context, config)
+        (connect_ducklake if hoglake else connect_hoglake).assert_not_called()
 
     assert duckgres_connect.call_count == (1 if duckgres_refuses else 0)
     return inserts, catalog, connect_catalog, context
@@ -506,6 +618,27 @@ def test_groups_discovery_retries_only_when_no_snapshot_succeeded_or_is_running(
             result = duckling_groups_full_backfill_sensor(build_sensor_context(instance=instance))
         assert isinstance(result, SensorResult)
         assert [r.partition_key for r in result.run_requests or []] == (["7"] if should_schedule else [])
+
+
+@pytest.mark.parametrize("flag,expected", [(False, []), (True, ["7"])])
+@time_machine.travel(_NOW, tick=False)
+def test_groups_sensor_schedules_a_hoglake_team_only_with_the_hoglake_flag(flag: bool, expected: list[str]) -> None:
+    with DagsterInstance.ephemeral() as instance:
+        with (
+            patch(
+                "products.managed_warehouse.dags.groups_backfill.list_enabled_backfill_team_memberships",
+                return_value=[_membership(7)],
+            ),
+            patch("products.managed_warehouse.dags.groups_backfill._repair_stale_running_statuses"),
+            patch("posthog.dags.events_backfill_to_duckling.get_trino_backend", return_value="hoglake"),
+            patch("posthog.dags.events_backfill_to_duckling.backfills_through_hoglake", return_value=flag),
+            patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_skipped"),
+        ):
+            result = duckling_groups_full_backfill_sensor(build_sensor_context(instance=instance))
+
+        assert isinstance(result, SensorResult)
+        assert [r.partition_key for r in result.run_requests or []] == expected
+        assert bool(result.dynamic_partitions_requests) == bool(expected)
 
 
 @pytest.mark.parametrize("prior_status", [DagsterRunStatus.SUCCESS, DagsterRunStatus.STARTED])
