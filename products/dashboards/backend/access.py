@@ -3,7 +3,6 @@ from django.utils.timezone import now
 from prometheus_client import Counter
 from rest_framework.request import Request
 
-from posthog.caching.warming_demand import record_dashboard_view_for_warming
 from posthog.event_usage import EventSource, get_event_source
 from posthog.otel_metrics import OtelInstrumentFactory
 
@@ -41,13 +40,9 @@ def record_dashboard_access(access_method: DashboardAccessMethod) -> None:
     _otel.record_counter_twin(DASHBOARD_ACCESS_COUNTER, 1, {"access_method": access_method.value})
 
 
-def record_dashboard_view(
-    dashboard: Dashboard, access_method: DashboardAccessMethod, *, is_export_render: bool = False
-) -> None:
+def record_dashboard_view(dashboard: Dashboard, access_method: DashboardAccessMethod) -> None:
     dashboard.last_accessed_at = now()
     dashboard.save(update_fields=["last_accessed_at"])
-    if access_method != DashboardAccessMethod.API and not is_export_render:
-        record_dashboard_view_for_warming(team_id=dashboard.team_id, dashboard_id=dashboard.pk)
     record_dashboard_access(access_method)
 
 

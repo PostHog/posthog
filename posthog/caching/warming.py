@@ -21,7 +21,6 @@ from posthog.caching.warming_cost import (
     record_failed_warming_duration,
     record_warming_duration,
 )
-from posthog.caching.warming_demand import dashboard_views_since
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
 from posthog.dataclasses import frozen
@@ -80,7 +79,6 @@ RETRIABLE_WARMING_ERRORS = (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded)
 SkipReason = Literal[
     "over_max_duration",
     "expensive_not_recently_viewed",
-    "dashboard_not_viewed_by_person",
     "dashboard_not_recently_viewed",
 ]
 MAX_VIEWED_WINDOW_DAYS = 365
@@ -93,7 +91,6 @@ _SETTING_KEYS = [
     "CACHE_WARMING_MAX_INSIGHTS_PER_TEAM",
     "CACHE_WARMING_LARGEST_TEAMS",
     "CACHE_WARMING_LAST_VIEWED_DAYS",
-    "CACHE_WARMING_IGNORE_API_DASHBOARD_ACCESS",
     "CACHE_WARMING_DASHBOARD_VIEWED_HOURS",
 ]
 
@@ -107,7 +104,6 @@ class WarmingSettings:
     max_insights_per_team: int
     largest_teams: int
     last_viewed_window: timedelta
-    ignore_api_dashboard_access: bool
     dashboard_viewed_window: timedelta
 
 
@@ -154,7 +150,6 @@ def load_warming_settings() -> WarmingSettings:
         last_viewed_window=timedelta(
             days=_as_int(values["CACHE_WARMING_LAST_VIEWED_DAYS"], minimum=1, maximum=MAX_VIEWED_WINDOW_DAYS)
         ),
-        ignore_api_dashboard_access=bool(values["CACHE_WARMING_IGNORE_API_DASHBOARD_ACCESS"]),
         dashboard_viewed_window=timedelta(
             hours=_as_int(
                 values["CACHE_WARMING_DASHBOARD_VIEWED_HOURS"], minimum=0, maximum=MAX_VIEWED_WINDOW_DAYS * 24
@@ -283,18 +278,6 @@ def insights_to_keep_fresh(team: Team, *, settings: WarmingSettings, shared_only
     insights: list[InsightContext] = []
     skipped: dict[SkipReason, int] = {}
 
-    if settings.ignore_api_dashboard_access:
-        viewed_at = dashboard_views_since(team_id=team.pk, since=threshold)
-        viewed_candidates: list[tuple[int, Optional[int], Optional[datetime]]] = []
-        for insight_id, dashboard_id, last_seen in candidates:
-            if dashboard_id is None:
-                viewed_candidates.append((insight_id, dashboard_id, last_seen))
-            elif dashboard_id in viewed_at:
-                viewed_candidates.append((insight_id, dashboard_id, viewed_at[dashboard_id]))
-            else:
-                skipped["dashboard_not_viewed_by_person"] = skipped.get("dashboard_not_viewed_by_person", 0) + 1
-        candidates = viewed_candidates
-
     durations = (
         get_warming_durations(
             team_id=team.pk, contexts=[(insight_id, dashboard_id) for insight_id, dashboard_id, _ in candidates]
@@ -391,9 +374,6 @@ def schedule_warming_for_teams_task():
                     "shared_only": shared_only,
                     "skipped_over_max_duration": selection.skipped.get("over_max_duration", 0),
                     "skipped_expensive_not_recently_viewed": selection.skipped.get("expensive_not_recently_viewed", 0),
-                    "skipped_dashboard_not_viewed_by_person": selection.skipped.get(
-                        "dashboard_not_viewed_by_person", 0
-                    ),
                     "skipped_dashboard_not_recently_viewed": selection.skipped.get("dashboard_not_recently_viewed", 0),
                 },
             )

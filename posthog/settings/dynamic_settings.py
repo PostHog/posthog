@@ -479,14 +479,6 @@ CONSTANCE_CONFIG = {
         "this many days. Minimum 1, maximum 365.",
         int,
     ),
-    "CACHE_WARMING_IGNORE_API_DASHBOARD_ACCESS": (
-        get_from_env("CACHE_WARMING_IGNORE_API_DASHBOARD_ACCESS", default=False, type_cast=str_to_bool),
-        "Whether insight cache warming keeps a dashboard warm only when a person opened it, in the app or "
-        "through a shared or embedded link. When off, reads through an API key or MCP and export renders also "
-        "count. Views are recorded from the release that added this setting, so turn it on only after that "
-        "release has run for CACHE_WARMING_LAST_VIEWED_DAYS. Turn it off if dashboards open on old results.",
-        bool,
-    ),
     "CACHE_WARMING_DASHBOARD_VIEWED_HOURS": (
         get_from_env("CACHE_WARMING_DASHBOARD_VIEWED_HOURS", default=0, type_cast=int),
         "How recently a dashboard must have been opened for insight cache warming to keep its insights warm. "
@@ -571,7 +563,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CACHE_WARMING_MAX_INSIGHTS_PER_TEAM",
     "CACHE_WARMING_LARGEST_TEAMS",
     "CACHE_WARMING_LAST_VIEWED_DAYS",
-    "CACHE_WARMING_IGNORE_API_DASHBOARD_ACCESS",
     "CACHE_WARMING_DASHBOARD_VIEWED_HOURS",
 )
 
