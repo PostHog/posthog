@@ -295,6 +295,33 @@ def _require_gate(
         raise PermissionDenied(f"Only {gate.label} can run {operation.label}")
 
 
+# Query keys that name what a tool operation acts on, such as a record, a health check or an ingestion
+# pipeline. Other values can hold customer data, for example a TopHog distinct ID that is an email
+# address, so the audit log keeps only their key.
+AUDITED_QUERY_KEYS = frozenset(
+    {
+        "check",
+        "id",
+        "organization",
+        "organization_id",
+        "pipelines",
+        "project",
+        "project_id",
+        "schema",
+        "source",
+        "team",
+        "team_id",
+        "token",
+        "user",
+        "user_id",
+    }
+)
+
+
+def _audit_query(request: HttpRequest) -> dict[str, str]:
+    return {key: request.GET.get(key, "") if key in AUDITED_QUERY_KEYS else "<not logged>" for key in request.GET}
+
+
 def _audited(audit: structlog.BoundLogger, run: Callable[[], R]) -> R:
     audit.info("admin_console_operation_started")
     try:
@@ -514,7 +541,12 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
 
     if request.method not in ("GET", "POST"):
         return HttpResponseNotAllowed(["GET", "POST"])
-    audit = logger.bind(tool=tool.key, operation=operation.key, triggered_by=cast(User, request.user).email)
+    audit = logger.bind(
+        tool=tool.key,
+        operation=operation.key,
+        query=_audit_query(request),
+        triggered_by=cast(User, request.user).email,
+    )
     _require_gate(request, operation, tool.owner, audit)
     if request.method == "GET" and operation.form_class is None:
         return redirect(tool_url)
