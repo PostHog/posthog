@@ -87,6 +87,9 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
         raise MergeCheckNotAdmitted(inputs.commit_sha)
     if not is_admitted:
         return
+    if inputs.pull_request_number is None:
+        record_merge_check_failed(inputs)
+        return
     github = docs_github(inputs.team_id, inputs.repository.split("/", 1)[0], priority=Priority.NORMAL)
     if github is None:
         record_merge_check_failed(inputs)

@@ -144,6 +144,7 @@ import type { DataWarehouseSavedQueryFolder, UserType } from '../../../types'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { DataWarehouseSavedQuerySummary } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
+import { BreakingColumnChangeDeclinedError } from './BreakingColumnChangeDialog'
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { Response } from './fixSQLErrorsLogic'
@@ -369,6 +370,7 @@ export interface SuggestionPayload {
 }
 
 export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
+    acknowledge_breaking_changes?: boolean
     edited_history_id?: string
     id: string
     lifecycle?: string
@@ -3551,6 +3553,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             updateView: async ({ view, draftId }) => {
                 const biEditorState = getActiveBIEditorState()
                 const latestView = await api.dataWarehouseSavedQueries.get(view.id)
+                // The views logic asks the user to confirm a breaking column change; a decline leaves the view unsaved.
+                const saveViewUnlessDeclined = async (payload: UpdateViewPayload): Promise<boolean> => {
+                    try {
+                        await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery(payload)
+                        return true
+                    } catch (error) {
+                        if (error instanceof BreakingColumnChangeDeclinedError) {
+                            return false
+                        }
+                        throw error
+                    }
+                }
                 // A real conflict means someone else changed the query text since this edit began.
                 // Detect it by comparing the server's current query against the baseline this edit
                 // started from (the tab's saved query) — not against the user's edited query, which
@@ -3572,11 +3586,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         diffShowRunButton: false,
                         onAccept: async () => {
                             actions.setQueryInput(view.query?.query ?? '')
-                            await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
-                                ...view,
-                                edited_history_id: latestView?.latest_history_id,
-                            })
-                            actions.updateViewSuccess(view, draftId, biEditorState)
+                            if (
+                                await saveViewUnlessDeclined({
+                                    ...view,
+                                    edited_history_id: latestView?.latest_history_id,
+                                })
+                            ) {
+                                actions.updateViewSuccess(view, draftId, biEditorState)
+                            }
                         },
                         onReject: () => {},
                     })
@@ -3584,11 +3601,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 } else {
                     // No foreign edit — send the server's current head so the backend's own
                     // edited_history_id check accepts the save even if the editor's cached head drifted.
-                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
-                        ...view,
-                        edited_history_id: latestView?.latest_history_id ?? view.edited_history_id,
-                    })
-                    actions.updateViewSuccess(view, draftId, biEditorState)
+                    if (
+                        await saveViewUnlessDeclined({
+                            ...view,
+                            edited_history_id: latestView?.latest_history_id ?? view.edited_history_id,
+                        })
+                    ) {
+                        actions.updateViewSuccess(view, draftId, biEditorState)
+                    }
                 }
             },
             updateViewSuccess: async ({ view, draftId, biEditorState }) => {
