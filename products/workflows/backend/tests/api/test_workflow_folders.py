@@ -338,10 +338,7 @@ class TestWorkflowFolders(APIBaseTest):
         return workflow_id, files[0]
 
     @parameterized.expand([("draft", "file"), ("active", "file"), ("draft", "folder"), ("active", "folder")])
-    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
-    def test_project_tree_refuses_to_delete_a_workflow_that_is_not_archived(
-        self, status: str, target: str, _reload: MagicMock
-    ) -> None:
+    def test_project_tree_refuses_to_delete_a_workflow_that_is_not_archived(self, status: str, target: str) -> None:
         workflow_id, file = self._workflow_file_in_folder(status)
         files_url = f"/api/projects/{self.team.id}/file_system/"
         folder = self.client.get(files_url, {"path": "Campaigns"}).json()["results"][0]
