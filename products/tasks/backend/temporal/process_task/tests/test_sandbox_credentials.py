@@ -363,13 +363,14 @@ class TestSharedUserIntegrationRefresh:
             apply = stack.enter_context(patch(f"{MODULE}.apply_github_credentials_to_sandbox", return_value=True))
             task = MagicMock()
             task.github_integration_id = 456
+            task.team_id = 9
 
             sandbox = MagicMock()
             outcome = GitHubSandboxCredential().refresh(sandbox, _context(), task)
 
             assert outcome.refreshed is True
             assert outcome.next_refresh_seconds == 20 * 60
-            installation_token.assert_called_once_with(456, repositories=["explore-science/paper-wizard-frontend"])
+            installation_token.assert_called_once_with(9, 456, repositories=["explore-science/paper-wizard-frontend"])
             apply.assert_called_once_with(sandbox, ["explore-science/paper-wizard-frontend"], "ghs_team")
 
     def test_reauthorization_without_team_integration_raises_credential_unavailable(self):

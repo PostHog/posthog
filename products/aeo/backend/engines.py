@@ -14,6 +14,7 @@ joined back to the prompt via `aeo_prompt_id` / `aeo_run_id`.
 from __future__ import annotations
 
 import time
+import hashlib
 import threading
 from dataclasses import field
 from typing import Any, Protocol
@@ -325,6 +326,11 @@ def is_target_url(url: str, target_domains: list[str]) -> bool:
     return is_target_host(host, target_domains)
 
 
+def own_domains_key(domains: list[str]) -> str:
+    """A short fingerprint of a sorted own-domain list, stored on each check computed against it."""
+    return hashlib.sha256(",".join(domains).encode()).hexdigest()[:16]
+
+
 def target_position(cited_urls: list[str], target_domains: list[str]) -> int | None:
     """1-based position of the first target-domain URL in the citation list."""
     for index, url in enumerate(cited_urls, start=1):
@@ -383,6 +389,7 @@ def build_check_fields(
         "check_failed": check.error is not None,
         "error": sanitize_user_text(check.error, MAX_ERROR_LENGTH) if check.error is not None else None,
         "cited": bool(target_urls),
+        "own_domains_key": own_domains_key(target_domains),
         "num_citations": len(check.cited_urls),
         "cited_urls": _safe_values(check.cited_urls),
         "retrieved_urls": _safe_values(check.retrieved_urls),
