@@ -880,17 +880,30 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             status: 'failed',
             emailStatus: { status: 'failed', reason: 'attachment_wait_expired', sendingDomain: '' },
         },
+        ...(['archived', 'draft'] as const).map((workflowStatus) => ({
+            send: `a send with files of a workflow set to ${workflowStatus} while the room is taken`,
+            room: 0,
+            overrides: () => ({}),
+            cancel: false,
+            workflowStatus,
+            status: 'canceled',
+            emailStatus: { status: 'failed', reason: 'canceled', sendingDomain: '' },
+        })),
     ] as {
         send: string
         room: number | null
         overrides: () => Partial<CyclotronJobInvocation>
         cancel: boolean
         lookupsFail?: boolean
+        workflowStatus?: HogFlow['status']
         status: string
         emailStatus: EmailStatus
     }[])(
         'ends $send, instead of deferring it',
-        async ({ room, overrides, cancel, lookupsFail, status, emailStatus }) => {
+        async ({ room, overrides, cancel, lookupsFail, workflowStatus, status, emailStatus }) => {
+            if (workflowStatus) {
+                hogFlow = await insertHogFlow(hub.postgres, { ...emailFlow(), status: workflowStatus })
+            }
             const [id] = await enqueue(transactionalSend([invoice.metadata], overrides()))
             if (lookupsFail) {
                 await lockWorkflowTable()
@@ -949,11 +962,17 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 })
                 return row
             })
+            const held = await db.query(
+                "UPDATE cyclotron_jobs SET scheduled = now() + interval '1 hour' WHERE id = $1 AND status = 'available'",
+                [id]
+            )
+            expect(held.rowCount).toBe(1)
 
             bucket.answer = 'hold'
             await enqueue(transactionalSend([invoice.metadata]))
             await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(0))
-            expect(Date.now()).toBeLessThan(delayed.scheduled.getTime())
+            await waitForExpect(() => expect(Date.now()).toBeGreaterThan(delayed.scheduled.getTime()), 10_000)
+            await db.query('UPDATE cyclotron_jobs SET scheduled = now() WHERE id = $1', [id])
 
             await settles(id)
             expect(emailStatusOf(id)).toEqual({ status: 'sent', reason: '', sendingDomain: 'posthog-test.com' })
