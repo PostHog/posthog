@@ -24,7 +24,6 @@ export type WizardRailState = 'idle' | 'running' | 'completed' | 'failed'
 // pinned: analytics property values, renaming breaks dashboards
 export type WizardRunStateLocation = 'navbar_sidebar' | 'today_rail'
 
-// A cloud run reports its codebase scan shortly after it starts, so the sources show up while it runs.
 const DETECTED_SOURCES_REFRESH_MS = 30_000
 
 interface WizardRunSidebarProps {
@@ -38,6 +37,7 @@ export interface wizardRunSidebarLogicValues {
     visibleRuns: WizardRunApi[]
     runsSeenAt: string | null
     detectedSources: WizardDetectedWarehouseSourceApi[] | null
+    detectedSourcesLoading: boolean
     runDetectedSources: WizardDetectedWarehouseSourceApi[]
     railState: WizardRailState
     railProgress: number
@@ -70,7 +70,7 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
             wizardRunSyncLogic({ projectId }),
             ['userRuns', 'tasksByRunId'],
             wizardDetectedSourcesLogic,
-            ['detectedSources'],
+            ['detectedSources', 'detectedSourcesLoading'],
         ],
         actions: [
             wizardRunSyncLogic({ projectId }),
@@ -150,33 +150,27 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
         ],
     }),
     listeners(({ actions, values, cache, props: { projectId } }) => ({
-        [wizardRunSyncLogic({ projectId }).actionTypes.runsLoaded]: () => {
-            actions.syncWatchedRuns()
-            actions.refreshDetectedSources()
-        },
-        [wizardRunSyncLogic({ projectId }).actionTypes.runUpdated]: () => {
-            actions.syncWatchedRuns()
-            actions.refreshDetectedSources()
-        },
+        [wizardRunSyncLogic({ projectId }).actionTypes.runsLoaded]: () => actions.syncWatchedRuns(),
+        [wizardRunSyncLogic({ projectId }).actionTypes.runUpdated]: () => actions.syncWatchedRuns(),
+        // Runs on a fixed cadence, never per streamed update. A run's scan can land any time until it ends,
+        // so every run seen active is refreshed until a load requested after it ended succeeds.
         refreshDetectedSources: () => {
-            const activeRunIds = values.visibleRuns.filter(wizardRunIsActive).map((run) => run.id)
-            // A run can upload its scan and finish inside one cooldown, so a run that just ended always refreshes.
-            const runFinished = (cache.activeRunIds ?? []).some((id: string) => !activeRunIds.includes(id))
-            cache.activeRunIds = activeRunIds
-            const now = Date.now()
-            const cooledDown = now - (cache.detectedSourcesLoadedAt ?? 0) >= DETECTED_SOURCES_REFRESH_MS
-            if (!runFinished && !cache.detectedSourcesRetry && (activeRunIds.length === 0 || !cooledDown)) {
+            if (values.detectedSourcesLoading) {
                 return
             }
-            cache.detectedSourcesLoadedAt = now
+            const pending: Set<string> = (cache.runsAwaitingSources ??= new Set<string>())
+            const activeRunIds = values.visibleRuns.filter(wizardRunIsActive).map((run) => run.id)
+            activeRunIds.forEach((id) => pending.add(id))
+            if (pending.size === 0) {
+                return
+            }
+            cache.finishedAtRequest = [...pending].filter((id) => !activeRunIds.includes(id))
             actions.loadDetectedSources()
         },
-        // A failed refresh retries on the next runs poll until one succeeds.
-        [wizardDetectedSourcesLogic.actionTypes.loadDetectedSourcesFailure]: () => {
-            cache.detectedSourcesRetry = true
-        },
         [wizardDetectedSourcesLogic.actionTypes.loadDetectedSourcesSuccess]: () => {
-            cache.detectedSourcesRetry = false
+            for (const id of cache.finishedAtRequest ?? []) {
+                cache.runsAwaitingSources?.delete(id)
+            }
         },
         clickDetectedSource: ({ sourceType }) => {
             posthog.capture('wizard detected source clicked', {
@@ -215,5 +209,9 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
             actions.syncWatchedRuns()
             return () => actions.watchRuns('sidebar', [])
         }, 'sidebar-run-watch')
+        cache.disposables.add(() => {
+            const interval = setInterval(() => actions.refreshDetectedSources(), DETECTED_SOURCES_REFRESH_MS)
+            return () => clearInterval(interval)
+        }, 'detected-sources-refresh')
     }),
 ])

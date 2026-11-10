@@ -100,24 +100,28 @@ describe('wizardRunSidebarLogic', () => {
         expect(logic.values.runDetectedSources.map((source) => source.warehouse_source_type)).toEqual(['Stripe'])
     })
 
-    it('refreshes the detected sources when a run finishes, and retries a failed refresh', async () => {
+    it('refreshes detected sources while a run is active and until a load after it ends succeeds', async () => {
         await expectLogic(logic).toFinishAllListeners()
         const sync = wizardRunSyncLogic({ projectId: '1' })
+        const retrieve = jest.mocked(wizardScansDetectedSourcesRetrieve)
+        const tick = async (): Promise<number> => {
+            const before = retrieve.mock.calls.length
+            logic.actions.refreshDetectedSources()
+            await expectLogic(logic).toFinishAllListeners()
+            return retrieve.mock.calls.length - before
+        }
+
+        expect(await tick()).toBe(0)
+
         sync.actions.runsLoaded([{ ...run('current'), status: 'running' }])
-        await expectLogic(logic).toFinishAllListeners()
-        const callsWhileRunning = jest.mocked(wizardScansDetectedSourcesRetrieve).mock.calls.length
-
-        jest.mocked(wizardScansDetectedSourcesRetrieve).mockRejectedValueOnce(new Error('offline'))
-        sync.actions.runsLoaded([{ ...run('current'), status: 'completed' }])
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(jest.mocked(wizardScansDetectedSourcesRetrieve).mock.calls.length).toBe(callsWhileRunning + 1)
+        logic.actions.refreshDetectedSources()
+        expect(await tick()).toBe(0)
 
         sync.actions.runsLoaded([{ ...run('current'), status: 'completed' }])
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(jest.mocked(wizardScansDetectedSourcesRetrieve).mock.calls.length).toBe(callsWhileRunning + 2)
-        expect(logic.values.detectedSources).toHaveLength(2)
+        retrieve.mockRejectedValueOnce(new Error('offline'))
+        expect(await tick()).toBe(1)
+        expect(await tick()).toBe(1)
+        expect(await tick()).toBe(0)
     })
 
     it('scopes dismissals to the current project and user', async () => {
