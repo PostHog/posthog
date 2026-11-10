@@ -4216,7 +4216,7 @@ class TestExperimentService(APIBaseTest):
                 lambda service, experiment, request: service.update_experiment(
                     experiment, {"start_date": timezone.now() - timedelta(days=90)}, event_source=EventSource.API
                 ),
-                [("update_start_date", 0, False, [], [], [], True)],
+                [("update_start_date", 0, False, ["stale_experiment"], [], ["stale_experiment::info:"], True)],
             ),
             (
                 "update_imports_concluded_draft",
