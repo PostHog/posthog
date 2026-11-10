@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto'
 import { Counter, Histogram } from 'prom-client'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
@@ -12,13 +11,7 @@ import {
     queryPrimaryBeforeDeadline,
     readSandboxAuthorization,
 } from './sandbox-authorization'
-import {
-    SandboxCapClaim,
-    SandboxCapClaimRequest,
-    SandboxCaps,
-    claimSandboxCaps,
-    markSandboxCapsClaimSent,
-} from './sandbox-caps'
+import { SandboxCapClaim, SandboxCapClaimRequest, SandboxCaps, claimSandboxCaps } from './sandbox-caps'
 import { SandboxRenderedEmailSchema, buildSandboxMessage } from './sandbox-message'
 import {
     SandboxRecipientCheck,
@@ -61,7 +54,6 @@ export type SandboxEmailServiceDeps = {
     authorize: (request: { teamId: number; recipient: string; tenantName: string }) => Promise<SandboxAuthorization>
     checkRecipient: (request: SandboxRecipientCheckRequest) => Promise<SandboxRecipientCheck>
     claimCaps: (claim: SandboxCapClaimRequest) => Promise<SandboxCapClaim>
-    markCapsClaimSent: (claim: SandboxCapClaimRequest) => Promise<boolean>
     ses: Pick<SandboxSesClient, 'send'>
     now?: () => Date
 }
@@ -137,14 +129,12 @@ export class SandboxEmailService {
         if (!tenant.ok) {
             return refusal(tenant.reason)
         }
-        const capClaim = {
+        const caps = await this.deps.claimCaps({
             organizationId: authorization.organizationId,
             teamId: request.teamId,
             storedAddress: authorization.storedAddress,
             claimId: request.capClaimId,
-            attemptId: randomUUID(),
-        }
-        const caps = await this.deps.claimCaps(capClaim)
+        })
         if (!caps.ok) {
             return refusal(caps.reason)
         }
@@ -166,7 +156,7 @@ export class SandboxEmailService {
             ...(parentRunId ? { parentRunId } : {}),
         })
         if (sent.status === 'accepted') {
-            await this.deps.markCapsClaimSent(capClaim).catch(() => false)
+            await caps.markSent().catch(() => false)
         }
         return sent
     }
@@ -241,7 +231,6 @@ export function createSandboxEmailService({
         authorize: (request) => readSandboxAuthorization(db, request),
         checkRecipient: (request) => checkSandboxRecipient(recipientChecks, request),
         claimCaps: (claim) => claimSandboxCaps(limiter, caps, claim),
-        markCapsClaimSent: (claim) => markSandboxCapsClaimSent(limiter, claim),
         ses,
     })
 }

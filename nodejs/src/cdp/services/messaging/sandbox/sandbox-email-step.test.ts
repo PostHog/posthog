@@ -192,7 +192,6 @@ describe('SandboxEmailSendStep', () => {
             teamId: world.team.id,
             storedAddress: member(),
             claimId: 'an earlier send today',
-            attemptId: 'an earlier attempt today',
         })
     }
 
