@@ -278,7 +278,7 @@
         "micromark-extension-gfm-table": "^2.1.2",
         "monaco-editor": "^0.55.1",
         "monaco-vim": "^0.4.4",
-        "motion": "^14.9.0",
+        "motion": "^12.26.1",
         "natural-orderby": "^4.0.0",
         "oxfmt": "catalog:",
         "papaparse": "^5.5.4",

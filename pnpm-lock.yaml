@@ -1209,8 +1209,8 @@ importers:
         specifier: ^0.4.4
         version: 0.4.4(monaco-editor@0.55.1)
       motion:
-        specifier: ^14.9.0
-        version: 14.9.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: ^12.26.1
+        version: 12.26.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       natural-orderby:
         specifier: ^4.0.0
         version: 4.0.0
@@ -6233,8 +6233,8 @@ importers:
         specifier: ^1.25.2
         version: 1.25.2
       prosemirror-transform:
-        specifier: ^1.12.4
-        version: 1.12.4
+        specifier: ^1.10.4
+        version: 1.10.4
       undici:
         specifier: ^8.12.3
         version: 8.12.3
@@ -17582,8 +17582,8 @@ packages:
   fast-equals@4.0.3:
     resolution: {integrity: sha512-G3BSX9cfKttjr+2o1O22tYMLq0DPluZnYtq1rXumE1SpL/F/SLIfHx08WYQoWSIpeMYf8sRbJ8++71+v6Pnxfg==}
 
-  fast-equals@5.4.5:
-    resolution: {integrity: sha512-yKEpcFuRPu/pTQL2VB8YKE2yFldrLlIsoWtJeBnAdqEhvu21OgkFT0C8njf/xYc2LSZGEr3K9JGjthHJxnVLvQ==}
+  fast-equals@5.4.0:
+    resolution: {integrity: sha512-jt2DW/aNFNwke7AUd+Z+e6pz39KO5rzdbbFCg2sGafS4mk13MI7Z8O5z9cADNn5lhGODIgLwug6TZO2ctf7kcw==}
     engines: {node: '>=6.0.0'}
 
   fast-equals@6.2.2:
@@ -17799,18 +17799,18 @@ packages:
   fraction.js@5.3.4:
     resolution: {integrity: sha512-1X1NTtiJphryn/uLQz3whtY6jK3fTqoE3ohKs0tT+Ujr1W59oopxmoEh7Lu5p6vBaPbgoM0bzveAW4Qi5RyWDQ==}
 
-  framer-motion@14.9.0:
-    resolution: {integrity: sha512-g1hZu8WoTwgsoVAaqEEcefhvR03cKGtkmrKaRrWpXhnM3LGR8jl1u2qyJ1PMVlO7LKQHE8TTRQYUlMmnrY4L+g==}
+  framer-motion@12.26.1:
+    resolution: {integrity: sha512-Uzc8wGldU4FpmGotthjjcj0SZhigcODjqvKT7lzVZHsmYkzQMFfMIv0vHQoXCeoe/Ahxqp4by4A6QbzFA/lblw==}
     peerDependencies:
+      '@emotion/is-prop-valid': '*'
       react: 18.3.1
       react-dom: 18.3.1
-      remix: ^3.1.0
     peerDependenciesMeta:
+      '@emotion/is-prop-valid':
+        optional: true
       react:
         optional: true
       react-dom:
-        optional: true
-      remix:
         optional: true
 
   free-email-domains@1.9.90:
@@ -20350,24 +20350,24 @@ packages:
   moo@0.5.3:
     resolution: {integrity: sha512-m2fmM2dDm7GZQsY7KK2cme8agi+AAljILjQnof7p1ZMDe6dQ4bdnSMx0cPppudoeNv5hEFQirN6u+O4fDE0IWA==}
 
-  motion-dom@14.9.0:
-    resolution: {integrity: sha512-wGjKbNDMHd75aLStkxLCKZ+T8/wusZHklmNLK1Ak68UrdBt2X8I4yweYR/0WonxGnBsw6oloDTIV8pN+UTvzzA==}
+  motion-dom@12.24.11:
+    resolution: {integrity: sha512-DlWOmsXMJrV8lzZyd+LKjG2CXULUs++bkq8GZ2Sr0R0RRhs30K2wtY+LKiTjhmJU3W61HK+rB0GLz6XmPvTA1A==}
 
-  motion-utils@14.7.0:
-    resolution: {integrity: sha512-woO0/Nb7ys75f94fjvQi/6leiHGvZUYkeHUPEZ3vxsV+9OpEVhkxp01x8MlRwX0zt31EqgXsKDAoBoJLC148Tw==}
+  motion-utils@12.24.10:
+    resolution: {integrity: sha512-x5TFgkCIP4pPsRLpKoI86jv/q8t8FQOiM/0E8QKBzfMozWHfkKap2gA1hOki+B5g3IsBNpxbUnfOum1+dgvYww==}
 
-  motion@14.9.0:
-    resolution: {integrity: sha512-Oc+jjq/AyhwsnEUaAq2xEu/SsfKTphgsXqoxddTSLzgTdXZc6FwHcp9RLGSECccTykN1/p3gWUN4kMJAamm+1g==}
+  motion@12.26.1:
+    resolution: {integrity: sha512-IVhzx9HOQTiJ9ykthMOlZPnLwrkXziN5Q/yebsqBYlFJb2rHP8yhmKc8O/YUT9byPJlxOeqkzfNYCrVKZx8vqg==}
     peerDependencies:
+      '@emotion/is-prop-valid': '*'
       react: 18.3.1
       react-dom: 18.3.1
-      remix: ^3.1.0
     peerDependenciesMeta:
+      '@emotion/is-prop-valid':
+        optional: true
       react:
         optional: true
       react-dom:
-        optional: true
-      remix:
         optional: true
 
   ms@2.0.0:
@@ -21722,8 +21722,8 @@ packages:
       prosemirror-state: ^1.4.2
       prosemirror-view: ^1.33.8
 
-  prosemirror-transform@1.12.4:
-    resolution: {integrity: sha512-2/WuPum3pn+O/Vi2vzpi8210ICUe2kIPXdLYjQ09Pv5DtT5bcKWMJhAKPBwvpPjpp5iOYUVwVEr0gOM1BY1Mgw==}
+  prosemirror-transform@1.10.4:
+    resolution: {integrity: sha512-pwDy22nAnGqNR1feOQKHxoFkkUtepoFAd3r2hbEDsnf4wp57kKA36hXsB3njA9FtONBEwSDnDeCiJe+ItD+ykw==}
 
   prosemirror-view@1.40.1:
     resolution: {integrity: sha512-pbwUjt3G7TlsQQHDiYSupWBhJswpLVB09xXm1YiJPdkjkh9Pe7Y51XdLh5VWIZmROLY8UpUpG03lkdhm9lzIBA==}
@@ -34071,7 +34071,7 @@ snapshots:
       prosemirror-state: 1.4.3
       prosemirror-tables: 1.7.1
       prosemirror-trailing-node: 3.0.0(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1)
-      prosemirror-transform: 1.12.4
+      prosemirror-transform: 1.10.4
       prosemirror-view: 1.40.1
 
   '@tiptap/react@3.20.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.20.6(@tiptap/pm@3.20.6))(@tiptap/pm@3.20.6)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
@@ -34081,7 +34081,7 @@ snapshots:
       '@types/react': 18.3.31
       '@types/react-dom': 18.3.7(@types/react@18.3.31)
       '@types/use-sync-external-store': 0.0.6
-      fast-equals: 5.4.5
+      fast-equals: 5.4.0
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
       use-sync-external-store: 1.6.0(react@18.3.1)
@@ -34708,7 +34708,7 @@ snapshots:
 
   '@types/pixelmatch@5.2.4':
     dependencies:
-      '@types/node': 26.6.6
+      '@types/node': 22.18.8
 
   '@types/prettier@2.7.3': {}
 
@@ -38327,7 +38327,7 @@ snapshots:
 
   fast-equals@4.0.3: {}
 
-  fast-equals@5.4.5: {}
+  fast-equals@5.4.0: {}
 
   fast-equals@6.2.2: {}
 
@@ -38565,10 +38565,10 @@ snapshots:
 
   fraction.js@5.3.4: {}
 
-  framer-motion@14.9.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  framer-motion@12.26.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
-      motion-dom: 14.9.0
-      motion-utils: 14.7.0
+      motion-dom: 12.24.11
+      motion-utils: 12.24.10
       tslib: 2.8.1
     optionalDependencies:
       react: 18.3.1
@@ -42178,15 +42178,15 @@ snapshots:
 
   moo@0.5.3: {}
 
-  motion-dom@14.9.0:
+  motion-dom@12.24.11:
     dependencies:
-      motion-utils: 14.7.0
+      motion-utils: 12.24.10
 
-  motion-utils@14.7.0: {}
+  motion-utils@12.24.10: {}
 
-  motion@14.9.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+  motion@12.26.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
-      framer-motion: 14.9.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      framer-motion: 12.26.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       tslib: 2.8.1
     optionalDependencies:
       react: 18.3.1
@@ -43915,7 +43915,7 @@ snapshots:
 
   prosemirror-changeset@2.3.1:
     dependencies:
-      prosemirror-transform: 1.12.4
+      prosemirror-transform: 1.10.4
 
   prosemirror-collab@1.3.1:
     dependencies:
@@ -43925,12 +43925,12 @@ snapshots:
     dependencies:
       prosemirror-model: 1.25.2
       prosemirror-state: 1.4.3
-      prosemirror-transform: 1.12.4
+      prosemirror-transform: 1.10.4
 
   prosemirror-dropcursor@1.8.2:
     dependencies:
       prosemirror-state: 1.4.3
-      prosemirror-transform: 1.12.4
+      prosemirror-transform: 1.10.4
       prosemirror-view: 1.40.1
 
   prosemirror-gapcursor@1.3.2:
@@ -43943,14 +43943,14 @@ snapshots:
   prosemirror-history@1.4.1:
     dependencies:
       prosemirror-state: 1.4.3
-      prosemirror-transform: 1.12.4
+      prosemirror-transform: 1.10.4
       prosemirror-view: 1.40.1
       rope-sequence: 1.3.3
 
   prosemirror-inputrules@1.5.0:
     dependencies:
       prosemirror-state: 1.4.3
-      prosemirror-transform: 1.12.4
+      prosemirror-transform: 1.10.4
 
   prosemirror-keymap@1.2.3:
     dependencies:
@@ -43982,12 +43982,12 @@ snapshots:
     dependencies:
       prosemirror-model: 1.25.2
       prosemirror-state: 1.4.3
-      prosemirror-transform: 1.12.4
+      prosemirror-transform: 1.10.4
 
   prosemirror-state@1.4.3:
     dependencies:
       prosemirror-model: 1.25.2
-      prosemirror-transform: 1.12.4
+      prosemirror-transform: 1.10.4
       prosemirror-view: 1.40.1
 
   prosemirror-tables@1.7.1:
@@ -43995,7 +43995,7 @@ snapshots:
       prosemirror-keymap: 1.2.3
       prosemirror-model: 1.25.2
       prosemirror-state: 1.4.3
-      prosemirror-transform: 1.12.4
+      prosemirror-transform: 1.10.4
       prosemirror-view: 1.40.1
 
   prosemirror-trailing-node@3.0.0(prosemirror-model@1.25.2)(prosemirror-state@1.4.3)(prosemirror-view@1.40.1):
@@ -44006,7 +44006,7 @@ snapshots:
       prosemirror-state: 1.4.3
       prosemirror-view: 1.40.1
 
-  prosemirror-transform@1.12.4:
+  prosemirror-transform@1.10.4:
     dependencies:
       prosemirror-model: 1.25.2
 
@@ -44014,7 +44014,7 @@ snapshots:
     dependencies:
       prosemirror-model: 1.25.2
       prosemirror-state: 1.4.3
-      prosemirror-transform: 1.12.4
+      prosemirror-transform: 1.10.4
 
   proto3-json-serializer@2.0.2:
     dependencies:

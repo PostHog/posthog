@@ -71,7 +71,7 @@
         "prom-client": "^15.1.3",
         "prosemirror-collab": "^1.3.1",
         "prosemirror-model": "^1.25.2",
-        "prosemirror-transform": "^1.12.4",
+        "prosemirror-transform": "^1.10.4",
         "undici": "^8.12.3",
         "uuid": "^11.1.1",
         "yaml": "^2.9.1",
