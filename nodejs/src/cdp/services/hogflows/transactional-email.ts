@@ -107,6 +107,9 @@ export type TransactionalEmailOutcome =
     | 'sending_paused'
     | 'recipient_suppressed'
     | 'recipient_unreachable'
+    | 'sandbox_recipient_not_member'
+    | 'sandbox_fields_unsupported'
+    | 'sandbox_sender_unavailable'
     | 'error'
 
 export const transactionalEmailRequestsTotal = new Counter({

@@ -51,7 +51,7 @@ import { HogFlowManagerService } from './services/hogflows/hogflow-manager.servi
 import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './services/hogflows/hogflow-sensitivity'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
-import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
+import { IdempotencyKeys, SenderKind } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
     AcceptedSend,
@@ -78,6 +78,11 @@ import { EmailTrackingService } from './services/messaging/email-tracking.servic
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
+import {
+    SANDBOX_CODE_SEND_REFUSAL_STATUS,
+    refuseSandboxCodeSend,
+    senderOfCodeSend,
+} from './services/messaging/sandbox/sandbox-code-send'
 import {
     HogWatcherService,
     HogWatcherState,
@@ -198,12 +203,8 @@ const withSenderTheCallerChose = ({
     from: senderTheCallerChose(from),
 })
 
-const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | undefined => {
-    if (!from) {
-        return undefined
-    }
-    return from.email ? { email: from.email, name: from.name } : { integrationId: from.integrationId, name: from.name }
-}
+const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | undefined =>
+    from?.email || from?.name ? { email: from.email, name: from.name } : undefined
 
 export class CdpApi {
     private hogExecutorAsync: HogExecutorAsyncService
@@ -1310,8 +1311,12 @@ export class CdpApi {
                 stages.start('load')
                 const teamLookup = this.deps.teamManager.getTeam(parseInt(req.params.team_id)).catch(() => null)
                 const hogFlowLookup = this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id)
-                // A missing team returns before the workflow lookup is awaited, so its failure must not go unhandled.
+                const senderLookup = send?.from
+                    ? this.deps.integrationManager.get(send.from.integrationId)
+                    : Promise.resolve(null)
+                // A missing team returns before the other lookups are awaited, so their failures must not go unhandled.
                 hogFlowLookup.catch(() => undefined)
+                senderLookup.catch(() => undefined)
                 const team = await teamLookup
                 if (!team) {
                     return reply('not_found', 404, { error: 'Team not found' })
@@ -1323,6 +1328,13 @@ export class CdpApi {
                 if (hogFlow.trigger?.type !== 'api') {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
+                const sender = send ? senderOfCodeSend(team.id, send, await senderLookup) : ({ kind: 'own' } as const)
+                if (sender.kind === 'refused') {
+                    return reply(sender.refusal, SANDBOX_CODE_SEND_REFUSAL_STATUS[sender.refusal], {
+                        error: sender.refusal,
+                    })
+                }
+                const senderKind = sender.kind === 'email_sandbox' ? sender.kind : undefined
 
                 stages.start('build')
                 const event: HogFunctionInvocationGlobals['event'] = {
@@ -1355,6 +1367,9 @@ export class CdpApi {
                 if (send) {
                     invocation.state.send = send
                 }
+                if (senderKind) {
+                    invocation.state.senderKind = senderKind
+                }
                 // The run skips the trigger pipeline that counts runs for event-triggered workflows, so the email
                 // worker counts it instead.
                 invocation.state.triggerMetricPending = true
@@ -1382,6 +1397,7 @@ export class CdpApi {
                                 status: 'queued',
                                 invocation_id: reservation.invocationId,
                                 replayed: true,
+                                ...(reservation.senderKind ? { sender_kind: reservation.senderKind } : {}),
                             })
                         case 'in_flight':
                             return reply('idempotency_key_in_flight', 409, { error: 'idempotency_key_in_flight' })
@@ -1396,7 +1412,8 @@ export class CdpApi {
                     const refusal = await this.refuseTransactionalEmail(
                         team.id,
                         hogFlow,
-                        transactionalEmailRecipients(parsed.data)
+                        transactionalEmailRecipients(parsed.data),
+                        senderKind
                     )
                     if (refusal) {
                         if (idempotencyKey) {
@@ -1424,7 +1441,7 @@ export class CdpApi {
                 }
                 if (idempotencyKey) {
                     stages.start('idempotency')
-                    await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
+                    await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id, senderKind)
                 }
                 stages.start('metrics_flush')
                 this.emailStatusService.queue({
@@ -1445,7 +1462,12 @@ export class CdpApi {
                     await this.invocationResultsService.invocationResultsRowsService.handOffQueuedRows()
                 void produced.catch(warnTelemetryFlushFailed)
 
-                return reply('queued', 202, { status: 'queued', invocation_id: invocation.id, replayed: false })
+                return reply('queued', 202, {
+                    status: 'queued',
+                    invocation_id: invocation.id,
+                    replayed: false,
+                    ...(senderKind ? { sender_kind: senderKind } : {}),
+                })
             } catch (e) {
                 logger.error('Error queueing transactional email', {
                     error: e instanceof Error ? e.message : String(e),
@@ -1462,10 +1484,22 @@ export class CdpApi {
     private async refuseTransactionalEmail(
         teamId: number,
         hogFlow: HogFlow,
-        recipients: string[]
+        recipients: string[],
+        senderKind?: SenderKind
     ): Promise<{ outcome: TransactionalEmailOutcome; status: number } | null> {
         if (hogFlow.status !== 'active') {
             return { outcome: 'not_sendable', status: 400 }
+        }
+        if (senderKind === 'email_sandbox') {
+            const sandboxRefusal = await refuseSandboxCodeSend(this.deps.postgres, {
+                enabled: this.config.WORKFLOWS_SANDBOX_SENDER_ENABLED,
+                teamId,
+                recipient: recipients[0],
+                tenantName: this.config.SES_SANDBOX_TENANT_NAME,
+            })
+            if (sandboxRefusal) {
+                return { outcome: sandboxRefusal, status: SANDBOX_CODE_SEND_REFUSAL_STATUS[sandboxRefusal] }
+            }
         }
         // The lookups run at the same time, and the checks below await them in order, so the first refusal in that
         // order wins. The MX check's DNS lookup runs even when an earlier check refuses, which is acceptable because

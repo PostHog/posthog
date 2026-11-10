@@ -42,6 +42,7 @@ import {
     SandboxEmailActionHandler,
     SandboxEmailStep,
     SandboxEmailTestClient,
+    sendsOnSandboxSender,
 } from './actions/email_sandbox'
 import { ExitHandler } from './actions/exit.handler'
 import { HogFunctionHandler } from './actions/hog_function'
@@ -769,7 +770,10 @@ export class HogFlowExecutorService {
                 actionType: currentAction.type,
             })
 
-            const handler = this.actionHandlers[currentAction.type]
+            const handler =
+                this.actionHandlers[
+                    sendsOnSandboxSender(invocation, currentAction) ? 'email_sandbox' : currentAction.type
+                ]
             if (!handler) {
                 throw new Error(`Action type '${currentAction.type}' not supported`)
             }
