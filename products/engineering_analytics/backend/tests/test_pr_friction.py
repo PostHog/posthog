@@ -217,6 +217,8 @@ class TestPRFrictionView(_WarehouseMixin):
             query=f"SELECT * FROM ({query})", team=self.team, query_type="engineering_analytics.test"
         )
         assert response.columns == list(pr_friction.FIELDS)
+        # A materialization would store a UInt8 flag as Int16, which a stored read cannot use as a condition.
+        assert dict(response.types or [])["is_bot"] == "Nullable(Bool)"
         return {row[2]: dict(zip(response.columns, row)) for row in response.results}
 
     def _seed_depot_ci(self) -> None:

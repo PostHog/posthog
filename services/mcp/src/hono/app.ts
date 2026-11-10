@@ -2,13 +2,7 @@ import { Hono } from 'hono'
 
 import { env } from '@/lib/env'
 import { getPublicUrl } from '@/lib/routing'
-import {
-    loadSigningKeyFromEnv,
-    NonceLedger,
-    PayloadStash,
-    type PayloadStashRedis,
-    SignedStateCodec,
-} from '@/lib/signed-state'
+import { loadSigningKeyFromEnv, PayloadStash, type PayloadStashRedis, SignedStateCodec } from '@/lib/signed-state'
 import { setConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 
 import { confirmedActionRuntimeInstalled } from './metrics'
@@ -50,7 +44,6 @@ export function createApp(redis: RedisWithPing & Pick<PayloadStashRedis, 'incrby
     try {
         setConfirmedActionRuntime({
             codec: new SignedStateCodec(loadSigningKeyFromEnv()),
-            ledger: new NonceLedger(redis),
             stash: new PayloadStash(redis),
         })
         confirmedActionRuntimeInstalled.set(1)

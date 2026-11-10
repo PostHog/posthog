@@ -19,16 +19,15 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
+import type { ProviderKeyDependentConfigsApi } from '../generated/api.schemas'
 import { LLMProviderIcon } from '../LLMProviderIcon'
 import { AddKeyModal } from './AddKeyModal'
 import { FoundryEndpointField } from './FoundryEndpointField'
 import { KeyValidationStatus } from './KeyValidationStatus'
 import {
-    AlternativeKey,
     DEFAULT_AZURE_API_VERSION,
     DEFAULT_SYSTEM_ONE_BASE_URL,
     DEFAULT_SYSTEM_ONE_MODEL,
-    DependentConfigsResponse,
     EditKeyField,
     LLMProviderKey,
     LLMProviderKeyState,
@@ -41,6 +40,7 @@ import {
 } from './llmProviderKeysLogic'
 import { endpointErrorFieldFromResult } from './providerKeyStateUtils'
 import { SystemOneConnectionFields } from './SystemOneConnectionFields'
+import { TurnedOffEvaluationsBanner } from './TurnedOffEvaluationsBanner'
 
 function StateTag({ state, errorMessage }: { state: LLMProviderKeyState; errorMessage: string | null }): JSX.Element {
     const tagProps: { type: 'success' | 'danger' | 'warning' | 'default'; children: string } = {
@@ -125,10 +125,10 @@ function EditKeyModal({
     keyToEdit: LLMProviderKey
     restrictionReason: string | null
 }): JSX.Element {
-    const { providerKeysLoading, preValidationResult, preValidationResultLoading, editKeyFieldError } =
+    const { providerKeysLoading, preValidationResult, preValidationResultLoading, keyFieldError } =
         useValues(llmProviderKeysLogic)
     const { systemOneBaseUrl, systemOneModel } = useValues(llmProviderKeysLogic)
-    const { setEditingKey, updateProviderKey, preValidateKey, clearPreValidation, setEditKeyFieldError } =
+    const { setEditingKey, updateProviderKey, preValidateKey, clearPreValidation, setKeyFieldError } =
         useActions(llmProviderKeysLogic)
     const isAzureEdit = keyToEdit.provider === 'azure_openai'
     const isSystemOne = keyToEdit.provider === 'system_one'
@@ -145,15 +145,15 @@ function EditKeyModal({
     const [baseUrl, setBaseUrl] = useState(keyToEdit.base_url_display ?? '')
 
     const fieldErrorFor = (field: EditKeyField): string | null =>
-        editKeyFieldError?.field === field ? editKeyFieldError.message : null
+        keyFieldError?.field === field ? keyFieldError.message : null
 
     // A rejected field keeps its error until the user edits that field again.
     const withFieldErrorCleared =
         (field: EditKeyField, onChange: (value: string) => void): ((value: string) => void) =>
         (value) => {
             onChange(value)
-            if (editKeyFieldError?.field === field) {
-                setEditKeyFieldError(null)
+            if (keyFieldError?.field === field) {
+                setKeyFieldError(null)
             }
         }
 
@@ -403,7 +403,7 @@ function DeleteKeyModal({
     restrictionReason,
 }: {
     keyToDelete: LLMProviderKey
-    dependentConfigs: DependentConfigsResponse | null
+    dependentConfigs: ProviderKeyDependentConfigsApi | null
     dependentConfigsLoading: boolean
     restrictionReason: string | null
 }): JSX.Element {
@@ -430,7 +430,7 @@ function DeleteKeyModal({
     }
 
     const replacementOptions =
-        dependentConfigs?.alternative_keys.map((key: AlternativeKey) => ({
+        dependentConfigs?.alternative_keys.map((key) => ({
             value: key.id,
             label: key.name,
         })) ?? []
@@ -632,6 +632,8 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 {restrictionReason} Ask a project admin to add or manage API keys on your behalf.
                             </LemonBanner>
                         )}
+
+                        <TurnedOffEvaluationsBanner />
 
                         {providerKeys.length > 0 && (
                             <div className="flex justify-between items-start">

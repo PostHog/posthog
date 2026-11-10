@@ -1165,6 +1165,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-email-from-code',
             'activity-summary',
             'personal-inbox-ranking',
+            'inbox-reports-search',
             'anomalies-search',
             'workflows-email-domain-agent-setup',
             'workflows-email-from-code',
@@ -1175,6 +1176,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-push-token-import-mcp',
             'discussions-slack-sync',
             'ui-customization',
+            'warehouse-migration-import',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and

@@ -236,6 +236,7 @@ export type IngestionConsumerConfig = {
     // Stateful overflow config
     INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
+    INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE: number
 
     // Per-token/distinct_id restrictions
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
@@ -407,6 +408,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         // Stateful overflow config
         INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300,
         INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60,
+        INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE: 50_000,
 
         // Per-token/distinct_id restrictions
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',

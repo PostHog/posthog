@@ -139,6 +139,7 @@ class CanonicalSkill:
     deprecation: ScoutDeprecation | None = None
     structured_output_schema: dict | None = None
     precheck_query: str | None = None
+    preserve_trial_model: bool = False
 
 
 @dataclass(frozen=True)
@@ -452,6 +453,11 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
             f"SKILL.md frontmatter 'allowed-tools'/'allowed_tools' must be a list of strings: {skill_file}"
         )
 
+    preserve_trial_model = frontmatter.get("scout-preserve-trial-model", False)
+    if "scout-preserve-trial-model" in frontmatter and (not is_scout or not isinstance(preserve_trial_model, bool)):
+        raise CanonicalSkillParseError(
+            f"'scout-preserve-trial-model' must be a boolean on a signals-scout-* skill: {skill_file}"
+        )
     config_tags = _parse_config_tags(frontmatter, skill_file, is_scout=is_scout)
     role = _parse_scout_role(frontmatter, skill_file, is_scout=is_scout)
     display_name = _parse_display_name(frontmatter, skill_file, is_scout=is_scout)
@@ -515,6 +521,7 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         deprecation=deprecation,
         structured_output_schema=structured_output_schema,
         precheck_query=precheck_query,
+        preserve_trial_model=preserve_trial_model,
     )
 
 
@@ -736,6 +743,11 @@ def _canonical_operational_scouts() -> frozenset[str]:
         return frozenset()
 
 
+@lru_cache(maxsize=1)
+def canonical_scouts_preserving_trial_model() -> frozenset[str]:
+    return frozenset(skill.name for skill in discover_canonical_skills() if skill.preserve_trial_model)
+
+
 def canonical_operational_scout_names() -> frozenset[str]:
     """Names of every canonical scout that declares `scout-role: operational`."""
     return _canonical_operational_scouts()
@@ -764,6 +776,7 @@ def reset_canonical_caches() -> None:
         _canonical_config_tags,
         _canonical_display_names,
         _canonical_operational_scouts,
+        canonical_scouts_preserving_trial_model,
         _canonical_deprecations,
         _canonical_structured_output_schemas,
         _canonical_precheck_queries,
