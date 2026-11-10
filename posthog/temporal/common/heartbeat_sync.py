@@ -12,6 +12,7 @@ from structlog import get_logger
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
+from posthog.temporal.common.heartbeat import first_heartbeat_delay
 from posthog.temporal.common.liveness_tracker import get_liveness_tracker
 
 LOGGER = get_logger(__name__)
@@ -59,10 +60,13 @@ class HeartbeaterSync:
     def log_debug(self, message: str) -> None:
         self.logger.debug(message)
 
-    def heartbeat_regularly(self, stop_event: threading.Event, interval: int, details: tuple[Any, ...]):
+    def heartbeat_regularly(
+        self, stop_event: threading.Event, interval: float, details: tuple[Any, ...], initial_delay: float = 0.0
+    ):
         tracker = get_liveness_tracker()
         send_heartbeat = _loop_heartbeat.get() or activity.heartbeat
-        while not stop_event.is_set():
+        delay = initial_delay
+        while not stop_event.wait(delay):
             try:
                 extra_payload = {"host": socket.gethostname(), "ts": time.time()}
                 send_heartbeat(*details, extra_payload)
@@ -70,7 +74,7 @@ class HeartbeaterSync:
                 self.log_debug("Heartbeat")
             except Exception as e:
                 self.logger.warning("Heartbeat failed", error=str(e), exc_info=e)
-            stop_event.wait(interval)
+            delay = interval
 
     def __enter__(self):
         heartbeat_timeout = activity.info().heartbeat_timeout
@@ -85,7 +89,15 @@ class HeartbeaterSync:
         self.log_debug(f"Heartbeat interval: {interval}s")
 
         self.heartbeat_thread = threading.Thread(
-            target=context.run, args=(self.heartbeat_regularly, self.stop_event, interval, self.details), daemon=True
+            target=context.run,
+            args=(
+                self.heartbeat_regularly,
+                self.stop_event,
+                interval,
+                self.details,
+                first_heartbeat_delay(heartbeat_timeout.total_seconds()),
+            ),
+            daemon=True,
         )
 
         self.log_debug("Starting heartbeat thread...")

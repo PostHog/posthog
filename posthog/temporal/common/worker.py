@@ -250,6 +250,8 @@ class ManagedWorker:
 
 
 DEFAULT_MAX_CONCURRENT_TASKS = 50
+# The SDK sends heartbeats every min(0.8 * heartbeat_timeout, this), and each one is a billed action.
+MAX_HEARTBEAT_THROTTLE_INTERVAL = dt.timedelta(seconds=60)
 
 
 def build_poller_autoscaling(
@@ -582,9 +584,7 @@ async def create_worker(
                     ramp_throttle=activity_ramp_throttle,
                 ),
             ),
-            # Worker will flush heartbeats every
-            # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
-            max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            max_heartbeat_throttle_interval=MAX_HEARTBEAT_THROTTLE_INTERVAL,
             **poller_kwargs,
         )
     else:
@@ -599,9 +599,7 @@ async def create_worker(
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS),
             max_concurrent_activities=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS,
             max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or DEFAULT_MAX_CONCURRENT_TASKS,
-            # Worker will flush heartbeats every
-            # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
-            max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            max_heartbeat_throttle_interval=MAX_HEARTBEAT_THROTTLE_INTERVAL,
             **poller_kwargs,
         )
 
@@ -618,7 +616,7 @@ async def create_worker(
                 for interceptor in ALL_INTERCEPTOR_CLASSES
                 if is_task_queue_supported(config.task_queue, interceptor)
             ],
-            max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+            max_heartbeat_throttle_interval=MAX_HEARTBEAT_THROTTLE_INTERVAL,
             **poller_kwargs,
         )
         for config in activity_worker_configs

@@ -15,7 +15,7 @@ LOGGER = get_logger(__name__)
 # Added to each server deadline before the worker treats it as passed. It covers the clock
 # difference between the worker and the server, the delay of the server timeout timer, and the
 # time the SDK holds a heartbeat back before it sends it (`max_heartbeat_throttle_interval`).
-DEADLINE_MARGIN_SECONDS = 60.0
+DEADLINE_MARGIN_SECONDS = 90.0
 
 # An activity that returned still has its result on the way to the server. The worker does not
 # exit until this long after the last activity returned, so that result is not lost.
