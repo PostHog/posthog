@@ -64,6 +64,14 @@ class TestValidateAuthDeclarations(SimpleTestCase):
                 "prototype_body_path",
                 schema_with(SECRET, {"scheme": "body", "path": "a.__proto__", "opt_in": True, "origins": ORIGINS}),
             ),
+            (
+                "constructor_body_path",
+                schema_with(SECRET, {"scheme": "body", "path": "constructor.x", "opt_in": True, "origins": ORIGINS}),
+            ),
+            (
+                "prototype_key_body_path",
+                schema_with(SECRET, {"scheme": "body", "path": "a.prototype", "opt_in": True, "origins": ORIGINS}),
+            ),
             ("host_header", schema_with(SECRET, {"scheme": "header", "name": "Host", "origins": ORIGINS})),
             ("public_input", schema_with(URL_INPUT, {"scheme": "bearer", "origins": ORIGINS})),
             ("secret_without_origins", schema_with(SECRET, {"scheme": "bearer"})),
