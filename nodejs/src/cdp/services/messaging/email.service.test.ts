@@ -1,11 +1,14 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { register } from 'prom-client'
+import supertest from 'supertest'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
+import { CdpApi } from '~/cdp/cdp-api'
 import { EmailStatusOutput } from '~/cdp/outputs/outputs'
 import {
     CyclotronInvocationQueueParametersEmailSchema,
@@ -13,12 +16,14 @@ import {
 } from '~/cdp/schema/cyclotron'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { setupExpressApp } from '~/common/api/router'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { FAKE_SES_CLICK_PREFIX, FAKE_SES_OPEN_PIXEL, FakeSes } from '~/tests/helpers/fake-ses'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -1353,11 +1358,30 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
             const [email] = await mailDevAPI.getEmails()
-            const delivered = [...email.html.matchAll(/<a href="([^"]*)"/g)].map(([, href]) => {
-                const url = new URL(href)
-                return url.pathname === '/public/m/redirect' ? `tracked ${url.searchParams.get('target')}` : href
-            })
-            expect(delivered).toEqual(links)
+            const cdpApp = setupExpressApp()
+            cdpApp.use(
+                '/',
+                new CdpApi(hub, createCdpConsumerDeps(hub), {
+                    hogQueue: createMockJobQueue(),
+                    hogflowQueue: createMockJobQueue(),
+                }).router()
+            )
+            const server = cdpApp.listen(0, () => {})
+            try {
+                const delivered = await Promise.all(
+                    [...email.html.matchAll(/<a href="([^"]*)"/g)].map(async ([, href]) => {
+                        const { pathname, search } = new URL(href)
+                        if (pathname !== '/public/m/redirect') {
+                            return href
+                        }
+                        const clicked = await supertest(cdpApp).get(`${pathname}${search}`)
+                        return clicked.status === 302 ? `tracked ${clicked.headers.location}` : `unusable ${href}`
+                    })
+                )
+                expect(delivered).toEqual(links)
+            } finally {
+                server.close()
+            }
             expect(email.html.includes('/public/m/pixel')).toBe(pixel)
         })
     })

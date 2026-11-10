@@ -3,7 +3,6 @@ import { AddressInfo } from 'net'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-// The members of an SESv2 SendEmail request. SES refuses a request with any other member.
 const SEND_EMAIL_MEMBERS = new Set([
     'FromEmailAddress',
     'FromEmailAddressIdentityArn',
@@ -35,9 +34,6 @@ const ANCHOR = /<a\b[^>]*>/gi
 const HREF = /\bhref\s*=\s*"(https?:\/\/[^"]*)"/i
 const NO_TRACK = /\sses:no-track(?=[\s>=/])/i
 
-/** Stands in for the SESv2 API. Like SES, it rewrites each http(s) link through its click
- * redirect when the configuration set tracks clicks, unless the anchor carries `ses:no-track`,
- * and adds its own open pixel when the set tracks opens. */
 export class FakeSes {
     readonly deliveries: FakeSesDelivery[] = []
     private server: Server | null = null
