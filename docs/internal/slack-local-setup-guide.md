@@ -132,10 +132,6 @@ oauth_config:
       - search:read.private
       - search:read.im
       - search:read.mpim
-      - groups:history
-      - groups:read
-      - im:history
-      - mpim:history
 settings:
   event_subscriptions:
     request_url: https://<you>-posthog.ngrok.dev/slack/event-callback
