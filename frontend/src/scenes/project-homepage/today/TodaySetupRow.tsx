@@ -1,6 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconChevronRight, IconCircleDashed, IconHide, IconRocket } from '@posthog/icons'
+import {
+    IconCheckCircle,
+    IconChevronRight,
+    IconCircleDashed,
+    IconHide,
+    IconMinusSquare,
+    IconRocket,
+} from '@posthog/icons'
 import {
     Button,
     Dialog,
@@ -25,7 +32,7 @@ const STEP_NAMES = { install: 'Install PostHog', github: 'Connect GitHub', invit
 export function TodaySetupRow(): JSX.Element {
     const { steps, doneCount, guideOpen } = useValues(todayGetStartedLogic)
     const { openGuide, closeGuide, hideGuide } = useActions(todayGetStartedLogic)
-    const next = steps.find((step) => !step.done)
+    const next = steps.find((step) => !step.done && !step.skipped)
 
     return (
         <>
@@ -50,14 +57,24 @@ export function TodaySetupRow(): JSX.Element {
                                 <li
                                     key={step.key}
                                     className="TodaySetupRow__step"
-                                    data-state={step.done ? 'done' : step.key === next?.key ? 'next' : 'todo'}
+                                    data-state={
+                                        step.done
+                                            ? 'done'
+                                            : step.skipped
+                                              ? 'skipped'
+                                              : step.key === next?.key
+                                                ? 'next'
+                                                : 'todo'
+                                    }
                                 >
                                     {step.done ? (
                                         <IconCheckCircle className="TodaySetupRow__stepIcon" aria-label="Done" />
+                                    ) : step.skipped ? (
+                                        <IconMinusSquare className="TodaySetupRow__stepIcon" aria-label="Skipped" />
                                     ) : (
                                         <IconCircleDashed className="TodaySetupRow__stepIcon" aria-hidden />
                                     )}
-                                    <span>{STEP_NAMES[step.key]}</span>
+                                    <span>{step.skipped ? 'GitHub skipped' : STEP_NAMES[step.key]}</span>
                                 </li>
                             ))}
                         </ul>

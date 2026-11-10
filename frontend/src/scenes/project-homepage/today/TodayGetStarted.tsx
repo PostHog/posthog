@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconCircleDashed, IconGithub } from '@posthog/icons'
+import { IconCheckCircle, IconCircleDashed, IconGithub, IconMinusSquare } from '@posthog/icons'
 import {
     Button,
     Item,
@@ -62,15 +62,25 @@ function StepAction({ step }: { step: TodayGetStartedStep }): JSX.Element | null
             )
         case 'github':
             return (
-                <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => stepActed('github', 'connect')}
-                    data-attr="today-get-started-github"
-                >
-                    <IconGithub />
-                    Connect GitHub
-                </Button>
+                <>
+                    <Button
+                        size="sm"
+                        variant="link-muted"
+                        onClick={() => stepActed('github', 'skip')}
+                        data-attr="today-get-started-github-skip"
+                    >
+                        Skip
+                    </Button>
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => stepActed('github', 'connect')}
+                        data-attr="today-get-started-github"
+                    >
+                        <IconGithub />
+                        Connect GitHub
+                    </Button>
+                </>
             )
         case 'invite':
             return (
@@ -89,7 +99,7 @@ function StepAction({ step }: { step: TodayGetStartedStep }): JSX.Element | null
 export function TodayGetStarted(): JSX.Element {
     const { steps } = useValues(todayGetStartedLogic)
     const { stepActed } = useActions(todayGetStartedLogic)
-    const nextKey = steps.find((step) => !step.done)?.key
+    const nextKey = steps.find((step) => !step.done && !step.skipped)?.key
 
     return (
         <ItemGroup className="TodayGetStarted" data-attr="today-get-started">
@@ -97,21 +107,25 @@ export function TodayGetStarted(): JSX.Element {
                 <Item
                     key={step.key}
                     size="sm"
-                    variant={step.key === nextKey ? 'outline' : step.done ? 'muted' : 'default'}
+                    variant={step.key === nextKey ? 'outline' : step.done || step.skipped ? 'muted' : 'default'}
                     data-attr={`today-get-started-step-${step.key}`}
                 >
                     <ItemMedia>
                         {step.done ? (
                             <IconCheckCircle className="TodayGetStarted__done" aria-label="Done" />
+                        ) : step.skipped ? (
+                            <IconMinusSquare className="TodayGetStarted__todo" aria-label="Skipped" />
                         ) : (
                             <IconCircleDashed className="TodayGetStarted__todo" aria-hidden />
                         )}
                     </ItemMedia>
                     <ItemContent>
                         <ItemTitle className={step.done ? 'TodayGetStarted__doneTitle' : undefined}>
-                            {STEP_COPY[step.key].title}
+                            {step.skipped ? 'GitHub skipped' : STEP_COPY[step.key].title}
                         </ItemTitle>
-                        {!step.done ? <ItemDescription>{STEP_COPY[step.key].description}</ItemDescription> : null}
+                        {!step.done && !step.skipped ? (
+                            <ItemDescription>{STEP_COPY[step.key].description}</ItemDescription>
+                        ) : null}
                         {!step.done && step.key === 'install' ? (
                             <>
                                 <TodayWizardCommand onCopy={() => stepActed('install', 'copy')} />
@@ -125,7 +139,18 @@ export function TodayGetStarted(): JSX.Element {
                             </>
                         ) : null}
                     </ItemContent>
-                    {!step.done && step.key !== 'install' ? (
+                    {step.skipped ? (
+                        <ItemActions>
+                            <Button
+                                size="sm"
+                                variant="link-muted"
+                                onClick={() => stepActed('github', 'connect')}
+                                data-attr="today-get-started-github-after-skip"
+                            >
+                                Connect GitHub
+                            </Button>
+                        </ItemActions>
+                    ) : !step.done && step.key !== 'install' ? (
                         <ItemActions>
                             <StepAction step={step} />
                         </ItemActions>

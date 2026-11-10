@@ -367,6 +367,11 @@ html[data-today-transition]::view-transition-new(root) {
         color: var(--today-faint);
         text-decoration: line-through;
     }
+
+    &[data-state='skipped'] {
+        color: var(--today-faint);
+        border-style: dashed;
+    }
 }
 
 .TodaySetupRow__stepIcon {
@@ -376,6 +381,10 @@ html[data-today-transition]::view-transition-new(root) {
     [data-state='done'] > & {
         color: var(--success-foreground);
     }
+}
+
+.TodayGitHubRow__actions {
+    gap: 4px;
 }
 
 .TodayWatchedNote {

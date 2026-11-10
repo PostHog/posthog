@@ -1,15 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGithub, IconHide } from '@posthog/icons'
-import { Button, IconStack, IconStackItem, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { IconGithub } from '@posthog/icons'
+import { Button, IconStack, IconStackItem } from '@posthog/quill'
 
 import { todayGetStartedLogic } from './todayGetStartedLogic'
 
 export function TodayGitHubRow({ fixCount }: { fixCount: number }): JSX.Element | null {
-    const { githubConnected, integrationsLoading, githubRowHidden } = useValues(todayGetStartedLogic)
-    const { stepActed, hideGitHubRow } = useActions(todayGetStartedLogic)
+    const { githubConnected, integrationsLoading, githubDismissed, aiEnabled } = useValues(todayGetStartedLogic)
+    const { stepActed } = useActions(todayGetStartedLogic)
 
-    if (integrationsLoading || githubConnected || githubRowHidden) {
+    if (!aiEnabled || integrationsLoading || githubConnected || githubDismissed) {
         return null
     }
     return (
@@ -28,25 +28,15 @@ export function TodayGitHubRow({ fixCount }: { fixCount: number }): JSX.Element 
                             : `${fixCount} reports below have fixes PostHog can open as pull requests.`}
                     </p>
                 </div>
-                <div className="TodayRow__end">
-                    <div className="TodayRow__actions">
-                        <Tooltip>
-                            <TooltipTrigger
-                                render={
-                                    <Button
-                                        variant="link-muted"
-                                        size="icon-sm"
-                                        aria-label="Hide"
-                                        onClick={hideGitHubRow}
-                                        data-attr="today-github-row-hide"
-                                    />
-                                }
-                            >
-                                <IconHide className="size-3.5" />
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom">Hide</TooltipContent>
-                        </Tooltip>
-                    </div>
+                <div className="TodayRow__end TodayGitHubRow__actions">
+                    <Button
+                        size="sm"
+                        variant="link-muted"
+                        onClick={() => stepActed('github', 'skip')}
+                        data-attr="today-github-row-dismiss"
+                    >
+                        Not now
+                    </Button>
                     <Button
                         size="sm"
                         variant="outline"
