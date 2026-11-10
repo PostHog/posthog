@@ -46,6 +46,7 @@ _HEADER_NAME = re.compile(r"^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 # The worker routes the request by these, and the HTTP client sets the framing ones itself.
 _RESERVED_HEADERS = {"host", ":authority", "content-length", "transfer-encoding", "connection", "cookie"}
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9_-]+$")
+_PROTOTYPE_KEYS = frozenset({"__proto__", "constructor", "prototype"})
 
 _SCHEME = re.compile(r"(https?)://", re.IGNORECASE)
 _DEFAULT_PORTS = {"http": "80", "https": "443"}
@@ -137,9 +138,9 @@ class AuthDeclaration:
 
     def _validate_body_path(self) -> None:
         path = self.declaration.get("path")
-        # The worker writes the path into a JavaScript object, where `__proto__` sets the prototype instead of a key.
+        # The worker writes the path into a JavaScript object, where these keys reach the prototype instead of a key.
         parts = path.split(".") if isinstance(path, str) else []
-        if not parts or not all(_IDENTIFIER.match(part) and part != "__proto__" for part in parts):
+        if not parts or not all(_IDENTIFIER.match(part) and part not in _PROTOTYPE_KEYS for part in parts):
             raise serializers.ValidationError("auth.path must be a dotted path of JSON keys, such as data.token.")
 
     def _validate_basic(self, is_integration: bool) -> None:
