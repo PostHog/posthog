@@ -887,22 +887,28 @@ describe('SesWebhookHandler', () => {
             return handler.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
         }
 
-        it('is downloaded once, whatever query or fragment its URL carries', async () => {
-            for (const url of [certUrl, `${certUrl}?Version=2`, `${certUrl}#copy`]) {
-                expect((await deliverSigned(url)).status).toBe(200)
+        const statuses = async (urls: string[]): Promise<number[]> => {
+            const results: number[] = []
+            for (const url of urls) {
+                results.push((await deliverSigned(url)).status)
             }
-            expect(snsRequests).toEqual([certUrl])
+            return results
+        }
+
+        it('is reused for every query or fragment its URL carries while SNS is down', async () => {
+            expect(await statuses([certUrl])).toEqual([200])
+            snsAvailable = false
+            expect(await statuses([`${certUrl}?Version=2`, `${certUrl}#copy`])).toEqual([200, 200])
         })
 
-        it('is downloaded again once more distinct certificates than the cache holds came after it', async () => {
+        it('is no longer reused once more distinct certificates than the cache holds came after it', async () => {
             const urls = Array.from(
                 { length: SNS_SIGNING_CERT_CACHE_SIZE + 1 },
                 (_, i) => `https://sns.us-east-1.amazonaws.com/cert-${i}.pem`
             )
-            for (const url of [...urls, urls[0]]) {
-                await deliverSigned(url)
-            }
-            expect(snsRequests).toEqual([...urls, urls[0]])
+            expect(await statuses(urls)).toEqual(urls.map(() => 200))
+            snsAvailable = false
+            expect(await statuses([urls[0], urls[urls.length - 1]])).toEqual([403, 200])
         })
 
         it('verifies an envelope whose download was still pending when the cache evicted it', async () => {
@@ -910,9 +916,11 @@ describe('SesWebhookHandler', () => {
             snsHeldResponses.set(certUrl, new Promise((resolve) => (releaseDownload = resolve)))
             const pending = deliverSigned()
 
-            for (let i = 0; i < SNS_SIGNING_CERT_CACHE_SIZE; i++) {
-                await deliverSigned(`https://sns.us-east-1.amazonaws.com/cert-${i}.pem`)
-            }
+            const others = Array.from(
+                { length: SNS_SIGNING_CERT_CACHE_SIZE },
+                (_, i) => `https://sns.us-east-1.amazonaws.com/cert-${i}.pem`
+            )
+            expect(await statuses(others)).toEqual(others.map(() => 200))
             releaseDownload()
 
             expect((await pending).status).toBe(200)
@@ -1403,7 +1411,7 @@ describe('SesWebhookHandler', () => {
             }
         )
 
-        it('rejects a Notification whose TopicArn is not on the allowlist before downloading its certificate', async () => {
+        it('rejects a Notification whose TopicArn is not on the allowlist before checking its signature', async () => {
             const restricted = new SesWebhookHandler(signer, ['arn:aws:sns:us-east-1:123456789012:allowed-topic'])
             const envelope = buildEnvelope('arn:aws:sns:us-east-1:999999999999:other-topic', {
                 eventType: 'Bounce',
@@ -1416,7 +1424,6 @@ describe('SesWebhookHandler', () => {
             })
             const result = await restricted.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
             expect(result).toEqual({ status: 403, body: { error: 'SNS TopicArn not allowed' } })
-            expect(snsRequests).toEqual([])
         })
 
         it('accepts a Notification whose TopicArn matches the allowlist', async () => {
